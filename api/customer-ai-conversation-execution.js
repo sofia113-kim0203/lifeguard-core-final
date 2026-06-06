@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = req.body && typeof body === "object" ? req.body : await readJsonBody(req);
+    const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const parsed = parseCustomerAiConversationExecutionBody(body);
     if (!parsed) {
       res.statusCode = 400;
