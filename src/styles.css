@@ -1,0 +1,129 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+}
+
+.header .tagline {
+  margin: 0 0 0.5rem;
+  color: #475569;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 1.25rem 0 1rem;
+}
+
+.tab {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.tab.active {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.35rem;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.panel p,
+.panel li {
+  color: #475569;
+}
+
+.panel ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.panel li + li {
+  margin-top: 0.35rem;
+}
+
+.status {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.status.ok {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+  color: #115e59;
+}
+
+.status.warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.migration-list {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  columns: 2;
+  column-gap: 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .migration-list {
+    columns: 1;
+  }
+}
