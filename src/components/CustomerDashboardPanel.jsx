@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import CustomerAiChatPanel from "./CustomerAiChatPanel.jsx";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
 
@@ -147,6 +148,8 @@ export default function CustomerDashboardPanel({ user }) {
       </button>
 
       <CustomerIntakePanel user={user} onSaved={loadData} />
+
+      <CustomerAiChatPanel user={user} />
     </div>
   );
 }
