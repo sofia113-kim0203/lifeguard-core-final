@@ -5,7 +5,17 @@ import {
   INSURANCE_DISCLOSURE_VERSION,
 } from "./healthDisclosure.js";
 import { loadCustomerDashboardData } from "./customerDashboard.js";
+import {
+  computeIntakeCompleteness,
+  validateIntakeForm,
+} from "./intakeCompleteness.js";
+import {
+  buildIntakeFormFromRecords,
+  extractStoredIntakeMeta,
+} from "./intakeForm.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
+
+export { buildIntakeFormFromRecords } from "./intakeForm.js";
 
 function emptyIntakeForm() {
   return {
@@ -23,12 +33,11 @@ function emptyIntakeForm() {
 }
 
 function extractIntake(detailsJson) {
-  const root = detailsJson && typeof detailsJson === "object" ? detailsJson : {};
-  const intake = root.intake && typeof root.intake === "object" ? root.intake : {};
+  const meta = extractStoredIntakeMeta(detailsJson);
   return {
-    address: intake.address ?? "",
-    consultationPurpose: intake.consultation_purpose ?? "",
-    insuranceSummary: intake.insurance_summary ?? "",
+    address: meta.address,
+    consultationPurpose: meta.consultationPurpose,
+    insuranceSummary: meta.insuranceSummary,
   };
 }
 
@@ -39,24 +48,17 @@ export function normalizeCustomerIntake({
   insurancePolicy,
   consents,
 }) {
-  const intake = extractIntake(health?.details_json);
-  const disclosure = extractHealthDisclosure(health?.details_json);
+  const form = buildIntakeFormFromRecords(profile, health, insurancePolicy);
+  const intakeMeta = extractStoredIntakeMeta(health?.details_json);
+  const completeness = computeIntakeCompleteness(form);
 
   return {
     dashboard,
     customerId: profile?.id ?? null,
-    form: {
-      displayName: profile?.display_name ?? "",
-      birthDate: profile?.birth_date ?? "",
-      gender: profile?.gender ?? "",
-      jobCategory: profile?.job_category ?? "",
-      address: intake.address,
-      consultationPurpose: intake.consultationPurpose,
-      insuranceSummary: intake.insuranceSummary,
-      insurerName: insurancePolicy?.insurer_name ?? "",
-      productName: insurancePolicy?.product_name ?? "",
-      healthDisclosure: disclosure.values,
-    },
+    form,
+    completeness,
+    storedCompletenessScore: intakeMeta.completenessScore,
+    lastScoredAt: intakeMeta.lastScoredAt,
     healthSource: health?.source ?? null,
     insurancePolicyId: insurancePolicy?.id ?? null,
     consents: consents ?? [],
@@ -140,6 +142,13 @@ export async function loadCustomerIntake(authUser) {
 }
 
 export async function saveCustomerIntake(authUser, form) {
+  const validation = validateIntakeForm(form);
+  if (!validation.valid) {
+    const firstError = Object.values(validation.fieldErrors)[0];
+    throw new Error(firstError ?? "입력값을 확인해 주세요.");
+  }
+
+  const completeness = computeIntakeCompleteness(form);
   const current = await loadCustomerIntake(authUser);
   const customerId = current.customerId;
 
@@ -180,6 +189,8 @@ export async function saveCustomerIntake(authUser, form) {
       address: form.address?.trim() || "",
       consultation_purpose: form.consultationPurpose?.trim() || "",
       insurance_summary: form.insuranceSummary?.trim() || "",
+      completeness_score: completeness.score,
+      last_scored_at: new Date().toISOString(),
     },
   };
 

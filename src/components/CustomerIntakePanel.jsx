@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   HEALTH_DISCLOSURE_FIELD_DEFS,
   INSURANCE_DISCLOSURE_STATUS_OPTIONS,
 } from "../lib/healthDisclosure.js";
+import {
+  computeIntakeCompleteness,
+  getHealthDisclosureHints,
+  validateIntakeForm,
+} from "../lib/intakeCompleteness.js";
 import {
   emptyIntakeForm,
   loadCustomerIntake,
@@ -10,6 +15,7 @@ import {
 } from "../lib/customerIntake.js";
 import { REQUIRED_CONSENT_TYPES } from "../lib/customerDashboard.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
+import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -57,6 +63,19 @@ const S = {
     fontFamily: FONT,
     boxSizing: "border-box",
     outline: "none",
+  },
+  inputError: {
+    border: "1px solid rgba(248, 113, 113, 0.55)",
+  },
+  fieldError: {
+    fontSize: "12px",
+    color: "#fca5a5",
+    lineHeight: 1.4,
+  },
+  fieldHint: {
+    fontSize: "12px",
+    color: "#fbbf24",
+    lineHeight: 1.4,
   },
   textarea: {
     minHeight: "72px",
@@ -123,13 +142,22 @@ const S = {
     background: "rgba(15, 23, 42, 0.35)",
     border: "1px solid rgba(148, 163, 184, 0.1)",
   },
+  requiredMark: {
+    color: "#f87171",
+    marginLeft: "4px",
+  },
 };
 
-function FieldLabel({ label, children }) {
+function FieldLabel({ label, required = false, error, hint, children }) {
   return (
     <label style={S.label}>
-      <span>{label}</span>
+      <span>
+        {label}
+        {required ? <span style={S.requiredMark}>*</span> : null}
+      </span>
       {children}
+      {error ? <span style={S.fieldError}>{error}</span> : null}
+      {!error && hint ? <span style={S.fieldHint}>{hint}</span> : null}
     </label>
   );
 }
@@ -152,11 +180,16 @@ export default function CustomerIntakePanel({ user, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  const completeness = useMemo(() => computeIntakeCompleteness(form), [form]);
+  const disclosureHints = useMemo(() => getHealthDisclosureHints(form), [form]);
 
   const loadData = useCallback(async () => {
     if (!user) {
       setForm(emptyIntakeForm());
       setConsents([]);
+      setFieldErrors({});
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
@@ -165,6 +198,7 @@ export default function CustomerIntakePanel({ user, onSaved }) {
     setLoading(true);
     setError("");
     setSuccess("");
+    setFieldErrors({});
     try {
       const result = await loadCustomerIntake(user);
       setForm(result.form);
@@ -186,6 +220,13 @@ export default function CustomerIntakePanel({ user, onSaved }) {
     event.preventDefault();
     if (!user) return;
 
+    const validation = validateIntakeForm(form);
+    setFieldErrors(validation.fieldErrors);
+    if (!validation.valid) {
+      setError("필수 항목을 확인해 주세요.");
+      return;
+    }
+
     setSaving(true);
     setError("");
     setSuccess("");
@@ -193,6 +234,7 @@ export default function CustomerIntakePanel({ user, onSaved }) {
       const result = await saveCustomerIntake(user, form);
       setForm(result.form);
       setConsents(result.consents ?? []);
+      setFieldErrors({});
       setSuccess("고객 정보가 저장되었습니다.");
       onSaved?.(result);
     } catch (err) {
@@ -226,10 +268,12 @@ export default function CustomerIntakePanel({ user, onSaved }) {
           고객 정보 입력
         </h2>
         <p style={{ margin: "8px 0 0", fontSize: "14px", color: "#94a3b8", lineHeight: 1.55 }}>
-          기본 프로필, 주소, 보험 요약, 상담 목적, 간소화된 건강 고지를 입력합니다. 상세 메모는
-          향후 AI 분석에 활용됩니다.
+          기본 프로필, 주소, 보험 요약, 상담 목적, 간소화된 건강 고지를 입력합니다. 건강 고지는
+          선택 사항이며, 상세 메모는 향후 AI 분석에 활용됩니다.
         </p>
       </div>
+
+      <IntakeCompletenessBar completeness={completeness} />
 
       {error ? <div style={S.error}>{error}</div> : null}
       {success ? <div style={S.success}>{success}</div> : null}
@@ -237,25 +281,25 @@ export default function CustomerIntakePanel({ user, onSaved }) {
       <section style={S.card}>
         <h3 style={S.sectionTitle}>기본 프로필</h3>
         <div style={S.grid}>
-          <FieldLabel label="이름">
+          <FieldLabel label="이름" required error={fieldErrors.displayName}>
             <input
-              style={S.input}
+              style={{ ...S.input, ...(fieldErrors.displayName ? S.inputError : {}) }}
               value={form.displayName}
               onChange={(e) => updateFormField(setForm, "displayName", e.target.value)}
               placeholder="홍길동"
             />
           </FieldLabel>
-          <FieldLabel label="생년월일">
+          <FieldLabel label="생년월일" required error={fieldErrors.birthDate}>
             <input
-              style={S.input}
+              style={{ ...S.input, ...(fieldErrors.birthDate ? S.inputError : {}) }}
               type="date"
               value={form.birthDate}
               onChange={(e) => updateFormField(setForm, "birthDate", e.target.value)}
             />
           </FieldLabel>
-          <FieldLabel label="성별">
+          <FieldLabel label="성별" required error={fieldErrors.gender}>
             <select
-              style={S.input}
+              style={{ ...S.input, ...(fieldErrors.gender ? S.inputError : {}) }}
               value={form.gender}
               onChange={(e) => updateFormField(setForm, "gender", e.target.value)}
             >
@@ -323,9 +367,13 @@ export default function CustomerIntakePanel({ user, onSaved }) {
 
       <section style={S.card}>
         <h3 style={S.sectionTitle}>상담 목적</h3>
-        <FieldLabel label="상담 목적 / 관심 사항">
+        <FieldLabel label="상담 목적 / 관심 사항" required error={fieldErrors.consultationPurpose}>
           <textarea
-            style={{ ...S.input, ...S.textarea }}
+            style={{
+              ...S.input,
+              ...S.textarea,
+              ...(fieldErrors.consultationPurpose ? S.inputError : {}),
+            }}
             value={form.consultationPurpose}
             onChange={(e) => updateFormField(setForm, "consultationPurpose", e.target.value)}
             placeholder="예: 보장 공백 점검, 보험료 절감, 청구 가능성 확인"
@@ -336,8 +384,8 @@ export default function CustomerIntakePanel({ user, onSaved }) {
       <section style={S.card}>
         <h3 style={S.sectionTitle}>건강 고지 (간소화)</h3>
         <p style={S.sectionDesc}>
-          질병별 세부 항목 없이 보험 고지에 필요한 핵심 질문만 입력합니다. 추가 설명은 메모
-          필드에 자유롭게 작성해 주세요.
+          질병별 세부 항목 없이 보험 고지에 필요한 핵심 질문만 입력합니다. 입력하지 않아도
+          저장할 수 있으며, 추가 설명은 메모 필드에 자유롭게 작성해 주세요.
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {HEALTH_DISCLOSURE_FIELD_DEFS.map(
@@ -359,7 +407,10 @@ export default function CustomerIntakePanel({ user, onSaved }) {
                     ))}
                   </select>
                 </FieldLabel>
-                <FieldLabel label={notesLabel}>
+                <FieldLabel
+                  label={notesLabel}
+                  hint={disclosureHints[notesKey]}
+                >
                   <textarea
                     style={{ ...S.input, ...S.textarea }}
                     value={form.healthDisclosure[notesKey]}
