@@ -4,6 +4,8 @@ export type IngestTraceRecord = {
   id: string;
 };
 
+const WORKER_PHASE = "22A-step2B";
+
 export async function startIngestTrace(
   admin: SupabaseClient,
   params: {
@@ -20,7 +22,7 @@ export async function startIngestTrace(
       document_id: params.documentId,
       ingest_job_id: params.ingestJobId,
       status: "started",
-      steps_json: { phase: "22A-step2A", worker: "document-ingest-worker" },
+      steps_json: { phase: WORKER_PHASE, worker: "document-ingest-worker" },
       consent_snapshot: params.consentSnapshot,
     })
     .select("id")

@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { runPlaceholderExtract, type DocumentRecord } from "./extract.ts";
-import { replacePlaceholderChunks } from "./chunk.ts";
+import { classifyDocumentType } from "./classify.ts";
+import { replaceDocumentChunks } from "./chunk.ts";
+import { runExtract, type DocumentRecord } from "./extract.ts";
 import {
   completeIngestTrace,
   failIngestTrace,
@@ -13,11 +14,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PLACEHOLDER_METADATA = {
-  ocr_provider: "placeholder",
-  chunk_count: 1,
-  phase: "22A-step2A",
-} as const;
+const WORKER_PHASE = "22A-step2B";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -124,7 +121,7 @@ Deno.serve(async (req) => {
     const { data: docRow, error: docError } = await userClient
       .from("customer_documents")
       .select(
-        "id, customer_id, storage_path, mime_type, original_filename, ingest_status, ingest_job_id, consent_snapshot, metadata_json",
+        "id, customer_id, storage_path, mime_type, original_filename, ingest_status, ingest_job_id, document_type, customer_hint_type, consent_snapshot, metadata_json",
       )
       .eq("id", documentId)
       .is("deleted_at", null)
@@ -197,25 +194,32 @@ Deno.serve(async (req) => {
       throw new Error(`processing_status_failed: ${processingError.message}`);
     }
 
-    const extractResult = await runPlaceholderExtract(adminClient, document);
+    const classifiedDocumentType = classifyDocumentType(document);
+    const extractResult = await runExtract(adminClient, document);
 
-    const chunkCount = await replacePlaceholderChunks(adminClient, {
+    const chunkCount = await replaceDocumentChunks(adminClient, {
       customerId,
       documentId,
       docTitle: document.original_filename,
       content: extractResult.content,
+      extractionRoute: extractResult.extractionRoute,
     });
 
     const mergedMetadata = {
       ...(document.metadata_json ?? {}),
-      ...PLACEHOLDER_METADATA,
+      phase: WORKER_PHASE,
+      ocr_provider: extractResult.ocrProvider,
+      extraction_route: extractResult.extractionRoute,
+      chunk_count: chunkCount,
       storage_verified: extractResult.storageVerified,
+      classified_document_type: classifiedDocumentType,
     };
 
     const { error: readyError } = await adminClient
       .from("customer_documents")
       .update({
         ingest_status: "ready",
+        document_type: classifiedDocumentType,
         page_count: extractResult.pageCount,
         metadata_json: mergedMetadata,
         error_message: null,
@@ -231,9 +235,11 @@ Deno.serve(async (req) => {
     await completeIngestTrace(adminClient, traceId, {
       chunkCount,
       steps: {
-        phase: "22A-step2A",
+        phase: WORKER_PHASE,
         worker: "document-ingest-worker",
-        ocr_provider: "placeholder",
+        ocr_provider: extractResult.ocrProvider,
+        extraction_route: extractResult.extractionRoute,
+        classified_document_type: classifiedDocumentType,
         storage_verified: extractResult.storageVerified,
         chunk_count: chunkCount,
       },
@@ -243,8 +249,10 @@ Deno.serve(async (req) => {
       document_id: documentId,
       ingest_status: "ready",
       chunk_count: chunkCount,
-      phase: "22A-step2A",
-      ocr_provider: "placeholder",
+      phase: WORKER_PHASE,
+      ocr_provider: extractResult.ocrProvider,
+      extraction_route: extractResult.extractionRoute,
+      classified_document_type: classifiedDocumentType,
     });
   } catch (error) {
     const message = safeErrorMessage(error);
@@ -264,7 +272,7 @@ Deno.serve(async (req) => {
     await failIngestTrace(adminClient, traceId, {
       errorCode: message.split(":")[0] ?? "document_ingest_failed",
       steps: {
-        phase: "22A-step2A",
+        phase: WORKER_PHASE,
         worker: "document-ingest-worker",
         error: message,
       },

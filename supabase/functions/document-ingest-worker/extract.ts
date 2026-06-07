@@ -1,47 +1,56 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { PLACEHOLDER_CHUNK_CONTENT } from "./chunk.ts";
+import { runImageOcrExtractStub } from "./lib/image-extract.ts";
+import { runPdfExtractStub } from "./lib/pdf-extract.ts";
+import { resolveExtractionRoute } from "./lib/routes.ts";
+import type { DocumentRecord, ExtractResult } from "./lib/types.ts";
+import { applyPiiStub } from "./pii.ts";
 
 const STORAGE_BUCKET = "customer-documents";
 
-export type DocumentRecord = {
-  id: string;
-  customer_id: string;
-  storage_path: string;
-  mime_type: string | null;
-  original_filename: string | null;
-  ingest_status: string;
-  ingest_job_id: string | null;
-  consent_snapshot: Record<string, unknown> | null;
-  metadata_json: Record<string, unknown> | null;
-};
+export type { DocumentRecord, ExtractResult };
 
-export type PlaceholderExtractResult = {
-  content: string;
-  pageCount: number;
-  storageVerified: boolean;
-};
-
-/** Skeleton: verify storage object exists; no real OCR. */
-export async function runPlaceholderExtract(
+async function verifyStorageObject(
   admin: SupabaseClient,
-  document: DocumentRecord,
-): Promise<PlaceholderExtractResult> {
-  let storageVerified = false;
+  storagePath: string,
+): Promise<boolean> {
+  const { data, error } = await admin.storage
+    .from(STORAGE_BUCKET)
+    .download(storagePath);
 
-  if (document.storage_path) {
-    const { data, error } = await admin.storage
-      .from(STORAGE_BUCKET)
-      .download(document.storage_path);
-
-    storageVerified = !error && data !== null;
-    if (error) {
-      throw new Error(`storage_download_failed: ${error.message}`);
-    }
+  if (error) {
+    throw new Error(`storage_download_failed: ${error.message}`);
   }
 
-  return {
-    content: PLACEHOLDER_CHUNK_CONTENT,
-    pageCount: 1,
+  return data !== null;
+}
+
+/** Route-aware extraction orchestrator. Stubs only — no paid OCR connected. */
+export async function runExtract(
+  admin: SupabaseClient,
+  document: DocumentRecord,
+): Promise<ExtractResult> {
+  const extractionRoute = resolveExtractionRoute({
+    mimeType: document.mime_type,
+    originalFilename: document.original_filename,
+  });
+
+  let storageVerified = false;
+  if (document.storage_path) {
+    storageVerified = await verifyStorageObject(admin, document.storage_path);
+  }
+
+  const stubParams = {
     storageVerified,
+    originalFilename: document.original_filename,
+  };
+
+  const routed =
+    extractionRoute === "pdf_stub"
+      ? runPdfExtractStub(stubParams)
+      : runImageOcrExtractStub(stubParams);
+
+  return {
+    ...routed,
+    content: applyPiiStub(routed.content),
   };
 }
