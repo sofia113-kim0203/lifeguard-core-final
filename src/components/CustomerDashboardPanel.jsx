@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
 
 const FONT =
@@ -144,6 +145,8 @@ export default function CustomerDashboardPanel({ user }) {
       <button type="button" style={{ ...S.btn, alignSelf: "flex-start" }} onClick={loadData}>
         새로고침
       </button>
+
+      <CustomerIntakePanel user={user} onSaved={loadData} />
     </div>
   );
 }
