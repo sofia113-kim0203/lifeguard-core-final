@@ -79,11 +79,9 @@ function getFileExtension(filename) {
   return parts.length > 1 ? parts.at(-1) : "";
 }
 
-function sanitizeFilename(filename) {
-  const raw = String(filename ?? "document").split(/[/\\]/).pop() ?? "document";
-  const cleaned = raw.replace(/[^\w.\-가-힣ㄱ-ㅎㅏ-ㅣ ]+/g, "_").trim();
-  const trimmed = cleaned.slice(0, 200);
-  return trimmed || `document-${Date.now()}`;
+function buildAsciiStorageFilename(documentId, extension) {
+  const safeExtension = String(extension ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return safeExtension ? `document-${documentId}.${safeExtension}` : `document-${documentId}`;
 }
 
 function buildStoragePath(customerId, documentId, filename) {
@@ -156,7 +154,6 @@ async function validateUploadFile(file) {
     mimeType,
     extension,
     byteSize: file.size,
-    sanitizedFilename: sanitizeFilename(file.name),
   };
 }
 
@@ -258,7 +255,8 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
 
   const validated = await validateUploadFile(file);
   const documentId = crypto.randomUUID();
-  const storagePath = buildStoragePath(customerId, documentId, validated.sanitizedFilename);
+  const storageFilename = buildAsciiStorageFilename(documentId, validated.extension);
+  const storagePath = buildStoragePath(customerId, documentId, storageFilename);
 
   const { error: storageError } = await supabase.storage
     .from(STORAGE_BUCKET)
@@ -286,7 +284,7 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
       metadata_json: {
         byte_size: validated.byteSize,
         upload_source: "web",
-        sanitized_filename: validated.sanitizedFilename,
+        sanitized_filename: storageFilename,
         category_key: category.key,
       },
       consent_snapshot: consentSnapshot,
