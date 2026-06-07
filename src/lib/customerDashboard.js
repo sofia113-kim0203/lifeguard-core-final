@@ -1,3 +1,5 @@
+import { buildIntakeFormFromRecords } from "./intakeForm.js";
+import { computeIntakeCompleteness } from "./intakeCompleteness.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
@@ -12,7 +14,7 @@ export const REQUIRED_CONSENT_TYPES = [
 async function fetchCustomerProfile(userId) {
   return supabase
     .from("customer_profiles")
-    .select("id, user_id, display_name, status")
+    .select("id, user_id, display_name, birth_date, gender, job_category, status")
     .eq("user_id", userId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -30,6 +32,7 @@ export function normalizeCustomerDashboardData({
   userRow,
   profile,
   health,
+  insurancePolicy,
   consents,
 }) {
   const activeRequiredConsents = (consents ?? []).filter(
@@ -38,6 +41,9 @@ export function normalizeCustomerDashboardData({
       consent.granted === true &&
       !consent.revoked_at,
   );
+
+  const intakeForm = buildIntakeFormFromRecords(profile, health, insurancePolicy);
+  const completeness = computeIntakeCompleteness(intakeForm);
 
   return {
     email: authUser?.email ?? userRow?.email ?? null,
@@ -48,6 +54,8 @@ export function normalizeCustomerDashboardData({
     profileHealthExists: Boolean(health),
     profileHealthSource: health?.source ?? null,
     requiredConsentCount: activeRequiredConsents.length,
+    intakeCompletenessScore: completeness.score,
+    intakeCompleteness: completeness,
   };
 }
 
@@ -94,11 +102,19 @@ export async function loadCustomerDashboardData(authUser) {
 
   const customerId = profile.id;
 
-  const [healthResult, consentsResult] = await Promise.all([
+  const [healthResult, insuranceResult, consentsResult] = await Promise.all([
     supabase
       .from("profile_health")
-      .select("customer_id, source")
+      .select("customer_id, source, details_json")
       .eq("customer_id", customerId)
+      .maybeSingle(),
+    supabase
+      .from("profile_insurance_policies")
+      .select("id, insurer_name, product_name, coverage_summary")
+      .eq("customer_id", customerId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
     supabase
       .from("customer_consents")
@@ -110,6 +126,10 @@ export async function loadCustomerDashboardData(authUser) {
     throw new Error(toCustomerErrorMessage(healthResult.error, "건강 프로필을 불러오지 못했습니다."));
   }
 
+  if (insuranceResult.error) {
+    throw new Error(toCustomerErrorMessage(insuranceResult.error, "보험 정보를 불러오지 못했습니다."));
+  }
+
   if (consentsResult.error) {
     throw new Error(toCustomerErrorMessage(consentsResult.error, "동의 정보를 불러오지 못했습니다."));
   }
@@ -119,6 +139,7 @@ export async function loadCustomerDashboardData(authUser) {
     userRow,
     profile,
     health: healthResult.data,
+    insurancePolicy: insuranceResult.data,
     consents: consentsResult.data ?? [],
   });
 }

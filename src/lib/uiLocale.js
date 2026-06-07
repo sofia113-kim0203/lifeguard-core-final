@@ -12,6 +12,7 @@ export const UI_LABELS = {
   userRole: "사용자 역할",
   healthProfile: "건강 프로필",
   requiredConsents: "필수 동의",
+  intakeCompleteness: "입력 완료도",
   emptyValue: "—",
 };
 

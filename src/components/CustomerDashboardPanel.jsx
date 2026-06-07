@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import CustomerAiChatPanel from "./CustomerAiChatPanel.jsx";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
+import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
+import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
 import {
   formatHealthSource,
@@ -148,7 +150,13 @@ export default function CustomerDashboardPanel({ user }) {
           label={UI_LABELS.requiredConsents}
           value={`${data.requiredConsentCount} / 3`}
         />
+        <DataField
+          label={UI_LABELS.intakeCompleteness}
+          value={`${data.intakeCompletenessScore ?? 0}% (${formatCompletenessLabel(data.intakeCompletenessScore ?? 0)})`}
+        />
       </div>
+
+      <IntakeCompletenessBar completeness={data.intakeCompleteness} compact />
 
       <button type="button" style={{ ...S.btn, alignSelf: "flex-start" }} onClick={loadData}>
         새로고침
