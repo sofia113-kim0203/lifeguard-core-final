@@ -115,37 +115,15 @@ const CONSENTS = [
   },
 ];
 
-async function saveProfileAndConsents(userId, displayName, consentedAt) {
-  // 1. customer_profiles 생성
-  const { data: profileData, error: profileError } = await supabase
-    .from("customer_profiles")
-    .insert({ user_id: userId, display_name: displayName || null, status: "active" })
-    .select("id")
-    .single();
+async function bootstrapSignupRecords(displayName) {
+  const { data, error } = await supabase.rpc("lifeguard_bootstrap_customer_signup", {
+    p_display_name: displayName || null,
+    p_consent_version: CONSENT_VERSION,
+  });
 
-  if (profileError) return { error: profileError };
+  if (error) return { error };
 
-  const customerId = profileData.id;
-
-  // 2. customer_consents 3개 저장
-  const consentRows = CONSENTS.map((c) => ({
-    customer_id: customerId,
-    consent_type: c.type,
-    consent_version: CONSENT_VERSION,
-    granted: true,
-    granted_at: consentedAt,
-    source: "signup",
-    purpose: c.label,
-    required: c.required,
-  }));
-
-  const { error: consentError } = await supabase
-    .from("customer_consents")
-    .insert(consentRows);
-
-  if (consentError) return { error: consentError };
-
-  return { error: null, customerId };
+  return { error: null, customerId: data?.customer_id ?? null };
 }
 
 export default function AuthPanel() {
@@ -188,16 +166,21 @@ export default function AuthPanel() {
     if (!allConsented) { setError("필수 동의 3개를 모두 체크해 주세요."); return; }
     setLoading(true);
 
-    const { data, error: authError } = await supabase.auth.signUp({ email, password });
+    const { data, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: displayName || null,
+          signup_complete: true,
+          signup_consent_version: CONSENT_VERSION,
+        },
+      },
+    });
     if (authError) { setLoading(false); setError(authError.message); return; }
 
-    if (data.user) {
-      const consentedAt = new Date().toISOString();
-      const { error: saveError } = await saveProfileAndConsents(
-        data.user.id,
-        displayName,
-        consentedAt
-      );
+    if (data.session) {
+      const { error: saveError } = await bootstrapSignupRecords(displayName);
       if (saveError) {
         setLoading(false);
         setError("회원가입 완료, 프로필/동의 저장 실패: " + saveError.message);
