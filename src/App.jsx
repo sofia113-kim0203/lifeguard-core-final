@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AuthPanel from "./components/AuthPanel.jsx";
 import AdminRealDataReadinessPanel from "./components/AdminRealDataReadinessPanel.jsx";
 import AdminCarrierProductIngestionPanel from "./components/AdminCarrierProductIngestionPanel.jsx";
 import AdminManualKnowledgeIngestionPanel from "./components/AdminManualKnowledgeIngestionPanel.jsx";
@@ -67,6 +68,7 @@ const ADMIN_PANELS = [
 
 const MENU_ITEMS = [
   { id: "home", label: "홈", icon: "⌂" },
+  { id: "auth", label: "로그인/회원가입", icon: "👤" },
   { id: "customer", label: "고객 분석", icon: "◎" },
   { id: "claim", label: "보험금 청구 확인", icon: "✓" },
   { id: "ai", label: "AI 보험 추천", icon: "✦" },
@@ -272,7 +274,11 @@ export default function App() {
             overflow: "auto",
           }}
         >
-          {activeMenu === "admin" ? (
+          {activeMenu === "auth" ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
+              <AuthPanel />
+            </div>
+          ) : activeMenu === "admin" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                 {ADMIN_PANELS.map((panel) => {
