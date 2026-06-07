@@ -20,7 +20,7 @@ export default function AiRecommendationPanel({ user }) {
         {
           label: "AI 추천 응답",
           status: "다음 단계",
-          detail: "Claude 기반 추천은 이후 단계에서 연결됩니다.",
+          detail: "AI 기반 추천 응답은 이후 단계에서 연결됩니다.",
         },
       ]}
     />

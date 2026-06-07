@@ -5,6 +5,7 @@ import {
   INSURANCE_DISCLOSURE_VERSION,
 } from "./healthDisclosure.js";
 import { loadCustomerDashboardData } from "./customerDashboard.js";
+import { toCustomerErrorMessage } from "./uiLocale.js";
 
 function emptyIntakeForm() {
   return {
@@ -73,7 +74,7 @@ export async function loadCustomerIntake(authUser) {
     .maybeSingle();
 
   if (profileError) {
-    throw new Error(profileError.message);
+    throw new Error(toCustomerErrorMessage(profileError, "고객 프로필을 불러오지 못했습니다."));
   }
 
   if (!profile) {
@@ -101,15 +102,15 @@ export async function loadCustomerIntake(authUser) {
   ]);
 
   if (healthResult.error) {
-    throw new Error(healthResult.error.message);
+    throw new Error(toCustomerErrorMessage(healthResult.error, "건강 정보를 불러오지 못했습니다."));
   }
 
   if (insuranceResult.error) {
-    throw new Error(insuranceResult.error.message);
+    throw new Error(toCustomerErrorMessage(insuranceResult.error, "보험 정보를 불러오지 못했습니다."));
   }
 
   if (consentsResult.error) {
-    throw new Error(consentsResult.error.message);
+    throw new Error(toCustomerErrorMessage(consentsResult.error, "동의 정보를 불러오지 못했습니다."));
   }
 
   const insurancePolicy = insuranceResult.data
@@ -153,7 +154,7 @@ export async function saveCustomerIntake(authUser, form) {
     .eq("id", customerId);
 
   if (profileError) {
-    throw new Error(profileError.message);
+    throw new Error(toCustomerErrorMessage(profileError, "프로필을 저장하지 못했습니다."));
   }
 
   const { data: healthRow, error: healthReadError } = await supabase
@@ -163,7 +164,7 @@ export async function saveCustomerIntake(authUser, form) {
     .maybeSingle();
 
   if (healthReadError) {
-    throw new Error(healthReadError.message);
+    throw new Error(toCustomerErrorMessage(healthReadError, "건강 정보를 불러오지 못했습니다."));
   }
 
   const existingDetails =
@@ -194,7 +195,7 @@ export async function saveCustomerIntake(authUser, form) {
 
   const { error: healthError } = await healthWrite;
   if (healthError) {
-    throw new Error(healthError.message);
+    throw new Error(toCustomerErrorMessage(healthError, "건강 정보를 저장하지 못했습니다."));
   }
 
   const insuranceRow = {
@@ -212,7 +213,7 @@ export async function saveCustomerIntake(authUser, form) {
       .update(insuranceRow)
       .eq("id", current.insurancePolicyId);
     if (insuranceError) {
-      throw new Error(insuranceError.message);
+      throw new Error(toCustomerErrorMessage(insuranceError, "보험 정보를 저장하지 못했습니다."));
     }
   } else if (
     form.insurerName?.trim() ||
@@ -223,7 +224,7 @@ export async function saveCustomerIntake(authUser, form) {
       .from("profile_insurance_policies")
       .insert(insuranceRow);
     if (insuranceError) {
-      throw new Error(insuranceError.message);
+      throw new Error(toCustomerErrorMessage(insuranceError, "보험 정보를 저장하지 못했습니다."));
     }
   }
 

@@ -3,6 +3,7 @@ import {
   loadCustomerConversations,
   sendCustomerConversationMessage,
 } from "../lib/customerConversations.js";
+import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -177,7 +178,7 @@ export default function CustomerAiChatPanel({ user }) {
       setMessages(rows);
     } catch (err) {
       setMessages([]);
-      setError(err.message || "대화 기록을 불러오지 못했습니다.");
+      setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
@@ -207,7 +208,7 @@ export default function CustomerAiChatPanel({ user }) {
       setDraft("");
       await loadMessages();
     } catch (err) {
-      setError(err.message || "메시지를 저장하지 못했습니다.");
+      setError(toCustomerErrorMessage(err, "메시지를 저장하지 못했습니다."));
     } finally {
       setSending(false);
     }
@@ -218,7 +219,7 @@ export default function CustomerAiChatPanel({ user }) {
       <div>
         <h2 style={S.title}>AI 상담</h2>
         <p style={S.desc}>
-          로그인한 고객의 AI 상담 메시지가 Supabase에 저장됩니다. 새로고침 후에도 대화 기록이
+          로그인한 고객의 AI 상담 메시지가 안전하게 저장됩니다. 새로고침 후에도 대화 기록이
           유지됩니다. (현재는 저장 확인용 응답만 제공합니다.)
         </p>
       </div>

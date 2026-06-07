@@ -15,12 +15,12 @@ export default function DocumentsPanel({ user }) {
         {
           label: "문서 목록/검색",
           status: "데이터 연결 예정",
-          detail: "customer_documents 테이블과 RLS 기반 조회가 연결됩니다.",
+          detail: "고객 문서 목록과 보안 기반 조회가 연결됩니다.",
         },
         {
-          label: "문서 분석/RAG",
+          label: "문서 분석·지식 검색",
           status: "다음 단계",
-          detail: "청크 생성·검색은 이후 단계에서 활성화됩니다.",
+          detail: "문서 분할·검색 기능은 이후 단계에서 활성화됩니다.",
         },
       ]}
     />

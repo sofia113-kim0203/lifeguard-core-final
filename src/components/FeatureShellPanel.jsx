@@ -1,4 +1,5 @@
 import { useCustomerContext } from "../hooks/useCustomerContext.js";
+import { formatUserRole, UI_LABELS } from "../lib/uiLocale.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -119,18 +120,18 @@ export default function FeatureShellPanel({
           }}
         >
           {!user ? (
-            <DataField label="로그인 상태" value="로그인이 필요합니다." />
+            <DataField label={UI_LABELS.loginStatus} value="로그인이 필요합니다." />
           ) : loading ? (
-            <DataField label="고객 정보" value="불러오는 중…" />
+            <DataField label={UI_LABELS.customerInfo} value="불러오는 중…" />
           ) : error ? (
             <div style={{ gridColumn: "1 / -1" }}>
               <div style={S.error}>{error}</div>
             </div>
           ) : (
             <>
-              <DataField label="이메일" value={context?.email} />
-              <DataField label="customer_id" value={context?.customerId} />
-              <DataField label="역할" value={context?.userRole} />
+              <DataField label={UI_LABELS.email} value={context?.email} />
+              <DataField label={UI_LABELS.customerId} value={context?.customerId} />
+              <DataField label={UI_LABELS.role} value={formatUserRole(context?.userRole)} />
             </>
           )}
         </div>

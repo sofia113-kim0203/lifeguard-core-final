@@ -11,7 +11,7 @@ function AgentDeskShell({ user }) {
         {
           label: "담당 고객 목록",
           status: "데이터 연결 예정",
-          detail: "agent_assignments 기반 고객 배정 목록이 연결됩니다.",
+          detail: "담당 고객 배정 목록이 연결됩니다.",
         },
         {
           label: "고객 상담 메모",
