@@ -26,8 +26,10 @@ supabase db push
 | `013_signup_auth_bootstrap.sql` | Auth trigger + signup RPC: `public.users`, `customer_profiles`, `profile_health`, `customer_consents` |
 | `014_signup_provision_always.sql` | Auth trigger always provisions customer records (no `signup_complete` metadata gate) |
 | `015_fix_signup_health_rowcount.sql` | Fix `lifeguard_provision_customer_signup` ROW_COUNT integer/boolean bug |
+| `016_customer_conversations.sql` | Per-customer AI conversation message ledger |
+| `017_document_ingest_mvp.sql` | Phase 22A: `coverage_analysis_sheet`, ingest RPCs, chunk RLS hardening, soft-delete parity |
 
-Apply in order: **001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015**.
+Apply in order: **001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017**.
 
 `008` post-migration tests (SQL Editor, real JWTs — no demo seed): customer own SELECT; cross-customer 0 rows; INSERT denied; dismiss-only UPDATE; agent summary high/critical; confidence CHECK; `service_role` INSERT.
 
