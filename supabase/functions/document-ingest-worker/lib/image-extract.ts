@@ -1,17 +1,24 @@
+import { runClovaOcr } from "./clova-ocr.ts";
 import type { ExtractResult } from "./types.ts";
 
-export function runImageOcrExtractStub(params: {
-  storageVerified: boolean;
+export async function runImageOcrExtract(params: {
+  fileBytes: Uint8Array;
+  mimeType: string | null;
   originalFilename: string | null;
-}): ExtractResult {
-  const label = params.originalFilename ?? "document.image";
+  storageVerified: boolean;
+}): Promise<ExtractResult> {
+  const ocr = await runClovaOcr({
+    fileBytes: params.fileBytes,
+    mimeType: params.mimeType,
+    originalFilename: params.originalFilename,
+  });
 
   return {
-    content:
-      `[Phase22A Step2B stub] route=image_ocr_stub file=${label} OCR not connected yet.`,
-    pageCount: 1,
+    content: ocr.text,
+    pageCount: ocr.pageCount > 0 ? ocr.pageCount : 1,
     storageVerified: params.storageVerified,
     extractionRoute: "image_ocr_stub",
-    ocrProvider: "stub",
+    ocrProvider: "clova",
+    ocrConfidenceAvg: ocr.ocrConfidenceAvg,
   };
 }

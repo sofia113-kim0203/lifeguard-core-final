@@ -9,10 +9,9 @@ export async function replaceDocumentChunks(
     docTitle: string | null;
     content: string;
     extractionRoute: ExtractionRoute;
+    ocrConfidenceAvg: number | null;
   },
 ): Promise<number> {
-  // Hard-delete prior chunks (including soft-deleted rows) so re-ingest can
-  // safely reuse chunk_index=0 without violating customer_document_chunks_doc_chunk_uq.
   const { error: deleteError } = await admin
     .from("customer_document_chunks")
     .delete()
@@ -33,9 +32,12 @@ export async function replaceDocumentChunks(
     doc_title: params.docTitle,
     page: 1,
     metadata: {
-      phase: "22A-step2B",
-      ocr_provider: "stub",
+      phase: "22A-step2C",
+      ocr_provider: "clova",
       extraction_route: params.extractionRoute,
+      ...(params.ocrConfidenceAvg !== null
+        ? { ocr_confidence_avg: params.ocrConfidenceAvg }
+        : {}),
     },
   });
 
