@@ -115,9 +115,21 @@ const CONSENTS = [
   },
 ];
 
+function buildSignupMetadata(displayName) {
+  const metadata = {
+    signup_complete: "true",
+    signup_consent_version: CONSENT_VERSION,
+  };
+  const trimmedName = displayName?.trim();
+  if (trimmedName) {
+    metadata.display_name = trimmedName;
+  }
+  return metadata;
+}
+
 async function bootstrapSignupRecords(displayName) {
   const { data, error } = await supabase.rpc("lifeguard_bootstrap_customer_signup", {
-    p_display_name: displayName || null,
+    p_display_name: displayName?.trim() || null,
     p_consent_version: CONSENT_VERSION,
   });
 
@@ -153,8 +165,17 @@ export default function AuthPanel() {
     reset();
     setLoading(true);
     const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
+    if (err) { setLoading(false); setError(err.message); return; }
+
+    const displayNameFromMeta =
+      data.user?.user_metadata?.display_name ?? data.user?.user_metadata?.displayName ?? null;
+    const { error: bootstrapError } = await bootstrapSignupRecords(displayNameFromMeta);
     setLoading(false);
-    if (err) { setError(err.message); return; }
+    if (bootstrapError) {
+      setError("로그인 성공, 프로필 동기화 실패: " + bootstrapError.message);
+      return;
+    }
+
     setSession(data.session);
     setMessage("로그인 성공: " + data.user.email);
   };
@@ -166,20 +187,22 @@ export default function AuthPanel() {
     if (!allConsented) { setError("필수 동의 3개를 모두 체크해 주세요."); return; }
     setLoading(true);
 
+    const signupMetadata = buildSignupMetadata(displayName);
+
     const { data, error: authError } = await supabase.auth.signUp({
-      email,
+      email: email.trim(),
       password,
       options: {
-        data: {
-          display_name: displayName || null,
-          signup_complete: true,
-          signup_consent_version: CONSENT_VERSION,
-        },
+        data: signupMetadata,
       },
     });
     if (authError) { setLoading(false); setError(authError.message); return; }
 
     if (data.session) {
+      if (data.user) {
+        await supabase.auth.updateUser({ data: signupMetadata });
+      }
+
       const { error: saveError } = await bootstrapSignupRecords(displayName);
       if (saveError) {
         setLoading(false);
