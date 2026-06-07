@@ -24,8 +24,9 @@ supabase db push
 | `012_notification_delivery.sql` | `notification_delivery_runs`, `notification_delivery_attempts`, 009↔012 status mapping |
 
 | `013_signup_auth_bootstrap.sql` | Auth trigger + signup RPC: `public.users`, `customer_profiles`, `profile_health`, `customer_consents` |
+| `014_signup_provision_always.sql` | Auth trigger always provisions customer records (no `signup_complete` metadata gate) |
 
-Apply in order: **001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013**.
+Apply in order: **001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014**.
 
 `008` post-migration tests (SQL Editor, real JWTs — no demo seed): customer own SELECT; cross-customer 0 rows; INSERT denied; dismiss-only UPDATE; agent summary high/critical; confidence CHECK; `service_role` INSERT.
 
