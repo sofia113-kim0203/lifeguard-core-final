@@ -31,6 +31,33 @@ function safeErrorMessage(error: unknown): string {
   return "document_ingest_failed";
 }
 
+function resolveServiceRoleKey(): string | undefined {
+  const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+  if (supabaseServiceRoleKey) return supabaseServiceRoleKey;
+
+  const serviceRoleKey = Deno.env.get("SERVICE_ROLE_KEY")?.trim();
+  if (serviceRoleKey) return serviceRoleKey;
+
+  const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS")?.trim();
+  if (!secretKeys) return undefined;
+
+  if (secretKeys.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(secretKeys) as unknown;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const preferred = parsed.find(
+          (entry) => typeof entry === "string" && entry.startsWith("sb_secret_"),
+        );
+        return (preferred ?? parsed[0]) as string;
+      }
+    } catch {
+      // fall through to raw value
+    }
+  }
+
+  return secretKeys;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS_HEADERS });
@@ -42,7 +69,7 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceRoleKey = resolveServiceRoleKey();
 
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({ error: "worker_not_configured" }, 500);
