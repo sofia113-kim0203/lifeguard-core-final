@@ -1,27 +1,29 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import type { ExtractionRoute } from "./lib/types.ts";
 
-export const PLACEHOLDER_CHUNK_CONTENT =
-  "[Phase22A placeholder] OCR worker connected. Real OCR will be added next.";
-
-export async function replacePlaceholderChunks(
+export async function replaceDocumentChunks(
   admin: SupabaseClient,
   params: {
     customerId: string;
     documentId: string;
     docTitle: string | null;
     content: string;
+    extractionRoute: ExtractionRoute;
   },
 ): Promise<number> {
-  const now = new Date().toISOString();
-
-  await admin
+  // Hard-delete prior chunks (including soft-deleted rows) so re-ingest can
+  // safely reuse chunk_index=0 without violating customer_document_chunks_doc_chunk_uq.
+  const { error: deleteError } = await admin
     .from("customer_document_chunks")
-    .update({ deleted_at: now, updated_at: now })
+    .delete()
     .eq("document_id", params.documentId)
-    .eq("customer_id", params.customerId)
-    .is("deleted_at", null);
+    .eq("customer_id", params.customerId);
 
-  const { error } = await admin.from("customer_document_chunks").insert({
+  if (deleteError) {
+    throw new Error(`chunk_delete_failed: ${deleteError.message}`);
+  }
+
+  const { error: insertError } = await admin.from("customer_document_chunks").insert({
     customer_id: params.customerId,
     document_id: params.documentId,
     chunk_index: 0,
@@ -31,13 +33,14 @@ export async function replacePlaceholderChunks(
     doc_title: params.docTitle,
     page: 1,
     metadata: {
-      phase: "22A-step2A",
-      ocr_provider: "placeholder",
+      phase: "22A-step2B",
+      ocr_provider: "stub",
+      extraction_route: params.extractionRoute,
     },
   });
 
-  if (error) {
-    throw new Error(`chunk_insert_failed: ${error.message}`);
+  if (insertError) {
+    throw new Error(`chunk_insert_failed: ${insertError.message}`);
   }
 
   return 1;
