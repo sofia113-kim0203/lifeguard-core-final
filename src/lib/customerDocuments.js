@@ -186,6 +186,16 @@ export async function hasDocumentStorageConsent(customerId) {
 
 export async function grantDocumentStorageConsent(authUser) {
   const { customerId } = await ensureCustomerContext(authUser);
+
+  const alreadyGranted = await hasDocumentStorageConsent(customerId);
+  if (alreadyGranted) {
+    return {
+      customerId,
+      consentVersion: DOCUMENT_STORAGE_CONSENT_VERSION,
+      grantedAt: null,
+    };
+  }
+
   const grantedAt = new Date().toISOString();
 
   const { error } = await supabase.from("customer_consents").insert({
