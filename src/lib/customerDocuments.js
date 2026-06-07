@@ -354,15 +354,20 @@ export async function softDeleteDocument(authUser, documentId) {
     throw new Error("문서를 찾을 수 없습니다.");
   }
 
-  const deletedAt = new Date().toISOString();
-  const { error: updateError } = await supabase
-    .from("customer_documents")
-    .update({ deleted_at: deletedAt })
-    .eq("id", documentId);
+  const { data: deletedDocument, error: rpcError } = await supabase.rpc(
+    "lifeguard_soft_delete_customer_document",
+    { p_document_id: documentId },
+  );
 
-  if (updateError) {
-    throw new Error(toCustomerErrorMessage(updateError, "문서를 삭제하지 못했습니다."));
+  if (rpcError) {
+    throw new Error(toCustomerErrorMessage(rpcError, "문서를 삭제하지 못했습니다."));
   }
+
+  if (!deletedDocument) {
+    throw new Error("문서를 찾을 수 없습니다.");
+  }
+
+  const deletedAt = deletedDocument.deleted_at ?? new Date().toISOString();
 
   if (document.storage_path) {
     await supabase.storage.from(STORAGE_BUCKET).remove([document.storage_path]);
