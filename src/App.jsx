@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import AuthPanel from "./components/AuthPanel.jsx";
+import CustomerDashboardPanel from "./components/CustomerDashboardPanel.jsx";
 import { useAuthSession } from "./hooks/useAuthSession.js";
 import { supabase } from "./lib/supabase.js";
 import AdminRealDataReadinessPanel from "./components/AdminRealDataReadinessPanel.jsx";
@@ -320,8 +321,14 @@ export default function App() {
         <div
           style={{
             flex: 1,
-            display: activeMenu === "admin" ? "block" : "grid",
-            gridTemplateColumns: activeMenu === "admin" ? undefined : "1fr 300px",
+            display:
+              activeMenu === "admin" || activeMenu === CUSTOMER_DASHBOARD_MENU
+                ? "block"
+                : "grid",
+            gridTemplateColumns:
+              activeMenu === "admin" || activeMenu === CUSTOMER_DASHBOARD_MENU
+                ? undefined
+                : "1fr 300px",
             gap: "24px",
             padding: "28px 32px",
             overflow: "auto",
@@ -331,6 +338,8 @@ export default function App() {
             <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
               {authLoading || session ? null : <AuthPanel onLoginSuccess={handleLoginSuccess} />}
             </div>
+          ) : activeMenu === CUSTOMER_DASHBOARD_MENU ? (
+            <CustomerDashboardPanel user={user} />
           ) : activeMenu === "admin" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
