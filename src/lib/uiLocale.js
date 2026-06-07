@@ -13,7 +13,51 @@ export const UI_LABELS = {
   healthProfile: "건강 프로필",
   requiredConsents: "필수 동의",
   intakeCompleteness: "입력 완료도",
+  documents: "문서 관리",
+  documentCategory: "문서 분류",
+  documentFilename: "파일명",
+  documentUploadDate: "업로드 일시",
+  documentStatus: "상태",
+  documentFileSize: "파일 크기",
   emptyValue: "—",
+};
+
+const DOC_CLASS_LABELS = {
+  policy_certificate: "보험증권",
+  terms: "약관",
+  claim: "청구서류",
+  medical: "의료서류",
+  other: "기타문서",
+};
+
+const INGEST_STATUS_LABELS = {
+  uploaded: "업로드 완료",
+  pending: "업로드 완료",
+  queued: "대기 중",
+  processing: "처리 중",
+  ready: "분석 완료",
+  failed: "실패",
+  analysis_blocked_by_consent: "분석 동의 필요",
+  deleted: "삭제됨",
+};
+
+export const DOCUMENT_UI_MESSAGES = {
+  consentTitle: "문서 보관 동의",
+  consentBody:
+    "보험·청구·의료 서류를 안전하게 보관하기 위해 문서 보관 동의가 필요합니다. 동의 후 업로드할 수 있습니다.",
+  consentAction: "동의하고 계속",
+  uploadSuccess: "문서가 업로드되었습니다.",
+  deleteSuccess: "문서가 삭제되었습니다.",
+  deleteConfirm: "이 문서를 삭제하시겠습니까?",
+  emptyList: "아직 업로드된 문서가 없습니다.",
+  selectFile: "파일을 선택해 주세요.",
+  uploadAction: "업로드",
+  downloadAction: "다운로드",
+  deleteAction: "삭제",
+  refreshAction: "새로고침",
+  allCategories: "전체",
+  loginRequired: "로그인이 필요합니다.",
+  analysisNotice: "문서 분석(OCR/RAG)은 다음 단계에서 제공됩니다.",
 };
 
 const USER_ROLE_LABELS = {
@@ -83,6 +127,34 @@ export function formatHealthSource(source) {
 export function formatRequiredRoles(roles) {
   if (!roles?.length) return UI_LABELS.emptyValue;
   return roles.map((role) => formatUserRole(role)).join(", ");
+}
+
+export function formatDocClass(docClass) {
+  if (!docClass) return UI_LABELS.emptyValue;
+  return DOC_CLASS_LABELS[docClass] ?? docClass;
+}
+
+export function formatIngestStatus(status) {
+  if (!status) return UI_LABELS.emptyValue;
+  return INGEST_STATUS_LABELS[status] ?? status;
+}
+
+export function formatFileSize(bytes) {
+  if (typeof bytes !== "number" || Number.isNaN(bytes) || bytes <= 0) {
+    return UI_LABELS.emptyValue;
+  }
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function formatUploadDate(value) {
+  if (!value) return UI_LABELS.emptyValue;
+  try {
+    return new Date(value).toLocaleString("ko-KR");
+  } catch {
+    return UI_LABELS.emptyValue;
+  }
 }
 
 export function toCustomerErrorMessage(error, fallback = "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.") {
