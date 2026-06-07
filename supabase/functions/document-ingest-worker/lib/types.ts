@@ -1,5 +1,7 @@
 export type ExtractionRoute = "pdf_stub" | "image_ocr_stub";
 
+export type OcrProvider = "clova";
+
 export type DocumentRecord = {
   id: string;
   customer_id: string;
@@ -19,7 +21,8 @@ export type ExtractResult = {
   pageCount: number;
   storageVerified: boolean;
   extractionRoute: ExtractionRoute;
-  ocrProvider: "stub";
+  ocrProvider: OcrProvider;
+  ocrConfidenceAvg: number | null;
 };
 
 export type ClassifiedDocumentType =
@@ -29,10 +32,11 @@ export type ClassifiedDocumentType =
   | "unknown";
 
 export type IngestMetadata = {
-  phase: "22A-step2B";
-  ocr_provider: "stub";
+  phase: "22A-step2C";
+  ocr_provider: OcrProvider;
   extraction_route: ExtractionRoute;
   chunk_count: number;
   storage_verified: boolean;
   classified_document_type: ClassifiedDocumentType | string;
+  ocr_confidence_avg?: number | null;
 };

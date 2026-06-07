@@ -14,7 +14,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const WORKER_PHASE = "22A-step2B";
+const WORKER_PHASE = "22A-step2C";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -203,6 +203,7 @@ Deno.serve(async (req) => {
       docTitle: document.original_filename,
       content: extractResult.content,
       extractionRoute: extractResult.extractionRoute,
+      ocrConfidenceAvg: extractResult.ocrConfidenceAvg,
     });
 
     const mergedMetadata = {
@@ -213,6 +214,9 @@ Deno.serve(async (req) => {
       chunk_count: chunkCount,
       storage_verified: extractResult.storageVerified,
       classified_document_type: classifiedDocumentType,
+      ...(extractResult.ocrConfidenceAvg !== null
+        ? { ocr_confidence_avg: extractResult.ocrConfidenceAvg }
+        : {}),
     };
 
     const { error: readyError } = await adminClient
@@ -234,6 +238,7 @@ Deno.serve(async (req) => {
 
     await completeIngestTrace(adminClient, traceId, {
       chunkCount,
+      ocrConfidenceAvg: extractResult.ocrConfidenceAvg,
       steps: {
         phase: WORKER_PHASE,
         worker: "document-ingest-worker",
@@ -242,6 +247,9 @@ Deno.serve(async (req) => {
         classified_document_type: classifiedDocumentType,
         storage_verified: extractResult.storageVerified,
         chunk_count: chunkCount,
+        ...(extractResult.ocrConfidenceAvg !== null
+          ? { ocr_confidence_avg: extractResult.ocrConfidenceAvg }
+          : {}),
       },
     });
 
@@ -253,6 +261,9 @@ Deno.serve(async (req) => {
       ocr_provider: extractResult.ocrProvider,
       extraction_route: extractResult.extractionRoute,
       classified_document_type: classifiedDocumentType,
+      ...(extractResult.ocrConfidenceAvg !== null
+        ? { ocr_confidence_avg: extractResult.ocrConfidenceAvg }
+        : {}),
     });
   } catch (error) {
     const message = safeErrorMessage(error);

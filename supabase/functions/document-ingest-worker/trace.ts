@@ -4,7 +4,7 @@ export type IngestTraceRecord = {
   id: string;
 };
 
-const WORKER_PHASE = "22A-step2B";
+const WORKER_PHASE = "22A-step2C";
 
 export async function startIngestTrace(
   admin: SupabaseClient,
@@ -40,6 +40,7 @@ export async function completeIngestTrace(
   traceId: string,
   params: {
     chunkCount: number;
+    ocrConfidenceAvg: number | null;
     steps: Record<string, unknown>;
   },
 ): Promise<void> {
@@ -48,7 +49,7 @@ export async function completeIngestTrace(
     .update({
       status: "completed",
       chunk_count: params.chunkCount,
-      ocr_confidence_avg: null,
+      ocr_confidence_avg: params.ocrConfidenceAvg,
       steps_json: params.steps,
       completed_at: new Date().toISOString(),
     })
