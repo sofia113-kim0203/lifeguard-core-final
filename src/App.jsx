@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AuthPanel from "./components/AuthPanel.jsx";
+import { useAuthSession } from "./hooks/useAuthSession.js";
+import { supabase } from "./lib/supabase.js";
 import AdminRealDataReadinessPanel from "./components/AdminRealDataReadinessPanel.jsx";
 import AdminCarrierProductIngestionPanel from "./components/AdminCarrierProductIngestionPanel.jsx";
 import AdminManualKnowledgeIngestionPanel from "./components/AdminManualKnowledgeIngestionPanel.jsx";
@@ -66,9 +68,12 @@ const ADMIN_PANELS = [
   { id: "real_policy_customer_ai_conversation", label: "실제 약관 고객 AI 답변 준비" },
 ];
 
+const CUSTOMER_DASHBOARD_MENU = "customer";
+const AUTH_MENU = "auth";
+
 const MENU_ITEMS = [
   { id: "home", label: "홈", icon: "⌂" },
-  { id: "auth", label: "로그인/회원가입", icon: "👤" },
+  { id: AUTH_MENU, label: "로그인/회원가입", icon: "👤" },
   { id: "customer", label: "고객 분석", icon: "◎" },
   { id: "claim", label: "보험금 청구 확인", icon: "✓" },
   { id: "ai", label: "AI 보험 추천", icon: "✦" },
@@ -107,6 +112,30 @@ const INSIGHT_ITEMS = [
 export default function App() {
   const [activeMenu, setActiveMenu] = useState("home");
   const [activeAdminPanel, setActiveAdminPanel] = useState("real_data_readiness");
+  const { session, user, loading: authLoading } = useAuthSession();
+
+  useEffect(() => {
+    if (session && activeMenu === AUTH_MENU) {
+      setActiveMenu(CUSTOMER_DASHBOARD_MENU);
+    }
+  }, [session, activeMenu]);
+
+  const handleMenuSelect = (menuId) => {
+    if (menuId === AUTH_MENU && session) {
+      setActiveMenu(CUSTOMER_DASHBOARD_MENU);
+      return;
+    }
+    setActiveMenu(menuId);
+  };
+
+  const handleLoginSuccess = () => {
+    setActiveMenu(CUSTOMER_DASHBOARD_MENU);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setActiveMenu(AUTH_MENU);
+  };
 
   return (
     <div
@@ -153,7 +182,7 @@ export default function App() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActiveMenu(item.id)}
+                onClick={() => handleMenuSelect(item.id)}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -232,19 +261,43 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <div
-              style={{
-                padding: "8px 14px",
-                borderRadius: "999px",
-                background: "rgba(34, 197, 94, 0.12)",
-                border: "1px solid rgba(34, 197, 94, 0.35)",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#4ade80",
-              }}
-            >
-              ● 시스템 준비 완료
-            </div>
+            {session ? (
+              <>
+                <div style={{ fontSize: "13px", color: "#94a3b8" }}>{user?.email}</div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: "999px",
+                    border: "1px solid rgba(148, 163, 184, 0.25)",
+                    background: "rgba(30, 41, 59, 0.8)",
+                    color: "#e2e8f0",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily:
+                      '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif',
+                  }}
+                >
+                  로그아웃
+                </button>
+              </>
+            ) : (
+              <div
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "999px",
+                  background: "rgba(34, 197, 94, 0.12)",
+                  border: "1px solid rgba(34, 197, 94, 0.35)",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: "#4ade80",
+                }}
+              >
+                ● 시스템 준비 완료
+              </div>
+            )}
             <div
               style={{
                 width: "40px",
@@ -274,9 +327,9 @@ export default function App() {
             overflow: "auto",
           }}
         >
-          {activeMenu === "auth" ? (
+          {activeMenu === AUTH_MENU ? (
             <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
-              <AuthPanel />
+              {authLoading || session ? null : <AuthPanel onLoginSuccess={handleLoginSuccess} />}
             </div>
           ) : activeMenu === "admin" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
