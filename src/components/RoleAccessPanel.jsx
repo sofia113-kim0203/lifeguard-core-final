@@ -1,4 +1,5 @@
 import { useCustomerContext } from "../hooks/useCustomerContext.js";
+import { formatRequiredRoles, formatUserRole, UI_LABELS } from "../lib/uiLocale.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -88,27 +89,27 @@ export default function RoleAccessPanel({
           }}
         >
           <div>
-            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>이메일</div>
+            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>{UI_LABELS.email}</div>
             <div style={{ marginTop: "6px", fontSize: "15px", color: "#f1f5f9" }}>
               {context?.email ?? user.email}
             </div>
           </div>
           <div>
-            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>customer_id</div>
+            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>{UI_LABELS.customerId}</div>
             <div style={{ marginTop: "6px", fontSize: "15px", color: "#f1f5f9" }}>
-              {context?.customerId ?? "—"}
+              {context?.customerId ?? UI_LABELS.emptyValue}
             </div>
           </div>
           <div>
-            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>현재 역할</div>
+            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>{UI_LABELS.currentRole}</div>
             <div style={{ marginTop: "6px", fontSize: "15px", color: "#f1f5f9" }}>
-              {currentRole ?? "—"}
+              {formatUserRole(currentRole)}
             </div>
           </div>
           <div>
-            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>필요 역할</div>
+            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>{UI_LABELS.requiredRole}</div>
             <div style={{ marginTop: "6px", fontSize: "15px", color: "#f1f5f9" }}>
-              {requiredRoles.join(", ")}
+              {formatRequiredRoles(requiredRoles)}
             </div>
           </div>
         </div>

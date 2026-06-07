@@ -37,9 +37,9 @@ const FULL_WIDTH_MENUS = new Set([
 const STATUS_CARDS = [
   { label: "DB 연결 완료", value: "온라인", tone: "#22c55e" },
   { label: "테이블 33개", value: "스키마", tone: "#38bdf8" },
-  { label: "함수 182개", value: "RLS · RPC", tone: "#a78bfa" },
-  { label: "벡터 준비 완료", value: "pgvector", tone: "#f59e0b" },
-  { label: "Supabase 연결 완료", value: "설정됨", tone: "#34d399" },
+  { label: "보안 정책 182개", value: "접근 제어", tone: "#a78bfa" },
+  { label: "벡터 검색 준비", value: "완료", tone: "#f59e0b" },
+  { label: "원격 DB 연결", value: "설정됨", tone: "#34d399" },
 ];
 
 const INSIGHT_ITEMS = [
@@ -56,8 +56,8 @@ const INSIGHT_ITEMS = [
     desc: "청구 가능성 라벨과 문서 근거 참조.",
   },
   {
-    title: "약관/RAG 지식",
-    desc: "고객별 문서 청크와 사례 지식 검색.",
+    title: "약관·지식 검색",
+    desc: "고객별 문서와 사례 지식 검색.",
   },
 ];
 
@@ -84,7 +84,7 @@ function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
         <RoleAccessPanel
           user={user}
           title="관리자"
-          description="운영·데이터·RAG·AI 파이프라인 관리 화면입니다."
+          description="운영·데이터·약관 지식·AI 파이프라인 관리 화면입니다."
           requiredRoles={["admin"]}
           allowedContent={<AdminMenuPanel user={user} />}
         />
@@ -223,7 +223,7 @@ export default function App() {
         >
           1단계 구축 완료
           <br />
-          <span style={{ color: "#94a3b8" }}>localhost:5173</span>
+          <span style={{ color: "#94a3b8" }}>고객 서비스 연결됨</span>
         </div>
       </aside>
 
@@ -440,8 +440,8 @@ function HomePanel() {
               lineHeight: 1.7,
             }}
           >
-            보장 공백, 청구 가능성, 고지 검토, 보험료·보장 리밸런싱 등을 질문하세요. 응답은 고객
-            단위 RAG, 룰 팩, 동의 기반 데이터만 사용하며 타 고객 정보는 노출되지 않습니다.
+                보장 공백, 청구 가능성, 고지 검토, 보험료·보장 리밸런싱 등을 질문하세요. 응답은
+            고객별 문서·규칙·동의 기반 데이터만 사용하며 다른 고객 정보는 노출되지 않습니다.
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginTop: "24px" }}>

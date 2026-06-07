@@ -2,6 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import CustomerAiChatPanel from "./CustomerAiChatPanel.jsx";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
+import {
+  formatHealthSource,
+  formatProfileStatus,
+  formatUserRole,
+  toCustomerErrorMessage,
+  UI_LABELS,
+} from "../lib/uiLocale.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -67,7 +74,7 @@ export default function CustomerDashboardPanel({ user }) {
       setData(result);
     } catch (err) {
       setData(null);
-      setError(err.message || "고객 데이터를 불러오지 못했습니다.");
+      setError(toCustomerErrorMessage(err, "고객 데이터를 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
@@ -112,7 +119,7 @@ export default function CustomerDashboardPanel({ user }) {
           고객 분석
         </h1>
         <p style={{ margin: "8px 0 0", fontSize: "15px", color: "#94a3b8", lineHeight: 1.55 }}>
-          로그인한 고객의 실제 Supabase 데이터입니다.
+          로그인한 고객의 실제 프로필·건강·동의 데이터입니다.
         </p>
       </div>
 
@@ -124,21 +131,21 @@ export default function CustomerDashboardPanel({ user }) {
           gap: "20px",
         }}
       >
-        <DataField label="이메일" value={data.email} />
-        <DataField label="customer_id" value={data.customerId} />
+        <DataField label={UI_LABELS.email} value={data.email} />
+        <DataField label={UI_LABELS.customerId} value={data.customerId} />
         <DataField label="이름" value={data.displayName} />
-        <DataField label="프로필 상태" value={data.profileStatus} />
-        <DataField label="사용자 역할" value={data.userRole} />
+        <DataField label={UI_LABELS.profileStatus} value={formatProfileStatus(data.profileStatus)} />
+        <DataField label={UI_LABELS.userRole} value={formatUserRole(data.userRole)} />
         <DataField
-          label="건강 프로필"
+          label={UI_LABELS.healthProfile}
           value={
             data.profileHealthExists
-              ? `있음 (${data.profileHealthSource ?? "source 없음"})`
+              ? `있음 (${formatHealthSource(data.profileHealthSource)})`
               : "없음"
           }
         />
         <DataField
-          label="필수 동의"
+          label={UI_LABELS.requiredConsents}
           value={`${data.requiredConsentCount} / 3`}
         />
       </div>

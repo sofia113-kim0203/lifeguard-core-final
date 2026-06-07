@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
+import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 export function useCustomerContext(user) {
   const [context, setContext] = useState(null);
@@ -28,7 +29,7 @@ export function useCustomerContext(user) {
       return next;
     } catch (err) {
       setContext(null);
-      setError(err.message || "고객 정보를 불러오지 못했습니다.");
+      setError(toCustomerErrorMessage(err, "고객 정보를 불러오지 못했습니다."));
       return null;
     } finally {
       setLoading(false);

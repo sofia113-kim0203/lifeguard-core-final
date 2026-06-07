@@ -1,5 +1,6 @@
 import { supabase } from "./supabase.js";
 import { loadCustomerDashboardData } from "./customerDashboard.js";
+import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export const CONVERSATION_ROLES = ["user", "assistant", "system"];
 
@@ -39,7 +40,7 @@ export async function loadCustomerConversations(authUser, { limit = DEFAULT_LIMI
     .limit(limit);
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(toCustomerErrorMessage(error, "대화 기록을 불러오지 못했습니다."));
   }
 
   return (data ?? []).map(normalizeConversationMessage);
@@ -67,7 +68,7 @@ async function insertConversationMessage(customerId, { role, message, metadata =
     .single();
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(toCustomerErrorMessage(error, "메시지를 저장하지 못했습니다."));
   }
 
   return normalizeConversationMessage(data);

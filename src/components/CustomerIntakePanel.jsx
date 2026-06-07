@@ -9,6 +9,7 @@ import {
   saveCustomerIntake,
 } from "../lib/customerIntake.js";
 import { REQUIRED_CONSENT_TYPES } from "../lib/customerDashboard.js";
+import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -171,7 +172,7 @@ export default function CustomerIntakePanel({ user, onSaved }) {
     } catch (err) {
       setForm(emptyIntakeForm());
       setConsents([]);
-      setError(err.message || "고객 정보를 불러오지 못했습니다.");
+      setError(toCustomerErrorMessage(err, "고객 정보를 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
@@ -195,7 +196,7 @@ export default function CustomerIntakePanel({ user, onSaved }) {
       setSuccess("고객 정보가 저장되었습니다.");
       onSaved?.(result);
     } catch (err) {
-      setError(err.message || "저장에 실패했습니다.");
+      setError(toCustomerErrorMessage(err, "저장에 실패했습니다."));
     } finally {
       setSaving(false);
     }

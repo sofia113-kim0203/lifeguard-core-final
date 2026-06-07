@@ -1,4 +1,5 @@
 import { supabase } from "./supabase.js";
+import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const CONSENT_VERSION = "2026-01-01-ko";
 
@@ -65,24 +66,24 @@ export async function loadCustomerDashboardData(authUser) {
     .maybeSingle();
 
   if (userError) {
-    throw new Error(userError.message);
+    throw new Error(toCustomerErrorMessage(userError, "사용자 정보를 불러오지 못했습니다."));
   }
 
   let { data: profile, error: profileError } = await fetchCustomerProfile(authUser.id);
 
   if (profileError) {
-    throw new Error(profileError.message);
+    throw new Error(toCustomerErrorMessage(profileError, "고객 프로필을 불러오지 못했습니다."));
   }
 
   if (!profile) {
     const { error: bootstrapError } = await bootstrapCustomerSignup(displayNameFromMeta);
     if (bootstrapError) {
-      throw new Error(bootstrapError.message);
+      throw new Error(toCustomerErrorMessage(bootstrapError, "고객 프로필을 준비하지 못했습니다."));
     }
 
     const retry = await fetchCustomerProfile(authUser.id);
     if (retry.error) {
-      throw new Error(retry.error.message);
+      throw new Error(toCustomerErrorMessage(retry.error, "고객 프로필을 불러오지 못했습니다."));
     }
     profile = retry.data;
   }
@@ -106,11 +107,11 @@ export async function loadCustomerDashboardData(authUser) {
   ]);
 
   if (healthResult.error) {
-    throw new Error(healthResult.error.message);
+    throw new Error(toCustomerErrorMessage(healthResult.error, "건강 프로필을 불러오지 못했습니다."));
   }
 
   if (consentsResult.error) {
-    throw new Error(consentsResult.error.message);
+    throw new Error(toCustomerErrorMessage(consentsResult.error, "동의 정보를 불러오지 못했습니다."));
   }
 
   return normalizeCustomerDashboardData({

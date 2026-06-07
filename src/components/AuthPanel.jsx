@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase.js";
+import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
 
@@ -164,14 +165,21 @@ export default function AuthPanel({ onLoginSuccess }) {
     reset();
     setLoading(true);
     const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
-    if (err) { setLoading(false); setError(err.message); return; }
+    if (err) {
+      setLoading(false);
+      setError(toCustomerErrorMessage(err, "로그인에 실패했습니다."));
+      return;
+    }
 
     const displayNameFromMeta =
       data.user?.user_metadata?.display_name ?? data.user?.user_metadata?.displayName ?? null;
     const { error: bootstrapError } = await bootstrapSignupRecords(displayNameFromMeta);
     setLoading(false);
     if (bootstrapError) {
-      setError("로그인 성공, 프로필 동기화 실패: " + bootstrapError.message);
+      setError(
+        "로그인은 되었지만 프로필 동기화에 실패했습니다. " +
+          toCustomerErrorMessage(bootstrapError, "잠시 후 다시 시도해 주세요."),
+      );
       return;
     }
 
@@ -194,7 +202,11 @@ export default function AuthPanel({ onLoginSuccess }) {
         data: signupMetadata,
       },
     });
-    if (authError) { setLoading(false); setError(authError.message); return; }
+    if (authError) {
+      setLoading(false);
+      setError(toCustomerErrorMessage(authError, "회원가입에 실패했습니다."));
+      return;
+    }
 
     if (data.session) {
       if (data.user) {
@@ -204,7 +216,10 @@ export default function AuthPanel({ onLoginSuccess }) {
       const { error: saveError } = await bootstrapSignupRecords(displayName);
       if (saveError) {
         setLoading(false);
-        setError("회원가입 완료, 프로필/동의 저장 실패: " + saveError.message);
+        setError(
+          "회원가입은 되었지만 프로필·동의 저장에 실패했습니다. " +
+            toCustomerErrorMessage(saveError, "잠시 후 다시 시도해 주세요."),
+        );
         return;
       }
     }
@@ -274,7 +289,7 @@ export default function AuthPanel({ onLoginSuccess }) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="example@email.com"
+              placeholder="이메일 주소를 입력해 주세요"
               required
               style={S.input}
             />

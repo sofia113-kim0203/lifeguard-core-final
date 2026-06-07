@@ -144,7 +144,7 @@ export default function AdminMenuPanel({ user }) {
       <FeatureShellPanel
         user={user}
         title="관리자"
-        description="운영·데이터·RAG·AI 파이프라인 관리 화면입니다. 관리자 역할이 확인된 경우 하위 관리 도구에 접근할 수 있습니다."
+        description="운영·데이터·약관 지식·AI 파이프라인 관리 화면입니다. 관리자 역할이 확인된 경우 하위 관리 도구에 접근할 수 있습니다."
         showCustomerContext={false}
         statusItems={[
           {
@@ -153,7 +153,7 @@ export default function AdminMenuPanel({ user }) {
             detail: "실데이터 준비상태 및 파이프라인 점검 도구가 연결됩니다.",
           },
           {
-            label: "약관/RAG 관리",
+            label: "약관·지식 검색 관리",
             status: "준비중",
             detail: "약관 적재·청크·임베딩 관리 화면이 준비 중입니다.",
           },
