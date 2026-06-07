@@ -138,7 +138,7 @@ async function bootstrapSignupRecords(displayName) {
   return { error: null, customerId: data?.customer_id ?? null };
 }
 
-export default function AuthPanel() {
+export default function AuthPanel({ onLoginSuccess }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -151,7 +151,6 @@ export default function AuthPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [session, setSession] = useState(null);
 
   const allConsented = CONSENTS.every((c) => consents[c.key]);
 
@@ -176,8 +175,7 @@ export default function AuthPanel() {
       return;
     }
 
-    setSession(data.session);
-    setMessage("로그인 성공: " + data.user.email);
+    onLoginSuccess?.();
   };
 
   const handleSignup = async (e) => {
@@ -216,30 +214,6 @@ export default function AuthPanel() {
     setMode("login");
     setConsents({ consent_personal: false, consent_sensitive_health: false, consent_ai_analysis: false });
   };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setEmail(""); setPassword(""); setDisplayName("");
-    setConsents({ consent_personal: false, consent_sensitive_health: false, consent_ai_analysis: false });
-    reset();
-  };
-
-  if (session) {
-    return (
-      <div style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "20px" }}>
-        <h1 style={{ margin: 0, fontSize: "26px", fontWeight: 700, color: "#f8fafc" }}>
-          로그인/회원가입
-        </h1>
-        <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: "16px" }}>
-          <div style={S.success}>로그인 중: {session.user?.email}</div>
-          <button type="button" style={S.btnSecondary} onClick={handleLogout}>
-            로그아웃
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "20px" }}>
