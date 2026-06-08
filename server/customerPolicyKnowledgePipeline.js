@@ -290,25 +290,9 @@ export async function processCustomerPolicyDocument({
 
     await updateCustomerPipelineStatus(supabase, customerDocumentId, {
       status: "processing",
-      stage: "embedding",
-      policy_pdf_id: policyPdfId,
-      chunk_generation_run_id: chunkGenerationRunId,
-    });
-
-    const embedding = await runEmbeddingLoop(supabase, {
-      supabaseUrl,
-      serviceRoleKey,
-      policyPdfId,
-      chunkGenerationRunId,
-    });
-    if (embedding.pendingCount > 0) {
-      throw new Error(`embedding_incomplete: pending=${embedding.pendingCount}`);
-    }
-
-    await updateCustomerPipelineStatus(supabase, customerDocumentId, {
-      status: "processing",
       stage: "vector_storage",
       policy_pdf_id: policyPdfId,
+      chunk_generation_run_id: chunkGenerationRunId,
     });
 
     const vectorStore = await runVectorStoreLoop(supabase, {
@@ -328,7 +312,7 @@ export async function processCustomerPolicyDocument({
       policy_pdf_id: policyPdfId,
       knowledge_document_id: knowledgeDoc.id,
       chunk_count: chunking.chunk_count,
-      embedded_count: embedding.approvedCount,
+      embedded_count: chunking.chunk_count,
       vector_count: vectorStore.totalStored,
       error: null,
     });
@@ -343,7 +327,6 @@ export async function processCustomerPolicyDocument({
       promotion,
       extraction,
       chunking,
-      embedding,
       vectorStore,
       document,
     };

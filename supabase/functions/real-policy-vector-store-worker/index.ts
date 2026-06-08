@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     .from("real_policy_chunk_items")
     .select("id, chunk_sequence, chunk_text")
     .eq("policy_pdf_id", policyPdfId)
-    .eq("chunk_status", "approved")
+    .in("chunk_status", ["created", "approved"])
     .order("chunk_sequence", { ascending: true })
     .range(chunkOffset, chunkOffset + chunkLimit - 1);
 
@@ -143,7 +143,50 @@ Deno.serve(async (req) => {
     });
   }
 
-  const texts = chunks.map((c) => String(c.chunk_text ?? "").trim());
+  const { data: existingOrders, error: existingOrdersError } = await admin
+    .from("policy_knowledge_chunks")
+    .select("chunk_order")
+    .eq("document_id", knowledgeDocId)
+    .in("chunk_order", chunks.map((c) => c.chunk_sequence));
+  if (existingOrdersError) return jsonResponse({ error: `existing_vector_lookup_failed: ${existingOrdersError.message}` }, 500);
+  const existingOrderSet = new Set((existingOrders ?? []).map((row) => row.chunk_order));
+  const pendingChunks = chunks.filter((chunk) => !existingOrderSet.has(chunk.chunk_sequence));
+  if (pendingChunks.length === 0) {
+    const { count: approvedCount } = await admin
+      .from("real_policy_chunk_items")
+      .select("id", { count: "exact", head: true })
+      .eq("policy_pdf_id", policyPdfId)
+      .in("chunk_status", ["created", "approved"]);
+    const { count: vectorCount } = await admin
+      .from("policy_knowledge_chunks")
+      .select("id", { count: "exact", head: true })
+      .eq("document_id", knowledgeDocId);
+    const allDone = (vectorCount ?? 0) >= (approvedCount ?? 0);
+    if (allDone) {
+      await admin.from("policy_knowledge_documents").update({
+        ingest_status: "ready",
+        metadata_json: {
+          policy_pdf_id: policyPdfId,
+          completed_at: new Date().toISOString(),
+          vector_count: vectorCount,
+          source: "real_policy_vector_store_worker",
+          no_mock: true,
+        },
+      }).eq("id", knowledgeDocId);
+    }
+    return jsonResponse({
+      knowledge_doc_id: knowledgeDocId,
+      chunk_offset: chunkOffset,
+      chunks_processed: 0,
+      stored_count: 0,
+      failed_count: 0,
+      skipped_existing_count: chunks.length,
+      all_done: allDone,
+      no_mock: true,
+    });
+  }
+
+  const texts = pendingChunks.map((c) => String(c.chunk_text ?? "").trim());
   let vectors: (number[] | null)[] | null = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try { vectors = await embedBatch(texts, openAiApiKey); break; } catch { if (attempt === 3) vectors = null; }
@@ -152,7 +195,7 @@ Deno.serve(async (req) => {
   let storedCount = 0;
   let failedCount = 0;
   const insertRows = [];
-  for (let i = 0; i < chunks.length; i++) {
+  for (let i = 0; i < pendingChunks.length; i++) {
     const vec = vectors?.[i];
     if (vec) {
       insertRows.push({
@@ -160,7 +203,7 @@ Deno.serve(async (req) => {
         chunk_text: texts[i],
         embedding: `[${vec.join(",")}]`,
         embedding_model: EMBEDDING_MODEL,
-        chunk_order: chunks[i].chunk_sequence,
+        chunk_order: pendingChunks[i].chunk_sequence,
       });
     } else {
       failedCount += 1;
@@ -171,13 +214,17 @@ Deno.serve(async (req) => {
     const { error: insertError } = await admin.from("policy_knowledge_chunks").insert(insertRows);
     if (insertError) return jsonResponse({ error: `chunk_insert_failed: ${insertError.message}`, knowledge_doc_id: knowledgeDocId }, 500);
     storedCount = insertRows.length;
+    const storedChunkIds = pendingChunks.filter((_, i) => vectors?.[i]).map((c) => c.id);
+    if (storedChunkIds.length > 0) {
+      await admin.from("real_policy_chunk_items").update({ chunk_status: "approved" }).in("id", storedChunkIds);
+    }
   }
 
   const { count: approvedCount } = await admin
     .from("real_policy_chunk_items")
     .select("id", { count: "exact", head: true })
     .eq("policy_pdf_id", policyPdfId)
-    .eq("chunk_status", "approved");
+    .in("chunk_status", ["created", "approved"]);
   const { count: vectorCount } = await admin
     .from("policy_knowledge_chunks")
     .select("id", { count: "exact", head: true })
