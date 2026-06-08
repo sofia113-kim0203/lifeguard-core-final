@@ -209,8 +209,8 @@ report.tests.memoryDocumentConflictUncertainty = {
     conflictRun.result.memory_used === true &&
     conflictRun.result.used_sources?.length === 1 &&
     conflictRun.prompt.includes("If memory and uploaded document evidence conflict") &&
-    conflictRun.answer.includes("불확실") &&
-    conflictRun.answer.includes("문서 근거를 우선"),
+    conflictRun.result.answer.includes("불확실") &&
+    conflictRun.result.answer.includes("문서 근거를 우선"),
   answer_basis: conflictRun.result.answer_basis,
   memory_used: conflictRun.result.memory_used,
   used_sources_count: conflictRun.result.used_sources?.length ?? 0,
