@@ -13,7 +13,8 @@
     "test:phase23-step1c-smoke": "node scripts/phase23-step1c-memory-builder-smoke.mjs",
     "test:phase23-step2a": "node scripts/phase23-step2a-memory-builder-extractor-test.mjs",
     "test:phase23-step2b": "node scripts/phase23-step2b-memory-snapshot-test.mjs",
-    "test:phase23-step2c": "node scripts/phase23-step2c-conversation-memory-test.mjs"
+    "test:phase23-step2c": "node scripts/phase23-step2c-conversation-memory-test.mjs",
+    "test:phase23-step2d": "node scripts/phase23-step2d-memory-guardrail-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
