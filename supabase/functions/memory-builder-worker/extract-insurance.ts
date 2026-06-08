@@ -9,6 +9,9 @@ type PolicyRow = {
   insurer_name: string | null;
   product_name: string | null;
   policy_type: string | null;
+  monthly_premium: number | null;
+  effective_from: string | null;
+  coverage_summary: Record<string, unknown> | null;
   is_active: boolean;
 };
 
@@ -69,7 +72,7 @@ export async function extractInsuranceFacts(
 
   const { data: policies, error } = await admin
     .from("profile_insurance_policies")
-    .select("id, insurer_name, product_name, policy_type, is_active")
+    .select("id, insurer_name, product_name, policy_type, monthly_premium, effective_from, coverage_summary, is_active")
     .eq("customer_id", customerId)
     .eq("is_active", true)
     .is("deleted_at", null);
@@ -165,6 +168,39 @@ export async function extractInsuranceFacts(
         consentGranted: consent.consent_granted,
         sourceRecordId,
         field: "carrier_product_summary",
+      }),
+    });
+  }
+
+
+  for (const pol of activePolicies.slice(0, 10)) {
+    const insurer = isPresent(pol.insurer_name) ? String(pol.insurer_name) : "보험사 미기재";
+    const product = isPresent(pol.product_name) ? String(pol.product_name) : "상품 미기재";
+    const statusLabel = pol.is_active ? "유지" : "비활성";
+    let value = `${insurer}/${product}(${statusLabel})`;
+    if (pol.effective_from) value += `, 가입일 ${pol.effective_from}`;
+    if (pol.monthly_premium != null && Number(pol.monthly_premium) > 0) {
+      value += `, 월 ${pol.monthly_premium}원`;
+    }
+    const riders = pol.coverage_summary && typeof pol.coverage_summary === "object"
+      ? String((pol.coverage_summary as Record<string, unknown>).riders ?? (pol.coverage_summary as Record<string, unknown>).summary ?? "").trim()
+      : "";
+    if (riders) value += `, 특약 ${truncate(riders, 80)}`;
+
+    facts.push({
+      customer_id: customerId,
+      fact_key: `insurance.policy.${pol.id}.summary`,
+      fact_value: truncate(value, 200),
+      fact_type: "insurance",
+      importance: "high",
+      source_table: "profile_insurance_policies",
+      source_record_id: pol.id,
+      confidence: 1.0,
+      metadata_json: buildMetadata({
+        consentType: consent.consent_type,
+        consentGranted: consent.consent_granted,
+        sourceRecordId: pol.id,
+        field: "policy_detail",
       }),
     });
   }

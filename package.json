@@ -15,7 +15,8 @@
     "test:phase25-step1i": "node scripts/phase25-step1i-real-policy-vector-search-test.mjs",
     "test:phase25-step1j-unit": "node scripts/phase25-step1j-policy-terms-qa-unit-test.mjs",
     "test:phase25-step1j": "node scripts/phase25-step1j-policy-terms-qa-test.mjs",
-    "test:phase25-step2a-p0": "node scripts/phase25-step2a-p0-customer-upload-policy-pipeline-test.mjs"
+    "test:phase25-step2a-p0": "node scripts/phase25-step2a-p0-customer-upload-policy-pipeline-test.mjs",
+    "test:phase26-step1a": "node scripts/phase26-step1a-customer-memory-foundation-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
