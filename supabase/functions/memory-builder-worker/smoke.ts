@@ -19,7 +19,14 @@ function metadataEquivalent(
   left: Record<string, unknown> | null | undefined,
   right: Record<string, unknown>,
 ): boolean {
-  return JSON.stringify(left ?? {}) === JSON.stringify(right);
+  const normalize = (metadata: Record<string, unknown> | null | undefined) =>
+    Object.fromEntries(
+      Object.entries(metadata ?? {})
+        .filter(([key]) => key !== "worker_job_id")
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
+    );
+
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
 export async function upsertSmokeFact(
