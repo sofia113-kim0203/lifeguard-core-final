@@ -180,8 +180,19 @@ export function hasQueryTermOverlap(question, content) {
 
   if (haystack.includes(normalizedQuestion)) return true;
 
-  const parts = normalizedQuestion.match(/[\u3131-\uD79DA-Za-z0-9]{2,}/g) ?? [];
-  return parts.some((part) => part.length >= 2 && haystack.includes(part));
+  const parts = normalizedQuestion.match(/[\uAC00-\uD7A3]+|[A-Za-z0-9]+/g) ?? [];
+  if (parts.some((part) => part.length >= 2 && haystack.includes(part))) {
+    return true;
+  }
+
+  for (let i = 0; i <= normalizedQuestion.length - 2; i += 1) {
+    const slice = normalizedQuestion.slice(i, i + 2);
+    if (/^[\uAC00-\uD7A3]{2}$/.test(slice) && haystack.includes(slice)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function evaluateContextSufficiency(

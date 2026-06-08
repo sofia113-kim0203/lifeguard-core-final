@@ -127,6 +127,33 @@ Customer may hint type at upload; classifier may override based on OCR text — 
 
 **Embedding failure:** If OCR/chunk insert succeeds but embedding fails, the worker sets `ingest_status = failed` with `error_message` containing `embedding_failed` (or `embedding_failed_missing_api_key` when `OPENAI_API_KEY` is unset). OCR text in `chunks.content` is **not** deleted; `embedding` remains NULL so RAG RPC excludes the row.
 
+### 3.2 Claude context injection (Phase 22D Step 4 — foundation)
+
+**Server API:** `POST /api/claude-context-injection`
+
+| Step | Action | Output |
+|------|--------|--------|
+| 1 | Resolve `customer_id` from JWT (never from body) | tenant scope |
+| 2 | Embed question (`text-embedding-3-small`, 1536 dims) | query vector |
+| 3 | `match_customer_document_chunks` (018 ownership gate) | top-K chunks |
+| 4 | Format `[D1]…[Dn]` prompt block | `document_context` |
+| 5 | Optional Claude call (`mode=execute`) | answer + `used_sources` |
+
+**Modes:**
+
+| `mode` | Claude call | Use |
+|--------|-------------|-----|
+| `rag_only` | No | RAG validation, prompt preview |
+| `execute` | Yes | End-to-end context injection test |
+
+**Response fields:** `used_sources[]`, `context_used`, `insufficient_context`, `rag_row_count`.
+
+**Server env:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+
+**Tests:** `npm run test:phase22d-step4-unit` (local) · `npm run test:phase22d-step4` (Supabase + worker).
+
+**Out of scope (Step 4):** Customer Memory Builder, frontend chat wiring, SQL audit run tables.
+
 ---
 
 ## 4. `customer_documents` status model
