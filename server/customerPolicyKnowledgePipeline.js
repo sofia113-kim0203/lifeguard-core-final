@@ -11,10 +11,10 @@ export const POLICY_HINT_TYPES = new Set(["insurance_policy", "terms"]);
 export const EXCLUDED_DOC_CLASSES = new Set(["claim", "medical", "other"]);
 export const EXCLUDED_HINT_TYPES = new Set(["claim", "medical", "other"]);
 
-const EMBEDDING_BATCH_LIMIT = 200;
+const EMBEDDING_BATCH_LIMIT = 20;
 const VECTOR_BATCH_LIMIT = 100;
-const MAX_EMBEDDING_ROUNDS = 200;
-const MAX_VECTOR_ROUNDS = 200;
+const MAX_EMBEDDING_ROUNDS = 10000;
+const MAX_VECTOR_ROUNDS = 10000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -124,7 +124,7 @@ async function runEmbeddingLoop(supabase, { supabaseUrl, serviceRoleKey, policyP
     }
     totalEmbedded += result.body.embedded_count ?? 0;
     offset = result.body.next_offset ?? offset + EMBEDDING_BATCH_LIMIT;
-    if ((result.body.embedded_count ?? 0) === 0 && (result.body.failed_count ?? 0) === 0) break;
+    if (result.body?.error === "no_pending_chunks") break;
   }
 
   const approved = await countChunksByStatus(supabase, policyPdfId, "approved");
