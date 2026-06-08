@@ -99,7 +99,7 @@ async function seedMemoryFacts(admin, primaryId, otherId) {
       fact_value: "고객 직업군은 사무직입니다.",
       confidence: 1,
       provenance_type: "profile",
-      fact_type: "profile",
+      fact_type: "identity",
       importance: "medium",
       source_table: "customer_profiles",
       metadata_json: { consent_type: "privacy_collection", field: "job_category" },
