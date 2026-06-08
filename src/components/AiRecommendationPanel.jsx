@@ -9,6 +9,11 @@ import {
   RISK_LEVEL_LABELS,
   UNDERWRITING_STATUS_LABELS,
 } from "../lib/customerUnderwritingRisk.js";
+import {
+  loadCustomerRecommendations,
+  PRIORITY_LABELS,
+  RECOMMENDATION_TYPE_LABELS,
+} from "../lib/customerRecommendations.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
@@ -160,11 +165,13 @@ export default function AiRecommendationPanel({ user }) {
   const [error, setError] = useState("");
   const [gapResult, setGapResult] = useState(null);
   const [uwResult, setUwResult] = useState(null);
+  const [recResult, setRecResult] = useState(null);
 
   const loadAnalysis = useCallback(async () => {
     if (!user) {
       setGapResult(null);
       setUwResult(null);
+      setRecResult(null);
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
@@ -173,15 +180,18 @@ export default function AiRecommendationPanel({ user }) {
     setLoading(true);
     setError("");
     try {
-      const [gapData, uwData] = await Promise.all([
+      const [gapData, uwData, recData] = await Promise.all([
         analyzeCustomerCoverageGap(),
         analyzeCustomerUnderwritingRisk(),
+        loadCustomerRecommendations(),
       ]);
       setGapResult(gapData);
       setUwResult(uwData);
+      setRecResult(recData);
     } catch (err) {
       setGapResult(null);
       setUwResult(null);
+      setRecResult(null);
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
@@ -198,10 +208,9 @@ export default function AiRecommendationPanel({ user }) {
   return (
     <section style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
       <div>
-        <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 분석</h2>
+        <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천</h2>
         <p style={S.desc}>
-          Customer Memory와 Coverage Gap 결과를 바탕으로 부족한 보장의 가입 가능성(인수 위험)을
-          분석하고 Claude가 설명합니다.
+          Customer Memory, Coverage Gap, Underwriting Risk를 함께 고려해 고객별 Top 2 보험 추천을 생성합니다.
         </p>
       </div>
 
@@ -372,9 +381,86 @@ export default function AiRecommendationPanel({ user }) {
           <div style={S.muted}>인수 위험 결과가 없습니다.</div>
         )}
 
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>AI 보험 추천 Top 2</h3>
+        {loading ? (
+          <div style={S.muted}>Coverage Gap과 인수 위험을 반영해 추천을 생성하는 중…</div>
+        ) : recResult?.customerVisibleTop2?.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <ul style={S.list}>
+              {recResult.customerVisibleTop2.map((item) => (
+                <li key={item.coverage_category} style={S.listItem}>
+                  <div style={{ marginBottom: "6px" }}>
+                    <span style={{ ...S.badge, background: "rgba(59, 130, 246, 0.15)", border: "1px solid rgba(59, 130, 246, 0.35)", color: "#93c5fd" }}>
+                      #{item.recommendation_rank}
+                    </span>
+                    <strong style={{ color: "#f1f5f9" }}>{item.coverage_label}</strong>
+                    <span style={{ marginLeft: "8px", fontSize: "12px", color: "#94a3b8" }}>
+                      {RECOMMENDATION_TYPE_LABELS[item.recommendation_type] ?? item.recommendation_type}
+                      · 우선순위 {PRIORITY_LABELS[item.priority] ?? item.priority}
+                    </span>
+                  </div>
+                  <div style={S.muted}>{item.reason}</div>
+                  <div style={{ marginTop: "6px", fontSize: "13px", color: "#cbd5e1" }}>
+                    인수 고려: {item.underwriting_consideration}
+                  </div>
+                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#cbd5e1" }}>
+                    예산 고려: {item.budget_consideration}
+                  </div>
+                  {item.required_documents?.length ? (
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#64748b" }}>
+                      필요 서류: {item.required_documents.join(", ")}
+                    </div>
+                  ) : null}
+                  {item.memory_sources_used?.length ? (
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#64748b" }}>
+                      Memory 근거: {item.memory_sources_used.join(", ")}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+
+            {recResult.keepExistingRecommendations?.length ? (
+              <div>
+                <h4 style={S.sectionTitle}>유지 보장</h4>
+                <div style={{ fontSize: "13px", color: "#cbd5e1" }}>
+                  {recResult.keepExistingRecommendations.map((item) => item.coverage_label).join(", ")}
+                </div>
+              </div>
+            ) : null}
+
+            {recResult.requiredDocuments?.length ? (
+              <div>
+                <h4 style={S.sectionTitle}>필요 서류</h4>
+                <ul style={S.list}>
+                  {recResult.requiredDocuments.map((doc) => (
+                    <li key={doc} style={S.listItem}>{doc}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {recResult.claudeExplanation ? (
+              <div>
+                <h4 style={S.sectionTitle}>추천 Claude 설명</h4>
+                <div style={S.explanation}>{recResult.claudeExplanation}</div>
+              </div>
+            ) : (
+              <div style={S.muted}>
+                추천 Claude 설명을 생성하지 못했습니다.
+                {recResult.claudeMeta?.reason ? ` (${recResult.claudeMeta.reason})` : ""}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={S.muted}>추천 결과가 없습니다.</div>
+        )}
+      </div>
+
         <div style={{ marginTop: "20px" }}>
           <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
-            {loading ? "분석 중…" : "보장·인수 분석 다시 실행"}
+            {loading ? "분석 중…" : "보장·인수·추천 분석 다시 실행"}
           </button>
         </div>
       </div>
