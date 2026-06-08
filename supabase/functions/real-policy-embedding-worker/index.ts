@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     .from("real_policy_embedding_preparation_runs")
     .insert({
       real_chunk_generation_run_id: chunkGenerationRunId || null,
-      rag_source_id: null,
+      rag_source_id: body.rag_source_id ?? null,
       embedding_provider: "openai",
       embedding_model: EMBEDDING_MODEL,
       preparation_status: "processing",
