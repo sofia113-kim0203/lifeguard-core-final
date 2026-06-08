@@ -16,7 +16,11 @@ import {
 } from "./documentRagContext.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022";
+
+export function resolveClaudeModel(env = process.env) {
+  return String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_CLAUDE_MODEL).trim();
+}
 
 const RAG_SYSTEM_RULES = [
   "You are a LIFEGUARD customer insurance consultation assistant.",
@@ -142,7 +146,7 @@ export async function handleClaudeContextInjectionRequest({
   threshold = DEFAULT_RAG_THRESHOLD,
   openAiApiKey = resolveOpenAiApiKey(),
   anthropicApiKey = resolveAnthropicApiKey(),
-  modelName = DEFAULT_CLAUDE_MODEL,
+  modelName = resolveClaudeModel(env),
   fetchImpl = fetch,
   env = process.env,
 }) {
