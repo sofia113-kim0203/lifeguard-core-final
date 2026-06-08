@@ -18,7 +18,8 @@
     "test:phase23-step2e": "node scripts/phase23-step2e-memory-review-layer-test.mjs",
     "test:phase24-step3a": "node scripts/phase24-step3a-coverage-gap-analysis-test.mjs",
     "test:phase24-step3b": "node scripts/phase24-step3b-underwriting-risk-analysis-test.mjs",
-    "test:phase24-step3c": "node scripts/phase24-step3c-recommendation-engine-test.mjs"
+    "test:phase24-step3c": "node scripts/phase24-step3c-recommendation-engine-test.mjs",
+    "test:phase24-step3d": "node scripts/phase24-step3d-insurance-design-generator-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
