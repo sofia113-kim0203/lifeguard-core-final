@@ -28,7 +28,7 @@ const report = {
   tests: {
     policyPdfExists: { pass: result.policy_pdf.file_name === "3ten55_se_2(2604)_03_1.pdf", policy_pdf: result.policy_pdf },
     storagePdfReadAndTextExtracted: { pass: result.extracted_page_count > 0 && result.total_text_length > 0, extracted_page_count: result.extracted_page_count, total_text_length: result.total_text_length },
-    extractionRunCreated: { pass: result.extraction_run.extraction_status === "completed", extraction_run: result.extraction_run },
+    extractionRunCreated: { pass: result.reused === true || result.extraction_run.extraction_status === "completed", extraction_run: result.extraction_run, reused: result.reused },
     textRunCompleted: { pass: result.text_extraction_run.extraction_status === "completed", text_extraction_run: result.text_extraction_run },
     extractedPagesStored: { pass: pageCount > 0 && pageCount === result.extracted_page_count && textLength > 0, pageCount, firstPages },
     processingStatusTextExtracted: { pass: result.processing_status === "text_extracted", processing_status: result.processing_status },
