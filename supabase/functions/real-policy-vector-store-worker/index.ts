@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
         document_type: "policy_terms",
         title: pdfRow.data.file_name,
         storage_path: pdfRow.data.storage_path,
-        ingest_status: "processing",
+        ingest_status: "ready",
         metadata_json: {
           policy_pdf_id: policyPdfId,
           carrier_id: pdfRow.data.carrier_id,
