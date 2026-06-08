@@ -21,28 +21,6 @@ async function maybeSingle(query, label) {
   return data ?? null;
 }
 
-async function ensureRagSource(supabase, policyPdf) {
-  const existing = await maybeSingle(
-    supabase.from("policy_rag_source_registry").select("id, source_type, source_id, source_status, source_reference").eq("source_type", "policy_terms").eq("source_id", policyPdf.id),
-    "rag_source_lookup_failed",
-  );
-  if (existing) return { ...existing, reused: true };
-  const { data, error } = await supabase
-    .from("policy_rag_source_registry")
-    .insert({
-      source_type: "policy_terms",
-      source_id: policyPdf.id,
-      carrier_id: policyPdf.carrier_id,
-      product_id: policyPdf.product_id,
-      source_status: "active",
-      source_reference: policyPdf.storage_path,
-    })
-    .select("id, source_type, source_id, source_status, source_reference")
-    .single();
-  if (error) throw new Error(`rag_source_insert_failed: ${error.message}`);
-  return { ...data, reused: false };
-}
-
 async function existingCompletedRun(supabase, policyPdfId) {
   return maybeSingle(
     supabase
@@ -104,7 +82,6 @@ export async function generateRealPolicyChunks({
   if (pagesError) throw new Error(`extracted_pages_lookup_failed: ${pagesError.message}`);
   if (!pages?.length) throw new Error("extracted_pages_required");
 
-  const ragSource = await ensureRagSource(supabase, policyPdf);
   const { data: run, error: runError } = await supabase
     .from("real_policy_chunk_generation_runs")
     .insert({
@@ -118,8 +95,8 @@ export async function generateRealPolicyChunks({
         engine: "real_policy_chunker",
         actual_extracted_text: true,
         no_mock: true,
-        rag_source_id: ragSource.id,
         max_chars: maxChars,
+        rag_source_deferred_until_embedding: true,
       },
       missing_information: [],
     })
@@ -160,7 +137,6 @@ export async function generateRealPolicyChunks({
 
   return {
     policy_pdf: policyPdf,
-    rag_source: ragSource,
     chunk_generation_run: { ...run, generation_status: "completed", generated_chunk_count: rows.length, completed_at: completedAt },
     chunk_count: rows.length,
     sample_chunks: rows.slice(0, 3).map((row) => ({ page_number: row.page_number, chunk_sequence: row.chunk_sequence, chunk_text: row.chunk_text.slice(0, 240) })),
