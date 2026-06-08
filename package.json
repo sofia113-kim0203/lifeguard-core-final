@@ -11,26 +11,11 @@
     "test:phase22d-step4-unit": "node scripts/phase22d-step4-unit-test.mjs",
     "test:phase22d-step4": "node scripts/phase22d-step4-claude-context-test.mjs",
     "test:phase23-step1c-smoke": "node scripts/phase23-step1c-memory-builder-smoke.mjs",
-    "test:phase23-step2a": "node scripts/phase23-step2a-memory-builder-extractor-test.mjs",
-    "test:phase23-step2b": "node scripts/phase23-step2b-memory-snapshot-test.mjs",
-    "test:phase23-step2c": "node scripts/phase23-step2c-conversation-memory-test.mjs",
-    "test:phase23-step2d": "node scripts/phase23-step2d-memory-guardrail-test.mjs",
-    "test:phase23-step2e": "node scripts/phase23-step2e-memory-review-layer-test.mjs",
-    "test:phase24-step3a": "node scripts/phase24-step3a-coverage-gap-analysis-test.mjs",
-    "test:phase24-step3b": "node scripts/phase24-step3b-underwriting-risk-analysis-test.mjs",
-    "test:phase24-step3c": "node scripts/phase24-step3c-recommendation-engine-test.mjs",
-    "test:phase24-step3d": "node scripts/phase24-step3d-insurance-design-generator-test.mjs",
-    "test:phase25-step1a": "node scripts/phase25-step1a-analysis-cache-layer-test.mjs",
-    "test:phase25-step1b": "node scripts/phase25-step1b-rebalancing-engine-test.mjs",
-    "test:phase25-step1c": "node scripts/phase25-step1c-shared-policy-registry-test.mjs",
-    "test:phase25-step1d-promote": "node scripts/phase25-step1d-promote-customer-policy-test.mjs",
-    "test:phase25-step1e": "node scripts/phase25-step1e-real-policy-text-extraction-test.mjs",
-    "test:phase25-step1f": "node scripts/phase25-step1f-real-policy-chunk-generation-test.mjs",
-    "test:phase25-step1g": "node scripts/phase25-step1g-real-policy-embedding-generation-test.mjs"
+    "test:phase25-step1i-unit": "node scripts/phase25-step1i-real-policy-vector-search-unit-test.mjs",
+    "test:phase25-step1i": "node scripts/phase25-step1i-real-policy-vector-search-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
-    "pdf-parse": "^2.4.5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
