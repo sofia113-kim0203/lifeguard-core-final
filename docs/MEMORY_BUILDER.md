@@ -719,7 +719,38 @@ Memory Builder **does not** call the LLM. Document structured extract is produce
 
 ---
 
-## 15. Deliberate exclusions
+## 15. Phase 23 Step 1C — Worker skeleton (implemented)
+
+**Edge Function:** `memory-builder-worker` (`supabase/functions/memory-builder-worker/`)
+
+| Item | Step 1C behavior |
+|------|------------------|
+| **Auth** | `service_role` Bearer only — customer/agent/admin JWT rejected (`403 service_role_required`) |
+| **Request** | `POST` body: `job_id` **or** `customer_id` + `scope`; `mode=smoke`, `scope=smoke` only |
+| **Job queue** | Reads `worker_jobs` where `job_type = memory_builder`; updates status + `worker_runs` audit |
+| **Customer check** | `customer_profiles` row must exist (`deleted_at IS NULL`) |
+| **Consent** | Records `lifeguard_has_consent` snapshot; **does not** block smoke (no customer data extracted) |
+| **Output** | One safe system fact via `service_role` write path |
+
+### 15.1 Smoke fact (test mode only)
+
+| Field | Value |
+|-------|--------|
+| `fact_key` | `system.memory_builder.smoke_test` |
+| `fact_type` | `system` |
+| `importance` | `low` |
+| `source_table` | `worker_jobs` when `job_id` present, else `system` |
+| `metadata_json` | `{ phase: "23-1C", mode: "smoke", no_customer_data_extracted: true, ... }` |
+
+**Idempotency:** Re-run with unchanged payload → `fact_action: no_op` (single active row per `customer_id` + `fact_key`). Value/metadata change → supersede prior active row, insert new active row.
+
+**Explicitly forbidden in Step 1C:** profile/health/policy extractors, OCR chunk copy, Claude answer parsing, health/insurance fact creation.
+
+**Test:** `npm run test:phase23-step1c-smoke` (requires `SERVICE_ROLE_KEY` for full worker invoke).
+
+---
+
+## 16. Deliberate exclusions
 
 - INSUX memory engines, demo profiles, global `insurance_chunks`.
 - Auto-writing facts from assistant chat (v1).
@@ -729,4 +760,4 @@ Memory Builder **does not** call the LLM. Document structured extract is produce
 
 ---
 
-*Draft v0.2 — LIFEGUARD Core Memory Builder (Consent Gate).*
+*Draft v0.3 — LIFEGUARD Core Memory Builder (Consent Gate + Step 1C skeleton).*
