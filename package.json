@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "LIFEGUARD Core — design/schema repo with minimal dashboard shell (not production)",
+  "description": "LIFEGUARD Core \u2014 design/schema repo with minimal dashboard shell (not production)",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
@@ -14,12 +14,14 @@
     "test:phase25-step1i-unit": "node scripts/phase25-step1i-real-policy-vector-search-unit-test.mjs",
     "test:phase25-step1i": "node scripts/phase25-step1i-real-policy-vector-search-test.mjs",
     "test:phase25-step1j-unit": "node scripts/phase25-step1j-policy-terms-qa-unit-test.mjs",
-    "test:phase25-step1j": "node scripts/phase25-step1j-policy-terms-qa-test.mjs"
+    "test:phase25-step1j": "node scripts/phase25-step1j-policy-terms-qa-test.mjs",
+    "test:phase25-step2a-p0": "node scripts/phase25-step2a-p0-customer-upload-policy-pipeline-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",
