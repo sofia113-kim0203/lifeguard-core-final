@@ -15,7 +15,8 @@
     "test:phase23-step2b": "node scripts/phase23-step2b-memory-snapshot-test.mjs",
     "test:phase23-step2c": "node scripts/phase23-step2c-conversation-memory-test.mjs",
     "test:phase23-step2d": "node scripts/phase23-step2d-memory-guardrail-test.mjs",
-    "test:phase23-step2e": "node scripts/phase23-step2e-memory-review-layer-test.mjs"
+    "test:phase23-step2e": "node scripts/phase23-step2e-memory-review-layer-test.mjs",
+    "test:phase24-step3a": "node scripts/phase24-step3a-coverage-gap-analysis-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
