@@ -1,5 +1,3 @@
-import { PDFParse } from "pdf-parse";
-
 export const DEFAULT_POLICY_PDF_ID = "526e2e06-1729-4f95-9bda-0b410b604de2";
 
 async function downloadPolicyPdf(supabase, policyPdf) {
@@ -9,6 +7,7 @@ async function downloadPolicyPdf(supabase, policyPdf) {
 }
 
 async function parsePdfPages(buffer) {
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   try {
     const result = await parser.getText();
