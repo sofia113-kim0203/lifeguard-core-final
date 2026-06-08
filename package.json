@@ -12,7 +12,9 @@
     "test:phase22d-step4": "node scripts/phase22d-step4-claude-context-test.mjs",
     "test:phase23-step1c-smoke": "node scripts/phase23-step1c-memory-builder-smoke.mjs",
     "test:phase25-step1i-unit": "node scripts/phase25-step1i-real-policy-vector-search-unit-test.mjs",
-    "test:phase25-step1i": "node scripts/phase25-step1i-real-policy-vector-search-test.mjs"
+    "test:phase25-step1i": "node scripts/phase25-step1i-real-policy-vector-search-test.mjs",
+    "test:phase25-step1j-unit": "node scripts/phase25-step1j-policy-terms-qa-unit-test.mjs",
+    "test:phase25-step1j": "node scripts/phase25-step1j-policy-terms-qa-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

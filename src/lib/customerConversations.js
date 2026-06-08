@@ -1,11 +1,9 @@
 import { supabase } from "./supabase.js";
 import { loadCustomerDashboardData } from "./customerDashboard.js";
+import { askPolicyTermsQuestion } from "./policyTermsQa.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export const CONVERSATION_ROLES = ["user", "assistant", "system"];
-
-export const MOCK_ASSISTANT_RESPONSE =
-  "고객님의 입력 내용을 저장했습니다. 이후 보험 분석 AI와 연결됩니다.";
 
 const DEFAULT_LIMIT = 100;
 
@@ -80,14 +78,36 @@ export async function sendCustomerConversationMessage(authUser, message) {
   const userMessage = await insertConversationMessage(customerId, {
     role: "user",
     message,
-    metadata: { source: "customer_dashboard" },
+    metadata: { source: "customer_dashboard", phase: "phase25-1j" },
   });
+
+  const qaResult = await askPolicyTermsQuestion({ question: message });
+
+  const assistantMetadata = {
+    source: "policy_terms_qa",
+    phase: "phase25-1j",
+    policy_pdf_id: qaResult?.policyPdfId ?? null,
+    knowledge_document_id: qaResult?.knowledgeDocumentId ?? null,
+    ingest_status: qaResult?.ingestStatus ?? null,
+    used_sources: qaResult?.usedSources ?? [],
+    context_used: qaResult?.contextUsed ?? false,
+    insufficient_context: qaResult?.insufficientContext ?? false,
+    rag_row_count: qaResult?.ragRowCount ?? 0,
+    blocked: qaResult?.blocked ?? false,
+    reason: qaResult?.reason ?? null,
+    model_name: qaResult?.modelName ?? null,
+    provider: qaResult?.provider ?? null,
+    claude_skipped: qaResult?.claudeSkipped ?? false,
+  };
+
+  const assistantText =
+    qaResult?.answer?.trim() || "약관 Q&A 응답을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
   const assistantMessage = await insertConversationMessage(customerId, {
     role: "assistant",
-    message: MOCK_ASSISTANT_RESPONSE,
-    metadata: { source: "mock", phase: "phase18" },
+    message: assistantText,
+    metadata: assistantMetadata,
   });
 
-  return { userMessage, assistantMessage };
+  return { userMessage, assistantMessage, qaResult };
 }
