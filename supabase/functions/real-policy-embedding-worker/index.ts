@@ -79,6 +79,9 @@ Deno.serve(async (req) => {
 
   const policyPdfId = String(body.policy_pdf_id ?? "").trim();
   const chunkGenerationRunId = String(body.chunk_generation_run_id ?? "").trim();
+  const chunkOffset = typeof body.chunk_offset === "number" ? body.chunk_offset : 0;
+  const chunkLimit = typeof body.chunk_limit === "number" ? body.chunk_limit : 200;
+  const prepRunId = String(body.prep_run_id ?? "").trim() || null;
   if (!policyPdfId) return jsonResponse({ error: "policy_pdf_id_required" }, 422);
 
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -89,8 +92,10 @@ Deno.serve(async (req) => {
     .eq("policy_pdf_id", policyPdfId)
     .eq("chunk_status", "created");
   if (countError) return jsonResponse({ error: `chunk_count_failed: ${countError.message}` }, 500);
-  if ((chunkCount ?? 0) === 0) return jsonResponse({ error: "no_pending_chunks" }, 409);
+  if ((chunkCount ?? 0) === 0 && !prepRunId) return jsonResponse({ error: "no_pending_chunks", note: "all_chunks_already_embedded" }, 200);
 
+  let actualPrepRunId = prepRunId;
+  if (!actualPrepRunId) {
   const { data: prepRunData, error: prepInsertError } = await admin
     .from("real_policy_embedding_preparation_runs")
     .insert({
@@ -114,9 +119,12 @@ Deno.serve(async (req) => {
     .select("id, preparation_status, queued_chunk_count")
     .single();
   if (prepInsertError) return jsonResponse({ error: `prep_run_insert_failed: ${prepInsertError.message}` }, 500);
-  const prepRunId = prepRunData.id;
+  actualPrepRunId = prepRunData.id;
+  } // end !prepRunId
+  if (!actualPrepRunId) return jsonResponse({ error: "prep_run_id_required" }, 422);
 
-  let offset = 0;
+  let offset = chunkOffset;
+  const endOffset = chunkOffset + chunkLimit;
   let embeddedCount = 0;
   let failedCount = 0;
   const failedChunkIds: string[] = [];
@@ -131,8 +139,10 @@ Deno.serve(async (req) => {
       .range(offset, offset + BATCH_SIZE - 1);
     if (chunkError) break;
     if (!chunks?.length) break;
+    if (offset >= endOffset) break;
 
-    const texts = chunks.map((c) => String(c.chunk_text ?? "").trim());
+    const batchTexts = chunks.slice(0, endOffset - offset).map((c) => String(c.chunk_text ?? "").trim());
+    const texts = batchTexts;
     let vectors: (number[] | null)[] | null = null;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try { vectors = await embedBatch(texts, openAiApiKey); break; } catch { if (attempt === MAX_RETRIES) vectors = null; }
@@ -144,7 +154,7 @@ Deno.serve(async (req) => {
       if (vector) {
         const vectorRef = `real_policy:${policyPdfId}:${chunk.chunk_sequence}`;
         await admin.from("real_policy_embedding_preparation_items").insert({
-          real_embedding_preparation_run_id: prepRunId,
+          real_embedding_preparation_run_id: actualPrepRunId,
           real_policy_chunk_item_id: chunk.id,
           chunk_registry_id: null,
           embedding_queue_id: null,
@@ -157,7 +167,7 @@ Deno.serve(async (req) => {
         embeddedCount += 1;
       } else {
         await admin.from("real_policy_embedding_preparation_items").insert({
-          real_embedding_preparation_run_id: prepRunId,
+          real_embedding_preparation_run_id: actualPrepRunId,
           real_policy_chunk_item_id: chunk.id,
           chunk_registry_id: null,
           embedding_queue_id: null,
@@ -189,13 +199,16 @@ Deno.serve(async (req) => {
       failed_count: failedCount,
       completed_at: new Date().toISOString(),
     },
-  }).eq("id", prepRunId);
+  }).eq("id", actualPrepRunId);
 
   const processing_status = failedCount === 0 ? "embedded" : "embedding_partial";
   return jsonResponse({
     worker: "real-policy-embedding-worker",
     policy_pdf_id: policyPdfId,
-    preparation_run_id: prepRunId,
+    preparation_run_id: actualPrepRunId,
+    chunk_offset: chunkOffset,
+    chunk_limit: chunkLimit,
+    next_offset: chunkOffset + chunkLimit,
     embedding_model: EMBEDDING_MODEL,
     embedded_count: embeddedCount,
     failed_count: failedCount,
