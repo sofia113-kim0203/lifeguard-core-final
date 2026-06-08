@@ -129,7 +129,8 @@ async function seedMemoryFacts(admin, primaryId, otherId) {
       updated_at: old,
     },
   ];
-  const { error } = await admin.from("customer_memory_facts").insert(rows);
+  const normalizedRows = rows.map((row) => ({ updated_at: now, ...row }));
+  const { error } = await admin.from("customer_memory_facts").insert(normalizedRows);
   if (error) throw new Error(`memory_seed_failed:${error.message}`);
 }
 
