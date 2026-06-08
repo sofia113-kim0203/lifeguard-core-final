@@ -10,7 +10,8 @@
     "preview": "vite preview --host 0.0.0.0 --port 5173 --strictPort",
     "test:phase22d-step4-unit": "node scripts/phase22d-step4-unit-test.mjs",
     "test:phase22d-step4": "node scripts/phase22d-step4-claude-context-test.mjs",
-    "test:phase23-step1c-smoke": "node scripts/phase23-step1c-memory-builder-smoke.mjs"
+    "test:phase23-step1c-smoke": "node scripts/phase23-step1c-memory-builder-smoke.mjs",
+    "test:phase23-step2a": "node scripts/phase23-step2a-memory-builder-extractor-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

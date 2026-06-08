@@ -750,7 +750,38 @@ Memory Builder **does not** call the LLM. Document structured extract is produce
 
 ---
 
-## 16. Deliberate exclusions
+## 16. Phase 23 Step 2A — Profile / Health / Policy extractors (implemented)
+
+**Edge Function:** `memory-builder-worker` (same deploy unit as Step 1C)
+
+| Item | Step 2A behavior |
+|------|------------------|
+| **Modes** | `mode=extract` or `mode=rebuild` with `scope=profile_health_policy` (Step 1C `mode=smoke` unchanged) |
+| **Sources** | `customer_profiles`, `profile_health`, `profile_insurance_policies` only |
+| **Consent gate** | Per-source skip when required consent missing (`privacy_collection`, `sensitive_health_processing`, `insurance_data_processing`) |
+| **Facts** | Evidence-based structured fields only; `metadata_json.no_llm_generated: true` |
+| **Idempotency** | Same `fact_value` + `metadata_json` → `no_op`; change → supersede + insert |
+| **memory_version** | Increment only when ≥1 fact inserted or superseded |
+
+### 16.1 Example fact keys
+
+| Source | `fact_key` examples | `fact_type` | `importance` |
+|--------|---------------------|-------------|--------------|
+| Profile | `profile.name`, `profile.age_band`, `profile.gender`, `profile.occupation` | `identity` | low/medium |
+| Health | `health.smoking.status`, `health.medication.summary`, `health.surgery_5y.flag`, `health.hospital_5y.flag`, `health.family_history.summary` | `health` | high/critical |
+| Insurance | `insurance.policy.count`, `insurance.indemnity.held`, `insurance.policies.active_summary`, `insurance.carrier_product.summary` | `insurance` | medium/high |
+
+### 16.2 `metadata_json` (extractor facts)
+
+Required keys: `consent_type`, `consent_granted`, `extractor_version`, `source_table`, `source_record_id`, `no_llm_generated: true`.
+
+**Explicitly forbidden in Step 2A:** OCR chunk copy, Claude answer parsing, document/conversation extractors, claims/diagnosis codes, customer direct fact writes.
+
+**Test:** `npm run test:phase23-step2a` (requires `SERVICE_ROLE_KEY`; full E2E needs deployed worker with Step 2A code).
+
+---
+
+## 17. Deliberate exclusions
 
 - INSUX memory engines, demo profiles, global `insurance_chunks`.
 - Auto-writing facts from assistant chat (v1).
@@ -760,4 +791,4 @@ Memory Builder **does not** call the LLM. Document structured extract is produce
 
 ---
 
-*Draft v0.3 — LIFEGUARD Core Memory Builder (Consent Gate + Step 1C skeleton).*
+*Draft v0.4 — LIFEGUARD Core Memory Builder (Consent Gate + Step 1C skeleton + Step 2A extractors).*

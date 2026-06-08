@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { JOB_TYPE, WORKER_NAME, WORKER_PHASE } from "./config.ts";
+import { EXTRACT_SCOPE, JOB_TYPE, WORKER_NAME, WORKER_PHASE } from "./config.ts";
 import {
   isRunnableJobStatus,
   loadMemoryBuilderJob,
@@ -8,6 +8,7 @@ import {
   markJobFailed,
   markJobRunning,
 } from "./jobs.ts";
+import { runProfileHealthPolicyExtract } from "./rebuild.ts";
 import { isServiceRoleBearer, resolveServiceRoleKey } from "./service-role.ts";
 import { upsertSmokeFact } from "./smoke.ts";
 import {
@@ -45,6 +46,10 @@ function parseRequestBody(raw: unknown): MemoryBuilderRequestBody {
   };
 }
 
+function isExtractMode(mode: MemoryBuilderMode, scope: MemoryBuilderScope): boolean {
+  return (mode === "extract" || mode === "rebuild") && scope === EXTRACT_SCOPE;
+}
+
 async function assertCustomerExists(
   admin: ReturnType<typeof createClient>,
   customerId: string,
@@ -63,24 +68,6 @@ async function assertCustomerExists(
   if (!data?.id) {
     throw new Error("customer_not_found");
   }
-}
-
-async function noteConsentAvailability(
-  admin: ReturnType<typeof createClient>,
-  customerId: string,
-): Promise<Record<string, boolean>> {
-  const types = ["privacy_collection", "memory_retention", "ai_consultation"] as const;
-  const snapshot: Record<string, boolean> = {};
-
-  for (const consentType of types) {
-    const { data, error } = await admin.rpc("lifeguard_has_consent", {
-      p_customer_id: customerId,
-      p_consent_type: consentType,
-    });
-    snapshot[consentType] = !error && data === true;
-  }
-
-  return snapshot;
 }
 
 Deno.serve(async (req) => {
@@ -111,11 +98,17 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "invalid_json_body" }, 422);
   }
 
-  if (body.mode !== "smoke" || body.scope !== "smoke") {
+  const mode = body.mode ?? "smoke";
+  const scope = body.scope ?? "smoke";
+  const isSmoke = mode === "smoke" && scope === "smoke";
+  const isExtract = isExtractMode(mode, scope);
+
+  if (!isSmoke && !isExtract) {
     return jsonResponse(
       {
         error: "unsupported_mode",
-        message: "Phase 23 Step 1C supports mode=smoke and scope=smoke only.",
+        message:
+          "Supported: mode=smoke scope=smoke, or mode=extract|rebuild scope=profile_health_policy.",
       },
       422,
     );
@@ -168,13 +161,45 @@ Deno.serve(async (req) => {
     }
 
     await assertCustomerExists(adminClient, customerId);
-    const consentSnapshot = await noteConsentAvailability(adminClient, customerId);
 
-    const smokeResult = await upsertSmokeFact(adminClient, {
-      customerId,
-      jobId,
-      scope: body.scope ?? "smoke",
-    });
+    if (isSmoke) {
+      const smokeResult = await upsertSmokeFact(adminClient, {
+        customerId,
+        jobId,
+        scope: "smoke",
+      });
+
+      if (jobId) {
+        await markJobCompleted(adminClient, jobId);
+        if (runId) {
+          await completeWorkerRun(
+            adminClient,
+            runId,
+            baseRunSteps({
+              mode: "smoke",
+              fact_key: smokeResult.fact_key,
+              fact_action: smokeResult.action,
+            }),
+          );
+        }
+      }
+
+      return jsonResponse({
+        worker: WORKER_NAME,
+        phase: WORKER_PHASE,
+        mode: "smoke",
+        scope: "smoke",
+        customer_id: customerId,
+        job_id: jobId,
+        worker_run_id: runId,
+        fact_key: smokeResult.fact_key,
+        fact_id: smokeResult.fact_id,
+        fact_action: smokeResult.action,
+        no_customer_data_extracted: true,
+      });
+    }
+
+    const extractResult = await runProfileHealthPolicyExtract(adminClient, customerId);
 
     if (jobId) {
       await markJobCompleted(adminClient, jobId);
@@ -183,10 +208,11 @@ Deno.serve(async (req) => {
           adminClient,
           runId,
           baseRunSteps({
-            mode: "smoke",
-            fact_key: smokeResult.fact_key,
-            fact_action: smokeResult.action,
-            consent_snapshot: consentSnapshot,
+            mode,
+            scope,
+            facts_changed: extractResult.facts_changed,
+            memory_version: extractResult.memory_version,
+            fact_action_summary: extractResult.fact_action_summary,
           }),
         );
       }
@@ -195,16 +221,19 @@ Deno.serve(async (req) => {
     return jsonResponse({
       worker: WORKER_NAME,
       phase: WORKER_PHASE,
-      mode: "smoke",
-      scope: "smoke",
+      mode,
+      scope,
       customer_id: customerId,
       job_id: jobId,
       worker_run_id: runId,
-      fact_key: smokeResult.fact_key,
-      fact_id: smokeResult.fact_id,
-      fact_action: smokeResult.action,
-      no_customer_data_extracted: true,
-      consent_snapshot: consentSnapshot,
+      consent_snapshot: extractResult.consent_snapshot,
+      extractors: extractResult.extractors,
+      fact_results: extractResult.fact_results,
+      fact_action_summary: extractResult.fact_action_summary,
+      facts_changed: extractResult.facts_changed,
+      memory_version: extractResult.memory_version,
+      fact_keys: extractResult.fact_keys,
+      no_llm_generated: true,
     });
   } catch (error) {
     const message = safeErrorMessage(error);
@@ -215,7 +244,7 @@ Deno.serve(async (req) => {
 
     await failWorkerRun(adminClient, runId, {
       errorMessage: message,
-      steps: baseRunSteps({ mode: "smoke", error: message }),
+      steps: baseRunSteps({ mode, scope, error: message }),
     });
 
     return jsonResponse(
