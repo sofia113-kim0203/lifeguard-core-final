@@ -1,11 +1,37 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import type { CandidateFact, FactUpsertAction, FactUpsertResult } from "./types.ts";
 
+const RUNTIME_ONLY_METADATA_KEYS = new Set([
+  "built_at",
+  "extracted_at",
+  "generated_at",
+  "run_id",
+  "worker_run_id",
+]);
+
+function normalizeMetadataValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeMetadataValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key, entry]) => !RUNTIME_ONLY_METADATA_KEYS.has(key) && entry !== undefined)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, entry]) => [key, normalizeMetadataValue(entry)]),
+    );
+  }
+
+  return value;
+}
+
 function metadataEquivalent(
   left: Record<string, unknown> | null | undefined,
   right: Record<string, unknown>,
 ): boolean {
-  return JSON.stringify(left ?? {}) === JSON.stringify(right);
+  return JSON.stringify(normalizeMetadataValue(left ?? {})) ===
+    JSON.stringify(normalizeMetadataValue(right));
 }
 
 export async function upsertCandidateFact(
