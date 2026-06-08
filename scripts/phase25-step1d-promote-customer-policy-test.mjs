@@ -68,10 +68,11 @@ const report = {
       pass: customerDocCount === 1 && result.original_customer_document_preserved === true,
       customerDocCount,
     },
-    noTextChunkEmbeddingYet: {
-      pass: result.policy_pdf.upload_status === "uploaded" && chunkCount === 0 && vectorCount >= 0,
+    noEmbeddingOrVectorFromPromotion: {
+      pass: result.policy_pdf.upload_status === "uploaded" && vectorCount === 0,
       chunkCount,
       vectorCount,
+      note: "Chunk count may be non-zero after the real Step 1F chunk generation stage; promotion itself does not create embeddings or vectors.",
     },
   },
 };
