@@ -77,6 +77,19 @@ Consultation Orchestrator is **request-path** (not listed below) but may INSERT 
 | **audit 기록** | `metadata_json` on facts; optional future `memory_build_runs`; `memory_version` bump |
 | **outbox 연계** | Optional `memory.rebuild.completed` (P0 trigger for monitoring-worker) |
 
+#### Phase 23 Step 1C skeleton (implemented)
+
+| Item | Behavior |
+|------|----------|
+| **Runtime** | Supabase Edge Function `memory-builder-worker` |
+| **Auth** | `service_role` only — no customer JWT |
+| **Modes** | `mode=smoke` only — writes `system.memory_builder.smoke_test` fact |
+| **Jobs** | Optional `job_id` → load `worker_jobs` (`memory_builder`), `worker_runs` audit |
+| **Deploy** | `supabase functions deploy memory-builder-worker` (not auto-deployed with app) |
+| **Test** | `npm run test:phase23-step1c-smoke` |
+
+Full extractors (profile/health/policy/document/conversation) deferred to Step 2A+.
+
 ---
 
 ### 2.3 `customer-state-worker`
