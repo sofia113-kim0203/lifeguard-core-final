@@ -1,4 +1,4 @@
-export type MemoryBuilderScope = "smoke" | "profile_health_policy";
+export type MemoryBuilderScope = "smoke" | "profile_health_policy" | "conversation";
 
 export type MemoryBuilderMode = "smoke" | "extract" | "rebuild";
 
@@ -30,7 +30,7 @@ export type CandidateFact = {
   customer_id: string;
   fact_key: string;
   fact_value: string;
-  fact_type: "identity" | "health" | "insurance";
+  fact_type: "identity" | "health" | "insurance" | "preference" | "risk";
   importance: "low" | "medium" | "high" | "critical";
   source_table: string;
   source_record_id: string;

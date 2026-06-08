@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { EXTRACT_SCOPE, JOB_TYPE, WORKER_NAME, WORKER_PHASE } from "./config.ts";
+import { CONVERSATION_SCOPE, EXTRACT_SCOPE, JOB_TYPE, WORKER_NAME, WORKER_PHASE } from "./config.ts";
 import {
   isRunnableJobStatus,
   loadMemoryBuilderJob,
@@ -8,7 +8,7 @@ import {
   markJobFailed,
   markJobRunning,
 } from "./jobs.ts";
-import { runProfileHealthPolicyExtract } from "./rebuild.ts";
+import { runConversationMemoryExtract, runProfileHealthPolicyExtract } from "./rebuild.ts";
 import { isServiceRoleBearer, resolveServiceRoleKey } from "./service-role.ts";
 import { upsertSmokeFact } from "./smoke.ts";
 import {
@@ -47,7 +47,8 @@ function parseRequestBody(raw: unknown): MemoryBuilderRequestBody {
 }
 
 function isExtractMode(mode: MemoryBuilderMode, scope: MemoryBuilderScope): boolean {
-  return (mode === "extract" || mode === "rebuild") && scope === EXTRACT_SCOPE;
+  return (mode === "extract" || mode === "rebuild") &&
+    (scope === EXTRACT_SCOPE || scope === CONVERSATION_SCOPE);
 }
 
 async function assertCustomerExists(
@@ -108,7 +109,7 @@ Deno.serve(async (req) => {
       {
         error: "unsupported_mode",
         message:
-          "Supported: mode=smoke scope=smoke, or mode=extract|rebuild scope=profile_health_policy.",
+          "Supported: mode=smoke scope=smoke, or mode=extract|rebuild scope=profile_health_policy|conversation.",
       },
       422,
     );
@@ -199,7 +200,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const extractResult = await runProfileHealthPolicyExtract(adminClient, customerId);
+    const extractResult = scope === CONVERSATION_SCOPE
+      ? await runConversationMemoryExtract(adminClient, customerId)
+      : await runProfileHealthPolicyExtract(adminClient, customerId);
 
     if (jobId) {
       await markJobCompleted(adminClient, jobId);
