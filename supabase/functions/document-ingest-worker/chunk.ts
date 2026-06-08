@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { splitTextIntoChunks } from "./lib/chunker.ts";
 import { embedText, EMBEDDING_MODEL } from "./lib/embedding.ts";
 import type { ExtractionRoute } from "./lib/types.ts";
 
@@ -30,36 +31,44 @@ export async function replaceDocumentChunks(
     throw new Error(`chunk_delete_failed: ${deleteError.message}`);
   }
 
+  const textChunks = splitTextIntoChunks(params.content);
+  if (textChunks.length === 0) {
+    throw new Error("chunk_insert_failed: empty_content");
+  }
+
+  const baseMetadata = {
+    phase: params.workerPhase,
+    ocr_provider: "clova",
+    extraction_route: params.extractionRoute,
+    ...(params.ocrConfidenceAvg !== null
+      ? { ocr_confidence_avg: params.ocrConfidenceAvg }
+      : {}),
+  };
+
+  const rows = textChunks.map((chunk) => ({
+    customer_id: params.customerId,
+    document_id: params.documentId,
+    chunk_index: chunk.chunk_index,
+    content: chunk.content,
+    embedding: null,
+    embedding_model: null,
+    doc_title: params.docTitle,
+    page: 1,
+    metadata: baseMetadata,
+  }));
+
   const { data, error: insertError } = await admin
     .from("customer_document_chunks")
-    .insert({
-      customer_id: params.customerId,
-      document_id: params.documentId,
-      chunk_index: 0,
-      content: params.content,
-      embedding: null,
-      embedding_model: null,
-      doc_title: params.docTitle,
-      page: 1,
-      metadata: {
-        phase: params.workerPhase,
-        ocr_provider: "clova",
-        extraction_route: params.extractionRoute,
-        ...(params.ocrConfidenceAvg !== null
-          ? { ocr_confidence_avg: params.ocrConfidenceAvg }
-          : {}),
-      },
-    })
-    .select("id, content, chunk_index")
-    .single();
+    .insert(rows)
+    .select("id, content, chunk_index");
 
-  if (insertError || !data) {
+  if (insertError || !data?.length) {
     throw new Error(`chunk_insert_failed: ${insertError?.message ?? "unknown"}`);
   }
 
   return {
-    count: 1,
-    chunks: [data as DocumentChunkRecord],
+    count: data.length,
+    chunks: data as DocumentChunkRecord[],
   };
 }
 

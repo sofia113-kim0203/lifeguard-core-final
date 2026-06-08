@@ -4,7 +4,7 @@ export type IngestTraceRecord = {
   id: string;
 };
 
-const WORKER_PHASE = "22D-step1B";
+const WORKER_PHASE = "22D-step2";
 
 export async function startIngestTrace(
   admin: SupabaseClient,
