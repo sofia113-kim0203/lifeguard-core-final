@@ -4,7 +4,6 @@
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
-import { runCustomerPolicyKnowledgeAutoPipeline } from "../server/customerPolicyKnowledgePipeline.js";
 import { createClient } from "@supabase/supabase-js";
 
 function resolveServiceRoleKey() {
@@ -67,6 +66,7 @@ export default async function handler(req, res) {
     const limit = typeof body?.limit === "number" ? body.limit : 50;
     const dryRun = body?.dry_run === true;
 
+    const { runCustomerPolicyKnowledgeAutoPipeline } = await import("../server/customerPolicyKnowledgePipeline.js");
     const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
     const result = await runCustomerPolicyKnowledgeAutoPipeline({
       supabase,
