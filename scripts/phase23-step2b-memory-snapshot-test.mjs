@@ -223,6 +223,8 @@ const memoryResult = await handleClaudeContextInjectionRequest({
   authHeader,
   mode: "execute",
   fetchImpl: createFakeFetch(calls),
+  openAiApiKey: "test-openai-key",
+  anthropicApiKey: "test-anthropic-key",
   env,
 });
 const prompt = calls.lastClaudeRequest?.messages?.[0]?.content ?? "";
@@ -234,6 +236,9 @@ report.tests.memoryPromptInjection = {
     memoryResult.memory_fact_count === 3 &&
     memoryResult.used_memory_facts?.some((fact) => fact.fact_key === "health.medication.summary") &&
     promptIncludesOnlyAllowedMemory(prompt),
+  ok: memoryResult.ok,
+  reason: memoryResult.reason ?? null,
+  error_message: memoryResult.error_message ?? null,
   memory_used: memoryResult.memory_used,
   memory_fact_count: memoryResult.memory_fact_count,
   used_memory_facts: memoryResult.used_memory_facts,
@@ -250,6 +255,8 @@ const unrelatedResult = await handleClaudeContextInjectionRequest({
   authHeader,
   mode: "execute",
   fetchImpl: createFakeFetch(unrelatedCalls),
+  openAiApiKey: "test-openai-key",
+  anthropicApiKey: "test-anthropic-key",
   env,
 });
 report.tests.unrelatedDoesNotUseMemory = {
@@ -258,6 +265,9 @@ report.tests.unrelatedDoesNotUseMemory = {
     unrelatedResult.memory_used === false &&
     Array.isArray(unrelatedResult.used_memory_facts) &&
     unrelatedResult.used_memory_facts.length === 0,
+  ok: unrelatedResult.ok,
+  reason: unrelatedResult.reason ?? null,
+  error_message: unrelatedResult.error_message ?? null,
   memory_used: unrelatedResult.memory_used,
   used_memory_facts: unrelatedResult.used_memory_facts,
 };
