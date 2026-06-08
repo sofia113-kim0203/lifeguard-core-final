@@ -15,6 +15,7 @@ import {
   retrieveCustomerDocumentChunks,
 } from "./documentRagContext.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
+import { assessAnswerReview } from "./memoryReviewLayer.js";
 
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 const DEFAULT_MEMORY_FACT_LIMIT = 12;
@@ -420,8 +421,14 @@ export async function handleClaudeContextInjectionRequest({
   const documentContextBlock = formatDocumentContextForPrompt(chunks);
   const answerBasis = determineAnswerBasis({ memoryUsed, contextUsed });
   const memoryConfidence = determineMemoryConfidence(usedMemoryFacts);
-  const requiresAgentReview = riskIntent.requires_agent_review;
   const riskFlags = riskIntent.risk_flags;
+  const answerReview = assessAnswerReview({
+    answerBasis,
+    riskFlags,
+    usedMemoryFacts,
+    usedSources,
+  });
+  const requiresAgentReview = riskIntent.requires_agent_review || answerReview.requires_agent_review;
   const guardrailBlock = buildGuardrailPromptBlock({
     answerBasis,
     memoryConfidence,
@@ -446,6 +453,9 @@ export async function handleClaudeContextInjectionRequest({
       used_memory_facts: usedMemoryFacts,
       memory_fact_count: memorySnapshot.fact_count,
       requires_agent_review: requiresAgentReview,
+      review_reason: answerReview.review_reason,
+      review_status: answerReview.review_status,
+      review_priority: answerReview.review_priority,
       risk_flags: riskFlags,
       answer_basis: answerBasis,
       memory_confidence: memoryConfidence,
@@ -465,6 +475,9 @@ export async function handleClaudeContextInjectionRequest({
       used_memory_facts: usedMemoryFacts,
       memory_fact_count: memorySnapshot.fact_count,
       requires_agent_review: requiresAgentReview,
+      review_reason: answerReview.review_reason,
+      review_status: answerReview.review_status,
+      review_priority: answerReview.review_priority,
       risk_flags: riskFlags,
       answer_basis: answerBasis,
       memory_confidence: memoryConfidence,
@@ -498,6 +511,9 @@ export async function handleClaudeContextInjectionRequest({
       used_memory_facts: usedMemoryFacts,
       memory_fact_count: memorySnapshot.fact_count,
       requires_agent_review: requiresAgentReview,
+      review_reason: answerReview.review_reason,
+      review_status: answerReview.review_status,
+      review_priority: answerReview.review_priority,
       risk_flags: riskFlags,
       answer_basis: answerBasis,
       memory_confidence: memoryConfidence,
@@ -517,6 +533,9 @@ export async function handleClaudeContextInjectionRequest({
     used_memory_facts: usedMemoryFacts,
     memory_fact_count: memorySnapshot.fact_count,
     requires_agent_review: requiresAgentReview,
+    review_reason: answerReview.review_reason,
+    review_status: answerReview.review_status,
+    review_priority: answerReview.review_priority,
     risk_flags: riskFlags,
     answer_basis: answerBasis,
     memory_confidence: memoryConfidence,
