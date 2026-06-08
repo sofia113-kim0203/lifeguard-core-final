@@ -23,10 +23,12 @@
     "test:phase25-step1a": "node scripts/phase25-step1a-analysis-cache-layer-test.mjs",
     "test:phase25-step1b": "node scripts/phase25-step1b-rebalancing-engine-test.mjs",
     "test:phase25-step1c": "node scripts/phase25-step1c-shared-policy-registry-test.mjs",
-    "test:phase25-step1d-promote": "node scripts/phase25-step1d-promote-customer-policy-test.mjs"
+    "test:phase25-step1d-promote": "node scripts/phase25-step1d-promote-customer-policy-test.mjs",
+    "test:phase25-step1e": "node scripts/phase25-step1e-real-policy-text-extraction-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "pdf-parse": "^2.4.5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
