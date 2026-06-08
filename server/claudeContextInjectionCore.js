@@ -16,7 +16,7 @@ import {
 } from "./documentRagContext.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 
-const DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022";
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 
 export function resolveClaudeModel(env = process.env) {
   return String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_CLAUDE_MODEL).trim();
