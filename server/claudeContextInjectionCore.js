@@ -146,10 +146,11 @@ export async function handleClaudeContextInjectionRequest({
   threshold = DEFAULT_RAG_THRESHOLD,
   openAiApiKey = resolveOpenAiApiKey(),
   anthropicApiKey = resolveAnthropicApiKey(),
-  modelName = resolveClaudeModel(env),
+  modelName,
   fetchImpl = fetch,
   env = process.env,
 }) {
+  const claudeModelName = modelName ?? resolveClaudeModel(env);
   const trimmedQuestion = String(question ?? "").trim();
   if (!trimmedQuestion) {
     return { ok: false, reason: "QUESTION_REQUIRED", error_message: "question is required." };
@@ -240,7 +241,7 @@ export async function handleClaudeContextInjectionRequest({
   const { system, user } = buildClaudeRagPrompt(trimmedQuestion, documentContextBlock);
   const claudeResult = await callAnthropic({
     apiKey: anthropicApiKey,
-    modelName,
+    modelName: claudeModelName,
     system,
     user,
     fetchImpl,
