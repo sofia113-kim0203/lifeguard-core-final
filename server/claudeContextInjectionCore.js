@@ -140,6 +140,54 @@ export async function loadCustomerMemorySnapshot(
   };
 }
 
+
+const HIGH_RISK_INTENT_PATTERNS = [
+  { flag: "underwriting_possible", review: true, pattern: /(가입|인수|심사).{0,16}(가능|될까|거절|할증|부담보|괜찮)/ },
+  { flag: "claim_payment_possible", review: true, pattern: /(보험금|청구|지급).{0,16}(가능|받을 수|나올까|될까|거절)/ },
+  { flag: "disclosure_duty", review: true, pattern: /(고지|알릴의무).{0,16}(안 해도|위반|해야|괜찮|문제)/ },
+  { flag: "health_underwriting", review: true, pattern: /(병력|복용|약|수술|입원|치료).{0,16}(괜찮|가입|심사|고지|부담보|할증|거절)/ },
+  { flag: "coverage_terms", review: false, pattern: /(보장|약관|한도|면책|특약|보험료).{0,16}(얼마|가능|내용|기준|알려)/ },
+];
+
+export function detectInsuranceRiskIntent(question) {
+  const text = String(question ?? "").replace(/\s+/g, " ").trim();
+  const matches = HIGH_RISK_INTENT_PATTERNS.filter((entry) => entry.pattern.test(text));
+  return {
+    risk_flags: Array.from(new Set(matches.map((entry) => entry.flag))),
+    requires_agent_review: matches.some((entry) => entry.review),
+  };
+}
+
+export function determineAnswerBasis({ memoryUsed, contextUsed }) {
+  if (memoryUsed && contextUsed) return "memory_and_document";
+  if (contextUsed) return "document";
+  if (memoryUsed) return "memory_only";
+  return "general";
+}
+
+export function determineMemoryConfidence(usedMemoryFacts) {
+  if (!usedMemoryFacts?.length) return "none";
+  if (usedMemoryFacts.some((fact) => ["critical", "high"].includes(fact.importance))) return "high";
+  if (usedMemoryFacts.some((fact) => fact.importance === "medium")) return "medium";
+  return "low";
+}
+
+function buildGuardrailPromptBlock({ answerBasis, memoryConfidence, riskFlags, requiresAgentReview }) {
+  return [
+    `answer_basis=${answerBasis}`,
+    `memory_confidence=${memoryConfidence}`,
+    `risk_flags=${riskFlags.length ? riskFlags.join(",") : "none"}`,
+    `requires_agent_review=${requiresAgentReview ? "true" : "false"}`,
+    "Guardrails:",
+    "- Customer memory is prior customer-provided fact/preference/concern only; it is not final underwriting, coverage, or claim evidence.",
+    "- Do not conclude sign-up 가능/불가, claim 지급 가능/불가, disclosure violation, exclusions, riders, or coverage amounts from memory alone.",
+    "- For underwriting/sign-up questions, say insurer underwriting review is required.",
+    "- For claim/payment questions, say policy terms plus diagnosis/receipts/claim documents and insurer review are required.",
+    "- For health/disclosure questions, add that an agent or insurer underwriting review is required.",
+    "- If memory and uploaded document evidence conflict, state uncertainty and prefer uploaded document evidence.",
+  ].join("\n");
+}
+
 export function resolveClaudeModel(env = process.env) {
   return String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_CLAUDE_MODEL).trim();
 }
@@ -152,6 +200,8 @@ const RAG_SYSTEM_RULES = [
   "If customer memory and uploaded document evidence conflict, mention the uncertainty and prefer source-backed uploaded document evidence.",
   "Keep these categories separate in the answer: A. customer memory facts, B. uploaded document evidence, C. general insurance explanation.",
   "If the context does not contain the answer, say the provided context is insufficient in Korean.",
+  "Never state sign-up eligibility, claim payment eligibility, disclosure-duty outcome, exclusions, riders, or coverage amounts as certain unless uploaded document evidence explicitly supports it; even then, note insurer/agent review where appropriate.",
+  "When the question asks about underwriting, claim payment, disclosure duty, health history, loading/exclusion, or rejection risk, answer cautiously and include review-required wording.",
   "Do not make underwriting approval/decline or product recommendation decisions.",
 ].join(" ");
 
@@ -174,7 +224,17 @@ function createSupabaseClient(authHeader, env = process.env) {
   });
 }
 
-export function buildClaudeRagPrompt(question, documentContextBlock, customerMemorySnapshotBlock = "(no active customer memory facts retrieved)") {
+export function buildClaudeRagPrompt(
+  question,
+  documentContextBlock,
+  customerMemorySnapshotBlock = "(no active customer memory facts retrieved)",
+  guardrailBlock = buildGuardrailPromptBlock({
+    answerBasis: "general",
+    memoryConfidence: "none",
+    riskFlags: [],
+    requiresAgentReview: false,
+  }),
+) {
   const user = [
     "Answer the customer question using the context blocks below when relevant.",
     "Do not infer or fabricate facts that are not present in customer memory or uploaded document evidence.",
@@ -189,6 +249,9 @@ export function buildClaudeRagPrompt(question, documentContextBlock, customerMem
     "",
     "C. general_insurance_explanation:",
     "Use only for general education after separating it from memory and document evidence.",
+    "",
+    "D. insurance_consultation_guardrails:",
+    guardrailBlock,
   ].join("\n");
 
   return { system: RAG_SYSTEM_RULES, user };
@@ -311,6 +374,7 @@ export async function handleClaudeContextInjectionRequest({
   const relevantMemoryFacts = selectRelevantMemoryFacts(trimmedQuestion, memorySnapshot.facts);
   const usedMemoryFacts = mapMemoryFactsForResponse(relevantMemoryFacts);
   const memoryUsed = usedMemoryFacts.length > 0;
+  const riskIntent = detectInsuranceRiskIntent(trimmedQuestion);
 
   if (!openAiApiKey) {
     return {
@@ -354,6 +418,16 @@ export async function handleClaudeContextInjectionRequest({
     question: trimmedQuestion,
   });
   const documentContextBlock = formatDocumentContextForPrompt(chunks);
+  const answerBasis = determineAnswerBasis({ memoryUsed, contextUsed });
+  const memoryConfidence = determineMemoryConfidence(usedMemoryFacts);
+  const requiresAgentReview = riskIntent.requires_agent_review;
+  const riskFlags = riskIntent.risk_flags;
+  const guardrailBlock = buildGuardrailPromptBlock({
+    answerBasis,
+    memoryConfidence,
+    riskFlags,
+    requiresAgentReview,
+  });
 
   if (mode === "rag_only") {
     return {
@@ -371,6 +445,10 @@ export async function handleClaudeContextInjectionRequest({
       memory_used: memoryUsed,
       used_memory_facts: usedMemoryFacts,
       memory_fact_count: memorySnapshot.fact_count,
+      requires_agent_review: requiresAgentReview,
+      risk_flags: riskFlags,
+      answer_basis: answerBasis,
+      memory_confidence: memoryConfidence,
     };
   }
 
@@ -386,6 +464,10 @@ export async function handleClaudeContextInjectionRequest({
       memory_used: memoryUsed,
       used_memory_facts: usedMemoryFacts,
       memory_fact_count: memorySnapshot.fact_count,
+      requires_agent_review: requiresAgentReview,
+      risk_flags: riskFlags,
+      answer_basis: answerBasis,
+      memory_confidence: memoryConfidence,
     };
   }
 
@@ -393,6 +475,7 @@ export async function handleClaudeContextInjectionRequest({
     trimmedQuestion,
     documentContextBlock,
     memorySnapshot.prompt_block,
+    guardrailBlock,
   );
   const claudeResult = await callAnthropic({
     apiKey: anthropicApiKey,
@@ -414,6 +497,10 @@ export async function handleClaudeContextInjectionRequest({
       memory_used: memoryUsed,
       used_memory_facts: usedMemoryFacts,
       memory_fact_count: memorySnapshot.fact_count,
+      requires_agent_review: requiresAgentReview,
+      risk_flags: riskFlags,
+      answer_basis: answerBasis,
+      memory_confidence: memoryConfidence,
     };
   }
 
@@ -429,6 +516,10 @@ export async function handleClaudeContextInjectionRequest({
     memory_used: memoryUsed,
     used_memory_facts: usedMemoryFacts,
     memory_fact_count: memorySnapshot.fact_count,
+    requires_agent_review: requiresAgentReview,
+    risk_flags: riskFlags,
+    answer_basis: answerBasis,
+    memory_confidence: memoryConfidence,
     rag_row_count: chunks.length,
     model_name: claudeResult.model,
     provider: claudeResult.provider,
