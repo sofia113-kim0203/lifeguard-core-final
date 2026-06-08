@@ -31,12 +31,15 @@ export type ClassifiedDocumentType =
   | "insurance_certificate"
   | "unknown";
 
+export type WorkerPhase = "22D-step1B";
+
 export type IngestMetadata = {
-  phase: "22A-step2C";
+  phase: WorkerPhase;
   ocr_provider: OcrProvider;
   extraction_route: ExtractionRoute;
   chunk_count: number;
   storage_verified: boolean;
   classified_document_type: ClassifiedDocumentType | string;
+  embedding_model?: string;
   ocr_confidence_avg?: number | null;
 };

@@ -101,6 +101,32 @@ Customer may hint type at upload; classifier may override based on OCR text — 
 
 **Async:** Steps 7–16 run off-request; customer polls `GET /api/documents/:id` for status.
 
+### 3.1 Worker runtime (Phase 22D Step 1B — embedding foundation)
+
+**Edge Function:** `document-ingest-worker`
+
+| Step | Action | Output |
+|------|--------|--------|
+| 1 | Storage download → CLOVA OCR | `chunks.content` (real OCR text) |
+| 2 | PII sanitize → insert chunk | `embedding = NULL` initially |
+| 3 | OpenAI embed chunk text | `embedding`, `embedding_model` updated |
+| 4 | Mark document ready | `ingest_status = ready` only after embedding succeeds |
+
+**Flow:** OCR → `chunk.content` → embedding → `ready`
+
+**Edge Function secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `OPENAI_API_KEY` | OpenAI Embeddings API (Phase 22D Step 1B+) |
+| `CLOVA_OCR_API_URL` | CLOVA General OCR endpoint (unchanged) |
+| `CLOVA_OCR_SECRET_KEY` | CLOVA API secret (unchanged) |
+| `SERVICE_ROLE_KEY` | Worker DB/storage access (unchanged) |
+
+**Embedding config:** `text-embedding-3-small`, **1536 dimensions** (matches `customer_document_chunks.embedding VECTOR(1536)`).
+
+**Embedding failure:** If OCR/chunk insert succeeds but embedding fails, the worker sets `ingest_status = failed` with `error_message` containing `embedding_failed` (or `embedding_failed_missing_api_key` when `OPENAI_API_KEY` is unset). OCR text in `chunks.content` is **not** deleted; `embedding` remains NULL so RAG RPC excludes the row.
+
 ---
 
 ## 4. `customer_documents` status model

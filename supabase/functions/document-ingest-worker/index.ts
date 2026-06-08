@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { classifyDocumentType } from "./classify.ts";
-import { replaceDocumentChunks } from "./chunk.ts";
+import { applyChunkEmbeddings, replaceDocumentChunks } from "./chunk.ts";
 import { runExtract, type DocumentRecord } from "./extract.ts";
 import {
   completeIngestTrace,
@@ -14,7 +14,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const WORKER_PHASE = "22A-step2C";
+const WORKER_PHASE = "22D-step1B";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -197,13 +197,20 @@ Deno.serve(async (req) => {
     const classifiedDocumentType = classifyDocumentType(document);
     const extractResult = await runExtract(adminClient, document);
 
-    const chunkCount = await replaceDocumentChunks(adminClient, {
+    const chunkResult = await replaceDocumentChunks(adminClient, {
       customerId,
       documentId,
       docTitle: document.original_filename,
       content: extractResult.content,
       extractionRoute: extractResult.extractionRoute,
       ocrConfidenceAvg: extractResult.ocrConfidenceAvg,
+      workerPhase: WORKER_PHASE,
+    });
+
+    const embeddingResult = await applyChunkEmbeddings(adminClient, {
+      customerId,
+      documentId,
+      chunks: chunkResult.chunks,
     });
 
     const mergedMetadata = {
@@ -211,7 +218,8 @@ Deno.serve(async (req) => {
       phase: WORKER_PHASE,
       ocr_provider: extractResult.ocrProvider,
       extraction_route: extractResult.extractionRoute,
-      chunk_count: chunkCount,
+      chunk_count: chunkResult.count,
+      embedding_model: embeddingResult.embeddingModel,
       storage_verified: extractResult.storageVerified,
       classified_document_type: classifiedDocumentType,
       ...(extractResult.ocrConfidenceAvg !== null
@@ -237,7 +245,7 @@ Deno.serve(async (req) => {
     }
 
     await completeIngestTrace(adminClient, traceId, {
-      chunkCount,
+      chunkCount: chunkResult.count,
       ocrConfidenceAvg: extractResult.ocrConfidenceAvg,
       steps: {
         phase: WORKER_PHASE,
@@ -246,7 +254,9 @@ Deno.serve(async (req) => {
         extraction_route: extractResult.extractionRoute,
         classified_document_type: classifiedDocumentType,
         storage_verified: extractResult.storageVerified,
-        chunk_count: chunkCount,
+        chunk_count: chunkResult.count,
+        embedding_model: embeddingResult.embeddingModel,
+        embedded_count: embeddingResult.embeddedCount,
         ...(extractResult.ocrConfidenceAvg !== null
           ? { ocr_confidence_avg: extractResult.ocrConfidenceAvg }
           : {}),
@@ -256,10 +266,11 @@ Deno.serve(async (req) => {
     return jsonResponse({
       document_id: documentId,
       ingest_status: "ready",
-      chunk_count: chunkCount,
+      chunk_count: chunkResult.count,
       phase: WORKER_PHASE,
       ocr_provider: extractResult.ocrProvider,
       extraction_route: extractResult.extractionRoute,
+      embedding_model: embeddingResult.embeddingModel,
       classified_document_type: classifiedDocumentType,
       ...(extractResult.ocrConfidenceAvg !== null
         ? { ocr_confidence_avg: extractResult.ocrConfidenceAvg }
