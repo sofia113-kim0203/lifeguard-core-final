@@ -31,7 +31,7 @@ export type ClassifiedDocumentType =
   | "insurance_certificate"
   | "unknown";
 
-export type WorkerPhase = "22D-step1B";
+export type WorkerPhase = "22D-step2";
 
 export type IngestMetadata = {
   phase: WorkerPhase;
