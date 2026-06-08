@@ -8,6 +8,9 @@ export async function invokeRealPolicyEmbeddingWorker({
   serviceRoleKey,
   policyPdfId = POLICY_PDF_ID,
   chunkGenerationRunId = CHUNK_GENERATION_RUN_ID,
+  chunkOffset = 0,
+  chunkLimit = 200,
+  ragSourceId = RAG_SOURCE_ID,
 } = {}) {
   if (!supabaseUrl || !serviceRoleKey) throw new Error("supabaseUrl_and_serviceRoleKey_required");
   const url = `${supabaseUrl}${EMBEDDING_WORKER_URL}`;
@@ -21,7 +24,9 @@ export async function invokeRealPolicyEmbeddingWorker({
     body: JSON.stringify({
       policy_pdf_id: policyPdfId,
       chunk_generation_run_id: chunkGenerationRunId,
-      rag_source_id: RAG_SOURCE_ID,
+      rag_source_id: ragSourceId,
+      chunk_offset: chunkOffset,
+      chunk_limit: chunkLimit,
     }),
   });
   const body = await response.json().catch(() => ({}));

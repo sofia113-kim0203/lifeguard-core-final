@@ -1,6 +1,7 @@
 export const SHARED_POLICY_VISIBILITY = "shared";
 export const SHARED_POLICY_KNOWLEDGE_TYPE = "policy_terms";
 export const PROCESSING_STATUSES = ["uploaded", "text_extracted", "chunked", "embedded", "searchable", "failed"];
+export const POLICY_PIPELINE_STATUSES = ["uploaded", "queued", "processing", "ready", "failed"];
 
 function requiredString(value, field) {
   const text = String(value ?? "").trim();
