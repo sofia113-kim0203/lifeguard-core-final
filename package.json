@@ -22,7 +22,8 @@
     "test:phase24-step3d": "node scripts/phase24-step3d-insurance-design-generator-test.mjs",
     "test:phase25-step1a": "node scripts/phase25-step1a-analysis-cache-layer-test.mjs",
     "test:phase25-step1b": "node scripts/phase25-step1b-rebalancing-engine-test.mjs",
-    "test:phase25-step1c": "node scripts/phase25-step1c-shared-policy-registry-test.mjs"
+    "test:phase25-step1c": "node scripts/phase25-step1c-shared-policy-registry-test.mjs",
+    "test:phase25-step1d-promote": "node scripts/phase25-step1d-promote-customer-policy-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
