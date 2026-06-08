@@ -153,6 +153,18 @@ async function ensurePolicyPdf(supabase, policySource, carrier, product, metadat
   return { ...data, reused: false };
 }
 
+
+async function ensurePolicyBucket(supabase) {
+  const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+  if (listError) throw new Error(`storage_bucket_list_failed: ${listError.message}`);
+  if ((buckets ?? []).some((bucket) => bucket.name === "policy-pdfs" || bucket.id === "policy-pdfs")) {
+    return { created: false, reused: true };
+  }
+  const { error: createError } = await supabase.storage.createBucket("policy-pdfs", { public: false });
+  if (createError) throw new Error(`policy_bucket_create_failed: ${createError.message}`);
+  return { created: true, reused: false };
+}
+
 async function copyStorageObject(supabase, sourcePath, targetPath, contentType = "application/pdf") {
   const { data: existing } = await supabase.storage.from("policy-pdfs").list(targetPath.split("/").slice(0, -1).join("/"), { limit: 100 });
   const targetName = targetPath.split("/").at(-1);
@@ -186,6 +198,7 @@ export async function promoteCustomerDocumentToSharedPolicy({
   if (document.mime_type !== "application/pdf") throw new Error("customer_document_must_be_pdf");
 
   const targetPath = `hanwha/${metadata.product_code}/${metadata.source_file_name}`;
+  const bucket = await ensurePolicyBucket(supabase);
   const storage = await copyStorageObject(supabase, document.storage_path, targetPath, document.mime_type);
   const carrier = await ensureCarrier(supabase, metadata);
   const product = await ensureProduct(supabase, carrier, metadata);
@@ -210,6 +223,7 @@ export async function promoteCustomerDocumentToSharedPolicy({
   return {
     source_customer_document: document,
     target_storage_path: targetPath,
+    bucket,
     storage,
     carrier,
     product,
