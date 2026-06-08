@@ -2,3 +2,8 @@ node_modules
 dist
 .env
 .env.local
+
+# Phase 22D Step 4 — generated integration test artifacts
+scripts/samples/
+scripts/.tmp-step4-query.png
+scripts/.phase22d-step4-report.json
