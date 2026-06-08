@@ -83,12 +83,12 @@ Consultation Orchestrator is **request-path** (not listed below) but may INSERT 
 |------|----------|
 | **Runtime** | Supabase Edge Function `memory-builder-worker` |
 | **Auth** | `service_role` only — no customer JWT |
-| **Modes** | `mode=smoke` only — writes `system.memory_builder.smoke_test` fact |
+| **Modes** | `mode=smoke` (Step 1C); `mode=extract` / `mode=rebuild` + `scope=profile_health_policy` (Step 2A) |
 | **Jobs** | Optional `job_id` → load `worker_jobs` (`memory_builder`), `worker_runs` audit |
 | **Deploy** | `supabase functions deploy memory-builder-worker` (not auto-deployed with app) |
-| **Test** | `npm run test:phase23-step1c-smoke` |
+| **Test** | `npm run test:phase23-step1c-smoke`, `npm run test:phase23-step2a` |
 
-Full extractors (profile/health/policy/document/conversation) deferred to Step 2A+.
+Step 2A: profile/health/insurance policy extractors with consent gate and idempotent upsert. Document/conversation extractors deferred to Step 2B+.
 
 ---
 

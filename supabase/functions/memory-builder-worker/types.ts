@@ -1,6 +1,6 @@
-export type MemoryBuilderScope = "smoke";
+export type MemoryBuilderScope = "smoke" | "profile_health_policy";
 
-export type MemoryBuilderMode = "smoke";
+export type MemoryBuilderMode = "smoke" | "extract" | "rebuild";
 
 export type WorkerJobRecord = {
   id: string;
@@ -13,9 +13,46 @@ export type WorkerJobRecord = {
 };
 
 export type SmokeFactResult = {
-  action: "inserted" | "superseded_and_inserted" | "no_op";
+  action: FactUpsertAction;
   fact_id: string;
   fact_key: string;
+};
+
+export type FactUpsertAction = "inserted" | "superseded_and_inserted" | "no_op";
+
+export type FactUpsertResult = {
+  action: FactUpsertAction;
+  fact_id: string;
+  fact_key: string;
+};
+
+export type CandidateFact = {
+  customer_id: string;
+  fact_key: string;
+  fact_value: string;
+  fact_type: "identity" | "health" | "insurance";
+  importance: "low" | "medium" | "high" | "critical";
+  source_table: string;
+  source_record_id: string;
+  confidence: number;
+  metadata_json: Record<string, unknown>;
+};
+
+export type ExtractRebuildResult = {
+  consent_snapshot: Record<string, boolean>;
+  extractors: Record<
+    string,
+    {
+      skipped: boolean;
+      skip_reason?: string;
+      candidate_count: number;
+    }
+  >;
+  fact_results: FactUpsertResult[];
+  fact_action_summary: Record<FactUpsertAction, number>;
+  facts_changed: number;
+  memory_version: number | null;
+  fact_keys: string[];
 };
 
 export type MemoryBuilderRequestBody = {
