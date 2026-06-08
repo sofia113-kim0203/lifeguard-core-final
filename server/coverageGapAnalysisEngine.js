@@ -9,6 +9,9 @@ const COVERAGE_ITEMS = [
   { type: "disability", label: "장해", keywords: ["장해", "disability", "후유장해"], highPriority: false },
   { type: "driver", label: "운전자", keywords: ["운전자", "driver", "교통사고"], highPriority: false },
   { type: "dental", label: "치아", keywords: ["치아", "dental", "치과"], highPriority: false },
+  { type: "dementia_care", label: "치매/간병", keywords: ["치매", "간병", "dementia", "care", "요양"], highPriority: true },
+  { type: "family_protection", label: "가족 보장", keywords: ["가족", "family", "자녀", "배우자", "유족", "가족력"], highPriority: false },
+  { type: "corporate_group", label: "법인/단체", keywords: ["법인", "단체", "group", "corporate", "단체보험"], highPriority: false },
 ];
 
 const STATUS_SCORE = {
@@ -81,15 +84,18 @@ function classifyItem(item, facts) {
   let status = "unknown";
   let reason = `${item.label} 보장 관련 memory가 부족합니다.`;
 
-  if (/없|미보유|없음|부족|공백|필요/.test(text)) {
+  if (count === 0 && item.highPriority) {
+    status = "missing";
+    reason = `${item.label} 보장 보유 memory가 없습니다.`;
+  } else if (/없|미보유|없음|부족|공백|필요/.test(text)) {
     status = text.includes("부족") ? "insufficient" : "missing";
     reason = `${item.label} 보장이 없거나 부족하다는 memory가 있습니다.`;
-  } else if (/중복|여러|2건|3건|복수/.test(text) || count >= 2) {
-    status = "duplicate";
-    reason = `${item.label} 관련 중복 가능성이 있는 memory가 있습니다.`;
   } else if (/보유|유지|가입|충분|adequate|held/.test(text)) {
     status = "adequate";
     reason = `${item.label} 관련 보유 memory가 있습니다.`;
+  } else if (/중복|여러|2건|3건|복수/.test(text) || count >= 2) {
+    status = "duplicate";
+    reason = `${item.label} 관련 중복 가능성이 있는 memory가 있습니다.`;
   }
 
   const severity = status === "missing" && item.highPriority
