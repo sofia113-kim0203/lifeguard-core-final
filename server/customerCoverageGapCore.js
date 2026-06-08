@@ -231,7 +231,7 @@ async function resolveCustomerId(supabase) {
   return { ok: true, customerId: profile.id };
 }
 
-async function loadCoverageContext(supabase, customerId) {
+export async function loadCoverageAnalysisContext(supabase, customerId) {
   const [snapshot, policiesResult, healthResult] = await Promise.all([
     loadCustomerMemorySnapshot(supabase, customerId),
     supabase
@@ -280,6 +280,8 @@ async function loadCoverageContext(supabase, customerId) {
     input,
     analysis,
     coverageGapResult,
+    policies: policiesResult.data ?? [],
+    health: healthResult.data,
   };
 }
 
@@ -308,7 +310,7 @@ export async function handleCustomerCoverageGapRequest({
     return { ok: false, reason: "CUSTOMER_ID_REQUIRED", error_message: "customer_id is required." };
   }
 
-  const context = await loadCoverageContext(supabase, customerId);
+  const context = await loadCoverageAnalysisContext(supabase, customerId);
 
   let claudeExplanation = null;
   let claudeMeta = { skipped: true, reason: "skipClaude" };
