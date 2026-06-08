@@ -14,6 +14,7 @@ import {
   PRIORITY_LABELS,
   RECOMMENDATION_TYPE_LABELS,
 } from "../lib/customerRecommendations.js";
+import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
@@ -166,12 +167,14 @@ export default function AiRecommendationPanel({ user }) {
   const [gapResult, setGapResult] = useState(null);
   const [uwResult, setUwResult] = useState(null);
   const [recResult, setRecResult] = useState(null);
+  const [designResult, setDesignResult] = useState(null);
 
   const loadAnalysis = useCallback(async () => {
     if (!user) {
       setGapResult(null);
       setUwResult(null);
       setRecResult(null);
+      setDesignResult(null);
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
@@ -180,18 +183,21 @@ export default function AiRecommendationPanel({ user }) {
     setLoading(true);
     setError("");
     try {
-      const [gapData, uwData, recData] = await Promise.all([
+      const [gapData, uwData, recData, designData] = await Promise.all([
         analyzeCustomerCoverageGap(),
         analyzeCustomerUnderwritingRisk(),
         loadCustomerRecommendations(),
+        loadCustomerInsuranceDesign(),
       ]);
       setGapResult(gapData);
       setUwResult(uwData);
       setRecResult(recData);
+      setDesignResult(designData);
     } catch (err) {
       setGapResult(null);
       setUwResult(null);
       setRecResult(null);
+      setDesignResult(null);
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
@@ -208,9 +214,9 @@ export default function AiRecommendationPanel({ user }) {
   return (
     <section style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
       <div>
-        <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천</h2>
+        <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천 · 보험설계안</h2>
         <p style={S.desc}>
-          Customer Memory, Coverage Gap, Underwriting Risk를 함께 고려해 고객별 Top 2 보험 추천을 생성합니다.
+          Customer Memory부터 Coverage Gap, Underwriting, Recommendation까지 연결해 고객별 보험설계안을 생성합니다.
         </p>
       </div>
 
@@ -380,6 +386,7 @@ export default function AiRecommendationPanel({ user }) {
         ) : (
           <div style={S.muted}>인수 위험 결과가 없습니다.</div>
         )}
+      </div>
 
       <div style={S.card}>
         <h3 style={S.sectionTitle}>AI 보험 추천 Top 2</h3>
@@ -458,11 +465,103 @@ export default function AiRecommendationPanel({ user }) {
         )}
       </div>
 
-        <div style={{ marginTop: "20px" }}>
-          <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
-            {loading ? "분석 중…" : "보장·인수·추천 분석 다시 실행"}
-          </button>
-        </div>
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>보험설계안</h3>
+        {loading ? (
+          <div style={S.muted}>추천 결과를 반영해 보험설계안을 생성하는 중…</div>
+        ) : designResult?.customerVisibleDesign ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div>
+              <h4 style={{ ...S.sectionTitle, fontSize: "18px", color: "#f8fafc" }}>
+                {designResult.customerVisibleDesign.design_title}
+              </h4>
+              <div style={S.muted}>{designResult.customerVisibleDesign.design_summary}</div>
+            </div>
+
+            <div style={S.metricGrid}>
+              <div style={S.metric}>
+                <div style={S.metricLabel}>월 예산 범위</div>
+                <div style={{ ...S.metricValue, fontSize: "14px" }}>
+                  {designResult.customerVisibleDesign.monthly_budget_range}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style={S.sectionTitle}>먼저 준비할 보장</h4>
+              <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                {(designResult.customerVisibleDesign.priority_coverages ?? []).join(", ") || "—"}
+              </div>
+            </div>
+
+            <div>
+              <h4 style={S.sectionTitle}>유지할 기존 보장</h4>
+              <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                {(designResult.customerVisibleDesign.keep_existing_coverages ?? []).join(", ") || "—"}
+              </div>
+            </div>
+
+            {designResult.customerVisibleDesign.additional_review_coverages?.length ? (
+              <div>
+                <h4 style={S.sectionTitle}>추가 검토할 보장</h4>
+                <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                  {designResult.customerVisibleDesign.additional_review_coverages.join(", ")}
+                </div>
+              </div>
+            ) : null}
+
+            {designResult.customerVisibleDesign.pre_enrollment_cautions?.length ? (
+              <div>
+                <h4 style={S.sectionTitle}>가입 전 주의사항</h4>
+                <ul style={S.list}>
+                  {designResult.customerVisibleDesign.pre_enrollment_cautions.map((item) => (
+                    <li key={item} style={S.listItem}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {designResult.requiredDocuments?.length ? (
+              <div>
+                <h4 style={S.sectionTitle}>필요 서류</h4>
+                <ul style={S.list}>
+                  {designResult.requiredDocuments.map((doc) => (
+                    <li key={doc} style={S.listItem}>{doc}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div>
+              <h4 style={S.sectionTitle}>다음 행동</h4>
+              <ul style={S.list}>
+                {(designResult.customerVisibleDesign.next_actions ?? []).map((action) => (
+                  <li key={action} style={S.listItem}>{action}</li>
+                ))}
+              </ul>
+            </div>
+
+            {designResult.claudeExplanation ? (
+              <div>
+                <h4 style={S.sectionTitle}>설계안 Claude 설명</h4>
+                <div style={S.explanation}>{designResult.claudeExplanation}</div>
+              </div>
+            ) : (
+              <div style={S.muted}>
+                설계안 Claude 설명을 생성하지 못했습니다.
+                {designResult.claudeMeta?.reason ? ` (${designResult.claudeMeta.reason})` : ""}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={S.muted}>보험설계안이 없습니다.</div>
+        )}
+      </div>
+
+      <div style={{ marginTop: "8px" }}>
+        <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
+          {loading ? "분석 중…" : "보장·인수·추천·설계 분석 다시 실행"}
+        </button>
       </div>
     </section>
   );
