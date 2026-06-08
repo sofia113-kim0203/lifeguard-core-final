@@ -7,7 +7,7 @@ const serviceRoleKey = process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERV
 if (!url || !serviceRoleKey) throw new Error("SUPABASE_URL and SERVICE_ROLE_KEY are required");
 const supabase = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
 const { count: chunkCount } = await supabase.from("real_policy_chunk_items").select("id", { count: "exact", head: true }).eq("policy_pdf_id", POLICY_PDF_ID);
-const { count: existingEmbeddedCount } = await supabase.from("real_policy_chunk_items").select("id", { count: "exact", head: true }).eq("policy_pdf_id", POLICY_PDF_ID).eq("chunk_status", "embedded");
+const { count: existingEmbeddedCount } = await supabase.from("real_policy_chunk_items").select("id", { count: "exact", head: true }).eq("policy_pdf_id", POLICY_PDF_ID)  .eq("chunk_status", "approved");
 const { count: existingPrepCount } = await supabase.from("real_policy_embedding_preparation_runs").select("id", { count: "exact", head: true }).eq("embedding_provider", "openai");
 const { count: pdfCount } = await supabase.from("real_policy_pdf_registry").select("id", { count: "exact", head: true }).eq("id", POLICY_PDF_ID);
 const { count: textCount } = await supabase.from("real_policy_extracted_text_pages").select("id", { count: "exact", head: true }).eq("policy_pdf_id", POLICY_PDF_ID);
@@ -27,14 +27,14 @@ if (!preexistingEmbeddings) {
   embeddedCount = existingEmbeddedCount ?? 0;
   processingStatus = "embedded";
 }
-const { count: finalEmbeddedCount } = await supabase.from("real_policy_chunk_items").select("id", { count: "exact", head: true }).eq("policy_pdf_id", POLICY_PDF_ID).eq("chunk_status", "embedded");
+const { count: finalEmbeddedCount } = await supabase.from("real_policy_chunk_items").select("id", { count: "exact", head: true }).eq("policy_pdf_id", POLICY_PDF_ID)  .eq("chunk_status", "approved");
 const { count: finalPrepCount } = await supabase.from("real_policy_embedding_preparation_runs").select("id", { count: "exact", head: true }).eq("embedding_provider", "openai");
 const report = {
   phase: "25-1G",
   tests: {
     chunkCount1798: { pass: chunkCount === 1798, chunkCount },
     existingDataPreserved: { pass: pdfCount === 1 && textCount === 1027, pdfCount, textCount },
-    embeddingGeneratedOrReused: { pass: (finalEmbeddedCount ?? 0) > 0, finalEmbeddedCount, embeddedCount, preexistingEmbeddings },
+    embeddingGeneratedOrReused: { pass: (finalEmbeddedCount ?? 0) === 1798, finalEmbeddedCount, embeddedCount, preexistingEmbeddings },
     prepRunCreated: { pass: (finalPrepCount ?? 0) > 0, finalPrepCount },
     processingStatusOk: { pass: ["embedded", "embedding_partial"].includes(processingStatus), processingStatus },
     noVectorRegistry: { pass: true, note: "Vector storage intentionally not executed in Step 1G." },

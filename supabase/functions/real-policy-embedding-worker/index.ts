@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
           item_status: "embedded",
         });
         await admin.from("real_policy_chunk_items").update({
-          chunk_status: "embedded",
+          chunk_status: "approved",
           source_reference: vectorRef,
         }).eq("id", chunk.id);
         embeddedCount += 1;
