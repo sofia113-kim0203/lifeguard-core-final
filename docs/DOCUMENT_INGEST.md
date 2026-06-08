@@ -148,7 +148,7 @@ Customer may hint type at upload; classifier may override based on OCR text — 
 
 **Response fields:** `used_sources[]`, `context_used`, `insufficient_context`, `rag_row_count`.
 
-**Server env:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default `claude-3-5-sonnet-20241022`), `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+**Server env:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default `claude-sonnet-4-6`), `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
 
 **Tests:** `npm run test:phase22d-step4-unit` (local) · `npm run test:phase22d-step4` (Supabase + worker).
 
