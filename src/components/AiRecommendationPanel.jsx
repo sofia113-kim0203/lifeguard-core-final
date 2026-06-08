@@ -4,6 +4,11 @@ import {
   GAP_LEVEL_LABELS,
   OVERALL_RISK_LABELS,
 } from "../lib/customerCoverageGap.js";
+import {
+  analyzeCustomerUnderwritingRisk,
+  RISK_LEVEL_LABELS,
+  UNDERWRITING_STATUS_LABELS,
+} from "../lib/customerUnderwritingRisk.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
@@ -17,6 +22,15 @@ const GAP_TONES = {
   sufficient: { bg: "rgba(34, 197, 94, 0.12)", border: "rgba(34, 197, 94, 0.35)", color: "#4ade80" },
 };
 
+const UW_TONES = {
+  likely_decline: GAP_TONES.critical,
+  likely_exclusion: GAP_TONES.high,
+  likely_surcharge: GAP_TONES.high,
+  likely_additional_review: GAP_TONES.medium,
+  unknown: GAP_TONES.low,
+  likely_standard: GAP_TONES.sufficient,
+};
+
 const S = {
   card: {
     background: "rgba(30, 41, 59, 0.65)",
@@ -24,24 +38,9 @@ const S = {
     borderRadius: "16px",
     padding: "24px 28px",
   },
-  title: {
-    margin: 0,
-    fontSize: "22px",
-    fontWeight: 700,
-    color: "#f8fafc",
-  },
-  desc: {
-    margin: "8px 0 0",
-    fontSize: "14px",
-    color: "#94a3b8",
-    lineHeight: 1.55,
-  },
-  sectionTitle: {
-    margin: "0 0 12px",
-    fontSize: "15px",
-    fontWeight: 700,
-    color: "#e2e8f0",
-  },
+  title: { margin: 0, fontSize: "22px", fontWeight: 700, color: "#f8fafc" },
+  desc: { margin: "8px 0 0", fontSize: "14px", color: "#94a3b8", lineHeight: 1.55 },
+  sectionTitle: { margin: "0 0 12px", fontSize: "15px", fontWeight: 700, color: "#e2e8f0" },
   metricGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
@@ -53,25 +52,9 @@ const S = {
     background: "rgba(15, 23, 42, 0.45)",
     border: "1px solid rgba(148, 163, 184, 0.1)",
   },
-  metricLabel: {
-    fontSize: "12px",
-    color: "#64748b",
-    fontWeight: 600,
-    marginBottom: "6px",
-  },
-  metricValue: {
-    fontSize: "18px",
-    color: "#f8fafc",
-    fontWeight: 700,
-  },
-  list: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    margin: 0,
-    padding: 0,
-    listStyle: "none",
-  },
+  metricLabel: { fontSize: "12px", color: "#64748b", fontWeight: 600, marginBottom: "6px" },
+  metricValue: { fontSize: "18px", color: "#f8fafc", fontWeight: 700 },
+  list: { display: "flex", flexDirection: "column", gap: "10px", margin: 0, padding: 0, listStyle: "none" },
   listItem: {
     padding: "12px 14px",
     borderRadius: "10px",
@@ -86,12 +69,7 @@ const S = {
     fontWeight: 700,
     marginRight: "8px",
   },
-  explanation: {
-    whiteSpace: "pre-wrap",
-    fontSize: "14px",
-    lineHeight: 1.65,
-    color: "#cbd5e1",
-  },
+  explanation: { whiteSpace: "pre-wrap", fontSize: "14px", lineHeight: 1.65, color: "#cbd5e1" },
   btn: {
     padding: "10px 16px",
     borderRadius: "10px",
@@ -111,14 +89,11 @@ const S = {
     fontSize: "13px",
     border: "1px solid rgba(248, 113, 113, 0.25)",
   },
-  muted: {
-    fontSize: "13px",
-    color: "#94a3b8",
-  },
+  muted: { fontSize: "13px", color: "#94a3b8" },
 };
 
-function GapBadge({ level }) {
-  const tone = GAP_TONES[level] ?? GAP_TONES.low;
+function ToneBadge({ toneMap, level, labels }) {
+  const tone = toneMap[level] ?? toneMap.low ?? UW_TONES.unknown;
   return (
     <span
       style={{
@@ -128,7 +103,7 @@ function GapBadge({ level }) {
         color: tone.color,
       }}
     >
-      {GAP_LEVEL_LABELS[level] ?? level}
+      {labels[level] ?? level}
     </span>
   );
 }
@@ -137,7 +112,7 @@ function GapListItem({ item }) {
   return (
     <li style={S.listItem}>
       <div style={{ marginBottom: "6px" }}>
-        <GapBadge level={item.gap_level} />
+        <ToneBadge toneMap={GAP_TONES} level={item.gap_level} labels={GAP_LEVEL_LABELS} />
         <strong style={{ color: "#f1f5f9" }}>{item.coverage_label}</strong>
       </div>
       <div style={S.muted}>{item.reason}</div>
@@ -153,14 +128,43 @@ function GapListItem({ item }) {
   );
 }
 
+function UnderwritingListItem({ item }) {
+  return (
+    <li style={S.listItem}>
+      <div style={{ marginBottom: "6px" }}>
+        <ToneBadge
+          toneMap={UW_TONES}
+          level={item.underwriting_status}
+          labels={UNDERWRITING_STATUS_LABELS}
+        />
+        <strong style={{ color: "#f1f5f9" }}>{item.coverage_label}</strong>
+        <span style={{ marginLeft: "8px", fontSize: "12px", color: "#94a3b8" }}>
+          위험 {RISK_LEVEL_LABELS[item.risk_level] ?? item.risk_level}
+        </span>
+      </div>
+      <div style={S.muted}>{item.reason}</div>
+      <div style={{ marginTop: "6px", fontSize: "13px", color: "#cbd5e1" }}>
+        {item.recommended_next_step}
+      </div>
+      {item.related_memory_sources?.length ? (
+        <div style={{ marginTop: "6px", fontSize: "12px", color: "#64748b" }}>
+          Memory 근거: {item.related_memory_sources.join(", ")}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 export default function AiRecommendationPanel({ user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
+  const [gapResult, setGapResult] = useState(null);
+  const [uwResult, setUwResult] = useState(null);
 
   const loadAnalysis = useCallback(async () => {
     if (!user) {
-      setResult(null);
+      setGapResult(null);
+      setUwResult(null);
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
@@ -169,11 +173,16 @@ export default function AiRecommendationPanel({ user }) {
     setLoading(true);
     setError("");
     try {
-      const data = await analyzeCustomerCoverageGap();
-      setResult(data);
+      const [gapData, uwData] = await Promise.all([
+        analyzeCustomerCoverageGap(),
+        analyzeCustomerUnderwritingRisk(),
+      ]);
+      setGapResult(gapData);
+      setUwResult(uwData);
     } catch (err) {
-      setResult(null);
-      setError(toCustomerErrorMessage(err, "보장 공백 분석을 불러오지 못했습니다."));
+      setGapResult(null);
+      setUwResult(null);
+      setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
@@ -183,126 +192,189 @@ export default function AiRecommendationPanel({ user }) {
     loadAnalysis();
   }, [loadAnalysis]);
 
-  const gapResult = result?.coverageGapResult;
+  const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
+  const underwriting = uwResult?.underwritingResult;
 
   return (
     <section style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
       <div>
-        <h2 style={S.title}>AI 보험 추천 · 보장 공백 분석</h2>
+        <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 분석</h2>
         <p style={S.desc}>
-          Customer Memory(프로필·보험·건강)를 기반으로 보장 공백을 분석하고 Claude가 결과를
-          설명합니다.
+          Customer Memory와 Coverage Gap 결과를 바탕으로 부족한 보장의 가입 가능성(인수 위험)을
+          분석하고 Claude가 설명합니다.
         </p>
       </div>
 
-      <div style={S.card}>
-        {error ? <div style={{ ...S.error, marginBottom: "16px" }}>{error}</div> : null}
+      {error ? <div style={S.error}>{error}</div> : null}
 
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>보장 공백 분석</h3>
         {loading ? (
           <div style={S.muted}>Customer Memory를 불러와 보장 공백을 분석하는 중…</div>
-        ) : gapResult ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        ) : coverageGap ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <div style={S.metricGrid}>
               <div style={S.metric}>
                 <div style={S.metricLabel}>종합 위험도</div>
                 <div style={S.metricValue}>
-                  {OVERALL_RISK_LABELS[gapResult.overall_risk] ?? gapResult.overall_risk}
+                  {OVERALL_RISK_LABELS[coverageGap.overall_risk] ?? coverageGap.overall_risk}
                 </div>
               </div>
               <div style={S.metric}>
                 <div style={S.metricLabel}>공백 점수</div>
-                <div style={S.metricValue}>{gapResult.gap_score}</div>
-              </div>
-              <div style={S.metric}>
-                <div style={S.metricLabel}>Memory 버전</div>
-                <div style={S.metricValue}>v{result.memoryVersion}</div>
-              </div>
-              <div style={S.metric}>
-                <div style={S.metricLabel}>Memory fact 수</div>
-                <div style={S.metricValue}>{result.memoryFactCount}</div>
+                <div style={S.metricValue}>{coverageGap.gap_score}</div>
               </div>
             </div>
-
             <div>
-              <h3 style={S.sectionTitle}>부족 보장 Top 3</h3>
-              {gapResult.top_gaps?.length ? (
+              <h4 style={S.sectionTitle}>부족 보장 Top 3</h4>
+              {coverageGap.top_gaps?.length ? (
                 <ul style={S.list}>
-                  {gapResult.top_gaps.map((item) => (
+                  {coverageGap.top_gaps.map((item) => (
                     <GapListItem key={item.coverage_category} item={item} />
                   ))}
                 </ul>
               ) : (
-                <div style={S.muted}>현재 Memory 기준 우선 보강 항목이 없습니다.</div>
+                <div style={S.muted}>우선 보강 항목이 없습니다.</div>
               )}
+            </div>
+            {gapResult?.claudeExplanation ? (
+              <div>
+                <h4 style={S.sectionTitle}>보장 공백 Claude 설명</h4>
+                <div style={S.explanation}>{gapResult.claudeExplanation}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div style={S.muted}>보장 공백 결과가 없습니다.</div>
+        )}
+      </div>
+
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>인수 위험 분석</h3>
+        {loading ? (
+          <div style={S.muted}>Health Memory와 Coverage Gap을 반영해 인수 위험을 분석하는 중…</div>
+        ) : underwriting ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div style={S.metricGrid}>
+              <div style={S.metric}>
+                <div style={S.metricLabel}>종합 인수 위험도</div>
+                <div style={S.metricValue}>
+                  {RISK_LEVEL_LABELS[underwriting.overall_underwriting_risk] ??
+                    underwriting.overall_underwriting_risk}
+                </div>
+              </div>
+              <div style={S.metric}>
+                <div style={S.metricLabel}>인수 위험 점수</div>
+                <div style={S.metricValue}>{underwriting.risk_score}</div>
+              </div>
+              <div style={S.metric}>
+                <div style={S.metricLabel}>Coverage Gap 연동</div>
+                <div style={S.metricValue}>{uwResult?.coverageGapUsed ? "사용" : "미사용"}</div>
+              </div>
             </div>
 
             <div>
-              <h3 style={S.sectionTitle}>유지 보장</h3>
-              {gapResult.maintained_coverage?.length ? (
+              <h4 style={S.sectionTitle}>가입 가능 항목</h4>
+              {underwriting.likely_standard?.length ? (
                 <ul style={S.list}>
-                  {gapResult.maintained_coverage.map((item) => (
-                    <GapListItem key={item.coverage_category} item={item} />
+                  {underwriting.likely_standard.map((item) => (
+                    <UnderwritingListItem key={`std-${item.coverage_category}`} item={item} />
                   ))}
                 </ul>
               ) : (
-                <div style={S.muted}>Memory 기준으로 충분하다고 판단된 보장이 없습니다.</div>
+                <div style={S.muted}>표준 인수 가능 항목이 없습니다.</div>
               )}
             </div>
 
             <div>
-              <h3 style={S.sectionTitle}>우선 추천 액션</h3>
-              {gapResult.priority_actions?.length ? (
+              <h4 style={S.sectionTitle}>할증 가능 항목</h4>
+              {underwriting.likely_surcharge?.length ? (
                 <ul style={S.list}>
-                  {gapResult.priority_actions.map((item) => (
-                    <GapListItem key={`action-${item.coverage_category}`} item={item} />
+                  {underwriting.likely_surcharge.map((item) => (
+                    <UnderwritingListItem key={`sur-${item.coverage_category}`} item={item} />
                   ))}
                 </ul>
               ) : (
-                <div style={S.muted}>우선 액션이 없습니다.</div>
+                <div style={S.muted}>할증 가능 항목이 없습니다.</div>
               )}
             </div>
 
             <div>
-              <h3 style={S.sectionTitle}>Memory 근거</h3>
+              <h4 style={S.sectionTitle}>부담보 가능 항목</h4>
+              {underwriting.likely_exclusion?.length ? (
+                <ul style={S.list}>
+                  {underwriting.likely_exclusion.map((item) => (
+                    <UnderwritingListItem key={`exc-${item.coverage_category}`} item={item} />
+                  ))}
+                </ul>
+              ) : (
+                <div style={S.muted}>부담보 가능 항목이 없습니다.</div>
+              )}
+            </div>
+
+            <div>
+              <h4 style={S.sectionTitle}>추가심사 항목</h4>
+              {underwriting.likely_additional_review?.length ? (
+                <ul style={S.list}>
+                  {underwriting.likely_additional_review.map((item) => (
+                    <UnderwritingListItem key={`rev-${item.coverage_category}`} item={item} />
+                  ))}
+                </ul>
+              ) : (
+                <div style={S.muted}>추가심사 항목이 없습니다.</div>
+              )}
+            </div>
+
+            <div>
+              <h4 style={S.sectionTitle}>필요 서류</h4>
+              {(uwResult?.requiredDocuments ?? []).length ? (
+                <ul style={S.list}>
+                  {uwResult.requiredDocuments.map((doc) => (
+                    <li key={doc} style={S.listItem}>
+                      {doc}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={S.muted}>추가 서류가 필요하지 않습니다.</div>
+              )}
+            </div>
+
+            <div>
+              <h4 style={S.sectionTitle}>Memory 근거</h4>
               <div style={S.muted}>
                 사용 소스:{" "}
-                {(result.usedMemorySources ?? [])
+                {(uwResult?.usedMemorySources ?? [])
                   .map((source) => `${source.source}(${source.count})`)
                   .join(", ") || "없음"}
               </div>
-              {result.structuredMemory?.health_memory?.length ? (
+              {uwResult?.structuredMemory?.health_memory?.length ? (
                 <div style={{ marginTop: "8px", fontSize: "13px", color: "#cbd5e1" }}>
                   건강 Memory:{" "}
-                  {result.structuredMemory.health_memory.map((item) => item.value).join(" · ")}
-                </div>
-              ) : null}
-              {result.structuredMemory?.insurance_memory?.length ? (
-                <div style={{ marginTop: "6px", fontSize: "13px", color: "#cbd5e1" }}>
-                  보험 Memory:{" "}
-                  {result.structuredMemory.insurance_memory.map((item) => item.value).join(" · ")}
+                  {uwResult.structuredMemory.health_memory.map((item) => item.value).join(" · ")}
                 </div>
               ) : null}
             </div>
 
-            {result.claudeExplanation ? (
+            {uwResult?.claudeExplanation ? (
               <div>
-                <h3 style={S.sectionTitle}>Claude 설명</h3>
-                <div style={S.explanation}>{result.claudeExplanation}</div>
+                <h4 style={S.sectionTitle}>인수 위험 Claude 설명</h4>
+                <div style={S.explanation}>{uwResult.claudeExplanation}</div>
               </div>
             ) : (
               <div style={S.muted}>
-                Claude 설명을 생성하지 못했습니다.
-                {result.claudeMeta?.reason ? ` (${result.claudeMeta.reason})` : ""}
+                인수 위험 Claude 설명을 생성하지 못했습니다.
+                {uwResult?.claudeMeta?.reason ? ` (${uwResult.claudeMeta.reason})` : ""}
               </div>
             )}
           </div>
         ) : (
-          <div style={S.muted}>분석 결과가 없습니다.</div>
+          <div style={S.muted}>인수 위험 결과가 없습니다.</div>
         )}
 
         <div style={{ marginTop: "20px" }}>
           <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
-            {loading ? "분석 중…" : "보장 공백 다시 분석"}
+            {loading ? "분석 중…" : "보장·인수 분석 다시 실행"}
           </button>
         </div>
       </div>
