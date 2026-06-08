@@ -8,7 +8,7 @@ const RISK_DEFINITIONS = [
   { type: "surgery_history", label: "수술 이력", keywords: ["수술", "surgery"], baseStatus: "medium", severity: "medium" },
   { type: "hospitalization_history", label: "입원 이력", keywords: ["입원", "hospitalization", "hospital"], baseStatus: "medium", severity: "medium" },
   { type: "medication_history", label: "투약 이력", keywords: ["복용", "약", "medication", "medicine"], baseStatus: "medium", severity: "medium" },
-  { type: "recent_diagnosis", label: "최근 진단", keywords: ["최근 진단", "진단받", "diagnosed", "diagnosis"], baseStatus: "high", severity: "high" },
+  { type: "recent_diagnosis", label: "최근 진단", keywords: ["최근 진단", "진단받", "diagnosed", "diagnosis", "검진", "소견"], baseStatus: "high", severity: "high" },
   { type: "vague_health", label: "불확실 건강정보", keywords: ["아마", "같아", "모르겠", "확실하지", "maybe", "probably", "not sure", "used to"], baseStatus: "unknown", severity: "medium" },
 ];
 
@@ -42,12 +42,18 @@ function isSmallTalk(fact) {
 
 function isHealthRelevant(fact) {
   const text = factText(fact);
-  return fact?.fact_type === "health" || /^health\./.test(String(fact?.fact_key ?? "")) || /고혈압|당뇨|수술|입원|복용|진단|심장|뇌혈관|고지혈증|암/.test(text);
+  return fact?.fact_type === "health" || /^health\./.test(String(fact?.fact_key ?? "")) || /고혈압|당뇨|수술|입원|복용|진단|검진|소견|심장|뇌혈관|고지혈증|암/.test(text);
+}
+
+function isDocumentFact(fact) {
+  return fact?.source_table === "customer_documents" ||
+    fact?.source_table === "customer_document_chunks" ||
+    fact?.provenance_type === "document";
 }
 
 function evidenceBasis(facts) {
-  const hasDocument = facts.some((fact) => fact?.source_table === "customer_documents" || fact?.source_table === "customer_document_chunks" || fact?.provenance_type === "document");
-  const hasMemory = facts.length > 0;
+  const hasDocument = facts.some(isDocumentFact);
+  const hasMemory = facts.some((fact) => !isDocumentFact(fact));
   if (hasDocument && hasMemory) return "mixed";
   if (hasDocument) return "document";
   if (hasMemory) return "memory";
