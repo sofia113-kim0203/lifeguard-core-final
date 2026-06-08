@@ -212,3 +212,182 @@ export function customerRecommendationView(result) {
 }
 
 export { DEFAULT_CANDIDATES };
+
+const GAP_PRIORITY_SCORE = { critical: 100, high: 80, medium: 55, low: 25, sufficient: 5 };
+const UW_PRIORITY_SCORE = {
+  likely_decline: -30,
+  likely_exclusion: -15,
+  likely_surcharge: 8,
+  likely_additional_review: 12,
+  likely_standard: 20,
+  unknown: 0,
+};
+const TYPE_PRIORITY_SCORE = {
+  add_coverage: 35,
+  prepare_documents: 30,
+  review_existing: 12,
+  keep_existing: 0,
+  avoid_for_now: -10,
+};
+
+const CATEGORY_LABELS = {
+  cancer: "암보험",
+  brain: "뇌혈관 보장",
+  heart: "심혈관 보장",
+  medical_expense: "실손",
+  surgery: "수술비",
+  hospitalization: "입원비",
+  driver: "운전자보험",
+  death: "사망보험",
+  dementia_care: "치매/간병",
+};
+
+function findGapItem(coverageGapResult, category) {
+  return (coverageGapResult?.items ?? []).find((item) => item.coverage_category === category);
+}
+
+function findUnderwritingItem(underwritingResult, category) {
+  return (underwritingResult?.items ?? []).find((item) => item.coverage_category === category);
+}
+
+function deriveRecommendationType(gapItem, uwItem) {
+  const gapLevel = gapItem?.gap_level ?? "low";
+  const uwStatus = uwItem?.underwriting_status ?? "unknown";
+
+  if (gapLevel === "sufficient" || gapItem?.current_status === "held") {
+    return "keep_existing";
+  }
+  if (uwStatus === "likely_decline") {
+    return "avoid_for_now";
+  }
+  if (["likely_surcharge", "likely_exclusion", "likely_additional_review"].includes(uwStatus)) {
+    return ["critical", "high", "medium"].includes(gapLevel) ? "prepare_documents" : "review_existing";
+  }
+  if (["critical", "high", "medium"].includes(gapLevel)) {
+    return "add_coverage";
+  }
+  return "review_existing";
+}
+
+function derivePriority(gapItem, uwItem, recommendationType) {
+  const gapLevel = gapItem?.gap_level ?? "low";
+  if (recommendationType === "keep_existing") return "low";
+  if (recommendationType === "avoid_for_now") return "medium";
+  if (gapLevel === "critical") return "high";
+  if (gapLevel === "high") return "high";
+  if (gapLevel === "medium") return "medium";
+  if (uwItem?.risk_level === "high" || uwItem?.risk_level === "critical") return "high";
+  return "low";
+}
+
+function buildReason(gapItem, uwItem, recommendationType, label) {
+  const parts = [];
+  if (gapItem?.reason) parts.push(`보장공백: ${gapItem.reason}`);
+  if (uwItem?.reason) parts.push(`인수위험: ${uwItem.reason}`);
+  if (recommendationType === "keep_existing") {
+    return `${label}은(는) 현재 Memory 기준 유지 보장으로 판단됩니다.`;
+  }
+  if (recommendationType === "add_coverage") {
+    return `${label} 보장 보강이 필요하며, 현재 health memory 기준 특별한 인수 제한 신호는 제한적입니다.`;
+  }
+  if (recommendationType === "prepare_documents") {
+    return `${label} 보장 보강이 필요하고, health memory 기준 추가 고지·서류 준비 후 가입 검토가 필요합니다.`;
+  }
+  if (recommendationType === "avoid_for_now") {
+    return `${label}은(는) 현재 Memory 기준 가입 거절 위험이 높아 당장 가입보다 정보 보완·전문 상담이 우선입니다.`;
+  }
+  return parts.join(" ") || `${label} 관련 추가 검토가 필요합니다.`;
+}
+
+function budgetConsideration(monthlyBudget, recommendationType) {
+  if (!monthlyBudget) {
+    return "월 보험 예산이 Memory에 기록되어 있지 않습니다.";
+  }
+  if (recommendationType === "keep_existing") {
+    return `현재 유지 보험료와 함께 월 예산 ${monthlyBudget.toLocaleString("ko-KR")}원 내 유지 여부를 점검하세요.`;
+  }
+  return `신규 보장 검토 시 월 예산 ${monthlyBudget.toLocaleString("ko-KR")}원 범위를 고려하세요.`;
+}
+
+function confidenceLevel(gapItem, uwItem) {
+  if (gapItem?.confidence === "high" && uwItem?.confidence_level === "high") return "high";
+  if (gapItem?.confidence === "low" || uwItem?.confidence_level === "low") return "low";
+  return "medium";
+}
+
+function recommendationScore(gapItem, uwItem, recommendationType) {
+  const gapScore = GAP_PRIORITY_SCORE[gapItem?.gap_level] ?? 0;
+  const uwScore = UW_PRIORITY_SCORE[uwItem?.underwriting_status] ?? 0;
+  const typeScore = TYPE_PRIORITY_SCORE[recommendationType] ?? 0;
+  return gapScore + uwScore + typeScore;
+}
+
+function collectCategories(coverageGapResult, underwritingResult) {
+  const categories = new Set();
+  for (const item of coverageGapResult?.items ?? []) categories.add(item.coverage_category);
+  for (const item of underwritingResult?.items ?? []) categories.add(item.coverage_category);
+  return Array.from(categories);
+}
+
+export function buildCoverageCategoryRecommendations({
+  customer_id = null,
+  coverageGapResult = {},
+  underwritingResult = {},
+  monthly_budget = null,
+  insurance_goal = null,
+  generatedAt = new Date().toISOString(),
+} = {}) {
+  const categories = collectCategories(coverageGapResult, underwritingResult);
+  const recommendations = categories.map((category) => {
+    const gapItem = findGapItem(coverageGapResult, category);
+    const uwItem = findUnderwritingItem(underwritingResult, category);
+    const label = gapItem?.coverage_label ?? uwItem?.coverage_label ?? CATEGORY_LABELS[category] ?? category;
+    const recommendation_type = deriveRecommendationType(gapItem, uwItem);
+    const priority = derivePriority(gapItem, uwItem, recommendation_type);
+    const score = recommendationScore(gapItem, uwItem, recommendation_type);
+
+    return {
+      coverage_category: category,
+      coverage_label: label,
+      recommendation_type,
+      priority,
+      reason: buildReason(gapItem, uwItem, recommendation_type, label),
+      underwriting_consideration: uwItem?.reason ?? "인수 위험 분석 결과가 없습니다.",
+      budget_consideration: budgetConsideration(monthly_budget, recommendation_type),
+      required_documents: uwItem?.required_documents ?? [],
+      memory_sources_used: Array.from(
+        new Set([
+          ...(gapItem?.memory_sources_used ?? []),
+          ...(uwItem?.related_memory_sources ?? []),
+        ]),
+      ),
+      confidence_level: confidenceLevel(gapItem, uwItem),
+      coverage_gap_level: gapItem?.gap_level ?? null,
+      underwriting_status: uwItem?.underwriting_status ?? null,
+      insurance_goal_alignment: insurance_goal ? `고객 보험 목표: ${insurance_goal}` : null,
+      _score: score,
+    };
+  });
+
+  recommendations.sort((left, right) => right._score - left._score || left.coverage_category.localeCompare(right.coverage_category));
+
+  const ranked = recommendations.map((item, index) => {
+    const { _score, ...rest } = item;
+    return {
+      recommendation_rank: index + 1,
+      recommendation_score: _score,
+      ...rest,
+    };
+  });
+
+  const actionable = ranked.filter((item) => item.recommendation_type !== "keep_existing");
+  const customer_visible_top2 = actionable.slice(0, 2);
+
+  return {
+    customer_id,
+    recommendations: ranked,
+    customer_visible_top2,
+    keep_existing: ranked.filter((item) => item.recommendation_type === "keep_existing"),
+    generated_at: generatedAt,
+  };
+}
