@@ -10,6 +10,10 @@ type ProfileRow = {
   birth_date: string | null;
   gender: string | null;
   job_category: string | null;
+  marital_status: string | null;
+  family_composition: string | null;
+  insurance_goal: string | null;
+  monthly_insurance_budget: number | null;
   updated_at: string;
 };
 
@@ -43,7 +47,7 @@ export async function extractProfileFacts(
 
   const { data: row, error } = await admin
     .from("customer_profiles")
-    .select("id, display_name, birth_date, gender, job_category, updated_at")
+    .select("id, display_name, birth_date, gender, job_category, marital_status, family_composition, insurance_goal, monthly_insurance_budget, updated_at")
     .eq("id", customerId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -120,6 +124,63 @@ export async function extractProfileFacts(
       source_record_id: profile.id,
       confidence: 1.0,
       metadata_json: { ...metadataBase, field: "job_category" },
+    });
+  }
+
+
+  if (isPresent(profile.marital_status)) {
+    facts.push({
+      customer_id: customerId,
+      fact_key: "profile.marital_status",
+      fact_value: truncate(String(profile.marital_status), 40),
+      fact_type: "identity",
+      importance: "medium",
+      source_table: "customer_profiles",
+      source_record_id: profile.id,
+      confidence: 1.0,
+      metadata_json: { ...metadataBase, field: "marital_status" },
+    });
+  }
+
+  if (isPresent(profile.family_composition)) {
+    facts.push({
+      customer_id: customerId,
+      fact_key: "family.composition.summary",
+      fact_value: truncate(String(profile.family_composition), 120),
+      fact_type: "family",
+      importance: "medium",
+      source_table: "customer_profiles",
+      source_record_id: profile.id,
+      confidence: 1.0,
+      metadata_json: { ...metadataBase, field: "family_composition" },
+    });
+  }
+
+  if (isPresent(profile.insurance_goal)) {
+    facts.push({
+      customer_id: customerId,
+      fact_key: "preference.insurance_goal",
+      fact_value: truncate(String(profile.insurance_goal), 120),
+      fact_type: "preference",
+      importance: "high",
+      source_table: "customer_profiles",
+      source_record_id: profile.id,
+      confidence: 1.0,
+      metadata_json: { ...metadataBase, field: "insurance_goal" },
+    });
+  }
+
+  if (profile.monthly_insurance_budget != null && Number(profile.monthly_insurance_budget) > 0) {
+    facts.push({
+      customer_id: customerId,
+      fact_key: "preference.monthly_budget",
+      fact_value: `월 보험 예산 ${profile.monthly_insurance_budget}원`,
+      fact_type: "preference",
+      importance: "high",
+      source_table: "customer_profiles",
+      source_record_id: profile.id,
+      confidence: 1.0,
+      metadata_json: { ...metadataBase, field: "monthly_insurance_budget" },
     });
   }
 

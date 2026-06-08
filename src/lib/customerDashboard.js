@@ -34,6 +34,9 @@ export function normalizeCustomerDashboardData({
   health,
   insurancePolicy,
   consents,
+  memoryVersion = null,
+  memoryFactCount = 0,
+  memoryLoaded = false,
 }) {
   const activeRequiredConsents = (consents ?? []).filter(
     (consent) =>

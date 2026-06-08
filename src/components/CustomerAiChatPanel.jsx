@@ -139,21 +139,6 @@ function formatTimestamp(value) {
   }
 }
 
-function formatSourceSummary(metadata) {
-  const sources = Array.isArray(metadata?.used_sources) ? metadata.used_sources : [];
-  if (!sources.length) return null;
-
-  const top = sources[0];
-  const similarity =
-    typeof top?.similarity === "number" ? `유사도 ${top.similarity.toFixed(3)}` : null;
-  const title = top?.document_title ? `「${top.document_title}」` : "약관";
-  const order = top?.chunk_order != null ? `chunk #${top.chunk_order}` : null;
-  const parts = [title, order, similarity, sources.length > 1 ? `외 ${sources.length - 1}건` : null].filter(
-    Boolean,
-  );
-  return parts.join(" · ");
-}
-
 function MessageBubble({ item }) {
   const style =
     item.role === "user"
@@ -162,20 +147,9 @@ function MessageBubble({ item }) {
         ? S.bubbleAssistant
         : S.bubbleSystem;
 
-  const sourceSummary =
-    item.role === "assistant" ? formatSourceSummary(item.metadata) : null;
-  const statusNote =
-    item.role === "assistant" && item.metadata?.insufficient_context
-      ? "약관 근거 부족"
-      : item.role === "assistant" && item.metadata?.blocked
-        ? "약관 분석 대기"
-        : null;
-
   return (
     <div style={style}>
       <div>{item.message}</div>
-      {sourceSummary ? <div style={S.meta}>근거: {sourceSummary}</div> : null}
-      {statusNote ? <div style={S.meta}>{statusNote}</div> : null}
       <div style={S.meta}>{formatTimestamp(item.createdAt)}</div>
     </div>
   );
@@ -245,8 +219,8 @@ export default function CustomerAiChatPanel({ user }) {
       <div>
         <h2 style={S.title}>AI 상담</h2>
         <p style={S.desc}>
-          로그인한 고객의 AI 상담 메시지가 안전하게 저장됩니다. 분석이 완료된 약관(ready)에 대해
-          실제 Vector 검색과 Claude 답변으로 약관 근거 기반 상담을 제공합니다.
+          고객 Memory, 보험지식(약관 RAG), Claude를 함께 사용해 개인 맞춤 보험 답변을 제공합니다.
+          대화에서 추출한 보험 관련 사실은 Customer Memory에 저장됩니다.
         </p>
       </div>
 
@@ -280,7 +254,7 @@ export default function CustomerAiChatPanel({ user }) {
           />
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <button type="submit" style={S.btn} disabled={sending || loading || !draft.trim()}>
-              {sending ? "답변 생성 중…" : "질문 보내기"}
+              {sending ? "저장 중…" : "메시지 보내기"}
             </button>
             <button
               type="button"

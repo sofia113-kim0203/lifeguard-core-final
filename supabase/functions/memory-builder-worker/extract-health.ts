@@ -11,6 +11,7 @@ type HealthRow = {
   surgery_5y: string | null;
   medication: string | null;
   family_history: string | null;
+  details_json: Record<string, unknown> | null;
   updated_at: string;
 };
 
@@ -47,7 +48,7 @@ export async function extractHealthFacts(
   const { data: row, error } = await admin
     .from("profile_health")
     .select(
-      "customer_id, smoking, hospital_5y, surgery_5y, medication, family_history, updated_at",
+      "customer_id, smoking, hospital_5y, surgery_5y, medication, family_history, details_json, updated_at",
     )
     .eq("customer_id", customerId)
     .maybeSingle();
@@ -159,6 +160,50 @@ export async function extractHealthFacts(
         field: "family_history",
       }),
     });
+  }
+
+
+  const disclosure = (health.details_json as Record<string, unknown> | null)?.insurance_disclosure;
+  if (disclosure && typeof disclosure === "object") {
+    const d = disclosure as Record<string, unknown>;
+    const medNotes = String(d.current_medication_notes ?? "").trim();
+    if (medNotes) {
+      facts.push({
+        customer_id: customerId,
+        fact_key: "health.medication.disclosure_notes",
+        fact_value: truncate(medNotes, 120),
+        fact_type: "health",
+        importance: "high",
+        source_table: "profile_health",
+        source_record_id: sourceRecordId,
+        confidence: 1.0,
+        metadata_json: buildMetadata({
+          consentType: consent.consent_type,
+          consentGranted: consent.consent_granted,
+          sourceRecordId,
+          field: "current_medication_notes",
+        }),
+      });
+    }
+    const otherNotes = String(d.other_medical_history_notes ?? "").trim();
+    if (otherNotes) {
+      facts.push({
+        customer_id: customerId,
+        fact_key: "health.medical_history.disclosure_notes",
+        fact_value: truncate(otherNotes, 120),
+        fact_type: "health",
+        importance: "high",
+        source_table: "profile_health",
+        source_record_id: sourceRecordId,
+        confidence: 1.0,
+        metadata_json: buildMetadata({
+          consentType: consent.consent_type,
+          consentGranted: consent.consent_granted,
+          sourceRecordId,
+          field: "other_medical_history_notes",
+        }),
+      });
+    }
   }
 
   return { facts, skipped: false };

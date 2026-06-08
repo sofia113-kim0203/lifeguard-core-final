@@ -16,67 +16,15 @@ type ConversationExtractResult = {
 
 const REQUIRED_CONSENTS = ["ai_consultation", "memory_retention"] as const;
 const MAX_MESSAGES = 20;
-const VAGUE_MEMORY_PATTERN = /(아마|아마도|maybe|probably|I think|제 생각|같아|같아요|같은데|잘 모르|모르겠|확실하지|예전에|전에|used to|not sure|기억이 안)/i;
-
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)));
-}
-
-function reviewPriority(current: "low" | "medium" | "high", next: "low" | "medium" | "high"): "low" | "medium" | "high" {
-  const rank = { low: 0, medium: 1, high: 2 };
-  return rank[next] > rank[current] ? next : current;
-}
 
 function cleanText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
-}
-
-function buildReviewMetadata(params: {
-  factKey: string;
-  factType: CandidateFact["fact_type"];
-  factValue: string;
-  sourceText: string;
-  conflictsWithExisting?: boolean;
-}): Record<string, unknown> {
-  const reasons: string[] = [];
-  let priority: "low" | "medium" | "high" = "low";
-  const haystack = `${params.factKey} ${params.factType} ${params.factValue} ${params.sourceText}`;
-
-  if (VAGUE_MEMORY_PATTERN.test(params.sourceText) || VAGUE_MEMORY_PATTERN.test(params.factValue)) {
-    reasons.push("vague_customer_statement");
-    priority = reviewPriority(priority, "high");
-  }
-
-  if (params.factType === "health" || /복용|병력|수술|입원|치료|고혈압|당뇨/.test(haystack)) {
-    reasons.push("health_memory_requires_review");
-    priority = reviewPriority(priority, "high");
-  }
-
-  if (/insurance\.|실손|보장|담보|특약|가입|심사|청구|보험금/.test(haystack)) {
-    reasons.push("insurance_review_required");
-    priority = reviewPriority(priority, "medium");
-  }
-
-  if (params.conflictsWithExisting) {
-    reasons.push("memory_conflict");
-    priority = reviewPriority(priority, "high");
-  }
-
-  const reviewReason = unique(reasons);
-  return {
-    requires_agent_review: reviewReason.length > 0,
-    review_reason: reviewReason,
-    review_status: reviewReason.length > 0 ? "pending" : "approved",
-    review_priority: reviewReason.length > 0 ? priority : "low",
-    memory_confidence: reviewReason.includes("vague_customer_statement") ? "low" : reviewReason.length > 0 ? "medium" : "high",
-  };
 }
 
 function buildMetadata(params: {
   sourceRecordId: string;
   category: string;
   pattern: string;
-  review: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     consent_type: "ai_consultation",
@@ -89,7 +37,6 @@ function buildMetadata(params: {
     pattern: params.pattern,
     no_llm_generated: true,
     no_raw_transcript: true,
-    ...params.review,
   };
 }
 
@@ -102,7 +49,6 @@ function fact(params: {
   sourceRecordId: string;
   category: string;
   pattern: string;
-  sourceText: string;
 }): CandidateFact {
   return {
     customer_id: params.customerId,
@@ -117,12 +63,6 @@ function fact(params: {
       sourceRecordId: params.sourceRecordId,
       category: params.category,
       pattern: params.pattern,
-      review: buildReviewMetadata({
-        factKey: params.key,
-        factType: params.type,
-        factValue: params.value,
-        sourceText: params.sourceText,
-      }),
     }),
   };
 }
@@ -149,10 +89,10 @@ function extractBudget(text: string): string | null {
 }
 
 function extractMedication(text: string): string | null {
-  if (/고혈압.{0,14}(약|치료제).{0,14}(먹|복용|먹었|복용했)|혈압약.{0,14}(먹|복용|먹었|복용했)/.test(text)) {
+  if (/고혈압.{0,8}(약|치료제).{0,8}(먹|복용)|혈압약.{0,8}(먹|복용)/.test(text)) {
     return "고객은 혈압약을 복용 중이라고 명시했습니다.";
   }
-  if (/당뇨.{0,14}(약|치료제).{0,14}(먹|복용|먹었|복용했)|당뇨약.{0,14}(먹|복용|먹었|복용했)/.test(text)) {
+  if (/당뇨.{0,8}(약|치료제).{0,8}(먹|복용)|당뇨약.{0,8}(먹|복용)/.test(text)) {
     return "고객은 당뇨약을 복용 중이라고 명시했습니다.";
   }
   return null;
@@ -172,7 +112,6 @@ function extractFactsFromMessage(customerId: string, message: ConversationMessag
       sourceRecordId: message.id,
       category: "preference",
       pattern: "monthly_budget",
-      sourceText: text,
     }));
   }
 
@@ -186,7 +125,6 @@ function extractFactsFromMessage(customerId: string, message: ConversationMessag
       sourceRecordId: message.id,
       category: "preference",
       pattern: "keep_indemnity",
-      sourceText: text,
     }));
   }
 
@@ -200,7 +138,6 @@ function extractFactsFromMessage(customerId: string, message: ConversationMessag
       sourceRecordId: message.id,
       category: "concern",
       pattern: "retirement_concern",
-      sourceText: text,
     }));
   }
 
@@ -214,7 +151,6 @@ function extractFactsFromMessage(customerId: string, message: ConversationMessag
       sourceRecordId: message.id,
       category: "goal",
       pattern: "retirement_goal",
-      sourceText: text,
     }));
   }
 
@@ -229,7 +165,6 @@ function extractFactsFromMessage(customerId: string, message: ConversationMessag
       sourceRecordId: message.id,
       category: "explicit_health",
       pattern: "medication_statement",
-      sourceText: text,
     }));
   }
 
@@ -256,49 +191,6 @@ function buildConsultationSummary(customerId: string, facts: CandidateFact[]): C
     sourceRecordId,
     category: "consultation",
     pattern: "latest_summary",
-    sourceText: facts.map((row) => row.fact_value).join(" "),
-  });
-}
-
-
-async function markMemoryConflicts(
-  admin: SupabaseClient,
-  customerId: string,
-  facts: CandidateFact[],
-): Promise<CandidateFact[]> {
-  if (facts.length === 0) return facts;
-
-  const { data, error } = await admin
-    .from("customer_memory_facts")
-    .select("fact_key, fact_value")
-    .eq("customer_id", customerId)
-    .in("fact_key", facts.map((row) => row.fact_key))
-    .is("superseded_at", null);
-
-  if (error) {
-    throw new Error(`conversation_memory_conflict_lookup_failed: ${error.message}`);
-  }
-
-  const existingByKey = new Map((data ?? []).map((row) => [row.fact_key, row.fact_value]));
-  return facts.map((candidate) => {
-    const existingValue = existingByKey.get(candidate.fact_key);
-    if (!existingValue || existingValue === candidate.fact_value) return candidate;
-
-    const reviewReason = unique([
-      ...((candidate.metadata_json.review_reason as string[] | undefined) ?? []),
-      "memory_conflict",
-    ]);
-    return {
-      ...candidate,
-      metadata_json: {
-        ...candidate.metadata_json,
-        requires_agent_review: true,
-        review_reason: reviewReason,
-        review_status: "pending",
-        review_priority: "high",
-        memory_confidence: "low",
-      },
-    };
   });
 }
 
@@ -335,7 +227,7 @@ export async function extractConversationFacts(
     }
   }
 
-  const facts = await markMemoryConflicts(admin, customerId, Array.from(byKey.values()));
+  const facts = Array.from(byKey.values());
   const summary = buildConsultationSummary(customerId, facts);
   if (summary) facts.push(summary);
 

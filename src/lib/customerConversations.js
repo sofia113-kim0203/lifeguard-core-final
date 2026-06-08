@@ -1,6 +1,6 @@
 import { supabase } from "./supabase.js";
 import { loadCustomerDashboardData } from "./customerDashboard.js";
-import { askPolicyTermsQuestion } from "./policyTermsQa.js";
+import { askCustomerPersonalizedQuestion } from "./customerPersonalizedQa.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export const CONVERSATION_ROLES = ["user", "assistant", "system"];
@@ -78,14 +78,14 @@ export async function sendCustomerConversationMessage(authUser, message) {
   const userMessage = await insertConversationMessage(customerId, {
     role: "user",
     message,
-    metadata: { source: "customer_dashboard", phase: "phase25-1j" },
+    metadata: { source: "customer_dashboard", phase: "phase26-1a" },
   });
 
-  const qaResult = await askPolicyTermsQuestion({ question: message });
+  const qaResult = await askCustomerPersonalizedQuestion({ question: message });
 
   const assistantMetadata = {
-    source: "policy_terms_qa",
-    phase: "phase25-1j",
+    source: "customer_personalized_qa",
+    phase: "phase26-1a",
     policy_pdf_id: qaResult?.policyPdfId ?? null,
     knowledge_document_id: qaResult?.knowledgeDocumentId ?? null,
     ingest_status: qaResult?.ingestStatus ?? null,
@@ -98,6 +98,10 @@ export async function sendCustomerConversationMessage(authUser, message) {
     model_name: qaResult?.modelName ?? null,
     provider: qaResult?.provider ?? null,
     claude_skipped: qaResult?.claudeSkipped ?? false,
+    memory_used: qaResult?.memoryUsed ?? false,
+    memory_version: qaResult?.memoryVersion ?? 0,
+    used_memory_facts: qaResult?.usedMemoryFacts ?? [],
+    personalized: qaResult?.personalized ?? true,
   };
 
   const assistantText =
