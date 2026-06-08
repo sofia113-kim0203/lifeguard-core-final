@@ -86,7 +86,7 @@ function buildDesign(recommendation, context, rank) {
     rationale: recommendation.reasons ?? [],
     warnings,
     requires_agent_review: recommendation.requires_agent_review || warnings.length > 0,
-    disclaimer: "초안 설계안입니다. 가입 가능, 인수 조건, 보험료, 보장 여부는 확정하지 않으며 설계사 검토가 필요합니다.",
+    disclaimer: "초안 설계안입니다. 가입 여부, 인수 조건, 보험료, 보장 여부는 확정하지 않으며 설계사 검토가 필요합니다.",
   };
 }
 
