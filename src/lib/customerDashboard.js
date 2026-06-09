@@ -14,7 +14,7 @@ export const REQUIRED_CONSENT_TYPES = [
 async function fetchCustomerProfile(userId) {
   return supabase
     .from("customer_profiles")
-    .select("id, user_id, display_name, birth_date, gender, job_category, status")
+    .select("id, user_id, display_name, birth_date, gender, job_category, status, memory_version")
     .eq("user_id", userId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -33,10 +33,8 @@ export function normalizeCustomerDashboardData({
   profile,
   health,
   insurancePolicy,
+  insurancePolicies = [],
   consents,
-  memoryVersion = null,
-  memoryFactCount = 0,
-  memoryLoaded = false,
 }) {
   const activeRequiredConsents = (consents ?? []).filter(
     (consent) =>
@@ -45,6 +43,7 @@ export function normalizeCustomerDashboardData({
       !consent.revoked_at,
   );
 
+  const policies = insurancePolicies ?? [];
   const intakeForm = buildIntakeFormFromRecords(profile, health, insurancePolicy);
   const completeness = computeIntakeCompleteness(intakeForm);
 
@@ -59,6 +58,10 @@ export function normalizeCustomerDashboardData({
     requiredConsentCount: activeRequiredConsents.length,
     intakeCompletenessScore: completeness.score,
     intakeCompleteness: completeness,
+    memoryVersion: profile?.memory_version ?? 0,
+    insurancePolicyCount: policies.length,
+    insurancePolicyIds: policies.map((policy) => policy.id),
+    insurancePolicies: policies,
   };
 }
 
@@ -113,12 +116,10 @@ export async function loadCustomerDashboardData(authUser) {
       .maybeSingle(),
     supabase
       .from("profile_insurance_policies")
-      .select("id, insurer_name, product_name, coverage_summary")
+      .select("id, insurer_name, product_name, coverage_summary, policy_type, is_active, policy_status, source")
       .eq("customer_id", customerId)
       .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order("created_at", { ascending: false }),
     supabase
       .from("customer_consents")
       .select("consent_type, granted, revoked_at")
@@ -137,12 +138,15 @@ export async function loadCustomerDashboardData(authUser) {
     throw new Error(toCustomerErrorMessage(consentsResult.error, "동의 정보를 불러오지 못했습니다."));
   }
 
+  const insurancePolicies = insuranceResult.data ?? [];
+
   return normalizeCustomerDashboardData({
     authUser,
     userRow,
     profile,
     health: healthResult.data,
-    insurancePolicy: insuranceResult.data,
+    insurancePolicy: insurancePolicies[0] ?? null,
+    insurancePolicies,
     consents: consentsResult.data ?? [],
   });
 }

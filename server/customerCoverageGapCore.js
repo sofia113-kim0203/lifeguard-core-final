@@ -4,6 +4,7 @@
 
 import { analyzeCoverageGaps } from "./coverageGapAnalysisEngine.js";
 import { buildCoverageGapInputFromMemory } from "./coverageGapInputBuilder.js";
+import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
 import {
   buildStructuredMemoryProfile,
   loadCustomerMemorySnapshot,
@@ -232,34 +233,15 @@ async function resolveCustomerId(supabase) {
 }
 
 export async function loadCoverageAnalysisContext(supabase, customerId) {
-  const [snapshot, policiesResult, healthResult] = await Promise.all([
-    loadCustomerMemorySnapshot(supabase, customerId),
-    supabase
-      .from("profile_insurance_policies")
-      .select(
-        "id, insurer_name, product_name, policy_type, monthly_premium, premium_amount, coverage_summary, effective_from, contract_date, is_active, policy_status",
-      )
-      .eq("customer_id", customerId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("profile_health")
-      .select("customer_id, source, details_json")
-      .eq("customer_id", customerId)
-      .maybeSingle(),
-  ]);
-
-  if (policiesResult.error) {
-    throw new Error(`insurance_lookup_failed: ${policiesResult.error.message}`);
-  }
-  if (healthResult.error) {
-    throw new Error(`health_lookup_failed: ${healthResult.error.message}`);
-  }
+  const unified = await loadUnifiedCustomerState(supabase, customerId);
+  const snapshot = unified.snapshot;
+  const policies = unified.policies ?? [];
+  const health = unified.health;
 
   const input = buildCoverageGapInputFromMemory({
     snapshot,
-    policies: policiesResult.data ?? [],
-    health: healthResult.data,
+    policies,
+    health,
   });
 
   const analysis = analyzeCoverageGaps({
@@ -280,8 +262,8 @@ export async function loadCoverageAnalysisContext(supabase, customerId) {
     input,
     analysis,
     coverageGapResult,
-    policies: policiesResult.data ?? [],
-    health: healthResult.data,
+    policies,
+    health,
   };
 }
 
