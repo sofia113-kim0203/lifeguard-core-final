@@ -29,7 +29,7 @@ export function measureOutput(text) {
   };
 }
 
-export function buildMemorySummary(structuredMemory, snapshot) {
+export function buildMemorySummary(structuredMemory, snapshot, sourceSummary = null) {
   const facts = snapshot?.facts ?? [];
   const profile = [];
   const health = [];
@@ -46,16 +46,36 @@ export function buildMemorySummary(structuredMemory, snapshot) {
     }
   }
 
+  const source = sourceSummary ?? {};
+  if (!profile.length && source.profile) {
+    for (const [key, value] of Object.entries(source.profile)) {
+      if (value != null && value !== "") profile.push(`${key}: ${value}`);
+    }
+  }
+  if (!health.length && source.health) {
+    for (const [key, value] of Object.entries(source.health)) {
+      if (value != null && value !== "") health.push(`${key}: ${value}`);
+    }
+  }
+  if (!insurance.length && Array.isArray(source.insurance)) {
+    for (const policy of source.insurance) {
+      insurance.push(`${policy.insurer ?? ""} ${policy.product ?? ""}`.trim());
+    }
+  }
+
   return {
     customer_name:
       facts.find((f) => f.fact_key === "profile.name")?.fact_value ??
-      structuredMemory?.profile_memory?.[0]?.fact_value ??
+      structuredMemory?.profile?.name ??
+      snapshot?.profile?.display_name ??
+      source.profile?.name ??
       null,
     memory_version: snapshot?.memory_version ?? structuredMemory?.memory_version ?? null,
     fact_count: snapshot?.fact_count ?? facts.length,
     profile_facts: profile.slice(0, 6),
     health_facts: health.slice(0, 5),
     insurance_facts: insurance.slice(0, 5),
+    source_documents: (source.documents ?? []).slice(0, 3),
   };
 }
 
@@ -69,7 +89,7 @@ export function buildCompressedAnalysisSummary(workingContext) {
     designBundle,
   } = workingContext;
 
-  const memory = buildMemorySummary(structuredMemory, snapshot);
+  const memory = buildMemorySummary(structuredMemory, snapshot, workingContext.sourceSummary);
 
   const topGaps = (coverageGapResult?.top_gaps ?? []).slice(0, 3).map((item) => ({
     category: item.coverage_label ?? item.coverage_category,
