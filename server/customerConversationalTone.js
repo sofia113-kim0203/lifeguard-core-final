@@ -43,11 +43,33 @@ export function detectDirectAnswerIntent(question = "") {
   return null;
 }
 
+/** Align with UnifiedCustomerState / dashboard: all non-deleted maintained policies. */
+export function resolveUnifiedPolicyView(workingContext = {}) {
+  const sourceSummary = workingContext.sourceSummary ?? {};
+  const sourceContext = workingContext.sourceContext ?? {};
+  const policies = sourceSummary.insurance?.length
+    ? sourceSummary.insurance
+    : sourceContext.policies ?? [];
+
+  const policyCount =
+    sourceSummary.policy_count != null ? Number(sourceSummary.policy_count) : policies.length;
+
+  const policyDescriptions = policies
+    .map((policy) => {
+      const insurer = policy.insurer ?? policy.insurer_name ?? "";
+      const product = policy.product ?? policy.product_name ?? "";
+      return `${insurer} ${product}`.trim();
+    })
+    .filter(Boolean);
+
+  return { policies, policyCount, policyDescriptions };
+}
+
 export function extractCustomerSituation(workingContext = {}) {
   const snapshot = workingContext.snapshot ?? {};
   const facts = snapshot.facts ?? [];
   const sourceSummary = workingContext.sourceSummary ?? {};
-  const policies = sourceSummary.insurance ?? workingContext.sourceContext?.policies ?? [];
+  const { policyCount, policyDescriptions } = resolveUnifiedPolicyView(workingContext);
 
   const customerName =
     findFact(facts, "profile.name")?.fact_value?.trim() ||
@@ -60,13 +82,6 @@ export function extractCustomerSituation(workingContext = {}) {
     findFact(facts, "health.medication")?.fact_value?.trim() ||
     sourceSummary.health?.medication ||
     null;
-
-  const activePolicies = (policies ?? []).filter((policy) => policy.is_active !== false);
-  const policyDescriptions = activePolicies.map((policy) => {
-    const insurer = policy.insurer ?? policy.insurer_name ?? "";
-    const product = policy.product ?? policy.product_name ?? "";
-    return `${insurer} ${product}`.trim();
-  }).filter(Boolean);
 
   const keepLabels = uniqueLabels(
     workingContext.recommendationResult?.keep_existing ??
@@ -87,7 +102,7 @@ export function extractCustomerSituation(workingContext = {}) {
   return {
     customerLabel,
     medication,
-    policyCount: activePolicies.length || policyDescriptions.length,
+    policyCount: policyCount || policyDescriptions.length,
     policyDescriptions,
     keepLabels: keepLabels.length ? keepLabels : maintainedLabels,
     gapLabels,

@@ -7,6 +7,7 @@ import {
   downloadDocument,
   softDeleteDocument,
 } from "../lib/customerDocuments.js";
+import { useCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   DOCUMENT_UI_MESSAGES,
   formatDocClass,
@@ -166,6 +167,7 @@ const S = {
 };
 
 export default function DocumentsPanel({ user }) {
+  const { refreshSession, notifySystemMessage, insurancePolicyCount } = useCustomerSession();
   const fileInputRef = useRef(null);
   const [documents, setDocuments] = useState([]);
   const [hasConsent, setHasConsent] = useState(false);
@@ -243,6 +245,15 @@ export default function DocumentsPanel({ user }) {
         fileInputRef.current.value = "";
       }
       setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+      const refreshed = await refreshSession({ event: "document_upload", reloadJob: false });
+      const policyCount =
+        refreshed?.unified?.policy_count ??
+        refreshed?.dashboard?.insurancePolicyCount ??
+        insurancePolicyCount;
+      await notifySystemMessage(
+        `문서가 업로드되었습니다. 현재 등록된 가입 보험은 ${policyCount}건으로 확인됩니다. AI 상담실에서 바로 질문해 보세요.`,
+        { metadata: { category_key: categoryKey }, refresh: false },
+      );
       await loadData();
     } catch (err) {
       setError(toCustomerErrorMessage(err, "문서 업로드에 실패했습니다."));

@@ -7,7 +7,10 @@ import {
   fetchLatestAnalysisJob,
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
+import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
+
+const CONVERSATION_LOAD_TIMEOUT_MS = 12_000;
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -217,10 +220,28 @@ function AnalysisProgressPanel({ analysisJob, initialResponseTimeMs }) {
   );
 }
 
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
+  const session = useOptionalCustomerSession();
+  const customerId = session?.dashboardData?.customerId ?? null;
+
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [analysisJob, setAnalysisJob] = useState(null);
@@ -229,26 +250,39 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const historyRef = useRef(null);
   const pollAbortRef = useRef(false);
 
-  const loadMessages = useCallback(async () => {
-    if (!user) {
-      setMessages([]);
-      setLoading(false);
-      setError("로그인이 필요합니다.");
-      return;
-    }
+  const loadMessages = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!user) {
+        setMessages([]);
+        setLoading(false);
+        setError("로그인이 필요합니다.");
+        return;
+      }
 
-    setLoading(true);
-    setError("");
-    try {
-      const rows = await loadCustomerConversations(user);
-      setMessages(rows);
-    } catch (err) {
-      setMessages([]);
-      setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+      if (!silent) {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const rows = await withTimeout(
+          loadCustomerConversations(user, { customerId }),
+          CONVERSATION_LOAD_TIMEOUT_MS,
+          "대화 기록 요청 시간이 초과되었습니다. 아래에서 질문을 입력해 주세요.",
+        );
+        setMessages(rows);
+      } catch (err) {
+        if (!silent) {
+          setMessages([]);
+        }
+        setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [user, customerId],
+  );
 
   const resumeBackgroundPolling = useCallback(
     async (jobId) => {
@@ -270,7 +304,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
             onAnalysisJobUpdate(finalJob);
           }
         }
-        await loadMessages();
+        await loadMessages({ silent: true });
       } catch (err) {
         setError(toCustomerErrorMessage(err, "백그라운드 분석 상태를 확인하지 못했습니다."));
       } finally {
@@ -281,19 +315,21 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   );
 
   useEffect(() => {
+    if (!user || !customerId) return;
     loadMessages();
-  }, [loadMessages]);
+  }, [user, customerId, loadMessages]);
 
   useEffect(() => {
     if (!user) return undefined;
     let cancelled = false;
+    pollAbortRef.current = false;
 
     (async () => {
       try {
         const latestJob = await fetchLatestAnalysisJob();
         if (!cancelled && latestJob && latestJob.status !== "completed" && latestJob.status !== "failed") {
           setAnalysisJob(latestJob);
-          await resumeBackgroundPolling(latestJob.id);
+          void resumeBackgroundPolling(latestJob.id);
         } else if (!cancelled && latestJob) {
           setAnalysisJob(latestJob);
         }
@@ -326,6 +362,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
     pollAbortRef.current = false;
     try {
       const result = await sendCustomerConversationMessage(user, text, {
+        customerId,
         onAnalysisJob: ({ analysisJobId, analysisJob: job, initialResponseTimeMs: responseMs }) => {
           setAnalysisJob(job);
           setInitialResponseTimeMs(responseMs ?? 0);
@@ -388,16 +425,20 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="보험 상담 내용을 입력해 주세요."
-            disabled={sending || loading || backgroundRunning}
+            disabled={sending}
           />
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            <button type="submit" style={S.btn} disabled={sending || loading || !draft.trim()}>
+            <button
+              type="submit"
+              style={S.btn}
+              disabled={sending || loading || backgroundRunning || !draft.trim()}
+            >
               {sending ? "즉시 응답 생성 중…" : "상담 질문 보내기"}
             </button>
             <button
               type="button"
               style={S.btnSecondary}
-              onClick={loadMessages}
+              onClick={() => loadMessages()}
               disabled={sending || loading}
             >
               새로고침
