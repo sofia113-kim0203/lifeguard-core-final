@@ -7,6 +7,7 @@ import ClaimCheckPanel from "./components/ClaimCheckPanel.jsx";
 import CustomerDashboardPanel from "./components/CustomerDashboardPanel.jsx";
 import DocumentsPanel from "./components/DocumentsPanel.jsx";
 import RoleAccessPanel from "./components/RoleAccessPanel.jsx";
+import { CustomerSessionProvider } from "./context/CustomerSessionProvider.jsx";
 import { useAuthSession } from "./hooks/useAuthSession.js";
 import { supabase } from "./lib/supabase.js";
 
@@ -61,6 +62,10 @@ const INSIGHT_ITEMS = [
   },
 ];
 
+function AiRecommendationMenuPanel({ user }) {
+  return <AiRecommendationPanel user={user} useSessionJob />;
+}
+
 function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
   switch (activeMenu) {
     case AUTH_MENU:
@@ -74,7 +79,7 @@ function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
     case "claim":
       return <ClaimCheckPanel user={user} />;
     case "ai":
-      return <AiRecommendationPanel user={user} />;
+      return <AiRecommendationMenuPanel user={user} />;
     case "documents":
       return <DocumentsPanel user={user} />;
     case "agent":
@@ -313,11 +318,21 @@ export default function App() {
             overflow: "auto",
           }}
         >
-          {renderMainContent(activeMenu, {
-            user,
-            authLoading,
-            onLoginSuccess: handleLoginSuccess,
-          })}
+          {user ? (
+            <CustomerSessionProvider user={user}>
+              {renderMainContent(activeMenu, {
+                user,
+                authLoading,
+                onLoginSuccess: handleLoginSuccess,
+              })}
+            </CustomerSessionProvider>
+          ) : (
+            renderMainContent(activeMenu, {
+              user,
+              authLoading,
+              onLoginSuccess: handleLoginSuccess,
+            })
+          )}
         </div>
       </div>
     </div>
