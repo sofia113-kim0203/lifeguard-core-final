@@ -14,6 +14,7 @@ import {
 } from "./customerMemorySnapshot.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import { attachPolicyMeta, buildPoliciesPromptBlock } from "./panelClaudePoliciesContext.js";
 import { createClient } from "@supabase/supabase-js";
 
 const STATUS_ORDER = {
@@ -249,17 +250,25 @@ export function transformUnderwritingRiskResults({
   };
 }
 
-export function buildUnderwritingExplanationPrompt(structuredMemory, coverageGapResult, underwritingResult) {
+export function buildUnderwritingExplanationPrompt(
+  structuredMemory,
+  coverageGapResult,
+  underwritingResult,
+  policies = [],
+) {
   const user = [
     "Explain underwriting risk analysis to the customer using only the blocks below.",
     "",
     "A. customer_memory_summary:",
     JSON.stringify(structuredMemory, null, 2),
     "",
-    "B. coverage_gap_reference:",
+    "B.",
+    buildPoliciesPromptBlock(policies),
+    "",
+    "C. coverage_gap_reference:",
     JSON.stringify(underwritingResult.coverage_gap_reference, null, 2),
     "",
-    "C. underwriting_risk_analysis:",
+    "D. underwriting_risk_analysis:",
     JSON.stringify(underwritingResult, null, 2),
     "",
     "Required sections in Korean:",
@@ -356,6 +365,7 @@ export async function loadUnderwritingAnalysisContext(supabase, customerId) {
     snapshot: coverageContext.snapshot,
     structuredMemory: coverageContext.structuredMemory ?? buildStructuredMemoryProfile(coverageContext.snapshot),
     coverageGapResult: coverageContext.coverageGapResult,
+    policies: coverageContext.policies ?? [],
     input,
     healthAnalysis,
     underwritingResult,
@@ -395,12 +405,16 @@ export async function handleCustomerUnderwritingRiskRequest({
   if (!skipClaude) {
     const anthropicApiKey = resolveAnthropicApiKey(env);
     if (!anthropicApiKey) {
-      claudeMeta = { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" };
+      claudeMeta = attachPolicyMeta(
+        { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" },
+        context.policies ?? [],
+      );
     } else {
       const prompt = buildUnderwritingExplanationPrompt(
         context.structuredMemory,
         context.coverageGapResult,
         context.underwritingResult,
+        context.policies ?? [],
       );
       const claudeResult = await callAnthropic({
         apiKey: anthropicApiKey,
@@ -411,17 +425,23 @@ export async function handleCustomerUnderwritingRiskRequest({
       });
       if (claudeResult.ok) {
         claudeExplanation = claudeResult.answer;
-        claudeMeta = {
-          skipped: false,
-          model_name: claudeResult.model,
-          provider: claudeResult.provider,
-        };
+        claudeMeta = attachPolicyMeta(
+          {
+            skipped: false,
+            model_name: claudeResult.model,
+            provider: claudeResult.provider,
+          },
+          context.policies ?? [],
+        );
       } else {
-        claudeMeta = {
-          skipped: true,
-          reason: claudeResult.reason,
-          error_message: claudeResult.errorMessage,
-        };
+        claudeMeta = attachPolicyMeta(
+          {
+            skipped: true,
+            reason: claudeResult.reason,
+            error_message: claudeResult.errorMessage,
+          },
+          context.policies ?? [],
+        );
       }
     }
   }

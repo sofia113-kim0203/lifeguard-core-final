@@ -13,6 +13,7 @@ import {
   loadFreshCacheEntry,
   saveCustomerAnalysisCacheEntry,
 } from "./customerAnalysisCacheStore.js";
+import { generatePanelClaudeExplanations } from "./panelClaudeExplanationHydration.js";
 
 export const ANALYSIS_PIPELINE_STAGES = [
   "coverage_gap",
@@ -270,6 +271,23 @@ export async function processNextAnalysisJobStage({
     };
 
     if (nextStage === "result_claude") {
+      const panelClaudeStart = Date.now();
+      const panelClaude = await generatePanelClaudeExplanations({
+        supabase,
+        customerId: job.customer_id,
+        workingContext,
+        fetchImpl,
+        env,
+      });
+      timingMetrics.panel_claude_hydration_ms = panelClaude.duration_ms ?? Date.now() - panelClaudeStart;
+      timingMetrics.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+      timingMetrics.total_analysis_time_ms =
+        Number(timingMetrics.total_analysis_time_ms ?? 0) + Number(timingMetrics.panel_claude_hydration_ms ?? 0);
+
+      resultJson.claude_explanations = panelClaude.explanations ?? {};
+      resultJson.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+      resultJson.panel_claude_policy_ids = panelClaude.policy_ids ?? [];
+
       const finalText = stageResult?.text ?? stageResult?.fallback_text ?? buildFallbackConnectedResponse(workingContext);
       patch.final_response_text = finalText;
       patch.status = "completed";
@@ -281,6 +299,7 @@ export async function processNextAnalysisJobStage({
       resultJson.explanation_mode = stageResult?.explanation_mode ?? "short";
       resultJson.detailed_available = stageResult?.detailed_available ?? false;
       patch.result_json = resultJson;
+      patch.timing_metrics = timingMetrics;
     }
 
     const updatedJob = await updateAnalysisJob(supabase, jobId, patch);

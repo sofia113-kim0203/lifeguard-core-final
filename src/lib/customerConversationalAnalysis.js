@@ -1,4 +1,10 @@
 import { supabase } from "./supabase.js";
+import { analyzeCustomerUnderwritingRisk } from "./customerUnderwritingRisk.js";
+import { loadCustomerRecommendations } from "./customerRecommendations.js";
+import { loadCustomerInsuranceDesign } from "./customerInsuranceDesign.js";
+import { hasClaudeExplanation, normalizeClaudeExplanationEntry } from "./panelClaudeExplanation.js";
+
+export { hasClaudeExplanation, normalizeClaudeExplanationEntry } from "./panelClaudeExplanation.js";
 
 const CONVERSATIONAL_ROUTE = "/api/customer-conversational-qa";
 const ANALYSIS_JOB_ROUTE = "/api/customer-analysis-job";
@@ -116,6 +122,69 @@ export async function processAnalysisJobUntilComplete({
   return latestJob;
 }
 
+const PANEL_CLAUDE_HYDRATORS = {
+  underwriting: analyzeCustomerUnderwritingRisk,
+  recommendation: loadCustomerRecommendations,
+  insurance_design: loadCustomerInsuranceDesign,
+};
+
+export async function hydrateMissingClaudeExplanations({
+  claudeExplanations = {},
+  panels = ["underwriting", "recommendation", "insurance_design"],
+  hasPanelData = {},
+} = {}) {
+  const hydrated = { ...claudeExplanations };
+  const hydrationResults = [];
+
+  for (const panel of panels) {
+    if (hasPanelData[panel] === false) {
+      continue;
+    }
+    if (hasClaudeExplanation(hydrated[panel])) {
+      hydrationResults.push({ panel, ok: true, skipped: true, reason: "already_present" });
+      continue;
+    }
+
+    const hydrator = PANEL_CLAUDE_HYDRATORS[panel];
+    if (!hydrator) {
+      hydrationResults.push({ panel, ok: false, reason: "unknown_panel" });
+      continue;
+    }
+
+    try {
+      const result = await hydrator({ skipClaude: false });
+      hydrated[panel] = {
+        explanation: result.claudeExplanation ?? null,
+        meta: {
+          ...(result.claudeMeta ?? {}),
+          hydrated_at: new Date().toISOString(),
+          source: "client_panel_api",
+        },
+      };
+      hydrationResults.push({
+        panel,
+        ok: hasClaudeExplanation(hydrated[panel]),
+        reason: hasClaudeExplanation(hydrated[panel]) ? null : result.claudeMeta?.reason ?? "empty_explanation",
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "hydration_failed";
+      hydrated[panel] = {
+        explanation: null,
+        meta: {
+          skipped: true,
+          reason: "HYDRATION_FAILED",
+          error_message: errorMessage,
+          hydrated_at: new Date().toISOString(),
+          source: "client_panel_api",
+        },
+      };
+      hydrationResults.push({ panel, ok: false, reason: "HYDRATION_FAILED", error_message: errorMessage });
+    }
+  }
+
+  return { claudeExplanations: hydrated, hydrationResults };
+}
+
 export function mapJobResultsToAnalysisPanels(job) {
   if (!job?.result_json) return null;
   const result = job.result_json;
@@ -126,5 +195,7 @@ export function mapJobResultsToAnalysisPanels(job) {
     designBundle: result.insurance_design ?? null,
     claudeExplanations: result.claude_explanations ?? {},
     finalClaude: result.final_claude ?? null,
+    panelClaudePolicyCount: result.panel_claude_policy_count ?? null,
+    panelClaudePolicyIds: result.panel_claude_policy_ids ?? [],
   };
 }
