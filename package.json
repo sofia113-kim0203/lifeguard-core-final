@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "LIFEGUARD Core — design/schema repo with minimal dashboard shell (not production)",
+  "description": "LIFEGUARD Core \u2014 design/schema repo with minimal dashboard shell (not production)",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
@@ -20,7 +20,8 @@
     "test:phase26-step1b": "node scripts/phase26-step1b-coverage-gap-memory-test.mjs",
     "test:phase26-step1c": "node scripts/phase26-step1c-underwriting-risk-memory-test.mjs",
     "test:phase26-step1d": "node scripts/phase26-step1d-recommendation-engine-test.mjs",
-    "test:phase26-step1e": "node scripts/phase26-step1e-insurance-design-test.mjs"
+    "test:phase26-step1e": "node scripts/phase26-step1e-insurance-design-test.mjs",
+    "test:phase26-step2a": "node scripts/phase26-step2a-conversational-background-analysis-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
