@@ -7,6 +7,7 @@ import ClaimCheckPanel from "./components/ClaimCheckPanel.jsx";
 import CustomerDashboardPanel from "./components/CustomerDashboardPanel.jsx";
 import DocumentsPanel from "./components/DocumentsPanel.jsx";
 import RoleAccessPanel from "./components/RoleAccessPanel.jsx";
+import { CustomerSessionProvider } from "./context/CustomerSessionProvider.jsx";
 import { useAuthSession } from "./hooks/useAuthSession.js";
 import { supabase } from "./lib/supabase.js";
 
@@ -313,21 +314,11 @@ export default function App() {
             overflow: "auto",
           }}
         >
-          {user ? (
-            <CustomerSessionProvider user={user}>
-              {renderMainContent(activeMenu, {
-                user,
-                authLoading,
-                onLoginSuccess: handleLoginSuccess,
-              })}
-            </CustomerSessionProvider>
-          ) : (
-            renderMainContent(activeMenu, {
-              user,
-              authLoading,
-              onLoginSuccess: handleLoginSuccess,
-            })
-          )}
+          {renderMainContent(activeMenu, {
+            user,
+            authLoading,
+            onLoginSuccess: handleLoginSuccess,
+          })}
         </div>
       </div>
     </div>
