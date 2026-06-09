@@ -9,6 +9,7 @@ import {
   measureOutput,
   measurePrompt,
 } from "./claudePerformanceAudit.js";
+import { buildAdvisorStyleFallback } from "./customerConversationalTone.js";
 import {
   buildClaudeResultCacheKey,
   loadClaudeResultCache,
@@ -83,24 +84,7 @@ async function callAnthropicShort({
 }
 
 function buildFallbackShortExplanation(question, workingContext) {
-  const audit = auditExplanationContext(workingContext, question);
-  const summary = audit;
-  const gaps = workingContext.coverageGapResult?.top_gaps?.slice(0, 3).map((i) => i.coverage_label).join(", ");
-  const top2 = workingContext.recommendationResult?.customer_visible_top2?.map((i) => i.coverage_label).join(", ");
-  const design = workingContext.designBundle?.customer_visible_design?.design_title;
-  const medication = workingContext.snapshot?.facts?.find((f) => /medication/.test(f.fact_key))?.fact_value;
-
-  return [
-    `질문("${question}")에 대해 Memory와 분석 결과를 연결해 안내드립니다.`,
-    gaps ? `보장 공백 우선 항목은 ${gaps}입니다.` : null,
-    medication ? `건강 Memory에 ${medication} 정보가 반영되었습니다.` : null,
-    top2 ? `우선 검토 추천은 ${top2}입니다.` : null,
-    design ? `보험설계안은 "${design}" 기준으로 정리되었습니다.` : null,
-    "자세한 항목별 설명은 AI 보험 추천 화면에서 확인하실 수 있습니다.",
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .slice(0, SHORT_MAX_CHARS);
+  return buildAdvisorStyleFallback(question, workingContext).slice(0, SHORT_MAX_CHARS);
 }
 
 export async function generateShortConnectedExplanation({

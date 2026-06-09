@@ -7,6 +7,7 @@ import { loadUnderwritingAnalysisContext } from "./customerUnderwritingRiskCore.
 import { loadRecommendationAnalysisContext } from "./customerRecommendationCore.js";
 import { loadInsuranceDesignAnalysisContext } from "./customerInsuranceDesignCore.js";
 import { generateShortConnectedExplanation } from "./claudeShortExplanationCore.js";
+import { buildAdvisorStyleFallback } from "./customerConversationalTone.js";
 import { auditExplanationContext } from "./claudePerformanceAudit.js";
 import {
   loadFreshCacheEntry,
@@ -100,23 +101,7 @@ async function runStageCompute(supabase, customerId, stageKey, workingContext, o
 }
 
 function buildFallbackConnectedResponse(workingContext) {
-  const topGaps = (workingContext.coverageGapResult?.top_gaps ?? [])
-    .slice(0, 3)
-    .map((item) => item.coverage_label ?? item.coverage_category)
-    .join(", ");
-  const top2 = (workingContext.recommendationResult?.customer_visible_top2 ?? [])
-    .map((item) => item.coverage_label ?? item.coverage_category)
-    .join(", ");
-  const designTitle = workingContext.designBundle?.customer_visible_design?.design_title ?? "";
-  return [
-    "백그라운드 정밀 분석이 완료되었습니다.",
-    topGaps ? `보장 공백 우선 항목: ${topGaps}` : null,
-    top2 ? `추천 Top 2: ${top2}` : null,
-    designTitle ? `보험설계안: ${designTitle}` : null,
-    "상세 설명은 AI 보험 추천 화면에서 확인하실 수 있습니다.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  return buildAdvisorStyleFallback(workingContext.question ?? "", workingContext);
 }
 
 export async function loadAnalysisJob(supabase, jobId) {
