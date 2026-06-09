@@ -4,6 +4,7 @@ import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
 import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
+import { loadCustomerMemoryFoundation } from "../lib/customerMemory.js";
 import {
   formatHealthSource,
   formatProfileStatus,
@@ -73,6 +74,11 @@ export default function CustomerDashboardPanel({ user }) {
     setError("");
     try {
       const result = await loadCustomerDashboardData(user);
+      try {
+        await loadCustomerMemoryFoundation({ rebuild: true });
+      } catch {
+        // Memory sync failure should not block dashboard rendering.
+      }
       setData(result);
     } catch (err) {
       setData(null);

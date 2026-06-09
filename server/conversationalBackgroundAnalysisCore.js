@@ -2,7 +2,7 @@
  * Phase 26 Step 2A — Conversational Background Analysis orchestration.
  */
 import { createClient } from "@supabase/supabase-js";
-import { loadCustomerMemorySnapshot } from "./customerMemorySnapshot.js";
+import { ensureCustomerMemoryContext } from "./customerMemoryContextSync.js";
 import { buildFastConversationalResponse } from "./fastResponseLayer.js";
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import {
@@ -171,7 +171,13 @@ export async function handleConversationalQuestionRequest({
     return { ok: false, reason: "SERVICE_ROLE_NOT_CONFIGURED", error_message: "Service role client unavailable." };
   }
 
-  const snapshot = await loadCustomerMemorySnapshot(adminClient, customerId);
+  const memoryContext = await ensureCustomerMemoryContext({
+    supabase: adminClient,
+    customerId,
+    supabaseUrl: String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim() || null,
+    serviceRoleKey: String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim() || null,
+  });
+  const snapshot = memoryContext.snapshot;
   const cachePayload = await loadCustomerAnalysisCachePayload(
     adminClient,
     customerId,
@@ -182,6 +188,8 @@ export async function handleConversationalQuestionRequest({
     question: trimmedQuestion,
     memorySnapshot: snapshot,
     cachePayload,
+    sourceContext: memoryContext.sourceContext,
+    sourceSummary: memoryContext.sourceSummary,
   });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
@@ -200,7 +208,12 @@ export async function handleConversationalQuestionRequest({
       fast_response_text: fastResponse,
       source_memory_version: snapshot.memory_version ?? 0,
       timing_metrics: {},
-      result_json: {},
+      result_json: {
+        working_context: {
+          sourceSummary: memoryContext.sourceSummary,
+          sourceContextFlags: memoryContext.data_available,
+        },
+      },
       stages_completed: [],
     })
     .select("*")
@@ -233,6 +246,8 @@ export async function handleConversationalQuestionRequest({
       analysis_job_id: jobRow.id,
       memory_version: snapshot.memory_version ?? 0,
       memory_fact_count: snapshot.fact_count ?? 0,
+      memory_synced: memoryContext.memory_synced,
+      source_data_available: memoryContext.data_available,
       cache_status: cachePayload.cache_status,
       background_refresh_types: cachePayload.background_refresh_types,
       initial_response_time_ms: initialResponseTimeMs,
@@ -269,6 +284,12 @@ export async function handleConversationalQuestionRequest({
     background_refresh_types: cachePayload.background_refresh_types,
     memory_version: snapshot.memory_version ?? 0,
     memory_fact_count: snapshot.fact_count ?? 0,
+    memory_context: {
+      synced: memoryContext.memory_synced,
+      sync_assessment: memoryContext.sync_assessment,
+      data_available: memoryContext.data_available,
+      source_summary: memoryContext.sourceSummary,
+    },
     processing: processingResult ?? null,
   };
 }

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase.js";
+import { loadCustomerMemoryFoundation } from "./customerMemory.js";
 import {
   buildHealthDisclosurePayload,
   extractHealthDisclosure,
@@ -239,6 +240,7 @@ export async function saveCustomerIntake(authUser, form) {
     }
   }
 
+  await loadCustomerMemoryFoundation({ rebuild: true }).catch(() => null);
   return loadCustomerIntake(authUser);
 }
 

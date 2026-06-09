@@ -5,11 +5,11 @@ import {
 
 export const MEMORY_BUILDER_WORKER_URL = "/functions/v1/memory-builder-worker";
 
-function resolveSupabaseUrl(env = process.env) {
+export function resolveSupabaseUrl(env = process.env) {
   return String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
 }
 
-function resolveServiceRoleKey(env = process.env) {
+export function resolveServiceRoleKey(env = process.env) {
   return String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
 }
 
