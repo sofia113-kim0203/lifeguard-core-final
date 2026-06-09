@@ -19,6 +19,93 @@ function joinLabels(labels) {
   return `${list.slice(0, -1).join(", ")}과 ${list[list.length - 1]}`;
 }
 
+function parsePolicySummaryFact(factValue) {
+  const text = String(factValue ?? "").trim();
+  const match = text.match(/^([^/]+)\/([^(,\n]+)/);
+  if (!match) return null;
+  return {
+    insurer: match[1].trim(),
+    product: match[2].trim(),
+  };
+}
+
+function buildPolicyFactLookup(facts) {
+  const lookup = new Map();
+  for (const fact of facts ?? []) {
+    const key = String(fact.fact_key ?? "");
+    if (!key.startsWith("insurance.policy.") || !key.endsWith(".summary")) continue;
+    const policyId = key.slice("insurance.policy.".length, -".summary".length);
+    lookup.set(policyId, fact.fact_value);
+  }
+  return lookup;
+}
+
+function normalizePolicyRow(policy, factLookup) {
+  let insurer = policy.insurer_name ?? policy.insurer ?? null;
+  let product = policy.product_name ?? policy.product ?? null;
+
+  if ((!insurer || !product) && policy.id && factLookup.has(policy.id)) {
+    const parsed = parsePolicySummaryFact(factLookup.get(policy.id));
+    if (parsed) {
+      insurer = insurer || parsed.insurer;
+      product = product || parsed.product;
+    }
+  }
+
+  return {
+    ...policy,
+    insurer_name: insurer,
+    product_name: product,
+    insurer,
+    product,
+  };
+}
+
+export function getFullPolicies(workingContext = {}) {
+  const policies =
+    workingContext.sourceContext?.policies ??
+    workingContext.sourceSummary?.insurance ??
+    [];
+  const facts = workingContext.snapshot?.facts ?? [];
+  const factLookup = buildPolicyFactLookup(facts);
+  return (policies ?? []).map((policy) => normalizePolicyRow(policy, factLookup));
+}
+
+export function getPolicyCountFromContext(workingContext = {}) {
+  const facts = workingContext.snapshot?.facts ?? [];
+  const countFact = facts.find((fact) => fact.fact_key === "insurance.policy.count");
+  const fromMemory = Number(countFact?.fact_value);
+  if (Number.isFinite(fromMemory) && fromMemory > 0) return fromMemory;
+
+  const policies = getFullPolicies(workingContext).filter(
+    (policy) => policy.is_active !== false,
+  );
+  return policies.length;
+}
+
+export function getNamedPolicyDescriptions(workingContext = {}) {
+  return getFullPolicies(workingContext)
+    .filter((policy) => policy.is_active !== false)
+    .map((policy) => {
+      const insurer = String(policy.insurer ?? policy.insurer_name ?? "").trim();
+      const product = String(policy.product ?? policy.product_name ?? "").trim();
+      if (!insurer || !product) return "";
+      return `${insurer} ${product}`;
+    })
+    .filter(Boolean);
+}
+
+export function getUniqueInsurers(workingContext = {}) {
+  return Array.from(
+    new Set(
+      getFullPolicies(workingContext)
+        .filter((policy) => policy.is_active !== false)
+        .map((policy) => String(policy.insurer ?? policy.insurer_name ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export const ADVISOR_TONE_SYSTEM_RULES = [
   "You are a LIFEGUARD customer insurance consultation assistant.",
   "Write in polite, warm, professional Korean — like an experienced insurance advisor speaking to a customer.",
@@ -38,6 +125,7 @@ export function detectDirectAnswerIntent(question = "") {
   const text = String(question).trim();
   if (/보험\s*(총\s*)?건수|몇\s*건|가입\s*보험\s*수|보유\s*보험/.test(text)) return "policy_count";
   if (/가입한\s*보험사|어느\s*보험사|보험사는/.test(text)) return "insurer";
+  if (/가입한\s*보험은|보유\s*보험은|가입\s*보험은/.test(text)) return "policy_list";
   if (/복용\s*중인\s*약|먹는\s*약|복용약|약은/.test(text)) return "medication";
   if (/지급조건|약관|보장내용|청구\s*조건/.test(text)) return "policy_terms";
   return null;
@@ -47,7 +135,6 @@ export function extractCustomerSituation(workingContext = {}) {
   const snapshot = workingContext.snapshot ?? {};
   const facts = snapshot.facts ?? [];
   const sourceSummary = workingContext.sourceSummary ?? {};
-  const policies = sourceSummary.insurance ?? workingContext.sourceContext?.policies ?? [];
 
   const customerName =
     findFact(facts, "profile.name")?.fact_value?.trim() ||
@@ -61,12 +148,9 @@ export function extractCustomerSituation(workingContext = {}) {
     sourceSummary.health?.medication ||
     null;
 
-  const activePolicies = (policies ?? []).filter((policy) => policy.is_active !== false);
-  const policyDescriptions = activePolicies.map((policy) => {
-    const insurer = policy.insurer ?? policy.insurer_name ?? "";
-    const product = policy.product ?? policy.product_name ?? "";
-    return `${insurer} ${product}`.trim();
-  }).filter(Boolean);
+  const policyDescriptions = getNamedPolicyDescriptions(workingContext);
+  const policyCount = getPolicyCountFromContext(workingContext);
+  const uniqueInsurers = getUniqueInsurers(workingContext);
 
   const keepLabels = uniqueLabels(
     workingContext.recommendationResult?.keep_existing ??
@@ -87,8 +171,9 @@ export function extractCustomerSituation(workingContext = {}) {
   return {
     customerLabel,
     medication,
-    policyCount: activePolicies.length || policyDescriptions.length,
+    policyCount,
     policyDescriptions,
+    uniqueInsurers,
     keepLabels: keepLabels.length ? keepLabels : maintainedLabels,
     gapLabels,
     recommendLabels,
@@ -102,12 +187,14 @@ export function buildCustomerFacingContext(workingContext = {}) {
   const situation = extractCustomerSituation(workingContext);
   const lines = [];
 
-  if (situation.policyDescriptions.length) {
-    lines.push(
-      `현재 ${situation.customerLabel}께서는 ${situation.policyDescriptions.join(", ")} ${situation.policyCount}건을 보유하고 계십니다.`,
-    );
-  } else if (situation.policyCount > 0) {
-    lines.push(`현재 ${situation.customerLabel}께서는 등록된 보험이 ${situation.policyCount}건 확인됩니다.`);
+  if (situation.policyCount > 0) {
+    if (situation.policyDescriptions.length) {
+      lines.push(
+        `현재 ${situation.customerLabel}께서는 ${situation.policyDescriptions.join(", ")} 포함 총 ${situation.policyCount}건을 보유하고 계십니다.`,
+      );
+    } else {
+      lines.push(`현재 ${situation.customerLabel}께서는 등록된 보험이 ${situation.policyCount}건 확인됩니다.`);
+    }
   }
 
   if (situation.medication) {
@@ -156,9 +243,9 @@ export function buildDirectFactualAnswer(question, workingContext = {}) {
   const { customerLabel } = situation;
 
   if (intent === "policy_count") {
-    if (situation.policyCount > 0 && situation.policyDescriptions.length) {
+    if (situation.policyCount > 0) {
       return [
-        `${customerLabel}, 현재 등록된 가입 보험은 ${situation.policyDescriptions.join(", ")} 포함 총 ${situation.policyCount}건입니다.`,
+        `${customerLabel}, 현재 등록된 가입 보험은 총 ${situation.policyCount}건입니다.`,
         situation.keepLabels.length
           ? `특히 ${joinLabels(situation.keepLabels)} 보장은 유지하시면서 다른 부족한 보장을 점검해 보시는 것이 좋습니다.`
           : "보유 보험을 기준으로 부족한 보장이 있는지 함께 살펴보겠습니다.",
@@ -173,16 +260,9 @@ export function buildDirectFactualAnswer(question, workingContext = {}) {
   }
 
   if (intent === "insurer") {
-    if (situation.policyDescriptions.length) {
-      const insurers = Array.from(
-        new Set(
-          (workingContext.sourceSummary?.insurance ?? workingContext.sourceContext?.policies ?? [])
-            .map((p) => p.insurer ?? p.insurer_name)
-            .filter(Boolean),
-        ),
-      );
+    if (situation.uniqueInsurers.length) {
       return [
-        `${customerLabel}, 현재 가입하신 보험사는 ${joinLabels(insurers)}입니다.`,
+        `${customerLabel}, 현재 가입하신 보험사는 ${joinLabels(situation.uniqueInsurers)}입니다.`,
         situation.policyDescriptions.length
           ? `보유 상품은 ${situation.policyDescriptions.join(", ")}입니다.`
           : null,
@@ -194,6 +274,21 @@ export function buildDirectFactualAnswer(question, workingContext = {}) {
         .join(" ");
     }
     return `${customerLabel}, 현재 등록된 보험사 정보를 확인하지 못했습니다. 고객 분석 화면의 보험 정보를 확인해 주시면 바로 안내해 드리겠습니다.`;
+  }
+
+  if (intent === "policy_list") {
+    if (situation.policyDescriptions.length) {
+      return [
+        `${customerLabel}, 현재 가입하신 보험은 ${situation.policyDescriptions.join(", ")}입니다.`,
+        `총 ${situation.policyCount}건이 등록되어 있습니다.`,
+        situation.gapLabels.length
+          ? `${joinLabels(situation.gapLabels)} 관련 보장 보완도 함께 검토해 보시면 좋겠습니다.`
+          : "추가로 궁금하신 보장이 있으시면 말씀해 주세요.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+    }
+    return `${customerLabel}, 현재 등록된 가입 보험 상품 정보를 확인하지 못했습니다. 고객 분석 화면의 보험 정보를 확인해 주시면 바로 안내해 드리겠습니다.`;
   }
 
   if (intent === "medication") {

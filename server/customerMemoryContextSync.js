@@ -134,7 +134,8 @@ export function buildSourceContextSummary(sourceContext) {
       hospitalization_history: health.hospitalization_history ?? health.hospital_5y ?? null,
       family_history: health.family_history ?? null,
     },
-    insurance: policies.slice(0, 3).map((policy) => ({
+    insurance: policies.map((policy) => ({
+      id: policy.id,
       insurer: policy.insurer_name,
       product: policy.product_name,
       type: policy.policy_type,

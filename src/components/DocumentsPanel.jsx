@@ -4,6 +4,7 @@ import {
   grantDocumentStorageConsent,
   listDocuments,
   uploadDocument,
+  processUploadedInsuranceDocumentMemory,
   downloadDocument,
   softDeleteDocument,
 } from "../lib/customerDocuments.js";
@@ -237,12 +238,20 @@ export default function DocumentsPanel({ user }) {
     setError("");
     setSuccess("");
     try {
-      await uploadDocument(user, { file: selectedFile, categoryKey });
+      const uploadResult = await uploadDocument(user, { file: selectedFile, categoryKey });
       setSelectedFile(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
       setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+      if (categoryKey === "insurance_policy" && uploadResult?.document?.id) {
+        try {
+          await processUploadedInsuranceDocumentMemory(user, uploadResult.document.id);
+          setSuccess("보험증권 업로드 및 보험 메모리 생성이 완료되었습니다.");
+        } catch (memoryErr) {
+          setError(toCustomerErrorMessage(memoryErr, "문서는 업로드되었으나 보험 메모리 생성에 실패했습니다."));
+        }
+      }
       await loadData();
     } catch (err) {
       setError(toCustomerErrorMessage(err, "문서 업로드에 실패했습니다."));
@@ -362,7 +371,7 @@ export default function DocumentsPanel({ user }) {
           </button>
         </div>
         <p style={{ ...S.sectionDesc, marginTop: "16px", marginBottom: 0 }}>
-          {DOCUMENT_UI_MESSAGES.analysisNotice}
+          업로드한 보험증권은 OCR 분석 후 가입 보험 정보로 자동 등록됩니다.
         </p>
       </section>
 

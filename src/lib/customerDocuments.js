@@ -217,6 +217,87 @@ export async function grantDocumentStorageConsent(authUser) {
   };
 }
 
+
+export const DOCUMENT_ANALYSIS_CONSENT_VERSION = "2026-06-07-ko-doc-analysis";
+
+export async function grantDocumentAnalysisConsent(authUser) {
+  const { customerId } = await ensureCustomerContext(authUser);
+  const { data, error } = await supabase.rpc("lifeguard_grant_document_analysis_consent", {
+    p_consent_version: DOCUMENT_ANALYSIS_CONSENT_VERSION,
+  });
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "문서 분석 동의를 저장하지 못했습니다."));
+  }
+  return {
+    customerId,
+    consentVersion: DOCUMENT_ANALYSIS_CONSENT_VERSION,
+    alreadyGranted: data?.already_granted === true,
+    grantedAt: data?.granted_at ?? null,
+  };
+}
+
+export async function requestDocumentIngest(authUser, documentId) {
+  const { customerId } = await ensureCustomerContext(authUser);
+  const { data, error } = await supabase.rpc("lifeguard_request_customer_document_ingest", {
+    p_document_id: documentId,
+  });
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "문서 분석 요청에 실패했습니다."));
+  }
+  return { customerId, ...data };
+}
+
+export async function invokeDocumentIngestWorker(authUser, documentId) {
+  const { data: session } = await supabase.auth.getSession();
+  const accessToken = session?.session?.access_token;
+  if (!accessToken) throw new Error("로그인이 필요합니다.");
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const response = await fetch(`${supabaseUrl}/functions/v1/document-ingest-worker`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ document_id: documentId }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body?.message || body?.error || "문서 OCR 처리에 실패했습니다.");
+  }
+  return body;
+}
+
+export async function processUploadedInsuranceDocumentMemory(authUser, documentId) {
+  const { customerId } = await ensureCustomerContext(authUser);
+  await grantDocumentAnalysisConsent(authUser);
+  const ingestRequest = await requestDocumentIngest(authUser, documentId);
+  if (!ingestRequest.blocked) {
+    await invokeDocumentIngestWorker(authUser, documentId);
+  }
+
+  const { data: session } = await supabase.auth.getSession();
+  const accessToken = session?.session?.access_token;
+  if (!accessToken) throw new Error("로그인이 필요합니다.");
+
+  const response = await fetch("/api/customer-document-insurance-memory", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ document_id: documentId }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error_message || body?.reason || "보험 메모리 생성에 실패했습니다.");
+  }
+  return { customerId, ...body };
+}
+
+
 export async function listDocuments(authUser, { categoryKey = "all" } = {}) {
   const { customerId } = await ensureCustomerContext(authUser);
   const hasConsent = await hasDocumentStorageConsent(customerId);
