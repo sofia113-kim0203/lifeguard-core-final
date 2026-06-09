@@ -25,7 +25,11 @@
     "test:phase26-step2b": "node scripts/phase26-step2b-claude-performance-audit-test.mjs",
     "test:phase26-step2b-context": "node scripts/phase26-step2b-customer-data-context-audit.mjs",
     "test:phase27-step1a": "node scripts/phase27-step1a-rebalancing-engine-test.mjs",
-    "test:phase27-tone": "node scripts/phase27-conversational-tone-test.mjs"
+    "test:phase27-tone": "node scripts/phase27-conversational-tone-test.mjs",
+    "test:phase28-step1a": "node scripts/phase28-step1a-unified-state-audit.mjs",
+    "test:phase28-step1b": "node scripts/phase28-step1b-ui-sync-smoke.mjs",
+    "test:phase28-p0": "node scripts/phase28-p0-chat-gate-audit.mjs",
+    "test:phase28-claude": "node scripts/phase28-claude-dual-track-audit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

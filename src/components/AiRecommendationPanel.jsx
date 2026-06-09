@@ -24,6 +24,121 @@ import {
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
 
+function panelNeedsClaudeHydration(claudeExplanations, hasPanelResult, claudeKey) {
+  return Boolean(hasPanelResult) && !claudeExplanations?.[claudeKey];
+}
+
+/**
+ * Track A (UI): job result_json does not carry per-panel claude_explanations.
+ * Fetch Claude via existing panel APIs so API failures surface with claude_meta — never hidden.
+ */
+async function hydrateMissingClaudeExplanations(job, setters) {
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  if (!mapped) return;
+
+  const claude = mapped.claudeExplanations ?? {};
+  const tasks = [];
+
+  if (panelNeedsClaudeHydration(claude, mapped.coverageGapResult, "coverage_gap")) {
+    tasks.push(
+      analyzeCustomerCoverageGap()
+        .then((data) => ({
+          panel: "gap",
+          claudeExplanation: data.claudeExplanation,
+          claudeMeta: data.claudeMeta,
+        }))
+        .catch(() => null),
+    );
+  }
+
+  if (panelNeedsClaudeHydration(claude, mapped.underwritingResult, "underwriting")) {
+    tasks.push(
+      analyzeCustomerUnderwritingRisk()
+        .then((data) => ({
+          panel: "uw",
+          claudeExplanation: data.claudeExplanation,
+          claudeMeta: data.claudeMeta,
+        }))
+        .catch(() => null),
+    );
+  }
+
+  if (panelNeedsClaudeHydration(claude, mapped.recommendationResult, "recommendation")) {
+    tasks.push(
+      loadCustomerRecommendations()
+        .then((data) => ({
+          panel: "rec",
+          claudeExplanation: data.claudeExplanation,
+          claudeMeta: data.claudeMeta,
+        }))
+        .catch(() => null),
+    );
+  }
+
+  if (panelNeedsClaudeHydration(claude, mapped.designBundle, "insurance_design")) {
+    tasks.push(
+      loadCustomerInsuranceDesign()
+        .then((data) => ({
+          panel: "design",
+          claudeExplanation: data.claudeExplanation,
+          claudeMeta: data.claudeMeta,
+        }))
+        .catch(() => null),
+    );
+  }
+
+  if (!tasks.length) return;
+
+  const results = await Promise.all(tasks);
+  for (const result of results) {
+    if (!result) continue;
+    if (result.panel === "gap") {
+      setters.setGapResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              claudeExplanation: result.claudeExplanation,
+              claudeMeta: result.claudeMeta,
+            }
+          : prev,
+      );
+    }
+    if (result.panel === "uw") {
+      setters.setUwResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              claudeExplanation: result.claudeExplanation,
+              claudeMeta: result.claudeMeta,
+            }
+          : prev,
+      );
+    }
+    if (result.panel === "rec") {
+      setters.setRecResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              claudeExplanation: result.claudeExplanation,
+              claudeMeta: result.claudeMeta,
+            }
+          : prev,
+      );
+    }
+    if (result.panel === "design") {
+      setters.setDesignResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              claudeExplanation: result.claudeExplanation,
+              claudeMeta: result.claudeMeta,
+            }
+          : prev,
+      );
+    }
+  }
+}
+
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
 
@@ -261,13 +376,15 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   const [rebalancingResult, setRebalancingResult] = useState(null);
   const [analysisJob, setAnalysisJob] = useState(null);
 
+  const panelSetters = {
+    setGapResult,
+    setUwResult,
+    setRecResult,
+    setDesignResult,
+  };
+
   const applyJobToState = useCallback((job) => {
-    return applyJobResultsToPanelState(job, {
-      setGapResult,
-      setUwResult,
-      setRecResult,
-      setDesignResult,
-    });
+    return applyJobResultsToPanelState(job, panelSetters);
   }, []);
 
   const loadAnalysis = useCallback(async () => {
@@ -298,11 +415,14 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
               applyJobToState(job);
             },
           });
+          const jobForPanels = finalJob ?? latestJob;
           if (finalJob) {
             setAnalysisJob(finalJob);
-            applyJobToState(finalJob);
           }
-          if (!applyJobToState(finalJob ?? latestJob)) {
+          const appliedFromJob = applyJobToState(jobForPanels);
+          if (appliedFromJob) {
+            await hydrateMissingClaudeExplanations(jobForPanels, panelSetters);
+          } else {
             const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
               analyzeCustomerCoverageGap({ skipClaude: true }),
               analyzeCustomerUnderwritingRisk({ skipClaude: true }),
@@ -319,6 +439,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           return;
         }
         if (applied && latestJob.status === "completed") {
+          await hydrateMissingClaudeExplanations(latestJob, panelSetters);
           return;
         }
       }
@@ -354,7 +475,10 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   useEffect(() => {
     if (!resolvedExternalJob) return;
     setAnalysisJob(resolvedExternalJob);
-    applyJobToState(resolvedExternalJob);
+    if (!applyJobToState(resolvedExternalJob)) return;
+    if (resolvedExternalJob.status === "completed") {
+      void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
+    }
   }, [resolvedExternalJob, applyJobToState]);
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;

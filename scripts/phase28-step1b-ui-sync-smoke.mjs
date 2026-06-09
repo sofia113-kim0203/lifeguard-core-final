@@ -30,4 +30,11 @@ assert.match(documentsSource, /notifySystemMessage/, "documents panel must post 
 const conversationsSource = readFileSync("src/lib/customerConversations.js", "utf8");
 assert.match(conversationsSource, /postCustomerSystemMessage/, "system message helper required");
 
+const recommendationPanelSource = readFileSync("src/components/AiRecommendationPanel.jsx", "utf8");
+assert.match(
+  recommendationPanelSource,
+  /hydrateMissingClaudeExplanations/,
+  "analysis job panels must hydrate Claude via panel APIs",
+);
+
 console.log("Phase 28 Step 1B UI sync smoke checks passed.");
