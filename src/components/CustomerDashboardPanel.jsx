@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import AiRecommendationPanel from "./AiRecommendationPanel.jsx";
 import CustomerAiChatPanel from "./CustomerAiChatPanel.jsx";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
+import { useCustomerSession } from "../hooks/useCustomerSession.js";
 import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
-import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
-import { loadCustomerMemoryFoundation } from "../lib/customerMemory.js";
 import {
   formatHealthSource,
   formatProfileStatus,
@@ -46,6 +46,15 @@ const S = {
     cursor: "pointer",
     fontFamily: FONT,
   },
+  sessionBanner: {
+    padding: "14px 18px",
+    borderRadius: "12px",
+    background: "rgba(59, 130, 246, 0.12)",
+    border: "1px solid rgba(96, 165, 250, 0.25)",
+    color: "#dbeafe",
+    fontSize: "14px",
+    lineHeight: 1.6,
+  },
 };
 
 function DataField({ label, value }) {
@@ -58,49 +67,47 @@ function DataField({ label, value }) {
 }
 
 export default function CustomerDashboardPanel({ user }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const {
+    dashboardData: data,
+    unifiedState,
+    activeAnalysisJob,
+    setActiveAnalysisJob,
+    insurancePolicyCount,
+    memoryVersion,
+    stateHash,
+    loading,
+    error,
+    refreshSession,
+  } = useCustomerSession();
 
   const loadData = useCallback(async () => {
-    if (!user) {
-      setData(null);
-      setLoading(false);
-      setError("로그인이 필요합니다.");
-      return;
-    }
+    await refreshSession({ event: "dashboard_refresh" });
+  }, [refreshSession]);
 
-    setLoading(true);
-    setError("");
-    try {
-      const result = await loadCustomerDashboardData(user);
-      try {
-        await loadCustomerMemoryFoundation({ rebuild: true });
-      } catch {
-        // Memory sync failure should not block dashboard rendering.
-      }
-      setData(result);
-    } catch (err) {
-      setData(null);
-      setError(toCustomerErrorMessage(err, "고객 데이터를 불러오지 못했습니다."));
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+  const handleAnalysisJobUpdate = useCallback(
+    (job) => {
+      if (job) setActiveAnalysisJob(job);
+    },
+    [setActiveAnalysisJob],
+  );
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  if (loading) {
+  if (!user) {
     return (
       <div style={{ fontFamily: FONT, color: "#94a3b8", fontSize: "15px" }}>
-        고객 데이터를 불러오는 중…
+        로그인이 필요합니다.
       </div>
     );
   }
 
-  if (error) {
+  if (loading && !data) {
+    return (
+      <div style={{ fontFamily: FONT, color: "#94a3b8", fontSize: "15px" }}>
+        고객 상담실 데이터를 불러오는 중…
+      </div>
+    );
+  }
+
+  if (error && !data) {
     return (
       <div style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
         <div
@@ -111,7 +118,7 @@ export default function CustomerDashboardPanel({ user }) {
             border: "1px solid rgba(248, 113, 113, 0.25)",
           }}
         >
-          {error}
+          {toCustomerErrorMessage(error, "고객 데이터를 불러오지 못했습니다.")}
         </div>
         <button type="button" style={S.btn} onClick={loadData}>
           다시 시도
@@ -124,11 +131,32 @@ export default function CustomerDashboardPanel({ user }) {
     <div style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "20px" }}>
       <div>
         <h1 style={{ margin: 0, fontSize: "26px", fontWeight: 700, color: "#f8fafc" }}>
-          고객 분석
+          AI 상담실
         </h1>
         <p style={{ margin: "8px 0 0", fontSize: "15px", color: "#94a3b8", lineHeight: 1.55 }}>
-          로그인한 고객의 실제 프로필·건강·동의 데이터입니다.
+          프로필·보험·문서·상담·분석 결과가 하나의 화면에서 연결됩니다.
         </p>
+      </div>
+
+      <div style={S.sessionBanner}>
+        <strong>통합 고객 상태</strong>
+        <div style={{ marginTop: "6px" }}>
+          가입 보험 <strong>{insurancePolicyCount}건</strong>
+          {" · "}
+          메모리 버전 <strong>v{memoryVersion}</strong>
+          {unifiedState?.document_count != null ? (
+            <>
+              {" · "}
+              문서 <strong>{unifiedState.document_count}건</strong>
+            </>
+          ) : null}
+          {stateHash ? (
+            <>
+              {" · "}
+              상태 해시 <code style={{ fontSize: "12px" }}>{stateHash}</code>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <div
@@ -139,38 +167,41 @@ export default function CustomerDashboardPanel({ user }) {
           gap: "20px",
         }}
       >
-        <DataField label={UI_LABELS.email} value={data.email} />
-        <DataField label={UI_LABELS.customerId} value={data.customerId} />
-        <DataField label="이름" value={data.displayName} />
-        <DataField label={UI_LABELS.profileStatus} value={formatProfileStatus(data.profileStatus)} />
-        <DataField label={UI_LABELS.userRole} value={formatUserRole(data.userRole)} />
+        <DataField label={UI_LABELS.email} value={data?.email} />
+        <DataField label={UI_LABELS.customerId} value={data?.customerId} />
+        <DataField label="이름" value={data?.displayName} />
+        <DataField label="가입 보험 건수" value={`${insurancePolicyCount}건`} />
+        <DataField label={UI_LABELS.profileStatus} value={formatProfileStatus(data?.profileStatus)} />
+        <DataField label={UI_LABELS.userRole} value={formatUserRole(data?.userRole)} />
         <DataField
           label={UI_LABELS.healthProfile}
           value={
-            data.profileHealthExists
+            data?.profileHealthExists
               ? `있음 (${formatHealthSource(data.profileHealthSource)})`
               : "없음"
           }
         />
         <DataField
           label={UI_LABELS.requiredConsents}
-          value={`${data.requiredConsentCount} / 3`}
+          value={`${data?.requiredConsentCount ?? 0} / 3`}
         />
         <DataField
           label={UI_LABELS.intakeCompleteness}
-          value={`${data.intakeCompletenessScore ?? 0}% (${formatCompletenessLabel(data.intakeCompletenessScore ?? 0)})`}
+          value={`${data?.intakeCompletenessScore ?? 0}% (${formatCompletenessLabel(data?.intakeCompletenessScore ?? 0)})`}
         />
       </div>
 
-      <IntakeCompletenessBar completeness={data.intakeCompleteness} compact />
+      <IntakeCompletenessBar completeness={data?.intakeCompleteness} compact />
 
       <button type="button" style={{ ...S.btn, alignSelf: "flex-start" }} onClick={loadData}>
-        새로고침
+        세션 새로고침
       </button>
 
       <CustomerIntakePanel user={user} onSaved={loadData} />
 
-      <CustomerAiChatPanel user={user} />
+      <CustomerAiChatPanel user={user} onAnalysisJobUpdate={handleAnalysisJobUpdate} />
+
+      <AiRecommendationPanel user={user} analysisJob={activeAnalysisJob} />
     </div>
   );
 }

@@ -82,3 +82,12 @@ export async function sendCustomerConversationMessage(authUser, message, { onAna
     initialResponseTimeMs: conversationalResult.initialResponseTimeMs,
   };
 }
+
+export async function postCustomerSystemMessage(authUser, message, metadata = {}) {
+  const customerId = await resolveCustomerId(authUser);
+  return insertConversationMessage(customerId, {
+    role: "system",
+    message,
+    metadata: { source: "customer_session", phase: "phase28-1b", ...metadata },
+  });
+}

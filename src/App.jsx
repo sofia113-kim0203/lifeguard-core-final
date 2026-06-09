@@ -313,11 +313,21 @@ export default function App() {
             overflow: "auto",
           }}
         >
-          {renderMainContent(activeMenu, {
-            user,
-            authLoading,
-            onLoginSuccess: handleLoginSuccess,
-          })}
+          {user ? (
+            <CustomerSessionProvider user={user}>
+              {renderMainContent(activeMenu, {
+                user,
+                authLoading,
+                onLoginSuccess: handleLoginSuccess,
+              })}
+            </CustomerSessionProvider>
+          ) : (
+            renderMainContent(activeMenu, {
+              user,
+              authLoading,
+              onLoginSuccess: handleLoginSuccess,
+            })
+          )}
         </div>
       </div>
     </div>

@@ -17,6 +17,7 @@ import {
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
 import { loadCustomerRebalancing } from "../lib/customerRebalancing.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
+import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   fetchLatestAnalysisJob,
   mapJobResultsToAnalysisPanels,
@@ -247,7 +248,10 @@ function AnalysisJobProgressBanner({ analysisJob }) {
 }
 
 
-export default function AiRecommendationPanel({ user, analysisJob: externalAnalysisJob = null }) {
+export default function AiRecommendationPanel({ user, analysisJob: externalAnalysisJob = null, useSessionJob = false }) {
+  const session = useOptionalCustomerSession();
+  const sessionAnalysisJob = useSessionJob ? session?.activeAnalysisJob ?? null : null;
+  const resolvedExternalJob = externalAnalysisJob ?? sessionAnalysisJob;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [gapResult, setGapResult] = useState(null);
@@ -281,7 +285,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     setLoading(true);
     setError("");
     try {
-      const latestJob = externalAnalysisJob ?? (await fetchLatestAnalysisJob());
+      const latestJob = resolvedExternalJob ?? (await fetchLatestAnalysisJob());
       if (latestJob) {
         setAnalysisJob(latestJob);
         const applied = applyJobToState(latestJob);
@@ -341,17 +345,17 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     } finally {
       setLoading(false);
     }
-  }, [user, externalAnalysisJob, applyJobToState]);
+  }, [user, resolvedExternalJob, applyJobToState]);
 
   useEffect(() => {
     loadAnalysis();
   }, [loadAnalysis]);
 
   useEffect(() => {
-    if (!externalAnalysisJob) return;
-    setAnalysisJob(externalAnalysisJob);
-    applyJobToState(externalAnalysisJob);
-  }, [externalAnalysisJob, applyJobToState]);
+    if (!resolvedExternalJob) return;
+    setAnalysisJob(resolvedExternalJob);
+    applyJobToState(resolvedExternalJob);
+  }, [resolvedExternalJob, applyJobToState]);
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;
