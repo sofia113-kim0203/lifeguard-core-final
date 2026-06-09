@@ -29,6 +29,7 @@
     "test:phase28-step1a": "node scripts/phase28-step1a-unified-state-audit.mjs",
     "test:phase28-step1b": "node scripts/phase28-step1b-ui-sync-smoke.mjs",
     "test:phase28-step1c": "node scripts/phase28-step1c-panel-claude-vascular-test.mjs",
+    "test:phase28-claude-mapping": "node scripts/phase28-claude-mapping-diagnostic.mjs",
     "test:phase28-p0": "node scripts/phase28-p0-chat-gate-audit.mjs",
     "test:phase28-claude": "node scripts/phase28-claude-dual-track-audit.mjs",
     "test:phase28-policy-count": "node scripts/phase28-policy-count-trace.mjs",

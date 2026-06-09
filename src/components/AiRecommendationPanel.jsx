@@ -23,9 +23,21 @@ import {
   mapJobResultsToAnalysisPanels,
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
+import {
+  hasClaudeExplanation,
+  normalizeClaudeExplanationEntry,
+} from "../lib/panelClaudeExplanation.js";
+
+function resolveClaudeFromJobEntry(entry) {
+  const normalized = normalizeClaudeExplanationEntry(entry);
+  return {
+    claudeExplanation: normalized.explanation,
+    claudeMeta: normalized.meta,
+  };
+}
 
 function panelNeedsClaudeHydration(claudeExplanations, hasPanelResult, claudeKey) {
-  return Boolean(hasPanelResult) && !claudeExplanations?.[claudeKey];
+  return Boolean(hasPanelResult) && !hasClaudeExplanation(claudeExplanations?.[claudeKey]);
 }
 
 /**
@@ -47,7 +59,15 @@ async function hydrateMissingClaudeExplanations(job, setters) {
           claudeExplanation: data.claudeExplanation,
           claudeMeta: data.claudeMeta,
         }))
-        .catch(() => null),
+        .catch((error) => ({
+          panel: "gap",
+          claudeExplanation: null,
+          claudeMeta: {
+            skipped: true,
+            reason: "HYDRATION_FAILED",
+            error_message: error instanceof Error ? error.message : "hydration_failed",
+          },
+        })),
     );
   }
 
@@ -59,7 +79,15 @@ async function hydrateMissingClaudeExplanations(job, setters) {
           claudeExplanation: data.claudeExplanation,
           claudeMeta: data.claudeMeta,
         }))
-        .catch(() => null),
+        .catch((error) => ({
+          panel: "uw",
+          claudeExplanation: null,
+          claudeMeta: {
+            skipped: true,
+            reason: "HYDRATION_FAILED",
+            error_message: error instanceof Error ? error.message : "hydration_failed",
+          },
+        })),
     );
   }
 
@@ -71,7 +99,15 @@ async function hydrateMissingClaudeExplanations(job, setters) {
           claudeExplanation: data.claudeExplanation,
           claudeMeta: data.claudeMeta,
         }))
-        .catch(() => null),
+        .catch((error) => ({
+          panel: "rec",
+          claudeExplanation: null,
+          claudeMeta: {
+            skipped: true,
+            reason: "HYDRATION_FAILED",
+            error_message: error instanceof Error ? error.message : "hydration_failed",
+          },
+        })),
     );
   }
 
@@ -83,7 +119,15 @@ async function hydrateMissingClaudeExplanations(job, setters) {
           claudeExplanation: data.claudeExplanation,
           claudeMeta: data.claudeMeta,
         }))
-        .catch(() => null),
+        .catch((error) => ({
+          panel: "design",
+          claudeExplanation: null,
+          claudeMeta: {
+            skipped: true,
+            reason: "HYDRATION_FAILED",
+            error_message: error instanceof Error ? error.message : "hydration_failed",
+          },
+        })),
     );
   }
 
@@ -91,7 +135,6 @@ async function hydrateMissingClaudeExplanations(job, setters) {
 
   const results = await Promise.all(tasks);
   for (const result of results) {
-    if (!result) continue;
     if (result.panel === "gap") {
       setters.setGapResult((prev) =>
         prev
@@ -289,10 +332,16 @@ function applyJobResultsToPanelState(job, setters) {
   if (!mapped) return false;
 
   const claude = mapped.claudeExplanations ?? {};
+  const coverageClaude = resolveClaudeFromJobEntry(claude.coverage_gap);
+  const underwritingClaude = resolveClaudeFromJobEntry(claude.underwriting);
+  const recommendationClaude = resolveClaudeFromJobEntry(claude.recommendation);
+  const designClaude = resolveClaudeFromJobEntry(claude.insurance_design);
+
   if (mapped.coverageGapResult) {
     setters.setGapResult({
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: claude.coverage_gap ?? null,
+      claudeExplanation: coverageClaude.claudeExplanation,
+      claudeMeta: coverageClaude.claudeMeta,
       memoryUsed: true,
     });
   }
@@ -300,7 +349,8 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setUwResult({
       underwritingResult: mapped.underwritingResult,
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: claude.underwriting ?? null,
+      claudeExplanation: underwritingClaude.claudeExplanation,
+      claudeMeta: underwritingClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
     });
@@ -310,7 +360,8 @@ function applyJobResultsToPanelState(job, setters) {
       recommendationResult: mapped.recommendationResult,
       customerVisibleTop2: mapped.recommendationResult.customer_visible_top2 ?? [],
       recommendations: mapped.recommendationResult.recommendations ?? [],
-      claudeExplanation: claude.recommendation ?? null,
+      claudeExplanation: recommendationClaude.claudeExplanation,
+      claudeMeta: recommendationClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
       underwritingUsed: true,
@@ -320,7 +371,8 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setDesignResult({
       insuranceDesign: mapped.designBundle.insurance_design ?? null,
       customerVisibleDesign: mapped.designBundle.customer_visible_design ?? null,
-      claudeExplanation: claude.insurance_design ?? null,
+      claudeExplanation: designClaude.claudeExplanation,
+      claudeMeta: designClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
       underwritingUsed: true,
@@ -332,6 +384,43 @@ function applyJobResultsToPanelState(job, setters) {
       mapped.underwritingResult ||
       mapped.recommendationResult ||
       mapped.designBundle,
+  );
+}
+
+function ClaudePanelDebugPanel({ uwResult, recResult, designResult }) {
+  const rows = [
+    { panel: "underwriting", meta: uwResult?.claudeMeta },
+    { panel: "recommendation", meta: recResult?.claudeMeta },
+    { panel: "insurance_design", meta: designResult?.claudeMeta },
+  ].filter((row) => row.meta);
+
+  if (!rows.length) return null;
+
+  return (
+    <details
+      style={{
+        marginTop: "12px",
+        padding: "12px 14px",
+        borderRadius: "10px",
+        border: "1px dashed rgba(148, 163, 184, 0.35)",
+        background: "rgba(15, 23, 42, 0.45)",
+        color: "#94a3b8",
+        fontSize: "12px",
+        lineHeight: 1.5,
+      }}
+    >
+      <summary style={{ cursor: "pointer", color: "#cbd5e1" }}>개발자 디버그: Claude 패널 meta</summary>
+      {rows.map((row) => (
+        <div key={row.panel} style={{ marginTop: "8px" }}>
+          <strong>{row.panel}</strong>
+          {row.meta?.policy_count != null ? ` · policy_count=${row.meta.policy_count}` : ""}
+          {row.meta?.reason ? ` · reason=${row.meta.reason}` : ""}
+          {row.meta?.error_message ? (
+            <div style={{ marginTop: "4px", color: "#64748b" }}>{row.meta.error_message}</div>
+          ) : null}
+        </div>
+      ))}
+    </details>
   );
 }
 
@@ -375,6 +464,17 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   const [designResult, setDesignResult] = useState(null);
   const [rebalancingResult, setRebalancingResult] = useState(null);
   const [analysisJob, setAnalysisJob] = useState(null);
+
+  useEffect(() => {
+    const debugPayload = {
+      underwriting: uwResult?.claudeMeta ?? null,
+      recommendation: recResult?.claudeMeta ?? null,
+      insurance_design: designResult?.claudeMeta ?? null,
+    };
+    if (Object.values(debugPayload).some(Boolean)) {
+      console.info("[phase28 claude panels]", debugPayload);
+    }
+  }, [uwResult?.claudeMeta, recResult?.claudeMeta, designResult?.claudeMeta]);
 
   const panelSetters = {
     setGapResult,
@@ -896,6 +996,8 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           <div style={S.muted}>리밸런싱 결과가 없습니다.</div>
         )}
       </div>
+
+      <ClaudePanelDebugPanel uwResult={uwResult} recResult={recResult} designResult={designResult} />
 
       <div style={{ marginTop: "8px" }}>
         <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
