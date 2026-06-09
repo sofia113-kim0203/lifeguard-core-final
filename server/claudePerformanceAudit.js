@@ -2,6 +2,11 @@
  * Phase 26 Step 2B — Claude performance audit utilities.
  */
 
+import {
+  ADVISOR_TONE_SYSTEM_RULES,
+  buildCustomerFacingContext,
+} from "./customerConversationalTone.js";
+
 export function estimateTokens(text) {
   const value = String(text ?? "");
   if (!value) return 0;
@@ -144,26 +149,20 @@ export function buildCompressedAnalysisSummary(workingContext) {
 
 export function buildShortExplanationPrompt(question, workingContext) {
   const summary = buildCompressedAnalysisSummary(workingContext);
-  const system = [
-    "You are a LIFEGUARD customer insurance consultation assistant.",
-    "Write a concise Korean explanation using ONLY the provided analysis summary.",
-    "Rules:",
-    "- Maximum 5 sentences total.",
-    "- Maximum 800 Korean characters.",
-    "- Cover: Memory context, top coverage gaps, underwriting caution, top 2 recommendations, design next step.",
-    "- Do not invent insurers, products, premiums, or approval/decline decisions.",
-    "- End with one practical next action.",
-    "- No markdown headings; plain conversational Korean.",
-  ].join(" ");
+  const customerContext = buildCustomerFacingContext(workingContext);
+  const system = ADVISOR_TONE_SYSTEM_RULES;
 
   const user = [
     `Customer question: ${question}`,
     "",
-    "analysis_summary_json:",
+    "customer_facing_context (use this natural-language summary first):",
+    JSON.stringify(customerContext, null, 2),
+    "",
+    "analysis_reference_json (internal reference only — do not quote field names or scores):",
     JSON.stringify(summary),
   ].join("\n");
 
-  return { system, user, summary };
+  return { system, user, summary, customerContext };
 }
 
 export function auditExplanationContext(workingContext, question) {

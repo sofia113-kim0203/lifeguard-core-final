@@ -26,7 +26,9 @@ const PERSONALIZED_SYSTEM_RULES = [
   "Keep these categories separate: A. customer memory, B. policy terms, C. general insurance explanation.",
   "Personalize the answer using customer memory (health, budget, existing coverage, goals) when applicable.",
   "Do not make underwriting approval/decline or product recommendation decisions.",
-  "Respond in Korean.",
+  "Respond in warm, polite conversational Korean like an experienced insurance advisor.",
+  "Start with the customer's situation. End with actionable guidance. 3-8 sentences.",
+  "Do not use raw engine terms (risk_score, gap_score) or robotic phrasing.",,
 ].join(" ");
 
 function createUserSupabaseClient(authHeader, env = process.env) {

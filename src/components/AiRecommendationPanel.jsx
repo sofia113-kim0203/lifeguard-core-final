@@ -15,6 +15,7 @@ import {
   RECOMMENDATION_TYPE_LABELS,
 } from "../lib/customerRecommendations.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
+import { loadCustomerRebalancing } from "../lib/customerRebalancing.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 import {
   fetchLatestAnalysisJob,
@@ -253,6 +254,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   const [uwResult, setUwResult] = useState(null);
   const [recResult, setRecResult] = useState(null);
   const [designResult, setDesignResult] = useState(null);
+  const [rebalancingResult, setRebalancingResult] = useState(null);
   const [analysisJob, setAnalysisJob] = useState(null);
 
   const applyJobToState = useCallback((job) => {
@@ -270,6 +272,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
       setUwResult(null);
       setRecResult(null);
       setDesignResult(null);
+      setRebalancingResult(null);
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
@@ -296,16 +299,18 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
             applyJobToState(finalJob);
           }
           if (!applyJobToState(finalJob ?? latestJob)) {
-            const [gapData, uwData, recData, designData] = await Promise.all([
+            const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
               analyzeCustomerCoverageGap({ skipClaude: true }),
               analyzeCustomerUnderwritingRisk({ skipClaude: true }),
               loadCustomerRecommendations({ skipClaude: true }),
               loadCustomerInsuranceDesign({ skipClaude: true }),
+              loadCustomerRebalancing({ skipClaude: true }),
             ]);
             setGapResult(gapData);
             setUwResult(uwData);
             setRecResult(recData);
             setDesignResult(designData);
+            setRebalancingResult(rebalancingData);
           }
           return;
         }
@@ -314,21 +319,24 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
         }
       }
 
-      const [gapData, uwData, recData, designData] = await Promise.all([
+      const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
         analyzeCustomerCoverageGap(),
         analyzeCustomerUnderwritingRisk(),
         loadCustomerRecommendations(),
         loadCustomerInsuranceDesign(),
+        loadCustomerRebalancing(),
       ]);
       setGapResult(gapData);
       setUwResult(uwData);
       setRecResult(recData);
       setDesignResult(designData);
+      setRebalancingResult(rebalancingData);
     } catch (err) {
       setGapResult(null);
       setUwResult(null);
       setRecResult(null);
       setDesignResult(null);
+      setRebalancingResult(null);
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
@@ -697,9 +705,73 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
         )}
       </div>
 
+
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>보험 리밸런싱</h3>
+        {loading ? (
+          <div style={S.muted}>설계안과 기존 보험을 비교해 리밸런싱 결과를 생성하는 중…</div>
+        ) : rebalancingResult?.customerVisibleRebalancing ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div>
+              <h4 style={S.sectionTitle}>유지할 보험</h4>
+              <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                {(rebalancingResult.customerVisibleRebalancing.keep_insurances ?? []).join(", ") || "—"}
+              </div>
+            </div>
+
+            <div>
+              <h4 style={S.sectionTitle}>보강할 보장</h4>
+              <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                {(rebalancingResult.customerVisibleRebalancing.strengthen_coverages ?? []).join(", ") || "—"}
+              </div>
+            </div>
+
+            {rebalancingResult.customerVisibleRebalancing.cautions_before_reduction?.length ? (
+              <div>
+                <h4 style={S.sectionTitle}>줄이기 전 주의사항</h4>
+                <ul style={S.list}>
+                  {rebalancingResult.customerVisibleRebalancing.cautions_before_reduction.map((item) => (
+                    <li key={item} style={S.listItem}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div>
+              <h4 style={S.sectionTitle}>다음 행동</h4>
+              <ul style={S.list}>
+                {(rebalancingResult.customerVisibleRebalancing.next_actions ?? []).map((action) => (
+                  <li key={action} style={S.listItem}>{action}</li>
+                ))}
+              </ul>
+            </div>
+
+            {rebalancingResult.rebalancingResult?.estimated_budget_impact?.label ? (
+              <div style={S.muted}>
+                예산 영향: {rebalancingResult.rebalancingResult.estimated_budget_impact.label}
+              </div>
+            ) : null}
+
+            {rebalancingResult.claudeExplanation ? (
+              <div>
+                <h4 style={S.sectionTitle}>리밸런싱 Claude 설명</h4>
+                <div style={S.explanation}>{rebalancingResult.claudeExplanation}</div>
+              </div>
+            ) : (
+              <div style={S.muted}>
+                리밸런싱 Claude 설명을 생성하지 못했습니다.
+                {rebalancingResult.claudeMeta?.reason ? ` (${rebalancingResult.claudeMeta.reason})` : ""}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={S.muted}>리밸런싱 결과가 없습니다.</div>
+        )}
+      </div>
+
       <div style={{ marginTop: "8px" }}>
         <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
-          {loading ? "분석 중…" : "보장·인수·추천·설계 분석 다시 실행"}
+          {loading ? "분석 중…" : "보장·인수·추천·설계·리밸런싱 분석 다시 실행"}
         </button>
       </div>
     </section>

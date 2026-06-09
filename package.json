@@ -23,7 +23,9 @@
     "test:phase26-step1e": "node scripts/phase26-step1e-insurance-design-test.mjs",
     "test:phase26-step2a": "node scripts/phase26-step2a-conversational-background-analysis-test.mjs",
     "test:phase26-step2b": "node scripts/phase26-step2b-claude-performance-audit-test.mjs",
-    "test:phase26-step2b-context": "node scripts/phase26-step2b-customer-data-context-audit.mjs"
+    "test:phase26-step2b-context": "node scripts/phase26-step2b-customer-data-context-audit.mjs",
+    "test:phase27-step1a": "node scripts/phase27-step1a-rebalancing-engine-test.mjs",
+    "test:phase27-tone": "node scripts/phase27-conversational-tone-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
