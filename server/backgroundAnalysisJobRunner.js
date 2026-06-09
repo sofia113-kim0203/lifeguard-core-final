@@ -6,20 +6,8 @@ import { loadCoverageAnalysisContext } from "./customerCoverageGapCore.js";
 import { loadUnderwritingAnalysisContext } from "./customerUnderwritingRiskCore.js";
 import { loadRecommendationAnalysisContext } from "./customerRecommendationCore.js";
 import { loadInsuranceDesignAnalysisContext } from "./customerInsuranceDesignCore.js";
-import {
-  buildCoverageGapExplanationPrompt,
-} from "./customerCoverageGapCore.js";
-import {
-  buildUnderwritingExplanationPrompt,
-} from "./customerUnderwritingRiskCore.js";
-import {
-  buildRecommendationExplanationPrompt,
-} from "./customerRecommendationCore.js";
-import {
-  buildInsuranceDesignExplanationPrompt,
-} from "./customerInsuranceDesignCore.js";
-import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
-import { resolveClaudeModel } from "./policyTermsQaCore.js";
+import { generateShortConnectedExplanation } from "./claudeShortExplanationCore.js";
+import { auditExplanationContext } from "./claudePerformanceAudit.js";
 import {
   loadFreshCacheEntry,
   saveCustomerAnalysisCacheEntry,
@@ -41,86 +29,7 @@ const STAGE_UI_LABELS = {
   result_claude: "분석 결과 설명 생성 완료",
 };
 
-async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetch }) {
-  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 1400,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      reason: "CLAUDE_API_ERROR",
-      errorMessage: `Claude API error (${response.status})`,
-    };
-  }
-
-  const data = await response.json();
-  const text = Array.isArray(data?.content)
-    ? data.content
-        .filter((block) => block?.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim()
-    : "";
-
-  if (!text) {
-    return { ok: false, reason: "CLAUDE_EMPTY_RESPONSE", errorMessage: "Claude returned empty response." };
-  }
-
-  return { ok: true, answer: text, model: modelName, provider: "anthropic" };
-}
-
-function buildConnectedResultPrompt(question, context) {
-  const user = [
-    "고객이 상담 중 아래 질문을 했습니다. 백그라운드 정밀 분석이 완료되었습니다.",
-    "제공된 분석 JSON만 사용해 질문에 연결된 설명을 작성하세요.",
-    "Memory, Coverage Gap, Underwriting, Recommendation, Insurance Design 내용을 모두 반영하세요.",
-    "데이터에 없는 보험사, 상품, 금액, 인수 승인/거절을 만들지 마세요.",
-    "",
-    `Question: ${question}`,
-    "",
-    "analysis_bundle_json:",
-    JSON.stringify(
-      {
-        coverage_gap_result: context.coverageGapResult,
-        underwriting_result: context.underwritingResult,
-        recommendation_result: {
-          customer_visible_top2: context.recommendationResult?.customer_visible_top2,
-          recommendations_count: context.recommendationResult?.recommendations?.length,
-          keep_existing: context.recommendationResult?.keep_existing,
-        },
-        insurance_design: {
-          customer_visible_design: context.designBundle?.customer_visible_design,
-          design_title: context.designBundle?.insurance_design?.design_title,
-        },
-      },
-      null,
-      2,
-    ),
-  ].join("\n");
-
-  const system = [
-    "You are a LIFEGUARD customer insurance consultation assistant.",
-    "Explain completed background analysis results connected to the customer question.",
-    "Respond in Korean with headings and bullet points.",
-    "Do not invent facts not present in analysis_bundle_json.",
-  ].join(" ");
-
-  return { system, user };
-}
-
-async function runStageCompute(supabase, customerId, stageKey, workingContext) {
+async function runStageCompute(supabase, customerId, stageKey, workingContext, options = {}) {
   if (stageKey === "coverage_gap") {
     const context = await loadCoverageAnalysisContext(supabase, customerId);
     workingContext.coverageGapResult = context.coverageGapResult;
@@ -160,36 +69,30 @@ async function runStageCompute(supabase, customerId, stageKey, workingContext) {
   }
 
   if (stageKey === "result_claude") {
-    const prompt = buildConnectedResultPrompt(workingContext.question, workingContext);
-    const anthropicApiKey = resolveAnthropicApiKey();
-    if (!anthropicApiKey) {
-      return {
-        skipped: true,
-        reason: "ANTHROPIC_NOT_CONFIGURED",
-        fallback_text: buildFallbackConnectedResponse(workingContext),
-      };
-    }
-
-    const claudeResult = await callAnthropic({
-      apiKey: anthropicApiKey,
-      modelName: resolveClaudeModel(),
-      system: prompt.system,
-      user: prompt.user,
+    const memoryVersion =
+      options.memoryVersion ?? workingContext.snapshot?.memory_version ?? 0;
+    const explanation = await generateShortConnectedExplanation({
+      supabase,
+      customerId,
+      question: workingContext.question,
+      workingContext,
+      memoryVersion,
+      analysisJobId: options.analysisJobId ?? null,
+      fetchImpl: options.fetchImpl,
+      env: options.env,
     });
 
-    if (!claudeResult.ok) {
-      return {
-        skipped: true,
-        reason: claudeResult.reason,
-        fallback_text: buildFallbackConnectedResponse(workingContext),
-      };
-    }
-
     return {
-      text: claudeResult.answer,
-      model_name: claudeResult.model,
-      provider: claudeResult.provider,
-      stage_explanations: await buildStageExplanations(workingContext, anthropicApiKey),
+      text: explanation.text,
+      explanation_mode: explanation.explanation_mode ?? "short",
+      cache_hit: explanation.cache_hit ?? false,
+      detailed_available: explanation.detailed_available ?? false,
+      model_name: explanation.model_name ?? null,
+      provider: explanation.provider ?? null,
+      performance: explanation.performance ?? null,
+      audit: explanation.audit ?? auditExplanationContext(workingContext, workingContext.question),
+      skipped: explanation.skipped ?? false,
+      reason: explanation.reason ?? null,
     };
   }
 
@@ -214,73 +117,6 @@ function buildFallbackConnectedResponse(workingContext) {
   ]
     .filter(Boolean)
     .join("\n\n");
-}
-
-async function buildStageExplanations(workingContext, apiKey) {
-  const explanations = {};
-  const modelName = resolveClaudeModel();
-
-  if (workingContext.coverageGapResult && workingContext.structuredMemory) {
-    const prompt = buildCoverageGapExplanationPrompt(
-      workingContext.structuredMemory,
-      workingContext.coverageGapResult,
-    );
-    const result = await callAnthropic({
-      apiKey,
-      modelName,
-      system: prompt.system,
-      user: prompt.user,
-    });
-    if (result.ok) explanations.coverage_gap = result.answer;
-  }
-
-  if (workingContext.underwritingResult) {
-    const prompt = buildUnderwritingExplanationPrompt(
-      workingContext.structuredMemory,
-      workingContext.coverageGapResult,
-      workingContext.underwritingResult,
-    );
-    const result = await callAnthropic({
-      apiKey,
-      modelName,
-      system: prompt.system,
-      user: prompt.user,
-    });
-    if (result.ok) explanations.underwriting = result.answer;
-  }
-
-  if (workingContext.recommendationResult) {
-    const prompt = buildRecommendationExplanationPrompt(
-      workingContext.structuredMemory,
-      workingContext.recommendationResult,
-      workingContext.coverageGapResult,
-      workingContext.underwritingResult,
-    );
-    const result = await callAnthropic({
-      apiKey,
-      modelName,
-      system: prompt.system,
-      user: prompt.user,
-    });
-    if (result.ok) explanations.recommendation = result.answer;
-  }
-
-  if (workingContext.designBundle) {
-    const prompt = buildInsuranceDesignExplanationPrompt(
-      workingContext.structuredMemory,
-      workingContext.designBundle,
-      workingContext,
-    );
-    const result = await callAnthropic({
-      apiKey,
-      modelName,
-      system: prompt.system,
-      user: prompt.user,
-    });
-    if (result.ok) explanations.insurance_design = result.answer;
-  }
-
-  return explanations;
 }
 
 export async function loadAnalysisJob(supabase, jobId) {
@@ -368,7 +204,12 @@ export async function processNextAnalysisJobStage({
     let fromCache = false;
 
     if (nextStage === "result_claude") {
-      stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext);
+      stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext, {
+        memoryVersion,
+        analysisJobId: jobId,
+        fetchImpl,
+        env,
+      });
     } else {
       const { evaluation } = await loadFreshCacheEntry(
         supabase,
@@ -383,7 +224,12 @@ export async function processNextAnalysisJobStage({
         fromCache = true;
         hydrateWorkingContext(workingContext, nextStage, stageResult);
       } else {
-        stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext);
+        stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext, {
+        memoryVersion,
+        analysisJobId: jobId,
+        fetchImpl,
+        env,
+      });
         await saveCustomerAnalysisCacheEntry(
           supabase,
           job.customer_id,
@@ -408,6 +254,15 @@ export async function processNextAnalysisJobStage({
 
     timingMetrics[timingKey] = stageDuration;
     timingMetrics[`${nextStage}_from_cache`] = fromCache;
+    if (nextStage === "result_claude") {
+      timingMetrics.result_claude_cache_hit = stageResult?.cache_hit ?? false;
+      if (stageResult?.performance) {
+        timingMetrics.result_claude_prompt_chars = stageResult.performance.prompt_chars;
+        timingMetrics.result_claude_input_tokens = stageResult.performance.estimated_input_tokens;
+        timingMetrics.result_claude_output_chars = stageResult.performance.output_chars;
+        timingMetrics.result_claude_output_tokens = stageResult.performance.estimated_output_tokens;
+      }
+    }
     timingMetrics.total_analysis_time_ms = Object.entries(timingMetrics)
       .filter(([key]) =>
         ["coverage_time_ms", "underwriting_time_ms", "recommendation_time_ms", "design_time_ms", "result_claude_time_ms"].includes(key),
@@ -436,7 +291,10 @@ export async function processNextAnalysisJobStage({
       patch.completed_at = new Date().toISOString();
       patch.current_step = null;
       resultJson.final_claude = stageResult;
-      resultJson.claude_explanations = stageResult?.stage_explanations ?? {};
+      resultJson.claude_performance = stageResult?.performance ?? null;
+      resultJson.claude_audit = stageResult?.audit ?? null;
+      resultJson.explanation_mode = stageResult?.explanation_mode ?? "short";
+      resultJson.detailed_available = stageResult?.detailed_available ?? false;
       patch.result_json = resultJson;
     }
 
