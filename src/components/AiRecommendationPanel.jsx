@@ -16,6 +16,11 @@ import {
 } from "../lib/customerRecommendations.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
+import {
+  fetchLatestAnalysisJob,
+  mapJobResultsToAnalysisPanels,
+  processAnalysisJobUntilComplete,
+} from "../lib/customerConversationalAnalysis.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -161,13 +166,103 @@ function UnderwritingListItem({ item }) {
   );
 }
 
-export default function AiRecommendationPanel({ user }) {
+
+function applyJobResultsToPanelState(job, setters) {
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  if (!mapped) return false;
+
+  const claude = mapped.claudeExplanations ?? {};
+  if (mapped.coverageGapResult) {
+    setters.setGapResult({
+      coverageGapResult: mapped.coverageGapResult,
+      claudeExplanation: claude.coverage_gap ?? null,
+      memoryUsed: true,
+    });
+  }
+  if (mapped.underwritingResult) {
+    setters.setUwResult({
+      underwritingResult: mapped.underwritingResult,
+      coverageGapResult: mapped.coverageGapResult,
+      claudeExplanation: claude.underwriting ?? null,
+      memoryUsed: true,
+      coverageGapUsed: true,
+    });
+  }
+  if (mapped.recommendationResult) {
+    setters.setRecResult({
+      recommendationResult: mapped.recommendationResult,
+      customerVisibleTop2: mapped.recommendationResult.customer_visible_top2 ?? [],
+      recommendations: mapped.recommendationResult.recommendations ?? [],
+      claudeExplanation: claude.recommendation ?? null,
+      memoryUsed: true,
+      coverageGapUsed: true,
+      underwritingUsed: true,
+    });
+  }
+  if (mapped.designBundle) {
+    setters.setDesignResult({
+      insuranceDesign: mapped.designBundle.insurance_design ?? null,
+      customerVisibleDesign: mapped.designBundle.customer_visible_design ?? null,
+      claudeExplanation: claude.insurance_design ?? null,
+      memoryUsed: true,
+      coverageGapUsed: true,
+      underwritingUsed: true,
+      recommendationUsed: true,
+    });
+  }
+  return Boolean(
+    mapped.coverageGapResult ||
+      mapped.underwritingResult ||
+      mapped.recommendationResult ||
+      mapped.designBundle,
+  );
+}
+
+function AnalysisJobProgressBanner({ analysisJob }) {
+  if (!analysisJob || analysisJob.status === "completed") return null;
+  const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
+  return (
+    <div
+      style={{
+        padding: "14px 16px",
+        borderRadius: "12px",
+        background: "rgba(30, 64, 175, 0.18)",
+        border: "1px solid rgba(96, 165, 250, 0.35)",
+        color: "#dbeafe",
+        fontSize: "13px",
+        lineHeight: 1.6,
+      }}
+    >
+      <strong>백그라운드 정밀 분석 진행 중</strong>
+      <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+        {progress.map((item) => (
+          <div key={item.stage}>
+            {item.status === "completed" ? "✓" : item.status === "processing" ? "…" : "○"} {item.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+export default function AiRecommendationPanel({ user, analysisJob: externalAnalysisJob = null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [gapResult, setGapResult] = useState(null);
   const [uwResult, setUwResult] = useState(null);
   const [recResult, setRecResult] = useState(null);
   const [designResult, setDesignResult] = useState(null);
+  const [analysisJob, setAnalysisJob] = useState(null);
+
+  const applyJobToState = useCallback((job) => {
+    return applyJobResultsToPanelState(job, {
+      setGapResult,
+      setUwResult,
+      setRecResult,
+      setDesignResult,
+    });
+  }, []);
 
   const loadAnalysis = useCallback(async () => {
     if (!user) {
@@ -183,6 +278,42 @@ export default function AiRecommendationPanel({ user }) {
     setLoading(true);
     setError("");
     try {
+      const latestJob = externalAnalysisJob ?? (await fetchLatestAnalysisJob());
+      if (latestJob) {
+        setAnalysisJob(latestJob);
+        const applied = applyJobToState(latestJob);
+        if (latestJob.status === "processing" || latestJob.status === "queued") {
+          setLoading(false);
+          const finalJob = await processAnalysisJobUntilComplete({
+            jobId: latestJob.id,
+            onProgress: (job) => {
+              setAnalysisJob(job);
+              applyJobToState(job);
+            },
+          });
+          if (finalJob) {
+            setAnalysisJob(finalJob);
+            applyJobToState(finalJob);
+          }
+          if (!applyJobToState(finalJob ?? latestJob)) {
+            const [gapData, uwData, recData, designData] = await Promise.all([
+              analyzeCustomerCoverageGap({ skipClaude: true }),
+              analyzeCustomerUnderwritingRisk({ skipClaude: true }),
+              loadCustomerRecommendations({ skipClaude: true }),
+              loadCustomerInsuranceDesign({ skipClaude: true }),
+            ]);
+            setGapResult(gapData);
+            setUwResult(uwData);
+            setRecResult(recData);
+            setDesignResult(designData);
+          }
+          return;
+        }
+        if (applied && latestJob.status === "completed") {
+          return;
+        }
+      }
+
       const [gapData, uwData, recData, designData] = await Promise.all([
         analyzeCustomerCoverageGap(),
         analyzeCustomerUnderwritingRisk(),
@@ -202,11 +333,17 @@ export default function AiRecommendationPanel({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, externalAnalysisJob, applyJobToState]);
 
   useEffect(() => {
     loadAnalysis();
   }, [loadAnalysis]);
+
+  useEffect(() => {
+    if (!externalAnalysisJob) return;
+    setAnalysisJob(externalAnalysisJob);
+    applyJobToState(externalAnalysisJob);
+  }, [externalAnalysisJob, applyJobToState]);
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;
@@ -221,6 +358,8 @@ export default function AiRecommendationPanel({ user }) {
       </div>
 
       {error ? <div style={S.error}>{error}</div> : null}
+
+      <AnalysisJobProgressBanner analysisJob={analysisJob} />
 
       <div style={S.card}>
         <h3 style={S.sectionTitle}>보장 공백 분석</h3>

@@ -3,6 +3,10 @@ import {
   loadCustomerConversations,
   sendCustomerConversationMessage,
 } from "../lib/customerConversations.js";
+import {
+  fetchLatestAnalysisJob,
+  processAnalysisJobUntilComplete,
+} from "../lib/customerConversationalAnalysis.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
@@ -128,6 +132,27 @@ const S = {
     padding: "24px 12px",
     lineHeight: 1.6,
   },
+  progressCard: {
+    marginTop: "12px",
+    padding: "14px 16px",
+    borderRadius: "12px",
+    background: "rgba(15, 23, 42, 0.55)",
+    border: "1px solid rgba(59, 130, 246, 0.25)",
+  },
+  progressTitle: {
+    margin: "0 0 10px",
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#bfdbfe",
+  },
+  progressItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    fontSize: "13px",
+    color: "#cbd5e1",
+    marginBottom: "6px",
+  },
 };
 
 function formatTimestamp(value) {
@@ -155,13 +180,54 @@ function MessageBubble({ item }) {
   );
 }
 
-export default function CustomerAiChatPanel({ user }) {
+function AnalysisProgressPanel({ analysisJob, initialResponseTimeMs }) {
+  if (!analysisJob) return null;
+
+  const timing = analysisJob.timing_metrics ?? {};
+  const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
+
+  return (
+    <div style={S.progressCard}>
+      <p style={S.progressTitle}>
+        백그라운드 정밀 분석{" "}
+        {analysisJob.status === "completed"
+          ? "완료"
+          : analysisJob.status === "failed"
+            ? "실패"
+            : "진행 중"}
+        {initialResponseTimeMs ? ` · 즉시 응답 ${initialResponseTimeMs}ms` : ""}
+      </p>
+      {progress.map((item) => (
+        <div key={item.stage} style={S.progressItem}>
+          <span>
+            {item.status === "completed" ? "✓" : item.status === "processing" ? "…" : "○"}
+          </span>
+          <span>{item.label}</span>
+        </div>
+      ))}
+      {timing.total_analysis_time_ms ? (
+        <div style={{ ...S.progressItem, marginTop: "8px", color: "#94a3b8" }}>
+          총 분석 시간: {timing.total_analysis_time_ms}ms
+        </div>
+      ) : null}
+      {analysisJob.error_message ? (
+        <div style={{ ...S.error, marginTop: "8px" }}>{analysisJob.error_message}</div>
+      ) : null}
+    </div>
+  );
+}
+
+export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [analysisJob, setAnalysisJob] = useState(null);
+  const [initialResponseTimeMs, setInitialResponseTimeMs] = useState(0);
+  const [backgroundRunning, setBackgroundRunning] = useState(false);
   const historyRef = useRef(null);
+  const pollAbortRef = useRef(false);
 
   const loadMessages = useCallback(async () => {
     if (!user) {
@@ -184,15 +250,69 @@ export default function CustomerAiChatPanel({ user }) {
     }
   }, [user]);
 
+  const resumeBackgroundPolling = useCallback(
+    async (jobId) => {
+      if (!jobId || pollAbortRef.current) return;
+      setBackgroundRunning(true);
+      try {
+        const finalJob = await processAnalysisJobUntilComplete({
+          jobId,
+          onProgress: (job) => {
+            setAnalysisJob(job);
+            if (typeof onAnalysisJobUpdate === "function") {
+              onAnalysisJobUpdate(job);
+            }
+          },
+        });
+        if (finalJob) {
+          setAnalysisJob(finalJob);
+          if (typeof onAnalysisJobUpdate === "function") {
+            onAnalysisJobUpdate(finalJob);
+          }
+        }
+        await loadMessages();
+      } catch (err) {
+        setError(toCustomerErrorMessage(err, "백그라운드 분석 상태를 확인하지 못했습니다."));
+      } finally {
+        setBackgroundRunning(false);
+      }
+    },
+    [loadMessages, onAnalysisJobUpdate],
+  );
+
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
 
   useEffect(() => {
+    if (!user) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const latestJob = await fetchLatestAnalysisJob();
+        if (!cancelled && latestJob && latestJob.status !== "completed" && latestJob.status !== "failed") {
+          setAnalysisJob(latestJob);
+          await resumeBackgroundPolling(latestJob.id);
+        } else if (!cancelled && latestJob) {
+          setAnalysisJob(latestJob);
+        }
+      } catch {
+        // no active job is fine on first load
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      pollAbortRef.current = true;
+    };
+  }, [user, resumeBackgroundPolling]);
+
+  useEffect(() => {
     if (historyRef.current) {
       historyRef.current.scrollTop = historyRef.current.scrollHeight;
     }
-  }, [messages, loading]);
+  }, [messages, loading, analysisJob]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -203,12 +323,25 @@ export default function CustomerAiChatPanel({ user }) {
 
     setSending(true);
     setError("");
+    pollAbortRef.current = false;
     try {
-      await sendCustomerConversationMessage(user, text);
+      const result = await sendCustomerConversationMessage(user, text, {
+        onAnalysisJob: ({ analysisJobId, analysisJob: job, initialResponseTimeMs: responseMs }) => {
+          setAnalysisJob(job);
+          setInitialResponseTimeMs(responseMs ?? 0);
+          if (typeof onAnalysisJobUpdate === "function") {
+            onAnalysisJobUpdate(job);
+          }
+          if (analysisJobId) {
+            resumeBackgroundPolling(analysisJobId);
+          }
+        },
+      });
+      setInitialResponseTimeMs(result.initialResponseTimeMs ?? 0);
       setDraft("");
       await loadMessages();
     } catch (err) {
-      setError(toCustomerErrorMessage(err, "메시지를 저장하지 못했습니다."));
+      setError(toCustomerErrorMessage(err, "상담 메시지를 처리하지 못했습니다."));
     } finally {
       setSending(false);
     }
@@ -219,8 +352,8 @@ export default function CustomerAiChatPanel({ user }) {
       <div>
         <h2 style={S.title}>AI 상담</h2>
         <p style={S.desc}>
-          고객 Memory, 보험지식(약관 RAG), Claude를 함께 사용해 개인 맞춤 보험 답변을 제공합니다.
-          대화에서 추출한 보험 관련 사실은 Customer Memory에 저장됩니다.
+          질문 즉시 상담 응답을 제공하고, Coverage Gap · Underwriting · Recommendation · 보험설계안
+          정밀 분석은 백그라운드에서 실행됩니다. 분석이 완료되면 결과가 자동으로 연결됩니다.
         </p>
       </div>
 
@@ -241,6 +374,11 @@ export default function CustomerAiChatPanel({ user }) {
           )}
         </div>
 
+        <AnalysisProgressPanel
+          analysisJob={analysisJob}
+          initialResponseTimeMs={initialResponseTimeMs}
+        />
+
         <form
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "16px" }}
@@ -250,11 +388,11 @@ export default function CustomerAiChatPanel({ user }) {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="보험 상담 내용을 입력해 주세요."
-            disabled={sending || loading}
+            disabled={sending || loading || backgroundRunning}
           />
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <button type="submit" style={S.btn} disabled={sending || loading || !draft.trim()}>
-              {sending ? "저장 중…" : "메시지 보내기"}
+              {sending ? "즉시 응답 생성 중…" : "상담 질문 보내기"}
             </button>
             <button
               type="button"
