@@ -20,7 +20,10 @@ import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   fetchLatestAnalysisJob,
+  hasClaudeExplanation,
+  hydrateMissingClaudeExplanations,
   mapJobResultsToAnalysisPanels,
+  normalizeClaudeExplanationEntry,
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
 
@@ -169,15 +172,29 @@ function UnderwritingListItem({ item }) {
 }
 
 
+function resolveClaudeFromJobEntry(entry) {
+  const normalized = normalizeClaudeExplanationEntry(entry);
+  return {
+    claudeExplanation: normalized.explanation,
+    claudeMeta: normalized.meta,
+  };
+}
+
 function applyJobResultsToPanelState(job, setters) {
   const mapped = mapJobResultsToAnalysisPanels(job);
   if (!mapped) return false;
 
   const claude = mapped.claudeExplanations ?? {};
+  const coverageClaude = resolveClaudeFromJobEntry(claude.coverage_gap);
+  const underwritingClaude = resolveClaudeFromJobEntry(claude.underwriting);
+  const recommendationClaude = resolveClaudeFromJobEntry(claude.recommendation);
+  const designClaude = resolveClaudeFromJobEntry(claude.insurance_design);
+
   if (mapped.coverageGapResult) {
     setters.setGapResult({
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: claude.coverage_gap ?? null,
+      claudeExplanation: coverageClaude.claudeExplanation,
+      claudeMeta: coverageClaude.claudeMeta,
       memoryUsed: true,
     });
   }
@@ -185,9 +202,11 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setUwResult({
       underwritingResult: mapped.underwritingResult,
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: claude.underwriting ?? null,
+      claudeExplanation: underwritingClaude.claudeExplanation,
+      claudeMeta: underwritingClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
+      panelClaudePolicyCount: mapped.panelClaudePolicyCount,
     });
   }
   if (mapped.recommendationResult) {
@@ -195,21 +214,25 @@ function applyJobResultsToPanelState(job, setters) {
       recommendationResult: mapped.recommendationResult,
       customerVisibleTop2: mapped.recommendationResult.customer_visible_top2 ?? [],
       recommendations: mapped.recommendationResult.recommendations ?? [],
-      claudeExplanation: claude.recommendation ?? null,
+      claudeExplanation: recommendationClaude.claudeExplanation,
+      claudeMeta: recommendationClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
       underwritingUsed: true,
+      panelClaudePolicyCount: mapped.panelClaudePolicyCount,
     });
   }
   if (mapped.designBundle) {
     setters.setDesignResult({
       insuranceDesign: mapped.designBundle.insurance_design ?? null,
       customerVisibleDesign: mapped.designBundle.customer_visible_design ?? null,
-      claudeExplanation: claude.insurance_design ?? null,
+      claudeExplanation: designClaude.claudeExplanation,
+      claudeMeta: designClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
       underwritingUsed: true,
       recommendationUsed: true,
+      panelClaudePolicyCount: mapped.panelClaudePolicyCount,
     });
   }
   return Boolean(
@@ -217,6 +240,100 @@ function applyJobResultsToPanelState(job, setters) {
       mapped.underwritingResult ||
       mapped.recommendationResult ||
       mapped.designBundle,
+  );
+}
+
+function needsPanelClaudeHydration(job) {
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  if (!mapped) return false;
+  const claude = mapped.claudeExplanations ?? {};
+  return (
+    (mapped.underwritingResult && !hasClaudeExplanation(claude.underwriting)) ||
+    (mapped.recommendationResult && !hasClaudeExplanation(claude.recommendation)) ||
+    (mapped.designBundle && !hasClaudeExplanation(claude.insurance_design))
+  );
+}
+
+async function hydrateJobClaudeExplanations(job) {
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  if (!mapped) {
+    return { job, hydrationResults: [] };
+  }
+
+  const { claudeExplanations, hydrationResults } = await hydrateMissingClaudeExplanations({
+    claudeExplanations: mapped.claudeExplanations ?? {},
+    hasPanelData: {
+      underwriting: Boolean(mapped.underwritingResult),
+      recommendation: Boolean(mapped.recommendationResult),
+      insurance_design: Boolean(mapped.designBundle),
+    },
+  });
+
+  return {
+    job: {
+      ...job,
+      result_json: {
+        ...job.result_json,
+        claude_explanations: claudeExplanations,
+      },
+    },
+    hydrationResults,
+  };
+}
+
+function formatClaudeUnavailableMessage() {
+  return "Claude 설명을 아직 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function ClaudePanelDebugPanel({
+  uwResult,
+  recResult,
+  designResult,
+  hydrationResults = [],
+}) {
+  const entries = [
+    { panel: "underwriting", meta: uwResult?.claudeMeta },
+    { panel: "recommendation", meta: recResult?.claudeMeta },
+    { panel: "insurance_design", meta: designResult?.claudeMeta },
+  ].filter((entry) => entry.meta);
+
+  if (!entries.length && !hydrationResults.length) {
+    return null;
+  }
+
+  return (
+    <details
+      style={{
+        marginTop: "12px",
+        padding: "12px 14px",
+        borderRadius: "10px",
+        border: "1px dashed rgba(148, 163, 184, 0.35)",
+        background: "rgba(15, 23, 42, 0.45)",
+        color: "#94a3b8",
+        fontSize: "12px",
+        lineHeight: 1.5,
+      }}
+    >
+      <summary style={{ cursor: "pointer", color: "#cbd5e1" }}>개발자 디버그: Claude 패널 상태</summary>
+      {entries.map((entry) => (
+        <div key={entry.panel} style={{ marginTop: "8px" }}>
+          <strong>{entry.panel}</strong>
+          {entry.meta?.reason ? ` · reason=${entry.meta.reason}` : ""}
+          {entry.meta?.policy_count != null ? ` · policies=${entry.meta.policy_count}` : ""}
+          {entry.meta?.error_message ? (
+            <div style={{ marginTop: "4px", color: "#64748b" }}>{entry.meta.error_message}</div>
+          ) : null}
+        </div>
+      ))}
+      {hydrationResults.length ? (
+        <div style={{ marginTop: "8px" }}>
+          <strong>hydration</strong>
+          <pre style={{ margin: "6px 0 0", whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(hydrationResults, null, 2)}
+          </pre>
+        </div>
+      ) : null}
+    </details>
   );
 }
 
@@ -260,6 +377,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   const [designResult, setDesignResult] = useState(null);
   const [rebalancingResult, setRebalancingResult] = useState(null);
   const [analysisJob, setAnalysisJob] = useState(null);
+  const [claudeHydrationDebug, setClaudeHydrationDebug] = useState([]);
 
   const applyJobToState = useCallback((job) => {
     return applyJobResultsToPanelState(job, {
@@ -298,11 +416,19 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
               applyJobToState(job);
             },
           });
-          if (finalJob) {
-            setAnalysisJob(finalJob);
-            applyJobToState(finalJob);
+          const completedJob = finalJob ?? latestJob;
+          if (completedJob) {
+            setAnalysisJob(completedJob);
+            let jobForPanels = completedJob;
+            if (needsPanelClaudeHydration(completedJob)) {
+              const hydrated = await hydrateJobClaudeExplanations(completedJob);
+              jobForPanels = hydrated.job;
+              setClaudeHydrationDebug(hydrated.hydrationResults);
+              setAnalysisJob(jobForPanels);
+            }
+            applyJobToState(jobForPanels);
           }
-          if (!applyJobToState(finalJob ?? latestJob)) {
+          if (!applyJobToState(completedJob)) {
             const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
               analyzeCustomerCoverageGap({ skipClaude: true }),
               analyzeCustomerUnderwritingRisk({ skipClaude: true }),
@@ -319,6 +445,12 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           return;
         }
         if (applied && latestJob.status === "completed") {
+          if (needsPanelClaudeHydration(latestJob)) {
+            const hydrated = await hydrateJobClaudeExplanations(latestJob);
+            setClaudeHydrationDebug(hydrated.hydrationResults);
+            setAnalysisJob(hydrated.job);
+            applyJobToState(hydrated.job);
+          }
           return;
         }
       }
@@ -528,10 +660,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
                 <div style={S.explanation}>{uwResult.claudeExplanation}</div>
               </div>
             ) : (
-              <div style={S.muted}>
-                인수 위험 Claude 설명을 생성하지 못했습니다.
-                {uwResult?.claudeMeta?.reason ? ` (${uwResult.claudeMeta.reason})` : ""}
-              </div>
+              <div style={S.muted}>{formatClaudeUnavailableMessage()}</div>
             )}
           </div>
         ) : (
@@ -605,10 +734,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
                 <div style={S.explanation}>{recResult.claudeExplanation}</div>
               </div>
             ) : (
-              <div style={S.muted}>
-                추천 Claude 설명을 생성하지 못했습니다.
-                {recResult.claudeMeta?.reason ? ` (${recResult.claudeMeta.reason})` : ""}
-              </div>
+              <div style={S.muted}>{formatClaudeUnavailableMessage()}</div>
             )}
           </div>
         ) : (
@@ -698,10 +824,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
                 <div style={S.explanation}>{designResult.claudeExplanation}</div>
               </div>
             ) : (
-              <div style={S.muted}>
-                설계안 Claude 설명을 생성하지 못했습니다.
-                {designResult.claudeMeta?.reason ? ` (${designResult.claudeMeta.reason})` : ""}
-              </div>
+              <div style={S.muted}>{formatClaudeUnavailableMessage()}</div>
             )}
           </div>
         ) : (
@@ -772,6 +895,13 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           <div style={S.muted}>리밸런싱 결과가 없습니다.</div>
         )}
       </div>
+
+      <ClaudePanelDebugPanel
+        uwResult={uwResult}
+        recResult={recResult}
+        designResult={designResult}
+        hydrationResults={claudeHydrationDebug}
+      />
 
       <div style={{ marginTop: "8px" }}>
         <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
