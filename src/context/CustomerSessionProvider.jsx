@@ -61,13 +61,15 @@ export function CustomerSessionProvider({ user, children }) {
   const notifySystemMessage = useCallback(
     async (message, { metadata = {}, refresh = true } = {}) => {
       if (!user) return null;
-      const row = await postCustomerSystemMessage(user, message, metadata);
+      const row = await postCustomerSystemMessage(user, message, metadata, {
+        customerId: dashboardData?.customerId ?? null,
+      });
       if (refresh) {
         await refreshSession({ event: "system_message", reloadJob: false });
       }
       return row;
     },
-    [user, refreshSession],
+    [user, dashboardData?.customerId, refreshSession],
   );
 
   useEffect(() => {

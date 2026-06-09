@@ -3,7 +3,7 @@ import AiRecommendationPanel from "./AiRecommendationPanel.jsx";
 import CustomerAiChatPanel from "./CustomerAiChatPanel.jsx";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
-import { useCustomerSession } from "../hooks/useCustomerSession.js";
+import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
 import {
   formatHealthSource,
@@ -67,34 +67,40 @@ function DataField({ label, value }) {
 }
 
 export default function CustomerDashboardPanel({ user }) {
-  const {
-    dashboardData: data,
-    unifiedState,
-    activeAnalysisJob,
-    setActiveAnalysisJob,
-    insurancePolicyCount,
-    memoryVersion,
-    stateHash,
-    loading,
-    error,
-    refreshSession,
-  } = useCustomerSession();
+  const session = useOptionalCustomerSession();
 
   const loadData = useCallback(async () => {
-    await refreshSession({ event: "dashboard_refresh" });
-  }, [refreshSession]);
+    await session?.refreshSession?.({ event: "dashboard_refresh" });
+  }, [session]);
 
   const handleAnalysisJobUpdate = useCallback(
     (job) => {
-      if (job) setActiveAnalysisJob(job);
+      if (job) session?.setActiveAnalysisJob?.(job);
     },
-    [setActiveAnalysisJob],
+    [session],
   );
 
   if (!user) {
     return (
       <div style={{ fontFamily: FONT, color: "#94a3b8", fontSize: "15px" }}>
         로그인이 필요합니다.
+      </div>
+    );
+  }
+
+  const data = session?.dashboardData ?? null;
+  const unifiedState = session?.unifiedState ?? null;
+  const activeAnalysisJob = session?.activeAnalysisJob ?? null;
+  const insurancePolicyCount = session?.insurancePolicyCount ?? 0;
+  const memoryVersion = session?.memoryVersion ?? 0;
+  const stateHash = session?.stateHash ?? null;
+  const loading = session?.loading ?? false;
+  const error = session?.error ?? "";
+
+  if (!session) {
+    return (
+      <div style={{ fontFamily: FONT, color: "#94a3b8", fontSize: "15px" }}>
+        고객 세션을 준비하는 중입니다. 로그인 후 다시 시도해 주세요.
       </div>
     );
   }

@@ -19,7 +19,8 @@ export function normalizeConversationMessage(row) {
   };
 }
 
-export async function resolveCustomerId(authUser) {
+export async function resolveCustomerId(authUser, knownCustomerId = null) {
+  if (knownCustomerId) return knownCustomerId;
   const dashboard = await loadCustomerDashboardData(authUser);
   if (!dashboard.customerId) {
     throw new Error("고객 프로필을 찾을 수 없습니다.");
@@ -27,8 +28,29 @@ export async function resolveCustomerId(authUser) {
   return dashboard.customerId;
 }
 
-export async function loadCustomerConversations(authUser, { limit = DEFAULT_LIMIT } = {}) {
-  const customerId = await resolveCustomerId(authUser);
+async function insertConversationMessage(customerId, { role, message, metadata = {} }) {
+  const { data, error } = await supabase
+    .from("customer_conversations")
+    .insert({
+      customer_id: customerId,
+      role,
+      message: String(message ?? "").trim(),
+      metadata_json: metadata,
+    })
+    .select("id, customer_id, role, message, metadata_json, created_at")
+    .single();
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "대화 메시지를 저장하지 못했습니다."));
+  }
+  return normalizeConversationMessage(data);
+}
+
+export async function loadCustomerConversations(
+  authUser,
+  { limit = DEFAULT_LIMIT, customerId: knownCustomerId = null } = {},
+) {
+  const customerId = await resolveCustomerId(authUser, knownCustomerId);
 
   const { data, error } = await supabase
     .from("customer_conversations")
@@ -44,7 +66,11 @@ export async function loadCustomerConversations(authUser, { limit = DEFAULT_LIMI
   return (data ?? []).map(normalizeConversationMessage);
 }
 
-export async function sendCustomerConversationMessage(authUser, message, { onAnalysisJob } = {}) {
+export async function sendCustomerConversationMessage(
+  authUser,
+  message,
+  { onAnalysisJob, customerId: knownCustomerId = null } = {},
+) {
   const conversationalResult = await sendConversationalQuestion({
     question: message,
     autoProcess: false,
@@ -58,7 +84,7 @@ export async function sendCustomerConversationMessage(authUser, message, { onAna
     });
   }
 
-  const customerId = await resolveCustomerId(authUser);
+  const customerId = await resolveCustomerId(authUser, knownCustomerId);
   const { data, error } = await supabase
     .from("customer_conversations")
     .select("id, customer_id, role, message, metadata_json, created_at")
@@ -83,8 +109,13 @@ export async function sendCustomerConversationMessage(authUser, message, { onAna
   };
 }
 
-export async function postCustomerSystemMessage(authUser, message, metadata = {}) {
-  const customerId = await resolveCustomerId(authUser);
+export async function postCustomerSystemMessage(
+  authUser,
+  message,
+  metadata = {},
+  { customerId: knownCustomerId = null } = {},
+) {
+  const customerId = await resolveCustomerId(authUser, knownCustomerId);
   return insertConversationMessage(customerId, {
     role: "system",
     message,
