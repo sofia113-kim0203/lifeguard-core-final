@@ -74,22 +74,21 @@ export async function extractInsuranceFacts(
     .from("profile_insurance_policies")
     .select("id, insurer_name, product_name, policy_type, monthly_premium, effective_from, coverage_summary, is_active")
     .eq("customer_id", customerId)
-    .eq("is_active", true)
     .is("deleted_at", null);
 
   if (error) {
     throw new Error(`insurance_load_failed: ${error.message}`);
   }
 
-  const activePolicies = (policies ?? []) as PolicyRow[];
+  const maintainedPolicies = (policies ?? []) as PolicyRow[];
   const facts: CandidateFact[] = [];
-  const sourceRecordId = activePolicies[0]?.id ?? customerId;
+  const sourceRecordId = maintainedPolicies[0]?.id ?? customerId;
 
-  if (activePolicies.length > 0) {
+  if (maintainedPolicies.length > 0) {
     facts.push({
       customer_id: customerId,
       fact_key: "insurance.policy.count",
-      fact_value: String(activePolicies.length),
+      fact_value: String(maintainedPolicies.length),
       fact_type: "insurance",
       importance: "medium",
       source_table: "profile_insurance_policies",
@@ -99,13 +98,13 @@ export async function extractInsuranceFacts(
         consentType: consent.consent_type,
         consentGranted: consent.consent_granted,
         sourceRecordId,
-        field: "active_policy_count",
-        extra: { active_policy_count: activePolicies.length },
+        field: "maintained_policy_count",
+        extra: { maintained_policy_count: maintainedPolicies.length },
       }),
     });
   }
 
-  const indemnityPolicies = activePolicies.filter((policy) =>
+  const indemnityPolicies = maintainedPolicies.filter((policy) =>
     isIndemnityPolicyType(policy.policy_type)
   );
   if (indemnityPolicies.length > 0) {
@@ -132,7 +131,7 @@ export async function extractInsuranceFacts(
     });
   }
 
-  const activeSummary = summarizeActivePolicies(activePolicies);
+  const activeSummary = summarizeActivePolicies(maintainedPolicies);
   if (activeSummary) {
     facts.push({
       customer_id: customerId,
@@ -152,7 +151,7 @@ export async function extractInsuranceFacts(
     });
   }
 
-  const carrierSummary = summarizeCarrierProducts(activePolicies);
+  const carrierSummary = summarizeCarrierProducts(maintainedPolicies);
   if (carrierSummary) {
     facts.push({
       customer_id: customerId,
@@ -173,7 +172,7 @@ export async function extractInsuranceFacts(
   }
 
 
-  for (const pol of activePolicies.slice(0, 10)) {
+  for (const pol of maintainedPolicies.slice(0, 10)) {
     const insurer = isPresent(pol.insurer_name) ? String(pol.insurer_name) : "보험사 미기재";
     const product = isPresent(pol.product_name) ? String(pol.product_name) : "상품 미기재";
     const statusLabel = pol.is_active ? "유지" : "비활성";
