@@ -13,6 +13,7 @@ export const ANALYSIS_PIPELINE_STAGE_ORDER = [
 ];
 
 export const CONSULTATION_INTENTS = [
+  "claim_eligibility_check",
   "factual_lookup",
   "coverage_gap_check",
   "recommendation_request",
@@ -48,6 +49,16 @@ const RECOMMEND_SIGNAL =
   /뭘\s*가입|무엇을\s*가입|뭐\s*가입|가입해야|들어야|추천|추천해|뭐가\s*부족|어떤\s*보험|어떤\s*보장|보완|보완해야|필요한\s*보험|필요한\s*보장/;
 const DESIGN_SIGNAL =
   /설계안|설계\s*해|설계해|보험설계|플랜\s*짜|구성해|월\s*보험료|보험료\s*맞|예산.{0,6}(맞|기준|으로)|포트폴리오|리밸런싱|재구성/;
+const CLAIM_ELIGIBILITY_SIGNAL =
+  /(보험금|청구|지급|클레임).{0,20}(가능|받을\s*수|나올|될까|되나|돼요|되나요|돼\?)/;
+const CLAIM_RECEIPT_SIGNAL =
+  /(받을\s*수|나올까|지급될|청구돼|청구되|나오나|나올까).{0,16}(있나|있어|될까|되나|돼|나오)/;
+const CLAIM_TOPIC_PAYMENT_SIGNAL =
+  /(골절|수술|입원|암|진단|실손).{0,24}(받을\s*수|보험금|청구|지급|나올|나오)/;
+const CLAIM_TOPIC_EVENT_SIGNAL =
+  /(골절|수술|입원|암|진단).{0,16}(받았|했|받은|했는데|인데).{0,24}(보험금|청구|지급|나올|받을)/;
+const CLAIM_TERMS_SIGNAL = /약관.{0,16}(지급|보장).{0,16}(되나|될까|가능)/;
+const CLAIM_DIRECT_SIGNAL = /청구\s*가능/;
 
 function normalizeQuestion(question = "") {
   return String(question).replace(/\s+/g, " ").trim();
@@ -102,10 +113,24 @@ function isCoverageGapCheck(text) {
   return false;
 }
 
+function isClaimEligibilityCheck(text) {
+  if (GAP_SIGNAL.test(text) && !/(보험금|청구|지급|받을\s*수|나올)/.test(text)) {
+    return false;
+  }
+  if (CLAIM_DIRECT_SIGNAL.test(text)) return true;
+  if (CLAIM_TERMS_SIGNAL.test(text)) return true;
+  if (CLAIM_ELIGIBILITY_SIGNAL.test(text)) return true;
+  if (CLAIM_RECEIPT_SIGNAL.test(text)) return true;
+  if (CLAIM_TOPIC_PAYMENT_SIGNAL.test(text)) return true;
+  if (CLAIM_TOPIC_EVENT_SIGNAL.test(text)) return true;
+  return false;
+}
+
 function isFactualLookup(text) {
   if (GAP_SIGNAL.test(text) || RECOMMEND_SIGNAL.test(text) || DESIGN_SIGNAL.test(text)) {
     return false;
   }
+  if (isClaimEligibilityCheck(text)) return false;
 
   const { subIntent } = detectLookupSubIntent(text);
   if (subIntent) return true;
@@ -163,6 +188,17 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
+  if (isClaimEligibilityCheck(text)) {
+    return {
+      intent: "claim_eligibility_check",
+      confidence: "high",
+      matched_rule: "claim_eligibility_check",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
   if (isFactualLookup(text)) {
     const lookup = detectLookupSubIntent(text);
     return {
@@ -187,6 +223,8 @@ export function classifyConsultationIntent(question = "") {
 
 export function resolvePipelineManifest(intent) {
   switch (intent) {
+    case "claim_eligibility_check":
+      return ["result_claude"];
     case "factual_lookup":
       return ["result_claude"];
     case "coverage_gap_check":
@@ -215,7 +253,12 @@ export function buildIntentGatePayload(classification, pipelineManifest) {
     question_focus: classification.question_focus,
     pipeline_manifest: pipelineManifest,
     skipped_stages: resolveSkippedStages(pipelineManifest),
-    result_mode: classification.intent === "factual_lookup" ? "light" : "standard",
+    result_mode:
+      classification.intent === "factual_lookup"
+        ? "light"
+        : classification.intent === "claim_eligibility_check"
+          ? "claim_light"
+          : "standard",
   };
 }
 
@@ -396,6 +439,10 @@ export function answerDirectlyAddressesQuestion(question, answer, intentGate = {
     if (intentGate.lookup_category === "cancer") {
       return /암/.test(firstSentence);
     }
+  }
+
+  if (intentGate.intent === "claim_eligibility_check") {
+    return /청구|지급|보험금|약관|서류|현재\s*자료/.test(firstSentence);
   }
 
   if (intentGate.intent === "coverage_gap_check") {

@@ -8,6 +8,7 @@ import {
   detectDirectAnswerIntent,
   extractCustomerSituation,
 } from "./customerConversationalTone.js";
+import { buildClaimFastResponse } from "./claimBridgeLayer.js";
 import { buildFactualLookupAnswer } from "./intentGateLayer.js";
 
 const STAGE_LABELS = {
@@ -46,6 +47,10 @@ export function buildFastConversationalResponse({
   const hasAnyCustomerData =
     (memorySnapshot?.fact_count ?? 0) > 0 ||
     Boolean(sourceContext?.has_profile || sourceContext?.has_health || sourceContext?.has_policies);
+
+  if (intentGate?.intent === "claim_eligibility_check") {
+    return buildClaimFastResponse(trimmedQuestion, workingContext, intentGate);
+  }
 
   if (intentGate?.intent === "factual_lookup") {
     const factualAnswer = buildFactualLookupAnswer(trimmedQuestion, workingContext, intentGate);
