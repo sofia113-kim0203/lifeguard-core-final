@@ -3,6 +3,7 @@ import AdminMenuPanel from "./components/AdminMenuPanel.jsx";
 import AgentDeskPanel from "./components/AgentDeskPanel.jsx";
 import AiRecommendationPanel from "./components/AiRecommendationPanel.jsx";
 import AuthPanel from "./components/AuthPanel.jsx";
+import ResetPasswordPanel from "./components/ResetPasswordPanel.jsx";
 import ClaimCheckPanel from "./components/ClaimCheckPanel.jsx";
 import CustomerDashboardPanel from "./components/CustomerDashboardPanel.jsx";
 import DocumentsPanel from "./components/DocumentsPanel.jsx";
@@ -66,12 +67,14 @@ function AiRecommendationMenuPanel({ user }) {
   return <AiRecommendationPanel user={user} useSessionJob />;
 }
 
-function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
+function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess, authMode }) {
   switch (activeMenu) {
     case AUTH_MENU:
       return (
         <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
-          {authLoading || user ? null : <AuthPanel onLoginSuccess={onLoginSuccess} />}
+          {authLoading || user ? null : (
+            <AuthPanel key={authMode} onLoginSuccess={onLoginSuccess} initialMode={authMode} />
+          )}
         </div>
       );
     case CUSTOMER_DASHBOARD_MENU:
@@ -99,9 +102,46 @@ function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
   }
 }
 
+function normalizeAppPath(pathname) {
+  const trimmed = (pathname || "/").replace(/\/+$/, "") || "/";
+  return trimmed;
+}
+
+function isResetPasswordPath(pathname) {
+  return normalizeAppPath(pathname) === "/reset-password";
+}
+
 export default function App() {
   const [activeMenu, setActiveMenu] = useState("home");
+  const [authMode, setAuthMode] = useState("login");
+  const [appPath, setAppPath] = useState(() =>
+    typeof window !== "undefined" ? normalizeAppPath(window.location.pathname) : "/",
+  );
   const { session, user, loading: authLoading } = useAuthSession();
+
+  useEffect(() => {
+    const syncPath = () => setAppPath(normalizeAppPath(window.location.pathname));
+    window.addEventListener("popstate", syncPath);
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
+
+  const navigateTo = (path) => {
+    window.history.pushState({}, "", path);
+    setAppPath(normalizeAppPath(path));
+  };
+
+  const handleGoToLogin = (mode = "login") => {
+    if (window.location.hash) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    setAuthMode(mode);
+    navigateTo("/");
+    setActiveMenu(AUTH_MENU);
+  };
+
+  if (isResetPasswordPath(appPath)) {
+    return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
+  }
 
   useEffect(() => {
     if (session && activeMenu === AUTH_MENU) {
@@ -324,6 +364,7 @@ export default function App() {
                 user,
                 authLoading,
                 onLoginSuccess: handleLoginSuccess,
+                authMode,
               })}
             </CustomerSessionProvider>
           ) : (
@@ -331,6 +372,7 @@ export default function App() {
               user,
               authLoading,
               onLoginSuccess: handleLoginSuccess,
+              authMode,
             })
           )}
         </div>
