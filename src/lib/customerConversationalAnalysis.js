@@ -97,17 +97,42 @@ export async function fetchLatestAnalysisJob() {
   return payload.analysis_job ?? null;
 }
 
+async function sleepWithAbort(ms, signal) {
+  if (signal?.aborted) return;
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
 export async function processAnalysisJobUntilComplete({
   jobId,
   onProgress,
   pollIntervalMs = 1200,
   maxAttempts = 120,
+  signal = null,
 } = {}) {
   let attempts = 0;
   let latestJob = null;
 
   while (attempts < maxAttempts) {
+    if (signal?.aborted) {
+      return latestJob;
+    }
+
     latestJob = await fetchAnalysisJobStatus({ jobId, action: "process" });
+    if (signal?.aborted) {
+      return latestJob;
+    }
+
     if (typeof onProgress === "function") {
       onProgress(latestJob);
     }
@@ -115,8 +140,9 @@ export async function processAnalysisJobUntilComplete({
     if (latestJob.status === "completed" || latestJob.status === "failed") {
       return latestJob;
     }
+
     attempts += 1;
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    await sleepWithAbort(pollIntervalMs, signal);
   }
 
   return latestJob;
