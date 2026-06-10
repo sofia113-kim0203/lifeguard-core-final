@@ -3,7 +3,6 @@
  */
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
-import { processAnalysisJobUntilComplete } from "../src/lib/customerConversationalAnalysis.js";
 
 const PRODUCTION_BASE = process.env.PHASE28_PRODUCTION_BASE || "https://lifeguard-core-final.vercel.app";
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -21,6 +20,30 @@ if (!testPassword) {
 
 const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
 const client = createClient(url, anonKey, { auth: { persistSession: false } });
+
+async function pollJobUntilComplete(token, jobId) {
+  let latestJob = null;
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const response = await fetch(`${PRODUCTION_BASE}/api/customer-analysis-job`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ job_id: jobId, action: "process" }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    assert.equal(response.status, 200, JSON.stringify(payload));
+    assert.equal(payload.ok, true);
+    latestJob = payload.analysis_job ?? null;
+    if (!latestJob) break;
+    if (latestJob.status === "completed" || latestJob.status === "failed") {
+      return latestJob;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  return latestJob;
+}
 
 const { data: signIn, error: signInError } = await client.auth.signInWithPassword({
   email: testEmail,
@@ -44,7 +67,7 @@ assert.equal(qaBody.ok, true);
 const jobId = qaBody.analysis_job_id;
 assert.ok(jobId);
 
-const finalJob = await processAnalysisJobUntilComplete({ jobId });
+const finalJob = await pollJobUntilComplete(token, jobId);
 assert.equal(finalJob?.status, "completed");
 
 const { data: profile } = await admin
