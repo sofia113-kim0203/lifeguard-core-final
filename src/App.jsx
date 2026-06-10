@@ -6,6 +6,7 @@ import AuthPanel from "./components/AuthPanel.jsx";
 import ResetPasswordPanel from "./components/ResetPasswordPanel.jsx";
 import ClaimCheckPanel from "./components/ClaimCheckPanel.jsx";
 import CorporatePanel from "./components/CorporatePanel.jsx";
+import CustomerAiChatRoomWrapper from "./components/CustomerAiChatRoomWrapper.jsx";
 import CustomerDashboardPanel from "./components/CustomerDashboardPanel.jsx";
 import CustomerHomePanel from "./components/CustomerHomePanel.jsx";
 import DocumentsPanel from "./components/DocumentsPanel.jsx";
@@ -15,11 +16,13 @@ import { useAuthSession } from "./hooks/useAuthSession.js";
 import { supabase } from "./lib/supabase.js";
 
 const CUSTOMER_DASHBOARD_MENU = "customer";
+const AI_CHAT_MENU = "chat";
 const AUTH_MENU = "auth";
 
 const MENU_ITEMS = [
   { id: "home", label: "홈", mark: "H" },
   { id: CUSTOMER_DASHBOARD_MENU, label: "고객 분석", mark: "C" },
+  { id: AI_CHAT_MENU, label: "AI 상담실", mark: "S" },
   { id: "ai", label: "AI 보험 추천", mark: "R" },
   { id: "claim", label: "보험금 청구 확인", mark: "P" },
   { id: "documents", label: "문서 관리", mark: "D" },
@@ -32,6 +35,7 @@ const FULL_WIDTH_MENUS = new Set([
   "home",
   AUTH_MENU,
   CUSTOMER_DASHBOARD_MENU,
+  AI_CHAT_MENU,
   "claim",
   "ai",
   "documents",
@@ -43,8 +47,10 @@ const FULL_WIDTH_MENUS = new Set([
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
 
-function AiRecommendationMenuPanel({ user }) {
-  return <AiRecommendationPanel user={user} useSessionJob />;
+function AiRecommendationMenuPanel({ user, onNavigate }) {
+  return (
+    <AiRecommendationPanel user={user} useSessionJob onNavigateToChat={() => onNavigate?.(AI_CHAT_MENU)} />
+  );
 }
 
 function renderMainContent(
@@ -70,11 +76,13 @@ function renderMainContent(
         </div>
       );
     case CUSTOMER_DASHBOARD_MENU:
-      return <CustomerDashboardPanel user={user} />;
+      return <CustomerDashboardPanel user={user} onNavigate={onNavigate} />;
+    case AI_CHAT_MENU:
+      return <CustomerAiChatRoomWrapper user={user} onNavigate={onNavigate} />;
     case "claim":
       return <ClaimCheckPanel user={user} />;
     case "ai":
-      return <AiRecommendationMenuPanel user={user} />;
+      return <AiRecommendationMenuPanel user={user} onNavigate={onNavigate} />;
     case "documents":
       return <DocumentsPanel user={user} />;
     case "corporate":
