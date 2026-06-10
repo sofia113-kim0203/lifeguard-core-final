@@ -30,171 +30,26 @@ const CONSENTS = [
   },
 ];
 
-const S = {
-  shell: {
-    width: "100%",
-    maxWidth: "520px",
-    fontFamily: FONT,
-  },
-  hero: {
-    marginBottom: "28px",
-    textAlign: "center",
-  },
-  title: {
-    margin: 0,
-    fontSize: "30px",
-    fontWeight: 700,
-    color: "#f8fafc",
-    letterSpacing: "-0.02em",
-  },
-  subtitle: {
-    margin: "12px 0 0",
-    fontSize: "15px",
-    color: "#94a3b8",
-    lineHeight: 1.65,
-  },
-  card: {
-    background: "rgba(30, 41, 59, 0.72)",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
-    borderRadius: "20px",
-    padding: "32px 34px",
-    boxShadow: "0 20px 50px rgba(0, 0, 0, 0.2)",
-  },
-  tabs: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "8px",
-    marginBottom: "28px",
-    padding: "4px",
-    borderRadius: "14px",
-    background: "rgba(15, 23, 42, 0.55)",
-    border: "1px solid rgba(148, 163, 184, 0.1)",
-  },
-  tab: (active) => ({
-    padding: "14px 12px",
-    borderRadius: "10px",
-    border: "none",
-    background: active ? "linear-gradient(135deg, #2563eb, #4f46e5)" : "transparent",
-    color: active ? "#fff" : "#94a3b8",
-    fontSize: "15px",
-    fontWeight: active ? 700 : 500,
-    cursor: "pointer",
-    fontFamily: FONT,
-  }),
-  input: {
-    width: "100%",
-    padding: "15px 16px",
-    borderRadius: "12px",
-    border: "1px solid rgba(148, 163, 184, 0.22)",
-    background: "rgba(15, 23, 42, 0.65)",
-    color: "#e2e8f0",
-    fontSize: "16px",
-    fontFamily: FONT,
-    boxSizing: "border-box",
-    outline: "none",
-  },
-  label: {
-    fontSize: "14px",
-    color: "#94a3b8",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    fontWeight: 600,
-  },
-  checkRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "12px",
-    padding: "14px 16px",
-    borderRadius: "12px",
-    background: "rgba(15, 23, 42, 0.45)",
-    border: "1px solid rgba(148, 163, 184, 0.12)",
-    cursor: "pointer",
-  },
-  checkLabel: {
-    fontSize: "14px",
-    color: "#cbd5e1",
-    lineHeight: 1.55,
-    cursor: "pointer",
-    userSelect: "none",
-  },
-  btn: {
-    width: "100%",
-    padding: "16px",
-    borderRadius: "12px",
-    border: "none",
-    background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
-    color: "#fff",
-    fontSize: "16px",
-    fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: FONT,
-    marginTop: "8px",
-  },
-  linkRow: {
-    display: "flex",
-    justifyContent: "center",
-    gap: "16px",
-    flexWrap: "wrap",
-    marginTop: "4px",
-  },
-  textLink: {
-    background: "none",
-    border: "none",
-    padding: 0,
-    color: "#60a5fa",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    textDecoration: "underline",
-    textUnderlineOffset: "3px",
-  },
-  backLink: {
-    background: "none",
-    border: "none",
-    padding: 0,
-    color: "#94a3b8",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    marginBottom: "20px",
-  },
-  error: {
-    padding: "12px 14px",
-    borderRadius: "10px",
-    background: "rgba(127, 29, 29, 0.35)",
-    color: "#fecaca",
-    fontSize: "13px",
-    lineHeight: 1.55,
-    whiteSpace: "pre-line",
-  },
-  success: {
-    padding: "12px 14px",
-    borderRadius: "10px",
-    background: "rgba(20, 83, 45, 0.35)",
-    color: "#86efac",
-    fontSize: "13px",
-    lineHeight: 1.55,
-  },
-  infoBox: {
-    padding: "14px 16px",
-    borderRadius: "12px",
-    background: "rgba(30, 58, 138, 0.2)",
-    border: "1px solid rgba(59, 130, 246, 0.25)",
-    color: "#bfdbfe",
-    fontSize: "13px",
-    lineHeight: 1.65,
-  },
-  sectionTitle: {
-    margin: 0,
-    fontSize: "22px",
-    fontWeight: 700,
-    color: "#f8fafc",
-    textAlign: "center",
-  },
-};
+const SERVICE_FEATURES = [
+  { icon: "🧠", title: "보험 기억", desc: "가입·문서·상담 내역을 고객별로 기억합니다." },
+  { icon: "📊", title: "보장 분석", desc: "보장 공백과 인수 위험을 데이터로 분석합니다." },
+  { icon: "✦", title: "AI 추천", desc: "고객 상황에 맞는 보험 방향을 제안합니다." },
+  { icon: "📋", title: "보험 설계", desc: "맞춤 설계안과 리밸런싱을 안내합니다." },
+];
+
+const SIGNUP_UI_FIELDS = [
+  { label: "휴대폰", placeholder: "연결 예정" },
+  { label: "생년월일", placeholder: "연결 예정" },
+  { label: "성별", placeholder: "연결 예정" },
+  { label: "직업", placeholder: "연결 예정" },
+  { label: "기본 건강정보", placeholder: "연결 예정" },
+];
+
+const AUTH_MODES = new Set(["login", "signup", "forgot-password", "find-id"]);
+
+function normalizeInitialMode(initialMode) {
+  return AUTH_MODES.has(initialMode) ? initialMode : "login";
+}
 
 function buildSignupMetadata(displayName) {
   const metadata = {
@@ -215,10 +70,116 @@ async function bootstrapSignupRecords(displayName) {
   return { error: null, customerId: data?.customer_id ?? null };
 }
 
-const AUTH_MODES = new Set(["login", "signup", "forgot-password", "find-id"]);
+function AuthBrandHeader({ compact = false }) {
+  return (
+    <header className="auth-brand-header" style={{ textAlign: "center", marginBottom: compact ? "20px" : "clamp(28px, 5vw, 44px)" }}>
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 16px",
+          borderRadius: "999px",
+          background: "rgba(37, 99, 235, 0.15)",
+          border: "1px solid rgba(96, 165, 250, 0.35)",
+          marginBottom: "16px",
+        }}
+      >
+        <span
+          style={{
+            width: "8px",
+            height: "8px",
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #60a5fa, #818cf8)",
+            boxShadow: "0 0 12px rgba(96, 165, 250, 0.8)",
+          }}
+        />
+        <span style={{ fontSize: "12px", fontWeight: 800, letterSpacing: "0.18em", color: "#93c5fd" }}>
+          LIFEGUARD
+        </span>
+      </div>
+      <h1
+        style={{
+          margin: 0,
+          fontSize: "clamp(26px, 5.5vw, 40px)",
+          fontWeight: 800,
+          color: "#f8fafc",
+          lineHeight: 1.25,
+          letterSpacing: "-0.03em",
+        }}
+      >
+        내 보험을 기억하고 분석하는
+        <br />
+        <span
+          style={{
+            background: "linear-gradient(135deg, #60a5fa 0%, #a78bfa 55%, #38bdf8 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          AI 보험설계사
+        </span>
+      </h1>
+      {!compact ? (
+        <p
+          style={{
+            margin: "16px auto 0",
+            maxWidth: "520px",
+            fontSize: "clamp(14px, 2.8vw, 17px)",
+            color: "#94a3b8",
+            lineHeight: 1.7,
+          }}
+        >
+          보험·문서·건강 정보를 바탕으로 보장 공백, 인수 위험, 맞춤 설계안을 안내하는 고객 전용 보험 AI 서비스입니다.
+        </p>
+      ) : null}
+    </header>
+  );
+}
 
-function normalizeInitialMode(initialMode) {
-  return AUTH_MODES.has(initialMode) ? initialMode : "login";
+function ServiceFeatureGrid() {
+  return (
+    <section className="auth-feature-grid" aria-label="서비스 소개">
+      {SERVICE_FEATURES.map((feature) => (
+        <div key={feature.title} className="auth-feature-card">
+          <div className="auth-feature-icon">{feature.icon}</div>
+          <div className="auth-feature-title">{feature.title}</div>
+          <div className="auth-feature-desc">{feature.desc}</div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function AlertBox({ type, children }) {
+  const styles =
+    type === "error"
+      ? {
+          background: "rgba(127, 29, 29, 0.35)",
+          color: "#fecaca",
+          border: "1px solid rgba(248, 113, 113, 0.25)",
+        }
+      : {
+          background: "rgba(20, 83, 45, 0.35)",
+          color: "#86efac",
+          border: "1px solid rgba(74, 222, 128, 0.25)",
+        };
+  return (
+    <div
+      style={{
+        ...styles,
+        padding: "14px 16px",
+        borderRadius: "14px",
+        fontSize: "14px",
+        lineHeight: 1.6,
+        whiteSpace: "pre-line",
+        marginBottom: "20px",
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
@@ -361,222 +322,514 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
     );
   };
 
-  const renderLoginSignup = () => (
+  const renderLoginScreen = () => (
     <>
-      <div style={S.tabs}>
-        <button type="button" style={S.tab(mode === "login")} onClick={() => switchMode("login")}>
-          로그인
-        </button>
-        <button type="button" style={S.tab(mode === "signup")} onClick={() => switchMode("signup")}>
-          회원가입
-        </button>
-      </div>
+      <AuthBrandHeader />
+      <ServiceFeatureGrid />
 
-      <form
-        onSubmit={mode === "login" ? handleLogin : handleSignup}
-        style={{ display: "flex", flexDirection: "column", gap: "18px" }}
-      >
-        {mode === "signup" ? (
-          <label style={S.label}>
-            이름
+      <div className="auth-login-card">
+        <h2 className="auth-card-title">로그인</h2>
+        <p className="auth-card-subtitle">가입 이메일과 비밀번호로 LIFEGUARD에 접속합니다.</p>
+
+        <form onSubmit={handleLogin} className="auth-form-stack">
+          <label className="auth-field-label">
+            이메일
             <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="실명 또는 표시 이름"
-              style={S.input}
+              type="email"
+              className="auth-input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="이메일 주소"
+              required
+              autoComplete="email"
             />
           </label>
-        ) : null}
 
-        <label style={S.label}>
-          이메일
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="이메일 주소"
-            required
-            autoComplete="email"
-            style={S.input}
-          />
-        </label>
+          <label className="auth-field-label">
+            비밀번호
+            <input
+              type="password"
+              className="auth-input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="8자 이상"
+              required
+              autoComplete="current-password"
+            />
+          </label>
 
-        <label style={S.label}>
-          비밀번호
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="8자 이상"
-            required
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            style={S.input}
-          />
-        </label>
+          <button type="submit" className="auth-primary-btn" disabled={loading}>
+            {loading ? "로그인 중…" : "로그인"}
+          </button>
+        </form>
 
-        {mode === "login" ? (
-          <div style={S.linkRow}>
-            <button type="button" style={S.textLink} onClick={() => switchMode("find-id")}>
-              아이디 찾기
-            </button>
-            <button type="button" style={S.textLink} onClick={() => switchMode("forgot-password")}>
-              비밀번호 찾기
-            </button>
+        <nav className="auth-footer-links" aria-label="계정 도움말">
+          <button type="button" className="auth-footer-link" onClick={() => switchMode("find-id")}>
+            아이디 찾기
+          </button>
+          <span className="auth-footer-divider" aria-hidden="true" />
+          <button type="button" className="auth-footer-link" onClick={() => switchMode("forgot-password")}>
+            비밀번호 찾기
+          </button>
+          <span className="auth-footer-divider" aria-hidden="true" />
+          <button type="button" className="auth-footer-link auth-footer-link-strong" onClick={() => switchMode("signup")}>
+            회원가입
+          </button>
+        </nav>
+      </div>
+    </>
+  );
+
+  const renderSignupScreen = () => (
+    <>
+      <button type="button" className="auth-back-link" onClick={() => switchMode("login")}>
+        ← 로그인 화면으로
+      </button>
+
+      <AuthBrandHeader compact />
+
+      <div className="auth-signup-card">
+        <h2 className="auth-signup-title">회원가입</h2>
+        <p className="auth-signup-subtitle">
+          LIFEGUARD 보험 AI 서비스에 가입하고, 내 보험 분석·AI 상담·맞춤 설계를 시작하세요.
+        </p>
+
+        <form onSubmit={handleSignup} className="auth-form-stack auth-form-stack-wide">
+          <div className="auth-form-section">
+            <div className="auth-form-section-title">기본 정보</div>
+            <label className="auth-field-label">
+              이름
+              <input
+                type="text"
+                className="auth-input auth-input-lg"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="실명 또는 표시 이름"
+              />
+            </label>
+            <label className="auth-field-label">
+              이메일
+              <input
+                type="email"
+                className="auth-input auth-input-lg"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="이메일 주소"
+                required
+                autoComplete="email"
+              />
+            </label>
+            <label className="auth-field-label">
+              비밀번호
+              <input
+                type="password"
+                className="auth-input auth-input-lg"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="8자 이상"
+                required
+                autoComplete="new-password"
+              />
+            </label>
           </div>
-        ) : null}
 
-        {mode === "signup" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: "#cbd5e1" }}>정보제공 동의</div>
-            {CONSENTS.map((c) => (
-              <div
-                key={c.key}
-                style={{
-                  ...S.checkRow,
-                  borderColor: consents[c.key]
-                    ? "rgba(59,130,246,0.4)"
-                    : "rgba(148,163,184,0.12)",
-                  background: consents[c.key]
-                    ? "rgba(37,99,235,0.12)"
-                    : "rgba(15,23,42,0.45)",
-                }}
-                onClick={() => toggleConsent(c.key)}
-              >
-                <input
-                  type="checkbox"
-                  checked={consents[c.key]}
-                  onChange={() => toggleConsent(c.key)}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ marginTop: "3px", accentColor: "#3b82f6", cursor: "pointer", width: "18px", height: "18px" }}
-                />
-                <div>
-                  <div style={{ ...S.checkLabel, fontWeight: 700 }}>
-                    {c.label} <span style={{ color: "#ef4444" }}>*</span>
+          <div className="auth-form-section">
+            <div className="auth-form-section-title">추가 정보 (UI · 순차 연결 예정)</div>
+            <p className="auth-form-section-note">
+              아래 항목은 Customer Memory 출발점으로 준비 중입니다. 이번 단계에서는 저장하지 않습니다.
+            </p>
+            <div className="auth-signup-field-grid">
+              {SIGNUP_UI_FIELDS.map((field) => (
+                <label key={field.label} className="auth-field-label">
+                  {field.label}
+                  <input
+                    type="text"
+                    className="auth-input auth-input-lg auth-input-disabled"
+                    disabled
+                    readOnly
+                    value=""
+                    placeholder={field.placeholder}
+                    tabIndex={-1}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="auth-form-section">
+            <div className="auth-form-section-title">정보제공 동의</div>
+            <div className="auth-consent-stack">
+              {CONSENTS.map((c) => (
+                <div
+                  key={c.key}
+                  className={`auth-consent-row${consents[c.key] ? " auth-consent-row-active" : ""}`}
+                  onClick={() => toggleConsent(c.key)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={consents[c.key]}
+                    onChange={() => toggleConsent(c.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="auth-consent-checkbox"
+                  />
+                  <div>
+                    <div className="auth-consent-label">
+                      {c.label} <span className="auth-required">*</span>
+                    </div>
+                    <div className="auth-consent-desc">{c.desc}</div>
                   </div>
-                  <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>{c.desc}</div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        ) : null}
 
-        <button
-          type="submit"
-          style={{
-            ...S.btn,
-            opacity: loading || (mode === "signup" && !allConsented) ? 0.55 : 1,
-            cursor: loading || (mode === "signup" && !allConsented) ? "not-allowed" : "pointer",
-          }}
-          disabled={loading || (mode === "signup" && !allConsented)}
-        >
-          {loading ? "처리 중…" : mode === "login" ? "로그인" : "회원가입"}
-        </button>
-
-        {mode === "login" ? (
-          <p style={{ margin: 0, textAlign: "center", fontSize: "13px", color: "#64748b" }}>
-            비밀번호를 잊으셨나요?{" "}
-            <button type="button" style={S.textLink} onClick={() => switchMode("forgot-password")}>
-              비밀번호 찾기
-            </button>
-          </p>
-        ) : null}
-      </form>
+          <button
+            type="submit"
+            className="auth-primary-btn auth-primary-btn-xl"
+            disabled={loading || !allConsented}
+          >
+            {loading ? "가입 처리 중…" : "회원가입 완료"}
+          </button>
+        </form>
+      </div>
     </>
   );
 
   const renderForgotPassword = () => (
-    <>
-      <button type="button" style={S.backLink} onClick={() => switchMode("login")}>
+    <div className="auth-subflow-card">
+      <button type="button" className="auth-back-link" onClick={() => switchMode("login")}>
         ← 로그인으로 돌아가기
       </button>
-      <h2 style={S.sectionTitle}>비밀번호 찾기</h2>
-      <p style={{ ...S.subtitle, margin: "12px 0 24px", textAlign: "center" }}>
-        가입 시 사용한 이메일로 비밀번호 재설정 링크를 보내 드립니다.
-      </p>
-      <form onSubmit={handleForgotPassword} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-        <label style={S.label}>
+      <h2 className="auth-card-title">비밀번호 찾기</h2>
+      <p className="auth-card-subtitle">가입 시 사용한 이메일로 비밀번호 재설정 링크를 보내 드립니다.</p>
+      <form onSubmit={handleForgotPassword} className="auth-form-stack">
+        <label className="auth-field-label">
           이메일
           <input
             type="email"
+            className="auth-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="가입 이메일 주소"
             required
             autoComplete="email"
-            style={S.input}
           />
         </label>
-        <button
-          type="submit"
-          style={{ ...S.btn, opacity: loading ? 0.55 : 1, cursor: loading ? "not-allowed" : "pointer" }}
-          disabled={loading}
-        >
+        <button type="submit" className="auth-primary-btn" disabled={loading}>
           {loading ? "발송 중…" : "재설정 링크 보내기"}
         </button>
       </form>
-    </>
+    </div>
   );
 
   const renderFindId = () => (
-    <>
-      <button type="button" style={S.backLink} onClick={() => switchMode("login")}>
+    <div className="auth-subflow-card">
+      <button type="button" className="auth-back-link" onClick={() => switchMode("login")}>
         ← 로그인으로 돌아가기
       </button>
-      <h2 style={S.sectionTitle}>아이디 찾기</h2>
-      <div style={{ ...S.infoBox, margin: "16px 0 24px" }}>
+      <h2 className="auth-card-title">아이디 찾기</h2>
+      <div className="auth-info-box">
         가입 아이디는 이메일 주소입니다.
         <br />
         보안상 가입 여부는 안내하지 않습니다. 이메일을 기억하시면 비밀번호 찾기를 이용해 주세요.
       </div>
-      <form onSubmit={handleFindIdSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-        <label style={S.label}>
+      <form onSubmit={handleFindIdSubmit} className="auth-form-stack">
+        <label className="auth-field-label">
           이름
           <input
             type="text"
+            className="auth-input"
             value={findName}
             onChange={(e) => setFindName(e.target.value)}
             placeholder="가입 시 입력한 이름"
-            style={S.input}
           />
         </label>
-        <label style={S.label}>
+        <label className="auth-field-label">
           휴대폰 또는 이메일 일부
           <input
             type="text"
+            className="auth-input"
             value={findHint}
             onChange={(e) => setFindHint(e.target.value)}
             placeholder="예: 010-**** 또는 sofia"
-            style={S.input}
           />
         </label>
-        <button type="submit" style={S.btn}>
+        <button type="submit" className="auth-primary-btn">
           안내 확인
         </button>
-        <button type="button" style={S.textLink} onClick={() => switchMode("forgot-password")}>
+        <button type="button" className="auth-inline-link" onClick={() => switchMode("forgot-password")}>
           이메일을 알고 있다면 비밀번호 찾기로 이동
         </button>
       </form>
-    </>
+    </div>
   );
 
   return (
-    <div style={S.shell}>
-      <div style={S.hero}>
-        <h1 style={S.title}>LIFEGUARD 보험 AI</h1>
-        <p style={S.subtitle}>내 보험을 기억하고 분석하는 AI 보험설계사</p>
-      </div>
+    <div className="auth-first-screen" style={{ fontFamily: FONT }}>
+      <style>{`
+        .auth-first-screen {
+          width: 100%;
+          max-width: 960px;
+          margin: 0 auto;
+          padding: clamp(8px, 2vw, 16px) 0 clamp(32px, 6vw, 56px);
+        }
+        .auth-feature-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: clamp(10px, 2.5vw, 16px);
+          margin-bottom: clamp(24px, 5vw, 40px);
+        }
+        .auth-feature-card {
+          padding: clamp(16px, 3.5vw, 22px);
+          border-radius: 18px;
+          background: linear-gradient(160deg, rgba(30, 58, 138, 0.22) 0%, rgba(15, 23, 42, 0.75) 100%);
+          border: 1px solid rgba(96, 165, 250, 0.18);
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+        }
+        .auth-feature-icon { font-size: clamp(22px, 4vw, 28px); margin-bottom: 10px; }
+        .auth-feature-title {
+          font-size: clamp(14px, 2.8vw, 16px);
+          font-weight: 800;
+          color: #e2e8f0;
+          margin-bottom: 6px;
+        }
+        .auth-feature-desc {
+          font-size: clamp(12px, 2.4vw, 13px);
+          color: #94a3b8;
+          line-height: 1.55;
+        }
+        .auth-login-card,
+        .auth-signup-card,
+        .auth-subflow-card {
+          background: rgba(15, 23, 42, 0.82);
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          border-radius: clamp(20px, 4vw, 28px);
+          padding: clamp(24px, 5vw, 40px);
+          box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+        }
+        .auth-signup-card {
+          padding: clamp(28px, 6vw, 48px);
+        }
+        .auth-card-title,
+        .auth-signup-title {
+          margin: 0 0 8px;
+          font-size: clamp(22px, 4.5vw, 30px);
+          font-weight: 800;
+          color: #f8fafc;
+          text-align: center;
+        }
+        .auth-signup-title { font-size: clamp(26px, 5vw, 36px); }
+        .auth-card-subtitle,
+        .auth-signup-subtitle {
+          margin: 0 0 clamp(20px, 4vw, 28px);
+          text-align: center;
+          font-size: clamp(14px, 2.8vw, 16px);
+          color: #94a3b8;
+          line-height: 1.65;
+        }
+        .auth-form-stack {
+          display: flex;
+          flex-direction: column;
+          gap: clamp(16px, 3.5vw, 22px);
+        }
+        .auth-form-stack-wide { gap: clamp(22px, 4vw, 32px); }
+        .auth-form-section-title {
+          font-size: clamp(15px, 3vw, 17px);
+          font-weight: 800;
+          color: #e2e8f0;
+          margin-bottom: 12px;
+        }
+        .auth-form-section-note {
+          margin: 0 0 14px;
+          font-size: 13px;
+          color: #64748b;
+          line-height: 1.55;
+        }
+        .auth-signup-field-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 14px;
+        }
+        .auth-field-label {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          font-size: clamp(14px, 2.8vw, 15px);
+          font-weight: 700;
+          color: #94a3b8;
+        }
+        .auth-input {
+          width: 100%;
+          box-sizing: border-box;
+          padding: clamp(16px, 3.5vw, 20px) clamp(16px, 3.5vw, 18px);
+          min-height: 56px;
+          border-radius: 14px;
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          background: rgba(2, 6, 23, 0.55);
+          color: #f1f5f9;
+          font-size: clamp(16px, 3.2vw, 18px);
+          font-family: inherit;
+          outline: none;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .auth-input:focus {
+          border-color: rgba(96, 165, 250, 0.65);
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+        }
+        .auth-input-lg { min-height: 58px; }
+        .auth-input-disabled {
+          border-style: dashed;
+          border-color: rgba(148, 163, 184, 0.2);
+          background: rgba(15, 23, 42, 0.35);
+          color: #64748b;
+          cursor: not-allowed;
+        }
+        .auth-primary-btn {
+          width: 100%;
+          min-height: 58px;
+          padding: 18px 20px;
+          border: none;
+          border-radius: 16px;
+          background: linear-gradient(135deg, #3b82f6 0%, #2563eb 55%, #4f46e5 100%);
+          color: #fff;
+          font-size: clamp(17px, 3.4vw, 19px);
+          font-weight: 800;
+          font-family: inherit;
+          cursor: pointer;
+          box-shadow: 0 14px 36px rgba(37, 99, 235, 0.38);
+        }
+        .auth-primary-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+        .auth-primary-btn-xl {
+          min-height: 64px;
+          font-size: clamp(18px, 3.6vw, 20px);
+          margin-top: 8px;
+        }
+        .auth-footer-links {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 10px 14px;
+          margin-top: clamp(22px, 4vw, 30px);
+          padding-top: clamp(18px, 3.5vw, 24px);
+          border-top: 1px solid rgba(148, 163, 184, 0.14);
+        }
+        .auth-footer-link {
+          background: none;
+          border: none;
+          padding: 10px 6px;
+          color: #60a5fa;
+          font-size: clamp(14px, 2.8vw, 15px);
+          font-weight: 700;
+          font-family: inherit;
+          cursor: pointer;
+          text-decoration: underline;
+          text-underline-offset: 4px;
+        }
+        .auth-footer-link-strong { color: #93c5fd; font-size: clamp(15px, 3vw, 16px); }
+        .auth-footer-divider {
+          width: 1px;
+          height: 14px;
+          background: rgba(148, 163, 184, 0.35);
+        }
+        .auth-back-link {
+          background: none;
+          border: none;
+          padding: 0 0 16px;
+          color: #94a3b8;
+          font-size: 14px;
+          font-weight: 700;
+          font-family: inherit;
+          cursor: pointer;
+          text-align: left;
+        }
+        .auth-consent-stack { display: flex; flex-direction: column; gap: 12px; }
+        .auth-consent-row {
+          display: flex;
+          gap: 14px;
+          padding: clamp(14px, 3vw, 18px);
+          border-radius: 14px;
+          background: rgba(2, 6, 23, 0.45);
+          border: 1px solid rgba(148, 163, 184, 0.14);
+          cursor: pointer;
+        }
+        .auth-consent-row-active {
+          border-color: rgba(59, 130, 246, 0.45);
+          background: rgba(37, 99, 235, 0.12);
+        }
+        .auth-consent-checkbox {
+          width: 20px;
+          height: 20px;
+          margin-top: 2px;
+          accent-color: #3b82f6;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .auth-consent-label {
+          font-size: clamp(14px, 2.8vw, 15px);
+          font-weight: 700;
+          color: #e2e8f0;
+          line-height: 1.5;
+        }
+        .auth-consent-desc {
+          margin-top: 4px;
+          font-size: 12px;
+          color: #64748b;
+          line-height: 1.5;
+        }
+        .auth-required { color: #f87171; }
+        .auth-info-box {
+          padding: 16px 18px;
+          border-radius: 14px;
+          background: rgba(30, 58, 138, 0.22);
+          border: 1px solid rgba(59, 130, 246, 0.28);
+          color: #bfdbfe;
+          font-size: 14px;
+          line-height: 1.65;
+          margin-bottom: 20px;
+        }
+        .auth-inline-link {
+          background: none;
+          border: none;
+          padding: 8px 0 0;
+          color: #60a5fa;
+          font-size: 14px;
+          font-weight: 700;
+          font-family: inherit;
+          cursor: pointer;
+          text-decoration: underline;
+          text-align: center;
+        }
+        @media (min-width: 720px) {
+          .auth-feature-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+          .auth-signup-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+      `}</style>
 
-      <div style={S.card}>
-        {error ? <div style={{ ...S.error, marginBottom: "16px" }}>{error}</div> : null}
-        {message ? <div style={{ ...S.success, marginBottom: "16px" }}>{message}</div> : null}
+      {error ? <AlertBox type="error">{error}</AlertBox> : null}
+      {message ? <AlertBox type="success">{message}</AlertBox> : null}
 
-        {mode === "forgot-password"
-          ? renderForgotPassword()
-          : mode === "find-id"
-            ? renderFindId()
-            : renderLoginSignup()}
-      </div>
+      {mode === "login"
+        ? renderLoginScreen()
+        : mode === "signup"
+          ? renderSignupScreen()
+          : mode === "forgot-password"
+            ? (
+              <>
+                <AuthBrandHeader compact />
+                {renderForgotPassword()}
+              </>
+            )
+            : (
+              <>
+                <AuthBrandHeader compact />
+                {renderFindId()}
+              </>
+            )}
     </div>
   );
 }
