@@ -21,7 +21,6 @@ import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   fetchLatestAnalysisJob,
   mapJobResultsToAnalysisPanels,
-  processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
 import {
   hasClaudeExplanation,
@@ -487,7 +486,22 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     return applyJobResultsToPanelState(job, panelSetters);
   }, []);
 
-  const loadAnalysis = useCallback(async () => {
+  const loadPanelDataFromApis = useCallback(async ({ skipClaude = false } = {}) => {
+    const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
+      analyzeCustomerCoverageGap({ skipClaude }),
+      analyzeCustomerUnderwritingRisk({ skipClaude }),
+      loadCustomerRecommendations({ skipClaude }),
+      loadCustomerInsuranceDesign({ skipClaude }),
+      loadCustomerRebalancing({ skipClaude }),
+    ]);
+    setGapResult(gapData);
+    setUwResult(uwData);
+    setRecResult(recData);
+    setDesignResult(designData);
+    setRebalancingResult(rebalancingData);
+  }, []);
+
+  const loadInitialAnalysis = useCallback(async () => {
     if (!user) {
       setGapResult(null);
       setUwResult(null);
@@ -502,60 +516,20 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     setLoading(true);
     setError("");
     try {
-      const latestJob = resolvedExternalJob ?? (await fetchLatestAnalysisJob());
+      const latestJob = await fetchLatestAnalysisJob();
       if (latestJob) {
         setAnalysisJob(latestJob);
         const applied = applyJobToState(latestJob);
-        if (latestJob.status === "processing" || latestJob.status === "queued") {
-          setLoading(false);
-          const finalJob = await processAnalysisJobUntilComplete({
-            jobId: latestJob.id,
-            onProgress: (job) => {
-              setAnalysisJob(job);
-              applyJobToState(job);
-            },
-          });
-          const jobForPanels = finalJob ?? latestJob;
-          if (finalJob) {
-            setAnalysisJob(finalJob);
-          }
-          const appliedFromJob = applyJobToState(jobForPanels);
-          if (appliedFromJob) {
-            await hydrateMissingClaudeExplanations(jobForPanels, panelSetters);
-          } else {
-            const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
-              analyzeCustomerCoverageGap({ skipClaude: true }),
-              analyzeCustomerUnderwritingRisk({ skipClaude: true }),
-              loadCustomerRecommendations({ skipClaude: true }),
-              loadCustomerInsuranceDesign({ skipClaude: true }),
-              loadCustomerRebalancing({ skipClaude: true }),
-            ]);
-            setGapResult(gapData);
-            setUwResult(uwData);
-            setRecResult(recData);
-            setDesignResult(designData);
-            setRebalancingResult(rebalancingData);
-          }
+        if (latestJob.status === "completed" && applied) {
+          await hydrateMissingClaudeExplanations(latestJob, panelSetters);
           return;
         }
-        if (applied && latestJob.status === "completed") {
-          await hydrateMissingClaudeExplanations(latestJob, panelSetters);
+        if (latestJob.status === "processing" || latestJob.status === "queued") {
           return;
         }
       }
 
-      const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
-        analyzeCustomerCoverageGap(),
-        analyzeCustomerUnderwritingRisk(),
-        loadCustomerRecommendations(),
-        loadCustomerInsuranceDesign(),
-        loadCustomerRebalancing(),
-      ]);
-      setGapResult(gapData);
-      setUwResult(uwData);
-      setRecResult(recData);
-      setDesignResult(designData);
-      setRebalancingResult(rebalancingData);
+      await loadPanelDataFromApis();
     } catch (err) {
       setGapResult(null);
       setUwResult(null);
@@ -566,20 +540,38 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     } finally {
       setLoading(false);
     }
-  }, [user, resolvedExternalJob, applyJobToState]);
+  }, [user, applyJobToState, loadPanelDataFromApis]);
 
   useEffect(() => {
-    loadAnalysis();
-  }, [loadAnalysis]);
+    void loadInitialAnalysis();
+  }, [loadInitialAnalysis]);
+
+  const externalJobSnapshotKey = resolvedExternalJob
+    ? [
+        resolvedExternalJob.id,
+        resolvedExternalJob.status,
+        resolvedExternalJob.current_step ?? "",
+        resolvedExternalJob.stages_completed?.length ?? 0,
+      ].join("|")
+    : "";
 
   useEffect(() => {
     if (!resolvedExternalJob) return;
+
     setAnalysisJob(resolvedExternalJob);
-    if (!applyJobToState(resolvedExternalJob)) return;
-    if (resolvedExternalJob.status === "completed") {
+    const applied = applyJobToState(resolvedExternalJob);
+
+    if (resolvedExternalJob.status === "completed" && applied) {
+      setLoading(false);
+      setError("");
       void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
+      return;
     }
-  }, [resolvedExternalJob, applyJobToState]);
+
+    if (resolvedExternalJob.status === "processing" || resolvedExternalJob.status === "queued") {
+      setLoading(false);
+    }
+  }, [externalJobSnapshotKey, applyJobToState]);
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;

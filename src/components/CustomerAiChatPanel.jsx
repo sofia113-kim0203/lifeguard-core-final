@@ -248,7 +248,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const [initialResponseTimeMs, setInitialResponseTimeMs] = useState(0);
   const [backgroundRunning, setBackgroundRunning] = useState(false);
   const historyRef = useRef(null);
-  const pollAbortRef = useRef(false);
+  const pollAbortControllerRef = useRef(null);
 
   const loadMessages = useCallback(
     async ({ silent = false } = {}) => {
@@ -286,18 +286,26 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
 
   const resumeBackgroundPolling = useCallback(
     async (jobId) => {
-      if (!jobId || pollAbortRef.current) return;
+      if (!jobId) return;
+
+      pollAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      pollAbortControllerRef.current = controller;
+
       setBackgroundRunning(true);
       try {
         const finalJob = await processAnalysisJobUntilComplete({
           jobId,
+          signal: controller.signal,
           onProgress: (job) => {
+            if (controller.signal.aborted) return;
             setAnalysisJob(job);
             if (typeof onAnalysisJobUpdate === "function") {
               onAnalysisJobUpdate(job);
             }
           },
         });
+        if (controller.signal.aborted) return;
         if (finalJob) {
           setAnalysisJob(finalJob);
           if (typeof onAnalysisJobUpdate === "function") {
@@ -306,9 +314,13 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
         }
         await loadMessages({ silent: true });
       } catch (err) {
-        setError(toCustomerErrorMessage(err, "백그라운드 분석 상태를 확인하지 못했습니다."));
+        if (!controller.signal.aborted) {
+          setError(toCustomerErrorMessage(err, "백그라운드 분석 상태를 확인하지 못했습니다."));
+        }
       } finally {
-        setBackgroundRunning(false);
+        if (pollAbortControllerRef.current === controller) {
+          setBackgroundRunning(false);
+        }
       }
     },
     [loadMessages, onAnalysisJobUpdate],
@@ -322,15 +334,15 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   useEffect(() => {
     if (!user) return undefined;
     let cancelled = false;
-    pollAbortRef.current = false;
 
     (async () => {
       try {
         const latestJob = await fetchLatestAnalysisJob();
-        if (!cancelled && latestJob && latestJob.status !== "completed" && latestJob.status !== "failed") {
+        if (cancelled) return;
+        if (latestJob && latestJob.status !== "completed" && latestJob.status !== "failed") {
           setAnalysisJob(latestJob);
           void resumeBackgroundPolling(latestJob.id);
-        } else if (!cancelled && latestJob) {
+        } else if (latestJob) {
           setAnalysisJob(latestJob);
         }
       } catch {
@@ -340,9 +352,9 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
 
     return () => {
       cancelled = true;
-      pollAbortRef.current = true;
+      pollAbortControllerRef.current?.abort();
     };
-  }, [user, resumeBackgroundPolling]);
+  }, [user, customerId, resumeBackgroundPolling]);
 
   useEffect(() => {
     if (historyRef.current) {
@@ -359,7 +371,6 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
 
     setSending(true);
     setError("");
-    pollAbortRef.current = false;
     try {
       const result = await sendCustomerConversationMessage(user, text, {
         customerId,
