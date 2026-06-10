@@ -52,9 +52,8 @@ export default function CustomerAiChatRoomWrapper({ user, onNavigate }) {
       <div>
         <h1 style={S.title}>AI 상담실</h1>
         <p style={S.desc}>
-          보험 상담 질문을 입력하면 즉시 응답을 받고, 보장 공백·인수 위험·추천·설계안 정밀 분석이
-          백그라운드에서 실행됩니다. 분석이 완료되면 AI 보험 추천 메뉴에서 상세 결과를 확인할 수
-          있습니다.
+          보험 설계사와 대화하듯 질문해 보세요. 답변은 채팅에 바로 이어지고, 필요하면 AI 보험
+          추천 메뉴에서 상세 안내도 확인할 수 있습니다.
         </p>
       </div>
 

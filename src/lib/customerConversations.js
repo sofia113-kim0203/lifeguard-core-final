@@ -31,6 +31,30 @@ export function dedupeMessagesById(rows) {
   );
 }
 
+/**
+ * Phase 30-B — Hide phase26-2a-fast when phase26-2a-result exists for the same job.
+ * DB rows unchanged; display-only filter.
+ */
+export function filterMessagesForDisplay(rows) {
+  const deduped = dedupeMessagesById(rows);
+  const resultJobIds = new Set(
+    deduped
+      .filter(
+        (row) =>
+          row?.metadata?.phase === "phase26-2a-result" &&
+          row?.metadata?.analysis_job_id,
+      )
+      .map((row) => String(row.metadata.analysis_job_id)),
+  );
+
+  return deduped.filter((row) => {
+    if (row?.metadata?.phase !== "phase26-2a-fast") return true;
+    const jobId = row?.metadata?.analysis_job_id;
+    if (!jobId) return true;
+    return !resultJobIds.has(String(jobId));
+  });
+}
+
 export async function resolveCustomerId(authUser, knownCustomerId = null) {
   if (knownCustomerId) return knownCustomerId;
   const dashboard = await loadCustomerDashboardData(authUser);

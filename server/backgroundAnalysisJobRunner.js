@@ -25,11 +25,11 @@ export const ANALYSIS_PIPELINE_STAGES = [
 ];
 
 const STAGE_UI_LABELS = {
-  coverage_gap: "Coverage 분석 완료",
-  underwriting_risk: "Underwriting 분석 완료",
-  recommendation: "Recommendation 생성 완료",
-  insurance_design: "보험설계 생성 완료",
-  result_claude: "분석 결과 설명 생성 완료",
+  coverage_gap: "가입 보험 확인 완료",
+  underwriting_risk: "건강 정보 반영 완료",
+  recommendation: "부족한 보장 검토 완료",
+  insurance_design: "맞춤 안내 정리 완료",
+  result_claude: "답변 정리 완료",
 };
 
 async function runStageCompute(supabase, customerId, stageKey, workingContext, options = {}) {

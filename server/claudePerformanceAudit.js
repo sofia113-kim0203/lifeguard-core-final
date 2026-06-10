@@ -158,7 +158,7 @@ export function buildIntentAwareAnalysisSummary(workingContext = {}) {
     };
   }
 
-  if (intent === "coverage_gap_check") {
+  if (intent === "coverage_gap_check" || intent === "coverage_review_request") {
     return {
       memory: full.memory,
       coverage_gap: full.coverage_gap,

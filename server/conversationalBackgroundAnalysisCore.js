@@ -167,14 +167,14 @@ export function mapAnalysisJobForClient(job) {
     label:
       job.result_json?.stage_labels?.[stage] ??
       (stage === "coverage_gap"
-        ? "Coverage 분석"
+        ? "가입 보험 확인 중"
         : stage === "underwriting_risk"
-          ? "Underwriting 분석"
+          ? "건강 정보 반영 중"
           : stage === "recommendation"
-            ? "Recommendation 생성"
+            ? "부족한 보장 검토 중"
             : stage === "insurance_design"
-              ? "보험설계 생성"
-              : "결과 설명"),
+              ? "맞춤 안내 정리 중"
+              : "답변 정리 중"),
   }));
 
   return {
