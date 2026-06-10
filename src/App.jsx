@@ -71,7 +71,16 @@ function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess, auth
   switch (activeMenu) {
     case AUTH_MENU:
       return (
-        <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-start",
+            padding: "clamp(12px, 3vw, 28px) clamp(12px, 4vw, 32px) clamp(32px, 6vw, 48px)",
+            boxSizing: "border-box",
+          }}
+        >
           {authLoading || user ? null : (
             <AuthPanel key={authMode} onLoginSuccess={onLoginSuccess} initialMode={authMode} />
           )}
