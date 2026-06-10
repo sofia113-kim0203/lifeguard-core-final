@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  dedupeMessagesById,
   loadCustomerConversations,
   sendCustomerConversationMessage,
 } from "../lib/customerConversations.js";
@@ -269,7 +270,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
           CONVERSATION_LOAD_TIMEOUT_MS,
           "대화 기록 요청 시간이 초과되었습니다. 아래에서 질문을 입력해 주세요.",
         );
-        setMessages(rows);
+        setMessages(dedupeMessagesById(rows));
       } catch (err) {
         if (!silent) {
           setMessages([]);
@@ -387,7 +388,35 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
       });
       setInitialResponseTimeMs(result.initialResponseTimeMs ?? 0);
       setDraft("");
-      await loadMessages();
+
+      const now = new Date().toISOString();
+      const fastText =
+        result.conversationalResult?.fastResponse ?? result.assistantMessage?.message ?? "";
+      const optimisticRows = [
+        result.userMessage ?? {
+          id: `temp-user-${Date.now()}`,
+          customerId,
+          role: "user",
+          message: text,
+          metadata: { phase: "phase26-2a", optimistic: true },
+          createdAt: now,
+        },
+      ];
+      if (fastText) {
+        optimisticRows.push(
+          result.assistantMessage ?? {
+            id: `temp-fast-${Date.now()}`,
+            customerId,
+            role: "assistant",
+            message: fastText,
+            metadata: { phase: "phase26-2a-fast", optimistic: true },
+            createdAt: now,
+          },
+        );
+      }
+      setMessages((prev) => dedupeMessagesById([...prev, ...optimisticRows]));
+
+      await loadMessages({ silent: true });
     } catch (err) {
       setError(toCustomerErrorMessage(err, "상담 메시지를 처리하지 못했습니다."));
     } finally {

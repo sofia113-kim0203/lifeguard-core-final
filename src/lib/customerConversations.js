@@ -19,6 +19,18 @@ export function normalizeConversationMessage(row) {
   };
 }
 
+/** Deduplicate by message id; sort oldest → newest for chat display. */
+export function dedupeMessagesById(rows) {
+  const byId = new Map();
+  for (const row of rows ?? []) {
+    if (!row?.id) continue;
+    byId.set(row.id, row);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
+
 export async function resolveCustomerId(authUser, knownCustomerId = null) {
   if (knownCustomerId) return knownCustomerId;
   const dashboard = await loadCustomerDashboardData(authUser);
@@ -56,14 +68,14 @@ export async function loadCustomerConversations(
     .from("customer_conversations")
     .select("id, customer_id, role, message, metadata_json, created_at")
     .eq("customer_id", customerId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(limit);
 
   if (error) {
     throw new Error(toCustomerErrorMessage(error, "대화 기록을 불러오지 못했습니다."));
   }
 
-  return (data ?? []).map(normalizeConversationMessage);
+  return dedupeMessagesById((data ?? []).map(normalizeConversationMessage));
 }
 
 export async function sendCustomerConversationMessage(
