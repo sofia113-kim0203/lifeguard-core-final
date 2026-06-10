@@ -423,35 +423,69 @@ function ClaudePanelDebugPanel({ uwResult, recResult, designResult }) {
   );
 }
 
-function AnalysisJobProgressBanner({ analysisJob }) {
-  if (!analysisJob || analysisJob.status === "completed") return null;
+function isJobInFlight(job) {
+  return job?.status === "processing" || job?.status === "queued";
+}
+
+function AnalysisJobInFlightNotice({ analysisJob, onNavigateToChat }) {
+  if (!isJobInFlight(analysisJob)) return null;
   const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
   return (
     <div
       style={{
-        padding: "14px 16px",
+        padding: "16px 18px",
         borderRadius: "12px",
         background: "rgba(30, 64, 175, 0.18)",
         border: "1px solid rgba(96, 165, 250, 0.35)",
         color: "#dbeafe",
-        fontSize: "13px",
-        lineHeight: 1.6,
+        fontSize: "14px",
+        lineHeight: 1.65,
       }}
     >
-      <strong>백그라운드 정밀 분석 진행 중</strong>
-      <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
-        {progress.map((item) => (
-          <div key={item.stage}>
-            {item.status === "completed" ? "✓" : item.status === "processing" ? "…" : "○"} {item.label}
-          </div>
-        ))}
-      </div>
+      <strong>백그라운드 정밀 분석이 진행 중입니다.</strong>
+      <p style={{ margin: "10px 0 0", color: "#bfdbfe" }}>
+        실시간 진행은 AI 상담실에서 확인해 주세요.
+      </p>
+      {progress.length ? (
+        <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "4px", fontSize: "13px" }}>
+          {progress.map((item) => (
+            <div key={item.stage}>
+              {item.status === "completed" ? "✓" : item.status === "processing" ? "…" : "○"} {item.label}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {typeof onNavigateToChat === "function" ? (
+        <button
+          type="button"
+          onClick={onNavigateToChat}
+          style={{
+            marginTop: "14px",
+            padding: "10px 16px",
+            borderRadius: "10px",
+            border: "none",
+            background: "linear-gradient(135deg, #2563eb, #4f46e5)",
+            color: "#fff",
+            fontSize: "13px",
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: FONT,
+          }}
+        >
+          AI 상담실로 이동
+        </button>
+      ) : null}
     </div>
   );
 }
 
 
-export default function AiRecommendationPanel({ user, analysisJob: externalAnalysisJob = null, useSessionJob = false }) {
+export default function AiRecommendationPanel({
+  user,
+  analysisJob: externalAnalysisJob = null,
+  useSessionJob = false,
+  onNavigateToChat = null,
+}) {
   const session = useOptionalCustomerSession();
   const sessionAnalysisJob = useSessionJob ? session?.activeAnalysisJob ?? null : null;
   const resolvedExternalJob = externalAnalysisJob ?? sessionAnalysisJob;
@@ -501,13 +535,17 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     setRebalancingResult(rebalancingData);
   }, []);
 
+  const clearPanelResults = useCallback(() => {
+    setGapResult(null);
+    setUwResult(null);
+    setRecResult(null);
+    setDesignResult(null);
+    setRebalancingResult(null);
+  }, []);
+
   const loadInitialAnalysis = useCallback(async () => {
     if (!user) {
-      setGapResult(null);
-      setUwResult(null);
-      setRecResult(null);
-      setDesignResult(null);
-      setRebalancingResult(null);
+      clearPanelResults();
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
@@ -519,28 +557,33 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
       const latestJob = await fetchLatestAnalysisJob();
       if (latestJob) {
         setAnalysisJob(latestJob);
+        if (isJobInFlight(latestJob)) {
+          clearPanelResults();
+          return;
+        }
         const applied = applyJobToState(latestJob);
         if (latestJob.status === "completed" && applied) {
           await hydrateMissingClaudeExplanations(latestJob, panelSetters);
           return;
         }
-        if (latestJob.status === "processing" || latestJob.status === "queued") {
+        if (useSessionJob) {
+          clearPanelResults();
           return;
         }
       }
 
-      await loadPanelDataFromApis();
+      if (!useSessionJob) {
+        await loadPanelDataFromApis();
+      } else {
+        clearPanelResults();
+      }
     } catch (err) {
-      setGapResult(null);
-      setUwResult(null);
-      setRecResult(null);
-      setDesignResult(null);
-      setRebalancingResult(null);
+      clearPanelResults();
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
-  }, [user, applyJobToState, loadPanelDataFromApis]);
+  }, [user, applyJobToState, loadPanelDataFromApis, useSessionJob, clearPanelResults]);
 
   useEffect(() => {
     void loadInitialAnalysis();
@@ -559,6 +602,13 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
     if (!resolvedExternalJob) return;
 
     setAnalysisJob(resolvedExternalJob);
+
+    if (isJobInFlight(resolvedExternalJob)) {
+      clearPanelResults();
+      setLoading(false);
+      return;
+    }
+
     const applied = applyJobToState(resolvedExternalJob);
 
     if (resolvedExternalJob.status === "completed" && applied) {
@@ -568,10 +618,15 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
       return;
     }
 
-    if (resolvedExternalJob.status === "processing" || resolvedExternalJob.status === "queued") {
+    if (useSessionJob) {
+      clearPanelResults();
       setLoading(false);
     }
-  }, [externalJobSnapshotKey, applyJobToState]);
+  }, [externalJobSnapshotKey, applyJobToState, useSessionJob, clearPanelResults]);
+
+  const displayJob = analysisJob ?? resolvedExternalJob;
+  const jobInFlight = isJobInFlight(displayJob);
+  const showDetailPanels = displayJob?.status === "completed";
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;
@@ -587,8 +642,10 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
 
       {error ? <div style={S.error}>{error}</div> : null}
 
-      <AnalysisJobProgressBanner analysisJob={analysisJob} />
+      <AnalysisJobInFlightNotice analysisJob={displayJob} onNavigateToChat={onNavigateToChat} />
 
+      {showDetailPanels ? (
+      <>
       <div style={S.card}>
         <h3 style={S.sectionTitle}>보장 공백 분석</h3>
         {loading ? (
@@ -991,11 +1048,22 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
 
       <ClaudePanelDebugPanel uwResult={uwResult} recResult={recResult} designResult={designResult} />
 
-      <div style={{ marginTop: "8px" }}>
-        <button type="button" style={S.btn} onClick={loadAnalysis} disabled={loading}>
-          {loading ? "분석 중…" : "보장·인수·추천·설계·리밸런싱 분석 다시 실행"}
-        </button>
-      </div>
+      {!useSessionJob ? (
+        <div style={{ marginTop: "8px" }}>
+          <button type="button" style={S.btn} onClick={loadInitialAnalysis} disabled={loading}>
+            {loading ? "분석 중…" : "보장·인수·추천·설계·리밸런싱 분석 다시 실행"}
+          </button>
+        </div>
+      ) : null}
+
+      </>
+      ) : null}
+
+      {!showDetailPanels && !jobInFlight && !loading ? (
+        <div style={S.muted}>
+          AI 상담실에서 질문을 보내 분석을 완료하면 이 화면에서 상세 결과를 확인할 수 있습니다.
+        </div>
+      ) : null}
     </section>
   );
 }
