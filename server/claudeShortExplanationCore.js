@@ -10,6 +10,7 @@ import {
   measurePrompt,
 } from "./claudePerformanceAudit.js";
 import { buildAdvisorStyleFallback } from "./customerConversationalTone.js";
+import { buildClaimBridgeAnswer, buildClaimBridgeResultText } from "./claimBridgeLayer.js";
 import { buildFactualLookupResultText } from "./intentGateLayer.js";
 import {
   buildClaudeResultCacheKey,
@@ -109,6 +110,42 @@ export async function generateShortConnectedExplanation({
       skipped: true,
       reason: "FACTUAL_LOOKUP_LIGHT",
       explanation_mode: "factual_light",
+      performance: {
+        prompt_chars: 0,
+        estimated_input_tokens: 0,
+        ...outputMetrics,
+        claude_time_ms: 0,
+        cache_hit: false,
+      },
+      audit,
+      detailed_available: false,
+    };
+  }
+
+  if (intent === "claim_eligibility_check") {
+    const bridgeResult = await buildClaimBridgeAnswer({
+      question,
+      workingContext,
+      supabase,
+      fetchImpl,
+      env,
+    });
+    const text = buildClaimBridgeResultText(question, workingContext, bridgeResult);
+    const outputMetrics = measureOutput(text);
+    const audit = auditExplanationContext(workingContext, question);
+    return {
+      text,
+      cache_hit: false,
+      skipped: true,
+      reason: "CLAIM_BRIDGE_LIGHT",
+      explanation_mode: "claim_light",
+      claim_bridge: {
+        claim_topic: bridgeResult.claim_topic,
+        claim_topic_label: bridgeResult.claim_topic_label,
+        rag_mode: bridgeResult.rag_mode,
+        rag_row_count: bridgeResult.rag_row_count,
+        guardrails_ok: bridgeResult.guardrails?.ok ?? false,
+      },
       performance: {
         prompt_chars: 0,
         estimated_input_tokens: 0,
