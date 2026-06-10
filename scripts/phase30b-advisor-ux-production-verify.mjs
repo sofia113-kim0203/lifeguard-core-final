@@ -44,7 +44,7 @@ const CASES = [
   },
   {
     question: "설계안 만들어줘",
-    intent: "insurance_design_request",
+    intent: "design_request",
     pipeline: ["coverage_gap", "underwriting_risk", "recommendation", "insurance_design", "result_claude"],
     fastIncludes: null,
   },
