@@ -10,6 +10,7 @@ import {
   measurePrompt,
 } from "./claudePerformanceAudit.js";
 import { buildAdvisorStyleFallback } from "./customerConversationalTone.js";
+import { buildFactualLookupResultText } from "./intentGateLayer.js";
 import {
   buildClaudeResultCacheKey,
   loadClaudeResultCache,
@@ -97,6 +98,29 @@ export async function generateShortConnectedExplanation({
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
+  const intent = workingContext.intentGate?.intent ?? null;
+  if (intent === "factual_lookup") {
+    const text = buildFactualLookupResultText(question, workingContext, workingContext.intentGate);
+    const outputMetrics = measureOutput(text);
+    const audit = auditExplanationContext(workingContext, question);
+    return {
+      text,
+      cache_hit: false,
+      skipped: true,
+      reason: "FACTUAL_LOOKUP_LIGHT",
+      explanation_mode: "factual_light",
+      performance: {
+        prompt_chars: 0,
+        estimated_input_tokens: 0,
+        ...outputMetrics,
+        claude_time_ms: 0,
+        cache_hit: false,
+      },
+      audit,
+      detailed_available: false,
+    };
+  }
+
   const audit = auditExplanationContext(workingContext, question);
   const cacheKeyParts = buildClaudeResultCacheKey({
     customerId,
