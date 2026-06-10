@@ -14,6 +14,7 @@ import {
   saveCustomerAnalysisCacheEntry,
 } from "./customerAnalysisCacheStore.js";
 import { generatePanelClaudeExplanations } from "./panelClaudeExplanationHydration.js";
+import { getJobPipelineManifest } from "./intentGateLayer.js";
 
 export const ANALYSIS_PIPELINE_STAGES = [
   "coverage_gap",
@@ -151,7 +152,8 @@ export async function processNextAnalysisJobStage({
   }
 
   const stagesCompleted = Array.isArray(job.stages_completed) ? [...job.stages_completed] : [];
-  const nextStage = ANALYSIS_PIPELINE_STAGES.find((stage) => !stagesCompleted.includes(stage));
+  const pipelineManifest = getJobPipelineManifest(job);
+  const nextStage = pipelineManifest.find((stage) => !stagesCompleted.includes(stage));
   if (!nextStage) {
     const completedJob = await updateAnalysisJob(supabase, jobId, {
       status: "completed",
@@ -165,6 +167,8 @@ export async function processNextAnalysisJobStage({
   const resultJson = { ...(job.result_json ?? {}) };
   const workingContext = {
     question: job.question,
+    intentGate: resultJson.intent_gate ?? resultJson.working_context?.intentGate ?? null,
+    factual_lookup_answer: resultJson.working_context?.factual_lookup_answer ?? null,
     ...(resultJson.working_context ?? {}),
   };
 
@@ -271,22 +275,31 @@ export async function processNextAnalysisJobStage({
     };
 
     if (nextStage === "result_claude") {
-      const panelClaudeStart = Date.now();
-      const panelClaude = await generatePanelClaudeExplanations({
-        supabase,
-        customerId: job.customer_id,
-        workingContext,
-        fetchImpl,
-        env,
-      });
-      timingMetrics.panel_claude_hydration_ms = panelClaude.duration_ms ?? Date.now() - panelClaudeStart;
-      timingMetrics.panel_claude_policy_count = panelClaude.policy_count ?? 0;
-      timingMetrics.total_analysis_time_ms =
-        Number(timingMetrics.total_analysis_time_ms ?? 0) + Number(timingMetrics.panel_claude_hydration_ms ?? 0);
+      const intent = resultJson.intent_gate?.intent ?? workingContext.intentGate?.intent ?? null;
+      if (intent !== "factual_lookup") {
+        const panelClaudeStart = Date.now();
+        const panelClaude = await generatePanelClaudeExplanations({
+          supabase,
+          customerId: job.customer_id,
+          workingContext,
+          fetchImpl,
+          env,
+        });
+        timingMetrics.panel_claude_hydration_ms = panelClaude.duration_ms ?? Date.now() - panelClaudeStart;
+        timingMetrics.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+        timingMetrics.total_analysis_time_ms =
+          Number(timingMetrics.total_analysis_time_ms ?? 0) + Number(timingMetrics.panel_claude_hydration_ms ?? 0);
 
-      resultJson.claude_explanations = panelClaude.explanations ?? {};
-      resultJson.panel_claude_policy_count = panelClaude.policy_count ?? 0;
-      resultJson.panel_claude_policy_ids = panelClaude.policy_ids ?? [];
+        resultJson.claude_explanations = panelClaude.explanations ?? {};
+        resultJson.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+        resultJson.panel_claude_policy_ids = panelClaude.policy_ids ?? [];
+      } else {
+        timingMetrics.panel_claude_hydration_ms = 0;
+        timingMetrics.panel_claude_policy_count = 0;
+        resultJson.claude_explanations = {};
+        resultJson.panel_claude_policy_count = 0;
+        resultJson.panel_claude_policy_ids = [];
+      }
 
       const finalText = stageResult?.text ?? stageResult?.fallback_text ?? buildFallbackConnectedResponse(workingContext);
       patch.final_response_text = finalText;

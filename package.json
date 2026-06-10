@@ -35,7 +35,8 @@
     "test:phase28-policy-count": "node scripts/phase28-policy-count-trace.mjs",
     "test:phase28-policy-count-unit": "node scripts/phase28-policy-count-unit-test.mjs",
     "test:phase28-policy-is-active": "node scripts/phase28-policy-is-active-audit.mjs",
-    "test:phase28-chat-duplicate-fix": "node scripts/phase28-chat-duplicate-fix-test.mjs"
+    "test:phase28-chat-duplicate-fix": "node scripts/phase28-chat-duplicate-fix-test.mjs",
+    "test:phase29-intent-gate": "node scripts/phase29-intent-gate-routing-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

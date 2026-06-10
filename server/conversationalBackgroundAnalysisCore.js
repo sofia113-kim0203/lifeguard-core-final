@@ -12,6 +12,14 @@ import {
   runAnalysisJobToCompletion,
 } from "./backgroundAnalysisJobRunner.js";
 import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import {
+  buildFactualLookupAnswer,
+  buildIntentGatePayload,
+  classifyConsultationIntent,
+  getJobPipelineManifest,
+  getJobSkippedStages,
+  resolvePipelineManifest,
+} from "./intentGateLayer.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -143,13 +151,19 @@ async function insertConversationMessage(adminSupabase, customerId, { role, mess
 export function mapAnalysisJobForClient(job) {
   if (!job) return null;
   const stagesCompleted = Array.isArray(job.stages_completed) ? job.stages_completed : [];
+  const pipelineManifest = getJobPipelineManifest(job);
+  const skippedStages = getJobSkippedStages(job);
   const progress = ANALYSIS_PIPELINE_STAGES.map((stage) => ({
     stage,
     status: stagesCompleted.includes(stage)
       ? "completed"
-      : job.current_step === stage
-        ? "processing"
-        : "pending",
+      : skippedStages.includes(stage)
+        ? "skipped"
+        : job.current_step === stage
+          ? "processing"
+          : pipelineManifest.includes(stage)
+            ? "pending"
+            : "skipped",
     label:
       job.result_json?.stage_labels?.[stage] ??
       (stage === "coverage_gap"
@@ -231,12 +245,22 @@ export async function handleConversationalQuestionRequest({
     snapshot.memory_version ?? 0,
   );
 
+  const intentClassification = classifyConsultationIntent(trimmedQuestion);
+  const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
+  const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
+  const factualLookupAnswer = buildFactualLookupAnswer(trimmedQuestion, {
+    snapshot,
+    sourceContext: memoryContext.sourceContext,
+    sourceSummary: memoryContext.sourceSummary,
+  }, intentGate);
+
   const fastResponse = buildFastConversationalResponse({
     question: trimmedQuestion,
     memorySnapshot: snapshot,
     cachePayload,
     sourceContext: memoryContext.sourceContext,
     sourceSummary: memoryContext.sourceSummary,
+    intentGate,
   });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
@@ -256,9 +280,14 @@ export async function handleConversationalQuestionRequest({
       source_memory_version: snapshot.memory_version ?? 0,
       timing_metrics: {},
       result_json: {
+        intent_gate: intentGate,
         working_context: {
+          snapshot,
+          sourceContext: memoryContext.sourceContext,
           sourceSummary: memoryContext.sourceSummary,
           sourceContextFlags: memoryContext.data_available,
+          intentGate,
+          factual_lookup_answer: factualLookupAnswer,
         },
       },
       stages_completed: [],
