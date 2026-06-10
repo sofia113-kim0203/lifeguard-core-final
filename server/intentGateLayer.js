@@ -16,6 +16,7 @@ export const CONSULTATION_INTENTS = [
   "claim_eligibility_check",
   "factual_lookup",
   "coverage_gap_check",
+  "coverage_review_request",
   "recommendation_request",
   "design_request",
   "general_consultation",
@@ -59,6 +60,8 @@ const CLAIM_TOPIC_EVENT_SIGNAL =
   /(골절|수술|입원|암|진단).{0,16}(받았|했|받은|했는데|인데).{0,24}(보험금|청구|지급|나올|받을)/;
 const CLAIM_TERMS_SIGNAL = /약관.{0,16}(지급|보장).{0,16}(되나|될까|가능)/;
 const CLAIM_DIRECT_SIGNAL = /청구\s*가능/;
+const COVERAGE_REVIEW_SIGNAL =
+  /보장\s*(분석|점검|확인|검토|상태|현황)|보장분석|내보험\s*보장|내\s*보장\s*(봐|봐줘|알려|확인)|내\s*보험\s*분석|보장\s*봐/;
 
 function normalizeQuestion(question = "") {
   return String(question).replace(/\s+/g, " ").trim();
@@ -111,6 +114,23 @@ function isCoverageGapCheck(text) {
   if (/보장.{0,8}(부족|충분|괜찮|어때|어떤가|상태)/.test(text)) return true;
   if (/어디가\s*부족|공백|갭/i.test(text)) return true;
   return false;
+}
+
+function isCoverageReviewRequest(text) {
+  if (RECOMMEND_SIGNAL.test(text) || DESIGN_SIGNAL.test(text)) return false;
+  if (
+    GAP_SIGNAL.test(text) &&
+    /(암|뇌|심장|심혈관|실손|운전자|입원|수술|치아|치매|간병).{0,12}(부족|부족해|모자라|없어|없나|괜찮|충분|충분해|충분한가|괜찮아|괜찮은가)/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (/보장.{0,8}(부족|충분|괜찮|어때|어떤가|상태)/.test(text) && GAP_SIGNAL.test(text)) {
+    return false;
+  }
+  if (isClaimEligibilityCheck(text)) return false;
+  return COVERAGE_REVIEW_SIGNAL.test(text);
 }
 
 function isClaimEligibilityCheck(text) {
@@ -177,6 +197,17 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
+  if (isCoverageReviewRequest(text)) {
+    return {
+      intent: "coverage_review_request",
+      confidence: "high",
+      matched_rule: "coverage_review_request",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
   if (isCoverageGapCheck(text)) {
     return {
       intent: "coverage_gap_check",
@@ -229,6 +260,8 @@ export function resolvePipelineManifest(intent) {
       return ["result_claude"];
     case "coverage_gap_check":
       return ["coverage_gap", "result_claude"];
+    case "coverage_review_request":
+      return ["coverage_gap", "result_claude"];
     case "recommendation_request":
       return ["coverage_gap", "recommendation", "result_claude"];
     case "design_request":
@@ -258,7 +291,9 @@ export function buildIntentGatePayload(classification, pipelineManifest) {
         ? "light"
         : classification.intent === "claim_eligibility_check"
           ? "claim_light"
-          : "standard",
+          : classification.intent === "coverage_review_request"
+            ? "coverage_review_light"
+            : "standard",
   };
 }
 
@@ -346,6 +381,23 @@ function formatPolicyLine(policy) {
 
 function certaintyDisclaimer(categoryLabel = "해당") {
   return `다만 상품명만으로는 ${categoryLabel} 담보 범위를 확정하기 어려우니, 보장내역서 기준으로 한 번 더 확인이 필요합니다.`;
+}
+
+export function buildCoverageReviewFastAnswer(question, workingContext = {}) {
+  const customerLabel = buildCustomerLabel(workingContext);
+  const { policyCount, policyDescriptions } = resolveUnifiedPolicyView(workingContext);
+  const lines = [
+    `${customerLabel}, 현재 가입 보험을 기준으로 보장 상태를 분석해 보겠습니다.`,
+  ];
+
+  if (policyDescriptions.length) {
+    lines.push(`등록된 ${policyDescriptions.join(", ")} 등 ${policyCount || policyDescriptions.length}건을 먼저 확인했습니다.`);
+  } else if (policyCount > 0) {
+    lines.push(`등록된 가입 보험 ${policyCount}건을 먼저 확인했습니다.`);
+  }
+
+  lines.push("잠시 후 질문에 맞는 안내를 이어서 드리겠습니다.");
+  return lines.join("\n\n");
 }
 
 export function buildFactualLookupAnswer(question, workingContext = {}, intentGate = {}) {
@@ -443,6 +495,10 @@ export function answerDirectlyAddressesQuestion(question, answer, intentGate = {
 
   if (intentGate.intent === "claim_eligibility_check") {
     return /청구|지급|보험금|약관|서류|현재\s*자료/.test(firstSentence);
+  }
+
+  if (intentGate.intent === "coverage_review_request") {
+    return /보장|가입\s*보험|분석|확인/.test(firstSentence);
   }
 
   if (intentGate.intent === "coverage_gap_check") {

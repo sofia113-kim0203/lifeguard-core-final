@@ -9,7 +9,7 @@ import {
   extractCustomerSituation,
 } from "./customerConversationalTone.js";
 import { buildClaimFastResponse } from "./claimBridgeLayer.js";
-import { buildFactualLookupAnswer } from "./intentGateLayer.js";
+import { buildCoverageReviewFastAnswer, buildFactualLookupAnswer } from "./intentGateLayer.js";
 
 const STAGE_LABELS = {
   coverage_gap: "보장 공백",
@@ -50,6 +50,10 @@ export function buildFastConversationalResponse({
 
   if (intentGate?.intent === "claim_eligibility_check") {
     return buildClaimFastResponse(trimmedQuestion, workingContext, intentGate);
+  }
+
+  if (intentGate?.intent === "coverage_review_request") {
+    return buildCoverageReviewFastAnswer(trimmedQuestion, workingContext);
   }
 
   if (intentGate?.intent === "factual_lookup") {
