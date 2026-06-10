@@ -122,6 +122,9 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
   const policyCount = unified?.policy_count ?? dashboard?.insurancePolicyCount ?? 0;
   const documentCount = unified?.document_count ?? 0;
   const displayName = dashboard?.displayName ?? user?.user_metadata?.display_name ?? "고객";
+  const basicProfileReady = Boolean(
+    dashboard?.phone && dashboard?.birthDate && dashboard?.gender && dashboard?.displayName,
+  );
   const analysisLabel = analysisReadyLabel(job);
   const designLabel = designReadyLabel(job);
   const analysisTone = job?.status === "completed" ? "ready" : "pending";
@@ -187,6 +190,10 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
           alignItems: "center",
         }}
       >
+        <StatusPill
+          label={`기본 프로필 ${loading ? "…" : basicProfileReady ? "완료" : "입력 필요"}`}
+          tone={basicProfileReady ? "ready" : "default"}
+        />
         <StatusPill label={`가입 보험 ${loading ? "…" : `${policyCount}건`}`} tone={policyCount > 0 ? "ready" : "default"} />
         <StatusPill label={`문서 ${loading ? "…" : `${documentCount}건`}`} tone={documentCount > 0 ? "ready" : "default"} />
         <StatusPill label={`분석 ${loading ? "…" : analysisLabel}`} tone={analysisTone} />

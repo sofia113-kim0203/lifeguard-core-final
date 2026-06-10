@@ -1,9 +1,8 @@
 import { buildIntakeFormFromRecords } from "./intakeForm.js";
 import { computeIntakeCompleteness } from "./intakeCompleteness.js";
+import { bootstrapSignupRecords, extractSignupProfileFromMetadata } from "./signupBootstrap.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
-
-const CONSENT_VERSION = "2026-01-01-ko";
 
 export const REQUIRED_CONSENT_TYPES = [
   "privacy_collection",
@@ -20,11 +19,9 @@ async function fetchCustomerProfile(userId) {
     .maybeSingle();
 }
 
-async function bootstrapCustomerSignup(displayName) {
-  return supabase.rpc("lifeguard_bootstrap_customer_signup", {
-    p_display_name: displayName?.trim() || null,
-    p_consent_version: CONSENT_VERSION,
-  });
+async function bootstrapCustomerSignup(authUser) {
+  const profile = extractSignupProfileFromMetadata(authUser?.user_metadata ?? {});
+  return bootstrapSignupRecords(profile);
 }
 
 export function normalizeCustomerDashboardData({
@@ -51,6 +48,10 @@ export function normalizeCustomerDashboardData({
     email: authUser?.email ?? userRow?.email ?? null,
     customerId: profile?.id ?? null,
     displayName: profile?.display_name ?? null,
+    phone: userRow?.phone ?? null,
+    birthDate: profile?.birth_date ?? null,
+    gender: profile?.gender ?? null,
+    jobCategory: profile?.job_category ?? null,
     profileStatus: profile?.status ?? null,
     userRole: userRow?.role ?? null,
     profileHealthExists: Boolean(health),
@@ -70,12 +71,9 @@ export async function loadCustomerDashboardData(authUser) {
     throw new Error("로그인이 필요합니다.");
   }
 
-  const displayNameFromMeta =
-    authUser.user_metadata?.display_name ?? authUser.user_metadata?.displayName ?? null;
-
   const { data: userRow, error: userError } = await supabase
     .from("users")
-    .select("id, email, role")
+    .select("id, email, role, phone")
     .eq("id", authUser.id)
     .maybeSingle();
 
@@ -90,7 +88,7 @@ export async function loadCustomerDashboardData(authUser) {
   }
 
   if (!profile) {
-    const { error: bootstrapError } = await bootstrapCustomerSignup(displayNameFromMeta);
+    const { error: bootstrapError } = await bootstrapCustomerSignup(authUser);
     if (bootstrapError) {
       throw new Error(toCustomerErrorMessage(bootstrapError, "고객 프로필을 준비하지 못했습니다."));
     }

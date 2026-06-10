@@ -3,6 +3,7 @@ import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
+import { formatGenderLabel } from "../lib/signupValidation.js";
 import {
   formatHealthSource,
   formatProfileStatus,
@@ -234,6 +235,10 @@ export default function CustomerDashboardPanel({ user, onNavigate }) {
         <DataField label={UI_LABELS.email} value={data?.email} />
         <DataField label={UI_LABELS.customerId} value={data?.customerId} />
         <DataField label="이름" value={data?.displayName} />
+        <DataField label="휴대폰" value={data?.phone} />
+        <DataField label="생년월일" value={data?.birthDate} />
+        <DataField label="성별" value={formatGenderLabel(data?.gender)} />
+        <DataField label="직업" value={data?.jobCategory} />
         <DataField label="가입 보험 건수" value={`${insurancePolicyCount}건`} />
         <DataField label={UI_LABELS.profileStatus} value={formatProfileStatus(data?.profileStatus)} />
         <DataField label={UI_LABELS.userRole} value={formatUserRole(data?.userRole)} />

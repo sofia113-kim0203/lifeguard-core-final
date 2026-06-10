@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { resolvePasswordResetRedirectUrl } from "../lib/authRecovery.js";
+import {
+  bootstrapSignupRecords,
+  buildSignupMetadata,
+  extractSignupProfileFromMetadata,
+} from "../lib/signupBootstrap.js";
+import { validateSignupProfile } from "../lib/signupValidation.js";
 import { formatLoginErrorMessage, toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
-const CONSENT_VERSION = "2026-01-01-ko";
 
 const CONSENTS = [
   {
@@ -37,37 +42,10 @@ const SERVICE_FEATURES = [
   { icon: "📋", title: "보험 설계", desc: "맞춤 설계안과 리밸런싱을 안내합니다." },
 ];
 
-const SIGNUP_UI_FIELDS = [
-  { label: "휴대폰", placeholder: "연결 예정" },
-  { label: "생년월일", placeholder: "연결 예정" },
-  { label: "성별", placeholder: "연결 예정" },
-  { label: "직업", placeholder: "연결 예정" },
-  { label: "기본 건강정보", placeholder: "연결 예정" },
-];
-
 const AUTH_MODES = new Set(["login", "signup", "forgot-password", "find-id"]);
 
 function normalizeInitialMode(initialMode) {
   return AUTH_MODES.has(initialMode) ? initialMode : "login";
-}
-
-function buildSignupMetadata(displayName) {
-  const metadata = {
-    signup_complete: "true",
-    signup_consent_version: CONSENT_VERSION,
-  };
-  const trimmedName = displayName?.trim();
-  if (trimmedName) metadata.display_name = trimmedName;
-  return metadata;
-}
-
-async function bootstrapSignupRecords(displayName) {
-  const { data, error } = await supabase.rpc("lifeguard_bootstrap_customer_signup", {
-    p_display_name: displayName?.trim() || null,
-    p_consent_version: CONSENT_VERSION,
-  });
-  if (error) return { error };
-  return { error: null, customerId: data?.customer_id ?? null };
 }
 
 function AuthBrandHeader({ compact = false }) {
@@ -187,6 +165,11 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [gender, setGender] = useState("");
+  const [jobCategory, setJobCategory] = useState("");
+  const [signupFieldErrors, setSignupFieldErrors] = useState({});
   const [findName, setFindName] = useState("");
   const [findHint, setFindHint] = useState("");
   const [consents, setConsents] = useState({
@@ -223,9 +206,8 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
       return;
     }
 
-    const displayNameFromMeta =
-      data.user?.user_metadata?.display_name ?? data.user?.user_metadata?.displayName ?? null;
-    const { error: bootstrapError } = await bootstrapSignupRecords(displayNameFromMeta);
+    const profileFromMeta = extractSignupProfileFromMetadata(data.user?.user_metadata ?? {});
+    const { error: bootstrapError } = await bootstrapSignupRecords(profileFromMeta);
     setLoading(false);
     if (bootstrapError) {
       setError(
@@ -249,9 +231,24 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
       setError("필수 동의 3개를 모두 체크해 주세요.");
       return;
     }
+
+    const profileValidation = validateSignupProfile({ displayName, phone, birthDate, gender });
+    if (!profileValidation.valid) {
+      setSignupFieldErrors(profileValidation.fieldErrors);
+      setError(Object.values(profileValidation.fieldErrors)[0] ?? "입력값을 확인해 주세요.");
+      return;
+    }
+    setSignupFieldErrors({});
     setLoading(true);
 
-    const signupMetadata = buildSignupMetadata(displayName);
+    const signupProfile = {
+      displayName,
+      phone: profileValidation.normalizedPhone,
+      birthDate,
+      gender,
+      jobCategory,
+    };
+    const signupMetadata = buildSignupMetadata(signupProfile);
     const { data, error: authError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
@@ -267,7 +264,7 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
       if (data.user) {
         await supabase.auth.updateUser({ data: signupMetadata });
       }
-      const { error: saveError } = await bootstrapSignupRecords(displayName);
+      const { error: saveError } = await bootstrapSignupRecords(signupProfile);
       if (saveError) {
         setLoading(false);
         setError(
@@ -286,6 +283,11 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
       consent_sensitive_health: false,
       consent_ai_analysis: false,
     });
+    setPhone("");
+    setBirthDate("");
+    setGender("");
+    setJobCategory("");
+    setSignupFieldErrors({});
   };
 
   const handleForgotPassword = async (e) => {
@@ -398,14 +400,20 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
           <div className="auth-form-section">
             <div className="auth-form-section-title">기본 정보</div>
             <label className="auth-field-label">
-              이름
+              이름 <span className="auth-required">*</span>
               <input
                 type="text"
-                className="auth-input auth-input-lg"
+                className={`auth-input auth-input-lg${signupFieldErrors.displayName ? " auth-input-error" : ""}`}
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="실명 또는 표시 이름"
+                required
               />
+              {signupFieldErrors.displayName ? (
+                <span style={{ color: "#fca5a5", fontSize: "12px", fontWeight: 500 }}>
+                  {signupFieldErrors.displayName}
+                </span>
+              ) : null}
             </label>
             <label className="auth-field-label">
               이메일
@@ -434,26 +442,73 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
           </div>
 
           <div className="auth-form-section">
-            <div className="auth-form-section-title">추가 정보 (UI · 순차 연결 예정)</div>
-            <p className="auth-form-section-note">
-              아래 항목은 Customer Memory 출발점으로 준비 중입니다. 이번 단계에서는 저장하지 않습니다.
-            </p>
+            <div className="auth-form-section-title">연락·프로필</div>
             <div className="auth-signup-field-grid">
-              {SIGNUP_UI_FIELDS.map((field) => (
-                <label key={field.label} className="auth-field-label">
-                  {field.label}
-                  <input
-                    type="text"
-                    className="auth-input auth-input-lg auth-input-disabled"
-                    disabled
-                    readOnly
-                    value=""
-                    placeholder={field.placeholder}
-                    tabIndex={-1}
-                  />
-                </label>
-              ))}
+              <label className="auth-field-label">
+                휴대폰 <span className="auth-required">*</span>
+                <input
+                  type="tel"
+                  className={`auth-input auth-input-lg${signupFieldErrors.phone ? " auth-input-error" : ""}`}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="010-1234-5678"
+                  autoComplete="tel"
+                  required
+                />
+                {signupFieldErrors.phone ? (
+                  <span style={{ color: "#fca5a5", fontSize: "12px", fontWeight: 500 }}>
+                    {signupFieldErrors.phone}
+                  </span>
+                ) : null}
+              </label>
+              <label className="auth-field-label">
+                생년월일 <span className="auth-required">*</span>
+                <input
+                  type="date"
+                  className={`auth-input auth-input-lg${signupFieldErrors.birthDate ? " auth-input-error" : ""}`}
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  required
+                />
+                {signupFieldErrors.birthDate ? (
+                  <span style={{ color: "#fca5a5", fontSize: "12px", fontWeight: 500 }}>
+                    {signupFieldErrors.birthDate}
+                  </span>
+                ) : null}
+              </label>
+              <label className="auth-field-label">
+                성별 <span className="auth-required">*</span>
+                <select
+                  className={`auth-input auth-input-lg${signupFieldErrors.gender ? " auth-input-error" : ""}`}
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  required
+                >
+                  <option value="">선택</option>
+                  <option value="male">남성</option>
+                  <option value="female">여성</option>
+                  <option value="other">기타</option>
+                </select>
+                {signupFieldErrors.gender ? (
+                  <span style={{ color: "#fca5a5", fontSize: "12px", fontWeight: 500 }}>
+                    {signupFieldErrors.gender}
+                  </span>
+                ) : null}
+              </label>
+              <label className="auth-field-label">
+                직업
+                <input
+                  type="text"
+                  className="auth-input auth-input-lg"
+                  value={jobCategory}
+                  onChange={(e) => setJobCategory(e.target.value)}
+                  placeholder="예: 사무직"
+                />
+              </label>
             </div>
+            <p className="auth-form-section-note">
+              건강정보는 가입 후 고객분석 화면에서 입력합니다.
+            </p>
           </div>
 
           <div className="auth-form-section">
@@ -677,12 +732,9 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
         }
         .auth-input-lg { min-height: 58px; }
-        .auth-input-disabled {
-          border-style: dashed;
-          border-color: rgba(148, 163, 184, 0.2);
-          background: rgba(15, 23, 42, 0.35);
-          color: #64748b;
-          cursor: not-allowed;
+        .auth-input-error {
+          border-color: rgba(248, 113, 113, 0.55);
+          box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.12);
         }
         .auth-primary-btn {
           width: 100%;
