@@ -88,6 +88,7 @@ export function buildUnifiedProvenance({ policies = [], documents = [], snapshot
       source_table: "customer_memory_facts",
       memory_version: snapshot?.memory_version ?? 0,
       fact_count: snapshot?.fact_count ?? 0,
+      snapshot_facts_count: snapshot?.snapshot_facts_count ?? snapshot?.facts?.length ?? 0,
       insurance_policy_count_fact: getInsurancePolicyCountFact(snapshot),
     },
   };
