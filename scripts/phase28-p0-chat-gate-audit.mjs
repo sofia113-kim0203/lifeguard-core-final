@@ -1,5 +1,5 @@
 /**
- * Phase 28 P0 — AI chat gate audit (김진우 customer).
+ * Phase 28 P0 — AI chat gate audit (sandbox customer by default).
  *
  * Server-side pre-check for P0 before real Preview UI sign-off.
  * Does NOT replace Preview real-screen PASS — validates backend chat path.
@@ -9,7 +9,7 @@
  *   SUPABASE_ACCESS_TOKEN=... node scripts/phase28-p0-chat-gate-audit.mjs
  *
  * Optional env:
- *   AUDIT_CUSTOMER_ID (default: 김진우 production id)
+ *   AUDIT_CUSTOMER_ID (default: sandbox test customer)
  *   PHASE28_PREVIEW_BASE (default: PR #72 preview URL)
  *   EXPECTED_POLICY_COUNT (default: 8)
  */
@@ -19,6 +19,10 @@ import { createClient } from "@supabase/supabase-js";
 import { handleConversationalQuestionRequest } from "../server/conversationalBackgroundAnalysisCore.js";
 import { buildDirectFactualAnswer } from "../server/customerConversationalTone.js";
 import { ensureCustomerMemoryContext } from "../server/customerMemoryContextSync.js";
+import {
+  resolveSandboxCustomerId,
+  safeAdminUpdateUserPassword,
+} from "./lib/sandboxAuthGuard.js";
 
 const ENV_LOCAL = ".env.local";
 
@@ -40,7 +44,7 @@ loadEnvLocal();
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 let serviceRoleKey = process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
-const CUSTOMER_ID = process.env.AUDIT_CUSTOMER_ID ?? "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+const CUSTOMER_ID = resolveSandboxCustomerId(process.env.AUDIT_CUSTOMER_ID);
 const EXPECTED_POLICY_COUNT = Number(process.env.AUDIT_EXPECTED_POLICY_COUNT ?? "8");
 const PREVIEW_BASE =
   process.env.PHASE28_PREVIEW_BASE ??
@@ -98,11 +102,19 @@ async function tryPreviewApiWithTempLogin(adminSupabase) {
   }
 
   const tempPassword = `Phase28P0!${Date.now()}`;
-  const { error: updateError } = await adminSupabase.auth.admin.updateUserById(profile.user_id, {
-    password: tempPassword,
-  });
-  if (updateError) {
-    return { skipped: true, reason: "PASSWORD_RESET_FAILED", detail: updateError.message };
+  try {
+    await safeAdminUpdateUserPassword(adminSupabase, {
+      userId: profile.user_id,
+      email: userRow.email,
+      customerId: CUSTOMER_ID,
+      password: tempPassword,
+    });
+  } catch (updateError) {
+    return {
+      skipped: true,
+      reason: "PASSWORD_RESET_FAILED",
+      detail: updateError instanceof Error ? updateError.message : String(updateError),
+    };
   }
 
   const userClient = createClient(url, anonKey, { auth: { persistSession: false } });

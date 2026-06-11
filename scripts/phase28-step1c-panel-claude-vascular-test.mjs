@@ -21,9 +21,9 @@ import {
 import { loadUnifiedCustomerState } from "../server/unifiedCustomerState.js";
 import { runAnalysisJobToCompletion } from "../server/backgroundAnalysisJobRunner.js";
 import { handleConversationalQuestionRequest } from "../server/conversationalBackgroundAnalysisCore.js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
-const TEST_CUSTOMER_ID =
-  process.env.PHASE28_TEST_CUSTOMER_ID || "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+const TEST_CUSTOMER_ID = resolveAuditCustomerId(process.env.PHASE28_TEST_CUSTOMER_ID);
 const EXPECTED_POLICY_COUNT = Number(process.env.PHASE28_EXPECTED_POLICY_COUNT || "8");
 
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;

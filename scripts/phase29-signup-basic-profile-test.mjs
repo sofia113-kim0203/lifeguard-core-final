@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import { validateSignupProfile } from "../src/lib/signupValidation.js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -17,7 +18,7 @@ const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false 
 const client = createClient(url, anonKey, { auth: { persistSession: false } });
 
 const EXISTING_CUSTOMER_ID =
-  process.env.PHASE28_TEST_CUSTOMER_ID || "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+  resolveAuditCustomerId(process.env.PHASE28_TEST_CUSTOMER_ID);
 
 const validation = validateSignupProfile({
   displayName: "가입테스트",

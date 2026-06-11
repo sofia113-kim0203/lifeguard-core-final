@@ -9,9 +9,11 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
 const ENV_LOCAL = ".env.local";
-const CUSTOMER_ID = process.env.AUDIT_CUSTOMER_ID ?? "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+
+const CUSTOMER_ID = resolveAuditCustomerId(process.env.AUDIT_CUSTOMER_ID);
 const EXPECTED_COUNT = Number(process.env.AUDIT_EXPECTED_POLICY_COUNT ?? "8");
 const REPAIR = process.argv.includes("--repair");
 
