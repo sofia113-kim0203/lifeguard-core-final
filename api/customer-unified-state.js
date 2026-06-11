@@ -51,6 +51,7 @@ function mapUnifiedStateForClient(state) {
     policy_count: state.policy_count,
     policy_ids: state.policy_ids,
     document_count: state.document_count,
+    documents_preview_count: state.documents_preview_count ?? state.documents?.length ?? 0,
     memory_fact_count: state.memory_fact_count,
     insurance_policy_count_fact: state.insurance_policy_count_fact,
     profile: state.profile
