@@ -42,6 +42,7 @@
     "test:phase31c-p0-policy-explorer": "node scripts/phase31c-p0-policy-explorer-unit-test.mjs",
     "test:phase31c-p1-chat-policy-explorer": "node scripts/phase31c-p1-chat-policy-explorer-test.mjs",
     "test:phase31c-p1-chat-policy-explorer-production": "node scripts/phase31c-p1-chat-policy-explorer-production-verify.mjs",
+    "test:phase31-r-recommendation-panel-cache-fallback": "node scripts/phase31-r-recommendation-panel-cache-fallback-test.mjs",
     "test:phase31c-p0-policy-explorer-production": "node scripts/phase31c-p0-policy-explorer-production-verify.mjs"
   },
   "dependencies": {
