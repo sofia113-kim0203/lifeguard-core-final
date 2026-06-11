@@ -20,6 +20,7 @@ import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   fetchLatestAnalysisJob,
+  jobHasDisplayablePanelResults,
   mapJobResultsToAnalysisPanels,
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
@@ -163,11 +164,11 @@ const S = {
   card: {
     background: "rgba(30, 41, 59, 0.65)",
     border: "1px solid rgba(148, 163, 184, 0.12)",
-    borderRadius: "16px",
-    padding: "24px 28px",
+    borderRadius: "14px",
+    padding: "16px 18px",
   },
-  title: { margin: 0, fontSize: "22px", fontWeight: 700, color: "#f8fafc" },
-  desc: { margin: "8px 0 0", fontSize: "14px", color: "#94a3b8", lineHeight: 1.55 },
+  title: { margin: 0, fontSize: "18px", fontWeight: 700, color: "#f8fafc" },
+  desc: { margin: "6px 0 0", fontSize: "13px", color: "#94a3b8", lineHeight: 1.5 },
   sectionTitle: { margin: "0 0 12px", fontSize: "15px", fontWeight: 700, color: "#e2e8f0" },
   metricGrid: {
     display: "grid",
@@ -338,6 +339,7 @@ function applyJobResultsToPanelState(job, setters) {
 function AnalysisJobProgressBanner({ analysisJob }) {
   if (!analysisJob || analysisJob.status === "completed") return null;
   const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
+  const panelsReady = jobHasDisplayablePanelResults(analysisJob);
   return (
     <div
       style={{
@@ -350,7 +352,7 @@ function AnalysisJobProgressBanner({ analysisJob }) {
         lineHeight: 1.6,
       }}
     >
-      <strong>백그라운드 정밀 분석 진행 중</strong>
+      <strong>{panelsReady ? "분석 결과 생성 완료 · 최종 설명 정리 중" : "백그라운드 정밀 분석 진행 중"}</strong>
       <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
         {progress.map((item) => (
           <div key={item.stage}>
@@ -401,28 +403,50 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
 
     setLoading(true);
     setError("");
+    let panelsAppliedFromJob = false;
+    let latestJobForRecovery = null;
     try {
       const latestJob = resolvedExternalJob ?? (await fetchLatestAnalysisJob());
+      latestJobForRecovery = latestJob;
       if (latestJob) {
         setAnalysisJob(latestJob);
-        const applied = applyJobToState(latestJob);
+        panelsAppliedFromJob = applyJobToState(latestJob);
         if (latestJob.status === "processing" || latestJob.status === "queued") {
           setLoading(false);
-          const finalJob = await processAnalysisJobUntilComplete({
-            jobId: latestJob.id,
-            onProgress: (job) => {
-              setAnalysisJob(job);
-              applyJobToState(job);
-            },
-          });
+          let finalJob = latestJob;
+          try {
+            finalJob =
+              (await processAnalysisJobUntilComplete({
+                jobId: latestJob.id,
+                onProgress: (job) => {
+                  if (!job) return;
+                  setAnalysisJob(job);
+                  if (applyJobToState(job)) {
+                    panelsAppliedFromJob = true;
+                  }
+                },
+              })) ?? latestJob;
+          } catch (pollErr) {
+            if (!panelsAppliedFromJob && jobHasDisplayablePanelResults(latestJob)) {
+              panelsAppliedFromJob = applyJobToState(latestJob);
+            }
+            setError(
+              toCustomerErrorMessage(
+                pollErr,
+                "백그라운드 분석 진행을 이어가지 못했습니다. 아래는 이미 생성된 분석 결과입니다.",
+              ),
+            );
+            finalJob = latestJob;
+          }
           const jobForPanels = finalJob ?? latestJob;
           if (finalJob) {
             setAnalysisJob(finalJob);
           }
           const appliedFromJob = applyJobToState(jobForPanels);
           if (appliedFromJob) {
+            panelsAppliedFromJob = true;
             await hydrateMissingClaudeExplanations(jobForPanels, panelSetters);
-          } else {
+          } else if (!panelsAppliedFromJob) {
             const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
               analyzeCustomerCoverageGap({ skipClaude: true }),
               analyzeCustomerUnderwritingRisk({ skipClaude: true }),
@@ -438,7 +462,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           }
           return;
         }
-        if (applied && latestJob.status === "completed") {
+        if (panelsAppliedFromJob && latestJob.status === "completed") {
           await hydrateMissingClaudeExplanations(latestJob, panelSetters);
           return;
         }
@@ -457,11 +481,15 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
       setDesignResult(designData);
       setRebalancingResult(rebalancingData);
     } catch (err) {
-      setGapResult(null);
-      setUwResult(null);
-      setRecResult(null);
-      setDesignResult(null);
-      setRebalancingResult(null);
+      const keepPanels =
+        panelsAppliedFromJob || jobHasDisplayablePanelResults(latestJobForRecovery);
+      if (!keepPanels) {
+        setGapResult(null);
+        setUwResult(null);
+        setRecResult(null);
+        setDesignResult(null);
+        setRebalancingResult(null);
+      }
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
@@ -489,14 +517,19 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           setAnalysisJob(job);
           applyJobToState(job);
         },
-      }).then((finalJob) => {
-        if (cancelled || !finalJob) return;
-        setAnalysisJob(finalJob);
-        applyJobToState(finalJob);
-        if (finalJob.status === "completed") {
-          void hydrateMissingClaudeExplanations(finalJob, panelSetters);
-        }
-      });
+      })
+        .then((finalJob) => {
+          if (cancelled || !finalJob) return;
+          setAnalysisJob(finalJob);
+          applyJobToState(finalJob);
+          if (finalJob.status === "completed") {
+            void hydrateMissingClaudeExplanations(finalJob, panelSetters);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          applyJobToState(resolvedExternalJob);
+        });
       return () => {
         cancelled = true;
       };
@@ -517,7 +550,10 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   const underwriting = uwResult?.underwritingResult;
 
   return (
-    <section style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
+    <section
+      className="lg-page"
+      style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "12px" }}
+    >
       <div>
         <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천 · 보험설계안</h2>
         <p style={S.desc}>
