@@ -15,8 +15,8 @@ const CUSTOMER_DASHBOARD_MENU = "customer";
 const AUTH_MENU = "auth";
 
 const MENU_ITEMS = [
-  { id: "home", label: "홈", icon: "⌂" },
   { id: AUTH_MENU, label: "로그인/회원가입", icon: "👤" },
+  { id: "home", label: "홈", icon: "⌂" },
   { id: "customer", label: "고객 분석", icon: "◎" },
   { id: "claim", label: "보험금 청구 확인", icon: "✓" },
   { id: "ai", label: "AI 보험 추천", icon: "✦" },
@@ -66,7 +66,7 @@ function AiRecommendationMenuPanel({ user }) {
   return <AiRecommendationPanel user={user} useSessionJob />;
 }
 
-function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
+function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess, onMenuSelect }) {
   switch (activeMenu) {
     case AUTH_MENU:
       return (
@@ -95,7 +95,7 @@ function renderMainContent(activeMenu, { user, authLoading, onLoginSuccess }) {
         />
       );
     default:
-      return <HomePanel />;
+      return <HomePanel onMenuSelect={onMenuSelect} />;
   }
 }
 
@@ -324,6 +324,7 @@ export default function App() {
                 user,
                 authLoading,
                 onLoginSuccess: handleLoginSuccess,
+                onMenuSelect: handleMenuSelect,
               })}
             </CustomerSessionProvider>
           ) : (
@@ -331,6 +332,7 @@ export default function App() {
               user,
               authLoading,
               onLoginSuccess: handleLoginSuccess,
+              onMenuSelect: handleMenuSelect,
             })
           )}
         </div>
@@ -339,7 +341,7 @@ export default function App() {
   );
 }
 
-function HomePanel() {
+function HomePanel({ onMenuSelect }) {
   return (
     <>
       <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
@@ -460,9 +462,11 @@ function HomePanel() {
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginTop: "24px" }}>
-            <ActionButton primary>고객 분석 시작</ActionButton>
-            <ActionButton>청구 가능성 확인</ActionButton>
-            <ActionButton>AI 추천 열기</ActionButton>
+            <ActionButton primary onClick={() => onMenuSelect?.(CUSTOMER_DASHBOARD_MENU)}>
+              고객 분석 시작
+            </ActionButton>
+            <ActionButton onClick={() => onMenuSelect?.("claim")}>청구 가능성 확인</ActionButton>
+            <ActionButton onClick={() => onMenuSelect?.("ai")}>AI 추천 열기</ActionButton>
           </div>
         </section>
       </div>
@@ -531,10 +535,11 @@ function HomePanel() {
   );
 }
 
-function ActionButton({ children, primary = false }) {
+function ActionButton({ children, primary = false, onClick }) {
   return (
     <button
       type="button"
+      onClick={onClick}
       style={{
         padding: "12px 20px",
         borderRadius: "12px",

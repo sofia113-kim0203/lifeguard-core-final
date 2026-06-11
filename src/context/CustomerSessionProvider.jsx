@@ -6,6 +6,22 @@ import { postCustomerSystemMessage } from "../lib/customerConversations.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const CustomerSessionContext = createContext(null);
+const SESSION_LOAD_TIMEOUT_MS = 15_000;
+
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 export function CustomerSessionProvider({ user, children }) {
   const [dashboardData, setDashboardData] = useState(null);
@@ -30,10 +46,14 @@ export function CustomerSessionProvider({ user, children }) {
       setLoading(true);
       setError("");
       try {
-        const [dashboard, unified] = await Promise.all([
-          loadCustomerDashboardData(user),
-          loadCustomerUnifiedState({ lastEvent: event }),
-        ]);
+        const [dashboard, unified] = await withTimeout(
+          Promise.all([
+            loadCustomerDashboardData(user),
+            loadCustomerUnifiedState({ lastEvent: event }),
+          ]),
+          SESSION_LOAD_TIMEOUT_MS,
+          "고객 세션 요청 시간이 초과되었습니다. 다시 시도해 주세요.",
+        );
         setDashboardData(dashboard);
         setUnifiedState(unified);
         if (event) setLastEvent(event);

@@ -321,12 +321,13 @@ export async function handleAnalysisJobStatusRequest({
     customerId = resolved.customerId;
   }
 
-  const adminClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? userSupabase;
-  if (!adminClient) {
+  const readClient =
+    adminSupabase ?? createServiceRoleSupabaseClient(env) ?? userSupabase;
+  if (!readClient) {
     return { ok: false, reason: "SUPABASE_CLIENT_NOT_AVAILABLE", error_message: "Supabase client unavailable." };
   }
 
-  const job = await loadAnalysisJob(adminClient, trimmedJobId);
+  const job = await loadAnalysisJob(readClient, trimmedJobId);
   if (!job) {
     return { ok: false, reason: "JOB_NOT_FOUND", error_message: "Analysis job not found." };
   }
@@ -336,18 +337,30 @@ export async function handleAnalysisJobStatusRequest({
 
   let processResult = null;
   if (action === "process" && job.status !== "completed" && job.status !== "failed") {
+    const processClient = adminSupabase ?? createServiceRoleSupabaseClient(env);
+    if (!processClient) {
+      return {
+        ok: false,
+        reason: "SERVICE_ROLE_NOT_CONFIGURED",
+        error_message:
+          "Background analysis processing requires SERVICE_ROLE_KEY on the API runtime.",
+        analysis_job: mapAnalysisJobForClient(job),
+      };
+    }
+
     processResult = await processNextAnalysisJobStage({
-      supabase: adminClient,
+      supabase: processClient,
       jobId: trimmedJobId,
       fetchImpl,
       env,
     });
 
-    const refreshedJob = processResult?.job ?? (await loadAnalysisJob(adminClient, trimmedJobId));
-    await postResultMessageIfNeeded(adminClient, customerId, refreshedJob);
+    const refreshedJob = processResult?.job ?? (await loadAnalysisJob(processClient, trimmedJobId));
+    await postResultMessageIfNeeded(processClient, customerId, refreshedJob);
   }
 
-  const latestJob = await loadAnalysisJob(adminClient, trimmedJobId);
+  const latestClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? readClient;
+  const latestJob = await loadAnalysisJob(latestClient, trimmedJobId);
   return {
     ok: true,
     analysis_job: mapAnalysisJobForClient(latestJob),

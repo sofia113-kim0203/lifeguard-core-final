@@ -94,8 +94,8 @@ export async function fetchLatestAnalysisJob() {
 export async function processAnalysisJobUntilComplete({
   jobId,
   onProgress,
-  pollIntervalMs = 1200,
-  maxAttempts = 120,
+  pollIntervalMs = 900,
+  maxAttempts = 150,
 } = {}) {
   let attempts = 0;
   let latestJob = null;
@@ -110,7 +110,9 @@ export async function processAnalysisJobUntilComplete({
       return latestJob;
     }
     attempts += 1;
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    if (attempts < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
   }
 
   return latestJob;

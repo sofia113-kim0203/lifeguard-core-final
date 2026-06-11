@@ -473,13 +473,45 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
   }, [loadAnalysis]);
 
   useEffect(() => {
-    if (!resolvedExternalJob) return;
+    if (!resolvedExternalJob) return undefined;
     setAnalysisJob(resolvedExternalJob);
-    if (!applyJobToState(resolvedExternalJob)) return;
+    applyJobToState(resolvedExternalJob);
+
+    if (
+      resolvedExternalJob.status === "queued" ||
+      resolvedExternalJob.status === "processing"
+    ) {
+      let cancelled = false;
+      void processAnalysisJobUntilComplete({
+        jobId: resolvedExternalJob.id,
+        onProgress: (job) => {
+          if (cancelled || !job) return;
+          setAnalysisJob(job);
+          applyJobToState(job);
+        },
+      }).then((finalJob) => {
+        if (cancelled || !finalJob) return;
+        setAnalysisJob(finalJob);
+        applyJobToState(finalJob);
+        if (finalJob.status === "completed") {
+          void hydrateMissingClaudeExplanations(finalJob, panelSetters);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (resolvedExternalJob.status === "completed") {
       void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
     }
-  }, [resolvedExternalJob, applyJobToState]);
+    return undefined;
+  }, [
+    resolvedExternalJob?.id,
+    resolvedExternalJob?.status,
+    resolvedExternalJob?.updated_at,
+    applyJobToState,
+  ]);
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;

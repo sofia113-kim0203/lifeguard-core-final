@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  CONVERSATION_LOAD_TIMEOUT_MS,
   loadCustomerConversations,
   sendCustomerConversationMessage,
 } from "../lib/customerConversations.js";
@@ -9,8 +10,6 @@ import {
 } from "../lib/customerConversationalAnalysis.js";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
-
-const CONVERSATION_LOAD_TIMEOUT_MS = 12_000;
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -238,10 +237,12 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
 export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const session = useOptionalCustomerSession();
   const customerId = session?.dashboardData?.customerId ?? null;
+  const sessionLoading = session?.loading ?? false;
+  const sessionReady = Boolean(user && customerId && !sessionLoading);
 
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [analysisJob, setAnalysisJob] = useState(null);
@@ -249,35 +250,45 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const [backgroundRunning, setBackgroundRunning] = useState(false);
   const historyRef = useRef(null);
   const pollAbortRef = useRef(false);
+  const historyLoadSeqRef = useRef(0);
 
   const loadMessages = useCallback(
-    async ({ silent = false } = {}) => {
+    async ({ silent = false, expectedCustomerId = customerId } = {}) => {
       if (!user) {
         setMessages([]);
-        setLoading(false);
+        setHistoryLoading(false);
         setError("로그인이 필요합니다.");
         return;
       }
 
+      if (!expectedCustomerId) {
+        setHistoryLoading(false);
+        return;
+      }
+
+      const loadSeq = ++historyLoadSeqRef.current;
+
       if (!silent) {
-        setLoading(true);
+        setHistoryLoading(true);
       }
       setError("");
       try {
         const rows = await withTimeout(
-          loadCustomerConversations(user, { customerId }),
+          loadCustomerConversations(user, { customerId: expectedCustomerId }),
           CONVERSATION_LOAD_TIMEOUT_MS,
           "대화 기록 요청 시간이 초과되었습니다. 아래에서 질문을 입력해 주세요.",
         );
+        if (loadSeq !== historyLoadSeqRef.current) return;
         setMessages(rows);
       } catch (err) {
+        if (loadSeq !== historyLoadSeqRef.current) return;
         if (!silent) {
           setMessages([]);
         }
         setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
       } finally {
-        if (!silent) {
-          setLoading(false);
+        if (loadSeq === historyLoadSeqRef.current && !silent) {
+          setHistoryLoading(false);
         }
       }
     },
@@ -315,9 +326,30 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   );
 
   useEffect(() => {
-    if (!user || !customerId) return;
-    loadMessages();
-  }, [user, customerId, loadMessages]);
+    if (!user) {
+      setHistoryLoading(false);
+      setMessages([]);
+      return undefined;
+    }
+
+    if (!customerId || sessionLoading) {
+      setHistoryLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    void loadMessages().finally(() => {
+      if (cancelled) {
+        setHistoryLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      historyLoadSeqRef.current += 1;
+      setHistoryLoading(false);
+    };
+  }, [user, customerId, sessionLoading, loadMessages]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -348,11 +380,11 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
     if (historyRef.current) {
       historyRef.current.scrollTop = historyRef.current.scrollHeight;
     }
-  }, [messages, loading, analysisJob]);
+  }, [messages, historyLoading, analysisJob]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!user || sending) return;
+    if (!user || !sessionReady || sending) return;
 
     const text = draft.trim();
     if (!text) return;
@@ -398,7 +430,9 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
         {error ? <div style={{ ...S.error, marginBottom: "16px" }}>{error}</div> : null}
 
         <div ref={historyRef} style={S.history}>
-          {loading ? (
+          {!sessionReady ? (
+            <div style={S.empty}>고객 세션을 준비하는 중…</div>
+          ) : historyLoading ? (
             <div style={S.empty}>대화 기록을 불러오는 중…</div>
           ) : messages.length === 0 ? (
             <div style={S.empty}>
@@ -425,13 +459,13 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="보험 상담 내용을 입력해 주세요."
-            disabled={sending}
+            disabled={sending || !sessionReady}
           />
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <button
               type="submit"
               style={S.btn}
-              disabled={sending || loading || backgroundRunning || !draft.trim()}
+              disabled={sending || !sessionReady || backgroundRunning || !draft.trim()}
             >
               {sending ? "즉시 응답 생성 중…" : "상담 질문 보내기"}
             </button>
@@ -439,7 +473,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
               type="button"
               style={S.btnSecondary}
               onClick={() => loadMessages()}
-              disabled={sending || loading}
+              disabled={sending || historyLoading || !sessionReady}
             >
               새로고침
             </button>

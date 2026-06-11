@@ -324,9 +324,9 @@ export async function runAnalysisJobToCompletion({ supabase, jobId, maxStages = 
   let lastResult = null;
   for (let i = 0; i < maxStages; i += 1) {
     lastResult = await processNextAnalysisJobStage({ supabase, jobId, fetchImpl, env });
-    if (!lastResult.ok || lastResult.completed || lastResult.already_completed) {
-      break;
-    }
+    if (!lastResult?.ok) break;
+    if (lastResult.completed || lastResult.already_completed) break;
+    if (lastResult.job?.status === "completed" || lastResult.job?.status === "failed") break;
   }
   return lastResult;
 }

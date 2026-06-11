@@ -30,9 +30,11 @@
     "test:phase28-step1b": "node scripts/phase28-step1b-ui-sync-smoke.mjs",
     "test:phase28-p0": "node scripts/phase28-p0-chat-gate-audit.mjs",
     "test:phase28-claude": "node scripts/phase28-claude-dual-track-audit.mjs",
+    "test:phase28-claude-network": "node scripts/phase28-claude-network-audit.mjs",
     "test:phase28-policy-count": "node scripts/phase28-policy-count-trace.mjs",
     "test:phase28-policy-count-unit": "node scripts/phase28-policy-count-unit-test.mjs",
-    "test:phase28-policy-is-active": "node scripts/phase28-policy-is-active-audit.mjs"
+    "test:phase28-policy-is-active": "node scripts/phase28-policy-is-active-audit.mjs",
+    "test:analysis-jobs-e2e": "node scripts/analysis_jobs_e2e_test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

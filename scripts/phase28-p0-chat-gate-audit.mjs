@@ -15,6 +15,30 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
+
+function assertUiChatGateSource() {
+  const chatSource = readFileSync("src/components/CustomerAiChatPanel.jsx", "utf8");
+  const sessionSource = readFileSync("src/context/CustomerSessionProvider.jsx", "utf8");
+  const conversationsSource = readFileSync("src/lib/customerConversations.js", "utf8");
+
+  assert.match(chatSource, /CONVERSATION_LOAD_TIMEOUT_MS/, "chat panel must use conversation load timeout");
+  assert.match(chatSource, /historyLoadSeqRef/, "chat panel must guard stale history loads");
+  assert.match(chatSource, /setHistoryLoading\(false\)/, "chat panel must clear history loading state");
+  assert.match(chatSource, /sessionReady/, "chat panel must gate on session readiness");
+  assert.match(chatSource, /customerId/, "chat panel must pass customerId into conversation load");
+  assert.doesNotMatch(
+    chatSource,
+    /disabled=\{sending \|\| loading/,
+    "submit must not block on history loading spinner",
+  );
+
+  assert.match(sessionSource, /SESSION_LOAD_TIMEOUT_MS/, "session provider must timeout session refresh");
+  assert.match(sessionSource, /dashboardData/, "session provider must expose dashboardData with customerId");
+
+  assert.match(conversationsSource, /CONVERSATION_LOAD_TIMEOUT_MS = 12_000/, "conversation timeout constant required");
+  assert.match(conversationsSource, /ensureAuthSessionReady/, "conversation load must verify auth session");
+  assert.match(conversationsSource, /customer_conversations/, "conversation load must query customer_conversations");
+}
 import { createClient } from "@supabase/supabase-js";
 import { handleConversationalQuestionRequest } from "../server/conversationalBackgroundAnalysisCore.js";
 import { buildDirectFactualAnswer } from "../server/customerConversationalTone.js";
@@ -36,6 +60,7 @@ function loadEnvLocal() {
 }
 
 loadEnvLocal();
+assertUiChatGateSource();
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 let serviceRoleKey = process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -156,6 +181,7 @@ const report = {
   server_chat: null,
   conversation_rows: null,
   preview_api: null,
+  ui_source_gate: { pass: true },
   ui_pass: false,
   pass: false,
 };
