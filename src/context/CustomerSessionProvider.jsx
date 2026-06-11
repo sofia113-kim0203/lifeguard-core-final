@@ -1,12 +1,35 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { fetchLatestAnalysisJob } from "../lib/customerConversationalAnalysis.js";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
-import { loadCustomerUnifiedState } from "../lib/customerUnifiedState.js";
+import {
+  applyUnifiedDashboardFields,
+  isUnifiedProfileMissingError,
+  loadCustomerUnifiedState,
+} from "../lib/customerUnifiedState.js";
 import { postCustomerSystemMessage } from "../lib/customerConversations.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const CustomerSessionContext = createContext(null);
 const SESSION_LOAD_TIMEOUT_MS = 15_000;
+
+async function loadCustomerSessionRecords(user, event) {
+  let unified = null;
+  try {
+    unified = await loadCustomerUnifiedState({ lastEvent: event });
+  } catch (err) {
+    if (!isUnifiedProfileMissingError(err)) {
+      throw err;
+    }
+    await loadCustomerDashboardData(user);
+    unified = await loadCustomerUnifiedState({ lastEvent: event });
+  }
+
+  const dashboard = applyUnifiedDashboardFields(
+    await loadCustomerDashboardData(user, { unifiedState: unified }),
+    unified,
+  );
+  return { dashboard, unified };
+}
 
 function withTimeout(promise, timeoutMs, timeoutMessage) {
   return new Promise((resolve, reject) => {
@@ -46,11 +69,8 @@ export function CustomerSessionProvider({ user, children }) {
       setLoading(true);
       setError("");
       try {
-        const [dashboard, unified] = await withTimeout(
-          Promise.all([
-            loadCustomerDashboardData(user),
-            loadCustomerUnifiedState({ lastEvent: event }),
-          ]),
+        const { dashboard, unified } = await withTimeout(
+          loadCustomerSessionRecords(user, event),
           SESSION_LOAD_TIMEOUT_MS,
           "고객 세션 요청 시간이 초과되었습니다. 다시 시도해 주세요.",
         );
@@ -108,9 +128,8 @@ export function CustomerSessionProvider({ user, children }) {
       lastEvent,
       refreshSession,
       notifySystemMessage,
-      insurancePolicyCount:
-        unifiedState?.policy_count ?? dashboardData?.insurancePolicyCount ?? 0,
-      memoryVersion: unifiedState?.memory_version ?? dashboardData?.memoryVersion ?? 0,
+      insurancePolicyCount: unifiedState?.policy_count ?? null,
+      memoryVersion: unifiedState?.memory_version ?? null,
       stateHash: unifiedState?.state_hash ?? null,
     }),
     [

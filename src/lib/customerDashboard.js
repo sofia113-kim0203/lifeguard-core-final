@@ -27,6 +27,27 @@ async function bootstrapCustomerSignup(displayName) {
   });
 }
 
+function mapUnifiedPoliciesToDashboard(policies = []) {
+  return policies.map((policy) => ({
+    id: policy.id,
+    insurer_name: policy.insurer_name ?? null,
+    product_name: policy.product_name ?? null,
+    coverage_summary: policy.coverage_summary ?? null,
+    policy_type: policy.policy_type ?? null,
+    is_active: policy.is_active ?? null,
+    policy_status: policy.policy_status ?? null,
+    source: policy.source ?? null,
+  }));
+}
+
+function canReuseUnifiedPolicyRecords(unifiedState) {
+  return (
+    unifiedState?.customer_id &&
+    Number.isFinite(unifiedState.policy_count) &&
+    Array.isArray(unifiedState.policies)
+  );
+}
+
 export function normalizeCustomerDashboardData({
   authUser,
   userRow,
@@ -65,7 +86,7 @@ export function normalizeCustomerDashboardData({
   };
 }
 
-export async function loadCustomerDashboardData(authUser) {
+export async function loadCustomerDashboardData(authUser, { unifiedState = null } = {}) {
   if (!authUser?.id) {
     throw new Error("로그인이 필요합니다.");
   }
@@ -107,6 +128,7 @@ export async function loadCustomerDashboardData(authUser) {
   }
 
   const customerId = profile.id;
+  const reuseUnifiedPolicies = canReuseUnifiedPolicyRecords(unifiedState);
 
   const [healthResult, insuranceResult, consentsResult] = await Promise.all([
     supabase
@@ -114,12 +136,16 @@ export async function loadCustomerDashboardData(authUser) {
       .select("customer_id, source, details_json")
       .eq("customer_id", customerId)
       .maybeSingle(),
-    supabase
-      .from("profile_insurance_policies")
-      .select("id, insurer_name, product_name, coverage_summary, policy_type, is_active, policy_status, source")
-      .eq("customer_id", customerId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
+    reuseUnifiedPolicies
+      ? Promise.resolve({ data: null, error: null })
+      : supabase
+          .from("profile_insurance_policies")
+          .select(
+            "id, insurer_name, product_name, coverage_summary, policy_type, is_active, policy_status, source",
+          )
+          .eq("customer_id", customerId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
     supabase
       .from("customer_consents")
       .select("consent_type, granted, revoked_at")
@@ -138,9 +164,11 @@ export async function loadCustomerDashboardData(authUser) {
     throw new Error(toCustomerErrorMessage(consentsResult.error, "동의 정보를 불러오지 못했습니다."));
   }
 
-  const insurancePolicies = insuranceResult.data ?? [];
+  const insurancePolicies = reuseUnifiedPolicies
+    ? mapUnifiedPoliciesToDashboard(unifiedState.policies)
+    : (insuranceResult.data ?? []);
 
-  return normalizeCustomerDashboardData({
+  const dashboard = normalizeCustomerDashboardData({
     authUser,
     userRow,
     profile,
@@ -149,4 +177,16 @@ export async function loadCustomerDashboardData(authUser) {
     insurancePolicies,
     consents: consentsResult.data ?? [],
   });
+
+  if (reuseUnifiedPolicies) {
+    return {
+      ...dashboard,
+      customerId: unifiedState.customer_id ?? dashboard.customerId,
+      memoryVersion: unifiedState.memory_version ?? dashboard.memoryVersion,
+      insurancePolicyCount: unifiedState.policy_count ?? dashboard.insurancePolicyCount,
+      insurancePolicyIds: unifiedState.policy_ids ?? dashboard.insurancePolicyIds,
+    };
+  }
+
+  return dashboard;
 }
