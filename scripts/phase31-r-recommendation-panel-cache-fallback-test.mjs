@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import {
+  jobBlocksPanelLoading,
   jobHasEnginePanelResults,
   mapJobResultsToAnalysisPanels,
 } from "../src/lib/analysisPanelJobUtils.js";
@@ -42,6 +43,14 @@ const engineJob = {
 assert.equal(jobHasEnginePanelResults(policyDetailJob), false, "policy_detail job must not seed panels");
 assert.equal(jobHasEnginePanelResults(factualLookupJob), false, "factual_lookup job must not seed panels");
 assert.equal(jobHasEnginePanelResults(engineJob), true, "engine job must seed panels");
+assert.equal(jobBlocksPanelLoading({ ...policyDetailJob, status: "queued" }), false);
+assert.equal(
+  jobBlocksPanelLoading({
+    status: "queued",
+    result_json: { intent_gate: { pipeline_manifest: ["coverage_gap", "result_claude"] } },
+  }),
+  true,
+);
 
 const mappedEngine = mapJobResultsToAnalysisPanels(engineJob);
 assert.ok(mappedEngine.coverageGapResult);
