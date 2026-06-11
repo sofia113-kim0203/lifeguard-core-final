@@ -69,7 +69,10 @@ export async function fetchAnalysisJobStatus({ jobId, action = "status" } = {}) 
     throw new Error(mapServerError(payload, response.status));
   }
 
-  return payload.analysis_job ?? null;
+  return {
+    analysisJob: payload.analysis_job ?? null,
+    processResult: payload.process_result ?? null,
+  };
 }
 
 export async function fetchLatestAnalysisJob() {
@@ -101,12 +104,16 @@ export async function processAnalysisJobUntilComplete({
   let latestJob = null;
 
   while (attempts < maxAttempts) {
-    latestJob = await fetchAnalysisJobStatus({ jobId, action: "process" });
+    const { analysisJob, processResult } = await fetchAnalysisJobStatus({ jobId, action: "process" });
+    latestJob = analysisJob;
     if (typeof onProgress === "function") {
       onProgress(latestJob);
     }
     if (!latestJob) break;
     if (latestJob.status === "completed" || latestJob.status === "failed") {
+      return latestJob;
+    }
+    if (processResult?.skipped) {
       return latestJob;
     }
     attempts += 1;
@@ -129,4 +136,14 @@ export function mapJobResultsToAnalysisPanels(job) {
     claudeExplanations: result.claude_explanations ?? {},
     finalClaude: result.final_claude ?? null,
   };
+}
+
+export function jobHasDisplayablePanelResults(job) {
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  return Boolean(
+    mapped?.coverageGapResult ||
+      mapped?.underwritingResult ||
+      mapped?.recommendationResult ||
+      mapped?.designBundle,
+  );
 }

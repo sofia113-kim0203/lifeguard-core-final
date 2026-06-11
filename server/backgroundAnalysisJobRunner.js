@@ -30,6 +30,114 @@ const STAGE_UI_LABELS = {
   result_claude: "분석 결과 설명 생성 완료",
 };
 
+export const REQUIRED_PANEL_STAGE_KEYS = [
+  "coverage_gap",
+  "underwriting_risk",
+  "recommendation",
+  "insurance_design",
+];
+
+export function hasRequiredPanelResults(resultJson) {
+  if (!resultJson || typeof resultJson !== "object") return false;
+  return REQUIRED_PANEL_STAGE_KEYS.every((key) => {
+    const value = resultJson[key];
+    return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+  });
+}
+
+function getNextPendingStage(stagesCompleted) {
+  return ANALYSIS_PIPELINE_STAGES.find((stage) => !stagesCompleted.includes(stage)) ?? null;
+}
+
+function hydrateWorkingContextFromResultJson(workingContext, resultJson) {
+  for (const key of REQUIRED_PANEL_STAGE_KEYS) {
+    hydrateWorkingContext(workingContext, key, resultJson[key]);
+  }
+}
+
+function buildResultClaudeFallbackStageResult(workingContext, reason = "result_claude_fallback") {
+  const fallbackText = buildFallbackConnectedResponse(workingContext);
+  return {
+    text: fallbackText,
+    fallback_text: fallbackText,
+    skipped: true,
+    reason,
+    explanation_mode: "fallback",
+    cache_hit: false,
+    detailed_available: false,
+    audit: auditExplanationContext(workingContext, workingContext.question),
+  };
+}
+
+async function finalizeResultClaudeStage({
+  supabase,
+  jobId,
+  stagesCompleted,
+  resultJson,
+  workingContext,
+  timingMetrics,
+  stageResult,
+  stageDuration,
+  fromCache,
+}) {
+  stagesCompleted.push("result_claude");
+  resultJson.result_claude = stageResult;
+  resultJson.working_context = workingContext;
+  resultJson.stage_labels = {
+    ...(resultJson.stage_labels ?? {}),
+    result_claude: STAGE_UI_LABELS.result_claude,
+  };
+  resultJson.final_claude = stageResult;
+  resultJson.claude_performance = stageResult?.performance ?? null;
+  resultJson.claude_audit = stageResult?.audit ?? null;
+  resultJson.explanation_mode = stageResult?.explanation_mode ?? "short";
+  resultJson.detailed_available = stageResult?.detailed_available ?? false;
+
+  const finalText =
+    stageResult?.text ?? stageResult?.fallback_text ?? buildFallbackConnectedResponse(workingContext);
+
+  timingMetrics.result_claude_time_ms = stageDuration;
+  timingMetrics.result_claude_from_cache = fromCache;
+  timingMetrics.result_claude_cache_hit = stageResult?.cache_hit ?? false;
+  if (stageResult?.performance) {
+    timingMetrics.result_claude_prompt_chars = stageResult.performance.prompt_chars;
+    timingMetrics.result_claude_input_tokens = stageResult.performance.estimated_input_tokens;
+    timingMetrics.result_claude_output_chars = stageResult.performance.output_chars;
+    timingMetrics.result_claude_output_tokens = stageResult.performance.estimated_output_tokens;
+  }
+  timingMetrics.total_analysis_time_ms = Object.entries(timingMetrics)
+    .filter(([key]) =>
+      [
+        "coverage_time_ms",
+        "underwriting_time_ms",
+        "recommendation_time_ms",
+        "design_time_ms",
+        "result_claude_time_ms",
+      ].includes(key),
+    )
+    .reduce((sum, [, value]) => sum + Number(value ?? 0), 0);
+
+  const updatedJob = await updateAnalysisJob(supabase, jobId, {
+    stages_completed: stagesCompleted,
+    result_json: resultJson,
+    timing_metrics: timingMetrics,
+    final_response_text: finalText,
+    status: "completed",
+    completed_at: new Date().toISOString(),
+    current_step: null,
+  });
+
+  return {
+    ok: true,
+    job: updatedJob,
+    processed_stage: "result_claude",
+    stage_duration_ms: stageDuration,
+    from_cache: fromCache,
+    stage_label: STAGE_UI_LABELS.result_claude,
+    completed: true,
+  };
+}
+
 async function runStageCompute(supabase, customerId, stageKey, workingContext, options = {}) {
   if (stageKey === "coverage_gap") {
     const context = await loadCoverageAnalysisContext(supabase, customerId);
@@ -150,8 +258,19 @@ export async function processNextAnalysisJobStage({
   }
 
   const stagesCompleted = Array.isArray(job.stages_completed) ? [...job.stages_completed] : [];
-  const nextStage = ANALYSIS_PIPELINE_STAGES.find((stage) => !stagesCompleted.includes(stage));
+  const nextStage = getNextPendingStage(stagesCompleted);
+  const timingMetrics = { ...(job.timing_metrics ?? {}) };
+  const resultJson = { ...(job.result_json ?? {}) };
+
   if (!nextStage) {
+    if (!hasRequiredPanelResults(resultJson)) {
+      return {
+        ok: false,
+        reason: "PANEL_RESULTS_INCOMPLETE",
+        error_message: "Cannot complete analysis job without all four panel results.",
+        job,
+      };
+    }
     const completedJob = await updateAnalysisJob(supabase, jobId, {
       status: "completed",
       current_step: null,
@@ -160,8 +279,14 @@ export async function processNextAnalysisJobStage({
     return { ok: true, job: completedJob, already_completed: true };
   }
 
-  const timingMetrics = { ...(job.timing_metrics ?? {}) };
-  const resultJson = { ...(job.result_json ?? {}) };
+  if (nextStage === "result_claude" && !hasRequiredPanelResults(resultJson)) {
+    return {
+      ok: false,
+      reason: "PANEL_RESULTS_INCOMPLETE",
+      error_message: "Cannot run result_claude before all four panel results exist.",
+      job,
+    };
+  }
   const workingContext = {
     question: job.question,
     ...(resultJson.working_context ?? {}),
@@ -189,11 +314,34 @@ export async function processNextAnalysisJobStage({
     let fromCache = false;
 
     if (nextStage === "result_claude") {
-      stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext, {
-        memoryVersion,
-        analysisJobId: jobId,
-        fetchImpl,
-        env,
+      hydrateWorkingContextFromResultJson(workingContext, resultJson);
+      try {
+        stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext, {
+          memoryVersion,
+          analysisJobId: jobId,
+          fetchImpl,
+          env,
+        });
+      } catch (stageError) {
+        stageResult = buildResultClaudeFallbackStageResult(
+          workingContext,
+          stageError instanceof Error ? stageError.message : "result_claude_compute_failed",
+        );
+      }
+      if (!stageResult?.text && !stageResult?.fallback_text) {
+        stageResult = buildResultClaudeFallbackStageResult(workingContext, "result_claude_empty_response");
+      }
+      const stageDuration = Date.now() - stageStart;
+      return finalizeResultClaudeStage({
+        supabase,
+        jobId,
+        stagesCompleted,
+        resultJson,
+        workingContext,
+        timingMetrics,
+        stageResult,
+        stageDuration,
+        fromCache: false,
       });
     } else {
       const { evaluation } = await loadFreshCacheEntry(
@@ -262,26 +410,13 @@ export async function processNextAnalysisJobStage({
       [nextStage]: STAGE_UI_LABELS[nextStage],
     };
 
+    const stillPendingStage = getNextPendingStage(stagesCompleted);
     const patch = {
       stages_completed: stagesCompleted,
       result_json: resultJson,
       timing_metrics: timingMetrics,
-      current_step: nextStage,
+      current_step: stillPendingStage,
     };
-
-    if (nextStage === "result_claude") {
-      const finalText = stageResult?.text ?? stageResult?.fallback_text ?? buildFallbackConnectedResponse(workingContext);
-      patch.final_response_text = finalText;
-      patch.status = "completed";
-      patch.completed_at = new Date().toISOString();
-      patch.current_step = null;
-      resultJson.final_claude = stageResult;
-      resultJson.claude_performance = stageResult?.performance ?? null;
-      resultJson.claude_audit = stageResult?.audit ?? null;
-      resultJson.explanation_mode = stageResult?.explanation_mode ?? "short";
-      resultJson.detailed_available = stageResult?.detailed_available ?? false;
-      patch.result_json = resultJson;
-    }
 
     const updatedJob = await updateAnalysisJob(supabase, jobId, patch);
     return {
@@ -294,6 +429,26 @@ export async function processNextAnalysisJobStage({
       completed: updatedJob.status === "completed",
     };
   } catch (error) {
+    if (nextStage === "result_claude" && hasRequiredPanelResults(resultJson)) {
+      hydrateWorkingContextFromResultJson(workingContext, resultJson);
+      const stageDuration = Date.now() - stageStart;
+      const fallbackStageResult = buildResultClaudeFallbackStageResult(
+        workingContext,
+        error instanceof Error ? error.message : "result_claude_stage_failed",
+      );
+      return finalizeResultClaudeStage({
+        supabase,
+        jobId,
+        stagesCompleted,
+        resultJson,
+        workingContext,
+        timingMetrics,
+        stageResult: fallbackStageResult,
+        stageDuration,
+        fromCache: false,
+      });
+    }
+
     const failedJob = await updateAnalysisJob(supabase, jobId, {
       status: "failed",
       error_message: error instanceof Error ? error.message : "stage_failed",
