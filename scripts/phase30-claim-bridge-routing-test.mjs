@@ -20,11 +20,11 @@ import {
   loadAnalysisJob,
   runAnalysisJobToCompletion,
 } from "../server/backgroundAnalysisJobRunner.js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-const TEST_CUSTOMER_ID =
-  process.env.PHASE28_TEST_CUSTOMER_ID || "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+const TEST_CUSTOMER_ID = resolveAuditCustomerId(process.env.PHASE28_TEST_CUSTOMER_ID);
 
 const CLAIM_ROUTING_CASES = [
   "청구 가능할까요?",

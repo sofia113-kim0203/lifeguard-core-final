@@ -3,13 +3,16 @@
  */
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
+import { DEFAULT_SANDBOX_EMAIL, assertNotBlockedEmail } from "./lib/sandboxAuthGuard.js";
 
 const PRODUCTION_BASE = process.env.PHASE28_PRODUCTION_BASE || "https://lifeguard-core-final.vercel.app";
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-const testEmail = process.env.PHASE28_TEST_EMAIL || "sofia113@naver.com";
+const testEmail = process.env.PHASE28_TEST_EMAIL || DEFAULT_SANDBOX_EMAIL;
 const testPassword = process.env.PHASE28_TEST_PASSWORD;
+
+assertNotBlockedEmail(testEmail);
 
 if (!url || !anonKey || !serviceRoleKey) {
   throw new Error("SUPABASE_URL, anon key, and SERVICE_ROLE_KEY are required");

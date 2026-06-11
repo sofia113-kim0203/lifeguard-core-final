@@ -13,9 +13,11 @@ import {
   extractCustomerSituation,
 } from "../server/customerConversationalTone.js";
 import { buildFastConversationalResponse } from "../server/fastResponseLayer.js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
 const ENV_LOCAL = ".env.local";
-const CUSTOMER_ID = process.env.AUDIT_CUSTOMER_ID ?? "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+
+const CUSTOMER_ID = resolveAuditCustomerId(process.env.AUDIT_CUSTOMER_ID);
 const QUESTION = "나의 보험 총 건수는?";
 
 function loadEnvLocal() {

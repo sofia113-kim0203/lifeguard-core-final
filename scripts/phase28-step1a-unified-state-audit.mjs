@@ -17,10 +17,11 @@ import {
 import { ensureCustomerMemoryContext } from "../server/customerMemoryContextSync.js";
 import { loadCoverageAnalysisContext } from "../server/customerCoverageGapCore.js";
 import { buildDirectFactualAnswer } from "../server/customerConversationalTone.js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
-const CUSTOMER_ID = process.env.AUDIT_CUSTOMER_ID ?? "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+const CUSTOMER_ID = resolveAuditCustomerId(process.env.AUDIT_CUSTOMER_ID);
 const EXPECTED_POLICY_COUNT = Number(process.env.AUDIT_EXPECTED_POLICY_COUNT ?? "8");
 const MIN_DOCUMENT_COUNT = Number(process.env.AUDIT_MIN_DOCUMENT_COUNT ?? "2");
 

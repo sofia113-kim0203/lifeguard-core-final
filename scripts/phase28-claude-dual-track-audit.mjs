@@ -13,9 +13,11 @@ import { createClient } from "@supabase/supabase-js";
 import { handleCustomerUnderwritingRiskRequest } from "../server/customerUnderwritingRiskCore.js";
 import { handleCustomerRecommendationRequest } from "../server/customerRecommendationCore.js";
 import { handleCustomerInsuranceDesignRequest } from "../server/customerInsuranceDesignCore.js";
+import { resolveAuditCustomerId } from "./lib/sandboxAuthGuard.js";
 
 const ENV_LOCAL = ".env.local";
-const CUSTOMER_ID = process.env.AUDIT_CUSTOMER_ID ?? "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+
+const CUSTOMER_ID = resolveAuditCustomerId(process.env.AUDIT_CUSTOMER_ID);
 
 function loadEnvLocal() {
   if (!existsSync(ENV_LOCAL)) return;

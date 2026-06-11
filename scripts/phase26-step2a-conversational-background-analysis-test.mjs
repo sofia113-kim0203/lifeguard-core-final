@@ -12,12 +12,16 @@ import {
   handleAnalysisJobStatusRequest,
 } from "../server/conversationalBackgroundAnalysisCore.js";
 import { runAnalysisJobToCompletion } from "../server/backgroundAnalysisJobRunner.js";
+import {
+  resolveSandboxCustomerId,
+  safeAdminUpdateUserPassword,
+} from "./lib/sandboxAuthGuard.js";
 
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!url || !serviceRoleKey) throw new Error("SUPABASE_URL and SERVICE_ROLE_KEY are required");
 
-const TEST_CUSTOMER_ID = process.env.PHASE26_TEST_CUSTOMER_ID || "8f8f81e6-a583-44ff-ba6c-a6daed2162ec";
+const TEST_CUSTOMER_ID = resolveSandboxCustomerId(process.env.PHASE26_TEST_CUSTOMER_ID);
 const PRODUCTION_BASE = process.env.PHASE26_PRODUCTION_BASE || "https://lifeguard-core-final.vercel.app";
 
 const supabase = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
@@ -129,7 +133,12 @@ if (migrationStatus.applied) {
       .maybeSingle();
     const { data: userRow } = await supabase.from("users").select("email").eq("id", profile.user_id).maybeSingle();
     const tempPassword = `Phase26Step2A!${Date.now()}`;
-    await supabase.auth.admin.updateUserById(profile.user_id, { password: tempPassword });
+    await safeAdminUpdateUserPassword(supabase, {
+      userId: profile.user_id,
+      email: userRow.email,
+      customerId: TEST_CUSTOMER_ID,
+      password: tempPassword,
+    });
     const sb = createClient(url, anonKey, { auth: { persistSession: false } });
     const { data: signIn } = await sb.auth.signInWithPassword({ email: userRow.email, password: tempPassword });
     const token = signIn.session.access_token;

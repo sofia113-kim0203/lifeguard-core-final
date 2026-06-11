@@ -4,10 +4,14 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { assertClaimGuardrails } from "../server/claimBridgeLayer.js";
+import {
+  resolveSandboxCustomerId,
+  safeAdminUpdateUserPassword,
+} from "./lib/sandboxAuthGuard.js";
 
 const PRODUCTION_URL = process.env.PHASE28_PRODUCTION_BASE || "https://lifeguard-core-final.vercel.app";
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://fhvlxcguvjvtftttfrix.supabase.co";
-const CUSTOMER_ID = process.env.PHASE28_TEST_CUSTOMER_ID || "2d61e1eb-4b8e-43f4-9d31-ad2300ed554e";
+const CUSTOMER_ID = resolveSandboxCustomerId(process.env.PHASE28_TEST_CUSTOMER_ID);
 
 const CLAIM_QUESTIONS = [
   "청구 가능할까요?",
@@ -57,7 +61,12 @@ async function createProductionToken(admin, anonKey) {
   }
 
   const tempPassword = `Phase30ClaimBridge!${Date.now()}`;
-  await admin.auth.admin.updateUserById(profile.user_id, { password: tempPassword });
+  await safeAdminUpdateUserPassword(admin, {
+    userId: profile.user_id,
+    email: userRow.email,
+    customerId: profile.id,
+    password: tempPassword,
+  });
 
   const client = createClient(SUPABASE_URL, anonKey, { auth: { persistSession: false } });
   const { data: signIn, error: signInError } = await client.auth.signInWithPassword({
