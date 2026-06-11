@@ -276,7 +276,7 @@ export async function processNextAnalysisJobStage({
 
     if (nextStage === "result_claude") {
       const intent = resultJson.intent_gate?.intent ?? workingContext.intentGate?.intent ?? null;
-      if (intent !== "factual_lookup") {
+      if (intent !== "factual_lookup" && intent !== "policy_detail") {
         const panelClaudeStart = Date.now();
         const panelClaude = await generatePanelClaudeExplanations({
           supabase,
