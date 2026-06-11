@@ -15,132 +15,24 @@ import {
   retrieveCustomerDocumentChunks,
 } from "./documentRagContext.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
+import {
+  loadCustomerMemorySnapshot,
+  mapMemoryFactsForResponse,
+  selectRelevantMemoryFacts,
+} from "./customerMemorySnapshot.js";
 import { assessAnswerReview } from "./memoryReviewLayer.js";
 
+export { mapMemoryFactsForResponse, selectRelevantMemoryFacts } from "./customerMemorySnapshot.js";
+
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
-const DEFAULT_MEMORY_FACT_LIMIT = 12;
-const DEFAULT_MEMORY_SNAPSHOT_MAX_CHARS = 2400;
 
-const IMPORTANCE_PRIORITY = { critical: 0, high: 1, medium: 2, low: 3 };
-const FACT_TYPE_PRIORITY = { health: 0, insurance: 1, profile: 2, identity: 2 };
-
-const MEMORY_RELEVANCE_KEYWORDS = {
-  health: ["건강", "병력", "복용", "약", "입원", "수술", "흡연", "고지", "치료", "질병"],
-  insurance: ["보험", "실손", "보장", "담보", "특약", "계약", "증권", "청구", "보험금", "가입"],
-  profile: ["나이", "연령", "성별", "직업", "프로필", "고객", "이름"],
-  identity: ["나이", "연령", "성별", "직업", "프로필", "고객", "이름"],
-};
-
-function priorityValue(map, key, fallback) {
-  const normalized = String(key ?? "").toLowerCase();
-  return Object.hasOwn(map, normalized) ? map[normalized] : fallback;
-}
-
-function compareMemoryFacts(left, right) {
-  const importance = priorityValue(IMPORTANCE_PRIORITY, left.importance, 99) -
-    priorityValue(IMPORTANCE_PRIORITY, right.importance, 99);
-  if (importance !== 0) return importance;
-
-  const type = priorityValue(FACT_TYPE_PRIORITY, left.fact_type, 99) -
-    priorityValue(FACT_TYPE_PRIORITY, right.fact_type, 99);
-  if (type !== 0) return type;
-
-  return String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? ""));
-}
-
-function normalizeFactType(factType) {
-  const value = String(factType ?? "").trim();
-  return value === "identity" ? "profile" : value || "unknown";
-}
-
-function normalizeImportance(importance) {
-  const value = String(importance ?? "").trim();
-  return value || "low";
-}
-
-function sanitizeFactValue(value) {
-  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 240);
-}
-
-function questionTokens(question) {
-  return String(question ?? "")
-    .toLowerCase()
-    .match(/[\uAC00-\uD7A3]{2,}|[a-z0-9]{2,}/g) ?? [];
-}
-
-function memoryFactIsRelevant(question, fact) {
-  const haystack = [fact.fact_key, fact.fact_type, fact.fact_value]
-    .map((value) => String(value ?? "").toLowerCase())
-    .join(" ");
-  const tokens = questionTokens(question);
-  if (tokens.some((token) => haystack.includes(token))) return true;
-
-  const type = normalizeFactType(fact.fact_type);
-  const keywords = MEMORY_RELEVANCE_KEYWORDS[type] ?? [];
-  const normalizedQuestion = String(question ?? "");
-  return keywords.some((keyword) => normalizedQuestion.includes(keyword));
-}
-
-export function selectRelevantMemoryFacts(question, facts) {
-  return (facts ?? []).filter((fact) => memoryFactIsRelevant(question, fact));
-}
-
-export function formatCustomerMemorySnapshotForPrompt(facts, { maxChars = DEFAULT_MEMORY_SNAPSHOT_MAX_CHARS } = {}) {
-  if (!facts?.length) {
-    return "(no active customer memory facts retrieved)";
-  }
-
-  const lines = [];
-  let usedChars = 0;
-  for (const [index, fact] of facts.entries()) {
-    const line = `[M${index + 1}] type=${normalizeFactType(fact.fact_type)} key=${fact.fact_key} importance=${normalizeImportance(fact.importance)} value=${sanitizeFactValue(fact.fact_value)}`;
-    if (usedChars + line.length > maxChars) break;
-    lines.push(line);
-    usedChars += line.length + 1;
-  }
-
-  return lines.length ? lines.join("\n") : "(customer memory facts omitted due to prompt size limit)";
-}
-
-export function mapMemoryFactsForResponse(facts) {
-  return (facts ?? []).map((fact) => ({
-    fact_key: fact.fact_key,
-    fact_type: normalizeFactType(fact.fact_type),
-    importance: normalizeImportance(fact.importance),
-  }));
-}
-
-export async function loadCustomerMemorySnapshot(
-  supabase,
-  customerId,
-  { limit = DEFAULT_MEMORY_FACT_LIMIT, maxChars = DEFAULT_MEMORY_SNAPSHOT_MAX_CHARS } = {},
-) {
-  if (!customerId) {
-    throw new Error("customer_id_required");
-  }
-
-  const { data, error } = await supabase
-    .from("customer_memory_facts")
-    .select("id, fact_key, fact_value, fact_type, importance, updated_at, metadata_json")
-    .eq("customer_id", customerId)
-    .is("superseded_at", null);
-
-  if (error) {
-    throw new Error(`memory_snapshot_failed: ${error.message}`);
-  }
-
-  const facts = (Array.isArray(data) ? data : [])
-    .filter((fact) => !fact?.metadata_json?.revoked_at)
-    .sort(compareMemoryFacts)
-    .slice(0, limit);
-
+function memorySnapshotResponseFields(memorySnapshot) {
   return {
-    facts,
-    fact_count: facts.length,
-    prompt_block: formatCustomerMemorySnapshotForPrompt(facts, { maxChars }),
+    memory_version: memorySnapshot.memory_version ?? 0,
+    memory_fact_count: memorySnapshot.fact_count ?? 0,
+    snapshot_facts_count: memorySnapshot.snapshot_facts_count ?? memorySnapshot.facts?.length ?? 0,
   };
 }
-
 
 const HIGH_RISK_INTENT_PATTERNS = [
   { flag: "underwriting_possible", review: true, pattern: /(가입|인수|심사).{0,16}(가능|될까|거절|할증|부담보|괜찮)/ },
@@ -451,7 +343,7 @@ export async function handleClaudeContextInjectionRequest({
       customer_memory_snapshot_preview: memorySnapshot.prompt_block.slice(0, 1200),
       memory_used: memoryUsed,
       used_memory_facts: usedMemoryFacts,
-      memory_fact_count: memorySnapshot.fact_count,
+      ...memorySnapshotResponseFields(memorySnapshot),
       requires_agent_review: requiresAgentReview,
       review_reason: answerReview.review_reason,
       review_status: answerReview.review_status,
@@ -473,7 +365,7 @@ export async function handleClaudeContextInjectionRequest({
       error_message: "ANTHROPIC_API_KEY is not configured on the server.",
       memory_used: memoryUsed,
       used_memory_facts: usedMemoryFacts,
-      memory_fact_count: memorySnapshot.fact_count,
+      ...memorySnapshotResponseFields(memorySnapshot),
       requires_agent_review: requiresAgentReview,
       review_reason: answerReview.review_reason,
       review_status: answerReview.review_status,
@@ -509,7 +401,7 @@ export async function handleClaudeContextInjectionRequest({
       error_message: claudeResult.errorMessage,
       memory_used: memoryUsed,
       used_memory_facts: usedMemoryFacts,
-      memory_fact_count: memorySnapshot.fact_count,
+      ...memorySnapshotResponseFields(memorySnapshot),
       requires_agent_review: requiresAgentReview,
       review_reason: answerReview.review_reason,
       review_status: answerReview.review_status,
@@ -531,7 +423,7 @@ export async function handleClaudeContextInjectionRequest({
     insufficient_context: insufficientContext,
     memory_used: memoryUsed,
     used_memory_facts: usedMemoryFacts,
-    memory_fact_count: memorySnapshot.fact_count,
+    ...memorySnapshotResponseFields(memorySnapshot),
     requires_agent_review: requiresAgentReview,
     review_reason: answerReview.review_reason,
     review_status: answerReview.review_status,
