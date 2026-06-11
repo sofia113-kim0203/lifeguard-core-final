@@ -211,17 +211,7 @@ export async function hydrateMissingClaudeExplanations({
   return { claudeExplanations: hydrated, hydrationResults };
 }
 
-export function mapJobResultsToAnalysisPanels(job) {
-  if (!job?.result_json) return null;
-  const result = job.result_json;
-  return {
-    coverageGapResult: result.coverage_gap ?? null,
-    underwritingResult: result.underwriting_risk ?? null,
-    recommendationResult: result.recommendation ?? null,
-    designBundle: result.insurance_design ?? null,
-    claudeExplanations: result.claude_explanations ?? {},
-    finalClaude: result.final_claude ?? null,
-    panelClaudePolicyCount: result.panel_claude_policy_count ?? null,
-    panelClaudePolicyIds: result.panel_claude_policy_ids ?? [],
-  };
-}
+export {
+  jobHasEnginePanelResults,
+  mapJobResultsToAnalysisPanels,
+} from "./analysisPanelJobUtils.js";

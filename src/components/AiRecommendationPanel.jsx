@@ -20,6 +20,7 @@ import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   fetchLatestAnalysisJob,
+  jobHasEnginePanelResults,
   mapJobResultsToAnalysisPanels,
 } from "../lib/customerConversationalAnalysis.js";
 import {
@@ -427,6 +428,27 @@ function isJobInFlight(job) {
   return job?.status === "processing" || job?.status === "queued";
 }
 
+function panelStateHasData({ gapResult, uwResult, recResult, designResult, rebalancingResult } = {}) {
+  return Boolean(
+    gapResult?.coverageGapResult ||
+      uwResult?.underwritingResult ||
+      recResult?.customerVisibleTop2?.length ||
+      recResult?.recommendations?.length ||
+      designResult?.customerVisibleDesign ||
+      designResult?.insuranceDesign ||
+      rebalancingResult?.rebalancingResult ||
+      rebalancingResult?.customerVisibleRebalancing,
+  );
+}
+
+async function loadRebalancingPanel({ skipClaude = false } = {}) {
+  try {
+    return await loadCustomerRebalancing({ skipClaude });
+  } catch {
+    return null;
+  }
+}
+
 function AnalysisJobInFlightNotice({ analysisJob, onNavigateToChat }) {
   if (!isJobInFlight(analysisJob)) return null;
   const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
@@ -521,18 +543,36 @@ export default function AiRecommendationPanel({
   }, []);
 
   const loadPanelDataFromApis = useCallback(async ({ skipClaude = false } = {}) => {
-    const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
+    const [gapRes, uwRes, recRes, designRes, rebalancingRes] = await Promise.allSettled([
       analyzeCustomerCoverageGap({ skipClaude }),
       analyzeCustomerUnderwritingRisk({ skipClaude }),
       loadCustomerRecommendations({ skipClaude }),
       loadCustomerInsuranceDesign({ skipClaude }),
       loadCustomerRebalancing({ skipClaude }),
     ]);
-    setGapResult(gapData);
-    setUwResult(uwData);
-    setRecResult(recData);
-    setDesignResult(designData);
-    setRebalancingResult(rebalancingData);
+
+    const nextState = {
+      gapResult: gapRes.status === "fulfilled" ? gapRes.value : null,
+      uwResult: uwRes.status === "fulfilled" ? uwRes.value : null,
+      recResult: recRes.status === "fulfilled" ? recRes.value : null,
+      designResult: designRes.status === "fulfilled" ? designRes.value : null,
+      rebalancingResult: rebalancingRes.status === "fulfilled" ? rebalancingRes.value : null,
+    };
+
+    if (nextState.gapResult) setGapResult(nextState.gapResult);
+    if (nextState.uwResult) setUwResult(nextState.uwResult);
+    if (nextState.recResult) setRecResult(nextState.recResult);
+    if (nextState.designResult) setDesignResult(nextState.designResult);
+    if (nextState.rebalancingResult) setRebalancingResult(nextState.rebalancingResult);
+
+    if (!panelStateHasData(nextState)) {
+      const firstFailure = [gapRes, uwRes, recRes, designRes, rebalancingRes].find(
+        (result) => result.status === "rejected",
+      );
+      throw firstFailure?.reason ?? new Error("보장·인수 분석을 불러오지 못했습니다.");
+    }
+
+    return nextState;
   }, []);
 
   const clearPanelResults = useCallback(() => {
@@ -553,37 +593,41 @@ export default function AiRecommendationPanel({
 
     setLoading(true);
     setError("");
+
+    let latestJob = null;
     try {
-      const latestJob = await fetchLatestAnalysisJob();
+      latestJob = await fetchLatestAnalysisJob();
+    } catch {
+      // Latest chat job is optional; cache/API fallback still applies.
+    }
+
+    try {
       if (latestJob) {
         setAnalysisJob(latestJob);
         if (isJobInFlight(latestJob)) {
           clearPanelResults();
           return;
         }
-        const applied = applyJobToState(latestJob);
-        if (latestJob.status === "completed" && applied) {
-          await hydrateMissingClaudeExplanations(latestJob, panelSetters);
-          return;
-        }
-        if (useSessionJob) {
-          clearPanelResults();
-          return;
+        if (latestJob.status === "completed" && jobHasEnginePanelResults(latestJob)) {
+          const applied = applyJobToState(latestJob);
+          if (applied) {
+            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
+            if (rebalancingData) setRebalancingResult(rebalancingData);
+            await hydrateMissingClaudeExplanations(latestJob, panelSetters);
+            return;
+          }
         }
       }
 
-      if (!useSessionJob) {
-        await loadPanelDataFromApis();
-      } else {
-        clearPanelResults();
-      }
+      await loadPanelDataFromApis();
+      setError("");
     } catch (err) {
       clearPanelResults();
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
-  }, [user, applyJobToState, loadPanelDataFromApis, useSessionJob, clearPanelResults]);
+  }, [user, applyJobToState, loadPanelDataFromApis, clearPanelResults]);
 
   useEffect(() => {
     void loadInitialAnalysis();
@@ -609,24 +653,29 @@ export default function AiRecommendationPanel({
       return;
     }
 
-    const applied = applyJobToState(resolvedExternalJob);
-
-    if (resolvedExternalJob.status === "completed" && applied) {
-      setLoading(false);
-      setError("");
-      void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
-      return;
+    if (resolvedExternalJob.status === "completed" && jobHasEnginePanelResults(resolvedExternalJob)) {
+      const applied = applyJobToState(resolvedExternalJob);
+      if (applied) {
+        setLoading(false);
+        setError("");
+        void loadRebalancingPanel({ skipClaude: true }).then((data) => {
+          if (data) setRebalancingResult(data);
+        });
+        void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
+        return;
+      }
     }
 
-    if (useSessionJob) {
-      clearPanelResults();
-      setLoading(false);
-    }
-  }, [externalJobSnapshotKey, applyJobToState, useSessionJob, clearPanelResults]);
+    // Chat-only jobs (policy_detail, factual_lookup, etc.) must not wipe API/cache panels.
+    setLoading(false);
+  }, [externalJobSnapshotKey, applyJobToState, clearPanelResults]);
 
   const displayJob = analysisJob ?? resolvedExternalJob;
   const jobInFlight = isJobInFlight(displayJob);
-  const showDetailPanels = displayJob?.status === "completed";
+  const showDetailPanels =
+    loading ||
+    jobInFlight ||
+    panelStateHasData({ gapResult, uwResult, recResult, designResult, rebalancingResult });
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;
