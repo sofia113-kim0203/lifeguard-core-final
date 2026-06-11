@@ -23,6 +23,7 @@ import {
   jobHasEnginePanelResults,
   mapJobResultsToAnalysisPanels,
 } from "../lib/customerConversationalAnalysis.js";
+import { jobBlocksPanelLoading } from "../lib/analysisPanelJobUtils.js";
 import {
   hasClaudeExplanation,
   normalizeClaudeExplanationEntry,
@@ -450,7 +451,7 @@ async function loadRebalancingPanel({ skipClaude = false } = {}) {
 }
 
 function AnalysisJobInFlightNotice({ analysisJob, onNavigateToChat }) {
-  if (!isJobInFlight(analysisJob)) return null;
+  if (!jobBlocksPanelLoading(analysisJob)) return null;
   const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
   return (
     <div
@@ -604,7 +605,7 @@ export default function AiRecommendationPanel({
     try {
       if (latestJob) {
         setAnalysisJob(latestJob);
-        if (isJobInFlight(latestJob)) {
+        if (jobBlocksPanelLoading(latestJob)) {
           clearPanelResults();
           return;
         }
@@ -647,7 +648,7 @@ export default function AiRecommendationPanel({
 
     setAnalysisJob(resolvedExternalJob);
 
-    if (isJobInFlight(resolvedExternalJob)) {
+    if (jobBlocksPanelLoading(resolvedExternalJob)) {
       clearPanelResults();
       setLoading(false);
       return;
@@ -667,11 +668,21 @@ export default function AiRecommendationPanel({
     }
 
     // Chat-only jobs (policy_detail, factual_lookup, etc.) must not wipe API/cache panels.
+    if (!jobHasEnginePanelResults(resolvedExternalJob)) {
+      void loadPanelDataFromApis()
+        .then(() => setError(""))
+        .catch((err) => {
+          setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
+        })
+        .finally(() => setLoading(false));
+      return;
+    }
+
     setLoading(false);
-  }, [externalJobSnapshotKey, applyJobToState, clearPanelResults]);
+  }, [externalJobSnapshotKey, applyJobToState, clearPanelResults, loadPanelDataFromApis]);
 
   const displayJob = analysisJob ?? resolvedExternalJob;
-  const jobInFlight = isJobInFlight(displayJob);
+  const jobInFlight = jobBlocksPanelLoading(displayJob);
   const showDetailPanels =
     loading ||
     jobInFlight ||
