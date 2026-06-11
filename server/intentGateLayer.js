@@ -1,8 +1,24 @@
 /**
  * Phase 29-A — Intent Gate for customer conversational QA.
  * Routes questions to pipeline manifests; factual_lookup answers from policy list before Gap.
+ * Phase 31-C-P1 — policy_detail uses Policy Explorer helpers for per-contract chat answers.
  */
 import { resolveUnifiedPolicyView } from "./customerConversationalTone.js";
+import {
+  computePolicyExplorerStats,
+  formatInsurerName,
+  formatPolicyPremium,
+  formatPolicySource,
+  formatPolicyStatus,
+  formatPolicyType,
+  formatProductName,
+  formatRiderLines,
+  hasStructuredRiders,
+  mergePolicyRecords,
+} from "../src/lib/policyExplorer.js";
+
+export const POLICY_DETAIL_RIDER_UNAVAILABLE_MESSAGE =
+  "특약 정보는 아직 구조화되지 않았습니다.";
 
 export const ANALYSIS_PIPELINE_STAGE_ORDER = [
   "coverage_gap",
@@ -15,6 +31,7 @@ export const ANALYSIS_PIPELINE_STAGE_ORDER = [
 export const CONSULTATION_INTENTS = [
   "claim_eligibility_check",
   "factual_lookup",
+  "policy_detail",
   "coverage_gap_check",
   "coverage_review_request",
   "recommendation_request",
@@ -62,6 +79,8 @@ const CLAIM_TERMS_SIGNAL = /약관.{0,16}(지급|보장).{0,16}(되나|될까|�
 const CLAIM_DIRECT_SIGNAL = /청구\s*가능/;
 const COVERAGE_REVIEW_SIGNAL =
   /보장\s*(분석|점검|확인|검토|상태|현황)|보장분석|내보험\s*보장|내\s*보장\s*(봐|봐줘|알려|확인)|내\s*보험\s*분석|보장\s*봐/;
+const POLICY_DETAIL_SIGNAL =
+  /내\s*보험\s*(?:알려|목록|확인)|내가\s*(?:가입한\s*보험(?:은)?|든\s*보험)|보험\s*보여\s*줘|가입\s*보험\s*확인|내가\s*든\s*보험\s*알려/i;
 
 function normalizeQuestion(question = "") {
   return String(question).replace(/\s+/g, " ").trim();
@@ -146,11 +165,22 @@ function isClaimEligibilityCheck(text) {
   return false;
 }
 
+function isPolicyDetailRequest(text) {
+  if (GAP_SIGNAL.test(text) || RECOMMEND_SIGNAL.test(text) || DESIGN_SIGNAL.test(text)) {
+    return false;
+  }
+  if (isClaimEligibilityCheck(text)) return false;
+  if (isCoverageReviewRequest(text)) return false;
+  if (/보험\s*(?:총\s*)?건수|몇\s*건|가입\s*보험\s*수/.test(text)) return false;
+  return POLICY_DETAIL_SIGNAL.test(text);
+}
+
 function isFactualLookup(text) {
   if (GAP_SIGNAL.test(text) || RECOMMEND_SIGNAL.test(text) || DESIGN_SIGNAL.test(text)) {
     return false;
   }
   if (isClaimEligibilityCheck(text)) return false;
+  if (isPolicyDetailRequest(text)) return false;
 
   const { subIntent } = detectLookupSubIntent(text);
   if (subIntent) return true;
@@ -230,6 +260,17 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
+  if (isPolicyDetailRequest(text)) {
+    return {
+      intent: "policy_detail",
+      confidence: "high",
+      matched_rule: "policy_detail_list",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
   if (isFactualLookup(text)) {
     const lookup = detectLookupSubIntent(text);
     return {
@@ -257,6 +298,8 @@ export function resolvePipelineManifest(intent) {
     case "claim_eligibility_check":
       return ["result_claude"];
     case "factual_lookup":
+      return ["result_claude"];
+    case "policy_detail":
       return ["result_claude"];
     case "coverage_gap_check":
       return ["coverage_gap", "result_claude"];
@@ -287,7 +330,7 @@ export function buildIntentGatePayload(classification, pipelineManifest) {
     pipeline_manifest: pipelineManifest,
     skipped_stages: resolveSkippedStages(pipelineManifest),
     result_mode:
-      classification.intent === "factual_lookup"
+      classification.intent === "factual_lookup" || classification.intent === "policy_detail"
         ? "light"
         : classification.intent === "claim_eligibility_check"
           ? "claim_light"
@@ -359,6 +402,30 @@ export function matchPolicyToCategory(policies = [], lookupCategory = null) {
     confidence: overallConfidence,
     matched_policies: matched,
   };
+}
+
+function resolvePolicyExplorerPolicies(workingContext = {}) {
+  const sourceContext = workingContext.sourceContext ?? {};
+  const sourceSummary = workingContext.sourceSummary ?? {};
+  const fullPolicies = Array.isArray(sourceContext.policies) ? sourceContext.policies : [];
+  const summaryInsurance = Array.isArray(sourceSummary.insurance) ? sourceSummary.insurance : [];
+
+  if (fullPolicies.length > 0) {
+    return mergePolicyRecords(fullPolicies, []);
+  }
+  if (summaryInsurance.length > 0) {
+    return mergePolicyRecords(summaryInsurance, []);
+  }
+  return [];
+}
+
+function formatPolicyDetailRiderLine(policy) {
+  if (!hasStructuredRiders(policy)) {
+    return POLICY_DETAIL_RIDER_UNAVAILABLE_MESSAGE;
+  }
+  return formatRiderLines(policy)
+    .map((rider) => (rider.detail ? `${rider.label} (${rider.detail})` : rider.label))
+    .join(", ");
 }
 
 function buildCustomerLabel(workingContext = {}) {
@@ -460,6 +527,44 @@ export function buildFactualLookupAnswer(question, workingContext = {}, intentGa
   return null;
 }
 
+export function buildPolicyDetailAnswer(question, workingContext = {}) {
+  const customerLabel = buildCustomerLabel(workingContext);
+  const policies = resolvePolicyExplorerPolicies(workingContext);
+  const stats = computePolicyExplorerStats(policies);
+
+  if (!policies.length) {
+    return `${customerLabel}, 현재 시스템에 등록된 가입 보험 정보를 찾지 못했습니다. 고객 분석 화면에서 보험 정보를 저장해 주시면 계약별로 안내해 드리겠습니다.`;
+  }
+
+  const lines = [
+    `${customerLabel}, 현재 등록된 보험은 총 ${stats.totalCount}건입니다.`,
+    `월 보험료가 확인되는 계약은 ${stats.premiumKnownCount}건이며, 확인된 월 보험료 합계는 ${stats.premiumTotal.toLocaleString("ko-KR")}원입니다.`,
+  ];
+
+  if (stats.premiumUnknownCount > 0) {
+    lines.push(`보험료 미확인 ${stats.premiumUnknownCount}건입니다.`);
+  }
+
+  policies.forEach((policy, index) => {
+    const insurer = formatInsurerName(policy);
+    const product = formatProductName(policy);
+    lines.push(`${index + 1}. ${insurer} / ${product}`);
+    lines.push(`- 월 보험료: ${formatPolicyPremium(policy)}`);
+    lines.push(`- 상태: ${formatPolicyStatus(policy)}`);
+    lines.push(`- 유형: ${formatPolicyType(policy)}`);
+    lines.push(`- 출처: ${formatPolicySource(policy.source)}`);
+    lines.push(`- 특약: ${formatPolicyDetailRiderLine(policy)}`);
+  });
+
+  return lines.join("\n");
+}
+
+export function buildPolicyDetailResultText(question, workingContext = {}) {
+  const answer =
+    workingContext.policy_detail_answer ?? buildPolicyDetailAnswer(question, workingContext);
+  return answer.slice(0, 8000);
+}
+
 export function buildFactualLookupResultText(question, workingContext = {}, intentGate = {}) {
   const factual =
     workingContext.factual_lookup_answer ??
@@ -474,6 +579,10 @@ export function answerDirectlyAddressesQuestion(question, answer, intentGate = {
   if (!text || !q) return false;
 
   const firstSentence = text.split(/(?<=[.!?])\s+/)[0] ?? text;
+
+  if (intentGate.intent === "policy_detail") {
+    return /등록된\s*보험|가입\s*보험|총\s*\d+건/.test(firstSentence);
+  }
 
   if (intentGate.intent === "factual_lookup") {
     if (intentGate.lookup_sub_intent === "policy_count") {

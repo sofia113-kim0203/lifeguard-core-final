@@ -158,6 +158,13 @@ export function buildIntentAwareAnalysisSummary(workingContext = {}) {
     };
   }
 
+  if (intent === "policy_detail") {
+    return {
+      memory: full.memory,
+      policy_detail_answer: workingContext.policy_detail_answer ?? null,
+    };
+  }
+
   if (intent === "coverage_gap_check" || intent === "coverage_review_request") {
     return {
       memory: full.memory,
@@ -192,10 +199,15 @@ export function buildShortExplanationPrompt(question, workingContext) {
           customer_label: buildCustomerFacingContext(workingContext).customer_label,
           factual_lookup_answer: workingContext.factual_lookup_answer ?? null,
         }
-      : buildCustomerFacingContext(workingContext);
+      : intent === "policy_detail"
+        ? {
+            customer_label: buildCustomerFacingContext(workingContext).customer_label,
+            policy_detail_answer: workingContext.policy_detail_answer ?? null,
+          }
+        : buildCustomerFacingContext(workingContext);
   const system = [
     ADVISOR_TONE_SYSTEM_RULES,
-    intent === "factual_lookup"
+    intent === "factual_lookup" || intent === "policy_detail"
       ? "This is a factual lookup answer. Do NOT mention coverage gaps, recommendations, or insurance design unless the customer explicitly asked."
       : "Put the direct answer to the customer's literal question in the first 1-2 sentences. Only after that, add analysis context allowed for this intent.",
   ].join("\n");

@@ -15,6 +15,7 @@ import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
 import {
   buildFactualLookupAnswer,
   buildIntentGatePayload,
+  buildPolicyDetailAnswer,
   classifyConsultationIntent,
   getJobPipelineManifest,
   getJobSkippedStages,
@@ -248,11 +249,16 @@ export async function handleConversationalQuestionRequest({
   const intentClassification = classifyConsultationIntent(trimmedQuestion);
   const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
   const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
-  const factualLookupAnswer = buildFactualLookupAnswer(trimmedQuestion, {
+  const workingContextInput = {
     snapshot,
     sourceContext: memoryContext.sourceContext,
     sourceSummary: memoryContext.sourceSummary,
-  }, intentGate);
+  };
+  const factualLookupAnswer = buildFactualLookupAnswer(trimmedQuestion, workingContextInput, intentGate);
+  const policyDetailAnswer =
+    intentGate.intent === "policy_detail"
+      ? buildPolicyDetailAnswer(trimmedQuestion, workingContextInput)
+      : null;
 
   const fastResponse = buildFastConversationalResponse({
     question: trimmedQuestion,
@@ -288,6 +294,7 @@ export async function handleConversationalQuestionRequest({
           sourceContextFlags: memoryContext.data_available,
           intentGate,
           factual_lookup_answer: factualLookupAnswer,
+          policy_detail_answer: policyDetailAnswer,
         },
       },
       stages_completed: [],

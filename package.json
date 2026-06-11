@@ -37,8 +37,10 @@
     "test:phase28-policy-is-active": "node scripts/phase28-policy-is-active-audit.mjs",
     "test:phase28-chat-duplicate-fix": "node scripts/phase28-chat-duplicate-fix-test.mjs",
     "test:phase29-intent-gate": "node scripts/phase29-intent-gate-routing-test.mjs",
+    "test:phase30-claim-bridge": "node scripts/phase30-claim-bridge-routing-test.mjs",
     "test:phase29-signup-basic-profile": "node scripts/phase29-signup-basic-profile-test.mjs",
     "test:phase31c-p0-policy-explorer": "node scripts/phase31c-p0-policy-explorer-unit-test.mjs",
+    "test:phase31c-p1-chat-policy-explorer": "node scripts/phase31c-p1-chat-policy-explorer-test.mjs",
     "test:phase31c-p0-policy-explorer-production": "node scripts/phase31c-p0-policy-explorer-production-verify.mjs"
   },
   "dependencies": {
