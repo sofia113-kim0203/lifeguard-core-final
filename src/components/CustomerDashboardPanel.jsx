@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
+import PolicyExplorerSection from "./PolicyExplorerSection.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
 import { formatGenderLabel } from "../lib/signupValidation.js";
@@ -259,6 +260,14 @@ export default function CustomerDashboardPanel({ user, onNavigate }) {
           value={`${data?.intakeCompletenessScore ?? 0}% (${formatCompletenessLabel(data?.intakeCompletenessScore ?? 0)})`}
         />
       </div>
+
+      <PolicyExplorerSection
+        dashboardPolicies={data?.insurancePolicies}
+        unifiedPolicies={unifiedState?.policies}
+        variant="full"
+        loading={loading && !data}
+        defaultExpandFirst
+      />
 
       <IntakeCompletenessBar completeness={data?.intakeCompleteness} compact />
 

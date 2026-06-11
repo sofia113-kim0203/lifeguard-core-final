@@ -2,6 +2,7 @@
  * Phase 28 — Customer home status board (no duplicate nav buttons, no dev DB cards).
  */
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
+import PolicyExplorerSection from "./PolicyExplorerSection.jsx";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -199,6 +200,13 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
         <StatusPill label={`분석 ${loading ? "…" : analysisLabel}`} tone={analysisTone} />
         <StatusPill label={`설계 ${loading ? "…" : designLabel}`} tone={designTone} />
       </div>
+
+      <PolicyExplorerSection
+        dashboardPolicies={dashboard?.insurancePolicies}
+        unifiedPolicies={unified?.policies}
+        variant="summary"
+        loading={loading}
+      />
 
       <div
         style={{
