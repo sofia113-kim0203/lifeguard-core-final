@@ -41,6 +41,7 @@
     "test:phase29-signup-basic-profile": "node scripts/phase29-signup-basic-profile-test.mjs",
     "test:phase31c-p0-policy-explorer": "node scripts/phase31c-p0-policy-explorer-unit-test.mjs",
     "test:phase31c-p1-chat-policy-explorer": "node scripts/phase31c-p1-chat-policy-explorer-test.mjs",
+    "test:phase31c-p1-chat-policy-explorer-production": "node scripts/phase31c-p1-chat-policy-explorer-production-verify.mjs",
     "test:phase31c-p0-policy-explorer-production": "node scripts/phase31c-p0-policy-explorer-production-verify.mjs"
   },
   "dependencies": {
