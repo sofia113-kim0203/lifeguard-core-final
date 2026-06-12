@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { fetchLatestAnalysisJob } from "../lib/customerConversationalAnalysis.js";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
 import {
@@ -46,7 +47,7 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
   });
 }
 
-export function CustomerSessionProvider({ user, children }) {
+export function CustomerSessionProvider({ user, authSession = null, authLoading = false, children }) {
   const [dashboardData, setDashboardData] = useState(null);
   const [unifiedState, setUnifiedState] = useState(null);
   const [activeAnalysisJob, setActiveAnalysisJob] = useState(null);
@@ -63,6 +64,16 @@ export function CustomerSessionProvider({ user, children }) {
         setLoading(false);
         setError("");
         setLastEvent(null);
+        return null;
+      }
+
+      if (authLoading) {
+        return null;
+      }
+
+      if (!authSession?.access_token) {
+        setLoading(false);
+        setError("로그인이 필요합니다.");
         return null;
       }
 
@@ -89,13 +100,17 @@ export function CustomerSessionProvider({ user, children }) {
 
         return { dashboard, unified };
       } catch (err) {
-        setError(toCustomerErrorMessage(err, "고객 세션을 불러오지 못했습니다."));
+        if (isCustomerUnauthorizedError(err)) {
+          setError("로그인이 필요합니다. 다시 로그인해 주세요.");
+        } else {
+          setError(toCustomerErrorMessage(err, "고객 세션을 불러오지 못했습니다."));
+        }
         return null;
       } finally {
         setLoading(false);
       }
     },
-    [user],
+    [user, authSession, authLoading],
   );
 
   const notifySystemMessage = useCallback(

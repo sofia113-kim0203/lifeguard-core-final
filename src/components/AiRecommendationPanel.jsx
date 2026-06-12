@@ -14,6 +14,7 @@ import {
   PRIORITY_LABELS,
   RECOMMENDATION_TYPE_LABELS,
 } from "../lib/customerRecommendations.js";
+import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
 import { loadCustomerRebalancing } from "../lib/customerRebalancing.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
@@ -482,7 +483,9 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
       setRebalancingResult(rebalancingData);
     } catch (err) {
       const keepPanels =
-        panelsAppliedFromJob || jobHasDisplayablePanelResults(latestJobForRecovery);
+        panelsAppliedFromJob ||
+        jobHasDisplayablePanelResults(latestJobForRecovery) ||
+        isCustomerUnauthorizedError(err);
       if (!keepPanels) {
         setGapResult(null);
         setUwResult(null);
