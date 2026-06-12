@@ -319,7 +319,7 @@ export default function App() {
           }}
         >
           {user ? (
-            <CustomerSessionProvider user={user}>
+            <CustomerSessionProvider user={user} authSession={session} authLoading={authLoading}>
               {renderMainContent(activeMenu, {
                 user,
                 authLoading,

@@ -6,6 +6,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 const requiredFiles = [
   "api/customer-unified-state.js",
+  "src/lib/customerApiAuth.js",
+  "server/requireCustomerAuth.js",
   "src/context/CustomerSessionProvider.jsx",
   "src/lib/customerUnifiedState.js",
   "src/hooks/useCustomerSession.js",
@@ -36,5 +38,21 @@ assert.match(
   /hydrateMissingClaudeExplanations/,
   "analysis job panels must hydrate Claude via panel APIs",
 );
+
+for (const file of [
+  "src/lib/customerCoverageGap.js",
+  "src/lib/customerUnderwritingRisk.js",
+  "src/lib/customerRecommendations.js",
+  "src/lib/customerInsuranceDesign.js",
+  "src/lib/customerUnifiedState.js",
+  "src/lib/customerConversationalAnalysis.js",
+]) {
+  const source = readFileSync(file, "utf8");
+  assert.match(source, /fetchCustomerApi/, `${file} must use shared customer API auth helper`);
+}
+
+const sessionProviderSource = readFileSync("src/context/CustomerSessionProvider.jsx", "utf8");
+assert.match(sessionProviderSource, /authSession/, "session provider must wait for auth session token");
+assert.match(sessionProviderSource, /isCustomerUnauthorizedError/, "session provider must handle 401 safely");
 
 console.log("Phase 28 Step 1B UI sync smoke checks passed.");

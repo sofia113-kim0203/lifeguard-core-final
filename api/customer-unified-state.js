@@ -4,39 +4,18 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { readJsonBody, resolveSupabaseConfig } from "../server/claudeGroundedExecutionCore.js";
-
-function createUserSupabaseClient(authHeader, env = process.env) {
-  const { url, anonKey } = resolveSupabaseConfig(env);
-  if (!url || !anonKey) return null;
-  const token = String(authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
-  return createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-  });
-}
+import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
+import {
+  createUserSupabaseClient,
+  readCustomerAuthHeader,
+  requireCustomerAuth,
+} from "../server/requireCustomerAuth.js";
 
 function createServiceRoleSupabaseClient(env = process.env) {
   const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
   const serviceRoleKey = String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
   if (!url || !serviceRoleKey) return null;
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
-async function resolveCustomerId(userSupabase) {
-  const { data: authData, error: authError } = await userSupabase.auth.getUser();
-  if (authError || !authData?.user) {
-    return { ok: false, reason: "UNAUTHORIZED", error_message: "Authentication required." };
-  }
-  const { data: profile, error: profileError } = await userSupabase
-    .from("customer_profiles")
-    .select("id")
-    .eq("user_id", authData.user.id)
-    .maybeSingle();
-  if (profileError || !profile?.id) {
-    return { ok: false, reason: "CUSTOMER_PROFILE_NOT_FOUND", error_message: "Customer profile not found." };
-  }
-  return { ok: true, customerId: profile.id };
 }
 
 function mapUnifiedStateForClient(state) {
@@ -101,17 +80,16 @@ export default async function handler(req, res) {
   try {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const lastEvent = body?.last_event ? String(body.last_event).trim() : null;
-    const authHeader = req.headers?.authorization ?? req.headers?.Authorization ?? null;
+    const authHeader = readCustomerAuthHeader(req);
 
     const userSupabase = createUserSupabaseClient(authHeader);
-    if (!userSupabase) {
+    const resolved = await requireCustomerAuth(userSupabase);
+    if (!resolved.ok && resolved.reason === "SUPABASE_NOT_CONFIGURED") {
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: false, reason: "SUPABASE_NOT_CONFIGURED" }));
+      res.end(JSON.stringify(resolved));
       return;
     }
-
-    const resolved = await resolveCustomerId(userSupabase);
     if (!resolved.ok) {
       res.statusCode = resolved.reason === "UNAUTHORIZED" ? 401 : 403;
       res.setHeader("Content-Type", "application/json");

@@ -1,15 +1,12 @@
-import { supabase } from "./supabase.js";
+import {
+  assertCustomerApiOk,
+  fetchCustomerApi,
+  isCustomerUnauthorizedError,
+  rethrowCustomerApiError,
+} from "./customerApiAuth.js";
 
 const CONVERSATIONAL_ROUTE = "/api/customer-conversational-qa";
 const ANALYSIS_JOB_ROUTE = "/api/customer-analysis-job";
-
-async function getAccessToken() {
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data?.session?.access_token) {
-    throw new Error("로그인이 필요합니다.");
-  }
-  return data.session.access_token;
-}
 
 function mapServerError(payload, status) {
   if (payload?.error_message) return payload.error_message;
@@ -22,19 +19,19 @@ export async function sendConversationalQuestion({ question, autoProcess = false
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
-  const token = await getAccessToken();
-  const response = await fetch(CONVERSATIONAL_ROUTE, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ question: trimmed, auto_process: autoProcess }),
+  const { response, payload } = await fetchCustomerApi(CONVERSATIONAL_ROUTE, {
+    body: { question: trimmed, auto_process: autoProcess },
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.ok) {
-    throw new Error(mapServerError(payload, response.status));
+  try {
+    assertCustomerApiOk({ response, payload }, mapServerError(payload, response.status));
+  } catch (error) {
+    rethrowCustomerApiError(error, {
+      payload,
+      response,
+      fallbackMessage: mapServerError(payload, response.status),
+      mapMessage: (body, status) => mapServerError(body, status),
+    });
   }
 
   return {
@@ -54,19 +51,19 @@ export async function fetchAnalysisJobStatus({ jobId, action = "status" } = {}) 
   const trimmedJobId = String(jobId ?? "").trim();
   if (!trimmedJobId) throw new Error("분석 작업 ID가 없습니다.");
 
-  const token = await getAccessToken();
-  const response = await fetch(ANALYSIS_JOB_ROUTE, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ job_id: trimmedJobId, action }),
+  const { response, payload } = await fetchCustomerApi(ANALYSIS_JOB_ROUTE, {
+    body: { job_id: trimmedJobId, action },
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.ok) {
-    throw new Error(mapServerError(payload, response.status));
+  try {
+    assertCustomerApiOk({ response, payload }, mapServerError(payload, response.status));
+  } catch (error) {
+    rethrowCustomerApiError(error, {
+      payload,
+      response,
+      fallbackMessage: mapServerError(payload, response.status),
+      mapMessage: (body, status) => mapServerError(body, status),
+    });
   }
 
   return {
@@ -76,35 +73,43 @@ export async function fetchAnalysisJobStatus({ jobId, action = "status" } = {}) 
 }
 
 export async function fetchLatestAnalysisJob() {
-  const token = await getAccessToken();
-  const response = await fetch(ANALYSIS_JOB_ROUTE, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ mode: "latest" }),
+  const { response, payload } = await fetchCustomerApi(ANALYSIS_JOB_ROUTE, {
+    body: { mode: "latest" },
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.ok) {
-    throw new Error(mapServerError(payload, response.status));
+  try {
+    assertCustomerApiOk({ response, payload }, mapServerError(payload, response.status));
+  } catch (error) {
+    rethrowCustomerApiError(error, {
+      payload,
+      response,
+      fallbackMessage: mapServerError(payload, response.status),
+      mapMessage: (body, status) => mapServerError(body, status),
+    });
   }
 
   return payload.analysis_job ?? null;
 }
 
+export { isCustomerUnauthorizedError };
+
 export async function processAnalysisJobUntilComplete({
   jobId,
   onProgress,
   pollIntervalMs = 900,
-  maxAttempts = 150,
+  maxAttempts = 120,
 } = {}) {
+  const trimmedJobId = String(jobId ?? "").trim();
+  if (!trimmedJobId) throw new Error("분석 작업 ID가 없습니다.");
+
   let attempts = 0;
   let latestJob = null;
 
   while (attempts < maxAttempts) {
-    const { analysisJob, processResult } = await fetchAnalysisJobStatus({ jobId, action: "process" });
+    const { analysisJob, processResult } = await fetchAnalysisJobStatus({
+      jobId: trimmedJobId,
+      action: "process",
+    });
     latestJob = analysisJob;
     if (typeof onProgress === "function") {
       onProgress(latestJob);

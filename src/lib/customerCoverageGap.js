@@ -1,4 +1,4 @@
-import { supabase } from "./supabase.js";
+import { assertCustomerApiOk, fetchCustomerApi, rethrowCustomerApiError } from "./customerApiAuth.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const ROUTE_PATH = "/api/customer-coverage-gap";
@@ -14,28 +14,23 @@ function mapServerError(payload, status) {
 }
 
 export async function analyzeCustomerCoverageGap({ skipClaude = false } = {}) {
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !sessionData?.session?.access_token) {
-    throw new Error("로그인이 필요합니다.");
-  }
-
-  const response = await fetch(ROUTE_PATH, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${sessionData.session.access_token}`,
-    },
-    body: JSON.stringify({ skip_claude: skipClaude }),
+  const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
+    body: { skip_claude: skipClaude },
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.ok) {
-    throw new Error(
-      toCustomerErrorMessage(
-        { message: payload?.error_message ?? payload?.reason },
-        mapServerError(payload, response.status),
-      ),
-    );
+  try {
+    assertCustomerApiOk({ response, payload }, mapServerError(payload, response.status));
+  } catch (error) {
+    rethrowCustomerApiError(error, {
+      payload,
+      response,
+      fallbackMessage: mapServerError(payload, response.status),
+      mapMessage: (body, status) =>
+        toCustomerErrorMessage(
+          { message: body?.error_message ?? body?.reason, reason: body?.reason },
+          mapServerError(body, status),
+        ),
+    });
   }
 
   return {
