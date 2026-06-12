@@ -87,6 +87,105 @@ export function buildRecommendationExplanationPrompt(
   return { system: RECOMMENDATION_SYSTEM_RULES, user };
 }
 
+function joinCoverageLabelsForFallback(labels) {
+  const trimmed = labels.filter(Boolean);
+  if (!trimmed.length) return null;
+  if (trimmed.length === 1) return trimmed[0];
+  if (trimmed.length === 2) return `${trimmed[0]}과 ${trimmed[1]}`;
+  return `${trimmed.slice(0, -1).join(", ")}과 ${trimmed[trimmed.length - 1]}`;
+}
+
+export function buildRecommendationFallbackExplanation({
+  recommendationResult,
+  underwritingResult,
+  requiredDocuments = [],
+} = {}) {
+  const top2 = recommendationResult?.customer_visible_top2 ?? [];
+  const labels = top2.map((item) => item.coverage_label).filter(Boolean);
+  const labelPhrase = joinCoverageLabelsForFallback(labels) ?? "우선 보강이 필요한 보장";
+  const parts = [`현재 분석 결과 기준으로 ${labelPhrase} 보장 보강이 우선입니다.`];
+
+  const hasUnderwritingReview =
+    (underwritingResult?.likely_surcharge?.length ?? 0) > 0 ||
+    (underwritingResult?.likely_exclusion?.length ?? 0) > 0 ||
+    (underwritingResult?.likely_additional_review?.length ?? 0) > 0 ||
+    underwritingResult?.overall_underwriting_risk === "medium" ||
+    underwritingResult?.overall_underwriting_risk === "high";
+
+  if (hasUnderwritingReview) {
+    parts.push(
+      "건강 고지와 최근 처방·투약 이력에 따라 일부 보험사는 추가 심사를 요청할 수 있으므로, 가입 전 건강고지서와 최근 처방전을 준비하는 것이 좋습니다.",
+    );
+  } else {
+    parts.push("가입 전 건강고지서와 필요 서류를 미리 준비해 두시면 설계 검토가 더 원활합니다.");
+  }
+
+  const docs =
+    requiredDocuments.length > 0
+      ? requiredDocuments
+      : Array.from(new Set(top2.flatMap((item) => item.required_documents ?? [])));
+  if (docs.length) {
+    parts.push(`준비 서류 참고: ${docs.slice(0, 4).join(", ")}.`);
+  }
+
+  const keepLabels = (recommendationResult?.keep_existing ?? [])
+    .map((item) => item.coverage_label)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (keepLabels.length) {
+    parts.push(`유지해도 좋은 보장: ${keepLabels.join(", ")}.`);
+  }
+
+  return parts.join(" ");
+}
+
+async function parseAnthropicErrorResponse(response) {
+  const http_status = response.status;
+  let error_type = null;
+  let detailMessage = null;
+
+  try {
+    const raw = await response.text();
+    if (raw) {
+      try {
+        const body = JSON.parse(raw);
+        error_type = body?.error?.type ?? null;
+        detailMessage =
+          typeof body?.error?.message === "string" ? body.error.message.slice(0, 240) : null;
+      } catch {
+        detailMessage = raw.slice(0, 240);
+      }
+    }
+  } catch {
+    // ignore body read failures
+  }
+
+  const error_message = detailMessage
+    ? `Claude API error (${http_status}): ${detailMessage}`
+    : `Claude API error (${http_status})`;
+
+  return {
+    ok: false,
+    reason: "CLAUDE_API_ERROR",
+    http_status,
+    error_type,
+    error_message,
+    errorMessage: error_message,
+  };
+}
+
+function buildRecommendationClaudeMetaFromFailure(claudeResult, reasonOverride = null) {
+  return {
+    skipped: true,
+    reason: reasonOverride ?? claudeResult.reason ?? "CLAUDE_API_ERROR",
+    http_status: claudeResult.http_status ?? null,
+    error_type: claudeResult.error_type ?? null,
+    error_message: claudeResult.error_message ?? claudeResult.errorMessage ?? null,
+    fallback_used: true,
+    explanation_mode: "fallback",
+  };
+}
+
 async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetch }) {
   const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -104,11 +203,7 @@ async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetc
   });
 
   if (!response.ok) {
-    return {
-      ok: false,
-      reason: "CLAUDE_API_ERROR",
-      errorMessage: `Claude API error (${response.status})`,
-    };
+    return parseAnthropicErrorResponse(response);
   }
 
   const data = await response.json();
@@ -204,13 +299,33 @@ export async function handleCustomerRecommendationRequest({
 
   const context = await loadRecommendationAnalysisContext(supabase, customerId);
 
+  const requiredDocuments = Array.from(
+    new Set(context.recommendationResult.recommendations.flatMap((item) => item.required_documents ?? [])),
+  );
+
+  const fallbackExplanation = () =>
+    buildRecommendationFallbackExplanation({
+      recommendationResult: context.recommendationResult,
+      underwritingResult: context.underwritingResult,
+      requiredDocuments,
+    });
+
   let claudeExplanation = null;
   let claudeMeta = { skipped: true, reason: "skipClaude" };
 
   if (!skipClaude) {
     const anthropicApiKey = resolveAnthropicApiKey(env);
     if (!anthropicApiKey) {
-      claudeMeta = { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" };
+      claudeExplanation = fallbackExplanation();
+      claudeMeta = {
+        skipped: true,
+        reason: "ANTHROPIC_NOT_CONFIGURED",
+        http_status: null,
+        error_type: null,
+        error_message: "ANTHROPIC_API_KEY is not configured on the server.",
+        fallback_used: true,
+        explanation_mode: "fallback",
+      };
     } else {
       const prompt = buildRecommendationExplanationPrompt(
         context.structuredMemory,
@@ -218,33 +333,39 @@ export async function handleCustomerRecommendationRequest({
         context.coverageGapResult,
         context.underwritingResult,
       );
-      const claudeResult = await callAnthropic({
-        apiKey: anthropicApiKey,
-        modelName: resolveClaudeModel(env),
-        system: prompt.system,
-        user: prompt.user,
-        fetchImpl,
-      });
+      let claudeResult;
+      try {
+        claudeResult = await callAnthropic({
+          apiKey: anthropicApiKey,
+          modelName: resolveClaudeModel(env),
+          system: prompt.system,
+          user: prompt.user,
+          fetchImpl,
+        });
+      } catch (error) {
+        claudeResult = {
+          ok: false,
+          reason: "CLAUDE_API_ERROR",
+          http_status: null,
+          error_type: "network_error",
+          error_message: error instanceof Error ? error.message : "claude_request_failed",
+          errorMessage: error instanceof Error ? error.message : "claude_request_failed",
+        };
+      }
       if (claudeResult.ok) {
         claudeExplanation = claudeResult.answer;
         claudeMeta = {
           skipped: false,
           model_name: claudeResult.model,
           provider: claudeResult.provider,
+          explanation_mode: "claude",
         };
       } else {
-        claudeMeta = {
-          skipped: true,
-          reason: claudeResult.reason,
-          error_message: claudeResult.errorMessage,
-        };
+        claudeExplanation = fallbackExplanation();
+        claudeMeta = buildRecommendationClaudeMetaFromFailure(claudeResult);
       }
     }
   }
-
-  const requiredDocuments = Array.from(
-    new Set(context.recommendationResult.recommendations.flatMap((item) => item.required_documents ?? [])),
-  );
 
   return {
     ok: true,

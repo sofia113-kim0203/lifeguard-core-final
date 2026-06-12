@@ -793,14 +793,13 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
 
             {recResult.claudeExplanation ? (
               <div>
-                <h4 style={S.sectionTitle}>추천 Claude 설명</h4>
+                <h4 style={S.sectionTitle}>
+                  {recResult.claudeMeta?.explanation_mode === "fallback" ? "추천 설명" : "추천 Claude 설명"}
+                </h4>
                 <div style={S.explanation}>{recResult.claudeExplanation}</div>
               </div>
             ) : (
-              <div style={S.muted}>
-                추천 Claude 설명을 생성하지 못했습니다.
-                {recResult.claudeMeta?.reason ? ` (${recResult.claudeMeta.reason})` : ""}
-              </div>
+              <div style={S.muted}>추천 설명을 불러오지 못했습니다.</div>
             )}
           </div>
         ) : (
