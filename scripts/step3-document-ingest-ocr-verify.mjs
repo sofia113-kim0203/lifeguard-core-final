@@ -6,21 +6,16 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertBeforeTestSignUp,
+  assertSafeTestScriptExecution,
+  loadEnvLocal,
+} from "./lib/productionSafetyGuard.mjs";
 
-const ENV_LOCAL = ".env.local";
+const SCRIPT_NAME = "step3-document-ingest-ocr-verify";
 
-function loadEnvLocal() {
-  if (!existsSync(ENV_LOCAL)) return;
-  for (const line of readFileSync(ENV_LOCAL, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const idx = trimmed.indexOf("=");
-    if (idx <= 0) continue;
-    const key = trimmed.slice(0, idx).trim();
-    if (!process.env[key]) process.env[key] = trimmed.slice(idx + 1).trim();
-  }
-}
 loadEnvLocal();
+assertSafeTestScriptExecution({ scriptName: SCRIPT_NAME, createsTestAccount: true });
 
 const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
@@ -113,6 +108,7 @@ async function main() {
   const samplePath = ensureSampleImage();
   const bytes = readFileSync(samplePath);
 
+  assertBeforeTestSignUp(email, SCRIPT_NAME);
   const signUp = await sb.auth.signUp({ email, password });
   if (signUp.error) throw new Error(`signup_failed: ${signUp.error.message}`);
 
