@@ -57,7 +57,21 @@ export const DOCUMENT_UI_MESSAGES = {
   refreshAction: "새로고침",
   allCategories: "전체",
   loginRequired: "로그인이 필요합니다.",
-  analysisNotice: "문서 분석(OCR/RAG)은 다음 단계에서 제공됩니다.",
+  analysisNotice:
+    "업로드 후 문서 분석 동의가 있으면 OCR 분석이 자동으로 시작됩니다. 동의가 없으면 상태가 '분석 동의 필요'로 표시됩니다.",
+  analysisConsentTitle: "문서 분석 동의",
+  analysisConsentBody:
+    "업로드한 보험·청구·의료 서류에서 보험 정보를 추출하고 맞춤 분석에 활용하려면 문서 분석 동의가 필요합니다.",
+  analysisConsentAction: "분석 동의하고 시작",
+  analysisConsentSuccess: "문서 분석 동의가 완료되었습니다. 대기 중인 문서 분석을 시작합니다.",
+  analysisBlockedNotice: "문서 분석 동의가 필요합니다. 아래에서 동의 후 분석을 시작해 주세요.",
+  ingestQueuedNotice: "문서 분석이 대기열에 등록되었습니다.",
+  ingestFailedNotice: "문서 분석 시작에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+  policyExtractSuccessNotice: "보험정보 추출이 완료되었습니다.",
+  policyExtractPartialNotice: "문서 OCR은 완료되었으나 보험정보 추출에 필요한 항목이 부족합니다.",
+  pipelineRefreshSuccessNotice: "보장·인수·추천·설계 분석이 자동 갱신되었습니다.",
+  pipelineAnalysisFailedNotice: "문서 OCR·보험정보 추출은 완료되었으나 분석 갱신에 실패했습니다.",
+  pipelineMemoryFailedNotice: "보험정보는 추출되었으나 메모리 동기화에 실패했습니다.",
 };
 
 const USER_ROLE_LABELS = {
@@ -140,6 +154,20 @@ export function formatDocClass(docClass) {
 export function formatIngestStatus(status) {
   if (!status) return UI_LABELS.emptyValue;
   return INGEST_STATUS_LABELS[status] ?? status;
+}
+
+export function formatDocumentPipelineStatus(document) {
+  if (!document) return UI_LABELS.emptyValue;
+  const ingestStatus = document.ingest_status;
+  const extractionStatus = document.metadata_json?.policy_extraction_status;
+
+  if (ingestStatus === "ready" && extractionStatus === "completed") {
+    return "분석·보험정보 추출 완료";
+  }
+  if (ingestStatus === "ready" && extractionStatus === "extraction_failed") {
+    return "OCR 완료 · 보험정보 추출 필요";
+  }
+  return formatIngestStatus(ingestStatus);
 }
 
 export function formatFileSize(bytes) {

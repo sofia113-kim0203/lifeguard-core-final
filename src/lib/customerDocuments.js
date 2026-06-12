@@ -1,10 +1,13 @@
 import { loadCustomerDashboardData } from "./customerDashboard.js";
+import { extractPolicyFromReadyDocument } from "./customerDocumentPolicyExtract.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export const STORAGE_BUCKET = "customer-documents";
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const DOCUMENT_STORAGE_CONSENT_VERSION = "2026-06-07-ko-doc";
+export const DOCUMENT_ANALYSIS_CONSENT_VERSION = "2026-06-07-ko-doc-analysis";
+export const INSURANCE_DATA_CONSENT_VERSION = "2026-01-01-ko";
 export const SIGNED_URL_TTL_SECONDS = 60;
 
 export const DOCUMENT_CATEGORIES = [
@@ -181,6 +184,215 @@ export async function hasDocumentStorageConsent(customerId) {
   return (data ?? []).length > 0;
 }
 
+export async function hasDocumentAnalysisConsent(customerId) {
+  const { data, error } = await supabase
+    .from("customer_consents")
+    .select("consent_type, granted, revoked_at")
+    .eq("customer_id", customerId)
+    .eq("consent_type", "document_analysis")
+    .eq("granted", true)
+    .is("revoked_at", null);
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "문서 분석 동의 상태를 확인하지 못했습니다."));
+  }
+
+  return (data ?? []).length > 0;
+}
+
+export async function hasInsuranceDataProcessingConsent(customerId) {
+  const { data, error } = await supabase
+    .from("customer_consents")
+    .select("consent_type, granted, revoked_at")
+    .eq("customer_id", customerId)
+    .eq("consent_type", "insurance_data_processing")
+    .eq("granted", true)
+    .is("revoked_at", null);
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "보험정보 처리 동의 상태를 확인하지 못했습니다."));
+  }
+
+  return (data ?? []).length > 0;
+}
+
+export async function grantInsuranceDataProcessingConsent(customerId) {
+  const alreadyGranted = await hasInsuranceDataProcessingConsent(customerId);
+  if (alreadyGranted) return { granted: true, grantedAt: null };
+
+  const { error } = await supabase.from("customer_consents").insert({
+    customer_id: customerId,
+    consent_type: "insurance_data_processing",
+    consent_version: INSURANCE_DATA_CONSENT_VERSION,
+    granted: true,
+    granted_at: new Date().toISOString(),
+    source: "document_analysis_bundle",
+    purpose: "문서에서 추출한 보험정보 처리 및 맞춤 분석",
+    required: true,
+  });
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "보험정보 처리 동의를 저장하지 못했습니다."));
+  }
+
+  return { granted: true, grantedAt: new Date().toISOString() };
+}
+
+export async function grantDocumentAnalysisConsent(authUser) {
+  const { customerId } = await ensureCustomerContext(authUser);
+
+  const alreadyGranted = await hasDocumentAnalysisConsent(customerId);
+  if (alreadyGranted) {
+    await grantInsuranceDataProcessingConsent(customerId);
+    return {
+      customerId,
+      consentVersion: DOCUMENT_ANALYSIS_CONSENT_VERSION,
+      grantedAt: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc("lifeguard_grant_document_analysis_consent", {
+    p_consent_version: DOCUMENT_ANALYSIS_CONSENT_VERSION,
+  });
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "문서 분석 동의를 저장하지 못했습니다."));
+  }
+
+  await grantInsuranceDataProcessingConsent(customerId);
+
+  return {
+    customerId,
+    consentVersion: data?.consent_version ?? DOCUMENT_ANALYSIS_CONSENT_VERSION,
+    grantedAt: data?.granted_at ?? new Date().toISOString(),
+  };
+}
+
+async function invokeDocumentIngestWorker(documentId) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData.session?.access_token) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!baseUrl || !anonKey) {
+    throw new Error("문서 분석 서비스가 설정되지 않았습니다.");
+  }
+
+  const response = await fetch(`${baseUrl}/functions/v1/document-ingest-worker`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${sessionData.session.access_token}`,
+      apikey: anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ document_id: documentId }),
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message =
+      payload?.error_message ??
+      payload?.error ??
+      payload?.message ??
+      `문서 분석 요청이 실패했습니다. (${response.status})`;
+    throw new Error(message);
+  }
+
+  return payload ?? { ok: true };
+}
+
+export async function enqueueDocumentIngest(authUser, documentId) {
+  const { customerId } = await ensureCustomerContext(authUser);
+  const trimmedId = String(documentId ?? "").trim();
+  if (!trimmedId) {
+    throw new Error("문서 ID가 없습니다.");
+  }
+
+  const hasAnalysisConsent = await hasDocumentAnalysisConsent(customerId);
+  if (!hasAnalysisConsent) {
+    const { data: blockedDoc, error: blockError } = await supabase
+      .from("customer_documents")
+      .update({
+        ingest_status: "analysis_blocked_by_consent",
+        error_message: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", trimmedId)
+      .eq("customer_id", customerId)
+      .select(DOCUMENT_LIST_COLUMNS)
+      .maybeSingle();
+
+    if (blockError) {
+      throw new Error(toCustomerErrorMessage(blockError, "문서 분석 상태를 저장하지 못했습니다."));
+    }
+
+    return {
+      customerId,
+      documentId: trimmedId,
+      blocked: true,
+      ingestStatus: blockedDoc?.ingest_status ?? "analysis_blocked_by_consent",
+      message: "문서 분석 동의가 필요합니다.",
+      workerResult: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc("lifeguard_request_customer_document_ingest", {
+    p_document_id: trimmedId,
+  });
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "문서 분석 대기열 등록에 실패했습니다."));
+  }
+
+  if (data?.blocked) {
+    return {
+      customerId,
+      documentId: trimmedId,
+      blocked: true,
+      ingestStatus: data.ingest_status ?? "analysis_blocked_by_consent",
+      message: data.message ?? "문서 분석 동의가 필요합니다.",
+      workerResult: null,
+    };
+  }
+
+  const workerResult = await invokeDocumentIngestWorker(trimmedId);
+
+  let policyExtraction = null;
+  if (workerResult?.ingest_status === "ready") {
+    try {
+      policyExtraction = await extractPolicyFromReadyDocument(trimmedId);
+    } catch (extractError) {
+      policyExtraction = {
+        ok: false,
+        documentId: trimmedId,
+        message:
+          extractError instanceof Error
+            ? extractError.message
+            : "보험정보 추출에 실패했습니다.",
+      };
+    }
+  }
+
+  return {
+    customerId,
+    documentId: trimmedId,
+    blocked: false,
+    ingestStatus: workerResult?.ingest_status ?? data?.ingest_status ?? "queued",
+    ingestJobId: data?.ingest_job_id ?? null,
+    message: data?.message ?? "ingest_queued",
+    workerResult,
+    policyExtraction,
+  };
+}
+
 export async function grantDocumentStorageConsent(authUser) {
   const { customerId } = await ensureCustomerContext(authUser);
 
@@ -237,10 +449,55 @@ export async function listDocuments(authUser, { categoryKey = "all" } = {}) {
     throw new Error(toCustomerErrorMessage(error, "문서 목록을 불러오지 못했습니다."));
   }
 
+  const hasAnalysisConsent = await hasDocumentAnalysisConsent(customerId);
+
   return {
     customerId,
     hasDocumentStorageConsent: hasConsent,
+    hasDocumentAnalysisConsent: hasAnalysisConsent,
     documents: data ?? [],
+  };
+}
+
+export async function requeuePendingDocumentIngest(authUser) {
+  const { customerId } = await ensureCustomerContext(authUser);
+  const hasAnalysisConsent = await hasDocumentAnalysisConsent(customerId);
+  if (!hasAnalysisConsent) {
+    return { customerId, requeued: 0, results: [] };
+  }
+
+  const { data: documents, error } = await supabase
+    .from("customer_documents")
+    .select("id, ingest_status")
+    .eq("customer_id", customerId)
+    .is("deleted_at", null)
+    .in("ingest_status", ["uploaded", "analysis_blocked_by_consent"]);
+
+  if (error) {
+    throw new Error(toCustomerErrorMessage(error, "대기 중인 문서를 불러오지 못했습니다."));
+  }
+
+  const results = [];
+  for (const document of documents ?? []) {
+    try {
+      const ingest = await enqueueDocumentIngest(authUser, document.id);
+      results.push({ documentId: document.id, ingest });
+    } catch (ingestError) {
+      results.push({
+        documentId: document.id,
+        ingest: {
+          failed: true,
+          message:
+            ingestError instanceof Error ? ingestError.message : "문서 분석 시작에 실패했습니다.",
+        },
+      });
+    }
+  }
+
+  return {
+    customerId,
+    requeued: results.filter((item) => !item.ingest?.blocked && !item.ingest?.failed).length,
+    results,
   };
 }
 
@@ -297,9 +554,23 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
     throw new Error(toCustomerErrorMessage(insertError, "문서 정보를 저장하지 못했습니다."));
   }
 
+  let ingest = null;
+  try {
+    ingest = await enqueueDocumentIngest(authUser, documentId);
+  } catch (ingestError) {
+    ingest = {
+      blocked: false,
+      ingestStatus: data?.ingest_status ?? "uploaded",
+      failed: true,
+      message: ingestError instanceof Error ? ingestError.message : "문서 분석 시작에 실패했습니다.",
+      workerResult: null,
+    };
+  }
+
   return {
     customerId,
     document: data,
+    ingest,
   };
 }
 

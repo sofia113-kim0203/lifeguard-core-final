@@ -32,6 +32,143 @@ const STAGE_UI_LABELS = {
   result_claude: "답변 정리 완료",
 };
 
+export const REQUIRED_PANEL_STAGE_KEYS = [
+  "coverage_gap",
+  "underwriting_risk",
+  "recommendation",
+  "insurance_design",
+];
+
+export function hasRequiredPanelResults(resultJson) {
+  if (!resultJson || typeof resultJson !== "object") return false;
+  return REQUIRED_PANEL_STAGE_KEYS.every((key) => {
+    const value = resultJson[key];
+    return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+  });
+}
+
+function getNextPendingStage(stagesCompleted) {
+  return ANALYSIS_PIPELINE_STAGES.find((stage) => !stagesCompleted.includes(stage)) ?? null;
+}
+
+function hydrateWorkingContextFromResultJson(workingContext, resultJson) {
+  for (const key of REQUIRED_PANEL_STAGE_KEYS) {
+    hydrateWorkingContext(workingContext, key, resultJson[key]);
+  }
+}
+
+function buildResultClaudeFallbackStageResult(workingContext, reason = "result_claude_fallback") {
+  const fallbackText = buildFallbackConnectedResponse(workingContext);
+  return {
+    text: fallbackText,
+    fallback_text: fallbackText,
+    skipped: true,
+    reason,
+    explanation_mode: "fallback",
+    cache_hit: false,
+    detailed_available: false,
+    audit: auditExplanationContext(workingContext, workingContext.question),
+  };
+}
+
+async function finalizeResultClaudeStage({
+  supabase,
+  jobId,
+  customerId,
+  stagesCompleted,
+  resultJson,
+  workingContext,
+  timingMetrics,
+  stageResult,
+  stageDuration,
+  fromCache,
+  fetchImpl = fetch,
+  env = process.env,
+}) {
+  stagesCompleted.push("result_claude");
+  resultJson.result_claude = stageResult;
+  resultJson.working_context = workingContext;
+  resultJson.stage_labels = {
+    ...(resultJson.stage_labels ?? {}),
+    result_claude: STAGE_UI_LABELS.result_claude,
+  };
+  resultJson.final_claude = stageResult;
+  resultJson.claude_performance = stageResult?.performance ?? null;
+  resultJson.claude_audit = stageResult?.audit ?? null;
+  resultJson.explanation_mode = stageResult?.explanation_mode ?? "short";
+  resultJson.detailed_available = stageResult?.detailed_available ?? false;
+
+  const finalText =
+    stageResult?.text ?? stageResult?.fallback_text ?? buildFallbackConnectedResponse(workingContext);
+
+  timingMetrics.result_claude_time_ms = stageDuration;
+  timingMetrics.result_claude_from_cache = fromCache;
+  timingMetrics.result_claude_cache_hit = stageResult?.cache_hit ?? false;
+  if (stageResult?.performance) {
+    timingMetrics.result_claude_prompt_chars = stageResult.performance.prompt_chars;
+    timingMetrics.result_claude_input_tokens = stageResult.performance.estimated_input_tokens;
+    timingMetrics.result_claude_output_chars = stageResult.performance.output_chars;
+    timingMetrics.result_claude_output_tokens = stageResult.performance.estimated_output_tokens;
+  }
+  timingMetrics.total_analysis_time_ms = Object.entries(timingMetrics)
+    .filter(([key]) =>
+      [
+        "coverage_time_ms",
+        "underwriting_time_ms",
+        "recommendation_time_ms",
+        "design_time_ms",
+        "result_claude_time_ms",
+      ].includes(key),
+    )
+    .reduce((sum, [, value]) => sum + Number(value ?? 0), 0);
+
+  const intent = resultJson.intent_gate?.intent ?? workingContext.intentGate?.intent ?? null;
+  if (intent !== "factual_lookup" && intent !== "policy_detail") {
+    const panelClaudeStart = Date.now();
+    const panelClaude = await generatePanelClaudeExplanations({
+      supabase,
+      customerId,
+      workingContext,
+      fetchImpl,
+      env,
+    });
+    timingMetrics.panel_claude_hydration_ms = panelClaude.duration_ms ?? Date.now() - panelClaudeStart;
+    timingMetrics.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+    timingMetrics.total_analysis_time_ms =
+      Number(timingMetrics.total_analysis_time_ms ?? 0) + Number(timingMetrics.panel_claude_hydration_ms ?? 0);
+
+    resultJson.claude_explanations = panelClaude.explanations ?? {};
+    resultJson.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+    resultJson.panel_claude_policy_ids = panelClaude.policy_ids ?? [];
+  } else {
+    timingMetrics.panel_claude_hydration_ms = 0;
+    timingMetrics.panel_claude_policy_count = 0;
+    resultJson.claude_explanations = {};
+    resultJson.panel_claude_policy_count = 0;
+    resultJson.panel_claude_policy_ids = [];
+  }
+
+  const updatedJob = await updateAnalysisJob(supabase, jobId, {
+    stages_completed: stagesCompleted,
+    result_json: resultJson,
+    timing_metrics: timingMetrics,
+    final_response_text: finalText,
+    status: "completed",
+    completed_at: new Date().toISOString(),
+    current_step: null,
+  });
+
+  return {
+    ok: true,
+    job: updatedJob,
+    processed_stage: "result_claude",
+    stage_duration_ms: stageDuration,
+    from_cache: fromCache,
+    stage_label: STAGE_UI_LABELS.result_claude,
+    completed: true,
+  };
+}
+
 async function runStageCompute(supabase, customerId, stageKey, workingContext, options = {}) {
   if (stageKey === "coverage_gap") {
     const context = await loadCoverageAnalysisContext(supabase, customerId);
@@ -152,9 +289,21 @@ export async function processNextAnalysisJobStage({
   }
 
   const stagesCompleted = Array.isArray(job.stages_completed) ? [...job.stages_completed] : [];
+  const timingMetrics = { ...(job.timing_metrics ?? {}) };
+  const resultJson = { ...(job.result_json ?? {}) };
   const pipelineManifest = getJobPipelineManifest(job);
-  const nextStage = pipelineManifest.find((stage) => !stagesCompleted.includes(stage));
+  const nextStage =
+    pipelineManifest.find((stage) => !stagesCompleted.includes(stage)) ??
+    getNextPendingStage(stagesCompleted);
   if (!nextStage) {
+    if (!hasRequiredPanelResults(resultJson)) {
+      return {
+        ok: false,
+        reason: "PANEL_RESULTS_INCOMPLETE",
+        error_message: "Cannot complete analysis job without all four panel results.",
+        job,
+      };
+    }
     const completedJob = await updateAnalysisJob(supabase, jobId, {
       status: "completed",
       current_step: null,
@@ -163,8 +312,14 @@ export async function processNextAnalysisJobStage({
     return { ok: true, job: completedJob, already_completed: true };
   }
 
-  const timingMetrics = { ...(job.timing_metrics ?? {}) };
-  const resultJson = { ...(job.result_json ?? {}) };
+  if (nextStage === "result_claude" && !hasRequiredPanelResults(resultJson)) {
+    return {
+      ok: false,
+      reason: "PANEL_RESULTS_INCOMPLETE",
+      error_message: "Cannot run result_claude before all four panel results exist.",
+      job,
+    };
+  }
   const workingContext = {
     question: job.question,
     intentGate: resultJson.intent_gate ?? resultJson.working_context?.intentGate ?? null,
@@ -194,9 +349,35 @@ export async function processNextAnalysisJobStage({
     let fromCache = false;
 
     if (nextStage === "result_claude") {
-      stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext, {
-        memoryVersion,
-        analysisJobId: jobId,
+      hydrateWorkingContextFromResultJson(workingContext, resultJson);
+      try {
+        stageResult = await runStageCompute(supabase, job.customer_id, nextStage, workingContext, {
+          memoryVersion,
+          analysisJobId: jobId,
+          fetchImpl,
+          env,
+        });
+      } catch (stageError) {
+        stageResult = buildResultClaudeFallbackStageResult(
+          workingContext,
+          stageError instanceof Error ? stageError.message : "result_claude_compute_failed",
+        );
+      }
+      if (!stageResult?.text && !stageResult?.fallback_text) {
+        stageResult = buildResultClaudeFallbackStageResult(workingContext, "result_claude_empty_response");
+      }
+      const stageDuration = Date.now() - stageStart;
+      return finalizeResultClaudeStage({
+        supabase,
+        jobId,
+        customerId: job.customer_id,
+        stagesCompleted,
+        resultJson,
+        workingContext,
+        timingMetrics,
+        stageResult,
+        stageDuration,
+        fromCache: false,
         fetchImpl,
         env,
       });
@@ -267,53 +448,15 @@ export async function processNextAnalysisJobStage({
       [nextStage]: STAGE_UI_LABELS[nextStage],
     };
 
+    const stillPendingStage =
+      pipelineManifest.find((stage) => !stagesCompleted.includes(stage)) ??
+      getNextPendingStage(stagesCompleted);
     const patch = {
       stages_completed: stagesCompleted,
       result_json: resultJson,
       timing_metrics: timingMetrics,
-      current_step: nextStage,
+      current_step: stillPendingStage,
     };
-
-    if (nextStage === "result_claude") {
-      const intent = resultJson.intent_gate?.intent ?? workingContext.intentGate?.intent ?? null;
-      if (intent !== "factual_lookup" && intent !== "policy_detail") {
-        const panelClaudeStart = Date.now();
-        const panelClaude = await generatePanelClaudeExplanations({
-          supabase,
-          customerId: job.customer_id,
-          workingContext,
-          fetchImpl,
-          env,
-        });
-        timingMetrics.panel_claude_hydration_ms = panelClaude.duration_ms ?? Date.now() - panelClaudeStart;
-        timingMetrics.panel_claude_policy_count = panelClaude.policy_count ?? 0;
-        timingMetrics.total_analysis_time_ms =
-          Number(timingMetrics.total_analysis_time_ms ?? 0) + Number(timingMetrics.panel_claude_hydration_ms ?? 0);
-
-        resultJson.claude_explanations = panelClaude.explanations ?? {};
-        resultJson.panel_claude_policy_count = panelClaude.policy_count ?? 0;
-        resultJson.panel_claude_policy_ids = panelClaude.policy_ids ?? [];
-      } else {
-        timingMetrics.panel_claude_hydration_ms = 0;
-        timingMetrics.panel_claude_policy_count = 0;
-        resultJson.claude_explanations = {};
-        resultJson.panel_claude_policy_count = 0;
-        resultJson.panel_claude_policy_ids = [];
-      }
-
-      const finalText = stageResult?.text ?? stageResult?.fallback_text ?? buildFallbackConnectedResponse(workingContext);
-      patch.final_response_text = finalText;
-      patch.status = "completed";
-      patch.completed_at = new Date().toISOString();
-      patch.current_step = null;
-      resultJson.final_claude = stageResult;
-      resultJson.claude_performance = stageResult?.performance ?? null;
-      resultJson.claude_audit = stageResult?.audit ?? null;
-      resultJson.explanation_mode = stageResult?.explanation_mode ?? "short";
-      resultJson.detailed_available = stageResult?.detailed_available ?? false;
-      patch.result_json = resultJson;
-      patch.timing_metrics = timingMetrics;
-    }
 
     const updatedJob = await updateAnalysisJob(supabase, jobId, patch);
     return {
@@ -326,6 +469,29 @@ export async function processNextAnalysisJobStage({
       completed: updatedJob.status === "completed",
     };
   } catch (error) {
+    if (nextStage === "result_claude" && hasRequiredPanelResults(resultJson)) {
+      hydrateWorkingContextFromResultJson(workingContext, resultJson);
+      const stageDuration = Date.now() - stageStart;
+      const fallbackStageResult = buildResultClaudeFallbackStageResult(
+        workingContext,
+        error instanceof Error ? error.message : "result_claude_stage_failed",
+      );
+      return finalizeResultClaudeStage({
+        supabase,
+        jobId,
+        customerId: job.customer_id,
+        stagesCompleted,
+        resultJson,
+        workingContext,
+        timingMetrics,
+        stageResult: fallbackStageResult,
+        stageDuration,
+        fromCache: false,
+        fetchImpl,
+        env,
+      });
+    }
+
     const failedJob = await updateAnalysisJob(supabase, jobId, {
       status: "failed",
       error_message: error instanceof Error ? error.message : "stage_failed",
@@ -356,9 +522,9 @@ export async function runAnalysisJobToCompletion({ supabase, jobId, maxStages = 
   let lastResult = null;
   for (let i = 0; i < maxStages; i += 1) {
     lastResult = await processNextAnalysisJobStage({ supabase, jobId, fetchImpl, env });
-    if (!lastResult.ok || lastResult.completed || lastResult.already_completed) {
-      break;
-    }
+    if (!lastResult?.ok) break;
+    if (lastResult.completed || lastResult.already_completed) break;
+    if (lastResult.job?.status === "completed" || lastResult.job?.status === "failed") break;
   }
   return lastResult;
 }

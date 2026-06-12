@@ -1,13 +1,53 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { fetchLatestAnalysisJob } from "../lib/customerConversationalAnalysis.js";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
-import { loadCustomerUnifiedState } from "../lib/customerUnifiedState.js";
+import {
+  applyUnifiedDashboardFields,
+  isUnifiedProfileMissingError,
+  loadCustomerUnifiedState,
+} from "../lib/customerUnifiedState.js";
 import { postCustomerSystemMessage } from "../lib/customerConversations.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const CustomerSessionContext = createContext(null);
+const SESSION_LOAD_TIMEOUT_MS = 15_000;
 
-export function CustomerSessionProvider({ user, children }) {
+async function loadCustomerSessionRecords(user, event) {
+  let unified = null;
+  try {
+    unified = await loadCustomerUnifiedState({ lastEvent: event });
+  } catch (err) {
+    if (!isUnifiedProfileMissingError(err)) {
+      throw err;
+    }
+    await loadCustomerDashboardData(user);
+    unified = await loadCustomerUnifiedState({ lastEvent: event });
+  }
+
+  const dashboard = applyUnifiedDashboardFields(
+    await loadCustomerDashboardData(user, { unifiedState: unified }),
+    unified,
+  );
+  return { dashboard, unified };
+}
+
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+export function CustomerSessionProvider({ user, authSession = null, authLoading = false, children }) {
   const [dashboardData, setDashboardData] = useState(null);
   const [unifiedState, setUnifiedState] = useState(null);
   const [activeAnalysisJob, setActiveAnalysisJob] = useState(null);
@@ -27,13 +67,24 @@ export function CustomerSessionProvider({ user, children }) {
         return null;
       }
 
+      if (authLoading) {
+        return null;
+      }
+
+      if (!authSession?.access_token) {
+        setLoading(false);
+        setError("로그인이 필요합니다.");
+        return null;
+      }
+
       setLoading(true);
       setError("");
       try {
-        const [dashboard, unified] = await Promise.all([
-          loadCustomerDashboardData(user),
-          loadCustomerUnifiedState({ lastEvent: event }),
-        ]);
+        const { dashboard, unified } = await withTimeout(
+          loadCustomerSessionRecords(user, event),
+          SESSION_LOAD_TIMEOUT_MS,
+          "고객 세션 요청 시간이 초과되었습니다. 다시 시도해 주세요.",
+        );
         setDashboardData(dashboard);
         setUnifiedState(unified);
         if (event) setLastEvent(event);
@@ -49,13 +100,17 @@ export function CustomerSessionProvider({ user, children }) {
 
         return { dashboard, unified };
       } catch (err) {
-        setError(toCustomerErrorMessage(err, "고객 세션을 불러오지 못했습니다."));
+        if (isCustomerUnauthorizedError(err)) {
+          setError("로그인이 필요합니다. 다시 로그인해 주세요.");
+        } else {
+          setError(toCustomerErrorMessage(err, "고객 세션을 불러오지 못했습니다."));
+        }
         return null;
       } finally {
         setLoading(false);
       }
     },
-    [user],
+    [user, authSession, authLoading],
   );
 
   const notifySystemMessage = useCallback(
@@ -88,9 +143,8 @@ export function CustomerSessionProvider({ user, children }) {
       lastEvent,
       refreshSession,
       notifySystemMessage,
-      insurancePolicyCount:
-        unifiedState?.policy_count ?? dashboardData?.insurancePolicyCount ?? 0,
-      memoryVersion: unifiedState?.memory_version ?? dashboardData?.memoryVersion ?? 0,
+      insurancePolicyCount: unifiedState?.policy_count ?? null,
+      memoryVersion: unifiedState?.memory_version ?? null,
       stateHash: unifiedState?.state_hash ?? null,
     }),
     [

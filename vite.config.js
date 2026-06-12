@@ -1,8 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { lifeguardDevApiPlugin } from "./server/devApiPlugin.js";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), lifeguardDevApiPlugin()],
   root: ".",
   publicDir: false,
   server: {

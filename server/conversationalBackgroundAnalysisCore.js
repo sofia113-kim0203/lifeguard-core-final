@@ -7,6 +7,7 @@ import { buildFastConversationalResponse } from "./fastResponseLayer.js";
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import {
   ANALYSIS_PIPELINE_STAGES,
+  hasRequiredPanelResults,
   loadAnalysisJob,
   processNextAnalysisJobStage,
   runAnalysisJobToCompletion,
@@ -37,6 +38,24 @@ function createServiceRoleSupabaseClient(env = process.env) {
   const serviceRoleKey = String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
   if (!url || !serviceRoleKey) return null;
   return createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+function getPendingAnalysisStage(job) {
+  const stagesCompleted = Array.isArray(job?.stages_completed) ? job.stages_completed : [];
+  return ANALYSIS_PIPELINE_STAGES.find((stage) => !stagesCompleted.includes(stage)) ?? null;
+}
+
+async function maybeAdvancePendingResultClaudeStage(adminClient, job) {
+  if (!adminClient || !job) return job;
+  if (job.status === "completed" || job.status === "failed") return job;
+  if (getPendingAnalysisStage(job) !== "result_claude") return job;
+  if (!hasRequiredPanelResults(job.result_json)) return job;
+
+  const processResult = await processNextAnalysisJobStage({
+    supabase: adminClient,
+    jobId: job.id,
+  });
+  return processResult?.job ?? (await loadAnalysisJob(adminClient, job.id));
 }
 
 async function resolveCustomerId(supabase) {
@@ -404,12 +423,13 @@ export async function handleAnalysisJobStatusRequest({
     customerId = resolved.customerId;
   }
 
-  const adminClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? userSupabase;
-  if (!adminClient) {
+  const readClient =
+    adminSupabase ?? createServiceRoleSupabaseClient(env) ?? userSupabase;
+  if (!readClient) {
     return { ok: false, reason: "SUPABASE_CLIENT_NOT_AVAILABLE", error_message: "Supabase client unavailable." };
   }
 
-  const job = await loadAnalysisJob(adminClient, trimmedJobId);
+  const job = await loadAnalysisJob(readClient, trimmedJobId);
   if (!job) {
     return { ok: false, reason: "JOB_NOT_FOUND", error_message: "Analysis job not found." };
   }
@@ -419,8 +439,23 @@ export async function handleAnalysisJobStatusRequest({
 
   let processResult = null;
   if (action === "process" && job.status !== "completed" && job.status !== "failed") {
+    const processClient = adminSupabase ?? createServiceRoleSupabaseClient(env);
+    if (!processClient) {
+      return {
+        ok: true,
+        analysis_job: mapAnalysisJobForClient(job),
+        process_result: {
+          ok: false,
+          skipped: true,
+          reason: "SERVICE_ROLE_NOT_CONFIGURED",
+          error_message:
+            "Background analysis processing requires SERVICE_ROLE_KEY on the API runtime.",
+        },
+      };
+    }
+
     processResult = await processNextAnalysisJobStage({
-      supabase: adminClient,
+      supabase: processClient,
       jobId: trimmedJobId,
       fetchImpl,
       env,
@@ -432,7 +467,8 @@ export async function handleAnalysisJobStatusRequest({
     }
   }
 
-  const latestJob = await loadAnalysisJob(adminClient, trimmedJobId);
+  const latestClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? readClient;
+  const latestJob = await loadAnalysisJob(latestClient, trimmedJobId);
   return {
     ok: true,
     analysis_job: mapAnalysisJobForClient(latestJob),
@@ -477,9 +513,14 @@ export async function handleLatestAnalysisJobRequest({
     return { ok: false, reason: "JOB_LOOKUP_FAILED", error_message: error.message };
   }
 
+  const serviceRoleClient = adminSupabase ?? createServiceRoleSupabaseClient(env);
+  const refreshedJob = data
+    ? await maybeAdvancePendingResultClaudeStage(serviceRoleClient, data)
+    : null;
+
   return {
     ok: true,
-    analysis_job: mapAnalysisJobForClient(data),
+    analysis_job: mapAnalysisJobForClient(refreshedJob),
   };
 }
 

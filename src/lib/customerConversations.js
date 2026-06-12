@@ -4,8 +4,17 @@ import { sendConversationalQuestion } from "./customerConversationalAnalysis.js"
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export const CONVERSATION_ROLES = ["user", "assistant", "system"];
+export const CONVERSATION_LOAD_TIMEOUT_MS = 12_000;
 
 const DEFAULT_LIMIT = 100;
+
+async function ensureAuthSessionReady() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session?.access_token) {
+    throw new Error("로그인이 필요합니다.");
+  }
+  return data.session;
+}
 
 export function normalizeConversationMessage(row) {
   if (!row) return null;
@@ -86,6 +95,7 @@ export async function loadCustomerConversations(
   authUser,
   { limit = DEFAULT_LIMIT, customerId: knownCustomerId = null } = {},
 ) {
+  await ensureAuthSessionReady();
   const customerId = await resolveCustomerId(authUser, knownCustomerId);
 
   const { data, error } = await supabase

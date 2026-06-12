@@ -6,7 +6,8 @@ import {
   loadCustomerMemorySnapshot,
 } from "./customerMemorySnapshot.js";
 
-export const UNIFIED_STATE_VERSION = "phase28-1a";
+export const UNIFIED_STATE_VERSION = "phase28-1b";
+export const DOCUMENT_PREVIEW_LIMIT = 20;
 
 export const POLICY_LIST_SELECT =
   "id, insurer_name, product_name, policy_type, monthly_premium, premium_amount, coverage_summary, effective_from, contract_date, is_active, policy_status, source, created_at";
@@ -58,6 +59,7 @@ export function buildUnifiedStateHash({
   memoryVersion = 0,
   policies = [],
   documents = [],
+  documentCount = 0,
   health = null,
   profile = null,
 } = {}) {
@@ -65,14 +67,21 @@ export function buildUnifiedStateHash({
     customer_id: customerId,
     memory_version: memoryVersion,
     policy_ids: extractPolicyIds(policies),
-    document_ids: (documents ?? []).map((doc) => String(doc.id)).sort(),
+    document_count: documentCount,
+    document_preview_ids: (documents ?? []).map((doc) => String(doc.id)).sort(),
     profile_updated_at: profile?.updated_at ?? profile?.memory_version ?? null,
     health_source: health?.source ?? null,
   };
   return hashString(stableSerialize(payload));
 }
 
-export function buildUnifiedProvenance({ policies = [], documents = [], snapshot = null } = {}) {
+export function buildUnifiedProvenance({
+  policies = [],
+  documents = [],
+  documentCount = 0,
+  documentsPreviewCount = 0,
+  snapshot = null,
+} = {}) {
   return {
     policies: {
       source_table: "profile_insurance_policies",
@@ -81,13 +90,15 @@ export function buildUnifiedProvenance({ policies = [], documents = [], snapshot
     },
     documents: {
       source_table: "customer_documents",
-      count: documents.length,
+      count: documentCount,
+      preview_count: documentsPreviewCount,
       ids: (documents ?? []).map((doc) => String(doc.id)).sort(),
     },
     memory: {
       source_table: "customer_memory_facts",
       memory_version: snapshot?.memory_version ?? 0,
       fact_count: snapshot?.fact_count ?? 0,
+      snapshot_facts_count: snapshot?.snapshot_facts_count ?? snapshot?.facts?.length ?? 0,
       insurance_policy_count_fact: getInsurancePolicyCountFact(snapshot),
     },
   };
@@ -97,7 +108,8 @@ export async function loadRawCustomerRecords(supabase, customerId) {
   if (!supabase) throw new Error("supabase_required");
   if (!customerId) throw new Error("customer_id_required");
 
-  const [profileResult, healthResult, policiesResult, documentsResult] = await Promise.all([
+  const [profileResult, healthResult, policiesResult, documentsCountResult, documentsResult] =
+    await Promise.all([
     supabase
       .from("customer_profiles")
       .select(PROFILE_SELECT)
@@ -117,11 +129,16 @@ export async function loadRawCustomerRecords(supabase, customerId) {
       .order("created_at", { ascending: false }),
     supabase
       .from("customer_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", customerId)
+      .is("deleted_at", null),
+    supabase
+      .from("customer_documents")
       .select(DOCUMENT_LIST_SELECT)
       .eq("customer_id", customerId)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
-      .limit(20),
+      .limit(DOCUMENT_PREVIEW_LIMIT),
   ]);
 
   if (profileResult.error) {
@@ -133,6 +150,9 @@ export async function loadRawCustomerRecords(supabase, customerId) {
   if (policiesResult.error) {
     throw new Error(`policy_lookup_failed: ${policiesResult.error.message}`);
   }
+  if (documentsCountResult.error) {
+    throw new Error(`document_count_failed: ${documentsCountResult.error.message}`);
+  }
   if (documentsResult.error) {
     throw new Error(`document_lookup_failed: ${documentsResult.error.message}`);
   }
@@ -141,6 +161,8 @@ export async function loadRawCustomerRecords(supabase, customerId) {
   const health = healthResult.data ?? null;
   const policies = policiesResult.data ?? [];
   const documents = documentsResult.data ?? [];
+  const documentCount = documentsCountResult.count ?? 0;
+  const documentsPreviewCount = documents.length;
   const healthDetails = health?.details_json ?? {};
 
   return {
@@ -149,6 +171,8 @@ export async function loadRawCustomerRecords(supabase, customerId) {
     health_details: healthDetails,
     policies,
     documents,
+    document_count: documentCount,
+    documents_preview_count: documentsPreviewCount,
     flags: {
       has_profile: Boolean(
         profile?.display_name || profile?.birth_date || profile?.gender || profile?.job_category,
@@ -161,7 +185,7 @@ export async function loadRawCustomerRecords(supabase, customerId) {
             healthDetails.smoking_status),
       ),
       has_policies: policies.length > 0,
-      has_documents: documents.length > 0,
+      has_documents: documentCount > 0,
     },
   };
 }
@@ -186,6 +210,7 @@ export async function loadUnifiedCustomerState(
       memoryVersion,
       policies: raw.policies,
       documents: raw.documents,
+      documentCount: raw.document_count,
       health: raw.health,
       profile: raw.profile,
     }),
@@ -198,7 +223,8 @@ export async function loadUnifiedCustomerState(
     policy_count: raw.policies.length,
     policy_ids: policyIds,
     documents: raw.documents,
-    document_count: raw.documents.length,
+    document_count: raw.document_count,
+    documents_preview_count: raw.documents_preview_count,
     snapshot,
     structured_memory: structuredMemory,
     memory_fact_count: snapshot?.fact_count ?? 0,
@@ -206,6 +232,8 @@ export async function loadUnifiedCustomerState(
     provenance: buildUnifiedProvenance({
       policies: raw.policies,
       documents: raw.documents,
+      documentCount: raw.document_count,
+      documentsPreviewCount: raw.documents_preview_count,
       snapshot,
     }),
     flags: raw.flags,

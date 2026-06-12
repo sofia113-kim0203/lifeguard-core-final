@@ -14,16 +14,25 @@ import {
   PRIORITY_LABELS,
   RECOMMENDATION_TYPE_LABELS,
 } from "../lib/customerRecommendations.js";
+import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
 import { loadCustomerRebalancing } from "../lib/customerRebalancing.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import {
   fetchLatestAnalysisJob,
+  jobHasDisplayablePanelResults,
   jobHasEnginePanelResults,
   mapJobResultsToAnalysisPanels,
+  processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
-import { jobBlocksPanelLoading } from "../lib/analysisPanelJobUtils.js";
+import {
+  normalizeRecommendationPanelState,
+  pickCustomerVisibleTop2,
+  pickKeepExistingRecommendations,
+  recommendationPanelHasTop2,
+} from "../lib/analysisPanelResult.js";
+import { jobBlocksPanelLoading, jobHasEnginePipeline } from "../lib/analysisPanelJobUtils.js";
 import {
   hasClaudeExplanation,
   normalizeClaudeExplanationEntry,
@@ -207,11 +216,11 @@ const S = {
   card: {
     background: "rgba(30, 41, 59, 0.65)",
     border: "1px solid rgba(148, 163, 184, 0.12)",
-    borderRadius: "16px",
-    padding: "24px 28px",
+    borderRadius: "14px",
+    padding: "16px 18px",
   },
-  title: { margin: 0, fontSize: "22px", fontWeight: 700, color: "#f8fafc" },
-  desc: { margin: "8px 0 0", fontSize: "14px", color: "#94a3b8", lineHeight: 1.55 },
+  title: { margin: 0, fontSize: "18px", fontWeight: 700, color: "#f8fafc" },
+  desc: { margin: "6px 0 0", fontSize: "13px", color: "#94a3b8", lineHeight: 1.5 },
   sectionTitle: { margin: "0 0 12px", fontSize: "15px", fontWeight: 700, color: "#e2e8f0" },
   metricGrid: {
     display: "grid",
@@ -328,6 +337,19 @@ function UnderwritingListItem({ item }) {
 }
 
 
+async function fillRecommendationTop2Gap({ job, setRecResult }) {
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  if (recommendationPanelHasTop2({ recommendationResult: mapped?.recommendationResult })) {
+    return;
+  }
+  try {
+    const recData = await loadCustomerRecommendations({ skipClaude: true });
+    setRecResult(normalizeRecommendationPanelState(recData));
+  } catch {
+    // keep job-derived recommendation state
+  }
+}
+
 function applyJobResultsToPanelState(job, setters) {
   const mapped = mapJobResultsToAnalysisPanels(job);
   if (!mapped) return false;
@@ -357,16 +379,15 @@ function applyJobResultsToPanelState(job, setters) {
     });
   }
   if (mapped.recommendationResult) {
-    setters.setRecResult({
-      recommendationResult: mapped.recommendationResult,
-      customerVisibleTop2: mapped.recommendationResult.customer_visible_top2 ?? [],
-      recommendations: mapped.recommendationResult.recommendations ?? [],
-      claudeExplanation: recommendationClaude.claudeExplanation,
-      claudeMeta: recommendationClaude.claudeMeta,
-      memoryUsed: true,
-      coverageGapUsed: true,
-      underwritingUsed: true,
-    });
+    setters.setRecResult(
+      normalizeRecommendationPanelState(mapped.recommendationResult, {
+        claudeExplanation: recommendationClaude.claudeExplanation,
+        claudeMeta: recommendationClaude.claudeMeta,
+        memoryUsed: true,
+        coverageGapUsed: true,
+        underwritingUsed: true,
+      }),
+    );
   }
   if (mapped.designBundle) {
     setters.setDesignResult({
@@ -453,6 +474,7 @@ async function loadRebalancingPanel({ skipClaude = false } = {}) {
 function AnalysisJobInFlightNotice({ analysisJob, onNavigateToChat }) {
   if (!jobBlocksPanelLoading(analysisJob)) return null;
   const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
+  const panelsReady = jobHasDisplayablePanelResults(analysisJob);
   return (
     <div
       style={{
@@ -465,7 +487,9 @@ function AnalysisJobInFlightNotice({ analysisJob, onNavigateToChat }) {
         lineHeight: 1.65,
       }}
     >
-      <strong>백그라운드 정밀 분석이 진행 중입니다.</strong>
+      <strong>
+        {panelsReady ? "분석 결과 생성 완료 · 최종 설명 정리 중" : "백그라운드 정밀 분석이 진행 중입니다."}
+      </strong>
       <p style={{ margin: "10px 0 0", color: "#bfdbfe" }}>
         실시간 진행은 AI 상담실에서 확인해 주세요.
       </p>
@@ -562,7 +586,7 @@ export default function AiRecommendationPanel({
 
     if (nextState.gapResult) setGapResult(nextState.gapResult);
     if (nextState.uwResult) setUwResult(nextState.uwResult);
-    if (nextState.recResult) setRecResult(nextState.recResult);
+    if (nextState.recResult) setRecResult(normalizeRecommendationPanelState(nextState.recResult));
     if (nextState.designResult) setDesignResult(nextState.designResult);
     if (nextState.rebalancingResult) setRebalancingResult(nextState.rebalancingResult);
 
@@ -594,27 +618,83 @@ export default function AiRecommendationPanel({
 
     setLoading(true);
     setError("");
-
-    let latestJob = null;
-    try {
-      latestJob = await fetchLatestAnalysisJob();
-    } catch {
-      // Latest chat job is optional; cache/API fallback still applies.
-    }
+    let panelsAppliedFromJob = false;
+    let latestJobForRecovery = null;
 
     try {
+      let latestJob = resolvedExternalJob ?? null;
+      if (!latestJob) {
+        try {
+          latestJob = await fetchLatestAnalysisJob();
+        } catch {
+          // Latest chat job is optional; cache/API fallback still applies.
+        }
+      }
+      latestJobForRecovery = latestJob;
+
       if (latestJob) {
         setAnalysisJob(latestJob);
         if (jobBlocksPanelLoading(latestJob)) {
           clearPanelResults();
           return;
         }
+
+        if (
+          (latestJob.status === "processing" || latestJob.status === "queued") &&
+          jobHasEnginePipeline(latestJob)
+        ) {
+          if (jobHasEnginePanelResults(latestJob)) {
+            panelsAppliedFromJob = applyJobToState(latestJob);
+          }
+          setLoading(false);
+          let finalJob = latestJob;
+          try {
+            finalJob =
+              (await processAnalysisJobUntilComplete({
+                jobId: latestJob.id,
+                onProgress: (job) => {
+                  if (!job) return;
+                  setAnalysisJob(job);
+                  if (applyJobToState(job)) {
+                    panelsAppliedFromJob = true;
+                  }
+                },
+              })) ?? latestJob;
+          } catch (pollErr) {
+            if (!panelsAppliedFromJob && jobHasEnginePanelResults(latestJob)) {
+              panelsAppliedFromJob = applyJobToState(latestJob);
+            }
+            setError(
+              toCustomerErrorMessage(
+                pollErr,
+                "백그라운드 분석 진행을 이어가지 못했습니다. 아래는 이미 생성된 분석 결과입니다.",
+              ),
+            );
+            finalJob = latestJob;
+          }
+
+          const jobForPanels = finalJob ?? latestJob;
+          if (finalJob) setAnalysisJob(finalJob);
+          if (applyJobToState(jobForPanels)) {
+            panelsAppliedFromJob = true;
+            await hydrateMissingClaudeExplanations(jobForPanels, panelSetters);
+            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
+            if (rebalancingData) setRebalancingResult(rebalancingData);
+            await fillRecommendationTop2Gap({ job: jobForPanels, setRecResult });
+          } else if (!panelsAppliedFromJob) {
+            await loadPanelDataFromApis({ skipClaude: true });
+          }
+          return;
+        }
+
         if (latestJob.status === "completed" && jobHasEnginePanelResults(latestJob)) {
           const applied = applyJobToState(latestJob);
           if (applied) {
+            panelsAppliedFromJob = true;
             const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
             if (rebalancingData) setRebalancingResult(rebalancingData);
             await hydrateMissingClaudeExplanations(latestJob, panelSetters);
+            await fillRecommendationTop2Gap({ job: latestJob, setRecResult });
             return;
           }
         }
@@ -623,12 +703,18 @@ export default function AiRecommendationPanel({
       await loadPanelDataFromApis();
       setError("");
     } catch (err) {
-      clearPanelResults();
+      const keepPanels =
+        panelsAppliedFromJob ||
+        jobHasEnginePanelResults(latestJobForRecovery) ||
+        isCustomerUnauthorizedError(err);
+      if (!keepPanels) {
+        clearPanelResults();
+      }
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
-  }, [user, applyJobToState, loadPanelDataFromApis, clearPanelResults]);
+  }, [user, resolvedExternalJob, applyJobToState, loadPanelDataFromApis, clearPanelResults]);
 
   useEffect(() => {
     void loadInitialAnalysis();
@@ -644,14 +730,47 @@ export default function AiRecommendationPanel({
     : "";
 
   useEffect(() => {
-    if (!resolvedExternalJob) return;
+    if (!resolvedExternalJob) return undefined;
 
     setAnalysisJob(resolvedExternalJob);
 
     if (jobBlocksPanelLoading(resolvedExternalJob)) {
       clearPanelResults();
       setLoading(false);
-      return;
+      return undefined;
+    }
+
+    if (
+      (resolvedExternalJob.status === "queued" || resolvedExternalJob.status === "processing") &&
+      jobHasEnginePipeline(resolvedExternalJob)
+    ) {
+      let cancelled = false;
+      void processAnalysisJobUntilComplete({
+        jobId: resolvedExternalJob.id,
+        onProgress: (job) => {
+          if (cancelled || !job) return;
+          setAnalysisJob(job);
+          applyJobToState(job);
+        },
+      })
+        .then(async (finalJob) => {
+          if (cancelled || !finalJob) return;
+          setAnalysisJob(finalJob);
+          applyJobToState(finalJob);
+          if (finalJob.status === "completed") {
+            await hydrateMissingClaudeExplanations(finalJob, panelSetters);
+            await fillRecommendationTop2Gap({ job: finalJob, setRecResult });
+            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
+            if (rebalancingData) setRebalancingResult(rebalancingData);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          applyJobToState(resolvedExternalJob);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (resolvedExternalJob.status === "completed" && jobHasEnginePanelResults(resolvedExternalJob)) {
@@ -663,11 +782,11 @@ export default function AiRecommendationPanel({
           if (data) setRebalancingResult(data);
         });
         void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
-        return;
+        void fillRecommendationTop2Gap({ job: resolvedExternalJob, setRecResult });
+        return undefined;
       }
     }
 
-    // Chat-only jobs (policy_detail, factual_lookup, etc.) must not wipe API/cache panels.
     if (!jobHasEnginePanelResults(resolvedExternalJob)) {
       void loadPanelDataFromApis()
         .then(() => setError(""))
@@ -675,10 +794,11 @@ export default function AiRecommendationPanel({
           setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
         })
         .finally(() => setLoading(false));
-      return;
+      return undefined;
     }
 
     setLoading(false);
+    return undefined;
   }, [externalJobSnapshotKey, applyJobToState, clearPanelResults, loadPanelDataFromApis]);
 
   const displayJob = analysisJob ?? resolvedExternalJob;
@@ -690,9 +810,14 @@ export default function AiRecommendationPanel({
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;
+  const recTop2 = pickCustomerVisibleTop2(recResult);
+  const recKeepExisting = pickKeepExistingRecommendations(recResult);
 
   return (
-    <section style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
+    <section
+      className="lg-page"
+      style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "12px" }}
+    >
       <div>
         <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천 · 보험설계안</h2>
         <p style={S.desc}>
@@ -876,10 +1001,10 @@ export default function AiRecommendationPanel({
         <h3 style={S.sectionTitle}>AI 보험 추천 Top 2</h3>
         {loading ? (
           <div style={S.muted}>Coverage Gap과 인수 위험을 반영해 추천을 생성하는 중…</div>
-        ) : recResult?.customerVisibleTop2?.length ? (
+        ) : recTop2.length ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <ul style={S.list}>
-              {recResult.customerVisibleTop2.map((item) => (
+              {recTop2.map((item) => (
                 <li key={item.coverage_category} style={S.listItem}>
                   <div style={{ marginBottom: "6px" }}>
                     <span style={{ ...S.badge, background: "rgba(59, 130, 246, 0.15)", border: "1px solid rgba(59, 130, 246, 0.35)", color: "#93c5fd" }}>
@@ -912,11 +1037,11 @@ export default function AiRecommendationPanel({
               ))}
             </ul>
 
-            {recResult.keepExistingRecommendations?.length ? (
+            {recKeepExisting.length ? (
               <div>
                 <h4 style={S.sectionTitle}>유지 보장</h4>
                 <div style={{ fontSize: "13px", color: "#cbd5e1" }}>
-                  {recResult.keepExistingRecommendations.map((item) => item.coverage_label).join(", ")}
+                  {recKeepExisting.map((item) => item.coverage_label).join(", ")}
                 </div>
               </div>
             ) : null}
@@ -934,14 +1059,13 @@ export default function AiRecommendationPanel({
 
             {recResult.claudeExplanation ? (
               <div>
-                <h4 style={S.sectionTitle}>추천 Claude 설명</h4>
+                <h4 style={S.sectionTitle}>
+                  {recResult.claudeMeta?.explanation_mode === "fallback" ? "추천 설명" : "추천 Claude 설명"}
+                </h4>
                 <div style={S.explanation}>{recResult.claudeExplanation}</div>
               </div>
             ) : (
-              <div style={S.muted}>
-                추천 Claude 설명을 생성하지 못했습니다.
-                {recResult.claudeMeta?.reason ? ` (${recResult.claudeMeta.reason})` : ""}
-              </div>
+              <div style={S.muted}>추천 설명을 불러오지 못했습니다.</div>
             )}
           </div>
         ) : (
