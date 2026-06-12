@@ -6,23 +6,18 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createClient } from "@supabase/supabase-js";
 import { runDocumentPolicyExtraction } from "../server/documentPolicyExtractionPipeline.js";
+import {
+  assertBeforeTestSignUp,
+  assertSafeTestScriptExecution,
+  loadEnvLocal,
+} from "./lib/productionSafetyGuard.mjs";
 
-const ENV_LOCAL = ".env.local";
+const SCRIPT_NAME = "step4-document-policy-extraction-verify";
 const SAMPLES_DIR = join(import.meta.dirname, "samples/korean-insurance");
 const RICH_SAMPLE = "ko-policy-certificate-rich.png";
 
-function loadEnvLocal() {
-  if (!existsSync(ENV_LOCAL)) return;
-  for (const line of readFileSync(ENV_LOCAL, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const idx = trimmed.indexOf("=");
-    if (idx <= 0) continue;
-    const key = trimmed.slice(0, idx).trim();
-    if (!process.env[key]) process.env[key] = trimmed.slice(idx + 1).trim();
-  }
-}
 loadEnvLocal();
+assertSafeTestScriptExecution({ scriptName: SCRIPT_NAME, createsTestAccount: true });
 
 const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
@@ -128,6 +123,7 @@ async function setupCustomer(label) {
   const email = `step4-policy-${label}-${stamp}@example.com`;
   const password = `Step4Policy!${stamp}`;
   const sb = createClient(url, anonKey, { auth: { persistSession: false } });
+  assertBeforeTestSignUp(email, SCRIPT_NAME);
   await sb.auth.signUp({ email, password });
   await sb.auth.signInWithPassword({ email, password });
   const authUid = (await sb.auth.getUser()).data.user?.id;
