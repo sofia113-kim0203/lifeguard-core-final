@@ -307,6 +307,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [analysisJob, setAnalysisJob] = useState(null);
+  const [initialResponseTimeMs, setInitialResponseTimeMs] = useState(0);
   const [backgroundRunning, setBackgroundRunning] = useState(false);
   const historyRef = useRef(null);
   const pollAbortControllerRef = useRef(null);
