@@ -25,6 +25,12 @@ import {
   mapJobResultsToAnalysisPanels,
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
+import {
+  normalizeRecommendationPanelState,
+  pickCustomerVisibleTop2,
+  pickKeepExistingRecommendations,
+  recommendationPanelHasTop2,
+} from "../lib/analysisPanelResult.js";
 
 function panelNeedsClaudeHydration(claudeExplanations, hasPanelResult, claudeKey) {
   return Boolean(hasPanelResult) && !claudeExplanations?.[claudeKey];
@@ -308,15 +314,14 @@ function applyJobResultsToPanelState(job, setters) {
     });
   }
   if (mapped.recommendationResult) {
-    setters.setRecResult({
-      recommendationResult: mapped.recommendationResult,
-      customerVisibleTop2: mapped.recommendationResult.customer_visible_top2 ?? [],
-      recommendations: mapped.recommendationResult.recommendations ?? [],
-      claudeExplanation: claude.recommendation ?? null,
-      memoryUsed: true,
-      coverageGapUsed: true,
-      underwritingUsed: true,
-    });
+    setters.setRecResult(
+      normalizeRecommendationPanelState(mapped.recommendationResult, {
+        claudeExplanation: claude.recommendation ?? null,
+        memoryUsed: true,
+        coverageGapUsed: true,
+        underwritingUsed: true,
+      }),
+    );
   }
   if (mapped.designBundle) {
     setters.setDesignResult({
@@ -447,6 +452,15 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
           if (appliedFromJob) {
             panelsAppliedFromJob = true;
             await hydrateMissingClaudeExplanations(jobForPanels, panelSetters);
+            const mapped = mapJobResultsToAnalysisPanels(jobForPanels);
+            if (!recommendationPanelHasTop2({ recommendationResult: mapped?.recommendationResult })) {
+              try {
+                const recData = await loadCustomerRecommendations({ skipClaude: true });
+                setRecResult(normalizeRecommendationPanelState(recData));
+              } catch {
+                // keep job-derived recommendation state
+              }
+            }
           } else if (!panelsAppliedFromJob) {
             const [gapData, uwData, recData, designData, rebalancingData] = await Promise.all([
               analyzeCustomerCoverageGap({ skipClaude: true }),
@@ -457,7 +471,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
             ]);
             setGapResult(gapData);
             setUwResult(uwData);
-            setRecResult(recData);
+            setRecResult(normalizeRecommendationPanelState(recData));
             setDesignResult(designData);
             setRebalancingResult(rebalancingData);
           }
@@ -465,6 +479,15 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
         }
         if (panelsAppliedFromJob && latestJob.status === "completed") {
           await hydrateMissingClaudeExplanations(latestJob, panelSetters);
+          const mapped = mapJobResultsToAnalysisPanels(latestJob);
+          if (!recommendationPanelHasTop2({ recommendationResult: mapped?.recommendationResult })) {
+            try {
+              const recData = await loadCustomerRecommendations({ skipClaude: true });
+              setRecResult(normalizeRecommendationPanelState(recData));
+            } catch {
+              // keep job-derived recommendation state
+            }
+          }
           return;
         }
       }
@@ -478,7 +501,7 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
       ]);
       setGapResult(gapData);
       setUwResult(uwData);
-      setRecResult(recData);
+      setRecResult(normalizeRecommendationPanelState(recData));
       setDesignResult(designData);
       setRebalancingResult(rebalancingData);
     } catch (err) {
@@ -551,6 +574,8 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
 
   const coverageGap = gapResult?.coverageGapResult ?? uwResult?.coverageGapResult;
   const underwriting = uwResult?.underwritingResult;
+  const recTop2 = pickCustomerVisibleTop2(recResult);
+  const recKeepExisting = pickKeepExistingRecommendations(recResult);
 
   return (
     <section
@@ -738,10 +763,10 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
         <h3 style={S.sectionTitle}>AI 보험 추천 Top 2</h3>
         {loading ? (
           <div style={S.muted}>Coverage Gap과 인수 위험을 반영해 추천을 생성하는 중…</div>
-        ) : recResult?.customerVisibleTop2?.length ? (
+        ) : recTop2.length ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <ul style={S.list}>
-              {recResult.customerVisibleTop2.map((item) => (
+              {recTop2.map((item) => (
                 <li key={item.coverage_category} style={S.listItem}>
                   <div style={{ marginBottom: "6px" }}>
                     <span style={{ ...S.badge, background: "rgba(59, 130, 246, 0.15)", border: "1px solid rgba(59, 130, 246, 0.35)", color: "#93c5fd" }}>
@@ -774,11 +799,11 @@ export default function AiRecommendationPanel({ user, analysisJob: externalAnaly
               ))}
             </ul>
 
-            {recResult.keepExistingRecommendations?.length ? (
+            {recKeepExisting.length ? (
               <div>
                 <h4 style={S.sectionTitle}>유지 보장</h4>
                 <div style={{ fontSize: "13px", color: "#cbd5e1" }}>
-                  {recResult.keepExistingRecommendations.map((item) => item.coverage_label).join(", ")}
+                  {recKeepExisting.map((item) => item.coverage_label).join(", ")}
                 </div>
               </div>
             ) : null}

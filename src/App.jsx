@@ -9,6 +9,7 @@ import DocumentsPanel from "./components/DocumentsPanel.jsx";
 import RoleAccessPanel from "./components/RoleAccessPanel.jsx";
 import { CustomerSessionProvider } from "./context/CustomerSessionProvider.jsx";
 import { useAuthSession } from "./hooks/useAuthSession.js";
+import { useOptionalCustomerSession } from "./hooks/useCustomerSession.js";
 import { supabase } from "./lib/supabase.js";
 
 const CUSTOMER_DASHBOARD_MENU = "customer";
@@ -342,9 +343,39 @@ export default function App() {
 }
 
 function HomePanel({ onMenuSelect }) {
+  const session = useOptionalCustomerSession();
+  const policyCount = session?.insurancePolicyCount;
+  const documentCount = session?.unifiedState?.document_count;
+  const memoryFacts = session?.unifiedState?.memory_fact_count;
+
   return (
     <>
       <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
+        {session?.user && policyCount != null ? (
+          <section
+            style={{
+              background: "rgba(30, 41, 59, 0.65)",
+              border: "1px solid rgba(148, 163, 184, 0.12)",
+              borderRadius: "16px",
+              padding: "20px 24px",
+            }}
+          >
+            <div style={{ fontSize: "14px", color: "#94a3b8", marginBottom: "8px" }}>내 보험 현황</div>
+            <div style={{ fontSize: "16px", color: "#f1f5f9", lineHeight: 1.7 }}>
+              가입 보험 <strong>{policyCount}건</strong>
+              {documentCount != null ? (
+                <>
+                  {" · "}문서 <strong>{documentCount}건</strong>
+                </>
+              ) : null}
+              {memoryFacts != null ? (
+                <>
+                  {" · "}메모리 fact <strong>{memoryFacts}건</strong>
+                </>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
         <section
           style={{
             background: "linear-gradient(135deg, rgba(37, 99, 235, 0.18) 0%, rgba(15, 23, 42, 0.9) 60%)",

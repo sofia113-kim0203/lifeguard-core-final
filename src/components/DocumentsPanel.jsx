@@ -2,17 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DOCUMENT_CATEGORIES,
   grantDocumentStorageConsent,
+  grantDocumentAnalysisConsent,
   listDocuments,
   uploadDocument,
   downloadDocument,
   softDeleteDocument,
+  requeuePendingDocumentIngest,
 } from "../lib/customerDocuments.js";
 import { useCustomerSession } from "../hooks/useCustomerSession.js";
+import { runPostDocumentPipelineRefresh } from "../lib/customerDocumentPipeline.js";
 import {
   DOCUMENT_UI_MESSAGES,
   formatDocClass,
   formatFileSize,
-  formatIngestStatus,
+  formatDocumentPipelineStatus,
   formatUploadDate,
   toCustomerErrorMessage,
   UI_LABELS,
@@ -167,16 +170,23 @@ const S = {
 };
 
 export default function DocumentsPanel({ user }) {
-  const { refreshSession, notifySystemMessage, insurancePolicyCount } = useCustomerSession();
+  const {
+    refreshSession,
+    notifySystemMessage,
+    insurancePolicyCount,
+    setActiveAnalysisJob,
+  } = useCustomerSession();
   const fileInputRef = useRef(null);
   const [documents, setDocuments] = useState([]);
   const [hasConsent, setHasConsent] = useState(false);
+  const [hasAnalysisConsent, setHasAnalysisConsent] = useState(false);
   const [categoryKey, setCategoryKey] = useState("insurance_policy");
   const [filterKey, setFilterKey] = useState("all");
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [grantingConsent, setGrantingConsent] = useState(false);
+  const [grantingAnalysisConsent, setGrantingAnalysisConsent] = useState(false);
   const [actionId, setActionId] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -185,6 +195,7 @@ export default function DocumentsPanel({ user }) {
     if (!user) {
       setDocuments([]);
       setHasConsent(false);
+      setHasAnalysisConsent(false);
       setLoading(false);
       setError(DOCUMENT_UI_MESSAGES.loginRequired);
       return;
@@ -196,6 +207,7 @@ export default function DocumentsPanel({ user }) {
       const result = await listDocuments(user, { categoryKey: filterKey });
       setDocuments(result.documents);
       setHasConsent(result.hasDocumentStorageConsent);
+      setHasAnalysisConsent(result.hasDocumentAnalysisConsent);
     } catch (err) {
       setDocuments([]);
       setError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
@@ -207,6 +219,42 @@ export default function DocumentsPanel({ user }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleGrantAnalysisConsent = async () => {
+    if (!user) return;
+    setGrantingAnalysisConsent(true);
+    setError("");
+    setSuccess("");
+    try {
+      await grantDocumentAnalysisConsent(user);
+      setHasAnalysisConsent(true);
+      const requeue = await requeuePendingDocumentIngest(user);
+      let pipelineMessage = "";
+      const lastResult = requeue.results?.at(-1);
+      if (lastResult?.ingest?.policyExtraction?.ok) {
+        const pipeline = await runPostDocumentPipelineRefresh({
+          documentId: lastResult.documentId,
+          ingest: lastResult.ingest,
+          policyExtraction: lastResult.ingest.policyExtraction,
+          refreshSession,
+          setActiveAnalysisJob,
+        });
+        if (pipeline.ok) pipelineMessage = ` ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`;
+        else if (pipeline.message) pipelineMessage = ` (${pipeline.message})`;
+      }
+      setSuccess(
+        requeue.requeued > 0
+          ? `${DOCUMENT_UI_MESSAGES.analysisConsentSuccess} (${requeue.requeued}건 시작)${pipelineMessage}`
+          : `${DOCUMENT_UI_MESSAGES.analysisConsentSuccess}${pipelineMessage}`,
+      );
+      await refreshSession({ event: "document_requeue_complete", reloadJob: true });
+      await loadData();
+    } catch (err) {
+      setError(toCustomerErrorMessage(err, "문서 분석 동의를 완료하지 못했습니다."));
+    } finally {
+      setGrantingAnalysisConsent(false);
+    }
+  };
 
   const handleGrantConsent = async () => {
     if (!user) return;
@@ -239,20 +287,62 @@ export default function DocumentsPanel({ user }) {
     setError("");
     setSuccess("");
     try {
-      await uploadDocument(user, { file: selectedFile, categoryKey });
+      const uploadResult = await uploadDocument(user, { file: selectedFile, categoryKey });
       setSelectedFile(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-      setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-      const refreshed = await refreshSession({ event: "document_upload", reloadJob: false });
+      const ingest = uploadResult?.ingest;
+      if (ingest?.blocked) {
+        setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.analysisBlockedNotice}`);
+      } else if (ingest?.failed) {
+        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        setError(ingest.message ?? DOCUMENT_UI_MESSAGES.ingestFailedNotice);
+      } else if (ingest?.policyExtraction?.ok) {
+        setSuccess(
+          `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.policyExtractSuccessNotice}`,
+        );
+      } else if (ingest?.workerResult?.ingest_status === "ready" && ingest?.policyExtraction && !ingest.policyExtraction.ok) {
+        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        setError(ingest.policyExtraction.message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice);
+      } else if (ingest && !ingest.blocked) {
+        setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.ingestQueuedNotice}`);
+      } else {
+        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+      }
+      const documentId = uploadResult?.document?.id ?? ingest?.documentId ?? null;
+      const pipeline = await runPostDocumentPipelineRefresh({
+        documentId,
+        ingest,
+        policyExtraction: ingest?.policyExtraction,
+        refreshSession,
+        setActiveAnalysisJob,
+      });
+
+      const refreshed = await refreshSession({ event: "document_pipeline_complete", reloadJob: true });
       const policyCount =
         refreshed?.unified?.policy_count ??
         refreshed?.dashboard?.insurancePolicyCount ??
         insurancePolicyCount;
+
+      if (pipeline.ok) {
+        setSuccess(
+          `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`,
+        );
+        setError("");
+      } else if (pipeline.steps?.policy_extraction?.ok && !pipeline.steps?.analysis_job?.ok) {
+        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        setError(pipeline.message ?? DOCUMENT_UI_MESSAGES.pipelineAnalysisFailedNotice);
+      } else if (!pipeline.steps?.policy_extraction?.ok && ingest?.workerResult?.ingest_status === "ready") {
+        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        setError(pipeline.steps?.policy_extraction?.error_message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice);
+      }
+
       await notifySystemMessage(
-        `문서가 업로드되었습니다. 현재 등록된 가입 보험은 ${policyCount}건으로 확인됩니다. AI 상담실에서 바로 질문해 보세요.`,
-        { metadata: { category_key: categoryKey }, refresh: false },
+        pipeline.ok
+          ? `문서 분석과 보험 추천이 갱신되었습니다. 현재 등록된 가입 보험은 ${policyCount}건입니다.`
+          : `문서가 업로드되었습니다. 현재 등록된 가입 보험은 ${policyCount}건으로 확인됩니다.`,
+        { metadata: { category_key: categoryKey, pipeline_ok: pipeline.ok }, refresh: false },
       );
       await loadData();
     } catch (err) {
@@ -324,6 +414,21 @@ export default function DocumentsPanel({ user }) {
             disabled={grantingConsent}
           >
             {grantingConsent ? "처리 중…" : DOCUMENT_UI_MESSAGES.consentAction}
+          </button>
+        </section>
+      ) : null}
+
+      {hasConsent && !hasAnalysisConsent ? (
+        <section style={S.card}>
+          <h2 style={S.sectionTitle}>{DOCUMENT_UI_MESSAGES.analysisConsentTitle}</h2>
+          <p style={S.sectionDesc}>{DOCUMENT_UI_MESSAGES.analysisConsentBody}</p>
+          <button
+            type="button"
+            style={S.btn}
+            onClick={handleGrantAnalysisConsent}
+            disabled={grantingAnalysisConsent}
+          >
+            {grantingAnalysisConsent ? "처리 중…" : DOCUMENT_UI_MESSAGES.analysisConsentAction}
           </button>
         </section>
       ) : null}
@@ -431,7 +536,7 @@ export default function DocumentsPanel({ user }) {
                       <td style={S.td}>{document.original_filename ?? "—"}</td>
                       <td style={S.td}>{formatDocClass(document.doc_class)}</td>
                       <td style={S.td}>{formatUploadDate(document.created_at)}</td>
-                      <td style={S.td}>{formatIngestStatus(document.ingest_status)}</td>
+                      <td style={S.td}>{formatDocumentPipelineStatus(document)}</td>
                       <td style={S.td}>{formatFileSize(byteSize)}</td>
                       <td style={S.td}>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
