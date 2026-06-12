@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CONVERSATION_LOAD_TIMEOUT_MS,
+  filterMessagesForDisplay,
   loadCustomerConversations,
   sendCustomerConversationMessage,
 } from "../lib/customerConversations.js";
@@ -14,12 +15,56 @@ import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
 
+const CUSTOMER_PROGRESS_LABELS = {
+  coverage_gap: "가입 보험 확인 중",
+  underwriting_risk: "건강 정보 반영 중",
+  recommendation: "부족한 보장 검토 중",
+  insurance_design: "맞춤 안내 정리 중",
+  result_claude: "답변 정리 중",
+};
+
+function localizeProgressLabel(item) {
+  if (!item) return "";
+  const mapped = CUSTOMER_PROGRESS_LABELS[item.stage];
+  if (mapped) {
+    if (item.status === "completed") return mapped.replace(/중$/, " 완료");
+    return mapped;
+  }
+  const label = String(item.label ?? "");
+  if (/coverage|underwriting|recommendation|background|stage|processing|\d+\s*ms/i.test(label)) {
+    return CUSTOMER_PROGRESS_LABELS[item.stage] ?? "상담 답변 준비 중";
+  }
+  return label;
+}
+
+function resolveSlimProgressStatus(analysisJob) {
+  if (!analysisJob) return null;
+  const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
+  const active =
+    progress.find((item) => item.status === "processing") ??
+    progress.find((item) => item.status === "pending");
+  if (analysisJob.status === "completed") {
+    return { text: "상담 답변 준비 완료", tone: "done" };
+  }
+  if (analysisJob.status === "failed") {
+    return { text: "답변 준비에 실패했습니다", tone: "error" };
+  }
+  if (active) {
+    return { text: localizeProgressLabel(active), tone: "active" };
+  }
+  return { text: "상담 답변 준비 중", tone: "active" };
+}
+
 const S = {
   card: {
     background: "rgba(30, 41, 59, 0.65)",
     border: "1px solid rgba(148, 163, 184, 0.12)",
     borderRadius: "16px",
-    padding: "24px 28px",
+    padding: "20px 24px",
+    display: "flex",
+    flexDirection: "column",
+    flex: 1,
+    minHeight: "min(72vh, 720px)",
   },
   title: {
     margin: 0,
@@ -37,7 +82,8 @@ const S = {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
-    maxHeight: "360px",
+    flex: 1,
+    minHeight: "min(50vh, 480px)",
     overflowY: "auto",
     padding: "16px",
     borderRadius: "12px",
@@ -135,17 +181,29 @@ const S = {
     lineHeight: 1.6,
   },
   progressCard: {
-    marginTop: "12px",
-    padding: "14px 16px",
-    borderRadius: "12px",
-    background: "rgba(15, 23, 42, 0.55)",
-    border: "1px solid rgba(59, 130, 246, 0.25)",
+    marginTop: "8px",
+    padding: "10px 14px",
+    borderRadius: "10px",
+    background: "rgba(15, 23, 42, 0.45)",
+    border: "1px solid rgba(59, 130, 246, 0.2)",
+    flexShrink: 0,
   },
   progressTitle: {
-    margin: "0 0 10px",
+    margin: 0,
     fontSize: "13px",
-    fontWeight: 700,
+    fontWeight: 600,
     color: "#bfdbfe",
+    lineHeight: 1.5,
+  },
+  progressToggle: {
+    marginTop: "8px",
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "#94a3b8",
+    fontSize: "12px",
+    cursor: "pointer",
+    fontFamily: FONT,
   },
   progressItem: {
     display: "flex",
@@ -182,36 +240,39 @@ function MessageBubble({ item }) {
   );
 }
 
-function AnalysisProgressPanel({ analysisJob, initialResponseTimeMs }) {
+function AnalysisProgressPanel({ analysisJob }) {
+  const [showDetails, setShowDetails] = useState(false);
   if (!analysisJob) return null;
+  if (analysisJob.status === "completed" && !showDetails) return null;
 
-  const timing = analysisJob.timing_metrics ?? {};
   const progress = Array.isArray(analysisJob.progress) ? analysisJob.progress : [];
+  const slimStatus = resolveSlimProgressStatus(analysisJob);
+  const visibleProgress = progress.filter(
+    (item) => item.status !== "skipped" && item.status !== "pending",
+  );
 
   return (
     <div style={S.progressCard}>
-      <p style={S.progressTitle}>
-        백그라운드 정밀 분석{" "}
-        {analysisJob.status === "completed"
-          ? "완료"
-          : analysisJob.status === "failed"
-            ? "실패"
-            : "진행 중"}
-        {initialResponseTimeMs ? ` · 즉시 응답 ${initialResponseTimeMs}ms` : ""}
-      </p>
-      {progress.map((item) => (
-        <div key={item.stage} style={S.progressItem}>
-          <span>
-            {item.status === "completed" ? "✓" : item.status === "processing" ? "…" : "○"}
-          </span>
-          <span>{item.label}</span>
-        </div>
-      ))}
-      {timing.total_analysis_time_ms ? (
-        <div style={{ ...S.progressItem, marginTop: "8px", color: "#94a3b8" }}>
-          총 분석 시간: {timing.total_analysis_time_ms}ms
-        </div>
+      <p style={S.progressTitle}>{slimStatus?.text ?? "상담 답변 준비 중"}</p>
+      {visibleProgress.length > 0 ? (
+        <button
+          type="button"
+          style={S.progressToggle}
+          onClick={() => setShowDetails((value) => !value)}
+        >
+          {showDetails ? "진행 상태 접기" : "진행 상태 자세히"}
+        </button>
       ) : null}
+      {showDetails
+        ? visibleProgress.map((item) => (
+            <div key={item.stage} style={S.progressItem}>
+              <span>
+                {item.status === "completed" ? "✓" : item.status === "processing" ? "…" : "○"}
+              </span>
+              <span>{localizeProgressLabel(item)}</span>
+            </div>
+          ))
+        : null}
       {analysisJob.error_message ? (
         <div style={{ ...S.error, marginTop: "8px" }}>{analysisJob.error_message}</div>
       ) : null}
@@ -246,10 +307,9 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [analysisJob, setAnalysisJob] = useState(null);
-  const [initialResponseTimeMs, setInitialResponseTimeMs] = useState(0);
   const [backgroundRunning, setBackgroundRunning] = useState(false);
   const historyRef = useRef(null);
-  const pollAbortRef = useRef(false);
+  const pollAbortControllerRef = useRef(null);
   const historyLoadSeqRef = useRef(0);
 
   const loadMessages = useCallback(
@@ -279,7 +339,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
           "대화 기록 요청 시간이 초과되었습니다. 아래에서 질문을 입력해 주세요.",
         );
         if (loadSeq !== historyLoadSeqRef.current) return;
-        setMessages(rows);
+        setMessages(filterMessagesForDisplay(rows));
       } catch (err) {
         if (loadSeq !== historyLoadSeqRef.current) return;
         if (!silent) {
@@ -297,18 +357,26 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
 
   const resumeBackgroundPolling = useCallback(
     async (jobId) => {
-      if (!jobId || pollAbortRef.current) return;
+      if (!jobId) return;
+
+      pollAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      pollAbortControllerRef.current = controller;
+
       setBackgroundRunning(true);
       try {
         const finalJob = await processAnalysisJobUntilComplete({
           jobId,
+          signal: controller.signal,
           onProgress: (job) => {
+            if (controller.signal.aborted) return;
             setAnalysisJob(job);
             if (typeof onAnalysisJobUpdate === "function") {
               onAnalysisJobUpdate(job);
             }
           },
         });
+        if (controller.signal.aborted) return;
         if (finalJob) {
           setAnalysisJob(finalJob);
           if (typeof onAnalysisJobUpdate === "function") {
@@ -317,9 +385,13 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
         }
         await loadMessages({ silent: true });
       } catch (err) {
-        setError(toCustomerErrorMessage(err, "백그라운드 분석 상태를 확인하지 못했습니다."));
+        if (!controller.signal.aborted) {
+          setError(toCustomerErrorMessage(err, "상담 답변 준비 상태를 확인하지 못했습니다."));
+        }
       } finally {
-        setBackgroundRunning(false);
+        if (pollAbortControllerRef.current === controller) {
+          setBackgroundRunning(false);
+        }
       }
     },
     [loadMessages, onAnalysisJobUpdate],
@@ -354,15 +426,15 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
   useEffect(() => {
     if (!user) return undefined;
     let cancelled = false;
-    pollAbortRef.current = false;
 
     (async () => {
       try {
         const latestJob = await fetchLatestAnalysisJob();
-        if (!cancelled && latestJob && latestJob.status !== "completed" && latestJob.status !== "failed") {
+        if (cancelled) return;
+        if (latestJob && latestJob.status !== "completed" && latestJob.status !== "failed") {
           setAnalysisJob(latestJob);
           void resumeBackgroundPolling(latestJob.id);
-        } else if (!cancelled && latestJob) {
+        } else if (latestJob) {
           setAnalysisJob(latestJob);
         }
       } catch {
@@ -372,9 +444,9 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
 
     return () => {
       cancelled = true;
-      pollAbortRef.current = true;
+      pollAbortControllerRef.current?.abort();
     };
-  }, [user, resumeBackgroundPolling]);
+  }, [user, customerId, resumeBackgroundPolling]);
 
   useEffect(() => {
     if (historyRef.current) {
@@ -391,7 +463,6 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
 
     setSending(true);
     setError("");
-    pollAbortRef.current = false;
     try {
       const result = await sendCustomerConversationMessage(user, text, {
         customerId,
@@ -408,7 +479,37 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
       });
       setInitialResponseTimeMs(result.initialResponseTimeMs ?? 0);
       setDraft("");
-      await loadMessages();
+
+      const now = new Date().toISOString();
+      const fastText =
+        result.conversationalResult?.fastResponse ?? result.assistantMessage?.message ?? "";
+      const optimisticRows = [
+        result.userMessage ?? {
+          id: `temp-user-${Date.now()}`,
+          customerId,
+          role: "user",
+          message: text,
+          metadata: { phase: "phase26-2a", optimistic: true },
+          createdAt: now,
+        },
+      ];
+      if (fastText) {
+        optimisticRows.push(
+          result.assistantMessage ?? {
+            id: `temp-fast-${Date.now()}`,
+            customerId,
+            role: "assistant",
+            message: fastText,
+            metadata: { phase: "phase26-2a-fast", optimistic: true },
+            createdAt: now,
+          },
+        );
+      }
+      setMessages((prev) =>
+        filterMessagesForDisplay(dedupeMessagesById([...prev, ...optimisticRows])),
+      );
+
+      await loadMessages({ silent: true });
     } catch (err) {
       setError(toCustomerErrorMessage(err, "상담 메시지를 처리하지 못했습니다."));
     } finally {
@@ -416,13 +517,24 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
     }
   };
 
+  const displayMessages = filterMessagesForDisplay(messages);
+
   return (
-    <section style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "16px" }}>
+    <section
+      style={{
+        fontFamily: FONT,
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        flex: 1,
+        minHeight: 0,
+      }}
+    >
       <div>
         <h2 style={S.title}>AI 상담</h2>
         <p style={S.desc}>
-          질문 즉시 상담 응답을 제공하고, Coverage Gap · Underwriting · Recommendation · 보험설계안
-          정밀 분석은 백그라운드에서 실행됩니다. 분석이 완료되면 결과가 자동으로 연결됩니다.
+          보험 설계사처럼 질문에 바로 답해 드리고, 필요할 때 보장 상태와 맞춤 안내를 이어서
+          제공합니다.
         </p>
       </div>
 
@@ -434,21 +546,18 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
             <div style={S.empty}>고객 세션을 준비하는 중…</div>
           ) : historyLoading ? (
             <div style={S.empty}>대화 기록을 불러오는 중…</div>
-          ) : messages.length === 0 ? (
+          ) : displayMessages.length === 0 ? (
             <div style={S.empty}>
               아직 저장된 대화가 없습니다.
               <br />
               아래에 메시지를 입력해 보세요.
             </div>
           ) : (
-            messages.map((item) => <MessageBubble key={item.id} item={item} />)
+            displayMessages.map((item) => <MessageBubble key={item.id} item={item} />)
           )}
         </div>
 
-        <AnalysisProgressPanel
-          analysisJob={analysisJob}
-          initialResponseTimeMs={initialResponseTimeMs}
-        />
+        <AnalysisProgressPanel analysisJob={analysisJob} />
 
         <form
           onSubmit={handleSubmit}

@@ -45,7 +45,12 @@ function mapUnifiedStateForClient(state) {
       product_name: policy.product_name,
       policy_type: policy.policy_type,
       is_active: policy.is_active,
+      policy_status: policy.policy_status ?? null,
       source: policy.source ?? null,
+      monthly_premium: policy.monthly_premium ?? null,
+      premium_amount: policy.premium_amount ?? null,
+      coverage_summary: policy.coverage_summary ?? null,
+      created_at: policy.created_at ?? null,
     })),
     documents: (state.documents ?? []).map((doc) => ({
       id: doc.id,

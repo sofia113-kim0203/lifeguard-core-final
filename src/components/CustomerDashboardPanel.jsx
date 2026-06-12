@@ -1,10 +1,10 @@
-import { useCallback } from "react";
-import AiRecommendationPanel from "./AiRecommendationPanel.jsx";
-import CustomerAiChatPanel from "./CustomerAiChatPanel.jsx";
+import { useCallback, useEffect, useRef } from "react";
 import CustomerIntakePanel from "./CustomerIntakePanel.jsx";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
+import PolicyExplorerSection from "./PolicyExplorerSection.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { formatCompletenessLabel } from "../lib/intakeCompleteness.js";
+import { formatGenderLabel } from "../lib/signupValidation.js";
 import {
   formatHealthSource,
   formatProfileStatus,
@@ -46,6 +46,17 @@ const S = {
     cursor: "pointer",
     fontFamily: FONT,
   },
+  btnPrimary: {
+    padding: "10px 16px",
+    borderRadius: "10px",
+    border: "none",
+    background: "linear-gradient(135deg, #2563eb, #4f46e5)",
+    color: "#fff",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: FONT,
+  },
   sessionBanner: {
     padding: "14px 18px",
     borderRadius: "12px",
@@ -55,6 +66,7 @@ const S = {
     fontSize: "14px",
     lineHeight: 1.6,
   },
+  actionRow: { display: "flex", flexWrap: "wrap", gap: "10px" },
 };
 
 function DataField({ label, value }) {
@@ -66,19 +78,67 @@ function DataField({ label, value }) {
   );
 }
 
-export default function CustomerDashboardPanel({ user }) {
+function analysisStatusLabel(job) {
+  if (!job) return "분석 대기";
+  if (job.status === "completed") return "분석 완료";
+  if (job.status === "processing" || job.status === "queued") return "분석 진행 중";
+  if (job.status === "failed") return "분석 실패";
+  return "분석 준비";
+}
+
+function designReadyLabel(job) {
+  if (!job?.result_json?.insurance_design) return "설계안 준비 중";
+  return "설계안 준비됨";
+}
+
+function AnalysisJobSummaryCard({ job }) {
+  const status = analysisStatusLabel(job);
+  const designLabel = designReadyLabel(job);
+  const inFlight = job?.status === "processing" || job?.status === "queued";
+
+  return (
+    <div style={S.card}>
+      <h2 style={{ margin: "0 0 12px", fontSize: "17px", fontWeight: 700, color: "#f1f5f9" }}>
+        분석 상태 요약
+      </h2>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "14px", color: "#cbd5e1" }}>
+        <div>
+          상태: <strong style={{ color: "#e2e8f0" }}>{status}</strong>
+        </div>
+        <div>
+          설계안: <strong style={{ color: "#e2e8f0" }}>{designLabel}</strong>
+        </div>
+        {job?.question ? (
+          <div style={{ fontSize: "13px", color: "#94a3b8" }}>
+            최근 질문: {job.question.length > 80 ? `${job.question.slice(0, 80)}…` : job.question}
+          </div>
+        ) : null}
+        {inFlight ? (
+          <div style={{ fontSize: "13px", color: "#93c5fd", marginTop: "4px" }}>
+            실시간 진행은 AI 상담실에서 확인해 주세요.
+          </div>
+        ) : null}
+        {job?.status === "failed" && job?.error_message ? (
+          <div style={{ fontSize: "13px", color: "#fca5a5" }}>{job.error_message}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export default function CustomerDashboardPanel({ user, onNavigate }) {
   const session = useOptionalCustomerSession();
+  const refreshedOnMount = useRef(false);
 
   const loadData = useCallback(async () => {
-    await session?.refreshSession?.({ event: "dashboard_refresh" });
+    await session?.refreshSession?.({ event: "dashboard_refresh", reloadJob: true });
   }, [session]);
 
-  const handleAnalysisJobUpdate = useCallback(
-    (job) => {
-      if (job) session?.setActiveAnalysisJob?.(job);
-    },
-    [session],
-  );
+  useEffect(() => {
+    if (refreshedOnMount.current || !session?.refreshSession) return;
+    refreshedOnMount.current = true;
+    void session.refreshSession({ event: "customer_dashboard_enter", reloadJob: true });
+  }, [session]);
 
   if (!user) {
     return (
@@ -108,7 +168,7 @@ export default function CustomerDashboardPanel({ user }) {
   if (loading && !data) {
     return (
       <div style={{ fontFamily: FONT, color: "#94a3b8", fontSize: "15px" }}>
-        고객 상담실 데이터를 불러오는 중…
+        고객 분석 데이터를 불러오는 중…
       </div>
     );
   }
@@ -137,10 +197,10 @@ export default function CustomerDashboardPanel({ user }) {
     <div style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "20px" }}>
       <div>
         <h1 style={{ margin: 0, fontSize: "26px", fontWeight: 700, color: "#f8fafc" }}>
-          AI 상담실
+          고객 분석
         </h1>
         <p style={{ margin: "8px 0 0", fontSize: "15px", color: "#94a3b8", lineHeight: 1.55 }}>
-          프로필·보험·문서·상담·분석 결과가 하나의 화면에서 연결됩니다.
+          고객 정보와 입력 완료도를 확인하고, AI 분석·상담은 각 전용 메뉴에서 진행합니다.
         </p>
       </div>
 
@@ -176,6 +236,10 @@ export default function CustomerDashboardPanel({ user }) {
         <DataField label={UI_LABELS.email} value={data?.email} />
         <DataField label={UI_LABELS.customerId} value={data?.customerId} />
         <DataField label="이름" value={data?.displayName} />
+        <DataField label="휴대폰" value={data?.phone} />
+        <DataField label="생년월일" value={data?.birthDate} />
+        <DataField label="성별" value={formatGenderLabel(data?.gender)} />
+        <DataField label="직업" value={data?.jobCategory} />
         <DataField label="가입 보험 건수" value={`${insurancePolicyCount}건`} />
         <DataField label={UI_LABELS.profileStatus} value={formatProfileStatus(data?.profileStatus)} />
         <DataField label={UI_LABELS.userRole} value={formatUserRole(data?.userRole)} />
@@ -197,17 +261,31 @@ export default function CustomerDashboardPanel({ user }) {
         />
       </div>
 
+      <PolicyExplorerSection
+        dashboardPolicies={data?.insurancePolicies}
+        unifiedPolicies={unifiedState?.policies}
+        variant="full"
+        loading={loading && !data}
+        defaultExpandFirst
+      />
+
       <IntakeCompletenessBar completeness={data?.intakeCompleteness} compact />
 
-      <button type="button" style={{ ...S.btn, alignSelf: "flex-start" }} onClick={loadData}>
-        세션 새로고침
-      </button>
+      <AnalysisJobSummaryCard job={activeAnalysisJob} />
+
+      <div style={S.actionRow}>
+        <button type="button" style={S.btnPrimary} onClick={() => onNavigate?.("chat")}>
+          AI 상담실에서 질문하기
+        </button>
+        <button type="button" style={S.btn} onClick={() => onNavigate?.("ai")}>
+          AI 보험 추천에서 결과 보기
+        </button>
+        <button type="button" style={S.btn} onClick={loadData}>
+          세션 새로고침
+        </button>
+      </div>
 
       <CustomerIntakePanel user={user} onSaved={loadData} />
-
-      <CustomerAiChatPanel user={user} onAnalysisJobUpdate={handleAnalysisJobUpdate} />
-
-      <AiRecommendationPanel user={user} analysisJob={activeAnalysisJob} />
     </div>
   );
 }

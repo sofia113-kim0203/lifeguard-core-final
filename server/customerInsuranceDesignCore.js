@@ -7,6 +7,7 @@ import { buildInsuranceDesignInputFromAnalysis } from "./insuranceDesignInputBui
 import { loadRecommendationAnalysisContext } from "./customerRecommendationCore.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import { attachPolicyMeta, buildPoliciesPromptBlock } from "./panelClaudePoliciesContext.js";
 import { createClient } from "@supabase/supabase-js";
 
 const DESIGN_SYSTEM_RULES = [
@@ -29,14 +30,22 @@ function createUserSupabaseClient(authHeader, env = process.env) {
   });
 }
 
-export function buildInsuranceDesignExplanationPrompt(structuredMemory, designBundle, context) {
+export function buildInsuranceDesignExplanationPrompt(
+  structuredMemory,
+  designBundle,
+  context,
+  policies = [],
+) {
   const user = [
     "Explain the insurance design plan to the customer using only the blocks below.",
     "",
     "A. customer_memory_summary:",
     JSON.stringify(structuredMemory, null, 2),
     "",
-    "B. coverage_gap_summary:",
+    "B.",
+    buildPoliciesPromptBlock(policies),
+    "",
+    "C. coverage_gap_summary:",
     JSON.stringify(
       {
         overall_risk: context.coverageGapResult?.overall_risk,
@@ -46,7 +55,7 @@ export function buildInsuranceDesignExplanationPrompt(structuredMemory, designBu
       2,
     ),
     "",
-    "C. underwriting_summary:",
+    "D. underwriting_summary:",
     JSON.stringify(
       {
         overall_underwriting_risk: context.underwritingResult?.overall_underwriting_risk,
@@ -56,10 +65,10 @@ export function buildInsuranceDesignExplanationPrompt(structuredMemory, designBu
       2,
     ),
     "",
-    "D. recommendation_top2:",
+    "E. recommendation_top2:",
     JSON.stringify(context.recommendationResult?.customer_visible_top2, null, 2),
     "",
-    "E. insurance_design:",
+    "F. insurance_design:",
     JSON.stringify(
       {
         insurance_design: designBundle.insurance_design,
@@ -145,8 +154,8 @@ export async function loadInsuranceDesignAnalysisContext(supabase, customerId) {
 
   const input = buildInsuranceDesignInputFromAnalysis({
     snapshot: recContext.snapshot,
-    policies: [],
-    health: null,
+    policies: recContext.policies ?? [],
+    health: recContext.health ?? null,
     coverageGapResult: recContext.coverageGapResult,
     underwritingResult: recContext.underwritingResult,
     recommendationResult: recContext.recommendationResult,
@@ -172,6 +181,7 @@ export async function loadInsuranceDesignAnalysisContext(supabase, customerId) {
     underwritingResult: recContext.underwritingResult,
     recommendationResult: recContext.recommendationResult,
     designBundle,
+    policies: recContext.policies ?? [],
   };
 }
 
@@ -208,12 +218,16 @@ export async function handleCustomerInsuranceDesignRequest({
   if (!skipClaude) {
     const anthropicApiKey = resolveAnthropicApiKey(env);
     if (!anthropicApiKey) {
-      claudeMeta = { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" };
+      claudeMeta = attachPolicyMeta(
+        { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" },
+        context.policies ?? [],
+      );
     } else {
       const prompt = buildInsuranceDesignExplanationPrompt(
         context.structuredMemory,
         context.designBundle,
         context,
+        context.policies ?? [],
       );
       const claudeResult = await callAnthropic({
         apiKey: anthropicApiKey,
@@ -224,17 +238,23 @@ export async function handleCustomerInsuranceDesignRequest({
       });
       if (claudeResult.ok) {
         claudeExplanation = claudeResult.answer;
-        claudeMeta = {
-          skipped: false,
-          model_name: claudeResult.model,
-          provider: claudeResult.provider,
-        };
+        claudeMeta = attachPolicyMeta(
+          {
+            skipped: false,
+            model_name: claudeResult.model,
+            provider: claudeResult.provider,
+          },
+          context.policies ?? [],
+        );
       } else {
-        claudeMeta = {
-          skipped: true,
-          reason: claudeResult.reason,
-          error_message: claudeResult.errorMessage,
-        };
+        claudeMeta = attachPolicyMeta(
+          {
+            skipped: true,
+            reason: claudeResult.reason,
+            error_message: claudeResult.errorMessage,
+          },
+          context.policies ?? [],
+        );
       }
     }
   }

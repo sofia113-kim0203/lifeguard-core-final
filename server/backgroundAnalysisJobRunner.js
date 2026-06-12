@@ -13,6 +13,8 @@ import {
   loadFreshCacheEntry,
   saveCustomerAnalysisCacheEntry,
 } from "./customerAnalysisCacheStore.js";
+import { generatePanelClaudeExplanations } from "./panelClaudeExplanationHydration.js";
+import { getJobPipelineManifest } from "./intentGateLayer.js";
 
 export const ANALYSIS_PIPELINE_STAGES = [
   "coverage_gap",
@@ -23,11 +25,11 @@ export const ANALYSIS_PIPELINE_STAGES = [
 ];
 
 const STAGE_UI_LABELS = {
-  coverage_gap: "Coverage 분석 완료",
-  underwriting_risk: "Underwriting 분석 완료",
-  recommendation: "Recommendation 생성 완료",
-  insurance_design: "보험설계 생성 완료",
-  result_claude: "분석 결과 설명 생성 완료",
+  coverage_gap: "가입 보험 확인 완료",
+  underwriting_risk: "건강 정보 반영 완료",
+  recommendation: "부족한 보장 검토 완료",
+  insurance_design: "맞춤 안내 정리 완료",
+  result_claude: "답변 정리 완료",
 };
 
 export const REQUIRED_PANEL_STAGE_KEYS = [
@@ -72,6 +74,7 @@ function buildResultClaudeFallbackStageResult(workingContext, reason = "result_c
 async function finalizeResultClaudeStage({
   supabase,
   jobId,
+  customerId,
   stagesCompleted,
   resultJson,
   workingContext,
@@ -79,6 +82,8 @@ async function finalizeResultClaudeStage({
   stageResult,
   stageDuration,
   fromCache,
+  fetchImpl = fetch,
+  env = process.env,
 }) {
   stagesCompleted.push("result_claude");
   resultJson.result_claude = stageResult;
@@ -116,6 +121,32 @@ async function finalizeResultClaudeStage({
       ].includes(key),
     )
     .reduce((sum, [, value]) => sum + Number(value ?? 0), 0);
+
+  const intent = resultJson.intent_gate?.intent ?? workingContext.intentGate?.intent ?? null;
+  if (intent !== "factual_lookup" && intent !== "policy_detail") {
+    const panelClaudeStart = Date.now();
+    const panelClaude = await generatePanelClaudeExplanations({
+      supabase,
+      customerId,
+      workingContext,
+      fetchImpl,
+      env,
+    });
+    timingMetrics.panel_claude_hydration_ms = panelClaude.duration_ms ?? Date.now() - panelClaudeStart;
+    timingMetrics.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+    timingMetrics.total_analysis_time_ms =
+      Number(timingMetrics.total_analysis_time_ms ?? 0) + Number(timingMetrics.panel_claude_hydration_ms ?? 0);
+
+    resultJson.claude_explanations = panelClaude.explanations ?? {};
+    resultJson.panel_claude_policy_count = panelClaude.policy_count ?? 0;
+    resultJson.panel_claude_policy_ids = panelClaude.policy_ids ?? [];
+  } else {
+    timingMetrics.panel_claude_hydration_ms = 0;
+    timingMetrics.panel_claude_policy_count = 0;
+    resultJson.claude_explanations = {};
+    resultJson.panel_claude_policy_count = 0;
+    resultJson.panel_claude_policy_ids = [];
+  }
 
   const updatedJob = await updateAnalysisJob(supabase, jobId, {
     stages_completed: stagesCompleted,
@@ -258,10 +289,12 @@ export async function processNextAnalysisJobStage({
   }
 
   const stagesCompleted = Array.isArray(job.stages_completed) ? [...job.stages_completed] : [];
-  const nextStage = getNextPendingStage(stagesCompleted);
   const timingMetrics = { ...(job.timing_metrics ?? {}) };
   const resultJson = { ...(job.result_json ?? {}) };
-
+  const pipelineManifest = getJobPipelineManifest(job);
+  const nextStage =
+    pipelineManifest.find((stage) => !stagesCompleted.includes(stage)) ??
+    getNextPendingStage(stagesCompleted);
   if (!nextStage) {
     if (!hasRequiredPanelResults(resultJson)) {
       return {
@@ -289,6 +322,8 @@ export async function processNextAnalysisJobStage({
   }
   const workingContext = {
     question: job.question,
+    intentGate: resultJson.intent_gate ?? resultJson.working_context?.intentGate ?? null,
+    factual_lookup_answer: resultJson.working_context?.factual_lookup_answer ?? null,
     ...(resultJson.working_context ?? {}),
   };
 
@@ -335,6 +370,7 @@ export async function processNextAnalysisJobStage({
       return finalizeResultClaudeStage({
         supabase,
         jobId,
+        customerId: job.customer_id,
         stagesCompleted,
         resultJson,
         workingContext,
@@ -342,6 +378,8 @@ export async function processNextAnalysisJobStage({
         stageResult,
         stageDuration,
         fromCache: false,
+        fetchImpl,
+        env,
       });
     } else {
       const { evaluation } = await loadFreshCacheEntry(
@@ -410,7 +448,9 @@ export async function processNextAnalysisJobStage({
       [nextStage]: STAGE_UI_LABELS[nextStage],
     };
 
-    const stillPendingStage = getNextPendingStage(stagesCompleted);
+    const stillPendingStage =
+      pipelineManifest.find((stage) => !stagesCompleted.includes(stage)) ??
+      getNextPendingStage(stagesCompleted);
     const patch = {
       stages_completed: stagesCompleted,
       result_json: resultJson,
@@ -439,6 +479,7 @@ export async function processNextAnalysisJobStage({
       return finalizeResultClaudeStage({
         supabase,
         jobId,
+        customerId: job.customer_id,
         stagesCompleted,
         resultJson,
         workingContext,
@@ -446,6 +487,8 @@ export async function processNextAnalysisJobStage({
         stageResult: fallbackStageResult,
         stageDuration,
         fromCache: false,
+        fetchImpl,
+        env,
       });
     }
 

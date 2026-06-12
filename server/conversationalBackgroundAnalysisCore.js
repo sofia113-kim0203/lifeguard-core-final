@@ -13,6 +13,15 @@ import {
   runAnalysisJobToCompletion,
 } from "./backgroundAnalysisJobRunner.js";
 import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import {
+  buildFactualLookupAnswer,
+  buildIntentGatePayload,
+  buildPolicyDetailAnswer,
+  classifyConsultationIntent,
+  getJobPipelineManifest,
+  getJobSkippedStages,
+  resolvePipelineManifest,
+} from "./intentGateLayer.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -66,11 +75,68 @@ async function resolveCustomerId(supabase) {
 }
 
 
+async function findExistingResultMessage(adminClient, customerId, jobId) {
+  const { data, error } = await adminClient
+    .from("customer_conversations")
+    .select("id, customer_id, role, message, metadata_json, created_at")
+    .eq("customer_id", customerId)
+    .eq("role", "assistant")
+    .contains("metadata_json", { phase: "phase26-2a-result", analysis_job_id: jobId })
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`conversation_lookup_failed: ${error.message}`);
+  }
+  return data ?? null;
+}
+
+async function tryClaimResultMessagePost(adminClient, job) {
+  const { data, error } = await adminClient
+    .from("analysis_jobs")
+    .update({
+      result_json: {
+        ...(job.result_json ?? {}),
+        result_message_posted: true,
+        result_message_claimed_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", job.id)
+    .or(
+      "result_json.is.null,result_json->>result_message_posted.is.null,result_json->>result_message_posted.eq.false",
+    )
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`result_message_claim_failed: ${error.message}`);
+  }
+  return data ?? null;
+}
+
 async function postResultMessageIfNeeded(adminClient, customerId, job) {
   if (!job?.final_response_text) return null;
-  if (job.result_json?.result_message_posted) return null;
 
-  const message = await insertConversationMessage(adminClient, customerId, {
+  const existing = await findExistingResultMessage(adminClient, customerId, job.id);
+  if (existing) return existing;
+
+  if (job.result_json?.result_message_posted) {
+    return findExistingResultMessage(adminClient, customerId, job.id);
+  }
+
+  const claimed = await tryClaimResultMessagePost(adminClient, job);
+  if (!claimed) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const existingAfterClaim = await findExistingResultMessage(adminClient, customerId, job.id);
+      if (existingAfterClaim) return existingAfterClaim;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+    return null;
+  }
+
+  return insertConversationMessage(adminClient, customerId, {
     role: "assistant",
     message: job.final_response_text,
     metadata: {
@@ -81,16 +147,6 @@ async function postResultMessageIfNeeded(adminClient, customerId, job) {
       timing_metrics: job.timing_metrics ?? {},
     },
   });
-
-  await adminClient
-    .from("analysis_jobs")
-    .update({
-      result_json: { ...(job.result_json ?? {}), result_message_posted: true },
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", job.id);
-
-  return message;
 }
 
 
@@ -115,24 +171,30 @@ async function insertConversationMessage(adminSupabase, customerId, { role, mess
 export function mapAnalysisJobForClient(job) {
   if (!job) return null;
   const stagesCompleted = Array.isArray(job.stages_completed) ? job.stages_completed : [];
+  const pipelineManifest = getJobPipelineManifest(job);
+  const skippedStages = getJobSkippedStages(job);
   const progress = ANALYSIS_PIPELINE_STAGES.map((stage) => ({
     stage,
     status: stagesCompleted.includes(stage)
       ? "completed"
-      : job.current_step === stage
-        ? "processing"
-        : "pending",
+      : skippedStages.includes(stage)
+        ? "skipped"
+        : job.current_step === stage
+          ? "processing"
+          : pipelineManifest.includes(stage)
+            ? "pending"
+            : "skipped",
     label:
       job.result_json?.stage_labels?.[stage] ??
       (stage === "coverage_gap"
-        ? "Coverage 분석"
+        ? "가입 보험 확인 중"
         : stage === "underwriting_risk"
-          ? "Underwriting 분석"
+          ? "건강 정보 반영 중"
           : stage === "recommendation"
-            ? "Recommendation 생성"
+            ? "부족한 보장 검토 중"
             : stage === "insurance_design"
-              ? "보험설계 생성"
-              : "결과 설명"),
+              ? "맞춤 안내 정리 중"
+              : "답변 정리 중"),
   }));
 
   return {
@@ -203,12 +265,27 @@ export async function handleConversationalQuestionRequest({
     snapshot.memory_version ?? 0,
   );
 
+  const intentClassification = classifyConsultationIntent(trimmedQuestion);
+  const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
+  const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
+  const workingContextInput = {
+    snapshot,
+    sourceContext: memoryContext.sourceContext,
+    sourceSummary: memoryContext.sourceSummary,
+  };
+  const factualLookupAnswer = buildFactualLookupAnswer(trimmedQuestion, workingContextInput, intentGate);
+  const policyDetailAnswer =
+    intentGate.intent === "policy_detail"
+      ? buildPolicyDetailAnswer(trimmedQuestion, workingContextInput)
+      : null;
+
   const fastResponse = buildFastConversationalResponse({
     question: trimmedQuestion,
     memorySnapshot: snapshot,
     cachePayload,
     sourceContext: memoryContext.sourceContext,
     sourceSummary: memoryContext.sourceSummary,
+    intentGate,
   });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
@@ -228,9 +305,15 @@ export async function handleConversationalQuestionRequest({
       source_memory_version: snapshot.memory_version ?? 0,
       timing_metrics: {},
       result_json: {
+        intent_gate: intentGate,
         working_context: {
+          snapshot,
+          sourceContext: memoryContext.sourceContext,
           sourceSummary: memoryContext.sourceSummary,
           sourceContextFlags: memoryContext.data_available,
+          intentGate,
+          factual_lookup_answer: factualLookupAnswer,
+          policy_detail_answer: policyDetailAnswer,
         },
       },
       stages_completed: [],
@@ -378,8 +461,10 @@ export async function handleAnalysisJobStatusRequest({
       env,
     });
 
-    const refreshedJob = processResult?.job ?? (await loadAnalysisJob(processClient, trimmedJobId));
-    await postResultMessageIfNeeded(processClient, customerId, refreshedJob);
+    const refreshedJob = processResult?.job ?? (await loadAnalysisJob(adminClient, trimmedJobId));
+    if (refreshedJob?.status === "completed") {
+      await postResultMessageIfNeeded(adminClient, customerId, refreshedJob);
+    }
   }
 
   const latestClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? readClient;
@@ -389,6 +474,11 @@ export async function handleAnalysisJobStatusRequest({
     analysis_job: mapAnalysisJobForClient(latestJob),
     process_result: processResult,
   };
+}
+
+/** @internal Test-only export for duplicate-response race verification */
+export async function postResultMessageIfNeededForTest(adminClient, customerId, job) {
+  return postResultMessageIfNeeded(adminClient, customerId, job);
 }
 
 export async function handleLatestAnalysisJobRequest({

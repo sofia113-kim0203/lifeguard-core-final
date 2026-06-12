@@ -8,6 +8,7 @@ import { loadCoverageAnalysisContext } from "./customerCoverageGapCore.js";
 import { loadUnderwritingAnalysisContext } from "./customerUnderwritingRiskCore.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import { attachPolicyMeta, buildPoliciesPromptBlock } from "./panelClaudePoliciesContext.js";
 import { createClient } from "@supabase/supabase-js";
 
 const RECOMMENDATION_SYSTEM_RULES = [
@@ -35,6 +36,7 @@ export function buildRecommendationExplanationPrompt(
   recommendationResult,
   coverageGapResult,
   underwritingResult,
+  policies = [],
 ) {
   const user = [
     "Explain insurance recommendations to the customer using only the blocks below.",
@@ -42,7 +44,10 @@ export function buildRecommendationExplanationPrompt(
     "A. customer_memory_summary:",
     JSON.stringify(structuredMemory, null, 2),
     "",
-    "B. coverage_gap_summary:",
+    "B.",
+    buildPoliciesPromptBlock(policies),
+    "",
+    "C. coverage_gap_summary:",
     JSON.stringify(
       {
         overall_risk: coverageGapResult?.overall_risk,
@@ -53,7 +58,7 @@ export function buildRecommendationExplanationPrompt(
       2,
     ),
     "",
-    "C. underwriting_summary:",
+    "D. underwriting_summary:",
     JSON.stringify(
       {
         overall_underwriting_risk: underwritingResult?.overall_underwriting_risk,
@@ -64,7 +69,7 @@ export function buildRecommendationExplanationPrompt(
       2,
     ),
     "",
-    "D. recommendation_analysis:",
+    "E. recommendation_analysis:",
     JSON.stringify(
       {
         customer_visible_top2: recommendationResult.customer_visible_top2,
@@ -269,6 +274,8 @@ export async function loadRecommendationAnalysisContext(supabase, customerId) {
     coverageGapResult: uwContext.coverageGapResult,
     underwritingResult: uwContext.underwritingResult,
     recommendationResult,
+    policies: coverageContext.policies ?? [],
+    health: coverageContext.health ?? null,
   };
 }
 
@@ -317,21 +324,25 @@ export async function handleCustomerRecommendationRequest({
     const anthropicApiKey = resolveAnthropicApiKey(env);
     if (!anthropicApiKey) {
       claudeExplanation = fallbackExplanation();
-      claudeMeta = {
-        skipped: true,
-        reason: "ANTHROPIC_NOT_CONFIGURED",
-        http_status: null,
-        error_type: null,
-        error_message: "ANTHROPIC_API_KEY is not configured on the server.",
-        fallback_used: true,
-        explanation_mode: "fallback",
-      };
+      claudeMeta = attachPolicyMeta(
+        {
+          skipped: true,
+          reason: "ANTHROPIC_NOT_CONFIGURED",
+          http_status: null,
+          error_type: null,
+          error_message: "ANTHROPIC_API_KEY is not configured on the server.",
+          fallback_used: true,
+          explanation_mode: "fallback",
+        },
+        context.policies ?? [],
+      );
     } else {
       const prompt = buildRecommendationExplanationPrompt(
         context.structuredMemory,
         context.recommendationResult,
         context.coverageGapResult,
         context.underwritingResult,
+        context.policies ?? [],
       );
       let claudeResult;
       try {
@@ -354,15 +365,21 @@ export async function handleCustomerRecommendationRequest({
       }
       if (claudeResult.ok) {
         claudeExplanation = claudeResult.answer;
-        claudeMeta = {
-          skipped: false,
-          model_name: claudeResult.model,
-          provider: claudeResult.provider,
-          explanation_mode: "claude",
-        };
+        claudeMeta = attachPolicyMeta(
+          {
+            skipped: false,
+            model_name: claudeResult.model,
+            provider: claudeResult.provider,
+            explanation_mode: "claude",
+          },
+          context.policies ?? [],
+        );
       } else {
         claudeExplanation = fallbackExplanation();
-        claudeMeta = buildRecommendationClaudeMetaFromFailure(claudeResult);
+        claudeMeta = attachPolicyMeta(
+          buildRecommendationClaudeMetaFromFailure(claudeResult),
+          context.policies ?? [],
+        );
       }
     }
   }

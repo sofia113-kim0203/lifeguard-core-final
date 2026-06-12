@@ -4,6 +4,18 @@ import {
   isCustomerUnauthorizedError,
   rethrowCustomerApiError,
 } from "./customerApiAuth.js";
+import { analyzeCustomerUnderwritingRisk } from "./customerUnderwritingRisk.js";
+import { loadCustomerRecommendations } from "./customerRecommendations.js";
+import { loadCustomerInsuranceDesign } from "./customerInsuranceDesign.js";
+import { hasClaudeExplanation, normalizeClaudeExplanationEntry } from "./panelClaudeExplanation.js";
+import {
+  jobHasEnginePanelResults,
+  mapJobResultsToAnalysisPanels,
+} from "./analysisPanelJobUtils.js";
+
+export { hasClaudeExplanation, normalizeClaudeExplanationEntry } from "./panelClaudeExplanation.js";
+export { jobHasEnginePanelResults, mapJobResultsToAnalysisPanels } from "./analysisPanelJobUtils.js";
+export { isCustomerUnauthorizedError };
 
 const CONVERSATIONAL_ROUTE = "/api/customer-conversational-qa";
 const ANALYSIS_JOB_ROUTE = "/api/customer-analysis-job";
@@ -91,13 +103,28 @@ export async function fetchLatestAnalysisJob() {
   return payload.analysis_job ?? null;
 }
 
-export { isCustomerUnauthorizedError };
+async function sleepWithAbort(ms, signal) {
+  if (signal?.aborted) return;
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
 
 export async function processAnalysisJobUntilComplete({
   jobId,
   onProgress,
   pollIntervalMs = 900,
   maxAttempts = 120,
+  signal = null,
 } = {}) {
   const trimmedJobId = String(jobId ?? "").trim();
   if (!trimmedJobId) throw new Error("분석 작업 ID가 없습니다.");
@@ -106,11 +133,20 @@ export async function processAnalysisJobUntilComplete({
   let latestJob = null;
 
   while (attempts < maxAttempts) {
+    if (signal?.aborted) {
+      return latestJob;
+    }
+
     const { analysisJob, processResult } = await fetchAnalysisJobStatus({
       jobId: trimmedJobId,
       action: "process",
     });
     latestJob = analysisJob;
+
+    if (signal?.aborted) {
+      return latestJob;
+    }
+
     if (typeof onProgress === "function") {
       onProgress(latestJob);
     }
@@ -121,34 +157,77 @@ export async function processAnalysisJobUntilComplete({
     if (processResult?.skipped) {
       return latestJob;
     }
+
     attempts += 1;
-    if (attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-    }
+    await sleepWithAbort(pollIntervalMs, signal);
   }
 
   return latestJob;
 }
 
-export function mapJobResultsToAnalysisPanels(job) {
-  if (!job?.result_json) return null;
-  const result = job.result_json;
-  return {
-    coverageGapResult: result.coverage_gap ?? null,
-    underwritingResult: result.underwriting_risk ?? null,
-    recommendationResult: result.recommendation ?? null,
-    designBundle: result.insurance_design ?? null,
-    claudeExplanations: result.claude_explanations ?? {},
-    finalClaude: result.final_claude ?? null,
-  };
+const PANEL_CLAUDE_HYDRATORS = {
+  underwriting: analyzeCustomerUnderwritingRisk,
+  recommendation: loadCustomerRecommendations,
+  insurance_design: loadCustomerInsuranceDesign,
+};
+
+export async function hydrateMissingClaudeExplanations({
+  claudeExplanations = {},
+  panels = ["underwriting", "recommendation", "insurance_design"],
+  hasPanelData = {},
+} = {}) {
+  const hydrated = { ...claudeExplanations };
+  const hydrationResults = [];
+
+  for (const panel of panels) {
+    if (hasPanelData[panel] === false) {
+      continue;
+    }
+    if (hasClaudeExplanation(hydrated[panel])) {
+      hydrationResults.push({ panel, ok: true, skipped: true, reason: "already_present" });
+      continue;
+    }
+
+    const hydrator = PANEL_CLAUDE_HYDRATORS[panel];
+    if (!hydrator) {
+      hydrationResults.push({ panel, ok: false, reason: "unknown_panel" });
+      continue;
+    }
+
+    try {
+      const result = await hydrator({ skipClaude: false });
+      hydrated[panel] = {
+        explanation: result.claudeExplanation ?? null,
+        meta: {
+          ...(result.claudeMeta ?? {}),
+          hydrated_at: new Date().toISOString(),
+          source: "client_panel_api",
+        },
+      };
+      hydrationResults.push({
+        panel,
+        ok: hasClaudeExplanation(hydrated[panel]),
+        reason: hasClaudeExplanation(hydrated[panel]) ? null : result.claudeMeta?.reason ?? "empty_explanation",
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "hydration_failed";
+      hydrated[panel] = {
+        explanation: null,
+        meta: {
+          skipped: true,
+          reason: "HYDRATION_FAILED",
+          error_message: errorMessage,
+          hydrated_at: new Date().toISOString(),
+          source: "client_panel_api",
+        },
+      };
+      hydrationResults.push({ panel, ok: false, reason: "HYDRATION_FAILED", error_message: errorMessage });
+    }
+  }
+
+  return { claudeExplanations: hydrated, hydrationResults };
 }
 
 export function jobHasDisplayablePanelResults(job) {
-  const mapped = mapJobResultsToAnalysisPanels(job);
-  return Boolean(
-    mapped?.coverageGapResult ||
-      mapped?.underwritingResult ||
-      mapped?.recommendationResult ||
-      mapped?.designBundle,
-  );
+  return jobHasEnginePanelResults(job);
 }

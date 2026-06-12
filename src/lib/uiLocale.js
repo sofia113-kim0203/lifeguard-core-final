@@ -92,10 +92,13 @@ const HEALTH_SOURCE_LABELS = {
   import: "데이터 가져오기",
 };
 
+export const LOGIN_INVALID_CREDENTIALS_MESSAGE =
+  '이메일 또는 비밀번호가 맞지 않습니다.\n비밀번호를 잊으셨다면 아래의 "비밀번호 찾기"를 이용해 주세요.';
+
 const SUPABASE_ERROR_PATTERNS = [
   {
     test: /invalid login credentials/i,
-    message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+    message: LOGIN_INVALID_CREDENTIALS_MESSAGE,
   },
   {
     test: /user already registered|already been registered/i,
@@ -183,6 +186,14 @@ export function formatUploadDate(value) {
   } catch {
     return UI_LABELS.emptyValue;
   }
+}
+
+export function formatLoginErrorMessage(error, fallback = "로그인에 실패했습니다.") {
+  const raw = typeof error === "string" ? error : error?.message;
+  if (raw && /invalid login credentials/i.test(raw.trim())) {
+    return LOGIN_INVALID_CREDENTIALS_MESSAGE;
+  }
+  return toCustomerErrorMessage(error, fallback);
 }
 
 export function toCustomerErrorMessage(error, fallback = "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.") {

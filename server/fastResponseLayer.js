@@ -8,6 +8,12 @@ import {
   detectDirectAnswerIntent,
   extractCustomerSituation,
 } from "./customerConversationalTone.js";
+import { buildClaimFastResponse } from "./claimBridgeLayer.js";
+import {
+  buildCoverageReviewFastAnswer,
+  buildFactualLookupAnswer,
+  buildPolicyDetailAnswer,
+} from "./intentGateLayer.js";
 
 const STAGE_LABELS = {
   coverage_gap: "보장 공백",
@@ -35,6 +41,7 @@ export function buildFastConversationalResponse({
   cachePayload,
   sourceContext = null,
   sourceSummary = null,
+  intentGate = null,
 } = {}) {
   const trimmedQuestion = String(question ?? "").trim();
   const workingContext = buildWorkingContextFromFastInput({ memorySnapshot, sourceContext, sourceSummary });
@@ -44,6 +51,25 @@ export function buildFastConversationalResponse({
   const hasAnyCustomerData =
     (memorySnapshot?.fact_count ?? 0) > 0 ||
     Boolean(sourceContext?.has_profile || sourceContext?.has_health || sourceContext?.has_policies);
+
+  if (intentGate?.intent === "claim_eligibility_check") {
+    return buildClaimFastResponse(trimmedQuestion, workingContext, intentGate);
+  }
+
+  if (intentGate?.intent === "coverage_review_request") {
+    return buildCoverageReviewFastAnswer(trimmedQuestion, workingContext);
+  }
+
+  if (intentGate?.intent === "policy_detail") {
+    return buildPolicyDetailAnswer(trimmedQuestion, workingContext);
+  }
+
+  if (intentGate?.intent === "factual_lookup") {
+    const factualAnswer = buildFactualLookupAnswer(trimmedQuestion, workingContext, intentGate);
+    if (factualAnswer) {
+      return factualAnswer;
+    }
+  }
 
   const directAnswer = buildDirectFactualAnswer(trimmedQuestion, workingContext);
   if (directAnswer) {
