@@ -37,16 +37,24 @@ export default async function handler(req, res) {
   }
 
   const documentId = String(body.document_id ?? "").trim();
+
+  if (!auth.customerId) {
+    res.statusCode = 401;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: false, error: "customer_auth_missing_customer_id" }));
+    return;
+  }
+
   if (!documentId) {
     res.statusCode = 422;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: false, reason: "document_id_required" }));
+    res.end(JSON.stringify({ ok: false, error: "document_id_required" }));
     return;
   }
 
   try {
     const result = await runDocumentPolicyExtraction({
-      customerId: auth.customer_id,
+      customerId: auth.customerId,
       documentId,
       env: process.env,
       invokeMemory: body.invoke_memory !== false,
@@ -57,7 +65,7 @@ export default async function handler(req, res) {
     res.end(
       JSON.stringify({
         ok: result.ok,
-        customer_id: auth.customer_id,
+        customer_id: auth.customerId,
         document_id: documentId,
         ...result,
       }),
