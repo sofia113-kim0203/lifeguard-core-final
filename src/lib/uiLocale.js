@@ -164,8 +164,14 @@ export function formatDocumentPipelineStatus(document) {
   if (ingestStatus === "ready" && extractionStatus === "completed") {
     return "분석·보험정보 추출 완료";
   }
+  if (ingestStatus === "ready" && extractionStatus === "pending_manual_review") {
+    return "OCR 완료 · 관리자 검토 대기";
+  }
   if (ingestStatus === "ready" && extractionStatus === "extraction_failed") {
     return "OCR 완료 · 보험정보 추출 필요";
+  }
+  if (ingestStatus === "ready" && !extractionStatus) {
+    return "OCR 완료 · 보험정보 추출 대기";
   }
   return formatIngestStatus(ingestStatus);
 }

@@ -29,6 +29,15 @@ const KNOWN_CARRIERS = [
   "IM라이프",
 ];
 
+const PRODUCT_KEYWORDS = [
+  { pattern: /실손의료비|실손\s*의료|실손보험|실손의료/, label: "실손의료비보험", policy_type: "indemnity_medical" },
+  { pattern: /종신보험|종신\s*보험/, label: "종신보험", policy_type: "whole_life" },
+  { pattern: /암보험|암\s*보험|암진단/, label: "암보험", policy_type: "cancer" },
+  { pattern: /건강보험|건강\s*보험/, label: "건강보험", policy_type: "health" },
+  { pattern: /연금보험|연금\s*보험/, label: "연금보험", policy_type: "annuity" },
+  { pattern: /운전자보험|운전자\s*보험/, label: "운전자보험", policy_type: "driver" },
+];
+
 const COVERAGE_RULES = [
   { pattern: /실손의료비|실손\s*의료|실손보험|실손의료/, category: "실손", policy_type: "indemnity_medical" },
   { pattern: /암진단비|암\s*진단|암보험|암\s*보장/, category: "암", policy_type: "cancer" },
@@ -40,7 +49,29 @@ const COVERAGE_RULES = [
 ];
 
 const NEXT_LABEL =
-  "(?=\\s*(?:상품명|보험상품|증권명|계약자|피보험자|월\\s*보험료|월납|보험료|납입기간|납기|보험기간|보장기간|가입금액|보장금액|특약|특약명|보장명|주계약)\\s*[:：]|$)";
+  "(?=\\s*(?:상품명|보험상품|증권명|계약자|피보험자|월\\s*보험료|월보험료|월납|보험료|연\\s*보험료|합계\\s*보험료|납입기간|납기|보험기간|보장기간|가입일|계약일|보장개시|가입금액|보장금액|특약|특약명|보장명|주계약|담보)\\s*[:：]|$)";
+
+const REVIEW_TARGET_FIELDS = [
+  "insurer_name",
+  "product_name",
+  "policyholder",
+  "insured",
+  "monthly_premium",
+  "effective_from",
+  "coverage_name",
+  "coverage_amount",
+];
+
+export const POLICY_FIELD_LABELS = {
+  insurer_name: "보험사",
+  product_name: "상품명",
+  policyholder: "계약자",
+  insured: "피보험자",
+  monthly_premium: "보험료",
+  effective_from: "가입일",
+  coverage_name: "담보/보장명",
+  coverage_amount: "보장금액",
+};
 
 const LABEL_RULES = [
   {
@@ -48,6 +79,7 @@ const LABEL_RULES = [
     patterns: [
       new RegExp(`보험사\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`보험회사\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
+      /보험사\s*[:：]?\s*([가-힣A-Za-z0-9]+(?:생명|화재|손해|라이프|해상))/i,
     ],
   },
   {
@@ -56,21 +88,33 @@ const LABEL_RULES = [
       new RegExp(`상품명\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`보험상품\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`증권명\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
+      new RegExp(`담보\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
     ],
   },
-  { field: "policyholder", patterns: [new RegExp(`계약자\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i")] },
+  {
+    field: "policyholder",
+    patterns: [
+      new RegExp(`계약자\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
+      /계약자\s*[:：]?\s*([가-힣]{2,6})/,
+    ],
+  },
   {
     field: "insured",
     patterns: [
       new RegExp(`피보험자\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`被保險者\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
+      /피보험자\s*[:：]?\s*([가-힣]{2,6})/,
     ],
   },
   {
     field: "monthly_premium",
     patterns: [
       /월\s*보험료\s*[:：]?\s*([0-9,]+)\s*원?/i,
+      /월보험료\s*[:：]?\s*([0-9,]+)\s*원?/i,
       /월납\s*[:：]?\s*([0-9,]+)\s*원?/i,
+      /연\s*보험료\s*[:：]?\s*([0-9,]+)\s*원?/i,
+      /합계\s*보험료\s*[:：]?\s*([0-9,]+)\s*원?/i,
+      /납입\s*보험료\s*[:：]?\s*([0-9,]+)\s*원?/i,
       new RegExp(`보험료\\s*[:：]?\\s*([0-9,]+)\\s*원?${NEXT_LABEL}`, "i"),
     ],
     numeric: true,
@@ -94,6 +138,7 @@ const LABEL_RULES = [
     patterns: [
       /가입금액\s*[:：]?\s*([0-9,]+)\s*(만원|억원|원)?/i,
       /보장금액\s*[:：]?\s*([0-9,]+)\s*(만원|억원|원)?/i,
+      /담보금액\s*[:：]?\s*([0-9,]+)\s*(만원|억원|원)?/i,
     ],
     amount: true,
   },
@@ -102,6 +147,7 @@ const LABEL_RULES = [
     patterns: [
       new RegExp(`보장명\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`주계약\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
+      new RegExp(`담보\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
     ],
   },
   {
@@ -110,6 +156,15 @@ const LABEL_RULES = [
       new RegExp(`특약\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`특약명\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
     ],
+  },
+  {
+    field: "effective_from",
+    patterns: [
+      /가입일\s*[:：]?\s*(\d{4}[.\-/년]\s*\d{1,2}[.\-/월]\s*\d{1,2}일?)/i,
+      /계약일\s*[:：]?\s*(\d{4}[.\-/년]\s*\d{1,2}[.\-/월]\s*\d{1,2}일?)/i,
+      /보장개시\s*[:：]?\s*(\d{4}[.\-/년]\s*\d{1,2}[.\-/월]\s*\d{1,2}일?)/i,
+    ],
+    date: true,
   },
 ];
 
@@ -131,6 +186,21 @@ function parseNumericAmount(raw, unit = "") {
   return amount;
 }
 
+function parseDateValue(raw) {
+  const cleaned = String(raw ?? "")
+    .replace(/년/g, "-")
+    .replace(/월/g, "-")
+    .replace(/일/g, "")
+    .replace(/[.\s/]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  const match = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return null;
+  const month = String(match[2]).padStart(2, "0");
+  const day = String(match[3]).padStart(2, "0");
+  return `${match[1]}-${month}-${day}`;
+}
+
 export function normalizeOcrTextVariants(text) {
   const raw = String(text ?? "").trim();
   const lines = raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
@@ -140,7 +210,7 @@ export function normalizeOcrTextVariants(text) {
 }
 
 function matchLabelField(variants, rule) {
-  const sources = [variants.joined, variants.raw, variants.collapsed];
+  const sources = [variants.joined, variants.raw, ...variants.lines, variants.collapsed];
   for (const source of sources) {
     for (const pattern of rule.patterns) {
       const match = source.match(pattern);
@@ -153,6 +223,10 @@ function matchLabelField(variants, rule) {
         const amount = parseNumericAmount(match[1], match[2]);
         if (amount != null) return amount;
       }
+      if (rule.date) {
+        const date = parseDateValue(match[1]);
+        if (date) return date;
+      }
       const cleaned = cleanValue(match[1]);
       if (cleaned) return cleaned;
     }
@@ -161,6 +235,15 @@ function matchLabelField(variants, rule) {
 }
 
 function detectCarrier(variants) {
+  for (const line of variants.lines) {
+    for (const carrier of KNOWN_CARRIERS) {
+      const compact = carrier.replace(/\s+/g, "");
+      if (line.includes(carrier) || line.replace(/\s+/g, "").includes(compact)) {
+        return carrier;
+      }
+    }
+  }
+
   const sources = [variants.joined, variants.collapsed, variants.raw];
   for (const source of sources) {
     for (const carrier of KNOWN_CARRIERS) {
@@ -170,6 +253,48 @@ function detectCarrier(variants) {
     }
   }
   return null;
+}
+
+function detectProductFromLines(variants) {
+  for (const line of variants.lines) {
+    for (const rule of PRODUCT_KEYWORDS) {
+      if (!rule.pattern.test(line)) continue;
+      const cleaned = cleanValue(line);
+      if (cleaned.length >= 3) return cleaned;
+      return rule.label;
+    }
+  }
+
+  for (const rule of PRODUCT_KEYWORDS) {
+    if (rule.pattern.test(variants.joined)) return rule.label;
+  }
+  return null;
+}
+
+function detectPremiumFromLines(variants) {
+  for (const line of variants.lines) {
+    if (!/보험료|월납|납입액|합계/.test(line)) continue;
+    const match = line.match(/([0-9,]{3,})\s*원?/);
+    if (!match?.[1]) continue;
+    const amount = parseNumericAmount(match[1]);
+    if (amount != null && amount >= 1000) return amount;
+  }
+  return null;
+}
+
+function detectNamesFromLines(variants) {
+  const result = {};
+  for (const line of variants.lines) {
+    if (!result.policyholder) {
+      const holder = line.match(/계약자\s*[:：]?\s*([가-힣]{2,6})(?:\s|$)/);
+      if (holder?.[1]) result.policyholder = cleanValue(holder[1]);
+    }
+    if (!result.insured) {
+      const insured = line.match(/피보험자\s*[:：]?\s*([가-힣]{2,6})(?:\s|$)/);
+      if (insured?.[1]) result.insured = cleanValue(insured[1]);
+    }
+  }
+  return result;
 }
 
 function detectCoverageCategories(variants) {
@@ -182,6 +307,11 @@ function detectCoverageCategories(variants) {
     if (!rule.pattern.test(source)) continue;
     if (!categories.includes(rule.category)) categories.push(rule.category);
     coverages.push(rule.category);
+    if (!primaryPolicyType) primaryPolicyType = rule.policy_type;
+  }
+
+  for (const rule of PRODUCT_KEYWORDS) {
+    if (!rule.pattern.test(source)) continue;
     if (!primaryPolicyType) primaryPolicyType = rule.policy_type;
   }
 
@@ -200,8 +330,53 @@ function countPresentFields(extracted) {
   if (extracted.coverage_name) count += 1;
   if (extracted.rider_name) count += 1;
   if (extracted.coverage_amount != null) count += 1;
+  if (extracted.effective_from) count += 1;
   if (extracted.coverage_categories?.length) count += 1;
   return count;
+}
+
+function hasIdentityAnchor(fields) {
+  return Boolean(fields.insurer_name || fields.product_name || fields.coverage_name);
+}
+
+export function getMissingPolicyFields(fields = {}) {
+  return REVIEW_TARGET_FIELDS.filter((field) => {
+    if (field === "monthly_premium" || field === "coverage_amount") {
+      return fields[field] == null;
+    }
+    return !fields[field];
+  }).map((field) => POLICY_FIELD_LABELS[field] ?? field);
+}
+
+export function classifyPolicyExtractionOutcome(fields, fieldCount) {
+  const identity = hasIdentityAnchor(fields);
+  const success = fieldCount >= 2;
+  const tier = success
+    ? fieldCount >= 4 || (fields.insurer_name && fields.product_name)
+      ? "full"
+      : "minimal"
+    : "review";
+  return {
+    success,
+    minimal_eligible: success && tier === "minimal",
+    tier,
+    requires_manual_review: !success,
+    has_identity_anchor: identity,
+  };
+}
+
+export function buildOcrSnippet(ocrText, maxLength = 800) {
+  const raw = String(ocrText ?? "").trim();
+  if (!raw) return "";
+  if (raw.length <= maxLength) return raw;
+  return `${raw.slice(0, maxLength)}…`;
+}
+
+export function isPolicyExtractionRetryEligible({ ingestStatus, metadataJson } = {}) {
+  if (ingestStatus !== "ready") return false;
+  const status = metadataJson?.policy_extraction_status ?? null;
+  if (!status) return true;
+  return status === "extraction_failed" || status === "pending_manual_review";
 }
 
 export function extractPolicyFieldsFromOcrText(ocrText) {
@@ -218,33 +393,54 @@ export function extractPolicyFieldsFromOcrText(ocrText) {
     if (carrier) fields.insurer_name = carrier;
   }
 
+  if (!fields.product_name) {
+    const product = detectProductFromLines(variants);
+    if (product) fields.product_name = product;
+  }
+
+  if (fields.monthly_premium == null) {
+    const premium = detectPremiumFromLines(variants);
+    if (premium != null) fields.monthly_premium = premium;
+  }
+
+  const lineNames = detectNamesFromLines(variants);
+  if (lineNames.policyholder) fields.policyholder = lineNames.policyholder;
+  if (lineNames.insured) fields.insured = lineNames.insured;
+
   const coverage = detectCoverageCategories(variants);
   fields.coverage_categories = coverage.categories;
   fields.detected_coverages = coverage.coverages;
-  fields.policy_type = coverage.primaryPolicyType;
+  if (!fields.policy_type) fields.policy_type = coverage.primaryPolicyType;
 
-  const fieldCount = countPresentFields(fields);
+  const normalizedFields = {
+    insurer_name: fields.insurer_name ?? null,
+    product_name: fields.product_name ?? null,
+    policyholder: fields.policyholder ?? null,
+    insured: fields.insured ?? null,
+    monthly_premium: fields.monthly_premium ?? null,
+    payment_period: fields.payment_period ?? null,
+    insurance_period: fields.insurance_period ?? null,
+    coverage_name: fields.coverage_name ?? null,
+    rider_name: fields.rider_name ?? null,
+    coverage_amount: fields.coverage_amount ?? null,
+    effective_from: fields.effective_from ?? null,
+    coverage_categories: fields.coverage_categories ?? [],
+    policy_type: fields.policy_type ?? null,
+  };
+
+  const fieldCount = countPresentFields(normalizedFields);
+  const outcome = classifyPolicyExtractionOutcome(normalizedFields, fieldCount);
   const confidence = Math.min(1, Number((fieldCount / 6).toFixed(3)));
-  const success = fieldCount >= 2;
 
   return {
-    success,
+    success: outcome.success,
+    minimal_eligible: outcome.minimal_eligible,
+    tier: outcome.tier,
+    requires_manual_review: outcome.requires_manual_review,
     confidence,
     field_count: fieldCount,
-    fields: {
-      insurer_name: fields.insurer_name ?? null,
-      product_name: fields.product_name ?? null,
-      policyholder: fields.policyholder ?? null,
-      insured: fields.insured ?? null,
-      monthly_premium: fields.monthly_premium ?? null,
-      payment_period: fields.payment_period ?? null,
-      insurance_period: fields.insurance_period ?? null,
-      coverage_name: fields.coverage_name ?? null,
-      rider_name: fields.rider_name ?? null,
-      coverage_amount: fields.coverage_amount ?? null,
-      coverage_categories: fields.coverage_categories ?? [],
-      policy_type: fields.policy_type ?? null,
-    },
+    missing_fields: getMissingPolicyFields(normalizedFields),
+    fields: normalizedFields,
     ocr_text_length: variants.raw.length,
   };
 }

@@ -8,6 +8,7 @@ import {
   downloadDocument,
   softDeleteDocument,
   requeuePendingDocumentIngest,
+  retryPendingPolicyExtractions,
 } from "../lib/customerDocuments.js";
 import { useCustomerSession } from "../hooks/useCustomerSession.js";
 import { runPostDocumentPipelineRefresh } from "../lib/customerDocumentPipeline.js";
@@ -208,13 +209,22 @@ export default function DocumentsPanel({ user }) {
       setDocuments(result.documents);
       setHasConsent(result.hasDocumentStorageConsent);
       setHasAnalysisConsent(result.hasDocumentAnalysisConsent);
+
+      if (result.hasDocumentAnalysisConsent) {
+        const retry = await retryPendingPolicyExtractions(user);
+        if (retry.retried > 0) {
+          const refreshed = await listDocuments(user, { categoryKey: filterKey });
+          setDocuments(refreshed.documents);
+          await refreshSession({ event: "policy_extraction_retry_complete", reloadJob: true });
+        }
+      }
     } catch (err) {
       setDocuments([]);
       setError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
-  }, [user, filterKey]);
+  }, [user, filterKey, refreshSession]);
 
   useEffect(() => {
     loadData();

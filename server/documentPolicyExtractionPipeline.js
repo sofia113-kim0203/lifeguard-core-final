@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import { extractPolicyFieldsFromOcrText } from "./documentPolicyExtractor.js";
+import {
+  buildOcrSnippet,
+  extractPolicyFieldsFromOcrText,
+  isPolicyExtractionRetryEligible,
+} from "./documentPolicyExtractor.js";
 
-const EXTRACTOR_VERSION = "step4-ocr-policy-v1";
+const EXTRACTOR_VERSION = "step4-ocr-policy-v2";
 
 function createServiceClient(env = process.env) {
   const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
@@ -50,6 +54,7 @@ async function upsertUploadPolicy(admin, customerId, documentId, extraction) {
     source_document_id: documentId,
     extractor_version: EXTRACTOR_VERSION,
     extraction_confidence: extraction.confidence,
+    extraction_tier: extraction.tier ?? "full",
     policyholder: fields.policyholder,
     insured: fields.insured,
     payment_period: fields.payment_period,
@@ -59,6 +64,7 @@ async function upsertUploadPolicy(admin, customerId, documentId, extraction) {
     coverage_amount: fields.coverage_amount,
     coverage_categories: fields.coverage_categories,
     detected_coverages: fields.detected_coverages ?? fields.coverage_categories,
+    effective_from: fields.effective_from,
     extracted_at: new Date().toISOString(),
     extraction_json: fields,
   };
@@ -70,6 +76,7 @@ async function upsertUploadPolicy(admin, customerId, documentId, extraction) {
     product_name: fields.product_name,
     policy_type: fields.policy_type,
     monthly_premium: fields.monthly_premium,
+    effective_from: fields.effective_from ?? null,
     coverage_summary: coverageSummary,
     source: "upload_extract",
     is_active: true,
@@ -152,11 +159,25 @@ async function updateDocumentExtractionMetadata(admin, customerId, documentId, p
   return merged;
 }
 
+async function markPendingManualReview(admin, customerId, documentId, extraction, ocrText) {
+  const metadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
+    policy_extraction_status: "pending_manual_review",
+    policy_extraction_error: "insufficient_policy_fields",
+    policy_extraction: extraction,
+    policy_extraction_field_count: extraction.field_count,
+    policy_extraction_missing_fields: extraction.missing_fields ?? [],
+    policy_extraction_ocr_snippet: buildOcrSnippet(ocrText),
+    policy_extraction_requires_admin_review: true,
+  });
+  return metadata;
+}
+
 export async function runDocumentPolicyExtraction({
   customerId,
   documentId,
   env = process.env,
   invokeMemory = true,
+  forceRetry = false,
 }) {
   const admin = createServiceClient(env);
   if (!admin) throw new Error("supabase_service_role_not_configured");
@@ -173,6 +194,28 @@ export async function runDocumentPolicyExtraction({
   if (!document) throw new Error("document_not_found");
   if (document.ingest_status !== "ready") {
     throw new Error(`document_not_ready:${document.ingest_status}`);
+  }
+
+  const metadata = document.metadata_json ?? {};
+  const existingStatus = metadata.policy_extraction_status ?? null;
+  const existingPolicyId = metadata.profile_policy_id ?? null;
+
+  if (
+    !forceRetry &&
+    existingStatus === "completed" &&
+    existingPolicyId &&
+    (await findExistingUploadPolicy(admin, customerId, documentId))
+  ) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "already_completed",
+      chunk_count: null,
+      ocr_text_length: null,
+      extraction: metadata.policy_extraction ?? null,
+      policy_id: existingPolicyId,
+      memory_builder: { invoked: false, reason: "skipped_completed" },
+    };
   }
 
   const chunks = await loadDocumentChunks(admin, customerId, documentId);
@@ -196,20 +239,23 @@ export async function runDocumentPolicyExtraction({
   const extraction = extractPolicyFieldsFromOcrText(ocrText);
 
   if (!extraction.success) {
-    await updateDocumentExtractionMetadata(admin, customerId, documentId, {
-      policy_extraction_status: "extraction_failed",
-      policy_extraction_error: "insufficient_policy_fields",
-      policy_extraction: extraction,
-      policy_extraction_field_count: extraction.field_count,
-    });
+    const reviewMetadata = await markPendingManualReview(
+      admin,
+      customerId,
+      documentId,
+      extraction,
+      ocrText,
+    );
     return {
       ok: false,
       reason: "insufficient_policy_fields",
+      status: "pending_manual_review",
       chunk_count: chunks.length,
       ocr_text_length: ocrText.length,
       extraction,
       policy_id: null,
       memory_builder: null,
+      metadata_json: reviewMetadata,
     };
   }
 
@@ -251,10 +297,16 @@ export async function runDocumentPolicyExtraction({
       memory_builder: null,
     };
   }
-  const metadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
+
+  const updatedMetadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
     policy_extraction_status: "completed",
     policy_extraction_error: null,
     policy_extraction: extraction,
+    policy_extraction_field_count: extraction.field_count,
+    policy_extraction_tier: extraction.tier ?? "full",
+    policy_extraction_missing_fields: [],
+    policy_extraction_ocr_snippet: null,
+    policy_extraction_requires_admin_review: false,
     profile_policy_id: policyResult.policy_id,
     policy_extraction_action: policyResult.action,
   });
@@ -285,6 +337,8 @@ export async function runDocumentPolicyExtraction({
     profile_insurance_policies_count: policyCount ?? 0,
     customer_memory_facts_count: memoryFactCount ?? 0,
     memory_builder: memoryBuilder,
-    metadata_json: metadata,
+    metadata_json: updatedMetadata,
   };
 }
+
+export { isPolicyExtractionRetryEligible };
