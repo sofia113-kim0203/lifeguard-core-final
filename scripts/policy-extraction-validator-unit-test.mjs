@@ -197,6 +197,25 @@ const tests = [
     const result = validateFromOcr(overSplitSample);
     assert(result.document_route !== "auto_save", `got ${result.document_route}`);
   }],
+  ["over-split ratio blocks_detected/policy_count triggers DOC_OVER_SPLIT", () => {
+    const result = validatePolicyExtraction({
+      ocrText: "보장분석\n삼성생명\n상품명: 실손의료비보험",
+      multiExtraction: {
+        blocks_detected: 6,
+        policy_count: 1,
+        policies: [
+          {
+            block_index: 0,
+            fields: { insurer_name: "삼성생명", product_name: "실손의료비보험", monthly_premium: 45000 },
+            riders: [{ rider_name: "암진단비", coverage_amount: 30000000 }],
+          },
+        ],
+        review_blocks: [],
+      },
+      documentMeta: { doc_class: "coverage_analysis_sheet" },
+    });
+    assert(result.flags.includes("DOC_OVER_SPLIT"), `flags=${JSON.stringify(result.flags)}`);
+  }],
   ["duplicate insurer+product yields two candidates", () => {
     const multi = extractPoliciesFromOcrText(duplicateSample);
     assert(multi.policy_count === 2, `policy_count=${multi.policy_count}`);

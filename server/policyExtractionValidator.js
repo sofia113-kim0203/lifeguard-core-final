@@ -370,6 +370,14 @@ function detectDocumentOverSplit(multiExtraction) {
   if (blocksDetected >= 3 && policyCount <= 1 && orphanReviews >= 2) return true;
   if (blocksDetected >= 4 && orphanReviews >= 2) return true;
   if (blocksDetected >= 3 && orphanReviews >= policyCount + 1) return true;
+
+  if (blocksDetected >= 3 && policyCount > 0) {
+    const splitRatio = blocksDetected / policyCount;
+    if (splitRatio >= 2.5) return true;
+  }
+  if (blocksDetected >= 5 && policyCount <= 2) return true;
+  if (blocksDetected >= 4 && policyCount === 1 && orphanReviews >= 1) return true;
+
   return false;
 }
 

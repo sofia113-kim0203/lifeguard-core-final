@@ -49,7 +49,8 @@
     "test:analysis-jobs-e2e": "node scripts/analysis_jobs_e2e_test.mjs",
     "test:document-policy-extractor-unit": "node scripts/document-policy-extractor-unit-test.mjs",
     "test:document-policy-persist-unit": "node scripts/document-policy-persist-unit-test.mjs",
-    "test:policy-extraction-validator-unit": "node scripts/policy-extraction-validator-unit-test.mjs"
+    "test:policy-extraction-validator-unit": "node scripts/policy-extraction-validator-unit-test.mjs",
+    "test:policy-extraction-shadow-unit": "node scripts/policy-extraction-shadow-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

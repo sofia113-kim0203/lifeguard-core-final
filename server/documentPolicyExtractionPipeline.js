@@ -10,6 +10,11 @@ import {
   planRetiredPolicyIds,
   resolveExistingPolicyForCandidate,
 } from "./documentPolicyUploadPersist.js";
+import {
+  CUSTOMER_DOCUMENT_SELECT_FIELDS,
+  runShadowPolicyValidationSafe,
+  updateDocumentMetadataWithShadow,
+} from "./policyExtractionShadow.js";
 
 function createServiceClient(env = process.env) {
   const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
@@ -207,8 +212,8 @@ function getStoredPolicyIds(metadata = {}) {
   return [];
 }
 
-async function markPendingManualReview(admin, customerId, documentId, multiExtraction, ocrText) {
-  const metadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
+async function markPendingManualReview(admin, customerId, documentId, multiExtraction, ocrText, shadowState = null) {
+  const basePatch = {
     policy_extraction_status: "pending_manual_review",
     policy_extraction_error: "insufficient_policy_fields",
     policy_extraction: multiExtraction,
@@ -221,8 +226,16 @@ async function markPendingManualReview(admin, customerId, documentId, multiExtra
     policy_extraction_requires_admin_review: true,
     profile_policy_ids: [],
     profile_policy_id: null,
-  });
-  return metadata;
+  };
+  return updateDocumentMetadataWithShadow(
+    admin,
+    updateDocumentExtractionMetadata,
+    customerId,
+    documentId,
+    basePatch,
+    shadowState,
+    null,
+  );
 }
 
 export async function runDocumentPolicyExtraction({
@@ -237,7 +250,7 @@ export async function runDocumentPolicyExtraction({
 
   const { data: document, error: docError } = await admin
     .from("customer_documents")
-    .select("id, customer_id, ingest_status, original_filename, metadata_json")
+    .select(CUSTOMER_DOCUMENT_SELECT_FIELDS)
     .eq("id", documentId)
     .eq("customer_id", customerId)
     .is("deleted_at", null)
@@ -292,6 +305,11 @@ export async function runDocumentPolicyExtraction({
 
   const ocrText = chunks.map((chunk) => chunk.content ?? "").join("\n\n").trim();
   const multiExtraction = extractPoliciesFromOcrText(ocrText);
+  const shadowState = runShadowPolicyValidationSafe({
+    ocrText,
+    multiExtraction,
+    document,
+  });
 
   if (!multiExtraction.success) {
     const reviewMetadata = await markPendingManualReview(
@@ -300,6 +318,7 @@ export async function runDocumentPolicyExtraction({
       documentId,
       multiExtraction,
       ocrText,
+      shadowState,
     );
     return {
       ok: false,
@@ -318,11 +337,19 @@ export async function runDocumentPolicyExtraction({
 
   const hasConsent = await hasInsuranceDataConsent(admin, customerId);
   if (!hasConsent) {
-    await updateDocumentExtractionMetadata(admin, customerId, documentId, {
-      policy_extraction_status: "extraction_failed",
-      policy_extraction_error: "insurance_data_processing_consent_required",
-      policy_extraction: multiExtraction,
-    });
+    await updateDocumentMetadataWithShadow(
+      admin,
+      updateDocumentExtractionMetadata,
+      customerId,
+      documentId,
+      {
+        policy_extraction_status: "extraction_failed",
+        policy_extraction_error: "insurance_data_processing_consent_required",
+        policy_extraction: multiExtraction,
+      },
+      shadowState,
+      null,
+    );
     return {
       ok: false,
       reason: "insurance_data_processing_consent_required",
@@ -341,11 +368,19 @@ export async function runDocumentPolicyExtraction({
     persistResult = await persistExtractedPolicies(admin, customerId, documentId, multiExtraction);
   } catch (persistError) {
     const message = persistError instanceof Error ? persistError.message : "policy_persist_failed";
-    await updateDocumentExtractionMetadata(admin, customerId, documentId, {
-      policy_extraction_status: "extraction_failed",
-      policy_extraction_error: message,
-      policy_extraction: multiExtraction,
-    });
+    await updateDocumentMetadataWithShadow(
+      admin,
+      updateDocumentExtractionMetadata,
+      customerId,
+      documentId,
+      {
+        policy_extraction_status: "extraction_failed",
+        policy_extraction_error: message,
+        policy_extraction: multiExtraction,
+      },
+      shadowState,
+      null,
+    );
     return {
       ok: false,
       reason: message,
@@ -359,22 +394,30 @@ export async function runDocumentPolicyExtraction({
     };
   }
 
-  const updatedMetadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
-    policy_extraction_status: "completed",
-    policy_extraction_error: null,
-    policy_extraction: multiExtraction,
-    policy_extraction_count: persistResult.policy_count,
-    policy_extraction_field_count: multiExtraction.policies?.[0]?.field_count ?? 0,
-    policy_extraction_tier: multiExtraction.policies?.[0]?.tier ?? "full",
-    policy_extraction_missing_fields: [],
-    policy_extraction_review_blocks: multiExtraction.review_blocks ?? [],
-    policy_extraction_ocr_snippet: null,
-    policy_extraction_requires_admin_review: (multiExtraction.review_blocks ?? []).length > 0,
-    profile_policy_ids: persistResult.policy_ids,
-    profile_policy_id: persistResult.policy_ids[0] ?? null,
-    policy_extraction_action: persistResult.policy_actions.map((entry) => entry.action).join(","),
-    policy_extraction_retired_policy_ids: persistResult.retired_policy_ids,
-  });
+  const updatedMetadata = await updateDocumentMetadataWithShadow(
+    admin,
+    updateDocumentExtractionMetadata,
+    customerId,
+    documentId,
+    {
+      policy_extraction_status: "completed",
+      policy_extraction_error: null,
+      policy_extraction: multiExtraction,
+      policy_extraction_count: persistResult.policy_count,
+      policy_extraction_field_count: multiExtraction.policies?.[0]?.field_count ?? 0,
+      policy_extraction_tier: multiExtraction.policies?.[0]?.tier ?? "full",
+      policy_extraction_missing_fields: [],
+      policy_extraction_review_blocks: multiExtraction.review_blocks ?? [],
+      policy_extraction_ocr_snippet: null,
+      policy_extraction_requires_admin_review: (multiExtraction.review_blocks ?? []).length > 0,
+      profile_policy_ids: persistResult.policy_ids,
+      profile_policy_id: persistResult.policy_ids[0] ?? null,
+      policy_extraction_action: persistResult.policy_actions.map((entry) => entry.action).join(","),
+      policy_extraction_retired_policy_ids: persistResult.retired_policy_ids,
+    },
+    shadowState,
+    persistResult,
+  );
 
   const memoryBuilder = invokeMemory
     ? await invokeMemoryBuilder(env, customerId)
