@@ -83,11 +83,9 @@ export async function extractInsuranceFacts(
   }
 
   const { data: policies, error } = await admin
-    .from("profile_insurance_policies")
+    .from("active_profile_insurance_policies")
     .select("id, insurer_name, product_name, policy_type, monthly_premium, effective_from, coverage_summary, is_active")
-    .eq("customer_id", customerId)
-    .is("deleted_at", null)
-    .not("is_active", "is", false);
+    .eq("customer_id", customerId);
 
   if (error) {
     throw new Error(`insurance_load_failed: ${error.message}`);

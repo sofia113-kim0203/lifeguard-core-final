@@ -135,13 +135,11 @@ export async function loadCustomerDashboardData(authUser, { unifiedState = null 
       .eq("customer_id", customerId)
       .maybeSingle(),
     supabase
-      .from("profile_insurance_policies")
+      .from("active_profile_insurance_policies")
       .select(
         "id, insurer_name, product_name, coverage_summary, policy_type, is_active, policy_status, source, monthly_premium, premium_amount, created_at",
       )
       .eq("customer_id", customerId)
-      .is("deleted_at", null)
-      .not("is_active", "is", false)
       .order("created_at", { ascending: false }),
     supabase
       .from("customer_consents")

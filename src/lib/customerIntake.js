@@ -91,10 +91,9 @@ export async function loadCustomerIntake(authUser) {
       .eq("customer_id", profile.id)
       .maybeSingle(),
     supabase
-      .from("profile_insurance_policies")
+      .from("active_profile_insurance_policies")
       .select("id, insurer_name, product_name, coverage_summary")
       .eq("customer_id", profile.id)
-      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
