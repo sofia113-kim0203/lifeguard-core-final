@@ -166,7 +166,18 @@ const LABEL_RULES = [
     ],
     date: true,
   },
+  {
+    field: "policy_number",
+    patterns: [
+      /증권번호\s*[:：]?\s*([0-9A-Z\-]{6,})/i,
+      /계약번호\s*[:：]?\s*([0-9A-Z\-]{6,})/i,
+      /증번\s*[:：]?\s*([0-9A-Z\-]{6,})/i,
+    ],
+  },
 ];
+
+const BLOCK_HEADER_PATTERNS = [/보장분석/, /보험증권/, /가입보험\s*현황/, /보험\s*가입\s*내역/];
+const POLICY_NUMBER_LINE_PATTERN = /증권번호|계약번호|증번/;
 
 function cleanValue(value) {
   return String(value ?? "")
@@ -331,6 +342,7 @@ function countPresentFields(extracted) {
   if (extracted.rider_name) count += 1;
   if (extracted.coverage_amount != null) count += 1;
   if (extracted.effective_from) count += 1;
+  if (extracted.policy_number) count += 1;
   if (extracted.coverage_categories?.length) count += 1;
   return count;
 }
@@ -379,8 +391,306 @@ export function isPolicyExtractionRetryEligible({ ingestStatus, metadataJson } =
   return status === "extraction_failed" || status === "pending_manual_review";
 }
 
-export function extractPolicyFieldsFromOcrText(ocrText) {
+function detectCarrierOnLine(line) {
+  for (const carrier of KNOWN_CARRIERS) {
+    const compact = carrier.replace(/\s+/g, "");
+    if (line.includes(carrier) || line.replace(/\s+/g, "").includes(compact)) {
+      return carrier;
+    }
+  }
+  return null;
+}
+
+function detectProductKeywordOnLine(line) {
+  for (const rule of PRODUCT_KEYWORDS) {
+    if (!rule.pattern.test(line)) continue;
+    const cleaned = cleanValue(line);
+    if (cleaned.length >= 3) return cleaned;
+    return rule.label;
+  }
+  return null;
+}
+
+function isBlockHeaderLine(line) {
+  return BLOCK_HEADER_PATTERNS.some((pattern) => pattern.test(line));
+}
+
+function classifyBlockSplitAnchor(line) {
+  const cleaned = cleanValue(line);
+  if (!cleaned) return null;
+
+  if (POLICY_NUMBER_LINE_PATTERN.test(cleaned)) {
+    return { type: "policy_number", line: cleaned };
+  }
+
+  const carrier = detectCarrierOnLine(cleaned);
+  if (carrier && (cleaned === carrier || /^보험사\s*[:：]?/.test(cleaned))) {
+    return { type: "carrier", line: cleaned, carrier };
+  }
+
+  if (/^상품명\s*[:：]|^증권명\s*[:：]|^보험상품\s*[:：]/i.test(cleaned)) {
+    return { type: "product_label", line: cleaned };
+  }
+
+  return null;
+}
+
+function collectBlockSplitIndices(lines) {
+  const carrierSplits = [];
+  const productLabelSplits = [];
+  const policyNumberSplits = [];
+  let carrierSeen = 0;
+  let productLabelSeen = 0;
+  let policyNumberSeen = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const anchor = classifyBlockSplitAnchor(lines[index]);
+    if (!anchor) continue;
+
+    if (anchor.type === "carrier") {
+      if (carrierSeen > 0) carrierSplits.push({ index, anchor });
+      carrierSeen += 1;
+      continue;
+    }
+
+    if (anchor.type === "product_label") {
+      if (productLabelSeen > 0) productLabelSplits.push({ index, anchor });
+      productLabelSeen += 1;
+      continue;
+    }
+
+    if (anchor.type === "policy_number") {
+      if (policyNumberSeen > 0) policyNumberSplits.push({ index, anchor });
+      policyNumberSeen += 1;
+    }
+  }
+
+  if (carrierSplits.length) return carrierSplits;
+  if (productLabelSplits.length) return productLabelSplits;
+  return policyNumberSplits;
+}
+
+function findFirstBlockStart(lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (classifyBlockSplitAnchor(lines[index])) return index;
+  }
+  return 0;
+}
+
+function buildBlockText(lines, start, end) {
+  return lines.slice(start, end).join("\n").trim();
+}
+
+/**
+ * Split OCR lines into policy block candidates using repeated insurer/product/premium anchors.
+ */
+export function segmentOcrIntoPolicyBlocks(ocrText) {
   const variants = normalizeOcrTextVariants(ocrText);
+  const lines = variants.lines;
+  if (!lines.length) {
+    return { blocks: [], blocks_detected: 0, header_lines: [] };
+  }
+
+  const splitIndices = collectBlockSplitIndices(lines);
+  const headerEnd = (() => {
+    let end = 0;
+    while (end < lines.length && (isBlockHeaderLine(lines[end]) || lines[end].length <= 2)) {
+      end += 1;
+    }
+    return end;
+  })();
+  const headerLines = lines.slice(0, headerEnd);
+
+  if (!splitIndices.length) {
+    const start = Math.min(findFirstBlockStart(lines), headerEnd > 0 ? 0 : findFirstBlockStart(lines));
+    const firstAnchor = classifyBlockSplitAnchor(lines[findFirstBlockStart(lines)] ?? "");
+    return {
+      blocks: [
+        {
+          block_index: 0,
+          start_line: start,
+          end_line: lines.length,
+          text: variants.raw,
+          anchor_type: firstAnchor?.type ?? "single",
+          anchor_line: lines[findFirstBlockStart(lines)] ?? lines[0] ?? null,
+        },
+      ],
+      blocks_detected: 1,
+      header_lines: headerLines,
+    };
+  }
+
+  const boundaries = [findFirstBlockStart(lines), ...splitIndices.map((entry) => entry.index), lines.length];
+  const uniqueBoundaries = [...new Set(boundaries)].sort((a, b) => a - b);
+  const blocks = [];
+
+  for (let i = 0; i < uniqueBoundaries.length - 1; i += 1) {
+    const start = uniqueBoundaries[i];
+    const end = uniqueBoundaries[i + 1];
+    if (start >= end) continue;
+    const blockLines = [...(start === uniqueBoundaries[0] ? headerLines : []), ...lines.slice(start, end)];
+    const text = buildBlockText(blockLines, 0, blockLines.length);
+    if (!text) continue;
+    const anchor = classifyBlockSplitAnchor(lines[start]);
+    blocks.push({
+      block_index: blocks.length,
+      start_line: start,
+      end_line: end,
+      text,
+      anchor_type: anchor?.type ?? "section",
+      anchor_line: lines[start] ?? null,
+    });
+  }
+
+  return {
+    blocks,
+    blocks_detected: blocks.length,
+    header_lines: headerLines,
+  };
+}
+
+function detectRiderCategory(name) {
+  const source = cleanValue(name);
+  for (const rule of COVERAGE_RULES) {
+    if (rule.pattern.test(source)) return rule.category;
+  }
+  return null;
+}
+
+function buildRiderItem({ rider_name, coverage_amount = null, source_line, notes = null }) {
+  const name = cleanValue(rider_name);
+  if (!name) return null;
+  const category = detectRiderCategory(name);
+  let confidence = 0.7;
+  if (coverage_amount != null) confidence += 0.1;
+  if (category) confidence += 0.1;
+  return {
+    rider_name: name,
+    coverage_amount,
+    category,
+    notes: notes ?? source_line,
+    source_line: cleanValue(source_line),
+    confidence: Math.min(1, Number(confidence.toFixed(2))),
+  };
+}
+
+/**
+ * Parse rider/coverage rows from a single policy block (no persistence).
+ */
+export function extractRidersFromBlock(blockText) {
+  const variants = normalizeOcrTextVariants(blockText);
+  const riders = [];
+  const seen = new Set();
+
+  const pushRider = (item) => {
+    if (!item) return;
+    const key = `${item.rider_name}::${item.coverage_amount ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    riders.push(item);
+  };
+
+  for (const line of variants.lines) {
+    const labelMatch = line.match(/특약\s*[:：]?\s*(.+)$/i);
+    if (labelMatch?.[1]) {
+      const amountMatch = labelMatch[1].match(/(.+?)\s+([0-9,]+)\s*(만원|억원|원)?$/);
+      if (amountMatch) {
+        pushRider(
+          buildRiderItem({
+            rider_name: amountMatch[1],
+            coverage_amount: parseNumericAmount(amountMatch[2], amountMatch[3]),
+            source_line: line,
+          }),
+        );
+        continue;
+      }
+      pushRider(buildRiderItem({ rider_name: labelMatch[1], source_line: line }));
+      continue;
+    }
+
+    const coverageLine = line.match(/^(?:담보|보장명|주계약)\s*[:：]?\s*(.+)$/i);
+    if (coverageLine?.[1]) {
+      const amountMatch = coverageLine[1].match(/(.+?)\s+([0-9,]+)\s*(만원|억원|원)?$/);
+      if (amountMatch) {
+        pushRider(
+          buildRiderItem({
+            rider_name: amountMatch[1],
+            coverage_amount: parseNumericAmount(amountMatch[2], amountMatch[3]),
+            source_line: line,
+          }),
+        );
+      } else {
+        pushRider(buildRiderItem({ rider_name: coverageLine[1], source_line: line }));
+      }
+      continue;
+    }
+
+    const tableMatch = line.match(/^([가-힣A-Za-z0-9\s]{2,30})\s+([0-9,]+)\s*(만원|억원|원)$/);
+    if (tableMatch && /진단|보장|특약|수술|입원|실손|암|뇌|심장/.test(tableMatch[1])) {
+      pushRider(
+        buildRiderItem({
+          rider_name: tableMatch[1],
+          coverage_amount: parseNumericAmount(tableMatch[2], tableMatch[3]),
+          source_line: line,
+        }),
+      );
+    }
+  }
+
+  return riders;
+}
+
+function evaluatePolicyCandidateTier(fields, riders = []) {
+  const hasPolicyNumber = Boolean(fields.policy_number);
+  const hasInsurer = Boolean(fields.insurer_name);
+  const hasProduct = Boolean(fields.product_name);
+  const hasPremium = fields.monthly_premium != null;
+  const hasPerson = Boolean(fields.policyholder || fields.insured);
+  const hasRiderSignal = riders.length > 0 || (fields.coverage_categories?.length ?? 0) > 0;
+
+  if (hasPolicyNumber || (hasInsurer && hasProduct)) return "A";
+  if (hasInsurer && (hasPremium || hasPerson)) return "B";
+  if (hasProduct && hasPremium && hasRiderSignal) return "C";
+  return null;
+}
+
+function buildEmptyPolicyExtraction(ocrTextLength = 0) {
+  return {
+    success: false,
+    minimal_eligible: false,
+    tier: "review",
+    requires_manual_review: true,
+    confidence: 0,
+    field_count: 0,
+    missing_fields: Object.values(POLICY_FIELD_LABELS),
+    fields: {
+      insurer_name: null,
+      product_name: null,
+      policyholder: null,
+      insured: null,
+      monthly_premium: null,
+      payment_period: null,
+      insurance_period: null,
+      coverage_name: null,
+      rider_name: null,
+      coverage_amount: null,
+      effective_from: null,
+      policy_number: null,
+      coverage_categories: [],
+      policy_type: null,
+    },
+    riders: [],
+    ocr_text_length: ocrTextLength,
+  };
+}
+
+/**
+ * Extract structured policy fields from one OCR block.
+ */
+export function extractPolicyFieldsFromBlock(blockText) {
+  const variants = normalizeOcrTextVariants(blockText);
+  if (!variants.raw) return buildEmptyPolicyExtraction(0);
+
   const fields = {};
 
   for (const rule of LABEL_RULES) {
@@ -412,6 +722,14 @@ export function extractPolicyFieldsFromOcrText(ocrText) {
   fields.detected_coverages = coverage.coverages;
   if (!fields.policy_type) fields.policy_type = coverage.primaryPolicyType;
 
+  const riders = extractRidersFromBlock(blockText);
+  if (!fields.rider_name && riders[0]?.rider_name) {
+    fields.rider_name = riders[0].rider_name;
+  }
+  if (fields.coverage_amount == null && riders[0]?.coverage_amount != null) {
+    fields.coverage_amount = riders[0].coverage_amount;
+  }
+
   const normalizedFields = {
     insurer_name: fields.insurer_name ?? null,
     product_name: fields.product_name ?? null,
@@ -424,23 +742,109 @@ export function extractPolicyFieldsFromOcrText(ocrText) {
     rider_name: fields.rider_name ?? null,
     coverage_amount: fields.coverage_amount ?? null,
     effective_from: fields.effective_from ?? null,
+    policy_number: fields.policy_number ?? null,
     coverage_categories: fields.coverage_categories ?? [],
     policy_type: fields.policy_type ?? null,
   };
 
   const fieldCount = countPresentFields(normalizedFields);
+  const candidateTier = evaluatePolicyCandidateTier(normalizedFields, riders);
   const outcome = classifyPolicyExtractionOutcome(normalizedFields, fieldCount);
+  const success = Boolean(candidateTier) && outcome.success;
+  const tier = candidateTier
+    ? candidateTier === "A"
+      ? fieldCount >= 4 || (normalizedFields.insurer_name && normalizedFields.product_name)
+        ? "full"
+        : "minimal"
+      : "minimal"
+    : "review";
   const confidence = Math.min(1, Number((fieldCount / 6).toFixed(3)));
 
   return {
-    success: outcome.success,
-    minimal_eligible: outcome.minimal_eligible,
-    tier: outcome.tier,
-    requires_manual_review: outcome.requires_manual_review,
+    success,
+    candidate_tier: candidateTier,
+    minimal_eligible: success && tier === "minimal",
+    tier,
+    requires_manual_review: !success,
     confidence,
     field_count: fieldCount,
     missing_fields: getMissingPolicyFields(normalizedFields),
     fields: normalizedFields,
+    riders,
     ocr_text_length: variants.raw.length,
   };
+}
+
+/**
+ * Multi-policy OCR extraction (parser only — no DB writes).
+ */
+export function extractPoliciesFromOcrText(ocrText) {
+  const variants = normalizeOcrTextVariants(ocrText);
+  const segmentation = segmentOcrIntoPolicyBlocks(ocrText);
+  const policies = [];
+  const review_blocks = [];
+
+  for (const block of segmentation.blocks) {
+    const extraction = extractPolicyFieldsFromBlock(block.text);
+    const blockResult = {
+      block_index: block.block_index,
+      start_line: block.start_line,
+      end_line: block.end_line,
+      anchor_type: block.anchor_type,
+      anchor_line: block.anchor_line,
+      ...extraction,
+    };
+
+    if (extraction.success && extraction.candidate_tier) {
+      policies.push(blockResult);
+    } else {
+      review_blocks.push({
+        block_index: block.block_index,
+        start_line: block.start_line,
+        end_line: block.end_line,
+        anchor_type: block.anchor_type,
+        anchor_line: block.anchor_line,
+        reason: extraction.candidate_tier ? "insufficient_policy_fields" : "missing_policy_identity",
+        missing_fields: extraction.missing_fields,
+        field_count: extraction.field_count,
+        fields: extraction.fields,
+        riders: extraction.riders,
+        text_snippet: buildOcrSnippet(block.text, 400),
+      });
+    }
+  }
+
+  if (!segmentation.blocks.length && variants.raw) {
+    const extraction = extractPolicyFieldsFromBlock(variants.raw);
+    if (extraction.success && extraction.candidate_tier) {
+      policies.push({ block_index: 0, start_line: 0, end_line: variants.lines.length, ...extraction });
+    } else {
+      review_blocks.push({
+        block_index: 0,
+        reason: "insufficient_policy_fields",
+        missing_fields: extraction.missing_fields,
+        field_count: extraction.field_count,
+        fields: extraction.fields,
+        riders: extraction.riders,
+        text_snippet: buildOcrSnippet(variants.raw, 400),
+      });
+    }
+  }
+
+  return {
+    success: policies.length > 0,
+    policy_count: policies.length,
+    policies,
+    blocks_detected: segmentation.blocks_detected,
+    blocks_rejected: review_blocks.length,
+    review_blocks,
+    requires_manual_review: policies.length === 0,
+    ocr_text_length: variants.raw.length,
+  };
+}
+
+export function extractPolicyFieldsFromOcrText(ocrText) {
+  const extraction = extractPolicyFieldsFromBlock(ocrText);
+  const { riders, candidate_tier, ...legacy } = extraction;
+  return legacy;
 }
