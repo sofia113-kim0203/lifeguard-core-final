@@ -240,8 +240,13 @@ export async function saveCustomerIntake(authUser, form) {
     }
   }
 
-  await loadCustomerMemoryFoundation({ rebuild: true }).catch(() => null);
-  return loadCustomerIntake(authUser);
+  const memoryFoundation = await loadCustomerMemoryFoundation({ rebuild: true });
+  const intake = await loadCustomerIntake(authUser);
+  return {
+    ...intake,
+    memoryStatus: memoryFoundation.memoryStatus ?? null,
+    memoryRebuildError: memoryFoundation.rebuildError ?? null,
+  };
 }
 
 export { emptyIntakeForm };

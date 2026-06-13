@@ -11,6 +11,10 @@ import {
   buildStructuredMemoryProfile,
   loadCustomerMemorySnapshot,
 } from "./customerMemorySnapshot.js";
+import {
+  assessMemorySyncNeed,
+  resolveMemoryDisplayStatus,
+} from "./memoryObservability.js";
 
 export {
   COVERAGE_SHEET_EXTRACTOR_ORIGIN,
@@ -216,6 +220,15 @@ export async function loadUnifiedCustomerState(
   const structuredMemory = snapshot ? buildStructuredMemoryProfile(snapshot) : null;
   const memoryVersion = snapshot?.memory_version ?? raw.profile?.memory_version ?? 0;
   const policyIds = extractPolicyIds(raw.policies);
+  const memorySyncAssessment = assessMemorySyncNeed(
+    {
+      has_profile: raw.flags.has_profile,
+      has_health: raw.flags.has_health,
+      has_policies: raw.flags.has_policies,
+    },
+    snapshot,
+  );
+  const memoryStatus = resolveMemoryDisplayStatus({ syncAssessment: memorySyncAssessment });
 
   const state = {
     contract_version: UNIFIED_STATE_VERSION,
@@ -245,6 +258,8 @@ export async function loadUnifiedCustomerState(
     structured_memory: structuredMemory,
     memory_fact_count: snapshot?.fact_count ?? 0,
     insurance_policy_count_fact: getInsurancePolicyCountFact(snapshot),
+    memory_status: memoryStatus,
+    memory_sync_assessment: memorySyncAssessment,
     provenance: buildUnifiedProvenance({
       policies: raw.policies,
       documents: raw.documents,

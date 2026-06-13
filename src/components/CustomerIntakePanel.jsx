@@ -15,6 +15,7 @@ import {
 } from "../lib/customerIntake.js";
 import { REQUIRED_CONSENT_TYPES } from "../lib/customerDashboard.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
+import { memoryStatusLabel } from "../lib/memoryStatus.js";
 import IntakeCompletenessBar from "./IntakeCompletenessBar.jsx";
 
 const FONT =
@@ -235,7 +236,11 @@ export default function CustomerIntakePanel({ user, onSaved }) {
       setForm(result.form);
       setConsents(result.consents ?? []);
       setFieldErrors({});
-      setSuccess("고객 정보가 저장되었습니다.");
+      setSuccess(
+        result.memoryStatus === "degraded"
+          ? `고객 정보가 저장되었습니다. (${memoryStatusLabel("degraded")})`
+          : "고객 정보가 저장되었습니다.",
+      );
       onSaved?.(result);
     } catch (err) {
       setError(toCustomerErrorMessage(err, "저장에 실패했습니다."));

@@ -462,7 +462,10 @@ export async function handleConversationalQuestionRequest({
     memory_fact_count: snapshot.fact_count ?? 0,
     memory_context: {
       synced: memoryContext.memory_synced,
+      status: memoryContext.memory_sync_status ?? "ready",
+      error: memoryContext.memory_sync_error ?? null,
       sync_assessment: memoryContext.sync_assessment,
+      rebuild_summary: memoryContext.rebuild_summary ?? null,
       data_available: memoryContext.data_available,
       source_summary: memoryContext.sourceSummary,
     },
