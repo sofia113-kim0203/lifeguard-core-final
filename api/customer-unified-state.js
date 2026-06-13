@@ -33,6 +33,8 @@ function mapUnifiedStateForClient(state) {
     documents_preview_count: state.documents_preview_count ?? state.documents?.length ?? 0,
     memory_fact_count: state.memory_fact_count,
     insurance_policy_count_fact: state.insurance_policy_count_fact,
+    memory_status: state.memory_status ?? "ready",
+    memory_sync_assessment: state.memory_sync_assessment ?? null,
     profile: state.profile
       ? {
           display_name: state.profile.display_name ?? null,

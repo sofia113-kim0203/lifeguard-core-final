@@ -2,6 +2,7 @@
  * Phase 28 — Customer home status board (no duplicate nav buttons, no dev DB cards).
  */
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
+import { deriveMemoryStatusFromUnified, memoryStatusLabel, memoryStatusTone } from "../lib/memoryStatus.js";
 import PolicyExplorerSection from "./PolicyExplorerSection.jsx";
 
 const FONT =
@@ -25,6 +26,7 @@ function StatusPill({ label, tone = "default" }) {
     default: { bg: "rgba(59, 130, 246, 0.12)", border: "rgba(59, 130, 246, 0.3)", color: "#93c5fd" },
     ready: { bg: "rgba(34, 197, 94, 0.12)", border: "rgba(34, 197, 94, 0.35)", color: "#4ade80" },
     pending: { bg: "rgba(245, 158, 11, 0.12)", border: "rgba(245, 158, 11, 0.35)", color: "#fbbf24" },
+    failed: { bg: "rgba(248, 113, 113, 0.12)", border: "rgba(248, 113, 113, 0.35)", color: "#fca5a5" },
   };
   const t = tones[tone] ?? tones.default;
   return (
@@ -130,6 +132,10 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
   const designLabel = designReadyLabel(job);
   const analysisTone = job?.status === "completed" ? "ready" : "pending";
   const designTone = designLabel === "설계안 준비됨" ? "ready" : "pending";
+  const memoryStatus =
+    session?.memoryStatus ?? deriveMemoryStatusFromUnified(unified) ?? (loading ? null : "ready");
+  const memoryLabel = memoryStatusLabel(memoryStatus);
+  const memoryTone = memoryStatusTone(memoryStatus);
 
   if (!user) {
     return (
@@ -197,6 +203,7 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
         />
         <StatusPill label={`가입 보험 ${loading ? "…" : `${policyCount}건`}`} tone={policyCount > 0 ? "ready" : "default"} />
         <StatusPill label={`문서 ${loading ? "…" : `${documentCount}건`}`} tone={documentCount > 0 ? "ready" : "default"} />
+        <StatusPill label={`Memory ${loading ? "…" : memoryLabel}`} tone={memoryTone} />
         <StatusPill label={`분석 ${loading ? "…" : analysisLabel}`} tone={analysisTone} />
         <StatusPill label={`설계 ${loading ? "…" : designLabel}`} tone={designTone} />
       </div>

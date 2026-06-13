@@ -12,6 +12,7 @@ import {
   toCustomerErrorMessage,
   UI_LABELS,
 } from "../lib/uiLocale.js";
+import { memoryStatusLabel } from "../lib/memoryStatus.js";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -134,6 +135,16 @@ export default function CustomerDashboardPanel({ user, onNavigate }) {
     await session?.refreshSession?.({ event: "dashboard_refresh", reloadJob: true });
   }, [session]);
 
+  const handleIntakeSaved = useCallback(
+    async (result) => {
+      if (result?.memoryStatus) {
+        session?.setMemoryStatus?.(result.memoryStatus);
+      }
+      await session?.refreshSession?.({ event: "intake_saved", reloadJob: true });
+    },
+    [session],
+  );
+
   useEffect(() => {
     if (refreshedOnMount.current || !session?.refreshSession) return;
     refreshedOnMount.current = true;
@@ -153,6 +164,7 @@ export default function CustomerDashboardPanel({ user, onNavigate }) {
   const activeAnalysisJob = session?.activeAnalysisJob ?? null;
   const insurancePolicyCount = session?.insurancePolicyCount ?? 0;
   const memoryVersion = session?.memoryVersion ?? 0;
+  const memoryStatus = session?.memoryStatus ?? unifiedState?.memory_status ?? null;
   const stateHash = session?.stateHash ?? null;
   const loading = session?.loading ?? false;
   const error = session?.error ?? "";
@@ -210,6 +222,12 @@ export default function CustomerDashboardPanel({ user, onNavigate }) {
           가입 보험 <strong>{insurancePolicyCount}건</strong>
           {" · "}
           메모리 버전 <strong>v{memoryVersion}</strong>
+          {memoryStatus ? (
+            <>
+              {" · "}
+              Memory <strong>{memoryStatusLabel(memoryStatus)}</strong>
+            </>
+          ) : null}
           {unifiedState?.document_count != null ? (
             <>
               {" · "}
@@ -285,7 +303,7 @@ export default function CustomerDashboardPanel({ user, onNavigate }) {
         </button>
       </div>
 
-      <CustomerIntakePanel user={user} onSaved={loadData} />
+      <CustomerIntakePanel user={user} onSaved={handleIntakeSaved} />
     </div>
   );
 }

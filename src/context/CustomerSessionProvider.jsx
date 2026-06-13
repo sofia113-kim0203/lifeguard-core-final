@@ -7,6 +7,7 @@ import {
   isUnifiedProfileMissingError,
   loadCustomerUnifiedState,
 } from "../lib/customerUnifiedState.js";
+import { deriveMemoryStatusFromUnified } from "../lib/memoryStatus.js";
 import { postCustomerSystemMessage } from "../lib/customerConversations.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
@@ -51,6 +52,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
   const [dashboardData, setDashboardData] = useState(null);
   const [unifiedState, setUnifiedState] = useState(null);
   const [activeAnalysisJob, setActiveAnalysisJob] = useState(null);
+  const [memoryStatus, setMemoryStatus] = useState(null);
   const [loading, setLoading] = useState(Boolean(user));
   const [error, setError] = useState("");
   const [lastEvent, setLastEvent] = useState(null);
@@ -61,6 +63,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         setDashboardData(null);
         setUnifiedState(null);
         setActiveAnalysisJob(null);
+        setMemoryStatus(null);
         setLoading(false);
         setError("");
         setLastEvent(null);
@@ -87,6 +90,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         );
         setDashboardData(dashboard);
         setUnifiedState(unified);
+        setMemoryStatus(deriveMemoryStatusFromUnified(unified));
         if (event) setLastEvent(event);
 
         if (reloadJob) {
@@ -138,6 +142,8 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
       unifiedState,
       activeAnalysisJob,
       setActiveAnalysisJob,
+      memoryStatus,
+      setMemoryStatus,
       loading,
       error,
       lastEvent,
@@ -152,6 +158,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
       dashboardData,
       unifiedState,
       activeAnalysisJob,
+      memoryStatus,
       loading,
       error,
       lastEvent,

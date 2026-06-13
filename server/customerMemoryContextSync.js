@@ -12,44 +12,21 @@ import {
   resolveSupabaseUrl,
 } from "./customerMemoryFoundation.js";
 import {
+  assessMemorySyncNeed,
+  MemoryBuilderRebuildError,
+  resolveMemoryDisplayStatus,
+} from "./memoryObservability.js";
+import {
   buildSourceSummaryFromUnifiedState,
   loadUnifiedCustomerState,
   toSourceContext,
 } from "./unifiedCustomerState.js";
 
+export { assessMemorySyncNeed } from "./memoryObservability.js";
+
 export async function loadCustomerSourceContext(supabase, customerId) {
   const unified = await loadUnifiedCustomerState(supabase, customerId);
   return toSourceContext(unified);
-}
-
-export function assessMemorySyncNeed(sourceContext, snapshot) {
-  const facts = snapshot?.facts ?? [];
-  const factCount = facts.length;
-  const hasSourceData =
-    sourceContext.has_profile || sourceContext.has_health || sourceContext.has_policies;
-
-  if (!hasSourceData) {
-    return { needed: false, reason: "no_source_data" };
-  }
-  if (factCount === 0) {
-    return { needed: true, reason: "memory_empty_but_source_exists" };
-  }
-
-  const healthFactCount = facts.filter((fact) => fact.fact_type === "health").length;
-  const insuranceFactCount = facts.filter((fact) => fact.fact_type === "insurance").length;
-  const identityFactCount = facts.filter((fact) => fact.fact_type === "identity").length;
-
-  if (sourceContext.has_profile && identityFactCount === 0) {
-    return { needed: true, reason: "profile_not_in_memory" };
-  }
-  if (sourceContext.has_health && healthFactCount === 0) {
-    return { needed: true, reason: "health_not_in_memory" };
-  }
-  if (sourceContext.has_policies && insuranceFactCount === 0) {
-    return { needed: true, reason: "policies_not_in_memory" };
-  }
-
-  return { needed: false, reason: "memory_ok" };
 }
 
 export function buildSourceContextSummary(sourceContext) {
@@ -76,6 +53,8 @@ export async function ensureCustomerMemoryContext({
   const syncAssessment = assessMemorySyncNeed(sourceContext, snapshot);
   let memorySynced = false;
   let rebuildSummary = null;
+  let memorySyncStatus = "ready";
+  let memorySyncError = null;
 
   const shouldRebuild = forceRebuild || syncAssessment.needed;
   const roleKey = serviceRoleKey ?? resolveServiceRoleKey();
@@ -93,17 +72,48 @@ export async function ensureCustomerMemoryContext({
       snapshot = rebuild.snapshot ?? snapshot;
       unified = await loadUnifiedCustomerState(supabase, customerId);
       memorySynced = true;
+      memorySyncStatus = "ready";
       rebuildSummary = {
+        ok: true,
         reason: syncAssessment.reason,
         profile_facts_changed: rebuild.profile_health_policy?.body?.facts_changed ?? 0,
         conversation_facts_changed: rebuild.customer_conversation?.body?.facts_changed ?? 0,
       };
     } catch (error) {
-      rebuildSummary = {
-        reason: syncAssessment.reason,
-        error: error instanceof Error ? error.message : "memory_rebuild_failed",
-      };
+      if (error instanceof MemoryBuilderRebuildError) {
+        memorySyncStatus = error.partial ? "degraded" : "failed";
+        memorySyncError = error.code;
+        if (error.snapshot) {
+          snapshot = error.snapshot;
+        }
+        rebuildSummary = {
+          ok: false,
+          reason: syncAssessment.reason,
+          error: error.code,
+          partial: error.partial,
+          profile_health_policy: error.profile_health_policy,
+          customer_conversation: error.customer_conversation,
+        };
+      } else {
+        memorySyncStatus = "failed";
+        memorySyncError = error instanceof Error ? error.message : "memory_rebuild_failed";
+        rebuildSummary = {
+          ok: false,
+          reason: syncAssessment.reason,
+          error: memorySyncError,
+        };
+      }
     }
+  } else if (shouldRebuild && (!roleKey || !sbUrl)) {
+    memorySyncStatus = "failed";
+    memorySyncError = "service_role_not_configured";
+    rebuildSummary = {
+      ok: false,
+      reason: syncAssessment.reason,
+      error: memorySyncError,
+    };
+  } else {
+    memorySyncStatus = resolveMemoryDisplayStatus({ syncAssessment });
   }
 
   const structured = buildStructuredMemoryProfile(snapshot);
@@ -121,6 +131,8 @@ export async function ensureCustomerMemoryContext({
     sourceContext: refreshedContext,
     sourceSummary,
     memory_synced: memorySynced,
+    memory_sync_status: memorySyncStatus,
+    memory_sync_error: memorySyncError,
     sync_assessment: syncAssessment,
     rebuild_summary: rebuildSummary,
     data_available: {

@@ -240,8 +240,25 @@ export async function saveCustomerIntake(authUser, form) {
     }
   }
 
-  await loadCustomerMemoryFoundation({ rebuild: true }).catch(() => null);
-  return loadCustomerIntake(authUser);
+  // 인테이크 데이터는 이 시점에 이미 모두 저장됨. 메모리 갱신은 부가 단계이므로
+  // 실패하더라도 "저장 실패"로 올리지 않고 상태로만 노출한다 (데이터는 이미 저장됨).
+  let memoryStatus = null;
+  let memoryRebuildError = null;
+  try {
+    const memoryFoundation = await loadCustomerMemoryFoundation({ rebuild: true });
+    memoryStatus = memoryFoundation.memoryStatus ?? null;
+    memoryRebuildError = memoryFoundation.rebuildError ?? null;
+  } catch (error) {
+    memoryStatus = "failed";
+    memoryRebuildError = { error: error?.message ?? String(error) };
+  }
+
+  const intake = await loadCustomerIntake(authUser);
+  return {
+    ...intake,
+    memoryStatus,
+    memoryRebuildError,
+  };
 }
 
 export { emptyIntakeForm };

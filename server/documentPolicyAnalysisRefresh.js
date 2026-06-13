@@ -111,11 +111,14 @@ export async function handleDocumentPolicyAnalysisRefreshRequest({
       forceRebuild: false,
     });
     memorySync = {
-      ok: true,
+      ok: memoryContext.memory_sync_status !== "failed",
       synced: memoryContext.memory_synced ?? false,
+      status: memoryContext.memory_sync_status ?? "ready",
       reason: memoryContext.sync_assessment?.reason ?? null,
+      error: memoryContext.memory_sync_error ?? null,
       memory_version: memoryContext.snapshot?.memory_version ?? 0,
       memory_fact_count: memoryContext.snapshot?.fact_count ?? 0,
+      rebuild_summary: memoryContext.rebuild_summary ?? null,
     };
   } catch (error) {
     memorySync = {

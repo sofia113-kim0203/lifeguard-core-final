@@ -28,12 +28,25 @@ export async function loadCustomerMemoryFoundation({ rebuild = true } = {}) {
     );
   }
 
+  if (payload.memory_status === "failed") {
+    const failureMessage =
+      payload.rebuild_error?.error ??
+      payload.rebuild_error?.code ??
+      payload.rebuild_summary?.error ??
+      "Memory rebuild failed";
+    throw new Error(
+      toCustomerErrorMessage({ message: failureMessage }, "고객 Memory 갱신에 실패했습니다."),
+    );
+  }
+
   return {
     customerId: payload.customer_id,
     memoryVersion: payload.memory_version ?? 0,
     factCount: payload.fact_count ?? 0,
     structured: payload.structured ?? null,
+    memoryStatus: payload.memory_status ?? null,
     rebuilt: payload.rebuilt ?? false,
     rebuildSummary: payload.rebuild_summary ?? null,
+    rebuildError: payload.rebuild_error ?? null,
   };
 }

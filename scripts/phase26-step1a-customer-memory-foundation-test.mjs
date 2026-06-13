@@ -32,7 +32,8 @@ const rebuild = await invokeMemoryBuilderWorker({
   scope: "profile_health_policy",
   mode: "rebuild",
 });
-assert.equal(rebuild.status, 200, `profile rebuild should succeed: ${JSON.stringify(rebuild.body)}`);
+assert.equal(rebuild.ok, true, `profile rebuild should succeed: ${JSON.stringify(rebuild)}`);
+assert.equal(rebuild.status, 200, `profile rebuild status should be 200: ${JSON.stringify(rebuild.body)}`);
 
 const convRebuild = await invokeMemoryBuilderWorker({
   supabaseUrl: url,
@@ -41,7 +42,8 @@ const convRebuild = await invokeMemoryBuilderWorker({
   scope: "customer_conversation",
   mode: "rebuild",
 });
-assert.equal(convRebuild.status, 200, `conversation rebuild should succeed: ${JSON.stringify(convRebuild.body)}`);
+assert.equal(convRebuild.ok, true, `conversation rebuild should succeed: ${JSON.stringify(convRebuild)}`);
+assert.equal(convRebuild.status, 200, `conversation rebuild status should be 200: ${JSON.stringify(convRebuild.body)}`);
 
 const snapshot = await loadCustomerMemorySnapshot(supabase, TEST_CUSTOMER_ID);
 const structured = buildStructuredMemoryProfile(snapshot);
