@@ -2,6 +2,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "crons": [
+    {
+      "path": "/api/worker-jobs-runner",
+      "schedule": "*/2 * * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/((?!api/|assets/).*)",
