@@ -141,6 +141,7 @@ export async function loadRawCustomerRecords(supabase, customerId) {
       .select(POLICY_LIST_SELECT)
       .eq("customer_id", customerId)
       .is("deleted_at", null)
+      .not("is_active", "is", false)
       .order("created_at", { ascending: false }),
     supabase
       .from("customer_documents")

@@ -141,6 +141,7 @@ export async function loadCustomerDashboardData(authUser, { unifiedState = null 
       )
       .eq("customer_id", customerId)
       .is("deleted_at", null)
+      .not("is_active", "is", false)
       .order("created_at", { ascending: false }),
     supabase
       .from("customer_consents")
