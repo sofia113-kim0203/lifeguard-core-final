@@ -52,8 +52,8 @@
     "test:policy-extraction-validator-unit": "node scripts/policy-extraction-validator-unit-test.mjs",
     "test:policy-extraction-shadow-unit": "node scripts/policy-extraction-shadow-unit-test.mjs",
     "test:coverage-sheet-extractor-unit": "node scripts/coverage-sheet-extractor-unit-test.mjs",
-    "test:document-upload-category-unit": "node --experimental-strip-types scripts/document-upload-category-unit-test.mjs",
-    "audit:pr-c2-shadow-distribution": "node scripts/pr-c2-shadow-distribution-audit.mjs"
+    "test:pr-c2b-coverage-sheet-shadow-rls-verify-unit": "node scripts/pr-c2b-coverage-sheet-shadow-rls-verify-unit-test.mjs",
+    "test:document-upload-category-unit": "node --experimental-strip-types scripts/document-upload-category-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
