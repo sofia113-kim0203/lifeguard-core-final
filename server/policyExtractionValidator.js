@@ -438,12 +438,14 @@ function routeCandidate({ validationScore, hardFailCount, checks, duplicatePair,
   return "manual_review";
 }
 
-function routeDocument(candidateResults, documentScore, flags, documentType) {
+function routeDocument(candidateResults, documentScore, flags, documentType, { explicitUnknown = false } = {}) {
   if (!candidateResults.length) return "manual_review";
-  if (isAutoSaveBlockedDocument(documentType)) {
+  if (explicitUnknown || documentType === "unknown") {
+    return "manual_review";
+  }
+  if (documentType === "insurance_terms") {
     const routes = candidateResults.map((item) => item.route);
     if (routes.some((route) => route === ROUTE_AI_REVIEW)) return ROUTE_AI_REVIEW;
-    if (routes.some((route) => route === "reject")) return "manual_review";
     return "manual_review";
   }
   if (flags.includes("DOC_OVER_SPLIT") && !candidateResults.some((item) => item.route === "auto_save")) {
@@ -594,7 +596,7 @@ export function validatePolicyExtraction({
   if (docOverSplit) flags.push("DOC_OVER_SPLIT");
   if (isAutoSaveBlockedDocument(documentType)) flags.push("NO_AUTO_SAVE");
 
-  const documentRoute = routeDocument(candidates, documentScore, flags, documentType);
+  const documentRoute = routeDocument(candidates, documentScore, flags, documentType, { explicitUnknown });
   const summary = {
     auto_save_count: candidates.filter((item) => item.route === "auto_save").length,
     [`${ROUTE_AI_REVIEW}_count`]: candidates.filter((item) => item.route === ROUTE_AI_REVIEW).length,

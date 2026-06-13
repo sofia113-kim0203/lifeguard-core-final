@@ -318,9 +318,14 @@ const tests = [
     assert(result.candidates.every((item) => item.route !== "auto_save"), "terms must not auto_save");
     assert(result.flags.includes("NO_AUTO_SAVE"), `flags=${JSON.stringify(result.flags)}`);
   }],
-  ["unknown doc_class blocks auto_save", () => {
+  ["unknown doc_class with certificate body routes manual_review only", () => {
     const result = validateFromOcr(certificateSample, { doc_class: "unknown" });
-    assert(result.document_route !== "auto_save", `got ${result.document_route}`);
+    assert(result.document_type === "unknown", `document_type=${result.document_type}`);
+    assert(Boolean(result.inferred_document_type), "inferred_document_type must exist");
+    assert(result.inferred_document_type === "policy_certificate", `inferred=${result.inferred_document_type}`);
+    assert(result.summary.auto_save_count === 0, `auto_save_count=${result.summary.auto_save_count}`);
+    assert(result.document_route === "manual_review", `got ${result.document_route}`);
+    assert(result.document_route !== "claude_review", "unknown must not route to claude_review");
     assert(result.candidates.every((item) => item.route !== "auto_save"), "unknown must not auto_save");
   }],
   ["legacy alias coverage_analysis normalizes to coverage_analysis_sheet", () => {
