@@ -37,11 +37,6 @@ AS $$
 DECLARE
   v_id UUID;
 BEGIN
-  -- Target ONLY the partial idempotent index (worker_jobs_idempotent_active_uq).
-  -- This is a partial unique INDEX, not a named constraint, so it must be
-  -- referenced by column + predicate inference (ON CONSTRAINT would error).
-  -- Any OTHER unique/constraint violation is NOT swallowed here and propagates
-  -- as a real error.
   INSERT INTO public.worker_jobs (
     job_type, customer_id, source_ref, payload_json, max_retries, priority, status
   )
@@ -53,7 +48,6 @@ BEGIN
     WHERE status IN ('pending', 'queued', 'running', 'retrying')
   DO NOTHING
   RETURNING id INTO v_id;
-  -- Conflict on the active index → no row inserted → return the existing job id.
   IF v_id IS NULL THEN
     SELECT id INTO v_id
     FROM public.worker_jobs
@@ -67,12 +61,6 @@ BEGIN
   RETURN v_id;
 END;
 $$;
--- ---------------------------------------------------------------------------
--- claim: atomically take up to p_limit due jobs and move them to 'running'.
--- FOR UPDATE SKIP LOCKED guarantees no two runner invocations claim the same
--- row (safe under overlapping cron ticks / manual triggers).
--- "Due" = status in (pending, queued, retrying) AND scheduled_at <= now().
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.lifeguard_claim_worker_jobs(
   p_limit INTEGER DEFAULT 1
 )
@@ -113,10 +101,6 @@ BEGIN
   FROM claimed AS c;
 END;
 $$;
--- ---------------------------------------------------------------------------
--- complete: mark a running job completed and write the per-attempt audit row.
--- attempt_number = retry_count + 1 (initial run = attempt 1).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.lifeguard_complete_worker_job(
   p_job_id UUID
 )
@@ -153,15 +137,6 @@ BEGIN
   WHERE id = p_job_id;
 END;
 $$;
--- ---------------------------------------------------------------------------
--- fail: record the failed attempt, then either schedule a retry or dead-letter.
---   • retry_count < max_retries → status 'retrying', retry_count++,
---     scheduled_at = now() + backoff, and a retry_queue row.
---   • otherwise               → status 'dead_letter' (retry_count already
---     >= max_retries, satisfying worker_jobs_dead_letter_retries_chk) and a
---     dead_letter_jobs row.
--- Returns the resulting status ('retrying' | 'dead_letter') for runner logging.
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.lifeguard_fail_worker_job(
   p_job_id          UUID,
   p_error           TEXT,
@@ -192,7 +167,6 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'worker_job_not_found: %', p_job_id;
   END IF;
-  -- audit the attempt that just failed (attempt_number = retry_count + 1)
   INSERT INTO public.worker_runs (
     worker_job_id, attempt_number, status, started_at, finished_at, error_message
   )
@@ -220,8 +194,6 @@ BEGIN
     ON CONFLICT (worker_job_id, attempt_number) DO NOTHING;
     v_result := 'retrying';
   ELSE
-    -- retry budget exhausted: retry_count is already >= max_retries here, so
-    -- setting dead_letter satisfies worker_jobs_dead_letter_retries_chk.
     UPDATE public.worker_jobs
     SET status        = 'dead_letter',
         finished_at   = NOW(),
@@ -241,9 +213,6 @@ BEGIN
   RETURN v_result;
 END;
 $$;
--- ---------------------------------------------------------------------------
--- Access: service_role only. Revoke the default PUBLIC execute grant.
--- ---------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION public.lifeguard_enqueue_worker_job(TEXT, UUID, TEXT, JSONB, INTEGER, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.lifeguard_claim_worker_jobs(INTEGER) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.lifeguard_complete_worker_job(UUID) FROM PUBLIC;
