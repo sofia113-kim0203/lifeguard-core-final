@@ -651,6 +651,8 @@ export async function softDeleteDocument(authUser, documentId) {
     throw new Error("문서를 찾을 수 없습니다.");
   }
 
+  // PR-D1: lifeguard_soft_delete_customer_document RPC also retires active policies where
+  // coverage_summary.source_document_id = documentId (same transaction as document soft-delete).
   const deletedAt = deletedDocument.deleted_at ?? new Date().toISOString();
 
   if (document.storage_path) {
