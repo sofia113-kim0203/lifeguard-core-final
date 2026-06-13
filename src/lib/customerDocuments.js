@@ -1,7 +1,10 @@
 import { loadCustomerDashboardData } from "./customerDashboard.js";
 import { extractPolicyFromReadyDocument } from "./customerDocumentPolicyExtract.js";
+import { DOCUMENT_CATEGORIES, resolveLegacyDocClass } from "./documentCategories.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
+
+export { DOCUMENT_CATEGORIES, resolveLegacyDocClass } from "./documentCategories.js";
 
 export function isPolicyExtractionRetryEligible(document) {
   if (!document || document.ingest_status !== "ready") return false;
@@ -16,39 +19,6 @@ export const DOCUMENT_STORAGE_CONSENT_VERSION = "2026-06-07-ko-doc";
 export const DOCUMENT_ANALYSIS_CONSENT_VERSION = "2026-06-07-ko-doc-analysis";
 export const INSURANCE_DATA_CONSENT_VERSION = "2026-01-01-ko";
 export const SIGNED_URL_TTL_SECONDS = 60;
-
-export const DOCUMENT_CATEGORIES = [
-  {
-    key: "insurance_policy",
-    label: "보험증권",
-    docClass: "policy_certificate",
-    hintType: "insurance_policy",
-  },
-  {
-    key: "terms",
-    label: "약관",
-    docClass: "terms",
-    hintType: "terms",
-  },
-  {
-    key: "claim",
-    label: "청구서류",
-    docClass: "claim",
-    hintType: "claim",
-  },
-  {
-    key: "medical",
-    label: "의료서류",
-    docClass: "medical",
-    hintType: "medical",
-  },
-  {
-    key: "other",
-    label: "기타문서",
-    docClass: "other",
-    hintType: "other",
-  },
-];
 
 const CATEGORY_BY_KEY = Object.fromEntries(
   DOCUMENT_CATEGORIES.map((category) => [category.key, category]),
@@ -578,7 +548,7 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
       storage_path: storagePath,
       mime_type: validated.mimeType,
       original_filename: file.name,
-      doc_class: category.docClass,
+      doc_class: resolveLegacyDocClass(category),
       ingest_status: "uploaded",
       customer_hint_type: category.hintType,
       metadata_json: {

@@ -340,6 +340,28 @@ function checkBlockEvidence(blockText, fields, documentType) {
   return { status: "fail", points: 0, evidence: lines.length, applicable: true };
 }
 
+const COVERAGE_ANALYSIS_SHEET_PATTERNS = [
+  /보장\s*분석\s*표?/,
+  /가입\s*보장\s*분석/,
+  /담보\s*별\s*보장/,
+  /보장\s*현황/,
+  /보험\s*가입\s*분석/,
+  /가입보험\s*현황/,
+  /보험\s*가입\s*내역/,
+];
+
+const INSURANCE_CERTIFICATE_PATTERNS = [/보험증권/, /증권\s*번호/, /계약\s*번호/];
+
+export function hasCoverageAnalysisSheetSignals(ocrText) {
+  const text = String(ocrText ?? "");
+  return COVERAGE_ANALYSIS_SHEET_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function hasInsuranceCertificateSignals(ocrText) {
+  const text = String(ocrText ?? "");
+  return INSURANCE_CERTIFICATE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 export function inferDocumentType(ocrText, documentMeta = {}) {
   const rawClass = normalizeKey(documentMeta.doc_class);
   if (rawClass && rawClass !== "unknown" && rawClass !== "other") {
@@ -348,8 +370,8 @@ export function inferDocumentType(ocrText, documentMeta = {}) {
   }
 
   const text = String(ocrText ?? "");
-  if (/보장분석|가입보험\s*현황|보험\s*가입\s*내역/.test(text)) return "coverage_analysis";
-  if (/보험증권|증권번호|계약번호/.test(text)) return "policy_certificate";
+  if (hasCoverageAnalysisSheetSignals(text)) return "coverage_analysis";
+  if (hasInsuranceCertificateSignals(text)) return "policy_certificate";
   if (/보험약관|약관|제\d+조/.test(text)) return "insurance_terms";
   return "unknown";
 }

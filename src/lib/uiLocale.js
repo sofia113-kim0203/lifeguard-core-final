@@ -24,6 +24,8 @@ export const UI_LABELS = {
 
 const DOC_CLASS_LABELS = {
   policy_certificate: "보험증권",
+  coverage_analysis: "보장분석표",
+  coverage_analysis_sheet: "보장분석표",
   terms: "약관",
   claim: "청구서류",
   medical: "의료서류",

@@ -352,6 +352,12 @@ const tests = [
     assert(normalizeDocClass("policy_certificate") === "insurance_certificate", "policy_certificate alias");
     assert(normalizeDocClass("terms") === "insurance_terms", "terms alias");
   }],
+  ["inferDocumentType respects meta doc_class before OCR body", () => {
+    const type = inferDocumentType("보장분석표\n증권번호: AB1234567890", {
+      doc_class: "insurance_certificate",
+    });
+    assert(type === "insurance_certificate", `expected meta precedence, got ${type}`);
+  }],
 ];
 
 for (const [name, fn] of tests) {
