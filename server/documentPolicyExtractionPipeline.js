@@ -1,11 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   buildOcrSnippet,
-  extractPolicyFieldsFromOcrText,
+  extractPoliciesFromOcrText,
   isPolicyExtractionRetryEligible,
 } from "./documentPolicyExtractor.js";
-
-const EXTRACTOR_VERSION = "step4-ocr-policy-v2";
+import {
+  buildPolicyRowFromCandidate,
+  buildUploadExtractKey,
+  planRetiredPolicyIds,
+  resolveExistingPolicyForCandidate,
+} from "./documentPolicyUploadPersist.js";
 
 function createServiceClient(env = process.env) {
   const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
@@ -36,72 +40,108 @@ async function hasInsuranceDataConsent(admin, customerId) {
   return data === true;
 }
 
-async function findExistingUploadPolicy(admin, customerId, documentId) {
+async function loadUploadExtractPoliciesForDocument(admin, customerId, documentId) {
   const { data, error } = await admin
     .from("profile_insurance_policies")
-    .select("id, coverage_summary")
+    .select("id, coverage_summary, is_active")
     .eq("customer_id", customerId)
     .eq("source", "upload_extract")
     .is("deleted_at", null);
 
   if (error) throw new Error(`policy_lookup_failed: ${error.message}`);
-  return (data ?? []).find((row) => row.coverage_summary?.source_document_id === documentId) ?? null;
+  return (data ?? []).filter((row) => row.coverage_summary?.source_document_id === documentId);
 }
 
-async function upsertUploadPolicy(admin, customerId, documentId, extraction) {
-  const fields = extraction.fields;
-  const coverageSummary = {
-    source_document_id: documentId,
-    extractor_version: EXTRACTOR_VERSION,
-    extraction_confidence: extraction.confidence,
-    extraction_tier: extraction.tier ?? "full",
-    policyholder: fields.policyholder,
-    insured: fields.insured,
-    payment_period: fields.payment_period,
-    insurance_period: fields.insurance_period,
-    coverage_name: fields.coverage_name,
-    rider_name: fields.rider_name,
-    coverage_amount: fields.coverage_amount,
-    coverage_categories: fields.coverage_categories,
-    detected_coverages: fields.detected_coverages ?? fields.coverage_categories,
-    effective_from: fields.effective_from,
-    extracted_at: new Date().toISOString(),
-    extraction_json: fields,
-  };
+async function retireUploadExtractPolicies(admin, customerId, policyIds) {
+  const retired = [];
+  for (const policyId of policyIds) {
+    const { data: existing, error: readError } = await admin
+      .from("profile_insurance_policies")
+      .select("id, coverage_summary")
+      .eq("id", policyId)
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (readError) throw new Error(`policy_retire_read_failed: ${readError.message}`);
+    if (!existing) continue;
 
-  const existing = await findExistingUploadPolicy(admin, customerId, documentId);
-  const row = {
-    customer_id: customerId,
-    insurer_name: fields.insurer_name,
-    product_name: fields.product_name,
-    policy_type: fields.policy_type,
-    monthly_premium: fields.monthly_premium,
-    effective_from: fields.effective_from ?? null,
-    coverage_summary: coverageSummary,
-    source: "upload_extract",
-    is_active: true,
-    updated_at: new Date().toISOString(),
-  };
+    const coverageSummary = {
+      ...(existing.coverage_summary ?? {}),
+      retired_at: new Date().toISOString(),
+      retired_reason: "superseded_by_reextract",
+    };
 
-  if (existing?.id) {
+    const { error } = await admin
+      .from("profile_insurance_policies")
+      .update({
+        is_active: false,
+        coverage_summary: coverageSummary,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", policyId)
+      .eq("customer_id", customerId);
+    if (error) throw new Error(`policy_retire_failed: ${error.message}`);
+    retired.push(policyId);
+  }
+  return retired;
+}
+
+async function persistExtractedPolicies(admin, customerId, documentId, multiExtraction) {
+  const candidates = multiExtraction.policies ?? [];
+  const existingRows = await loadUploadExtractPoliciesForDocument(admin, customerId, documentId);
+  const actions = [];
+  const activeKeys = [];
+
+  for (const candidate of candidates) {
+    const row = buildPolicyRowFromCandidate(customerId, documentId, candidate);
+    const { row: existing, upload_extract_key: uploadExtractKey } = resolveExistingPolicyForCandidate(
+      existingRows,
+      documentId,
+      candidate,
+      candidates.length,
+    );
+    activeKeys.push(uploadExtractKey);
+
+    if (existing?.id) {
+      const { data, error } = await admin
+        .from("profile_insurance_policies")
+        .update(row)
+        .eq("id", existing.id)
+        .eq("customer_id", customerId)
+        .select("id")
+        .single();
+      if (error) throw new Error(`policy_update_failed: ${error.message}`);
+      actions.push({
+        policy_id: data.id,
+        action: "updated",
+        upload_extract_key: uploadExtractKey,
+        block_index: candidate.block_index ?? null,
+      });
+      continue;
+    }
+
     const { data, error } = await admin
       .from("profile_insurance_policies")
-      .update(row)
-      .eq("id", existing.id)
-      .eq("customer_id", customerId)
+      .insert(row)
       .select("id")
       .single();
-    if (error) throw new Error(`policy_update_failed: ${error.message}`);
-    return { policy_id: data.id, action: "updated" };
+    if (error) throw new Error(`policy_insert_failed: ${error.message}`);
+    actions.push({
+      policy_id: data.id,
+      action: "inserted",
+      upload_extract_key: uploadExtractKey,
+      block_index: candidate.block_index ?? null,
+    });
   }
 
-  const { data, error } = await admin
-    .from("profile_insurance_policies")
-    .insert(row)
-    .select("id")
-    .single();
-  if (error) throw new Error(`policy_insert_failed: ${error.message}`);
-  return { policy_id: data.id, action: "inserted" };
+  const retireIds = planRetiredPolicyIds(existingRows, documentId, activeKeys);
+  const retiredPolicyIds = await retireUploadExtractPolicies(admin, customerId, retireIds);
+
+  return {
+    policy_ids: actions.map((entry) => entry.policy_id),
+    policy_count: actions.length,
+    policy_actions: actions,
+    retired_policy_ids: retiredPolicyIds,
+  };
 }
 
 async function invokeMemoryBuilder(env, customerId) {
@@ -159,15 +199,28 @@ async function updateDocumentExtractionMetadata(admin, customerId, documentId, p
   return merged;
 }
 
-async function markPendingManualReview(admin, customerId, documentId, extraction, ocrText) {
+function getStoredPolicyIds(metadata = {}) {
+  if (Array.isArray(metadata.profile_policy_ids) && metadata.profile_policy_ids.length) {
+    return metadata.profile_policy_ids;
+  }
+  if (metadata.profile_policy_id) return [metadata.profile_policy_id];
+  return [];
+}
+
+async function markPendingManualReview(admin, customerId, documentId, multiExtraction, ocrText) {
   const metadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
     policy_extraction_status: "pending_manual_review",
     policy_extraction_error: "insufficient_policy_fields",
-    policy_extraction: extraction,
-    policy_extraction_field_count: extraction.field_count,
-    policy_extraction_missing_fields: extraction.missing_fields ?? [],
+    policy_extraction: multiExtraction,
+    policy_extraction_count: multiExtraction.policy_count ?? 0,
+    policy_extraction_field_count: multiExtraction.policies?.[0]?.field_count ?? 0,
+    policy_extraction_missing_fields:
+      multiExtraction.policies?.[0]?.missing_fields ?? multiExtraction.review_blocks?.[0]?.missing_fields ?? [],
+    policy_extraction_review_blocks: multiExtraction.review_blocks ?? [],
     policy_extraction_ocr_snippet: buildOcrSnippet(ocrText),
     policy_extraction_requires_admin_review: true,
+    profile_policy_ids: [],
+    profile_policy_id: null,
   });
   return metadata;
 }
@@ -198,24 +251,24 @@ export async function runDocumentPolicyExtraction({
 
   const metadata = document.metadata_json ?? {};
   const existingStatus = metadata.policy_extraction_status ?? null;
-  const existingPolicyId = metadata.profile_policy_id ?? null;
+  const existingPolicyIds = getStoredPolicyIds(metadata);
 
-  if (
-    !forceRetry &&
-    existingStatus === "completed" &&
-    existingPolicyId &&
-    (await findExistingUploadPolicy(admin, customerId, documentId))
-  ) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "already_completed",
-      chunk_count: null,
-      ocr_text_length: null,
-      extraction: metadata.policy_extraction ?? null,
-      policy_id: existingPolicyId,
-      memory_builder: { invoked: false, reason: "skipped_completed" },
-    };
+  if (!forceRetry && existingStatus === "completed" && existingPolicyIds.length > 0) {
+    const existingRows = await loadUploadExtractPoliciesForDocument(admin, customerId, documentId);
+    if (existingRows.some((row) => row.is_active !== false)) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: "already_completed",
+        chunk_count: null,
+        ocr_text_length: null,
+        extraction: metadata.policy_extraction ?? null,
+        policy_id: existingPolicyIds[0] ?? null,
+        policy_ids: existingPolicyIds,
+        policy_count: metadata.policy_extraction_count ?? existingPolicyIds.length,
+        memory_builder: { invoked: false, reason: "skipped_completed" },
+      };
+    }
   }
 
   const chunks = await loadDocumentChunks(admin, customerId, documentId);
@@ -231,19 +284,21 @@ export async function runDocumentPolicyExtraction({
       ocr_text_length: 0,
       extraction: null,
       policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
       memory_builder: null,
     };
   }
 
   const ocrText = chunks.map((chunk) => chunk.content ?? "").join("\n\n").trim();
-  const extraction = extractPolicyFieldsFromOcrText(ocrText);
+  const multiExtraction = extractPoliciesFromOcrText(ocrText);
 
-  if (!extraction.success) {
+  if (!multiExtraction.success) {
     const reviewMetadata = await markPendingManualReview(
       admin,
       customerId,
       documentId,
-      extraction,
+      multiExtraction,
       ocrText,
     );
     return {
@@ -252,8 +307,10 @@ export async function runDocumentPolicyExtraction({
       status: "pending_manual_review",
       chunk_count: chunks.length,
       ocr_text_length: ocrText.length,
-      extraction,
+      extraction: multiExtraction,
       policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
       memory_builder: null,
       metadata_json: reviewMetadata,
     };
@@ -264,36 +321,40 @@ export async function runDocumentPolicyExtraction({
     await updateDocumentExtractionMetadata(admin, customerId, documentId, {
       policy_extraction_status: "extraction_failed",
       policy_extraction_error: "insurance_data_processing_consent_required",
-      policy_extraction: extraction,
+      policy_extraction: multiExtraction,
     });
     return {
       ok: false,
       reason: "insurance_data_processing_consent_required",
       chunk_count: chunks.length,
       ocr_text_length: ocrText.length,
-      extraction,
+      extraction: multiExtraction,
       policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
       memory_builder: null,
     };
   }
 
-  let policyResult;
+  let persistResult;
   try {
-    policyResult = await upsertUploadPolicy(admin, customerId, documentId, extraction);
+    persistResult = await persistExtractedPolicies(admin, customerId, documentId, multiExtraction);
   } catch (persistError) {
     const message = persistError instanceof Error ? persistError.message : "policy_persist_failed";
     await updateDocumentExtractionMetadata(admin, customerId, documentId, {
       policy_extraction_status: "extraction_failed",
       policy_extraction_error: message,
-      policy_extraction: extraction,
+      policy_extraction: multiExtraction,
     });
     return {
       ok: false,
       reason: message,
       chunk_count: chunks.length,
       ocr_text_length: ocrText.length,
-      extraction,
+      extraction: multiExtraction,
       policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
       memory_builder: null,
     };
   }
@@ -301,14 +362,18 @@ export async function runDocumentPolicyExtraction({
   const updatedMetadata = await updateDocumentExtractionMetadata(admin, customerId, documentId, {
     policy_extraction_status: "completed",
     policy_extraction_error: null,
-    policy_extraction: extraction,
-    policy_extraction_field_count: extraction.field_count,
-    policy_extraction_tier: extraction.tier ?? "full",
+    policy_extraction: multiExtraction,
+    policy_extraction_count: persistResult.policy_count,
+    policy_extraction_field_count: multiExtraction.policies?.[0]?.field_count ?? 0,
+    policy_extraction_tier: multiExtraction.policies?.[0]?.tier ?? "full",
     policy_extraction_missing_fields: [],
+    policy_extraction_review_blocks: multiExtraction.review_blocks ?? [],
     policy_extraction_ocr_snippet: null,
-    policy_extraction_requires_admin_review: false,
-    profile_policy_id: policyResult.policy_id,
-    policy_extraction_action: policyResult.action,
+    policy_extraction_requires_admin_review: (multiExtraction.review_blocks ?? []).length > 0,
+    profile_policy_ids: persistResult.policy_ids,
+    profile_policy_id: persistResult.policy_ids[0] ?? null,
+    policy_extraction_action: persistResult.policy_actions.map((entry) => entry.action).join(","),
+    policy_extraction_retired_policy_ids: persistResult.retired_policy_ids,
   });
 
   const memoryBuilder = invokeMemory
@@ -331,9 +396,12 @@ export async function runDocumentPolicyExtraction({
     ok: true,
     chunk_count: chunks.length,
     ocr_text_length: ocrText.length,
-    extraction,
-    policy_id: policyResult.policy_id,
-    policy_action: policyResult.action,
+    extraction: multiExtraction,
+    policy_id: persistResult.policy_ids[0] ?? null,
+    policy_ids: persistResult.policy_ids,
+    policy_count: persistResult.policy_count,
+    policy_actions: persistResult.policy_actions,
+    retired_policy_ids: persistResult.retired_policy_ids,
     profile_insurance_policies_count: policyCount ?? 0,
     customer_memory_facts_count: memoryFactCount ?? 0,
     memory_builder: memoryBuilder,
@@ -341,4 +409,4 @@ export async function runDocumentPolicyExtraction({
   };
 }
 
-export { isPolicyExtractionRetryEligible };
+export { isPolicyExtractionRetryEligible, buildUploadExtractKey };
