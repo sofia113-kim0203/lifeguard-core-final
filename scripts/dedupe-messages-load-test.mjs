@@ -5,8 +5,19 @@ import assert from "node:assert/strict";
 import {
   dedupeMessagesById,
   filterMessagesForDisplay,
-  normalizeConversationMessage,
-} from "../src/lib/customerConversations.js";
+} from "../src/lib/conversationMessageUtils.js";
+
+function normalizeConversationMessage(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    customerId: row.customer_id,
+    role: row.role,
+    message: row.message,
+    metadata: row.metadata_json ?? {},
+    createdAt: row.created_at,
+  };
+}
 
 const productionLikeRows = [
   {
