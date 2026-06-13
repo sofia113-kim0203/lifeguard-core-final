@@ -3,6 +3,13 @@ import { extractPolicyFromReadyDocument } from "./customerDocumentPolicyExtract.
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
+export function isPolicyExtractionRetryEligible(document) {
+  if (!document || document.ingest_status !== "ready") return false;
+  const status = document.metadata_json?.policy_extraction_status ?? null;
+  if (!status) return true;
+  return status === "extraction_failed" || status === "pending_manual_review";
+}
+
 export const STORAGE_BUCKET = "customer-documents";
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const DOCUMENT_STORAGE_CONSENT_VERSION = "2026-06-07-ko-doc";
@@ -497,6 +504,42 @@ export async function requeuePendingDocumentIngest(authUser) {
   return {
     customerId,
     requeued: results.filter((item) => !item.ingest?.blocked && !item.ingest?.failed).length,
+    results,
+  };
+}
+
+export async function retryPendingPolicyExtractions(authUser) {
+  const { customerId, hasDocumentAnalysisConsent, documents } = await listDocuments(authUser);
+  if (!hasDocumentAnalysisConsent) {
+    return { customerId, retried: 0, results: [] };
+  }
+
+  const eligible = (documents ?? []).filter(isPolicyExtractionRetryEligible);
+  const results = [];
+
+  for (const document of eligible) {
+    try {
+      const policyExtraction = await extractPolicyFromReadyDocument(document.id);
+      results.push({ documentId: document.id, policyExtraction });
+    } catch (extractError) {
+      results.push({
+        documentId: document.id,
+        policyExtraction: {
+          ok: false,
+          documentId: document.id,
+          message:
+            extractError instanceof Error
+              ? extractError.message
+              : "보험정보 추출 재시도에 실패했습니다.",
+        },
+      });
+    }
+  }
+
+  return {
+    customerId,
+    retried: results.filter((item) => item.policyExtraction?.ok).length,
+    eligible_count: eligible.length,
     results,
   };
 }

@@ -9,6 +9,9 @@ function mapServerError(payload, status) {
   if (payload?.reason === "document_not_ready") return "문서 OCR 분석이 아직 완료되지 않았습니다.";
   if (payload?.reason === "chunks_missing") return "OCR chunk가 없어 보험정보를 추출할 수 없습니다.";
   if (payload?.reason === "insufficient_policy_fields") {
+    if (payload?.status === "pending_manual_review") {
+      return "문서 OCR은 완료되었으나 보험정보가 부족해 관리자 검토가 필요합니다.";
+    }
     return "문서 OCR은 완료되었으나 보험정보 추출에 필요한 항목이 부족합니다.";
   }
   if (status === 404) return "보험정보 추출 API 경로를 찾을 수 없습니다.";
@@ -35,6 +38,7 @@ export async function extractPolicyFromReadyDocument(documentId, { invokeMemory 
         ok: false,
         documentId: trimmedId,
         reason: failedPayload.reason ?? "extraction_failed",
+        status: failedPayload.status ?? "extraction_failed",
         extraction: failedPayload.extraction,
         chunkCount: failedPayload.chunk_count ?? 0,
         ocrTextLength: failedPayload.ocr_text_length ?? 0,

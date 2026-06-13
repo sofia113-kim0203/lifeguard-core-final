@@ -21,9 +21,14 @@ function buildPolicyExtractionStep(policyExtraction) {
   if (!policyExtraction) {
     return { ok: false, status: "skipped", error_message: "policy_extraction_not_run" };
   }
+  const reviewPending = policyExtraction.status === "pending_manual_review";
   return {
     ok: Boolean(policyExtraction.ok),
-    status: policyExtraction.ok ? "completed" : "extraction_failed",
+    status: policyExtraction.ok
+      ? "completed"
+      : reviewPending
+        ? "pending_manual_review"
+        : "extraction_failed",
     error_message: policyExtraction.ok ? null : policyExtraction.message ?? policyExtraction.reason ?? null,
     policy_id: policyExtraction.policyId ?? null,
     profile_insurance_policies_count: policyExtraction.profileInsurancePoliciesCount ?? null,

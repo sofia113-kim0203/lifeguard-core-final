@@ -46,7 +46,8 @@
     "test:phase31-r-recommendation-panel-cache-fallback": "node scripts/phase31-r-recommendation-panel-cache-fallback-test.mjs",
     "test:phase31-r-recommendation-panel-production": "node scripts/phase31-r-recommendation-panel-production-verify.mjs",
     "test:phase31c-p0-policy-explorer-production": "node scripts/phase31c-p0-policy-explorer-production-verify.mjs",
-    "test:analysis-jobs-e2e": "node scripts/analysis_jobs_e2e_test.mjs"
+    "test:analysis-jobs-e2e": "node scripts/analysis_jobs_e2e_test.mjs",
+    "test:document-policy-extractor-unit": "node scripts/document-policy-extractor-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
