@@ -71,6 +71,7 @@ export function resolveMemoryDisplayStatus({
   memorySyncStatus = null,
   serviceRoleConfigured = true,
   rebuildRequested = false,
+  blockedSources = [],
 } = {}) {
   if (memorySyncStatus && MEMORY_DISPLAY_STATUSES.includes(memorySyncStatus)) {
     return memorySyncStatus;
@@ -80,6 +81,11 @@ export function resolveMemoryDisplayStatus({
       return rebuildRequested ? "failed" : "degraded";
     }
     return rebuildError.partial ? "degraded" : "failed";
+  }
+  // M3 — 빌드가 "성공(ok)"했어도 consent로 막혀 건너뛴 소스가 있으면 완전한 ready가 아니다.
+  // (기존엔 rebuildSucceeded만 보고 "ready"로 단락 → consent로 빈 메모리가 거짓 ready로 표시되던 버그.)
+  if (Array.isArray(blockedSources) && blockedSources.length > 0) {
+    return "degraded";
   }
   if (rebuildSucceeded) {
     return "ready";
@@ -110,4 +116,24 @@ export function formatMemoryBuilderFailure(profileResult, conversationResult) {
     });
   }
   return failures;
+}
+
+const CONSENT_MISSING_PREFIX = "consent_missing:";
+
+// M3 — 워커 invoke 결과(body.extractors)에서 consent로 건너뛴 소스를 추출한다.
+// 워커는 이미 extractor별 { skipped, skip_reason: "consent_missing:<type>" } 를보낸다.
+export function collectBlockedSources(invokeResult) {
+  const extractors = invokeResult?.body?.extractors;
+  if (!extractors || typeof extractors !== "object") return [];
+  const blocked = [];
+  for (const [source, info] of Object.entries(extractors)) {
+    const reason = info?.skip_reason;
+    if (info?.skipped && typeof reason === "string" && reason.startsWith(CONSENT_MISSING_PREFIX)) {
+      blocked.push({
+        source,
+        consent_type: reason.slice(CONSENT_MISSING_PREFIX.length),
+      });
+    }
+  }
+  return blocked;
 }
