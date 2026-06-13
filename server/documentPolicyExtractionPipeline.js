@@ -5,6 +5,10 @@ import {
   isPolicyExtractionRetryEligible,
 } from "./documentPolicyExtractor.js";
 import {
+  extractCoverageSheetFromOcrText,
+  isCoverageAnalysisSheetDocument,
+} from "./coverageSheetExtractor.js";
+import {
   buildPolicyRowFromCandidate,
   buildUploadExtractKey,
   planRetiredPolicyIds,
@@ -12,6 +16,7 @@ import {
 } from "./documentPolicyUploadPersist.js";
 import {
   CUSTOMER_DOCUMENT_SELECT_FIELDS,
+  runShadowCoverageSheetSafe,
   runShadowPolicyValidationSafe,
   updateDocumentMetadataWithShadow,
 } from "./policyExtractionShadow.js";
@@ -305,11 +310,16 @@ export async function runDocumentPolicyExtraction({
 
   const ocrText = chunks.map((chunk) => chunk.content ?? "").join("\n\n").trim();
   const multiExtraction = extractPoliciesFromOcrText(ocrText);
-  const shadowState = runShadowPolicyValidationSafe({
-    ocrText,
-    multiExtraction,
-    document,
-  });
+  const shadowState = isCoverageAnalysisSheetDocument(document)
+    ? runShadowCoverageSheetSafe({
+        sheetExtraction: extractCoverageSheetFromOcrText(ocrText),
+        document,
+      })
+    : runShadowPolicyValidationSafe({
+        ocrText,
+        multiExtraction,
+        document,
+      });
 
   if (!multiExtraction.success) {
     const reviewMetadata = await markPendingManualReview(

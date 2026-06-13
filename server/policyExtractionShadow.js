@@ -1,6 +1,7 @@
 /**
  * Shadow-mode validator hook — records policy_validation metadata only (no persist gating).
  */
+import { COVERAGE_SHEET_EXTRACTOR_VERSION } from "./coverageSheetExtractor.js";
 import { segmentOcrIntoPolicyBlocks } from "./documentPolicyExtractor.js";
 import { normalizeDocClass, validatePolicyExtraction, VALIDATOR_VERSION } from "./policyExtractionValidator.js";
 
@@ -64,6 +65,50 @@ export function runShadowPolicyValidationSafe(args) {
   }
 }
 
+export function buildCoverageSheetShadowMetadata(sheetExtraction, document = {}, documentMeta = {}) {
+  if (!sheetExtraction || typeof sheetExtraction !== "object") return null;
+
+  return {
+    extractor_version: sheetExtraction.extractor_version ?? COVERAGE_SHEET_EXTRACTOR_VERSION,
+    shadow_mode: SHADOW_MODE,
+    layout: sheetExtraction.layout ?? null,
+    layout_features: sheetExtraction.layout_features ?? null,
+    confidence: sheetExtraction.confidence ?? "low",
+    pass_l1_v1: Boolean(sheetExtraction.pass_l1_v1),
+    pass_criteria: sheetExtraction.pass_criteria ?? null,
+    passing_row_count: sheetExtraction.passing_row_count ?? 0,
+    row_count: sheetExtraction.row_count ?? 0,
+    rows: sheetExtraction.rows ?? [],
+    warnings: sheetExtraction.warnings ?? [],
+    document_flags: sheetExtraction.warnings?.includes("NON_L1_LAYOUT") ? ["NON_L1_LAYOUT"] : [],
+    doc_profile: buildDocProfile(document, documentMeta),
+    ocr_text_length: sheetExtraction.ocr_text_length ?? 0,
+    shadow_only: true,
+  };
+}
+
+export function runShadowCoverageSheet({ sheetExtraction, document }) {
+  const documentMeta = buildValidatorDocumentMeta(document);
+  return {
+    ok: true,
+    coverage_sheet_shadow: buildCoverageSheetShadowMetadata(sheetExtraction, document, documentMeta),
+    doc_profile: buildDocProfile(document, documentMeta),
+  };
+}
+
+export function runShadowCoverageSheetSafe(args) {
+  try {
+    return runShadowCoverageSheet(args);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      extractor_version: COVERAGE_SHEET_EXTRACTOR_VERSION,
+      shadow_mode: SHADOW_MODE,
+    };
+  }
+}
+
 export function buildPolicyValidationMetadata(shadowState, persistResult = null) {
   if (!shadowState?.ok || !shadowState.validation) return null;
 
@@ -86,9 +131,14 @@ export function buildPolicyValidationMetadata(shadowState, persistResult = null)
 
 export function buildMetadataPatchWithShadow(basePatch, shadowState, persistResult = null) {
   try {
+    const patch = { ...basePatch };
+    if (shadowState?.coverage_sheet_shadow) {
+      patch.coverage_sheet_shadow = shadowState.coverage_sheet_shadow;
+      return patch;
+    }
     const policyValidation = buildPolicyValidationMetadata(shadowState, persistResult);
-    if (!policyValidation) return basePatch;
-    return { ...basePatch, policy_validation: policyValidation };
+    if (!policyValidation) return patch;
+    return { ...patch, policy_validation: policyValidation };
   } catch {
     return basePatch;
   }
@@ -99,7 +149,7 @@ export async function updateDocumentMetadataWithShadow(admin, updateFn, customer
   try {
     return await updateFn(admin, customerId, documentId, patchWithShadow);
   } catch (_error) {
-    if (!patchWithShadow.policy_validation) throw _error;
+    if (!patchWithShadow.policy_validation && !patchWithShadow.coverage_sheet_shadow) throw _error;
     return await updateFn(admin, customerId, documentId, basePatch);
   }
 }

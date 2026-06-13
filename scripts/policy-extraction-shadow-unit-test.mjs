@@ -4,12 +4,15 @@
 import { readFileSync } from "node:fs";
 import { extractPoliciesFromOcrText } from "../server/documentPolicyExtractor.js";
 import {
+  buildCoverageSheetShadowMetadata,
   buildMetadataPatchWithShadow,
   buildPolicyValidationMetadata,
   buildValidatorDocumentMeta,
+  runShadowCoverageSheet,
   runShadowPolicyValidation,
   runShadowPolicyValidationSafe,
 } from "../server/policyExtractionShadow.js";
+import { extractCoverageSheetFromOcrText } from "../server/coverageSheetExtractor.js";
 import { buildUploadExtractKey } from "../server/documentPolicyUploadPersist.js";
 
 const certificateSample = `
@@ -51,12 +54,31 @@ const documentWithoutType = {
   metadata_json: { category_key: "coverage_analysis_sheet" },
 };
 
+const l1SheetSample = `
+SUCCESS
+기준담보/권장금액
+(1)
+메리츠화재
+(2)
+메리츠화재
+208,330원
+92,490원
+`;
+
 const tests = [
   ["pipeline hook is after extractPoliciesFromOcrText", () => {
     const source = readFileSync(new URL("../server/documentPolicyExtractionPipeline.js", import.meta.url), "utf8");
     const extractIndex = source.indexOf("extractPoliciesFromOcrText(ocrText)");
-    const shadowIndex = source.indexOf("runShadowPolicyValidationSafe(");
-    assert(extractIndex >= 0 && shadowIndex > extractIndex, "shadow hook must follow parser extraction");
+    const shadowIndex = source.indexOf("runShadowCoverageSheetSafe(");
+    const legacyShadowIndex = source.indexOf("runShadowPolicyValidationSafe(");
+    assert(extractIndex >= 0, "extractPoliciesFromOcrText required");
+    assert(shadowIndex > extractIndex || legacyShadowIndex > extractIndex, "shadow hook must follow parser extraction");
+  }],
+  ["pipeline routes coverage_analysis_sheet to sheet shadow extractor", () => {
+    const source = readFileSync(new URL("../server/documentPolicyExtractionPipeline.js", import.meta.url), "utf8");
+    assert(source.includes("isCoverageAnalysisSheetDocument(document)"), "sheet document guard required");
+    assert(source.includes("extractCoverageSheetFromOcrText(ocrText)"), "sheet extractor required");
+    assert(source.includes("runShadowCoverageSheetSafe"), "sheet shadow hook required");
   }],
   ["pipeline does not gate persist on validator route", () => {
     const source = readFileSync(new URL("../server/documentPolicyExtractionPipeline.js", import.meta.url), "utf8");
@@ -143,6 +165,22 @@ const tests = [
     const patch = buildMetadataPatchWithShadow({ policy_extraction_status: "completed" }, { ok: false }, { policy_count: 2 });
     assert(patch.policy_extraction_status === "completed", "base patch must remain");
     assert(!patch.policy_validation, "no policy_validation when shadow failed");
+    assert(!patch.coverage_sheet_shadow, "no coverage_sheet_shadow when shadow failed");
+  }],
+  ["coverage sheet shadow metadata shape", () => {
+    const sheetExtraction = extractCoverageSheetFromOcrText(l1SheetSample);
+    const shadowState = runShadowCoverageSheet({
+      sheetExtraction,
+      document: { document_type: "coverage_analysis_sheet", metadata_json: { category_key: "coverage_analysis_sheet" } },
+    });
+    const record = buildCoverageSheetShadowMetadata(sheetExtraction, shadowState.document, {});
+    assert(record.shadow_mode === true, "shadow_mode");
+    assert(record.layout === "L1_mobile_ga_stack", `layout=${record.layout}`);
+    assert(record.row_count >= 1, `row_count=${record.row_count}`);
+    assert(!record.document_flags.includes("DOC_OVER_SPLIT"), "no DOC_OVER_SPLIT");
+    const patch = buildMetadataPatchWithShadow({ policy_extraction_status: "pending_manual_review" }, shadowState, null);
+    assert(patch.coverage_sheet_shadow, "coverage_sheet_shadow required");
+    assert(!patch.policy_validation, "certificate validator shadow skipped for sheet");
   }],
 ];
 
