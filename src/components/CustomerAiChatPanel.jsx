@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CONVERSATION_LOAD_TIMEOUT_MS,
-  dedupeMessagesById,
   filterMessagesForDisplay,
   loadCustomerConversations,
   sendCustomerConversationMessage,
@@ -515,7 +514,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
         );
       }
       setMessages((prev) =>
-        filterMessagesForDisplay(dedupeMessagesById([...prev, ...optimisticRows])),
+        filterMessagesForDisplay([...prev, ...optimisticRows]),
       );
 
       await loadMessages({ silent: true });
