@@ -254,6 +254,8 @@ persistCoverageSheetRows(passingRows);  // NOT from shadow metadata
 | **신규 테이블** | **하지 않음** |
 | **`coverage_analysis_rows`** | **PR-C3+ 별도 설계** (native coverage store); UI가 coverage-native 뷰를 요구할 때 착수 |
 
+> PR-C3의 `profile_insurance_policies` persist는 canonical coverage model이 아니라, Live Gate 통과 row를 기존 `policy_count`/memory/UI 파이프에 연결하기 위한 **temporary bridge projection**이다. 장기적으로 `coverage_analysis_rows` native store 도입 후, 계약(`profile_insurance_policies`)과 분석표 row를 분리하는 migration이 필요하다.
+
 **매핑 계약 (PR-C3)**
 
 | sheet row | `profile_insurance_policies` |
