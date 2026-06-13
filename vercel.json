@@ -7,5 +7,16 @@
       "source": "/((?!api/|assets/).*)",
       "destination": "/index.html"
     }
+  ],
+  "functions": {
+    "api/worker-jobs-runner.js": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/worker-jobs-runner",
+      "schedule": "*/2 * * * *"
+    }
   ]
 }
