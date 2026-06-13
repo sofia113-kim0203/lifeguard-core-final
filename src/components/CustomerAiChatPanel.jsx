@@ -468,13 +468,20 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
       const result = await sendCustomerConversationMessage(user, text, {
         customerId,
         onAnalysisJob: ({ analysisJobId, analysisJob: job, initialResponseTimeMs: responseMs }) => {
-          setAnalysisJob(job);
           setInitialResponseTimeMs(responseMs ?? 0);
-          if (typeof onAnalysisJobUpdate === "function") {
-            onAnalysisJobUpdate(job);
-          }
           if (analysisJobId) {
+            setAnalysisJob(job);
+            if (typeof onAnalysisJobUpdate === "function") {
+              onAnalysisJobUpdate(job);
+            }
             resumeBackgroundPolling(analysisJobId);
+          } else {
+            setAnalysisJob(null);
+            setBackgroundRunning(false);
+            pollAbortControllerRef.current?.abort();
+            if (typeof onAnalysisJobUpdate === "function") {
+              onAnalysisJobUpdate(null);
+            }
           }
         },
       });

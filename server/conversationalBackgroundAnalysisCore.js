@@ -3,7 +3,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { ensureCustomerMemoryContext } from "./customerMemoryContextSync.js";
-import { buildFastConversationalResponse } from "./fastResponseLayer.js";
+import { buildFastConversationalResponse, buildCasualChatResponse } from "./fastResponseLayer.js";
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import {
   ANALYSIS_PIPELINE_STAGES,
@@ -219,6 +219,67 @@ export function mapAnalysisJobForClient(job) {
   };
 }
 
+async function handleCasualChatQuestionRequest({
+  question,
+  customerId,
+  adminClient,
+  startedAt,
+  intentClassification,
+  fetchImpl = fetch,
+  env = process.env,
+} = {}) {
+  const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
+  const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
+  const casualResult = await buildCasualChatResponse({ question, fetchImpl, env });
+
+  const userMessage = await insertConversationMessage(adminClient, customerId, {
+    role: "user",
+    message: question,
+    metadata: {
+      source: "customer_dashboard",
+      phase: "casual-chat",
+      intent: "casual_chat",
+    },
+  });
+
+  const initialResponseTimeMs = Date.now() - startedAt;
+
+  const assistantMessage = await insertConversationMessage(adminClient, customerId, {
+    role: "assistant",
+    message: casualResult.text,
+    metadata: {
+      source: "casual_claude",
+      intent: "casual_chat",
+      phase: "casual-chat",
+      response_source: casualResult.response_source,
+      model: casualResult.model ?? null,
+      request_id: casualResult.request_id ?? null,
+      initial_response_time_ms: initialResponseTimeMs,
+    },
+  });
+
+  return {
+    ok: true,
+    customer_id: customerId,
+    question,
+    fast_response: casualResult.text,
+    source: "casual_claude",
+    initial_response_time_ms: initialResponseTimeMs,
+    analysis_job_id: null,
+    analysis_job: null,
+    user_message_id: userMessage.id,
+    assistant_message_id: assistantMessage.id,
+    cache_status: null,
+    background_refresh_required: false,
+    background_refresh_types: [],
+    memory_version: 0,
+    memory_fact_count: 0,
+    intent_gate: intentGate,
+    memory_context: null,
+    processing: null,
+  };
+}
+
 export async function handleConversationalQuestionRequest({
   question,
   authHeader,
@@ -252,6 +313,20 @@ export async function handleConversationalQuestionRequest({
     return { ok: false, reason: "SERVICE_ROLE_NOT_CONFIGURED", error_message: "Service role client unavailable." };
   }
 
+  const intentClassification = classifyConsultationIntent(trimmedQuestion);
+
+  if (intentClassification.intent === "casual_chat") {
+    return handleCasualChatQuestionRequest({
+      question: trimmedQuestion,
+      customerId,
+      adminClient,
+      startedAt,
+      intentClassification,
+      fetchImpl,
+      env,
+    });
+  }
+
   const memoryContext = await ensureCustomerMemoryContext({
     supabase: adminClient,
     customerId,
@@ -265,7 +340,6 @@ export async function handleConversationalQuestionRequest({
     snapshot.memory_version ?? 0,
   );
 
-  const intentClassification = classifyConsultationIntent(trimmedQuestion);
   const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
   const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
   const workingContextInput = {

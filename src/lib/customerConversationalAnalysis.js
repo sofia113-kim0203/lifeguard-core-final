@@ -49,8 +49,9 @@ export async function sendConversationalQuestion({ question, autoProcess = false
   return {
     fastResponse: payload.fast_response,
     initialResponseTimeMs: payload.initial_response_time_ms ?? 0,
-    analysisJobId: payload.analysis_job_id,
+    analysisJobId: payload.analysis_job_id ?? null,
     analysisJob: payload.analysis_job ?? null,
+    responseSource: payload.source ?? null,
     cacheStatus: payload.cache_status,
     backgroundRefreshRequired: payload.background_refresh_required ?? false,
     backgroundRefreshTypes: payload.background_refresh_types ?? [],
