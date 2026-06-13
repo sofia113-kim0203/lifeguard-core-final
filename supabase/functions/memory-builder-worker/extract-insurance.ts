@@ -4,6 +4,18 @@ import { EXTRACTOR_VERSION } from "./config.ts";
 import type { CandidateFact } from "./types.ts";
 import { isIndemnityPolicyType, isPresent, truncate } from "./utils.ts";
 
+const COVERAGE_SHEET_EXTRACTOR_ORIGIN = "coverage_sheet_l1";
+
+function isCoverageSheetBridgePolicy(policy: PolicyRow): boolean {
+  const coverage = policy.coverage_summary;
+  if (!coverage || typeof coverage !== "object") return false;
+  return coverage.extractor_origin === COVERAGE_SHEET_EXTRACTOR_ORIGIN;
+}
+
+function countCoverageSheetBridgePolicies(policies: PolicyRow[]): number {
+  return policies.filter(isCoverageSheetBridgePolicy).length;
+}
+
 type PolicyRow = {
   id: string;
   insurer_name: string | null;
@@ -99,7 +111,10 @@ export async function extractInsuranceFacts(
         consentGranted: consent.consent_granted,
         sourceRecordId,
         field: "maintained_policy_count",
-        extra: { maintained_policy_count: maintainedPolicies.length },
+        extra: {
+          maintained_policy_count: maintainedPolicies.length,
+          coverage_sheet_bridge_policy_count: countCoverageSheetBridgePolicies(maintainedPolicies),
+        },
       }),
     });
   }
@@ -200,6 +215,13 @@ export async function extractInsuranceFacts(
         consentGranted: consent.consent_granted,
         sourceRecordId: pol.id,
         field: "policy_detail",
+        extra: {
+          extractor_origin:
+            pol.coverage_summary && typeof pol.coverage_summary === "object"
+              ? (pol.coverage_summary as Record<string, unknown>).extractor_origin ?? null
+              : null,
+          is_coverage_sheet_bridge: isCoverageSheetBridgePolicy(pol),
+        },
       }),
     });
   }

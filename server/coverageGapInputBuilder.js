@@ -1,6 +1,7 @@
 /**
  * Phase 26 Step 1B — Build Coverage Gap Engine input from Customer Memory.
  */
+import { isCoverageSheetBridgePolicy } from "./coverageSheetBridge.js";
 
 function normalizeText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -144,6 +145,8 @@ export function buildCoverageGapInputFromMemory({
     status: policyStatusLabel(policy),
     effective_from: policy.effective_from ?? policy.contract_date ?? null,
     is_active: policy.is_active !== false,
+    extractor_origin: policy.coverage_summary?.extractor_origin ?? null,
+    is_coverage_sheet_bridge: isCoverageSheetBridgePolicy(policy),
   }));
 
   return {

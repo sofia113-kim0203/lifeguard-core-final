@@ -1,0 +1,184 @@
+/**
+ * PR-C3 — map passing coverage sheet rows to profile_insurance_policies bridge rows.
+ */
+import {
+  COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+  COVERAGE_SHEET_RECORD_KIND,
+} from "./coverageSheetBridge.js";
+import { COVERAGE_SHEET_EXTRACTOR_VERSION } from "./coverageSheetExtractor.js";
+import { planRetiredPolicyIds } from "./documentPolicyUploadPersist.js";
+
+function normalizeKeyPart(value) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+export function buildSheetUploadExtractKey(documentId, row = {}) {
+  const parts = [
+    String(documentId ?? "").trim(),
+    "sheet",
+    row.row_index != null ? String(row.row_index) : "",
+    normalizeKeyPart(row.insurer_name),
+    row.amount_value != null ? String(row.amount_value) : "",
+  ];
+  return parts.join("|");
+}
+
+export function buildCoverageSummaryFromSheetRow(documentId, row = {}) {
+  const uploadExtractKey = buildSheetUploadExtractKey(documentId, row);
+
+  return {
+    source_document_id: documentId,
+    upload_extract_key: uploadExtractKey,
+    extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+    record_kind: COVERAGE_SHEET_RECORD_KIND,
+    sheet_row_index: row.row_index ?? null,
+    extractor_version: COVERAGE_SHEET_EXTRACTOR_VERSION,
+    amount_value: row.amount_value ?? null,
+    amount_unit: row.amount_unit ?? null,
+    amount_text: row.amount_text ?? null,
+    coverage_name: row.coverage_name ?? null,
+    product_name: row.product_name ?? null,
+    warnings: Array.isArray(row.warnings) ? row.warnings : [],
+    extracted_at: new Date().toISOString(),
+  };
+}
+
+export function buildPolicyRowFromSheetRow(customerId, documentId, row = {}) {
+  const coverageSummary = buildCoverageSummaryFromSheetRow(documentId, row);
+
+  return {
+    customer_id: customerId,
+    insurer_name: row.insurer_name,
+    product_name: row.product_name ?? null,
+    policy_type: null,
+    monthly_premium: null,
+    effective_from: null,
+    coverage_summary: coverageSummary,
+    source: "upload_extract",
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export function resolveExistingSheetPolicyForRow(existingRows, documentId, row = {}, rowCount = 1) {
+  const uploadExtractKey = buildSheetUploadExtractKey(documentId, row);
+  const activeRows = (existingRows ?? []).filter((entry) => entry.is_active !== false);
+
+  const byKey = activeRows.find((entry) => entry.coverage_summary?.upload_extract_key === uploadExtractKey);
+  if (byKey) return { row: byKey, upload_extract_key: uploadExtractKey };
+
+  const legacyRows = activeRows.filter((entry) => entry.coverage_summary?.source_document_id === documentId);
+  if (legacyRows.length === 1 && rowCount === 1 && !legacyRows[0].coverage_summary?.upload_extract_key) {
+    return { row: legacyRows[0], upload_extract_key: uploadExtractKey };
+  }
+
+  return { row: null, upload_extract_key: uploadExtractKey };
+}
+
+async function loadUploadExtractPoliciesForDocument(admin, customerId, documentId) {
+  const { data, error } = await admin
+    .from("profile_insurance_policies")
+    .select("id, coverage_summary, is_active")
+    .eq("customer_id", customerId)
+    .eq("source", "upload_extract")
+    .is("deleted_at", null);
+
+  if (error) throw new Error(`policy_lookup_failed: ${error.message}`);
+  return (data ?? []).filter((row) => row.coverage_summary?.source_document_id === documentId);
+}
+
+async function retireUploadExtractPolicies(admin, customerId, policyIds) {
+  const retired = [];
+  for (const policyId of policyIds) {
+    const { data: existing, error: readError } = await admin
+      .from("profile_insurance_policies")
+      .select("id, coverage_summary")
+      .eq("id", policyId)
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (readError) throw new Error(`policy_retire_read_failed: ${readError.message}`);
+    if (!existing) continue;
+
+    const coverageSummary = {
+      ...(existing.coverage_summary ?? {}),
+      retired_at: new Date().toISOString(),
+      retired_reason: "superseded_by_reextract",
+    };
+
+    const { error } = await admin
+      .from("profile_insurance_policies")
+      .update({
+        is_active: false,
+        coverage_summary: coverageSummary,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", policyId)
+      .eq("customer_id", customerId);
+    if (error) throw new Error(`policy_retire_failed: ${error.message}`);
+    retired.push(policyId);
+  }
+  return retired;
+}
+
+export async function persistCoverageSheetRows(admin, customerId, documentId, passingRows = []) {
+  const existingRows = await loadUploadExtractPoliciesForDocument(admin, customerId, documentId);
+  const actions = [];
+  const activeKeys = [];
+  const rowCount = passingRows.length;
+
+  for (const row of passingRows) {
+    const policyRow = buildPolicyRowFromSheetRow(customerId, documentId, row);
+    const { row: existing, upload_extract_key: uploadExtractKey } = resolveExistingSheetPolicyForRow(
+      existingRows,
+      documentId,
+      row,
+      rowCount,
+    );
+    activeKeys.push(uploadExtractKey);
+
+    if (existing?.id) {
+      const { data, error } = await admin
+        .from("profile_insurance_policies")
+        .update(policyRow)
+        .eq("id", existing.id)
+        .eq("customer_id", customerId)
+        .select("id")
+        .single();
+      if (error) throw new Error(`policy_update_failed: ${error.message}`);
+      actions.push({
+        policy_id: data.id,
+        action: "updated",
+        upload_extract_key: uploadExtractKey,
+        sheet_row_index: row.row_index ?? null,
+      });
+      continue;
+    }
+
+    const { data, error } = await admin
+      .from("profile_insurance_policies")
+      .insert(policyRow)
+      .select("id")
+      .single();
+    if (error) throw new Error(`policy_insert_failed: ${error.message}`);
+    actions.push({
+      policy_id: data.id,
+      action: "inserted",
+      upload_extract_key: uploadExtractKey,
+      sheet_row_index: row.row_index ?? null,
+    });
+  }
+
+  const retireIds = planRetiredPolicyIds(existingRows, documentId, activeKeys);
+  const retiredPolicyIds = await retireUploadExtractPolicies(admin, customerId, retireIds);
+
+  return {
+    policy_ids: actions.map((entry) => entry.policy_id),
+    policy_count: actions.length,
+    policy_actions: actions,
+    retired_policy_ids: retiredPolicyIds,
+    passing_row_count: rowCount,
+  };
+}

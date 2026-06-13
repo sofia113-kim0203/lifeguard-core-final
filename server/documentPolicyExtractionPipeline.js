@@ -5,9 +5,18 @@ import {
   isPolicyExtractionRetryEligible,
 } from "./documentPolicyExtractor.js";
 import {
+  COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+} from "./coverageSheetBridge.js";
+import {
   extractCoverageSheetFromOcrText,
   isCoverageAnalysisSheetDocument,
 } from "./coverageSheetExtractor.js";
+import {
+  evaluateCoverageSheetLiveGate,
+  filterPassingSheetRows,
+  isCoverageSheetLiveGateEnabled,
+} from "./coverageSheetLiveGate.js";
+import { persistCoverageSheetRows } from "./coverageSheetPersist.js";
 import {
   buildPolicyRowFromCandidate,
   buildUploadExtractKey,
@@ -217,6 +226,43 @@ function getStoredPolicyIds(metadata = {}) {
   return [];
 }
 
+async function markCoverageSheetManualReview(
+  admin,
+  customerId,
+  documentId,
+  { gate, sheetExtraction, ocrText },
+  shadowState = null,
+) {
+  const basePatch = {
+    policy_extraction_status: "pending_manual_review",
+    policy_extraction_error: gate?.blocked_reason ?? "coverage_sheet_live_gate_blocked",
+    policy_extraction: null,
+    policy_extraction_count: 0,
+    policy_extraction_field_count: 0,
+    policy_extraction_missing_fields: [],
+    policy_extraction_review_blocks: [],
+    policy_extraction_ocr_snippet: buildOcrSnippet(ocrText),
+    policy_extraction_requires_admin_review: true,
+    profile_policy_ids: [],
+    profile_policy_id: null,
+    coverage_sheet_live_gate: gate,
+    sheet_persist_summary: {
+      persisted_count: 0,
+      passing_row_count: gate?.passing_row_count ?? 0,
+      extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+    },
+  };
+  return updateDocumentMetadataWithShadow(
+    admin,
+    updateDocumentExtractionMetadata,
+    customerId,
+    documentId,
+    basePatch,
+    shadowState,
+    null,
+  );
+}
+
 async function markPendingManualReview(admin, customerId, documentId, multiExtraction, ocrText, shadowState = null) {
   const basePatch = {
     policy_extraction_status: "pending_manual_review",
@@ -241,6 +287,172 @@ async function markPendingManualReview(admin, customerId, documentId, multiExtra
     shadowState,
     null,
   );
+}
+
+async function runCoverageSheetLiveGateExtraction({
+  admin,
+  customerId,
+  documentId,
+  document,
+  chunks,
+  ocrText,
+  env,
+  invokeMemory,
+}) {
+  const sheetExtraction = extractCoverageSheetFromOcrText(ocrText);
+  const shadowState = runShadowCoverageSheetSafe({ sheetExtraction, document });
+  const gate = evaluateCoverageSheetLiveGate(sheetExtraction);
+  const passingRows = filterPassingSheetRows(sheetExtraction.rows);
+
+  if (!gate.pass || passingRows.length === 0) {
+    const reviewMetadata = await markCoverageSheetManualReview(
+      admin,
+      customerId,
+      documentId,
+      { gate, sheetExtraction, ocrText },
+      shadowState,
+    );
+    return {
+      ok: false,
+      reason: gate.blocked_reason ?? "coverage_sheet_live_gate_blocked",
+      status: "pending_manual_review",
+      chunk_count: chunks.length,
+      ocr_text_length: ocrText.length,
+      extraction: null,
+      policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
+      memory_builder: null,
+      metadata_json: reviewMetadata,
+      coverage_sheet_live_gate: gate,
+    };
+  }
+
+  const hasConsent = await hasInsuranceDataConsent(admin, customerId);
+  if (!hasConsent) {
+    await updateDocumentMetadataWithShadow(
+      admin,
+      updateDocumentExtractionMetadata,
+      customerId,
+      documentId,
+      {
+        policy_extraction_status: "extraction_failed",
+        policy_extraction_error: "insurance_data_processing_consent_required",
+        policy_extraction: null,
+        coverage_sheet_live_gate: gate,
+      },
+      shadowState,
+      null,
+    );
+    return {
+      ok: false,
+      reason: "insurance_data_processing_consent_required",
+      chunk_count: chunks.length,
+      ocr_text_length: ocrText.length,
+      extraction: null,
+      policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
+      memory_builder: null,
+    };
+  }
+
+  let persistResult;
+  try {
+    persistResult = await persistCoverageSheetRows(admin, customerId, documentId, passingRows);
+  } catch (persistError) {
+    const message = persistError instanceof Error ? persistError.message : "policy_persist_failed";
+    await updateDocumentMetadataWithShadow(
+      admin,
+      updateDocumentExtractionMetadata,
+      customerId,
+      documentId,
+      {
+        policy_extraction_status: "extraction_failed",
+        policy_extraction_error: message,
+        policy_extraction: null,
+        coverage_sheet_live_gate: gate,
+      },
+      shadowState,
+      null,
+    );
+    return {
+      ok: false,
+      reason: message,
+      chunk_count: chunks.length,
+      ocr_text_length: ocrText.length,
+      extraction: null,
+      policy_id: null,
+      policy_ids: [],
+      policy_count: 0,
+      memory_builder: null,
+    };
+  }
+
+  const updatedMetadata = await updateDocumentMetadataWithShadow(
+    admin,
+    updateDocumentExtractionMetadata,
+    customerId,
+    documentId,
+    {
+      policy_extraction_status: "completed",
+      policy_extraction_error: null,
+      policy_extraction: null,
+      policy_extraction_count: persistResult.policy_count,
+      policy_extraction_field_count: 0,
+      policy_extraction_tier: "coverage_sheet_l1",
+      policy_extraction_missing_fields: [],
+      policy_extraction_review_blocks: [],
+      policy_extraction_ocr_snippet: null,
+      policy_extraction_requires_admin_review: false,
+      profile_policy_ids: persistResult.policy_ids,
+      profile_policy_id: persistResult.policy_ids[0] ?? null,
+      policy_extraction_action: persistResult.policy_actions.map((entry) => entry.action).join(","),
+      policy_extraction_retired_policy_ids: persistResult.retired_policy_ids,
+      coverage_sheet_live_gate: gate,
+      sheet_persist_summary: {
+        persisted_count: persistResult.policy_count,
+        passing_row_count: passingRows.length,
+        extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+      },
+    },
+    shadowState,
+    persistResult,
+  );
+
+  const memoryBuilder = invokeMemory
+    ? await invokeMemoryBuilder(env, customerId)
+    : { invoked: false, reason: "skipped" };
+
+  const { count: policyCount } = await admin
+    .from("profile_insurance_policies")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", customerId)
+    .is("deleted_at", null);
+
+  const { count: memoryFactCount } = await admin
+    .from("customer_memory_facts")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", customerId)
+    .is("superseded_at", null);
+
+  return {
+    ok: true,
+    chunk_count: chunks.length,
+    ocr_text_length: ocrText.length,
+    extraction: null,
+    policy_id: persistResult.policy_ids[0] ?? null,
+    policy_ids: persistResult.policy_ids,
+    policy_count: persistResult.policy_count,
+    policy_actions: persistResult.policy_actions,
+    retired_policy_ids: persistResult.retired_policy_ids,
+    profile_insurance_policies_count: policyCount ?? 0,
+    customer_memory_facts_count: memoryFactCount ?? 0,
+    memory_builder: memoryBuilder,
+    metadata_json: updatedMetadata,
+    coverage_sheet_live_gate: gate,
+    sheet_persist_summary: updatedMetadata.sheet_persist_summary ?? null,
+  };
 }
 
 export async function runDocumentPolicyExtraction({
@@ -309,6 +521,20 @@ export async function runDocumentPolicyExtraction({
   }
 
   const ocrText = chunks.map((chunk) => chunk.content ?? "").join("\n\n").trim();
+
+  if (isCoverageAnalysisSheetDocument(document) && isCoverageSheetLiveGateEnabled(env)) {
+    return runCoverageSheetLiveGateExtraction({
+      admin,
+      customerId,
+      documentId,
+      document,
+      chunks,
+      ocrText,
+      env,
+      invokeMemory,
+    });
+  }
+
   const multiExtraction = extractPoliciesFromOcrText(ocrText);
   const shadowState = isCoverageAnalysisSheetDocument(document)
     ? runShadowCoverageSheetSafe({

@@ -2,9 +2,22 @@
  * Phase 28 Step 1A — Single customer state contract for all engines and UI loaders.
  */
 import {
+  countCoverageSheetBridgePolicies,
+  COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+  extractCoverageSheetBridgePolicyIds,
+  isCoverageSheetBridgePolicy,
+} from "./coverageSheetBridge.js";
+import {
   buildStructuredMemoryProfile,
   loadCustomerMemorySnapshot,
 } from "./customerMemorySnapshot.js";
+
+export {
+  COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+  countCoverageSheetBridgePolicies,
+  extractCoverageSheetBridgePolicyIds,
+  isCoverageSheetBridgePolicy,
+};
 
 export const UNIFIED_STATE_VERSION = "phase28-1b";
 export const DOCUMENT_PREVIEW_LIMIT = 20;
@@ -87,6 +100,8 @@ export function buildUnifiedProvenance({
       source_table: "profile_insurance_policies",
       count: policies.length,
       ids: extractPolicyIds(policies),
+      coverage_sheet_bridge_policy_count: countCoverageSheetBridgePolicies(policies),
+      coverage_sheet_bridge_policy_ids: extractCoverageSheetBridgePolicyIds(policies),
     },
     documents: {
       source_table: "customer_documents",
@@ -289,6 +304,8 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
       coverage_summary: policy.coverage_summary,
       is_active: policy.is_active,
       source: policy.source ?? null,
+      extractor_origin: policy.coverage_summary?.extractor_origin ?? null,
+      is_coverage_sheet_bridge: isCoverageSheetBridgePolicy(policy),
     })),
     documents: (unifiedState?.documents ?? []).slice(0, 3).map((doc) => ({
       id: doc.id,
