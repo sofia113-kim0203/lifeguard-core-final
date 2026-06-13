@@ -1,19 +1,25 @@
 /**
  * A1 — GET /api/worker-jobs-runner
- * Vercel Cron worker_jobs runtime loop: claim → dispatch → fail (service_role RPCs).
+ * Vercel Cron worker_jobs runtime loop: claim → execute → complete/fail (RPC-owned lifecycle).
  */
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  rebuildCustomerMemoryFoundation,
+  resolveServiceRoleKey,
+  resolveSupabaseUrl,
+} from "../server/customerMemoryFoundation.js";
+import {
+  formatMemoryBuilderFailure,
+  MemoryBuilderRebuildError,
+} from "../server/memoryObservability.js";
 
-const MEMORY_BUILDER_WORKER_URL = "/functions/v1/memory-builder-worker";
 const DEFAULT_BATCH_LIMIT = 5;
 const RETRY_BACKOFF_SECONDS = [30, 120, 600, 3600, 3600];
 
 function resolveRuntimeConfig() {
-  const supabaseUrl = String(process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "").trim();
-  const serviceRoleKey = String(
-    process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  ).trim();
+  const supabaseUrl = resolveSupabaseUrl();
+  const serviceRoleKey = resolveServiceRoleKey();
   const cronSecret = String(process.env.CRON_SECRET ?? "").trim();
   const parsedLimit = Number(process.env.WORKER_JOBS_BATCH_LIMIT ?? DEFAULT_BATCH_LIMIT);
   const batchLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : DEFAULT_BATCH_LIMIT;
@@ -32,34 +38,27 @@ function resolveBackoffSeconds(retryCount) {
   return RETRY_BACKOFF_SECONDS[index];
 }
 
-function resolveWorkerErrorMessage(body, status) {
-  return String(
-    body?.error_message ?? body?.error ?? body?.message ?? `worker_http_${status}`,
-  ).slice(0, 500);
+function resolveMemoryBuilderErrorMessage(error) {
+  if (error instanceof MemoryBuilderRebuildError) {
+    const failures = formatMemoryBuilderFailure(
+      error.profile_health_policy,
+      error.customer_conversation,
+    );
+    if (failures.length > 0) {
+      return failures.map((f) => `${f.scope}:${f.error}`).join("; ").slice(0, 500);
+    }
+    return String(error.code ?? "memory_builder_rebuild_failed").slice(0, 500);
+  }
+  return (error instanceof Error ? error.message : "memory_builder_failed").slice(0, 500);
 }
 
-async function invokeMemoryBuilderWorker({ supabaseUrl, serviceRoleKey, job }) {
-  const payload = job?.payload_json && typeof job.payload_json === "object" ? job.payload_json : {};
-  const mode = String(payload.mode ?? "rebuild").trim();
-  const scope = String(payload.scope ?? "profile_health_policy").trim();
-
-  const response = await fetch(`${supabaseUrl}${MEMORY_BUILDER_WORKER_URL}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      job_id: job.id,
-      customer_id: job.customer_id,
-      mode,
-      scope,
-    }),
+async function completeWorkerJob(admin, jobId) {
+  const { error } = await admin.rpc("lifeguard_complete_worker_job", {
+    p_job_id: jobId,
   });
-
-  const body = await response.json().catch(() => ({}));
-  return { ok: response.ok, status: response.status, body };
+  if (error) {
+    throw new Error(`lifeguard_complete_worker_job_failed: ${error.message}`);
+  }
 }
 
 async function failWorkerJob(admin, job, errorMessage) {
@@ -71,6 +70,20 @@ async function failWorkerJob(admin, job, errorMessage) {
   if (error) {
     throw new Error(`lifeguard_fail_worker_job_failed: ${error.message}`);
   }
+}
+
+async function processMemoryBuilderJob({ admin, supabaseUrl, serviceRoleKey, job }) {
+  const payload = job?.payload_json && typeof job.payload_json === "object" ? job.payload_json : {};
+  const includeConversation = payload.include_conversation !== false;
+
+  await rebuildCustomerMemoryFoundation({
+    supabase: admin,
+    supabaseUrl,
+    serviceRoleKey,
+    customerId: job.customer_id,
+    includeConversation,
+  });
+  await completeWorkerJob(admin, job.id);
 }
 
 /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res */
@@ -134,24 +147,12 @@ export default async function handler(req, res) {
 
       try {
         if (jobType === "memory_builder") {
-          const invoked = await invokeMemoryBuilderWorker({ supabaseUrl, serviceRoleKey, job });
-          if (invoked.ok) {
-            results.push({
-              job_id: job.id,
-              job_type: jobType,
-              ok: true,
-              worker_status: invoked.status,
-            });
-          } else {
-            const errorMessage = resolveWorkerErrorMessage(invoked.body, invoked.status);
-            await failWorkerJob(admin, job, errorMessage);
-            results.push({
-              job_id: job.id,
-              job_type: jobType,
-              ok: false,
-              error_message: errorMessage,
-            });
-          }
+          await processMemoryBuilderJob({ admin, supabaseUrl, serviceRoleKey, job });
+          results.push({
+            job_id: job.id,
+            job_type: jobType,
+            ok: true,
+          });
           continue;
         }
 
@@ -164,7 +165,7 @@ export default async function handler(req, res) {
           error_message: unsupportedMessage,
         });
       } catch (error) {
-        const errorMessage = (error instanceof Error ? error.message : "dispatch_failed").slice(0, 500);
+        const errorMessage = resolveMemoryBuilderErrorMessage(error).slice(0, 500);
         try {
           await failWorkerJob(admin, job, errorMessage);
         } catch (failError) {
