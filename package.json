@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "LIFEGUARD Core \u2014 design/schema repo with minimal dashboard shell (not production)",
+  "description": "LIFEGUARD Core — design/schema repo with minimal dashboard shell (not production)",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
@@ -61,9 +61,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "@vercel/functions": "^3.7.1",
+    "pdf-parse": "^2.4.5",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "pdf-parse": "^2.4.5"
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",

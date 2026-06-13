@@ -117,6 +117,61 @@ export default async function handler(req, res) {
       lastEvent,
     });
 
+    // M2 — 로그인 시 메모리 자동 빌드 트리거 (비어 있고 소스 있을 때 1회, 백그라운드·멱등).
+    // M1 원칙(실패를 숨기지 않는다)을 유지하기 위해:
+    //   - 이 빌드는 백그라운드라 호출부로 에러를 돌려줄 수 없으므로, 실패를 서버 로그로 '관측 가능'하게 남긴다.
+    //   - 사용자 측 비-침묵: 빌드 실패 시 facts가 여전히 0 → 다음 로드의 memory_status가 "degraded"로 노출됨.
+    //     (실패 사유의 per-source 표면화는 M3에서 추가.)
+    //   - 비차단: waitUntil로 백그라운드 실행 → unified 응답은 즉시 반환(클라이언트 15초 세션 타임아웃 회피).
+    try {
+      const factCount = unified?.memory_fact_count ?? 0;
+      const hasSource =
+        Boolean(unified?.flags?.has_profile) ||
+        Boolean(unified?.flags?.has_health) ||
+        Boolean(unified?.flags?.has_policies) ||
+        (unified?.policy_count ?? 0) > 0 ||
+        (unified?.document_count ?? 0) > 0;
+
+      if (factCount === 0 && hasSource) {
+        const { loadCustomerMemoryOnLogin } = await import(
+          "../server/customerMemoryFoundation.js"
+        );
+        const memoryBuildPromise = loadCustomerMemoryOnLogin({
+          supabase: adminSupabase,
+          customerId: resolved.customerId,
+          rebuild: true,
+        })
+          .then((result) => {
+            if (result?.memory_status === "failed") {
+              console.error("[M2] login memory rebuild failed", {
+                customer_id: resolved.customerId,
+                rebuild_error: result.rebuild_error ?? null,
+              });
+            }
+            return result;
+          })
+          .catch((error) => {
+            console.error("[M2] login memory rebuild threw", {
+              customer_id: resolved.customerId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+
+        try {
+          const { waitUntil } = await import("@vercel/functions");
+          waitUntil(memoryBuildPromise);
+        } catch (error) {
+          console.warn("[M2] waitUntil unavailable; background build not scheduled", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[M2] login memory trigger scheduling error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
     res.end(
