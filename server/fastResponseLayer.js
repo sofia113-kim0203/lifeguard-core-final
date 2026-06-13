@@ -14,6 +14,9 @@ import {
   buildFactualLookupAnswer,
   buildPolicyDetailAnswer,
 } from "./intentGateLayer.js";
+import { generateCasualChatResponse } from "./casualChatResponseCore.js";
+
+export { generateCasualChatResponse, CASUAL_CHAT_FALLBACK } from "./casualChatResponseCore.js";
 
 const STAGE_LABELS = {
   coverage_gap: "보장 공백",
@@ -45,6 +48,11 @@ export function buildFastConversationalResponse({
 } = {}) {
   const trimmedQuestion = String(question ?? "").trim();
   const workingContext = buildWorkingContextFromFastInput({ memorySnapshot, sourceContext, sourceSummary });
+
+  if (intentGate?.intent === "casual_chat") {
+    throw new Error("casual_chat_must_use_buildCasualChatResponse");
+  }
+
   const situation = extractCustomerSituation(workingContext);
   const pending = pendingStageLabels(cachePayload);
   const allFresh = cachePayload?.cache_status === "fresh";
@@ -124,6 +132,10 @@ export function buildFastConversationalResponse({
   lines.push("분석이 완료되면 결과가 화면에 자동으로 연결됩니다.");
 
   return lines.join("\n\n");
+}
+
+export async function buildCasualChatResponse({ question, fetchImpl = fetch, env = process.env } = {}) {
+  return generateCasualChatResponse({ question, fetchImpl, env });
 }
 
 export function buildStageProgressLabel(stageKey, status = "completed") {

@@ -29,6 +29,7 @@ export const ANALYSIS_PIPELINE_STAGE_ORDER = [
 ];
 
 export const CONSULTATION_INTENTS = [
+  "casual_chat",
   "claim_eligibility_check",
   "factual_lookup",
   "policy_detail",
@@ -38,6 +39,17 @@ export const CONSULTATION_INTENTS = [
   "design_request",
   "general_consultation",
 ];
+
+const INSURANCE_TOPIC_SIGNAL =
+  /보험|보험료|보장|암보험|암\s*보험|실손|담보|특약|가입|청구|인수|심사|설계|추천|분석|줄이|절감|부담|공백|갭|운전자|의료비|보험금|해지|변경|예산|플랜|포트폴리오|리밸런싱|보완|부족|괜찮|가입해야|들어야/i;
+
+const CASUAL_GREETING_RE =
+  /^(?:하이|안녕(?:하세요|하십니까)?|헬로|hello|hi|ㅎㅇ|반가워요?|반갑습니다)(?:[!.?\s~♡♥]*)?$/i;
+const CASUAL_THANKS_RE =
+  /^(?:고마워요?|고맙습니다|감사합니다|감사해요|땡큐|thanks)(?:[!.?\s~♡♥]*)?$/i;
+const CASUAL_SMALL_TALK_RE =
+  /^(?:뭐\s*해|뭐해|잘\s*지내|잘\s*지냈|오랜만이야|심심해)(?:[?.!\s~]*)?$/i;
+const CASUAL_EMOTION_RE = /(?:오늘\s*)?(?:좀\s*)?(?:힘드|힘들|피곤|지쳤|지쳐|우울|외로|슬퍼|스트레스)/;
 
 export const LOOKUP_CATEGORIES = {
   driver: {
@@ -84,6 +96,23 @@ const POLICY_DETAIL_SIGNAL =
 
 function normalizeQuestion(question = "") {
   return String(question).replace(/\s+/g, " ").trim();
+}
+
+export function hasInsuranceTopicSignal(text = "") {
+  return INSURANCE_TOPIC_SIGNAL.test(normalizeQuestion(text));
+}
+
+export function detectCasualChatIntent(question = "") {
+  const text = normalizeQuestion(question);
+  if (!text || hasInsuranceTopicSignal(text)) return null;
+
+  if (CASUAL_GREETING_RE.test(text)) return { matched_rule: "casual_greeting" };
+  if (CASUAL_THANKS_RE.test(text)) return { matched_rule: "casual_thanks" };
+  if (CASUAL_SMALL_TALK_RE.test(text)) return { matched_rule: "casual_small_talk" };
+  if (text.length <= 40 && CASUAL_EMOTION_RE.test(text)) {
+    return { matched_rule: "casual_emotion_check" };
+  }
+  return null;
 }
 
 function joinLabels(labels) {
@@ -283,6 +312,18 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
+  const casualChat = detectCasualChatIntent(text);
+  if (casualChat) {
+    return {
+      intent: "casual_chat",
+      confidence: "high",
+      matched_rule: casualChat.matched_rule,
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
   return {
     intent: "general_consultation",
     confidence: "medium",
@@ -295,6 +336,8 @@ export function classifyConsultationIntent(question = "") {
 
 export function resolvePipelineManifest(intent) {
   switch (intent) {
+    case "casual_chat":
+      return [];
     case "claim_eligibility_check":
       return ["result_claude"];
     case "factual_lookup":
@@ -330,13 +373,15 @@ export function buildIntentGatePayload(classification, pipelineManifest) {
     pipeline_manifest: pipelineManifest,
     skipped_stages: resolveSkippedStages(pipelineManifest),
     result_mode:
-      classification.intent === "factual_lookup" || classification.intent === "policy_detail"
-        ? "light"
-        : classification.intent === "claim_eligibility_check"
-          ? "claim_light"
-          : classification.intent === "coverage_review_request"
-            ? "coverage_review_light"
-            : "standard",
+      classification.intent === "casual_chat"
+        ? "casual_light"
+        : classification.intent === "factual_lookup" || classification.intent === "policy_detail"
+          ? "light"
+          : classification.intent === "claim_eligibility_check"
+            ? "claim_light"
+            : classification.intent === "coverage_review_request"
+              ? "coverage_review_light"
+              : "standard",
   };
 }
 
