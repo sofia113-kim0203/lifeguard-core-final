@@ -6,6 +6,19 @@ export const VALIDATOR_VERSION = "p0-policy-extraction-validator-v1";
 
 const ROUTE_AI_REVIEW = "clau" + "de_review";
 
+const CANONICAL_DOC_CLASSES = new Set([
+  "coverage_analysis_sheet",
+  "insurance_certificate",
+  "insurance_terms",
+  "unknown",
+]);
+
+const DOC_CLASS_ALIASES = {
+  coverage_analysis: "coverage_analysis_sheet",
+  policy_certificate: "insurance_certificate",
+  terms: "insurance_terms",
+};
+
 const KNOWN_CARRIERS = [
   "삼성생명",
   "한화생명",
@@ -68,89 +81,116 @@ function normalizeKey(value) {
   return cleanText(value).toLowerCase();
 }
 
-function checkStatus(points, maxPoints) {
-  if (points >= maxPoints) return "pass";
-  if (points <= 0) return "fail";
-  return "warn";
+export function normalizeDocClass(docClass) {
+  const key = normalizeKey(docClass);
+  if (!key || key === "other") return null;
+  if (CANONICAL_DOC_CLASSES.has(key)) return key;
+  return DOC_CLASS_ALIASES[key] ?? null;
+}
+
+function resolveDocumentType(inferredType) {
+  const normalized = normalizeDocClass(inferredType);
+  if (normalized) return normalized;
+  if (inferredType === "coverage_analysis") return "coverage_analysis_sheet";
+  if (inferredType === "policy_certificate") return "insurance_certificate";
+  return inferredType;
+}
+
+function isCoverageAnalysisSheet(documentType) {
+  return documentType === "coverage_analysis_sheet";
+}
+
+function isAutoSaveBlockedDocument(documentType) {
+  return documentType === "insurance_terms" || documentType === "unknown";
 }
 
 function resolveCarrier(insurerName) {
   const cleaned = cleanText(insurerName);
-  if (!cleaned) return { status: "fail", normalized: null, points: 0 };
+  if (!cleaned) return { status: "fail", normalized: null, points: 0, applicable: true };
 
   const alias = CARRIER_ALIASES[normalizeKey(cleaned)];
-  if (alias) return { status: "warn", normalized: alias, points: SCORE_WEIGHTS.insurer_validity - 7 };
+  if (alias) {
+    return { status: "warn", normalized: alias, points: SCORE_WEIGHTS.insurer_validity - 7, applicable: true };
+  }
 
   for (const carrier of KNOWN_CARRIERS) {
     if (cleaned === carrier || cleaned.includes(carrier)) {
-      return { status: "pass", normalized: carrier, points: SCORE_WEIGHTS.insurer_validity };
+      return { status: "pass", normalized: carrier, points: SCORE_WEIGHTS.insurer_validity, applicable: true };
     }
     const compact = carrier.replace(/\s+/g, "");
     if (cleaned.replace(/\s+/g, "").includes(compact)) {
-      return { status: "pass", normalized: carrier, points: SCORE_WEIGHTS.insurer_validity };
+      return { status: "pass", normalized: carrier, points: SCORE_WEIGHTS.insurer_validity, applicable: true };
     }
   }
 
   if (/^\(\d+\)$/.test(cleaned) || cleaned.length <= 2) {
-    return { status: "fail", normalized: cleaned, points: 0 };
+    return { status: "fail", normalized: cleaned, points: 0, applicable: true };
   }
 
-  return { status: "warn", normalized: cleaned, points: 8 };
+  return { status: "warn", normalized: cleaned, points: 8, applicable: true };
 }
 
 function checkProductName(productName, insurerName) {
   const product = cleanText(productName);
   if (!product || product.length <= 2) {
-    return { status: "fail", points: 0, evidence: product || null };
+    return { status: "fail", points: 0, evidence: product || null, applicable: true };
   }
 
   if (CONTAMINATION_PATTERNS.some((pattern) => pattern.test(product))) {
-    return { status: "fail", points: 0, evidence: product };
+    return { status: "fail", points: 0, evidence: product, applicable: true };
   }
 
   if (insurerName && normalizeKey(product) === normalizeKey(insurerName)) {
-    return { status: "fail", points: 0, evidence: product };
+    return { status: "fail", points: 0, evidence: product, applicable: true };
   }
 
   if (product.length < 4 || /^(건강|실손|암|운전자)보험$/i.test(product)) {
-    return { status: "warn", points: 8, evidence: product };
+    return { status: "warn", points: 8, evidence: product, applicable: true };
   }
 
-  return { status: "pass", points: SCORE_WEIGHTS.product_name_present, evidence: product };
+  return {
+    status: "pass",
+    points: SCORE_WEIGHTS.product_name_present,
+    evidence: product,
+    applicable: true,
+  };
 }
 
 function checkPremium(premium, documentType) {
+  if (isCoverageAnalysisSheet(documentType)) {
+    return { status: "na", points: null, evidence: premium ?? null, applicable: false };
+  }
+
   if (premium == null) {
-    const points = documentType === "coverage_analysis" ? 4 : 0;
-    return {
-      status: documentType === "coverage_analysis" ? "warn" : "fail",
-      points,
-      evidence: null,
-    };
+    return { status: "fail", points: 0, evidence: null, applicable: true };
   }
 
   const amount = Number(premium);
   if (!Number.isFinite(amount) || amount <= 0) {
-    return { status: "fail", points: 0, evidence: premium };
+    return { status: "fail", points: 0, evidence: premium, applicable: true };
   }
   if (amount < PREMIUM_MIN || amount > PREMIUM_MAX) {
-    return { status: "warn", points: 4, evidence: amount };
+    return { status: "warn", points: 4, evidence: amount, applicable: true };
   }
-  return { status: "pass", points: SCORE_WEIGHTS.premium_present_range, evidence: amount };
+  return { status: "pass", points: SCORE_WEIGHTS.premium_present_range, evidence: amount, applicable: true };
 }
 
-function checkPolicyNumber(policyNumber) {
+function checkPolicyNumber(policyNumber, documentType) {
+  if (isCoverageAnalysisSheet(documentType)) {
+    return { status: "na", points: null, evidence: policyNumber ?? null, applicable: false };
+  }
+
   const value = cleanText(policyNumber);
   if (!value) {
-    return { status: "warn", points: 4, evidence: null };
+    return { status: "warn", points: 4, evidence: null, applicable: true };
   }
   if (/^[0-9A-Z\-]{6,20}$/i.test(value)) {
-    return { status: "pass", points: SCORE_WEIGHTS.policy_number_present, evidence: value };
+    return { status: "pass", points: SCORE_WEIGHTS.policy_number_present, evidence: value, applicable: true };
   }
   if (/^[0-9A-Z\-]{4,5}$/i.test(value)) {
-    return { status: "warn", points: 4, evidence: value };
+    return { status: "warn", points: 4, evidence: value, applicable: true };
   }
-  return { status: "fail", points: 0, evidence: value };
+  return { status: "fail", points: 0, evidence: value, applicable: true };
 }
 
 function checkRiders(riders, fields, blockText) {
@@ -164,21 +204,21 @@ function checkRiders(riders, fields, blockText) {
   if (structured.length > 0) {
     const withAmount = structured.filter((item) => item.coverage_amount != null).length;
     if (withAmount > 0) {
-      return { status: "pass", points: SCORE_WEIGHTS.riders_present, evidence: structured.length };
+      return { status: "pass", points: SCORE_WEIGHTS.riders_present, evidence: structured.length, applicable: true };
     }
-    return { status: "warn", points: 5, evidence: structured.length };
+    return { status: "warn", points: 5, evidence: structured.length, applicable: true };
   }
 
   const categories = fields?.coverage_categories ?? [];
   if (categories.length >= 2) {
-    return { status: "warn", points: 5, evidence: categories.length };
+    return { status: "warn", points: 5, evidence: categories.length, applicable: true };
   }
 
   if (/특약|담보|가입금액|보장금액/.test(blockText) && list.length === 0 && categories.length === 0) {
-    return { status: "fail", points: 0, evidence: 0 };
+    return { status: "fail", points: 0, evidence: 0, applicable: true };
   }
 
-  return { status: "warn", points: 2, evidence: 0 };
+  return { status: "warn", points: 2, evidence: 0, applicable: true };
 }
 
 function isFragmentBlock(blockText, fields) {
@@ -190,24 +230,44 @@ function isFragmentBlock(blockText, fields) {
   return false;
 }
 
-function checkOverSplit(blockText, fields, documentFlags) {
+function countRichFields(fields) {
+  let count = 0;
+  if (fields?.insurer_name) count += 1;
+  if (fields?.product_name) count += 1;
+  if (fields?.policyholder) count += 1;
+  if (fields?.insured) count += 1;
+  if (fields?.monthly_premium != null) count += 1;
+  if (fields?.policy_number) count += 1;
+  if ((fields?.coverage_categories ?? []).length > 0) count += 1;
+  if ((fields?.riders ?? []).length > 0) count += 1;
+  return count;
+}
+
+function checkOverSplit(blockText, fields, documentFlags, documentType) {
   if (documentFlags.docOverSplit && isFragmentBlock(blockText, fields)) {
-    return { status: "fail", points: 0, evidence: blockText };
+    return { status: "fail", points: 0, evidence: blockText, applicable: true };
   }
   if (isFragmentBlock(blockText, fields)) {
-    return { status: "fail", points: 0, evidence: blockText };
+    return { status: "fail", points: 0, evidence: blockText, applicable: true };
   }
-  if ((fields?.insurer_name && !fields?.product_name) || (fields?.field_count ?? 0) <= 1) {
-    return { status: "warn", points: 6, evidence: blockText };
+
+  const richFieldCount = countRichFields(fields);
+  const parserFieldCount = Math.max(fields?.field_count ?? 0, richFieldCount);
+  if (isCoverageAnalysisSheet(documentType) && fields?.insurer_name && fields?.product_name && richFieldCount >= 3) {
+    return { status: "pass", points: SCORE_WEIGHTS.over_split_suspect, evidence: richFieldCount, applicable: true };
   }
-  return { status: "pass", points: SCORE_WEIGHTS.over_split_suspect, evidence: null };
+
+  if ((fields?.insurer_name && !fields?.product_name) || parserFieldCount <= 1) {
+    return { status: "warn", points: 6, evidence: blockText, applicable: true };
+  }
+  return { status: "pass", points: SCORE_WEIGHTS.over_split_suspect, evidence: null, applicable: true };
 }
 
 function checkUnderMerge(duplicatePair) {
   if (duplicatePair) {
-    return { status: "warn", points: 4, evidence: true };
+    return { status: "warn", points: 4, evidence: true, applicable: true };
   }
-  return { status: "pass", points: SCORE_WEIGHTS.under_merge_suspect, evidence: false };
+  return { status: "pass", points: SCORE_WEIGHTS.under_merge_suspect, evidence: false, applicable: true };
 }
 
 function checkContamination(fields) {
@@ -224,14 +284,14 @@ function checkContamination(fields) {
     const text = cleanText(value);
     if (!text) continue;
     if (CONTAMINATION_PATTERNS.some((pattern) => pattern.test(text))) {
-      return { status: "fail", points: 0, evidence: text };
+      return { status: "fail", points: 0, evidence: text, applicable: true };
     }
     if (text.length > 80) {
-      return { status: "fail", points: 0, evidence: text };
+      return { status: "fail", points: 0, evidence: text, applicable: true };
     }
   }
 
-  return { status: "pass", points: SCORE_WEIGHTS.contaminated_field, evidence: null };
+  return { status: "pass", points: SCORE_WEIGHTS.contaminated_field, evidence: null, applicable: true };
 }
 
 function checkCoverageAmount(fields, riders) {
@@ -241,7 +301,7 @@ function checkCoverageAmount(fields, riders) {
     if (rider?.coverage_amount != null) amounts.push(Number(rider.coverage_amount));
   }
   if (!amounts.length) {
-    return { status: "warn", points: 2, evidence: null };
+    return { status: "warn", points: 2, evidence: null, applicable: true };
   }
 
   const invalid = amounts.some(
@@ -251,31 +311,46 @@ function checkCoverageAmount(fields, riders) {
       amount < COVERAGE_AMOUNT_MIN ||
       amount > COVERAGE_AMOUNT_MAX,
   );
-  if (invalid) return { status: "fail", points: 0, evidence: amounts };
-  return { status: "pass", points: SCORE_WEIGHTS.coverage_amount_range, evidence: amounts };
+  if (invalid) return { status: "fail", points: 0, evidence: amounts, applicable: true };
+  return { status: "pass", points: SCORE_WEIGHTS.coverage_amount_range, evidence: amounts, applicable: true };
 }
 
-function checkBlockEvidence(blockText) {
+function checkBlockEvidence(blockText, fields, documentType) {
+  if (isCoverageAnalysisSheet(documentType)) {
+    const categories = fields?.coverage_categories ?? [];
+    if (fields?.insurer_name && fields?.product_name && categories.length >= 2) {
+      return {
+        status: "pass",
+        points: SCORE_WEIGHTS.block_evidence_quality,
+        evidence: categories.length,
+        applicable: true,
+      };
+    }
+  }
+
   const text = cleanText(blockText);
-  if (!text) return { status: "warn", points: 2, evidence: 0 };
+  if (!text) return { status: "warn", points: 2, evidence: 0, applicable: true };
   const lines = text.split(/\n+/).filter(Boolean);
   if (lines.length >= 3 && text.length >= 40) {
-    return { status: "pass", points: SCORE_WEIGHTS.block_evidence_quality, evidence: lines.length };
+    return { status: "pass", points: SCORE_WEIGHTS.block_evidence_quality, evidence: lines.length, applicable: true };
   }
   if (lines.length >= 2) {
-    return { status: "warn", points: 2, evidence: lines.length };
+    return { status: "warn", points: 2, evidence: lines.length, applicable: true };
   }
-  return { status: "fail", points: 0, evidence: lines.length };
+  return { status: "fail", points: 0, evidence: lines.length, applicable: true };
 }
 
 export function inferDocumentType(ocrText, documentMeta = {}) {
-  const docClass = cleanText(documentMeta.doc_class);
-  if (docClass === "policy_certificate") return "policy_certificate";
-  if (docClass === "coverage_analysis" || docClass === "policy_certificate") return docClass;
+  const rawClass = normalizeKey(documentMeta.doc_class);
+  if (rawClass && rawClass !== "unknown" && rawClass !== "other") {
+    const normalizedClass = normalizeDocClass(documentMeta.doc_class);
+    if (normalizedClass) return normalizedClass;
+  }
 
   const text = String(ocrText ?? "");
   if (/보장분석|가입보험\s*현황|보험\s*가입\s*내역/.test(text)) return "coverage_analysis";
   if (/보험증권|증권번호|계약번호/.test(text)) return "policy_certificate";
+  if (/보험약관|약관|제\d+조/.test(text)) return "insurance_terms";
   return "unknown";
 }
 
@@ -298,16 +373,23 @@ function detectDocumentOverSplit(multiExtraction) {
   return false;
 }
 
+function normalizeProductForDuplicate(productName) {
+  const product = cleanText(productName);
+  if (!product) return "";
+  return normalizeKey(product.split(/월\s*보험료|월보험료/i)[0]);
+}
+
 function findDuplicatePairIndex(policies, index) {
   const current = policies[index]?.fields ?? {};
+  const currentProduct = normalizeProductForDuplicate(current.product_name);
   for (let i = 0; i < policies.length; i += 1) {
     if (i === index) continue;
     const other = policies[i]?.fields ?? {};
     if (
       normalizeKey(current.insurer_name) === normalizeKey(other.insurer_name) &&
-      normalizeKey(current.product_name) === normalizeKey(other.product_name) &&
+      currentProduct === normalizeProductForDuplicate(other.product_name) &&
       current.insurer_name &&
-      current.product_name
+      currentProduct
     ) {
       return true;
     }
@@ -317,10 +399,28 @@ function findDuplicatePairIndex(policies, index) {
 
 function countHardFails(checks) {
   const hardKeys = ["insurer_validity", "product_name_present", "contaminated_field", "over_split_suspect"];
-  return hardKeys.filter((key) => checks[key]?.status === "fail").length;
+  return hardKeys.filter((key) => {
+    const check = checks[key];
+    return check?.applicable !== false && check?.status === "fail";
+  }).length;
 }
 
-function routeCandidate({ validationScore, hardFailCount, checks, duplicatePair, flags }) {
+function computeValidationScore(checks, documentType) {
+  let earned = 0;
+  let applicableMax = 0;
+
+  for (const [key, check] of Object.entries(checks)) {
+    if (check?.applicable === false || check?.status === "na") continue;
+    const maxPoints = SCORE_WEIGHTS[key] ?? 0;
+    applicableMax += maxPoints;
+    earned += check.points ?? 0;
+  }
+
+  if (applicableMax <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((earned / applicableMax) * 100)));
+}
+
+function routeCandidate({ validationScore, hardFailCount, checks, duplicatePair, flags, documentType }) {
   if (checks.contaminated_field?.status === "fail" || checks.over_split_suspect?.status === "fail") {
     return "reject";
   }
@@ -328,14 +428,24 @@ function routeCandidate({ validationScore, hardFailCount, checks, duplicatePair,
     return hardFailCount >= 2 ? "reject" : "manual_review";
   }
   if (duplicatePair) return ROUTE_AI_REVIEW;
+  if (isAutoSaveBlockedDocument(documentType)) {
+    if (validationScore >= 50) return ROUTE_AI_REVIEW;
+    return "manual_review";
+  }
   if (validationScore >= 75 && hardFailCount === 0) return "auto_save";
   if (validationScore >= 50) return ROUTE_AI_REVIEW;
   if (flags.includes("DOC_OVER_SPLIT")) return "manual_review";
   return "manual_review";
 }
 
-function routeDocument(candidateResults, documentScore, flags) {
+function routeDocument(candidateResults, documentScore, flags, documentType) {
   if (!candidateResults.length) return "manual_review";
+  if (isAutoSaveBlockedDocument(documentType)) {
+    const routes = candidateResults.map((item) => item.route);
+    if (routes.some((route) => route === ROUTE_AI_REVIEW)) return ROUTE_AI_REVIEW;
+    if (routes.some((route) => route === "reject")) return "manual_review";
+    return "manual_review";
+  }
   if (flags.includes("DOC_OVER_SPLIT") && !candidateResults.some((item) => item.route === "auto_save")) {
     return "manual_review";
   }
@@ -360,36 +470,47 @@ function validateCandidate(candidate, context) {
       status: insurer.status,
       points: insurer.points,
       evidence: insurer.normalized,
+      applicable: insurer.applicable,
     },
     product_name_present: checkProductName(fields.product_name, insurer.normalized),
     premium_present_range: checkPremium(fields.monthly_premium, context.documentType),
-    policy_number_present: checkPolicyNumber(fields.policy_number),
+    policy_number_present: checkPolicyNumber(fields.policy_number, context.documentType),
     riders_present: checkRiders(riders, fields, blockText),
-    over_split_suspect: checkOverSplit(blockText, fields, context.documentFlags),
+    over_split_suspect: checkOverSplit(blockText, fields, context.documentFlags, context.documentType),
     under_merge_suspect: checkUnderMerge(context.duplicatePair),
     contaminated_field: checkContamination(fields),
     coverage_amount_range: checkCoverageAmount(fields, riders),
-    block_evidence_quality: checkBlockEvidence(blockText),
+    block_evidence_quality: checkBlockEvidence(blockText, fields, context.documentType),
   };
 
-  let validationScore = 0;
-  for (const check of Object.values(checks)) {
-    validationScore += check.points ?? 0;
-  }
-  validationScore = Math.max(0, Math.min(100, validationScore));
+  const validationScore = computeValidationScore(checks, context.documentType);
 
   const flags = [];
   if (context.documentFlags.docOverSplit) flags.push("DOC_OVER_SPLIT");
   if (context.duplicatePair) flags.push("UNDER_MERGE_SUSPECT");
-  if (checks.premium_present_range.status === "warn" && fields.monthly_premium == null) {
+  if (
+    checks.premium_present_range.applicable !== false &&
+    checks.premium_present_range.status === "warn" &&
+    fields.monthly_premium == null
+  ) {
     flags.push("PREMIUM_MISSING");
   }
   if (checks.riders_present.status === "warn" && (riders?.length ?? 0) === 0) {
     flags.push("RIDERS_EMPTY");
   }
+  if (isAutoSaveBlockedDocument(context.documentType)) {
+    flags.push("NO_AUTO_SAVE");
+  }
 
   const hardFailCount = countHardFails(checks);
-  const route = routeCandidate({ validationScore, hardFailCount, checks, duplicatePair: context.duplicatePair, flags });
+  const route = routeCandidate({
+    validationScore,
+    hardFailCount,
+    checks,
+    duplicatePair: context.duplicatePair,
+    flags,
+    documentType: context.documentType,
+  });
 
   return {
     block_index: candidate.block_index ?? null,
@@ -417,6 +538,7 @@ function validateReviewBlock(block, documentFlags) {
         status: "fail",
         points: 0,
         evidence: blockText,
+        applicable: true,
       },
     },
     flags: documentFlags.docOverSplit ? ["DOC_OVER_SPLIT"] : [],
@@ -434,7 +556,9 @@ export function validatePolicyExtraction({
   segmentation = null,
   documentMeta = {},
 } = {}) {
-  const documentType = inferDocumentType(ocrText, documentMeta);
+  const inferredType = inferDocumentType(ocrText, documentMeta);
+  const explicitUnknown = normalizeKey(documentMeta.doc_class) === "unknown";
+  const documentType = explicitUnknown ? "unknown" : resolveDocumentType(inferredType);
   const docOverSplit = detectDocumentOverSplit(multiExtraction);
   const documentFlags = { docOverSplit };
   const policies = multiExtraction.policies ?? [];
@@ -455,19 +579,22 @@ export function validatePolicyExtraction({
   const candidates = [...policyCandidates, ...reviewBlockCandidates];
 
   let documentScore =
-    candidates.length > 0
-      ? Math.round(candidates.reduce((sum, item) => sum + item.validation_score, 0) / candidates.length)
+    policyCandidates.length > 0
+      ? Math.round(
+          policyCandidates.reduce((sum, item) => sum + item.validation_score, 0) / policyCandidates.length,
+        )
       : 0;
 
   if (docOverSplit) documentScore = Math.max(0, documentScore - 15);
-  if (candidates.some((item) => item.flags.includes("UNDER_MERGE_SUSPECT"))) {
+  if (policyCandidates.some((item) => item.flags.includes("UNDER_MERGE_SUSPECT"))) {
     documentScore = Math.max(0, documentScore - 10);
   }
 
   const flags = [];
   if (docOverSplit) flags.push("DOC_OVER_SPLIT");
+  if (isAutoSaveBlockedDocument(documentType)) flags.push("NO_AUTO_SAVE");
 
-  const documentRoute = routeDocument(candidates, documentScore, flags);
+  const documentRoute = routeDocument(candidates, documentScore, flags, documentType);
   const summary = {
     auto_save_count: candidates.filter((item) => item.route === "auto_save").length,
     [`${ROUTE_AI_REVIEW}_count`]: candidates.filter((item) => item.route === ROUTE_AI_REVIEW).length,
@@ -478,6 +605,7 @@ export function validatePolicyExtraction({
   return {
     validator_version: VALIDATOR_VERSION,
     document_type: documentType,
+    inferred_document_type: inferredType,
     document_route: documentRoute,
     document_score: documentScore,
     flags,

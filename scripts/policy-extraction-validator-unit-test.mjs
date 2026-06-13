@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { extractPoliciesFromOcrText, segmentOcrIntoPolicyBlocks } from "../server/documentPolicyExtractor.js";
 import {
   inferDocumentType,
+  normalizeDocClass,
   validatePolicyExtraction,
   VALIDATOR_VERSION,
 } from "../server/policyExtractionValidator.js";
@@ -60,6 +61,26 @@ const duplicateSample = `
 한화생명
 상품명: 건강보험
 월보험료 52,000원
+`;
+
+const coverageAnalysisSheetSample = `
+보장분석
+삼성생명
+상품명: 실손의료비보험
+계약자 김진우
+피보험자 김진우
+특약: 암진단비 3,000만원
+담보 수술비 500만원
+`;
+
+const insuranceTermsSample = `
+보험약관
+제1조 목적
+제2조 용어의 정의
+제3조 보험금 지급
+실손의료비 보장
+암진단비 1회 지급
+고지의무
 `;
 
 function runCase(name, fn) {
@@ -274,6 +295,38 @@ const tests = [
   ["reject candidates excluded from auto_save summary", () => {
     const result = validateFromOcr(overSplitSample);
     assert(result.summary.auto_save_count === 0 || result.flags.includes("DOC_OVER_SPLIT"), "over-split should not auto_save all");
+  }],
+  ["coverage_analysis_sheet routes auto_save", () => {
+    const result = validateFromOcr(coverageAnalysisSheetSample, { doc_class: "coverage_analysis_sheet" });
+    assert(result.document_route === "auto_save", `got ${result.document_route}`);
+    assert(result.document_type === "coverage_analysis_sheet", `got ${result.document_type}`);
+  }],
+  ["coverage_analysis_sheet score >= 90 without premium/policy_number", () => {
+    const result = validateFromOcr(coverageAnalysisSheetSample, { doc_class: "coverage_analysis_sheet" });
+    assert(result.candidates[0]?.validation_score >= 90, `score=${result.candidates[0]?.validation_score}`);
+    assert(result.candidates[0]?.checks?.premium_present_range?.status === "na", "premium must be NA");
+    assert(result.candidates[0]?.checks?.policy_number_present?.status === "na", "policy_number must be NA");
+  }],
+  ["insurance_certificate routes auto_save", () => {
+    const result = validateFromOcr(certificateSample, { doc_class: "insurance_certificate" });
+    assert(result.document_route === "auto_save", `got ${result.document_route}`);
+    assert(result.document_type === "insurance_certificate", `got ${result.document_type}`);
+  }],
+  ["insurance_terms is not auto_save", () => {
+    const result = validateFromOcr(insuranceTermsSample, { doc_class: "insurance_terms" });
+    assert(result.document_route !== "auto_save", `got ${result.document_route}`);
+    assert(result.candidates.every((item) => item.route !== "auto_save"), "terms must not auto_save");
+    assert(result.flags.includes("NO_AUTO_SAVE"), `flags=${JSON.stringify(result.flags)}`);
+  }],
+  ["unknown doc_class blocks auto_save", () => {
+    const result = validateFromOcr(certificateSample, { doc_class: "unknown" });
+    assert(result.document_route !== "auto_save", `got ${result.document_route}`);
+    assert(result.candidates.every((item) => item.route !== "auto_save"), "unknown must not auto_save");
+  }],
+  ["legacy alias coverage_analysis normalizes to coverage_analysis_sheet", () => {
+    assert(normalizeDocClass("coverage_analysis") === "coverage_analysis_sheet", "coverage_analysis alias");
+    assert(normalizeDocClass("policy_certificate") === "insurance_certificate", "policy_certificate alias");
+    assert(normalizeDocClass("terms") === "insurance_terms", "terms alias");
   }],
 ];
 
