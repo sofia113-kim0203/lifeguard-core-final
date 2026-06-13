@@ -514,7 +514,7 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
         );
       }
       setMessages((prev) =>
-        filterMessagesForDisplay(dedupeMessagesById([...prev, ...optimisticRows])),
+        filterMessagesForDisplay([...prev, ...optimisticRows]),
       );
 
       await loadMessages({ silent: true });

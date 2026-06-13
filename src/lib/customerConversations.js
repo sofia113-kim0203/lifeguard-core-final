@@ -2,6 +2,9 @@ import { supabase } from "./supabase.js";
 import { loadCustomerDashboardData } from "./customerDashboard.js";
 import { sendConversationalQuestion } from "./customerConversationalAnalysis.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
+import { dedupeMessagesById, filterMessagesForDisplay } from "./conversationMessageUtils.js";
+
+export { dedupeMessagesById, filterMessagesForDisplay } from "./conversationMessageUtils.js";
 
 export const CONVERSATION_ROLES = ["user", "assistant", "system"];
 export const CONVERSATION_LOAD_TIMEOUT_MS = 12_000;
@@ -26,42 +29,6 @@ export function normalizeConversationMessage(row) {
     metadata: row.metadata_json ?? {},
     createdAt: row.created_at,
   };
-}
-
-/** Deduplicate by message id; sort oldest → newest for chat display. */
-export function dedupeMessagesById(rows) {
-  const byId = new Map();
-  for (const row of rows ?? []) {
-    if (!row?.id) continue;
-    byId.set(row.id, row);
-  }
-  return Array.from(byId.values()).sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
-}
-
-/**
- * Phase 30-B — Hide phase26-2a-fast when phase26-2a-result exists for the same job.
- * DB rows unchanged; display-only filter.
- */
-export function filterMessagesForDisplay(rows) {
-  const deduped = dedupeMessagesById(rows);
-  const resultJobIds = new Set(
-    deduped
-      .filter(
-        (row) =>
-          row?.metadata?.phase === "phase26-2a-result" &&
-          row?.metadata?.analysis_job_id,
-      )
-      .map((row) => String(row.metadata.analysis_job_id)),
-  );
-
-  return deduped.filter((row) => {
-    if (row?.metadata?.phase !== "phase26-2a-fast") return true;
-    const jobId = row?.metadata?.analysis_job_id;
-    if (!jobId) return true;
-    return !resultJobIds.has(String(jobId));
-  });
 }
 
 export async function resolveCustomerId(authUser, knownCustomerId = null) {
