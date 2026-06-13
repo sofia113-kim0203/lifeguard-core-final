@@ -4,6 +4,7 @@ import {
 } from "./customerMemorySnapshot.js";
 import {
   assessMemoryBuilderInvoke,
+  collectBlockedSources,
   formatMemoryBuilderFailure,
   MemoryBuilderRebuildError,
   resolveMemoryDisplayStatus,
@@ -169,11 +170,31 @@ export async function loadCustomerMemoryOnLogin({
   const snapshot =
     rebuildResult?.snapshot ?? (await loadCustomerMemorySnapshot(supabase, customerId));
   const structured = rebuildResult?.structured ?? buildStructuredMemoryProfile(snapshot);
+
+  // M3 — consent로 건너뛴 소스를 워커 결과(body.extractors)에서 수집해 상태에 반영 + 관측 로깅.
+  const profileInvoke =
+    rebuildResult?.profile_health_policy ?? rebuildError?.profile_health_policy ?? null;
+  const conversationInvoke =
+    rebuildResult?.customer_conversation ?? rebuildError?.customer_conversation ?? null;
+  const blockedSources = [
+    ...collectBlockedSources(profileInvoke),
+    ...collectBlockedSources(conversationInvoke),
+  ];
+  const consentSnapshot =
+    profileInvoke?.body?.consent_snapshot ?? conversationInvoke?.body?.consent_snapshot ?? null;
+  if (blockedSources.length > 0) {
+    console.warn("[M3] memory build skipped sources due to missing consent", {
+      customer_id: customerId,
+      blocked_sources: blockedSources,
+    });
+  }
+
   const memoryStatus = resolveMemoryDisplayStatus({
     rebuildError,
     rebuildSucceeded: Boolean(rebuildResult?.ok),
     serviceRoleConfigured: Boolean(resolvedServiceRoleKey),
     rebuildRequested,
+    blockedSources,
   });
 
   return {
@@ -184,6 +205,8 @@ export async function loadCustomerMemoryOnLogin({
     facts: snapshot.facts,
     prompt_block: snapshot.prompt_block,
     memory_status: memoryStatus,
+    blocked_sources: blockedSources,
+    consent_snapshot: consentSnapshot,
     rebuilt: Boolean(rebuildResult?.ok),
     rebuild_error: rebuildError,
     rebuild_summary: rebuildResult?.ok
