@@ -28,16 +28,38 @@ export function normalizeConversationMessage(row) {
   };
 }
 
-/** Deduplicate by message id; sort oldest → newest for chat display. */
+function messageDedupeKey(row) {
+  if (!row || typeof row !== "object") return null;
+  if (row.id) return `id:${String(row.id)}`;
+  const createdAt = row.createdAt ?? row.created_at ?? "";
+  const role = row.role ?? "";
+  const message = String(row.message ?? "").trim().slice(0, 120);
+  if (!createdAt && !role && !message) return null;
+  return `fallback:${createdAt}|${role}|${message}`;
+}
+
+/** Deduplicate by message id; id-less rows use created_at/role/message fallback. */
 export function dedupeMessagesById(rows) {
-  const byId = new Map();
+  const byKey = new Map();
+  const unkeyed = [];
+
   for (const row of rows ?? []) {
-    if (!row?.id) continue;
-    byId.set(row.id, row);
+    if (!row || typeof row !== "object") continue;
+    const key = messageDedupeKey(row);
+    if (!key) {
+      unkeyed.push(row);
+      continue;
+    }
+    byKey.set(key, row);
   }
-  return Array.from(byId.values()).sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
+
+  const sortTime = (row) => {
+    const value = row?.createdAt ?? row?.created_at ?? null;
+    const parsed = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  return [...byKey.values(), ...unkeyed].sort((a, b) => sortTime(a) - sortTime(b));
 }
 
 /**
@@ -45,7 +67,7 @@ export function dedupeMessagesById(rows) {
  * DB rows unchanged; display-only filter.
  */
 export function filterMessagesForDisplay(rows) {
-  const deduped = dedupeMessagesById(rows);
+  const deduped = dedupeMessagesById(Array.isArray(rows) ? rows : []);
   const resultJobIds = new Set(
     deduped
       .filter(

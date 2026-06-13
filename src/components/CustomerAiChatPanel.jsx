@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CONVERSATION_LOAD_TIMEOUT_MS,
+  dedupeMessagesById,
   filterMessagesForDisplay,
   loadCustomerConversations,
   sendCustomerConversationMessage,
