@@ -629,16 +629,40 @@ export async function handleLatestAnalysisJobRequest({
   }
 
   const adminClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? userSupabase;
-  const { data, error } = await adminClient
+
+  // The recommendation screen renders panel results from a job's result_json, but the NEWEST
+  // job is often still 'processing' (e.g. stuck at result_claude) carrying only partial
+  // results — which makes the panel show "분석 중 / 결과 없음" even though an older COMPLETED
+  // job already holds all four panel results (coverage_gap / underwriting_risk /
+  // recommendation / insurance_design). Prefer the latest COMPLETED job so the panel shows
+  // real analysis; fall back to the newest job of any status only when none has completed.
+  const { data: completedRows, error: completedError } = await adminClient
     .from("analysis_jobs")
     .select("*")
     .eq("customer_id", customerId)
+    .eq("status", "completed")
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
 
-  if (error) {
-    return { ok: false, reason: "JOB_LOOKUP_FAILED", error_message: error.message };
+  if (completedError) {
+    return { ok: false, reason: "JOB_LOOKUP_FAILED", error_message: completedError.message };
+  }
+
+  let data = Array.isArray(completedRows) && completedRows.length > 0 ? completedRows[0] : null;
+
+  if (!data) {
+    const { data: latestRows, error: latestError } = await adminClient
+      .from("analysis_jobs")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (latestError) {
+      return { ok: false, reason: "JOB_LOOKUP_FAILED", error_message: latestError.message };
+    }
+
+    data = Array.isArray(latestRows) && latestRows.length > 0 ? latestRows[0] : null;
   }
 
   const serviceRoleClient = adminSupabase ?? createServiceRoleSupabaseClient(env);
