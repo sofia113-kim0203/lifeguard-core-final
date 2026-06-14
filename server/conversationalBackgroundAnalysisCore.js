@@ -3,7 +3,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { ensureCustomerMemoryContext } from "./customerMemoryContextSync.js";
-import { buildFastConversationalResponse, buildCasualChatResponse } from "./fastResponseLayer.js";
+import { buildConversationalAnswer, buildCasualChatResponse } from "./fastResponseLayer.js";
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import {
   ANALYSIS_PIPELINE_STAGES,
@@ -353,13 +353,15 @@ export async function handleConversationalQuestionRequest({
       ? buildPolicyDetailAnswer(trimmedQuestion, workingContextInput)
       : null;
 
-  const fastResponse = buildFastConversationalResponse({
+  const fastResponse = await buildConversationalAnswer({
     question: trimmedQuestion,
     memorySnapshot: snapshot,
     cachePayload,
     sourceContext: memoryContext.sourceContext,
     sourceSummary: memoryContext.sourceSummary,
     intentGate,
+    fetchImpl,
+    env,
   });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
