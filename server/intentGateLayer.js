@@ -406,42 +406,6 @@ export function buildIntentGatePayload(classification, pipelineManifest) {
   };
 }
 
-export const REQUIRED_ENGINE_STAGE_KEYS = [
-  "coverage_gap",
-  "underwriting_risk",
-  "recommendation",
-  "insurance_design",
-];
-
-function hasNonEmptyStageResult(resultJson, stageKey) {
-  if (!resultJson || typeof resultJson !== "object") return false;
-  const value = resultJson[stageKey];
-  return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
-}
-
-export function resolveRequiredEngineStages(job) {
-  const manifest = getJobPipelineManifest(job);
-  const engineStages = manifest.filter((stage) => REQUIRED_ENGINE_STAGE_KEYS.includes(stage));
-  if (engineStages.length > 0) return engineStages;
-
-  const intentManifest = job?.result_json?.intent_gate?.pipeline_manifest;
-  if (Array.isArray(intentManifest) && intentManifest.length > 0) return [];
-
-  return [...REQUIRED_ENGINE_STAGE_KEYS];
-}
-
-export function hasRequiredResultsForResultClaude(job) {
-  const resultJson = job?.result_json ?? {};
-  const requiredStages = resolveRequiredEngineStages(job);
-  return requiredStages.every((stage) => hasNonEmptyStageResult(resultJson, stage));
-}
-
-export function isJobPipelineManifestComplete(job) {
-  const manifest = getJobPipelineManifest(job);
-  const stagesCompleted = Array.isArray(job?.stages_completed) ? job.stages_completed : [];
-  return manifest.every((stage) => stagesCompleted.includes(stage));
-}
-
 export function getJobPipelineManifest(job) {
   const manifest = job?.result_json?.intent_gate?.pipeline_manifest;
   if (Array.isArray(manifest) && manifest.length > 0) return manifest;
@@ -452,6 +416,42 @@ export function getJobSkippedStages(job) {
   const skipped = job?.result_json?.intent_gate?.skipped_stages;
   if (Array.isArray(skipped)) return skipped;
   return resolveSkippedStages(getJobPipelineManifest(job));
+}
+
+// The four engine stages (result_claude is the LLM stage, not an engine).
+export const REQUIRED_ENGINE_STAGE_KEYS = [
+  "coverage_gap",
+  "underwriting_risk",
+  "recommendation",
+  "insurance_design",
+];
+
+function hasNonEmptyStageResult(resultJson, key) {
+  const value = resultJson?.[key];
+  return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+}
+
+// Engine stages this job's pipeline manifest actually requires (manifest ∩ engines).
+// Legacy jobs without an intent gate fall back to the full manifest, i.e. all four engines,
+// so existing completed/processing jobs keep their strict behaviour.
+export function resolveRequiredEngineStages(job) {
+  const manifest = getJobPipelineManifest(job);
+  return REQUIRED_ENGINE_STAGE_KEYS.filter((stage) => manifest.includes(stage));
+}
+
+// result_claude may run, and the job may complete, once every engine stage REQUIRED BY THIS
+// INTENT has a non-empty result — not all four unconditionally. A light intent (e.g.
+// factual_lookup, manifest [result_claude]) requires zero engines and is satisfied immediately.
+export function hasRequiredResultsForResultClaude(job) {
+  const resultJson = job?.result_json ?? {};
+  return resolveRequiredEngineStages(job).every((key) => hasNonEmptyStageResult(resultJson, key));
+}
+
+// Every stage listed in the manifest is present in stages_completed.
+export function isJobPipelineManifestComplete(job) {
+  const manifest = getJobPipelineManifest(job);
+  const stagesCompleted = Array.isArray(job?.stages_completed) ? job.stages_completed : [];
+  return manifest.every((stage) => stagesCompleted.includes(stage));
 }
 
 function policySearchText(policy) {
