@@ -155,6 +155,16 @@ function buildGroundingText(workingContext, situation) {
       0,
     );
     if (total > 0) lines.push(`- 월 보험료 합계: ${total.toLocaleString("ko-KR")}원`);
+  } else {
+    const policyList =
+      policies.length > 0
+        ? policies
+        : Array.isArray(workingContext?.sourceContext?.policies)
+          ? workingContext.sourceContext.policies
+          : [];
+    if (policyList.length > 0) {
+      lines.push(`- 월 보험료: 보험료 미확인 ${policyList.length}건`);
+    }
   }
   if (situation?.medication) {
     lines.push(`- 복용 약/병력: ${situation.medication}`);

@@ -318,6 +318,8 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
       coverage_summary: policy.coverage_summary,
       is_active: policy.is_active,
       source: policy.source ?? null,
+      monthly_premium: policy.monthly_premium ?? null,
+      premium_amount: policy.premium_amount ?? null,
       extractor_origin: policy.coverage_summary?.extractor_origin ?? null,
       is_coverage_sheet_bridge: isCoverageSheetBridgePolicy(policy),
     })),

@@ -123,8 +123,18 @@ function joinLabels(labels) {
   return `${list.slice(0, -1).join(", ")}과 ${list[list.length - 1]}`;
 }
 
+const PREMIUM_LOOKUP_SIGNAL =
+  /보험료|월\s*납입?|월납|월\s*보험료|납입\s*보험료|보험료\s*합계/;
+
+function isPremiumLookupQuestion(text = "") {
+  return PREMIUM_LOOKUP_SIGNAL.test(normalizeQuestion(text));
+}
+
 function detectLookupSubIntent(text) {
-  if (/보험\s*(총\s*)?건수|몇\s*건|가입\s*보험\s*수|보유\s*보험|내\s*보험/.test(text)) {
+  if (isPremiumLookupQuestion(text)) {
+    return { subIntent: "premium_lookup", lookupCategory: null };
+  }
+  if (/보험\s*(총\s*)?건수|몇\s*건|가입\s*보험\s*수|보유\s*보험|내\s*보험(?!\s*(?:료|에))/.test(text)) {
     return { subIntent: "policy_count", lookupCategory: null };
   }
   if (/가입한\s*보험사|어느\s*보험사|보험사는/.test(text)) {
@@ -229,6 +239,17 @@ export function classifyConsultationIntent(question = "") {
       confidence: "low",
       matched_rule: "empty_question",
       lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  if (isPremiumLookupQuestion(text)) {
+    return {
+      intent: "factual_lookup",
+      confidence: "high",
+      matched_rule: "premium_lookup",
+      lookup_sub_intent: "premium_lookup",
       lookup_category: null,
       question_focus: text,
     };
@@ -449,6 +470,38 @@ export function matchPolicyToCategory(policies = [], lookupCategory = null) {
   };
 }
 
+function resolvePositivePremium(policy) {
+  const raw = policy?.monthly_premium ?? policy?.premium_amount ?? null;
+  if (raw == null || raw === "") return null;
+  const premium = Number(raw);
+  if (!Number.isFinite(premium) || premium <= 0) return null;
+  return premium;
+}
+
+function computePremiumLookupStats(policies = []) {
+  const list = policies ?? [];
+  let premiumKnownCount = 0;
+  let premiumTotal = 0;
+  let premiumUnknownCount = 0;
+
+  for (const policy of list) {
+    const premium = resolvePositivePremium(policy);
+    if (premium != null) {
+      premiumKnownCount += 1;
+      premiumTotal += premium;
+    } else {
+      premiumUnknownCount += 1;
+    }
+  }
+
+  return {
+    totalCount: list.length,
+    premiumKnownCount,
+    premiumTotal,
+    premiumUnknownCount,
+  };
+}
+
 function resolvePolicyExplorerPolicies(workingContext = {}) {
   const sourceContext = workingContext.sourceContext ?? {};
   const sourceSummary = workingContext.sourceSummary ?? {};
@@ -517,6 +570,35 @@ export function buildFactualLookupAnswer(question, workingContext = {}, intentGa
   const { policies, policyCount, policyDescriptions } = resolveUnifiedPolicyView(workingContext);
   const subIntent = intentGate.lookup_sub_intent ?? null;
   const lookupCategory = intentGate.lookup_category ?? null;
+
+  if (subIntent === "premium_lookup") {
+    const explorerPolicies = resolvePolicyExplorerPolicies(workingContext);
+    const stats = computePremiumLookupStats(explorerPolicies);
+
+    if (stats.totalCount === 0) {
+      return `${customerLabel}, 현재 시스템에 등록된 가입 보험 정보를 찾지 못했습니다. 고객 분석 화면에서 보험 정보를 저장해 주시면 정확히 안내해 드리겠습니다.`;
+    }
+
+    if (stats.premiumKnownCount > 0) {
+      const lines = [
+        `${customerLabel}, 현재 등록된 보험은 총 ${stats.totalCount}건이며, 월 보험료가 확인되는 계약은 ${stats.premiumKnownCount}건입니다.`,
+        `확인된 월 보험료 합계는 ${stats.premiumTotal.toLocaleString("ko-KR")}원입니다.`,
+      ];
+      explorerPolicies.forEach((policy, index) => {
+        const premium = resolvePositivePremium(policy);
+        if (premium == null) return;
+        const insurer = formatInsurerName(policy);
+        const product = formatProductName(policy);
+        lines.push(`${index + 1}. ${insurer} / ${product} — 월 보험료 ${premium.toLocaleString("ko-KR")}원`);
+      });
+      if (stats.premiumUnknownCount > 0) {
+        lines.push(`그 외 보험료 미확인 ${stats.premiumUnknownCount}건입니다.`);
+      }
+      return lines.join("\n");
+    }
+
+    return `${customerLabel}, 현재 등록된 보험 ${stats.totalCount}건 중 월 보험료가 확인된 계약은 0건입니다. 보험료는 아직 증권/OCR에서 정규화되지 않았습니다.`;
+  }
 
   if (subIntent === "policy_count") {
     if (policyCount > 0 && policyDescriptions.length) {
