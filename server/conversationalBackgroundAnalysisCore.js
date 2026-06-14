@@ -26,6 +26,7 @@ import {
   buildAdvisorBrainAnswer,
   shouldActivateAdvisorBrainForClassification,
 } from "./advisorBrain/advisorBrainResponder.js";
+import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -385,27 +386,27 @@ export async function handleConversationalQuestionRequest({
       ? buildPolicyDetailAnswer(trimmedQuestion, workingContextInput)
       : null;
 
+  const recommendationReasonMode = isRecommendationReasonClassification(
+    intentClassification,
+    trimmedQuestion,
+  );
+
   // Direction1 Step2 — for analysis-type questions, run the live coverage/underwriting/
   // recommendation engines (same ones the screen uses) and ground the chat answer in the
-  // computed results, so e.g. "무슨 보험 가입해야 해?" gets gap/recommendation-backed advice.
-  // Engine failure must never break the chat reply, so it is wrapped and falls back to null.
-  // casual_chat already returned earlier, so every turn that reaches here is a substantive
-  // question. ALWAYS load the live analysis (coverage gap / recommendation / underwriting)
-  // so the grounded LLM has real material for ANY question — e.g. "내 보험에 추가할 거 있어?"
-  // (a recommendation question that the rigid classifier may have tagged as a lookup) — not
-  // only for the 3 explicit recommendation intents. Engine failure must never break the chat
-  // reply, so it is wrapped and falls back to null.
+  // computed results. Step4 recommendation_reason is explain-only: skip live engine context.
   let analysisContext = null;
-  try {
-    const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
-    analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
-  } catch {
-    analysisContext = null;
+  if (!recommendationReasonMode) {
+    try {
+      const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
+      analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
+    } catch {
+      analysisContext = null;
+    }
   }
 
   let fastResponse = null;
 
-  if (shouldActivateAdvisorBrainForClassification(intentClassification, env)) {
+  if (shouldActivateAdvisorBrainForClassification(intentClassification, env, trimmedQuestion)) {
     try {
       const advisorBrainResult = await buildAdvisorBrainAnswer({
         supabase: adminClient,
@@ -436,6 +437,60 @@ export async function handleConversationalQuestionRequest({
       fetchImpl,
       env,
     });
+  }
+
+  if (recommendationReasonMode) {
+    const initialResponseTimeMs = Date.now() - startedAt;
+    const userMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "user",
+      message: trimmedQuestion,
+      metadata: { source: "customer_dashboard", phase: "phase26-2a" },
+    });
+    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "assistant",
+      message: fastResponse,
+      metadata: {
+        source: "conversational_background_analysis",
+        phase: "phase26-2a-fast",
+        recommendation_reason_mode: true,
+        analysis_job_skipped: true,
+        memory_version: snapshot.memory_version ?? 0,
+        memory_fact_count: snapshot.fact_count ?? 0,
+        memory_synced: memoryContext.memory_synced,
+        source_data_available: memoryContext.data_available,
+        cache_status: cachePayload.cache_status,
+        initial_response_time_ms: initialResponseTimeMs,
+      },
+    });
+
+    return {
+      ok: true,
+      customer_id: customerId,
+      question: trimmedQuestion,
+      fast_response: fastResponse,
+      initial_response_time_ms: initialResponseTimeMs,
+      analysis_job_id: null,
+      analysis_job: null,
+      recommendation_reason_mode: true,
+      job_skipped: true,
+      user_message_id: userMessage.id,
+      assistant_message_id: assistantMessage.id,
+      cache_status: cachePayload.cache_status,
+      background_refresh_required: cachePayload.background_refresh_required,
+      background_refresh_types: cachePayload.background_refresh_types,
+      memory_version: snapshot.memory_version ?? 0,
+      memory_fact_count: snapshot.fact_count ?? 0,
+      memory_context: {
+        synced: memoryContext.memory_synced,
+        status: memoryContext.memory_sync_status ?? "ready",
+        error: memoryContext.memory_sync_error ?? null,
+        sync_assessment: memoryContext.sync_assessment,
+        rebuild_summary: memoryContext.rebuild_summary ?? null,
+        data_available: memoryContext.data_available,
+        source_summary: memoryContext.sourceSummary,
+      },
+      processing: null,
+    };
   }
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {

@@ -16,6 +16,10 @@ import {
   buildFactualLookupAdvisorBrainAnswer,
   isActivatableFactualLookupClassification,
 } from "./advisorFactualLookupResponder.js";
+import {
+  buildRecommendationReasonAnswer,
+  isRecommendationReasonClassification,
+} from "./advisorRecommendationReasonResponder.js";
 import { resolveAllowedTools } from "./advisorToolRegistry.js";
 import { runControlledAdvisorTools } from "./advisorToolRunner.js";
 
@@ -36,10 +40,15 @@ export function isAdvisorBrainEnabled(env = process.env) {
   return String(env?.ADVISOR_BRAIN_ENABLED ?? "").trim().toLowerCase() === "true";
 }
 
-export function shouldActivateAdvisorBrainForClassification(classification, env = process.env) {
+export function shouldActivateAdvisorBrainForClassification(
+  classification,
+  env = process.env,
+  question = "",
+) {
   if (!isAdvisorBrainEnabled(env)) return false;
   if (classification?.intent === "coverage_gap_check") return true;
-  return isActivatableFactualLookupClassification(classification);
+  if (isActivatableFactualLookupClassification(classification)) return true;
+  return isRecommendationReasonClassification(classification, question);
 }
 
 function pickToolData(toolResults, toolName) {
@@ -330,6 +339,20 @@ export async function buildAdvisorBrainAnswer({
         conversationId,
         preloadedContext,
         toolRun,
+        claudeCall,
+      });
+    }
+
+    if (isRecommendationReasonClassification(classification, question)) {
+      return await buildRecommendationReasonAnswer({
+        supabase,
+        customerId,
+        question,
+        classification,
+        env,
+        fetchImpl,
+        sessionId,
+        conversationId,
         claudeCall,
       });
     }
