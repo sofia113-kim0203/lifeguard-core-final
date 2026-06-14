@@ -37,7 +37,8 @@ export const ADVISOR_TONE_SYSTEM_RULES = [
 
 export function detectDirectAnswerIntent(question = "") {
   const text = String(question).trim();
-  if (/보험\s*(총\s*)?건수|몇\s*건|가입\s*보험\s*수|보유\s*보험/.test(text)) return "policy_count";
+  if (/보험료|월\s*납입?|월납|월\s*보험료|납입\s*보험료|보험료\s*합계/.test(text)) return "premium_lookup";
+  if (/보험\s*(총\s*)?건수|몇\s*건|가입\s*보험\s*수|보유\s*보험|내\s*보험(?!\s*(?:료|에))/.test(text)) return "policy_count";
   if (/가입한\s*보험사|어느\s*보험사|보험사는/.test(text)) return "insurer";
   if (/복용\s*중인\s*약|먹는\s*약|복용약|약은/.test(text)) return "medication";
   if (/지급조건|약관|보장내용|청구\s*조건/.test(text)) return "policy_terms";
