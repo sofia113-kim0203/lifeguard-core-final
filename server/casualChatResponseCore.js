@@ -139,3 +139,145 @@ export async function generateCasualChatResponse({
     };
   }
 }
+
+const GROUNDED_MAX_TOKENS = 700;
+const GROUNDED_MAX_CHARS = 1500;
+
+const GROUNDED_SYSTEM_PROMPT = [
+  "You are a Korean-speaking insurance consultation assistant for a life insurance customer app.",
+  "Answer the customer's question using ONLY the registered customer facts provided below.",
+  "If there are no registered facts or the facts do not cover the question, reply exactly: 등록된 정보가 없습니다",
+  "Reply in Korean only, concise and direct, answering the actual question asked.",
+  "Do NOT use a fixed analysis script or template phrasing.",
+  "Do NOT push recommendations or urge the customer to buy or change policies.",
+  "Do NOT judge underwriting approval or rejection.",
+  "Do NOT invent customer policies, health data, premiums, or any facts not in the provided grounding.",
+].join(" ");
+
+async function callGroundedAnthropic({
+  apiKey,
+  modelName,
+  question,
+  groundingText,
+  fetchImpl = fetch,
+}) {
+  const trimmedQuestion = String(question ?? "").trim();
+  const trimmedGrounding = String(groundingText ?? "").trim();
+  const userContent = [
+    "등록된 고객 사실:",
+    trimmedGrounding || "(없음)",
+    "",
+    "고객 질문:",
+    trimmedQuestion,
+  ].join("\n");
+
+  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: modelName,
+      max_tokens: GROUNDED_MAX_TOKENS,
+      system: GROUNDED_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userContent }],
+    }),
+  });
+
+  const requestId =
+    response.headers.get("request-id") ?? response.headers.get("x-request-id") ?? null;
+  const rawBody = await response.text();
+  let body = {};
+  try {
+    body = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    body = {};
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      http_status: response.status,
+      error_type: body?.error?.type ?? "api_error",
+      error_message: body?.error?.message ?? `Claude API error (${response.status})`,
+      request_id: requestId,
+    };
+  }
+
+  const text = Array.isArray(body?.content)
+    ? body.content
+        .filter((block) => block?.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+        .trim()
+    : "";
+
+  if (!text) {
+    return {
+      ok: false,
+      http_status: 502,
+      error_type: "empty_response",
+      error_message: "Claude returned empty response.",
+      request_id: requestId,
+    };
+  }
+
+  return {
+    ok: true,
+    text: text.slice(0, GROUNDED_MAX_CHARS),
+    model: body?.model ?? modelName,
+    response_id: body?.id ?? null,
+    request_id: requestId,
+  };
+}
+
+export async function generateGroundedChatResponse({
+  question,
+  groundingText,
+  fetchImpl = fetch,
+  env = process.env,
+} = {}) {
+  const trimmedQuestion = String(question ?? "").trim();
+  const apiKey = resolveAnthropicApiKey(env);
+  const modelName = resolveClaudeModel(env);
+
+  if (!apiKey) {
+    return {
+      ok: false,
+      text: "",
+      response_source: "grounded_fallback",
+    };
+  }
+
+  try {
+    const claudeResult = await callGroundedAnthropic({
+      apiKey,
+      modelName,
+      question: trimmedQuestion,
+      groundingText,
+      fetchImpl,
+    });
+
+    if (claudeResult.ok) {
+      return {
+        ok: true,
+        text: claudeResult.text,
+        response_source: "claude_grounded",
+      };
+    }
+
+    return {
+      ok: false,
+      text: "",
+      response_source: "grounded_fallback",
+    };
+  } catch {
+    return {
+      ok: false,
+      text: "",
+      response_source: "grounded_fallback",
+    };
+  }
+}
