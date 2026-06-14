@@ -107,6 +107,39 @@ export function assertNoUnsupportedFact(text = "", { hasPremiumEvidence = false,
   return { ok: violations.length === 0, violations };
 }
 
+export function sanitizeAdvisorBrainMessage(
+  message,
+  { hasPremiumEvidence = false, hasCoverageEvidence = false } = {},
+) {
+  const original = String(message ?? "").trim();
+  if (!original) return original;
+
+  const factCheck = assertNoUnsupportedFact(original, {
+    hasPremiumEvidence,
+    hasCoverageEvidence,
+  });
+  if (factCheck.ok) return original;
+
+  let sanitized = original;
+  sanitized = sanitized.replace(/반드시\s*가입\s*가능/gi, "확인 필요");
+  sanitized = sanitized.replace(/100%\s*보장/gi, "확인 필요");
+  sanitized = sanitized.replace(/확실히\s*받을\s*수\s*있/gi, "확인 필요");
+  sanitized = sanitized.replace(/월\s*보험료\s*[:：]?\s*[\d,]+원?/gi, "월 보험료: 미확인");
+  sanitized = sanitized.replace(/보험료는\s*[\d,]+원?/gi, "보험료: 미확인");
+  sanitized = sanitized.replace(/보험료\s*합계(?:는)?\s*[\d,]+원?/gi, "보험료 합계: 미확인");
+  sanitized = sanitized.replace(/확인된\s*월\s*보험료\s*합계(?:는)?\s*[\d,]+원?/gi, "월 보험료 합계: 미확인");
+
+  const recheck = assertNoUnsupportedFact(sanitized, {
+    hasPremiumEvidence,
+    hasCoverageEvidence,
+  });
+  if (!recheck.ok) {
+    return `${sanitized}\n\n일부 항목은 현재 등록 정보 기준으로 미확인이며, 증권 확인이 필요합니다.`;
+  }
+
+  return sanitized;
+}
+
 export function applyGuardrailsToPolicies(policies = []) {
   return (policies ?? []).map((policy) => {
     const hasCoverageSummary =

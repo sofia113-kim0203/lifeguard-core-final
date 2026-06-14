@@ -514,7 +514,7 @@ function resolvePositivePremium(policy) {
   return premium;
 }
 
-function computePremiumLookupStats(policies = []) {
+export function computePremiumLookupStats(policies = []) {
   const list = policies ?? [];
   let premiumKnownCount = 0;
   let premiumTotal = 0;
