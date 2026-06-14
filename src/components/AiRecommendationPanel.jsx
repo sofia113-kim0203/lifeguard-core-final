@@ -640,10 +640,14 @@ export default function AiRecommendationPanel({
             const oneshotJob = { result_json: analysis };
             const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
             if (rebalancingData) setRebalancingResult(rebalancingData);
-            await hydrateMissingClaudeExplanations(oneshotJob, panelSetters);
-            await fillRecommendationTop2Gap({ job: oneshotJob, setRecResult });
             setLoading(false);
             setError("");
+            // Engine panels are rendered immediately. Fetch the Claude explanations and the
+            // recommendation Top2 gap fill in the background (fire-and-forget) so neither
+            // blocks the instant render and a Claude failure never holds the screen.
+            void hydrateMissingClaudeExplanations(oneshotJob, panelSetters)
+              .then(() => fillRecommendationTop2Gap({ job: oneshotJob, setRecResult }))
+              .catch(() => {});
             return;
           }
         }
