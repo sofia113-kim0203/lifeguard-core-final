@@ -637,8 +637,11 @@ export default function AiRecommendationPanel({
         ) {
           const applied = applyJobToState({ result_json: analysis });
           if (applied) {
+            const oneshotJob = { result_json: analysis };
             const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
             if (rebalancingData) setRebalancingResult(rebalancingData);
+            await hydrateMissingClaudeExplanations(oneshotJob, panelSetters);
+            await fillRecommendationTop2Gap({ job: oneshotJob, setRecResult });
             setLoading(false);
             setError("");
             return;
