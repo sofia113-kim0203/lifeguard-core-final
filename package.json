@@ -57,7 +57,8 @@
     "test:document-source-policy-retire-unit": "node scripts/document-source-policy-retire-unit-test.mjs",
     "test:orphan-source-deleted-policy-retire-unit": "node scripts/orphan-source-deleted-policy-retire-unit-test.mjs",
     "test:pr-c2b-coverage-sheet-shadow-rls-verify-unit": "node scripts/pr-c2b-coverage-sheet-shadow-rls-verify-unit-test.mjs",
-    "test:document-upload-category-unit": "node --experimental-strip-types scripts/document-upload-category-unit-test.mjs"
+    "test:document-upload-category-unit": "node --experimental-strip-types scripts/document-upload-category-unit-test.mjs",
+    "test:advisor-brain-p1-tool-scaffold": "node scripts/advisor-brain-p1-tool-scaffold-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
