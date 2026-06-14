@@ -138,6 +138,24 @@ function buildGroundingText(workingContext, situation) {
   } else if (situation?.policyCount > 0) {
     lines.push(`- 보유 보험 건수: ${situation.policyCount}건`);
   }
+  const policies = Array.isArray(workingContext?.policies) ? workingContext.policies : [];
+  const premiumLines = policies
+    .map((policy) => {
+      const raw = policy?.monthly_premium ?? policy?.premium_amount ?? null;
+      const premium = raw == null ? null : Number(raw);
+      if (premium == null || Number.isNaN(premium) || premium <= 0) return null;
+      const name = [policy?.insurer_name, policy?.product_name].filter(Boolean).join(" ") || "보험";
+      return `${name} 월 ${premium.toLocaleString("ko-KR")}원`;
+    })
+    .filter(Boolean);
+  if (premiumLines.length > 0) {
+    lines.push(`- 월 보험료(증권 추출): ${premiumLines.join(", ")}`);
+    const total = policies.reduce(
+      (sum, policy) => sum + (Number(policy?.monthly_premium ?? policy?.premium_amount ?? 0) || 0),
+      0,
+    );
+    if (total > 0) lines.push(`- 월 보험료 합계: ${total.toLocaleString("ko-KR")}원`);
+  }
   if (situation?.medication) {
     lines.push(`- 복용 약/병력: ${situation.medication}`);
   }
@@ -194,16 +212,29 @@ export async function buildConversationalAnswer({
     workingContext.coverageGapResult = analysisContext.coverageGapResult ?? null;
     workingContext.underwritingResult = analysisContext.underwritingResult ?? null;
     workingContext.recommendationResult = analysisContext.recommendationResult ?? null;
+    if (Array.isArray(analysisContext.policies) && analysisContext.policies.length > 0) {
+      // Carry premium-bearing policies (monthly_premium) so the grounding can expose them;
+      // the recommendation screen already shows these, the chat must too.
+      workingContext.policies = analysisContext.policies;
+    }
   }
   if (intentGate?.intent === "casual_chat") {
     throw new Error("casual_chat_must_use_buildCasualChatResponse");
   }
+  // Compute the deterministic targeted answer (claim / coverage review / policy detail /
+  // factual count) but DEMOTE it from a hijacking shortcut to a grounding reference. The
+  // grounded LLM always composes the actual reply, so it understands the real intent
+  // (e.g. "내 보험에 추가할 거 있어?" = a recommendation request, NOT a policy-count lookup)
+  // instead of returning a canned count.
   const targeted = resolveTargetedFastAnswer({ trimmedQuestion, workingContext, cachePayload, intentGate });
-  if (targeted) {
-    return targeted;
-  }
   const situation = extractCustomerSituation(workingContext);
-  const groundingText = buildGroundingText(workingContext, situation);
+  let groundingText = buildGroundingText(workingContext, situation);
+  if (targeted) {
+    const targetedHint = String(targeted).replace(/\s*\n+\s*/g, " ").trim();
+    if (targetedHint) {
+      groundingText = `${groundingText}\n- 시스템 조회 결과(참고): ${targetedHint}`.trim();
+    }
+  }
   const grounded = await generateGroundedChatResponse({
     question: trimmedQuestion,
     groundingText,
@@ -213,6 +244,11 @@ export async function buildConversationalAnswer({
   });
   if (grounded?.ok && grounded.text) {
     return grounded.text;
+  }
+  // LLM unavailable: fall back to the deterministic targeted answer if we computed one,
+  // otherwise the legacy template — so behavior never regresses below the previous version.
+  if (targeted) {
+    return targeted;
   }
   const hasAnyCustomerData = hasAnyCustomerDataFromInput(memorySnapshot, sourceContext);
   return buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData });
