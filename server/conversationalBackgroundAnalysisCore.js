@@ -22,6 +22,10 @@ import {
   hasRequiredResultsForResultClaude,
   resolvePipelineManifest,
 } from "./intentGateLayer.js";
+import {
+  buildAdvisorBrainAnswer,
+  shouldActivateAdvisorBrainForClassification,
+} from "./advisorBrain/advisorBrainResponder.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -399,18 +403,40 @@ export async function handleConversationalQuestionRequest({
     analysisContext = null;
   }
 
-  const fastResponse = await buildConversationalAnswer({
-    question: trimmedQuestion,
-    memorySnapshot: snapshot,
-    cachePayload,
-    sourceContext: memoryContext.sourceContext,
-    sourceSummary: memoryContext.sourceSummary,
-    intentGate,
-    analysisContext,
-    history: conversationHistory,
-    fetchImpl,
-    env,
-  });
+  let fastResponse = null;
+
+  if (shouldActivateAdvisorBrainForClassification(intentClassification, env)) {
+    try {
+      const advisorBrainResult = await buildAdvisorBrainAnswer({
+        supabase: adminClient,
+        customerId,
+        question: trimmedQuestion,
+        classification: intentClassification,
+        env,
+        fetchImpl,
+      });
+      if (advisorBrainResult?.ok && advisorBrainResult.message) {
+        fastResponse = advisorBrainResult.message;
+      }
+    } catch {
+      // Advisor Brain failure must fall back to the existing deterministic chat path.
+    }
+  }
+
+  if (!fastResponse) {
+    fastResponse = await buildConversationalAnswer({
+      question: trimmedQuestion,
+      memorySnapshot: snapshot,
+      cachePayload,
+      sourceContext: memoryContext.sourceContext,
+      sourceSummary: memoryContext.sourceSummary,
+      intentGate,
+      analysisContext,
+      history: conversationHistory,
+      fetchImpl,
+      env,
+    });
+  }
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
     role: "user",
