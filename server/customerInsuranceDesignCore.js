@@ -185,6 +185,47 @@ export async function loadInsuranceDesignAnalysisContext(supabase, customerId) {
   };
 }
 
+export async function handleAllAnalysisPanelsRequest({
+  authHeader = null,
+  testCustomerId = null,
+  adminSupabase = null,
+  env = process.env,
+} = {}) {
+  let supabase = adminSupabase;
+  let customerId = testCustomerId;
+
+  if (!supabase) {
+    supabase = createUserSupabaseClient(authHeader, env);
+    if (!supabase) {
+      return { ok: false, reason: "SUPABASE_NOT_CONFIGURED", error_message: "Supabase is not configured." };
+    }
+    const resolved = await resolveCustomerId(supabase);
+    if (!resolved.ok) return resolved;
+    customerId = resolved.customerId;
+  }
+
+  if (!customerId) {
+    return { ok: false, reason: "CUSTOMER_ID_REQUIRED", error_message: "customer_id is required." };
+  }
+
+  // Single server-side pass: this context cascades coverage -> underwriting -> recommendation
+  // -> insurance design, all via LLM-free engines, so the four recommendation panels are
+  // computed together and returned in ONE response. No analysis_jobs, no per-stage polling,
+  // and no Claude call here (the panel hydrates explanations lazily) -> the screen renders
+  // immediately instead of waiting on a job that polls one stage at a time.
+  const context = await loadInsuranceDesignAnalysisContext(supabase, customerId);
+
+  return {
+    ok: true,
+    analysis: {
+      coverage_gap: context.coverageGapResult ?? null,
+      underwriting_risk: context.underwritingResult ?? null,
+      recommendation: context.recommendationResult ?? null,
+      insurance_design: context.designBundle ?? null,
+    },
+  };
+}
+
 export async function handleCustomerInsuranceDesignRequest({
   authHeader = null,
   testCustomerId = null,

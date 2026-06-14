@@ -15,6 +15,7 @@ import {
   RECOMMENDATION_TYPE_LABELS,
 } from "../lib/customerRecommendations.js";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
+import { loadAllCustomerAnalysis } from "../lib/customerAnalysisAll.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
 import { loadCustomerRebalancing } from "../lib/customerRebalancing.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
@@ -622,6 +623,31 @@ export default function AiRecommendationPanel({
     let latestJobForRecovery = null;
 
     try {
+      // Fast path: a single server-side call computes all panels at once (no analysis_job, no
+      // per-stage polling). If it returns engine results, render immediately. Any failure falls
+      // through to the legacy job/polling flow below, so behavior never regresses.
+      try {
+        const analysis = await loadAllCustomerAnalysis();
+        if (
+          analysis &&
+          (analysis.coverage_gap ||
+            analysis.underwriting_risk ||
+            analysis.recommendation ||
+            analysis.insurance_design)
+        ) {
+          const applied = applyJobToState({ result_json: analysis });
+          if (applied) {
+            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
+            if (rebalancingData) setRebalancingResult(rebalancingData);
+            setLoading(false);
+            setError("");
+            return;
+          }
+        }
+      } catch {
+        // One-shot endpoint unavailable — continue to the legacy job/polling flow.
+      }
+
       let latestJob = resolvedExternalJob ?? null;
       if (!latestJob) {
         try {
