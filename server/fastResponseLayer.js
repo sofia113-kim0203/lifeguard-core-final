@@ -141,6 +141,18 @@ function buildGroundingText(workingContext, situation) {
   if (situation?.medication) {
     lines.push(`- 복용 약/병력: ${situation.medication}`);
   }
+  if (situation?.gapLabels?.length) {
+    lines.push(`- 보장 공백 분석: ${situation.gapLabels.join(", ")}`);
+  }
+  if (situation?.uwNotes?.length) {
+    lines.push(`- 인수 심사 유의: ${situation.uwNotes.join("; ")}`);
+  }
+  if (situation?.recommendLabels?.length) {
+    lines.push(`- 우선 추천 보장: ${situation.recommendLabels.join(", ")}`);
+  }
+  if (situation?.keepLabels?.length) {
+    lines.push(`- 유지 권장 보장: ${situation.keepLabels.join(", ")}`);
+  }
   return lines.join("\n");
 }
 export function buildFastConversationalResponse({
@@ -171,11 +183,17 @@ export async function buildConversationalAnswer({
   sourceContext = null,
   sourceSummary = null,
   intentGate = null,
+  analysisContext = null,
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
   const trimmedQuestion = String(question ?? "").trim();
   const workingContext = buildWorkingContextFromFastInput({ memorySnapshot, sourceContext, sourceSummary });
+  if (analysisContext) {
+    workingContext.coverageGapResult = analysisContext.coverageGapResult ?? null;
+    workingContext.underwritingResult = analysisContext.underwritingResult ?? null;
+    workingContext.recommendationResult = analysisContext.recommendationResult ?? null;
+  }
   if (intentGate?.intent === "casual_chat") {
     throw new Error("casual_chat_must_use_buildCasualChatResponse");
   }

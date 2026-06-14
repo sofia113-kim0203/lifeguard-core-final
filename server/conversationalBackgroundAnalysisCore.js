@@ -353,6 +353,25 @@ export async function handleConversationalQuestionRequest({
       ? buildPolicyDetailAnswer(trimmedQuestion, workingContextInput)
       : null;
 
+  // Direction1 Step2 — for analysis-type questions, run the live coverage/underwriting/
+  // recommendation engines (same ones the screen uses) and ground the chat answer in the
+  // computed results, so e.g. "무슨 보험 가입해야 해?" gets gap/recommendation-backed advice.
+  // Engine failure must never break the chat reply, so it is wrapped and falls back to null.
+  const ANALYSIS_GROUNDING_INTENTS = new Set([
+    "recommendation_request",
+    "coverage_gap_check",
+    "design_request",
+  ]);
+  let analysisContext = null;
+  if (ANALYSIS_GROUNDING_INTENTS.has(intentClassification.intent)) {
+    try {
+      const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
+      analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
+    } catch {
+      analysisContext = null;
+    }
+  }
+
   const fastResponse = await buildConversationalAnswer({
     question: trimmedQuestion,
     memorySnapshot: snapshot,
@@ -360,6 +379,7 @@ export async function handleConversationalQuestionRequest({
     sourceContext: memoryContext.sourceContext,
     sourceSummary: memoryContext.sourceSummary,
     intentGate,
+    analysisContext,
     fetchImpl,
     env,
   });
