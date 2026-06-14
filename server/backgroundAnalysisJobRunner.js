@@ -14,7 +14,11 @@ import {
   saveCustomerAnalysisCacheEntry,
 } from "./customerAnalysisCacheStore.js";
 import { generatePanelClaudeExplanations } from "./panelClaudeExplanationHydration.js";
-import { getJobPipelineManifest } from "./intentGateLayer.js";
+import {
+  getJobPipelineManifest,
+  hasRequiredResultsForResultClaude,
+  isJobPipelineManifestComplete,
+} from "./intentGateLayer.js";
 
 export const ANALYSIS_PIPELINE_STAGES = [
   "coverage_gap",
@@ -39,12 +43,17 @@ export const REQUIRED_PANEL_STAGE_KEYS = [
   "insurance_design",
 ];
 
+/** @deprecated Use hasRequiredResultsForResultClaude(job) for result_claude gating. */
 export function hasRequiredPanelResults(resultJson) {
   if (!resultJson || typeof resultJson !== "object") return false;
   return REQUIRED_PANEL_STAGE_KEYS.every((key) => {
     const value = resultJson[key];
     return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
   });
+}
+
+function buildGateJobContext(job, resultJson, stagesCompleted) {
+  return { ...job, result_json: resultJson, stages_completed: stagesCompleted };
 }
 
 function getNextPendingStage(stagesCompleted) {
@@ -295,12 +304,13 @@ export async function processNextAnalysisJobStage({
   const nextStage =
     pipelineManifest.find((stage) => !stagesCompleted.includes(stage)) ??
     getNextPendingStage(stagesCompleted);
+  const gateJob = buildGateJobContext(job, resultJson, stagesCompleted);
   if (!nextStage) {
-    if (!hasRequiredPanelResults(resultJson)) {
+    if (!isJobPipelineManifestComplete(gateJob) || !hasRequiredResultsForResultClaude(gateJob)) {
       return {
         ok: false,
         reason: "PANEL_RESULTS_INCOMPLETE",
-        error_message: "Cannot complete analysis job without all four panel results.",
+        error_message: "Cannot complete analysis job without required pipeline results.",
         job,
       };
     }
@@ -312,11 +322,11 @@ export async function processNextAnalysisJobStage({
     return { ok: true, job: completedJob, already_completed: true };
   }
 
-  if (nextStage === "result_claude" && !hasRequiredPanelResults(resultJson)) {
+  if (nextStage === "result_claude" && !hasRequiredResultsForResultClaude(gateJob)) {
     return {
       ok: false,
       reason: "PANEL_RESULTS_INCOMPLETE",
-      error_message: "Cannot run result_claude before all four panel results exist.",
+      error_message: "Cannot run result_claude before required engine results exist.",
       job,
     };
   }
@@ -469,7 +479,7 @@ export async function processNextAnalysisJobStage({
       completed: updatedJob.status === "completed",
     };
   } catch (error) {
-    if (nextStage === "result_claude" && hasRequiredPanelResults(resultJson)) {
+    if (nextStage === "result_claude" && hasRequiredResultsForResultClaude(gateJob)) {
       hydrateWorkingContextFromResultJson(workingContext, resultJson);
       const stageDuration = Date.now() - stageStart;
       const fallbackStageResult = buildResultClaudeFallbackStageResult(

@@ -406,6 +406,42 @@ export function buildIntentGatePayload(classification, pipelineManifest) {
   };
 }
 
+export const REQUIRED_ENGINE_STAGE_KEYS = [
+  "coverage_gap",
+  "underwriting_risk",
+  "recommendation",
+  "insurance_design",
+];
+
+function hasNonEmptyStageResult(resultJson, stageKey) {
+  if (!resultJson || typeof resultJson !== "object") return false;
+  const value = resultJson[stageKey];
+  return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+}
+
+export function resolveRequiredEngineStages(job) {
+  const manifest = getJobPipelineManifest(job);
+  const engineStages = manifest.filter((stage) => REQUIRED_ENGINE_STAGE_KEYS.includes(stage));
+  if (engineStages.length > 0) return engineStages;
+
+  const intentManifest = job?.result_json?.intent_gate?.pipeline_manifest;
+  if (Array.isArray(intentManifest) && intentManifest.length > 0) return [];
+
+  return [...REQUIRED_ENGINE_STAGE_KEYS];
+}
+
+export function hasRequiredResultsForResultClaude(job) {
+  const resultJson = job?.result_json ?? {};
+  const requiredStages = resolveRequiredEngineStages(job);
+  return requiredStages.every((stage) => hasNonEmptyStageResult(resultJson, stage));
+}
+
+export function isJobPipelineManifestComplete(job) {
+  const manifest = getJobPipelineManifest(job);
+  const stagesCompleted = Array.isArray(job?.stages_completed) ? job.stages_completed : [];
+  return manifest.every((stage) => stagesCompleted.includes(stage));
+}
+
 export function getJobPipelineManifest(job) {
   const manifest = job?.result_json?.intent_gate?.pipeline_manifest;
   if (Array.isArray(manifest) && manifest.length > 0) return manifest;
