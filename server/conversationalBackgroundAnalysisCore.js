@@ -7,7 +7,6 @@ import { buildConversationalAnswer, buildCasualChatResponse } from "./fastRespon
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import {
   ANALYSIS_PIPELINE_STAGES,
-  hasRequiredPanelResults,
   loadAnalysisJob,
   processNextAnalysisJobStage,
   runAnalysisJobToCompletion,
@@ -20,6 +19,7 @@ import {
   classifyConsultationIntent,
   getJobPipelineManifest,
   getJobSkippedStages,
+  hasRequiredResultsForResultClaude,
   resolvePipelineManifest,
 } from "./intentGateLayer.js";
 
@@ -49,7 +49,7 @@ async function maybeAdvancePendingResultClaudeStage(adminClient, job) {
   if (!adminClient || !job) return job;
   if (job.status === "completed" || job.status === "failed") return job;
   if (getPendingAnalysisStage(job) !== "result_claude") return job;
-  if (!hasRequiredPanelResults(job.result_json)) return job;
+  if (!hasRequiredResultsForResultClaude(job)) return job;
 
   const processResult = await processNextAnalysisJobStage({
     supabase: adminClient,

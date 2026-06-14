@@ -14,7 +14,10 @@ import {
   saveCustomerAnalysisCacheEntry,
 } from "./customerAnalysisCacheStore.js";
 import { generatePanelClaudeExplanations } from "./panelClaudeExplanationHydration.js";
-import { getJobPipelineManifest } from "./intentGateLayer.js";
+import {
+  getJobPipelineManifest,
+  hasRequiredResultsForResultClaude,
+} from "./intentGateLayer.js";
 
 export const ANALYSIS_PIPELINE_STAGES = [
   "coverage_gap",
@@ -39,12 +42,23 @@ export const REQUIRED_PANEL_STAGE_KEYS = [
   "insurance_design",
 ];
 
+/**
+ * @deprecated Strict all-four-engine gate. Retained for backward compatibility / other callers.
+ * The pipeline gates now use intent-aware hasRequiredResultsForResultClaude (intentGateLayer).
+ */
 export function hasRequiredPanelResults(resultJson) {
   if (!resultJson || typeof resultJson !== "object") return false;
   return REQUIRED_PANEL_STAGE_KEYS.every((key) => {
     const value = resultJson[key];
     return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
   });
+}
+
+// Build a job-shaped view for the intent-aware gate so it evaluates against the CURRENT
+// in-progress result_json + stages_completed (not the stale row). The manifest still resolves
+// from result_json.intent_gate, which the local resultJson copy preserves.
+function buildGateJobContext(job, resultJson, stagesCompleted) {
+  return { ...job, result_json: resultJson, stages_completed: stagesCompleted };
 }
 
 function getNextPendingStage(stagesCompleted) {
@@ -296,11 +310,12 @@ export async function processNextAnalysisJobStage({
     pipelineManifest.find((stage) => !stagesCompleted.includes(stage)) ??
     getNextPendingStage(stagesCompleted);
   if (!nextStage) {
-    if (!hasRequiredPanelResults(resultJson)) {
+    if (!hasRequiredResultsForResultClaude(buildGateJobContext(job, resultJson, stagesCompleted))) {
       return {
         ok: false,
         reason: "PANEL_RESULTS_INCOMPLETE",
-        error_message: "Cannot complete analysis job without all four panel results.",
+        error_message:
+          "Cannot complete analysis job without the engine results required by its intent manifest.",
         job,
       };
     }
@@ -312,11 +327,15 @@ export async function processNextAnalysisJobStage({
     return { ok: true, job: completedJob, already_completed: true };
   }
 
-  if (nextStage === "result_claude" && !hasRequiredPanelResults(resultJson)) {
+  if (
+    nextStage === "result_claude" &&
+    !hasRequiredResultsForResultClaude(buildGateJobContext(job, resultJson, stagesCompleted))
+  ) {
     return {
       ok: false,
       reason: "PANEL_RESULTS_INCOMPLETE",
-      error_message: "Cannot run result_claude before all four panel results exist.",
+      error_message:
+        "Cannot run result_claude before the engine results required by its intent manifest exist.",
       job,
     };
   }
@@ -469,7 +488,10 @@ export async function processNextAnalysisJobStage({
       completed: updatedJob.status === "completed",
     };
   } catch (error) {
-    if (nextStage === "result_claude" && hasRequiredPanelResults(resultJson)) {
+    if (
+      nextStage === "result_claude" &&
+      hasRequiredResultsForResultClaude(buildGateJobContext(job, resultJson, stagesCompleted))
+    ) {
       hydrateWorkingContextFromResultJson(workingContext, resultJson);
       const stageDuration = Date.now() - stageStart;
       const fallbackStageResult = buildResultClaudeFallbackStageResult(
