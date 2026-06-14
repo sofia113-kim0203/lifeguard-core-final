@@ -219,18 +219,39 @@ export function mapAnalysisJobForClient(job) {
   };
 }
 
+async function loadRecentConversationHistory(adminClient, customerId, limit = 10) {
+  try {
+    const { data } = await adminClient
+      .from("customer_conversations")
+      .select("role,message,created_at")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    return (data ?? [])
+      .reverse()
+      .map((row) => ({
+        role: row.role,
+        content: row.message,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 async function handleCasualChatQuestionRequest({
   question,
   customerId,
   adminClient,
   startedAt,
   intentClassification,
+  history = [],
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
   const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
   const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
-  const casualResult = await buildCasualChatResponse({ question, fetchImpl, env });
+  const casualResult = await buildCasualChatResponse({ question, history, fetchImpl, env });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
     role: "user",
@@ -313,6 +334,12 @@ export async function handleConversationalQuestionRequest({
     return { ok: false, reason: "SERVICE_ROLE_NOT_CONFIGURED", error_message: "Service role client unavailable." };
   }
 
+  const conversationHistory = await loadRecentConversationHistory(
+    adminClient,
+    customerId,
+    10,
+  );
+
   const intentClassification = classifyConsultationIntent(trimmedQuestion);
 
   if (intentClassification.intent === "casual_chat") {
@@ -322,6 +349,7 @@ export async function handleConversationalQuestionRequest({
       adminClient,
       startedAt,
       intentClassification,
+      history: conversationHistory,
       fetchImpl,
       env,
     });
@@ -380,6 +408,7 @@ export async function handleConversationalQuestionRequest({
     sourceSummary: memoryContext.sourceSummary,
     intentGate,
     analysisContext,
+    history: conversationHistory,
     fetchImpl,
     env,
   });

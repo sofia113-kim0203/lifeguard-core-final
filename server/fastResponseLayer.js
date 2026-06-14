@@ -184,6 +184,7 @@ export async function buildConversationalAnswer({
   sourceSummary = null,
   intentGate = null,
   analysisContext = null,
+  history = [],
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
@@ -206,6 +207,7 @@ export async function buildConversationalAnswer({
   const grounded = await generateGroundedChatResponse({
     question: trimmedQuestion,
     groundingText,
+    history,
     fetchImpl,
     env,
   });
@@ -215,8 +217,8 @@ export async function buildConversationalAnswer({
   const hasAnyCustomerData = hasAnyCustomerDataFromInput(memorySnapshot, sourceContext);
   return buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData });
 }
-export async function buildCasualChatResponse({ question, fetchImpl = fetch, env = process.env } = {}) {
-  return generateCasualChatResponse({ question, fetchImpl, env });
+export async function buildCasualChatResponse({ question, history = [], fetchImpl = fetch, env = process.env } = {}) {
+  return generateCasualChatResponse({ question, history, fetchImpl, env });
 }
 export function buildStageProgressLabel(stageKey, status = "completed") {
   const label = STAGE_LABELS[stageKey] ?? stageKey;
