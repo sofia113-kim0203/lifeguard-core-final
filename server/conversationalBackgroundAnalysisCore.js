@@ -385,19 +385,18 @@ export async function handleConversationalQuestionRequest({
   // recommendation engines (same ones the screen uses) and ground the chat answer in the
   // computed results, so e.g. "무슨 보험 가입해야 해?" gets gap/recommendation-backed advice.
   // Engine failure must never break the chat reply, so it is wrapped and falls back to null.
-  const ANALYSIS_GROUNDING_INTENTS = new Set([
-    "recommendation_request",
-    "coverage_gap_check",
-    "design_request",
-  ]);
+  // casual_chat already returned earlier, so every turn that reaches here is a substantive
+  // question. ALWAYS load the live analysis (coverage gap / recommendation / underwriting)
+  // so the grounded LLM has real material for ANY question — e.g. "내 보험에 추가할 거 있어?"
+  // (a recommendation question that the rigid classifier may have tagged as a lookup) — not
+  // only for the 3 explicit recommendation intents. Engine failure must never break the chat
+  // reply, so it is wrapped and falls back to null.
   let analysisContext = null;
-  if (ANALYSIS_GROUNDING_INTENTS.has(intentClassification.intent)) {
-    try {
-      const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
-      analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
-    } catch {
-      analysisContext = null;
-    }
+  try {
+    const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
+    analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
+  } catch {
+    analysisContext = null;
   }
 
   const fastResponse = await buildConversationalAnswer({
