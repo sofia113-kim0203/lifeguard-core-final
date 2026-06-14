@@ -2,7 +2,7 @@
  * Advisor Brain P1 — Controlled tool runner with limits, allowlist, and guardrails.
  * Not wired into live customer response path in this PR.
  */
-import { computePolicyExplorerStats } from "../../src/lib/policyExplorer.js";
+import { computePremiumLookupStats } from "../intentGateLayer.js";
 import { buildStructuredMemoryProfile } from "../customerMemorySnapshot.js";
 import { loadCoverageAnalysisContext } from "../customerCoverageGapCore.js";
 import { loadUnderwritingAnalysisContext } from "../customerUnderwritingRiskCore.js";
@@ -86,23 +86,23 @@ export function isToolCallAllowed({ toolName, allowedTools, calledTools, depth =
   return { allowed: true, reason: null };
 }
 
-async function executeGetPolicies(context) {
-  const policies = applyGuardrailsToPolicies(context.policies ?? []);
+async function executeGetPolicies({ context }) {
+  const policies = applyGuardrailsToPolicies(context?.policies ?? []);
   return buildToolResult({
     ok: true,
     tool: "get_policies",
     data: {
       policies,
-      policy_count: context.policyCount,
-      policy_ids: context.unified?.policy_ids ?? policies.map((p) => p.id).filter(Boolean),
+      policy_count: context?.policyCount ?? policies.length,
+      policy_ids: context?.unified?.policy_ids ?? policies.map((p) => p.id).filter(Boolean),
     },
     confidence: policies.length ? "confirmed" : "partial",
     source: "unified_customer_state",
   });
 }
 
-async function executePremiumLookup(context) {
-  const stats = computePolicyExplorerStats(context.policies ?? []);
+async function executePremiumLookup({ context }) {
+  const stats = computePremiumLookupStats(context?.policies ?? []);
   return buildToolResult({
     ok: true,
     tool: "premium_lookup",
@@ -112,8 +112,8 @@ async function executePremiumLookup(context) {
   });
 }
 
-async function executeGetCustomerMemory(context) {
-  const snapshot = context.snapshot;
+async function executeGetCustomerMemory({ context }) {
+  const snapshot = context?.snapshot;
   if (!snapshot) {
     return buildToolResult({
       ok: false,
@@ -124,7 +124,7 @@ async function executeGetCustomerMemory(context) {
       source: "customer_memory_snapshot",
     });
   }
-  const structured = context.structuredMemory ?? buildStructuredMemoryProfile(snapshot);
+  const structured = context?.structuredMemory ?? buildStructuredMemoryProfile(snapshot);
   return buildToolResult({
     ok: true,
     tool: "get_customer_memory",
