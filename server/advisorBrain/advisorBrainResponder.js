@@ -17,6 +17,10 @@ import {
   isActivatableFactualLookupClassification,
 } from "./advisorFactualLookupResponder.js";
 import {
+  buildAdvisorConversationAnswer,
+  isAdvisorConversationQuestion,
+} from "./advisorConversationResponder.js";
+import {
   buildRecommendationReasonAnswer,
   isRecommendationReasonClassification,
 } from "./advisorRecommendationReasonResponder.js";
@@ -48,7 +52,8 @@ export function shouldActivateAdvisorBrainForClassification(
   if (!isAdvisorBrainEnabled(env)) return false;
   if (classification?.intent === "coverage_gap_check") return true;
   if (isActivatableFactualLookupClassification(classification)) return true;
-  return isRecommendationReasonClassification(classification, question);
+  if (isRecommendationReasonClassification(classification, question)) return true;
+  return isAdvisorConversationQuestion(classification, question);
 }
 
 function pickToolData(toolResults, toolName) {
@@ -345,6 +350,20 @@ export async function buildAdvisorBrainAnswer({
 
     if (isRecommendationReasonClassification(classification, question)) {
       return await buildRecommendationReasonAnswer({
+        supabase,
+        customerId,
+        question,
+        classification,
+        env,
+        fetchImpl,
+        sessionId,
+        conversationId,
+        claudeCall,
+      });
+    }
+
+    if (isAdvisorConversationQuestion(classification, question)) {
+      return await buildAdvisorConversationAnswer({
         supabase,
         customerId,
         question,
