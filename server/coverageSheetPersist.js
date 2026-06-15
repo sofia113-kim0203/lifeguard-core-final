@@ -15,6 +15,35 @@ function normalizeKeyPart(value) {
     .toLowerCase();
 }
 
+function parsePositivePremium(raw) {
+  if (raw == null || raw === "") return null;
+  const premium = Number(raw);
+  if (!Number.isFinite(premium) || premium <= 0) return null;
+  return premium;
+}
+
+/**
+ * Resolve monthly_premium from explicit premium fields on a sheet row.
+ * amount_value is coverage amount — never mapped to premium.
+ */
+export function resolveSheetRowMonthlyPremium(row = {}) {
+  const extracted = row.extracted && typeof row.extracted === "object" ? row.extracted : {};
+  const candidates = [
+    extracted.monthly_premium,
+    extracted.premium_amount,
+    extracted.total_premium,
+    row.monthly_premium,
+    row.premium_amount,
+    row.total_premium,
+  ];
+
+  for (const raw of candidates) {
+    const premium = parsePositivePremium(raw);
+    if (premium != null) return premium;
+  }
+  return null;
+}
+
 export function buildSheetUploadExtractKey(documentId, row = {}) {
   const parts = [
     String(documentId ?? "").trim(),
@@ -54,7 +83,7 @@ export function buildPolicyRowFromSheetRow(customerId, documentId, row = {}) {
     insurer_name: row.insurer_name,
     product_name: row.product_name ?? null,
     policy_type: null,
-    monthly_premium: null,
+    monthly_premium: resolveSheetRowMonthlyPremium(row),
     effective_from: null,
     coverage_summary: coverageSummary,
     source: "upload_extract",
