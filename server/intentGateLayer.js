@@ -49,7 +49,8 @@ const CASUAL_THANKS_RE =
   /^(?:고마워요?|고맙습니다|감사합니다|감사해요|땡큐|thanks)(?:[!.?\s~♡♥]*)?$/i;
 const CASUAL_SMALL_TALK_RE =
   /^(?:뭐\s*해|뭐해|잘\s*지내|잘\s*지냈|오랜만이야|심심해)(?:[?.!\s~]*)?$/i;
-const CASUAL_EMOTION_RE = /(?:오늘\s*)?(?:좀\s*)?(?:힘드|힘들|피곤|지쳤|지쳐|우울|외로|슬퍼|스트레스)/;
+const CASUAL_EMOTION_RE =
+  /(?:오늘\s*)?(?:좀\s*)?(?:힘드|힘들|피곤|지쳤|지쳐|우울|외로|슬퍼|스트레스|잠이\s*안|잠\s*못)/;
 
 export const LOOKUP_CATEGORIES = {
   driver: {
