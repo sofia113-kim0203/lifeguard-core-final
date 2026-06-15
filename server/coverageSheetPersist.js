@@ -6,6 +6,10 @@ import {
   COVERAGE_SHEET_RECORD_KIND,
 } from "./coverageSheetBridge.js";
 import { COVERAGE_SHEET_EXTRACTOR_VERSION } from "./coverageSheetExtractor.js";
+import {
+  assembleRidersFromSheetRow,
+  mergeCoverageSummary,
+} from "./coverageRiderPopulation.js";
 import { planRetiredPolicyIds } from "./documentPolicyUploadPersist.js";
 
 function normalizeKeyPart(value) {
@@ -55,28 +59,39 @@ export function buildSheetUploadExtractKey(documentId, row = {}) {
   return parts.join("|");
 }
 
-export function buildCoverageSummaryFromSheetRow(documentId, row = {}) {
+export function buildCoverageSummaryFromSheetRow(documentId, row = {}, existingSummary = null) {
   const uploadExtractKey = buildSheetUploadExtractKey(documentId, row);
-
-  return {
-    source_document_id: documentId,
-    upload_extract_key: uploadExtractKey,
-    extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
-    record_kind: COVERAGE_SHEET_RECORD_KIND,
-    sheet_row_index: row.row_index ?? null,
-    extractor_version: COVERAGE_SHEET_EXTRACTOR_VERSION,
-    amount_value: row.amount_value ?? null,
-    amount_unit: row.amount_unit ?? null,
-    amount_text: row.amount_text ?? null,
-    coverage_name: row.coverage_name ?? null,
+  const riders = assembleRidersFromSheetRow(row);
+  const context = {
+    insurer_name: row.insurer_name ?? null,
     product_name: row.product_name ?? null,
-    warnings: Array.isArray(row.warnings) ? row.warnings : [],
-    extracted_at: new Date().toISOString(),
+    plan_name: row.plan_name ?? row.product_name ?? null,
   };
+
+  return mergeCoverageSummary(
+    existingSummary,
+    {
+      source_document_id: documentId,
+      upload_extract_key: uploadExtractKey,
+      extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
+      record_kind: COVERAGE_SHEET_RECORD_KIND,
+      sheet_row_index: row.row_index ?? null,
+      extractor_version: COVERAGE_SHEET_EXTRACTOR_VERSION,
+      amount_value: row.amount_value ?? null,
+      amount_unit: row.amount_unit ?? null,
+      amount_text: row.amount_text ?? null,
+      coverage_name: row.coverage_name ?? null,
+      product_name: row.product_name ?? null,
+      warnings: Array.isArray(row.warnings) ? row.warnings : [],
+      extracted_at: new Date().toISOString(),
+    },
+    riders,
+    context,
+  );
 }
 
-export function buildPolicyRowFromSheetRow(customerId, documentId, row = {}) {
-  const coverageSummary = buildCoverageSummaryFromSheetRow(documentId, row);
+export function buildPolicyRowFromSheetRow(customerId, documentId, row = {}, existingCoverageSummary = null) {
+  const coverageSummary = buildCoverageSummaryFromSheetRow(documentId, row, existingCoverageSummary);
 
   return {
     customer_id: customerId,
@@ -159,7 +174,7 @@ export async function persistCoverageSheetRows(admin, customerId, documentId, pa
   const rowCount = passingRows.length;
 
   for (const row of passingRows) {
-    const policyRow = buildPolicyRowFromSheetRow(customerId, documentId, row);
+    const policyRow = buildPolicyRowFromSheetRow(customerId, documentId, row, existing?.coverage_summary);
     const { row: existing, upload_extract_key: uploadExtractKey } = resolveExistingSheetPolicyForRow(
       existingRows,
       documentId,

@@ -111,7 +111,7 @@ async function persistExtractedPolicies(admin, customerId, documentId, multiExtr
   const activeKeys = [];
 
   for (const candidate of candidates) {
-    const row = buildPolicyRowFromCandidate(customerId, documentId, candidate);
+    const row = buildPolicyRowFromCandidate(customerId, documentId, candidate, existing?.coverage_summary);
     const { row: existing, upload_extract_key: uploadExtractKey } = resolveExistingPolicyForCandidate(
       existingRows,
       documentId,
