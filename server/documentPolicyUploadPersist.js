@@ -1,3 +1,8 @@
+import {
+  assembleRidersFromCandidate,
+  mergeCoverageSummary,
+} from "./coverageRiderPopulation.js";
+
 const EXTRACTOR_VERSION = "step4-ocr-policy-v3-multi";
 
 function normalizeKeyPart(value) {
@@ -20,38 +25,48 @@ export function buildUploadExtractKey(documentId, fields = {}) {
   return parts.join("|");
 }
 
-export function buildCoverageSummaryFromCandidate(documentId, candidate) {
+export function buildCoverageSummaryFromCandidate(documentId, candidate, existingSummary = null) {
   const fields = candidate.fields ?? {};
   const uploadExtractKey = buildUploadExtractKey(documentId, fields);
-
-  return {
-    source_document_id: documentId,
-    upload_extract_key: uploadExtractKey,
-    extractor_version: EXTRACTOR_VERSION,
-    extraction_confidence: candidate.confidence ?? null,
-    extraction_tier: candidate.tier ?? "full",
-    candidate_tier: candidate.candidate_tier ?? null,
-    block_index: candidate.block_index ?? null,
-    policyholder: fields.policyholder,
-    insured: fields.insured,
-    payment_period: fields.payment_period,
-    insurance_period: fields.insurance_period,
-    coverage_name: fields.coverage_name,
-    rider_name: fields.rider_name,
-    coverage_amount: fields.coverage_amount,
-    coverage_categories: fields.coverage_categories ?? [],
-    detected_coverages: fields.detected_coverages ?? fields.coverage_categories ?? [],
-    effective_from: fields.effective_from,
-    policy_number: fields.policy_number ?? null,
-    riders: Array.isArray(candidate.riders) ? candidate.riders : [],
-    extracted_at: new Date().toISOString(),
-    extraction_json: fields,
+  const riders = assembleRidersFromCandidate(candidate);
+  const context = {
+    insurer_name: fields.insurer_name ?? null,
+    product_name: fields.product_name ?? null,
+    plan_name: fields.plan_name ?? fields.product_name ?? null,
   };
+
+  return mergeCoverageSummary(
+    existingSummary,
+    {
+      source_document_id: documentId,
+      upload_extract_key: uploadExtractKey,
+      extractor_version: EXTRACTOR_VERSION,
+      extraction_confidence: candidate.confidence ?? null,
+      extraction_tier: candidate.tier ?? "full",
+      candidate_tier: candidate.candidate_tier ?? null,
+      block_index: candidate.block_index ?? null,
+      policyholder: fields.policyholder,
+      insured: fields.insured,
+      payment_period: fields.payment_period,
+      insurance_period: fields.insurance_period,
+      coverage_name: fields.coverage_name,
+      rider_name: fields.rider_name,
+      coverage_amount: fields.coverage_amount,
+      coverage_categories: fields.coverage_categories ?? [],
+      detected_coverages: fields.detected_coverages ?? fields.coverage_categories ?? [],
+      effective_from: fields.effective_from,
+      policy_number: fields.policy_number ?? null,
+      extracted_at: new Date().toISOString(),
+      extraction_json: fields,
+    },
+    riders,
+    context,
+  );
 }
 
-export function buildPolicyRowFromCandidate(customerId, documentId, candidate) {
+export function buildPolicyRowFromCandidate(customerId, documentId, candidate, existingCoverageSummary = null) {
   const fields = candidate.fields ?? {};
-  const coverageSummary = buildCoverageSummaryFromCandidate(documentId, candidate);
+  const coverageSummary = buildCoverageSummaryFromCandidate(documentId, candidate, existingCoverageSummary);
 
   return {
     customer_id: customerId,

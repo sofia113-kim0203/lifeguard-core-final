@@ -63,7 +63,10 @@
     "test:advisor-brain-p1-step3": "node scripts/advisor-brain-p1-step3-factual-test.mjs",
     "test:advisor-brain-p1-step4": "node scripts/advisor-brain-p1-step4-recommendation-reason-test.mjs",
     "test:advisor-brain-p1-step5": "node scripts/advisor-brain-p1-step5-conversation-test.mjs",
-    "test:central-brain-p2-step1": "node scripts/central-brain-p2-step1-test.mjs"
+    "test:central-brain-p2-step1": "node scripts/central-brain-p2-step1-test.mjs",
+    "test:pr-2-riders-memory-serialize": "node scripts/pr-2-riders-memory-serialize-test.mjs",
+    "test:coverage-rider-population": "node scripts/coverage-rider-population-test.mjs",
+    "test:phase23-step2a-memory-builder-extractor": "node scripts/phase23-step2a-memory-builder-extractor-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

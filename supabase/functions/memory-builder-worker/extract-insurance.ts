@@ -60,6 +60,101 @@ function summarizeActivePolicies(policies: PolicyRow[]): string | null {
   return truncate(summary, 200);
 }
 
+function collectNamedList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => cleanValue(typeof entry === "string" ? entry : riderLabelFromItem(entry)))
+    .filter(Boolean);
+}
+
+function riderLabelFromItem(item: unknown): string {
+  if (item == null) return "";
+  if (typeof item === "string") return cleanValue(item);
+  if (typeof item === "object") {
+    const record = item as Record<string, unknown>;
+    return cleanValue(
+      record.rider_name ??
+        record.normalized_name ??
+        record.name ??
+        record.label ??
+        record.coverage_line ??
+        record.coverage_name ??
+        "",
+    );
+  }
+  return "";
+}
+
+function cleanValue(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function serializePolicyRiders(coverageSummary: Record<string, unknown> | null | undefined) {
+  if (!coverageSummary || typeof coverageSummary !== "object" || Array.isArray(coverageSummary)) {
+    return {
+      names: [] as string[],
+      structured: [] as Record<string, unknown>[],
+      text: "",
+      status: "unknown" as const,
+      hasStructuredRiders: false,
+    };
+  }
+
+  const names: string[] = [];
+  const nameSeen = new Set<string>();
+  if (Array.isArray(coverageSummary.riders)) {
+    for (const entry of coverageSummary.riders) {
+      const label = typeof entry === "string" ? cleanValue(entry) : riderLabelFromItem(entry);
+      if (!label || nameSeen.has(label)) continue;
+      nameSeen.add(label);
+      names.push(label);
+    }
+  }
+
+  const structured: Record<string, unknown>[] = Array.isArray(coverageSummary.rider_details)
+    ? (coverageSummary.rider_details as Record<string, unknown>[])
+        .map((entry) => {
+          const rider_name = riderLabelFromItem(entry);
+          if (!rider_name) return null;
+          return {
+            rider_name,
+            coverage_amount: entry.coverage_amount ?? entry.amount ?? null,
+            category: entry.category ?? null,
+            source_line: entry.source_line ?? entry.notes ?? null,
+            source_kind: entry.source_kind ?? "detail",
+          };
+        })
+        .filter((entry): entry is Record<string, unknown> => entry != null)
+    : names.map((rider_name) => ({ rider_name, source_kind: "string" }));
+
+  const supplementalLabels = [
+    ...collectNamedList(coverageSummary.detected_coverages),
+    ...collectNamedList(coverageSummary.coverage_categories),
+  ].filter(Boolean);
+
+  const textParts: string[] = [];
+  const textSeen = new Set<string>();
+  for (const label of [...names, ...supplementalLabels]) {
+    const text = cleanValue(label);
+    if (!text || textSeen.has(text)) continue;
+    textSeen.add(text);
+    textParts.push(text);
+  }
+
+  const text = textParts.join(", ");
+  const hasStructuredRiders = names.length > 0 || supplementalLabels.length > 0;
+
+  return {
+    names,
+    structured,
+    text,
+    status: hasStructuredRiders ? ("structured" as const) : ("unknown" as const),
+    hasStructuredRiders,
+  };
+}
+
 function summarizeCarrierProducts(policies: PolicyRow[]): string | null {
   const structured = policies
     .filter((policy) => isPresent(policy.insurer_name) && isPresent(policy.product_name))
@@ -195,10 +290,14 @@ export async function extractInsuranceFacts(
     if (pol.monthly_premium != null && Number(pol.monthly_premium) > 0) {
       value += `, 월 ${pol.monthly_premium}원`;
     }
-    const riders = pol.coverage_summary && typeof pol.coverage_summary === "object"
-      ? String((pol.coverage_summary as Record<string, unknown>).riders ?? (pol.coverage_summary as Record<string, unknown>).summary ?? "").trim()
-      : "";
-    if (riders) value += `, 특약 ${truncate(riders, 80)}`;
+    const riderBundle = serializePolicyRiders(
+      pol.coverage_summary && typeof pol.coverage_summary === "object"
+        ? (pol.coverage_summary as Record<string, unknown>)
+        : null,
+    );
+    if (riderBundle.text) {
+      value += `, 특약 ${truncate(riderBundle.text, 80)}`;
+    }
 
     facts.push({
       customer_id: customerId,
@@ -220,9 +319,38 @@ export async function extractInsuranceFacts(
               ? (pol.coverage_summary as Record<string, unknown>).extractor_origin ?? null
               : null,
           is_coverage_sheet_bridge: isCoverageSheetBridgePolicy(pol),
+          riders: riderBundle.names,
+          rider_details: riderBundle.structured,
+          riders_text: riderBundle.text || null,
+          riders_status: riderBundle.status,
+          has_structured_riders: riderBundle.hasStructuredRiders,
         },
       }),
     });
+
+    if (riderBundle.hasStructuredRiders && riderBundle.text) {
+      facts.push({
+        customer_id: customerId,
+        fact_key: `insurance.policy.${pol.id}.riders`,
+        fact_value: truncate(riderBundle.text, 200),
+        fact_type: "insurance",
+        importance: "high",
+        source_table: "profile_insurance_policies",
+        source_record_id: pol.id,
+        confidence: 1.0,
+        metadata_json: buildMetadata({
+          consentType: consent.consent_type,
+          consentGranted: consent.consent_granted,
+          sourceRecordId: pol.id,
+          field: "policy_riders",
+          extra: {
+            riders: riderBundle.names,
+            rider_details: riderBundle.structured,
+            riders_status: riderBundle.status,
+          },
+        }),
+      });
+    }
   }
 
   return { facts, skipped: false };
