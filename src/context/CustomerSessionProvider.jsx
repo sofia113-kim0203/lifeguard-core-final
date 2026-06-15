@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { fetchLatestAnalysisJob } from "../lib/customerConversationalAnalysis.js";
 import { loadCustomerDashboardData } from "../lib/customerDashboard.js";
@@ -48,6 +48,10 @@ function withTimeout(promise, timeoutMs, timeoutMessage) {
   });
 }
 
+function hasCachedSessionData({ dashboardData, unifiedState, activeAnalysisJob }) {
+  return Boolean(dashboardData || unifiedState || activeAnalysisJob);
+}
+
 export function CustomerSessionProvider({ user, authSession = null, authLoading = false, children }) {
   const [dashboardData, setDashboardData] = useState(null);
   const [unifiedState, setUnifiedState] = useState(null);
@@ -56,6 +60,9 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
   const [loading, setLoading] = useState(Boolean(user));
   const [error, setError] = useState("");
   const [lastEvent, setLastEvent] = useState(null);
+  const sessionCacheRef = useRef({ dashboardData: null, unifiedState: null, activeAnalysisJob: null });
+
+  sessionCacheRef.current = { dashboardData, unifiedState, activeAnalysisJob };
 
   const refreshSession = useCallback(
     async ({ event = null, reloadJob = true } = {}) => {
@@ -80,7 +87,10 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         return null;
       }
 
-      setLoading(true);
+      const blockUiWithLoading = !hasCachedSessionData(sessionCacheRef.current);
+      if (blockUiWithLoading) {
+        setLoading(true);
+      }
       setError("");
       try {
         const { dashboard, unified } = await withTimeout(
@@ -111,7 +121,9 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         }
         return null;
       } finally {
-        setLoading(false);
+        if (blockUiWithLoading) {
+          setLoading(false);
+        }
       }
     },
     [user, authSession, authLoading],
