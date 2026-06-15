@@ -28,6 +28,11 @@ import {
 } from "./advisorBrain/advisorBrainResponder.js";
 import { isAdvisorConversationQuestion } from "./advisorBrain/advisorConversationResponder.js";
 import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
+import {
+  isCentralBrainActive,
+  mergeConversationMetadata,
+  runCentralBrainTurn,
+} from "./centralBrain/index.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -397,11 +402,27 @@ export async function handleConversationalQuestionRequest({
   );
   const advisorStoredOnlyMode = recommendationReasonMode || advisorConversationMode;
 
+  let centralBrainResult = null;
+
   // Direction1 Step2 — for analysis-type questions, run the live coverage/underwriting/
   // recommendation engines (same ones the screen uses) and ground the chat answer in the
-  // computed results. Step4/5 read-only modes skip live engine context.
+  // computed results. Step4/5 and Central Brain activated turns skip live engine context.
   let analysisContext = null;
-  if (!advisorStoredOnlyMode) {
+  if (isCentralBrainActive(env)) {
+    centralBrainResult = await runCentralBrainTurn({
+      question: trimmedQuestion,
+      supabase: adminClient,
+      customerId,
+      env,
+      fetchImpl,
+      memorySnapshot: snapshot,
+      cachePayload,
+      conversationHistory,
+      memoryVersion: snapshot.memory_version ?? 0,
+    });
+  }
+
+  if (!advisorStoredOnlyMode && !centralBrainResult?.activated) {
     try {
       const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
       analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
@@ -412,7 +433,9 @@ export async function handleConversationalQuestionRequest({
 
   let fastResponse = null;
 
-  if (shouldActivateAdvisorBrainForClassification(intentClassification, env, trimmedQuestion)) {
+  if (centralBrainResult?.activated && centralBrainResult?.ok && centralBrainResult?.message) {
+    fastResponse = centralBrainResult.message;
+  } else if (!isCentralBrainActive(env) && shouldActivateAdvisorBrainForClassification(intentClassification, env, trimmedQuestion)) {
     try {
       const advisorBrainResult = await buildAdvisorBrainAnswer({
         supabase: adminClient,
@@ -445,21 +468,21 @@ export async function handleConversationalQuestionRequest({
     });
   }
 
-  if (advisorStoredOnlyMode) {
+  if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {
     const initialResponseTimeMs = Date.now() - startedAt;
     const userMessage = await insertConversationMessage(adminClient, customerId, {
       role: "user",
       message: trimmedQuestion,
       metadata: { source: "customer_dashboard", phase: "phase26-2a" },
     });
-    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
-      role: "assistant",
-      message: fastResponse,
-      metadata: {
+    const assistantMetadata = mergeConversationMetadata(
+      {
         source: "conversational_background_analysis",
-        phase: "phase26-2a-fast",
-        recommendation_reason_mode: recommendationReasonMode,
-        advisor_conversation_mode: advisorConversationMode,
+        phase: centralBrainResult?.activated ? "central-brain-p2" : "phase26-2a-fast",
+        recommendation_reason_mode:
+          recommendationReasonMode || centralBrainResult?.recommendation_reason_mode === true,
+        advisor_conversation_mode:
+          advisorConversationMode || centralBrainResult?.advisor_conversation_mode === true,
         analysis_job_skipped: true,
         memory_version: snapshot.memory_version ?? 0,
         memory_fact_count: snapshot.fact_count ?? 0,
@@ -468,6 +491,12 @@ export async function handleConversationalQuestionRequest({
         cache_status: cachePayload.cache_status,
         initial_response_time_ms: initialResponseTimeMs,
       },
+      centralBrainResult?.metadata ?? {},
+    );
+    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "assistant",
+      message: fastResponse,
+      metadata: assistantMetadata,
     });
 
     return {
@@ -478,8 +507,12 @@ export async function handleConversationalQuestionRequest({
       initial_response_time_ms: initialResponseTimeMs,
       analysis_job_id: null,
       analysis_job: null,
-      recommendation_reason_mode: recommendationReasonMode,
-      advisor_conversation_mode: advisorConversationMode,
+      recommendation_reason_mode:
+        recommendationReasonMode || centralBrainResult?.recommendation_reason_mode === true,
+      advisor_conversation_mode:
+        advisorConversationMode || centralBrainResult?.advisor_conversation_mode === true,
+      central_brain_mode: centralBrainResult?.central_brain_mode ?? null,
+      central_brain_activated: centralBrainResult?.activated === true,
       job_skipped: true,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,
