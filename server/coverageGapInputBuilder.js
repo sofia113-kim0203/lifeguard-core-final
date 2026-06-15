@@ -2,6 +2,7 @@
  * Phase 26 Step 1B — Build Coverage Gap Engine input from Customer Memory.
  */
 import { isCoverageSheetBridgePolicy } from "./coverageSheetBridge.js";
+import { isEligibleRiderLabel } from "./coverageRiderPopulation.js";
 
 function normalizeText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -38,14 +39,84 @@ function policyStatusLabel(policy) {
   return "유지";
 }
 
+const RIDER_OBJECT_LABEL_KEYS = ["rider_name", "coverage_name"];
+
+function buildRiderEligibilityContext(policy) {
+  const fields = policy?.coverage_summary ?? {};
+  return {
+    insurer_name: policy?.insurer_name ?? null,
+    product_name: policy?.product_name ?? null,
+    plan_name: fields.plan_name ?? policy?.product_name ?? null,
+  };
+}
+
+function riderLabelFromObject(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  for (const key of RIDER_OBJECT_LABEL_KEYS) {
+    const text = normalizeText(entry[key]);
+    if (text && text !== "[object Object]") return text;
+  }
+  return "";
+}
+
+function acceptRiderLabel(label, context) {
+  if (!label || label === "[object Object]") return "";
+  return isEligibleRiderLabel(label, context) ? label : "";
+}
+
+function riderLabelFromEntry(entry, context) {
+  if (entry == null) return "";
+  if (typeof entry === "string") {
+    if (entry.includes("[object Object]")) return "";
+    return acceptRiderLabel(entry, context);
+  }
+  if (typeof entry === "object") {
+    return acceptRiderLabel(riderLabelFromObject(entry), context);
+  }
+  return "";
+}
+
+function isPureStringRiderArray(riders) {
+  return Array.isArray(riders) && riders.every((entry) => typeof entry === "string");
+}
+
+/**
+ * Normalize coverage_summary.riders for gap input (string[] contract).
+ * Pure string[] preserves join(",") parity; object/mixed uses rider_name/coverage_name only.
+ */
+export function normalizeRidersForGapInput(riders, context = {}) {
+  if (riders == null) return [];
+  if (isPureStringRiderArray(riders)) {
+    return riders.filter((entry) => typeof entry === "string" && !entry.includes("[object Object]"));
+  }
+  if (!Array.isArray(riders)) {
+    const label = riderLabelFromEntry(riders, context);
+    return label ? [label] : [];
+  }
+
+  const normalized = [];
+  const seen = new Set();
+  for (const entry of riders) {
+    const label = riderLabelFromEntry(entry, context);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    normalized.push(label);
+  }
+  return normalized;
+}
+
+function formatRidersForFactValue(riders, context) {
+  const normalized = normalizeRidersForGapInput(riders, context);
+  return normalized.length > 0 ? normalized.join(",") : "";
+}
+
 function buildPolicyFact(policy) {
   const insurer = normalizeText(policy.insurer_name);
   const product = normalizeText(policy.product_name);
   const type = normalizeText(policy.policy_type);
   const premium = policy.monthly_premium ?? policy.premium_amount;
-  const riders = Array.isArray(policy.coverage_summary?.riders)
-    ? policy.coverage_summary.riders.join(",")
-    : normalizeText(policy.coverage_summary?.riders ?? "");
+  const riderContext = buildRiderEligibilityContext(policy);
+  const riders = formatRidersForFactValue(policy.coverage_summary?.riders, riderContext);
   const status = policyStatusLabel(policy);
 
   return {
@@ -141,7 +212,10 @@ export function buildCoverageGapInputFromMemory({
     product_name: policy.product_name ?? null,
     policy_type: policy.policy_type ?? null,
     monthly_premium: policy.monthly_premium ?? policy.premium_amount ?? null,
-    riders: policy.coverage_summary?.riders ?? null,
+    riders: normalizeRidersForGapInput(
+      policy.coverage_summary?.riders,
+      buildRiderEligibilityContext(policy),
+    ),
     status: policyStatusLabel(policy),
     effective_from: policy.effective_from ?? policy.contract_date ?? null,
     is_active: policy.is_active !== false,
