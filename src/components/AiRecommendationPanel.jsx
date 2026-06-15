@@ -33,7 +33,12 @@ import {
   pickKeepExistingRecommendations,
   recommendationPanelHasTop2,
 } from "../lib/analysisPanelResult.js";
-import { jobBlocksPanelLoading, jobHasEnginePipeline } from "../lib/analysisPanelJobUtils.js";
+import {
+  jobBlocksPanelLoading,
+  jobHasEnginePipeline,
+  pickCompletedFallbackJob,
+  shouldDeferInFlightPanelApply,
+} from "../lib/analysisPanelJobUtils.js";
 import {
   hasClaudeExplanation,
   normalizeClaudeExplanationEntry,
@@ -348,6 +353,58 @@ async function fillRecommendationTop2Gap({ job, setRecResult }) {
     setRecResult(normalizeRecommendationPanelState(recData));
   } catch {
     // keep job-derived recommendation state
+  }
+}
+
+async function finalizeCompletedJobPanels(job, panelSetters, setRecResult, setRebalancingResult) {
+  await hydrateMissingClaudeExplanations(job, panelSetters);
+  const mapped = mapJobResultsToAnalysisPanels(job);
+  if (mapped?.recommendationResult) {
+    await fillRecommendationTop2Gap({ job, setRecResult });
+  }
+  if (mapped?.designBundle) {
+    const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
+    if (rebalancingData) setRebalancingResult(rebalancingData);
+  }
+}
+
+function runInFlightJobPolling({
+  jobId,
+  deferPanelApply,
+  isCancelled,
+  setAnalysisJob,
+  applyJobToState,
+  panelSetters,
+  setRecResult,
+  setRebalancingResult,
+}) {
+  return processAnalysisJobUntilComplete({
+    jobId,
+    onProgress: (job) => {
+      if (isCancelled() || !job) return;
+      setAnalysisJob(job);
+      if (!deferPanelApply) {
+        applyJobToState(job);
+      }
+    },
+  }).then(async (finalJob) => {
+    if (isCancelled() || !finalJob) return finalJob;
+    setAnalysisJob(finalJob);
+    applyJobToState(finalJob);
+    if (finalJob.status === "completed") {
+      await finalizeCompletedJobPanels(finalJob, panelSetters, setRecResult, setRebalancingResult);
+    }
+    return finalJob;
+  });
+}
+
+async function resolveCompletedFallbackForInFlight(inFlightJob) {
+  if (!jobBlocksPanelLoading(inFlightJob)) return null;
+  try {
+    const latestFromApi = await fetchLatestAnalysisJob();
+    return pickCompletedFallbackJob(inFlightJob, latestFromApi);
+  } catch {
+    return null;
   }
 }
 
@@ -667,55 +724,56 @@ export default function AiRecommendationPanel({
 
       if (latestJob) {
         setAnalysisJob(latestJob);
+
         if (jobBlocksPanelLoading(latestJob)) {
-          clearPanelResults();
-          return;
-        }
+          const completedFallback = await resolveCompletedFallbackForInFlight(latestJob);
+          const deferPanelApply = shouldDeferInFlightPanelApply(latestJob, completedFallback);
 
-        if (
-          (latestJob.status === "processing" || latestJob.status === "queued") &&
-          jobHasEnginePipeline(latestJob)
-        ) {
-          if (jobHasEnginePanelResults(latestJob)) {
-            panelsAppliedFromJob = applyJobToState(latestJob);
-          }
-          setLoading(false);
-          let finalJob = latestJob;
-          try {
-            finalJob =
-              (await processAnalysisJobUntilComplete({
-                jobId: latestJob.id,
-                onProgress: (job) => {
-                  if (!job) return;
-                  setAnalysisJob(job);
-                  if (applyJobToState(job)) {
-                    panelsAppliedFromJob = true;
-                  }
-                },
-              })) ?? latestJob;
-          } catch (pollErr) {
-            if (!panelsAppliedFromJob && jobHasEnginePanelResults(latestJob)) {
-              panelsAppliedFromJob = applyJobToState(latestJob);
+          if (completedFallback) {
+            panelsAppliedFromJob = applyJobToState(completedFallback);
+            latestJobForRecovery = completedFallback;
+            if (panelsAppliedFromJob) {
+              void finalizeCompletedJobPanels(
+                completedFallback,
+                panelSetters,
+                setRecResult,
+                setRebalancingResult,
+              );
             }
-            setError(
-              toCustomerErrorMessage(
-                pollErr,
-                "백그라운드 분석 진행을 이어가지 못했습니다. 아래는 이미 생성된 분석 결과입니다.",
-              ),
-            );
-            finalJob = latestJob;
+          } else {
+            clearPanelResults();
           }
 
-          const jobForPanels = finalJob ?? latestJob;
-          if (finalJob) setAnalysisJob(finalJob);
-          if (applyJobToState(jobForPanels)) {
-            panelsAppliedFromJob = true;
-            await hydrateMissingClaudeExplanations(jobForPanels, panelSetters);
-            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
-            if (rebalancingData) setRebalancingResult(rebalancingData);
-            await fillRecommendationTop2Gap({ job: jobForPanels, setRecResult });
-          } else if (!panelsAppliedFromJob) {
-            await loadPanelDataFromApis({ skipClaude: true });
+          setLoading(false);
+
+          if (jobHasEnginePipeline(latestJob) && latestJob.id) {
+            try {
+              const finalJob =
+                (await runInFlightJobPolling({
+                  jobId: latestJob.id,
+                  deferPanelApply,
+                  isCancelled: () => false,
+                  setAnalysisJob,
+                  applyJobToState,
+                  panelSetters,
+                  setRecResult,
+                  setRebalancingResult,
+                })) ?? latestJob;
+              if (finalJob.status === "completed") {
+                panelsAppliedFromJob = true;
+                latestJobForRecovery = finalJob;
+              }
+            } catch (pollErr) {
+              if (!deferPanelApply && !panelsAppliedFromJob && jobHasEnginePanelResults(latestJob)) {
+                panelsAppliedFromJob = applyJobToState(latestJob);
+              }
+              setError(
+                toCustomerErrorMessage(
+                  pollErr,
+                  "백그라운드 분석 진행을 이어가지 못했습니다. 아래는 이미 생성된 분석 결과입니다.",
+                ),
+              );
+            }
           }
           return;
         }
@@ -765,73 +823,88 @@ export default function AiRecommendationPanel({
   useEffect(() => {
     if (!resolvedExternalJob) return undefined;
 
-    setAnalysisJob(resolvedExternalJob);
+    let cancelled = false;
+    const isCancelled = () => cancelled;
 
-    if (jobBlocksPanelLoading(resolvedExternalJob)) {
-      clearPanelResults();
-      setLoading(false);
-      return undefined;
-    }
+    void (async () => {
+      const inFlightJob = resolvedExternalJob;
+      setAnalysisJob(inFlightJob);
 
-    if (
-      (resolvedExternalJob.status === "queued" || resolvedExternalJob.status === "processing") &&
-      jobHasEnginePipeline(resolvedExternalJob)
-    ) {
-      let cancelled = false;
-      void processAnalysisJobUntilComplete({
-        jobId: resolvedExternalJob.id,
-        onProgress: (job) => {
-          if (cancelled || !job) return;
-          setAnalysisJob(job);
-          applyJobToState(job);
-        },
-      })
-        .then(async (finalJob) => {
-          if (cancelled || !finalJob) return;
-          setAnalysisJob(finalJob);
-          applyJobToState(finalJob);
-          if (finalJob.status === "completed") {
-            await hydrateMissingClaudeExplanations(finalJob, panelSetters);
-            await fillRecommendationTop2Gap({ job: finalJob, setRecResult });
-            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
-            if (rebalancingData) setRebalancingResult(rebalancingData);
+      if (jobBlocksPanelLoading(inFlightJob)) {
+        const completedFallback = await resolveCompletedFallbackForInFlight(inFlightJob);
+        if (cancelled) return;
+
+        const deferPanelApply = shouldDeferInFlightPanelApply(inFlightJob, completedFallback);
+        if (completedFallback) {
+          applyJobToState(completedFallback);
+          setLoading(false);
+          setError("");
+          void finalizeCompletedJobPanels(
+            completedFallback,
+            panelSetters,
+            setRecResult,
+            setRebalancingResult,
+          );
+        } else {
+          clearPanelResults();
+          setLoading(false);
+        }
+
+        if (jobHasEnginePipeline(inFlightJob) && inFlightJob.id) {
+          try {
+            await runInFlightJobPolling({
+              jobId: inFlightJob.id,
+              deferPanelApply,
+              isCancelled,
+              setAnalysisJob,
+              applyJobToState,
+              panelSetters,
+              setRecResult,
+              setRebalancingResult,
+            });
+          } catch {
+            if (!deferPanelApply) {
+              applyJobToState(inFlightJob);
+            }
           }
-        })
-        .catch(() => {
-          if (cancelled) return;
-          applyJobToState(resolvedExternalJob);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (resolvedExternalJob.status === "completed" && jobHasEnginePanelResults(resolvedExternalJob)) {
-      const applied = applyJobToState(resolvedExternalJob);
-      if (applied) {
-        setLoading(false);
-        setError("");
-        void loadRebalancingPanel({ skipClaude: true }).then((data) => {
-          if (data) setRebalancingResult(data);
-        });
-        void hydrateMissingClaudeExplanations(resolvedExternalJob, panelSetters);
-        void fillRecommendationTop2Gap({ job: resolvedExternalJob, setRecResult });
-        return undefined;
+        }
+        return;
       }
-    }
 
-    if (!jobHasEnginePanelResults(resolvedExternalJob)) {
-      void loadPanelDataFromApis()
-        .then(() => setError(""))
-        .catch((err) => {
-          setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
-        })
-        .finally(() => setLoading(false));
-      return undefined;
-    }
+      if (inFlightJob.status === "completed" && jobHasEnginePanelResults(inFlightJob)) {
+        const applied = applyJobToState(inFlightJob);
+        if (applied) {
+          setLoading(false);
+          setError("");
+          void loadRebalancingPanel({ skipClaude: true }).then((data) => {
+            if (data) setRebalancingResult(data);
+          });
+          void hydrateMissingClaudeExplanations(inFlightJob, panelSetters);
+          void fillRecommendationTop2Gap({ job: inFlightJob, setRecResult });
+        }
+        return;
+      }
 
-    setLoading(false);
-    return undefined;
+      if (!jobHasEnginePanelResults(inFlightJob)) {
+        try {
+          await loadPanelDataFromApis();
+          if (!cancelled) setError("");
+        } catch (err) {
+          if (!cancelled) {
+            setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [externalJobSnapshotKey, applyJobToState, clearPanelResults, loadPanelDataFromApis]);
 
   const displayJob = analysisJob ?? resolvedExternalJob;
