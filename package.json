@@ -62,7 +62,8 @@
     "test:advisor-brain-p1-step2": "node scripts/advisor-brain-p1-step2-coverage-gap-test.mjs",
     "test:advisor-brain-p1-step3": "node scripts/advisor-brain-p1-step3-factual-test.mjs",
     "test:advisor-brain-p1-step4": "node scripts/advisor-brain-p1-step4-recommendation-reason-test.mjs",
-    "test:advisor-brain-p1-step5": "node scripts/advisor-brain-p1-step5-conversation-test.mjs"
+    "test:advisor-brain-p1-step5": "node scripts/advisor-brain-p1-step5-conversation-test.mjs",
+    "test:advisor-brain-counselor-tone": "node scripts/advisor-brain-counselor-tone-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

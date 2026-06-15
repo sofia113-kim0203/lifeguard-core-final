@@ -16,6 +16,7 @@ const ROUTING_CASES = [
   { question: "안녕하세요", intent: "casual_chat", manifest: [], matched_rule: "casual_greeting" },
   { question: "고마워", intent: "casual_chat", manifest: [], matched_rule: "casual_thanks" },
   { question: "오늘 힘드네", intent: "casual_chat", manifest: [], matched_rule: "casual_emotion_check" },
+  { question: "잠이 안 온다", intent: "casual_chat", manifest: [], matched_rule: "casual_emotion_check" },
   {
     question: "보험료 줄이고 싶어",
     intent: "general_consultation",
