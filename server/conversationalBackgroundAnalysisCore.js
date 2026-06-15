@@ -26,6 +26,7 @@ import {
   buildAdvisorBrainAnswer,
   shouldActivateAdvisorBrainForClassification,
 } from "./advisorBrain/advisorBrainResponder.js";
+import { isAdvisorConversationQuestion } from "./advisorBrain/advisorConversationResponder.js";
 import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
@@ -390,12 +391,17 @@ export async function handleConversationalQuestionRequest({
     intentClassification,
     trimmedQuestion,
   );
+  const advisorConversationMode = isAdvisorConversationQuestion(
+    intentClassification,
+    trimmedQuestion,
+  );
+  const advisorStoredOnlyMode = recommendationReasonMode || advisorConversationMode;
 
   // Direction1 Step2 — for analysis-type questions, run the live coverage/underwriting/
   // recommendation engines (same ones the screen uses) and ground the chat answer in the
-  // computed results. Step4 recommendation_reason is explain-only: skip live engine context.
+  // computed results. Step4/5 read-only modes skip live engine context.
   let analysisContext = null;
-  if (!recommendationReasonMode) {
+  if (!advisorStoredOnlyMode) {
     try {
       const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
       analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
@@ -439,7 +445,7 @@ export async function handleConversationalQuestionRequest({
     });
   }
 
-  if (recommendationReasonMode) {
+  if (advisorStoredOnlyMode) {
     const initialResponseTimeMs = Date.now() - startedAt;
     const userMessage = await insertConversationMessage(adminClient, customerId, {
       role: "user",
@@ -452,7 +458,8 @@ export async function handleConversationalQuestionRequest({
       metadata: {
         source: "conversational_background_analysis",
         phase: "phase26-2a-fast",
-        recommendation_reason_mode: true,
+        recommendation_reason_mode: recommendationReasonMode,
+        advisor_conversation_mode: advisorConversationMode,
         analysis_job_skipped: true,
         memory_version: snapshot.memory_version ?? 0,
         memory_fact_count: snapshot.fact_count ?? 0,
@@ -471,7 +478,8 @@ export async function handleConversationalQuestionRequest({
       initial_response_time_ms: initialResponseTimeMs,
       analysis_job_id: null,
       analysis_job: null,
-      recommendation_reason_mode: true,
+      recommendation_reason_mode: recommendationReasonMode,
+      advisor_conversation_mode: advisorConversationMode,
       job_skipped: true,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,
