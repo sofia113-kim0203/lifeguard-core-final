@@ -730,6 +730,46 @@ export async function postResultMessageIfNeededForTest(adminClient, customerId, 
   return postResultMessageIfNeeded(adminClient, customerId, job);
 }
 
+/** True when result_json contains at least one engine panel payload. */
+export function isDisplayableAnalysisJob(job) {
+  const result = job?.result_json ?? {};
+  return Boolean(
+    result.recommendation ||
+      result.insurance_design ||
+      result.coverage_gap ||
+      result.underwriting_risk,
+  );
+}
+
+/** Lower tier wins when selecting among completed jobs (1 = highest priority). */
+export function analysisJobDisplayTier(job) {
+  const result = job?.result_json ?? {};
+  if (result.recommendation || result.insurance_design) return 1;
+  if (result.coverage_gap || result.underwriting_risk) return 2;
+  return 3;
+}
+
+/**
+ * Pick the best completed job for panel display, then fall back to latest-any.
+ * `completedJobs` must be ordered newest-first (created_at DESC).
+ */
+export function selectDisplayableAnalysisJob(completedJobs = [], latestAnyJob = null) {
+  const completed = Array.isArray(completedJobs) ? completedJobs : [];
+
+  for (const tier of [1, 2]) {
+    const match = completed.find(
+      (job) => isDisplayableAnalysisJob(job) && analysisJobDisplayTier(job) === tier,
+    );
+    if (match) return match;
+  }
+
+  if (completed.length > 0) {
+    return completed[0];
+  }
+
+  return latestAnyJob ?? null;
+}
+
 export async function handleLatestAnalysisJobRequest({
   authHeader,
   env = process.env,
@@ -752,26 +792,22 @@ export async function handleLatestAnalysisJobRequest({
   const adminClient = adminSupabase ?? createServiceRoleSupabaseClient(env) ?? userSupabase;
 
   // The recommendation screen renders panel results from a job's result_json, but the NEWEST
-  // job is often still 'processing' (e.g. stuck at result_claude) carrying only partial
-  // results — which makes the panel show "분석 중 / 결과 없음" even though an older COMPLETED
-  // job already holds all four panel results (coverage_gap / underwriting_risk /
-  // recommendation / insurance_design). Prefer the latest COMPLETED job so the panel shows
-  // real analysis; fall back to the newest job of any status only when none has completed.
+  // completed job is often result_claude-only (partial) while an older COMPLETED job holds
+  // full panel results. Scan recent completed jobs and pick the best displayable payload.
   const { data: completedRows, error: completedError } = await adminClient
     .from("analysis_jobs")
     .select("*")
     .eq("customer_id", customerId)
     .eq("status", "completed")
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(20);
 
   if (completedError) {
     return { ok: false, reason: "JOB_LOOKUP_FAILED", error_message: completedError.message };
   }
 
-  let data = Array.isArray(completedRows) && completedRows.length > 0 ? completedRows[0] : null;
-
-  if (!data) {
+  let latestAnyJob = null;
+  if (!Array.isArray(completedRows) || completedRows.length === 0) {
     const { data: latestRows, error: latestError } = await adminClient
       .from("analysis_jobs")
       .select("*")
@@ -783,8 +819,10 @@ export async function handleLatestAnalysisJobRequest({
       return { ok: false, reason: "JOB_LOOKUP_FAILED", error_message: latestError.message };
     }
 
-    data = Array.isArray(latestRows) && latestRows.length > 0 ? latestRows[0] : null;
+    latestAnyJob = Array.isArray(latestRows) && latestRows.length > 0 ? latestRows[0] : null;
   }
+
+  const data = selectDisplayableAnalysisJob(completedRows ?? [], latestAnyJob);
 
   const serviceRoleClient = adminSupabase ?? createServiceRoleSupabaseClient(env);
   const refreshedJob = data
