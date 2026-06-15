@@ -104,20 +104,20 @@ async function retireUploadExtractPolicies(admin, customerId, policyIds) {
   return retired;
 }
 
-async function persistExtractedPolicies(admin, customerId, documentId, multiExtraction) {
+export async function persistExtractedPolicies(admin, customerId, documentId, multiExtraction) {
   const candidates = multiExtraction.policies ?? [];
   const existingRows = await loadUploadExtractPoliciesForDocument(admin, customerId, documentId);
   const actions = [];
   const activeKeys = [];
 
   for (const candidate of candidates) {
-    const row = buildPolicyRowFromCandidate(customerId, documentId, candidate, existing?.coverage_summary);
     const { row: existing, upload_extract_key: uploadExtractKey } = resolveExistingPolicyForCandidate(
       existingRows,
       documentId,
       candidate,
       candidates.length,
     );
+    const row = buildPolicyRowFromCandidate(customerId, documentId, candidate, existing?.coverage_summary);
     activeKeys.push(uploadExtractKey);
 
     if (existing?.id) {
