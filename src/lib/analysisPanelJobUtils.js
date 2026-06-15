@@ -53,3 +53,27 @@ export function jobBlocksPanelLoading(job) {
   const inFlight = job.status === "processing" || job.status === "queued";
   return inFlight && jobHasEnginePipeline(job);
 }
+
+/** Completed engine job suitable for panel display while a newer job is in flight. */
+export function isCompletedPanelFallbackJob(job) {
+  if (!job || job.status !== "completed") return false;
+  return jobHasEnginePanelResults(job);
+}
+
+/**
+ * When session/external carries a newer in-flight engine job, pick a completed job from
+ * fetchLatestAnalysisJob (backend completed-first) to keep panels populated.
+ */
+export function pickCompletedFallbackJob(inFlightJob, latestJobFromApi) {
+  if (!jobBlocksPanelLoading(inFlightJob)) return null;
+  if (!isCompletedPanelFallbackJob(latestJobFromApi)) return null;
+  if (inFlightJob?.id && latestJobFromApi?.id && inFlightJob.id === latestJobFromApi.id) {
+    return null;
+  }
+  return latestJobFromApi;
+}
+
+/** Defer applying in-flight partial results when a completed fallback is on screen. */
+export function shouldDeferInFlightPanelApply(inFlightJob, completedFallbackJob) {
+  return Boolean(completedFallbackJob && jobBlocksPanelLoading(inFlightJob));
+}
