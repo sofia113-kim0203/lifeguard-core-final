@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   analyzeCustomerCoverageGap,
   GAP_LEVEL_LABELS,
@@ -34,10 +34,12 @@ import {
   recommendationPanelHasTop2,
 } from "../lib/analysisPanelResult.js";
 import {
+  isDisplayablePanelJob,
   jobBlocksPanelLoading,
   jobHasEnginePipeline,
   pickCompletedFallbackJob,
   shouldDeferInFlightPanelApply,
+  shouldReplacePanelJobWithBackground,
 } from "../lib/analysisPanelJobUtils.js";
 import {
   hasClaudeExplanation,
@@ -408,6 +410,67 @@ async function resolveCompletedFallbackForInFlight(inFlightJob) {
   }
 }
 
+function analysisOneShotHasEnginePanels(analysis) {
+  return Boolean(
+    analysis &&
+      (analysis.coverage_gap ||
+        analysis.underwriting_risk ||
+        analysis.recommendation ||
+        analysis.insurance_design),
+  );
+}
+
+function resolveSyncInstantDisplayableJob(resolvedExternalJob) {
+  if (resolvedExternalJob?.status === "completed" && isDisplayablePanelJob(resolvedExternalJob)) {
+    return resolvedExternalJob;
+  }
+  return null;
+}
+
+async function resolveInstantDisplayableJob(resolvedExternalJob) {
+  const syncJob = resolveSyncInstantDisplayableJob(resolvedExternalJob);
+  if (syncJob) return syncJob;
+  if (jobBlocksPanelLoading(resolvedExternalJob)) return null;
+  try {
+    const latest = await fetchLatestAnalysisJob();
+    if (latest?.status === "completed" && isDisplayablePanelJob(latest)) {
+      return latest;
+    }
+  } catch {
+    // Optional latest job — legacy fallback still applies.
+  }
+  return null;
+}
+
+async function refreshPanelsFromBackgroundOneShot({
+  currentDisplayedJob,
+  applyJobToState,
+  panelSetters,
+  setRecResult,
+  setRebalancingResult,
+  onReplaced,
+}) {
+  try {
+    const analysis = await loadAllCustomerAnalysis();
+    if (!analysisOneShotHasEnginePanels(analysis)) return;
+
+    const backgroundJob = { result_json: analysis };
+    if (!shouldReplacePanelJobWithBackground(currentDisplayedJob, backgroundJob)) return;
+
+    const applied = applyJobToState(backgroundJob);
+    if (!applied) return;
+
+    onReplaced?.(backgroundJob);
+    const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
+    if (rebalancingData) setRebalancingResult(rebalancingData);
+    void hydrateMissingClaudeExplanations(backgroundJob, panelSetters)
+      .then(() => fillRecommendationTop2Gap({ job: backgroundJob, setRecResult }))
+      .catch(() => {});
+  } catch {
+    // Background refresh failure keeps the instant cache on screen.
+  }
+}
+
 function applyJobResultsToPanelState(job, setters) {
   const mapped = mapJobResultsToAnalysisPanels(job);
   if (!mapped) return false;
@@ -593,8 +656,12 @@ export default function AiRecommendationPanel({
 }) {
   const session = useOptionalCustomerSession();
   const sessionAnalysisJob = useSessionJob ? session?.activeAnalysisJob ?? null : null;
+  const sessionRefreshKey = useSessionJob
+    ? [session?.memoryVersion ?? "", session?.stateHash ?? "", sessionAnalysisJob?.id ?? ""].join("|")
+    : "";
   const resolvedExternalJob = externalAnalysisJob ?? sessionAnalysisJob;
-  const [loading, setLoading] = useState(true);
+  const syncInstantJob = user ? resolveSyncInstantDisplayableJob(resolvedExternalJob) : null;
+  const [loading, setLoading] = useState(() => !syncInstantJob);
   const [error, setError] = useState("");
   const [gapResult, setGapResult] = useState(null);
   const [uwResult, setUwResult] = useState(null);
@@ -602,6 +669,7 @@ export default function AiRecommendationPanel({
   const [designResult, setDesignResult] = useState(null);
   const [rebalancingResult, setRebalancingResult] = useState(null);
   const [analysisJob, setAnalysisJob] = useState(null);
+  const displayedPanelJobRef = useRef(null);
 
   useEffect(() => {
     const debugPayload = {
@@ -624,6 +692,17 @@ export default function AiRecommendationPanel({
   const applyJobToState = useCallback((job) => {
     return applyJobResultsToPanelState(job, panelSetters);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!user) return;
+    const cacheJob = resolveSyncInstantDisplayableJob(resolvedExternalJob);
+    if (!cacheJob) return;
+    if (applyJobToState(cacheJob)) {
+      displayedPanelJobRef.current = cacheJob;
+      setAnalysisJob(cacheJob);
+      setLoading(false);
+    }
+  }, [user, sessionRefreshKey, resolvedExternalJob, applyJobToState]);
 
   const loadPanelDataFromApis = useCallback(async ({ skipClaude = false } = {}) => {
     const [gapRes, uwRes, recRes, designRes, rebalancingRes] = await Promise.allSettled([
@@ -669,49 +748,45 @@ export default function AiRecommendationPanel({
   const loadInitialAnalysis = useCallback(async () => {
     if (!user) {
       clearPanelResults();
+      displayedPanelJobRef.current = null;
       setLoading(false);
       setError("로그인이 필요합니다.");
       return;
     }
 
-    setLoading(true);
     setError("");
     let panelsAppliedFromJob = false;
     let latestJobForRecovery = null;
 
-    try {
-      // Fast path: a single server-side call computes all panels at once (no analysis_job, no
-      // per-stage polling). If it returns engine results, render immediately. Any failure falls
-      // through to the legacy job/polling flow below, so behavior never regresses.
-      try {
-        const analysis = await loadAllCustomerAnalysis();
-        if (
-          analysis &&
-          (analysis.coverage_gap ||
-            analysis.underwriting_risk ||
-            analysis.recommendation ||
-            analysis.insurance_design)
-        ) {
-          const applied = applyJobToState({ result_json: analysis });
-          if (applied) {
-            const oneshotJob = { result_json: analysis };
-            const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
-            if (rebalancingData) setRebalancingResult(rebalancingData);
-            setLoading(false);
-            setError("");
-            // Engine panels are rendered immediately. Fetch the Claude explanations and the
-            // recommendation Top2 gap fill in the background (fire-and-forget) so neither
-            // blocks the instant render and a Claude failure never holds the screen.
-            void hydrateMissingClaudeExplanations(oneshotJob, panelSetters)
-              .then(() => fillRecommendationTop2Gap({ job: oneshotJob, setRecResult }))
-              .catch(() => {});
-            return;
-          }
-        }
-      } catch {
-        // One-shot endpoint unavailable — continue to the legacy job/polling flow.
-      }
+    const instantJob = await resolveInstantDisplayableJob(resolvedExternalJob);
+    if (instantJob) {
+      panelsAppliedFromJob = applyJobToState(instantJob);
+      latestJobForRecovery = instantJob;
+      displayedPanelJobRef.current = instantJob;
+      setAnalysisJob(instantJob);
+      setLoading(false);
+      void refreshPanelsFromBackgroundOneShot({
+        currentDisplayedJob: instantJob,
+        applyJobToState,
+        panelSetters,
+        setRecResult,
+        setRebalancingResult,
+        onReplaced: (job) => {
+          displayedPanelJobRef.current = job;
+        },
+      });
+    } else {
+      setLoading(true);
+    }
 
+    const inFlightExternalJob = jobBlocksPanelLoading(resolvedExternalJob) ? resolvedExternalJob : null;
+
+    if (instantJob && !inFlightExternalJob) {
+      void finalizeCompletedJobPanels(instantJob, panelSetters, setRecResult, setRebalancingResult);
+      return;
+    }
+
+    try {
       let latestJob = resolvedExternalJob ?? null;
       if (!latestJob) {
         try {
@@ -720,7 +795,7 @@ export default function AiRecommendationPanel({
           // Latest chat job is optional; cache/API fallback still applies.
         }
       }
-      latestJobForRecovery = latestJob;
+      latestJobForRecovery = latestJob ?? latestJobForRecovery;
 
       if (latestJob) {
         setAnalysisJob(latestJob);
@@ -732,6 +807,7 @@ export default function AiRecommendationPanel({
           if (completedFallback) {
             panelsAppliedFromJob = applyJobToState(completedFallback);
             latestJobForRecovery = completedFallback;
+            displayedPanelJobRef.current = completedFallback;
             if (panelsAppliedFromJob) {
               void finalizeCompletedJobPanels(
                 completedFallback,
@@ -740,8 +816,9 @@ export default function AiRecommendationPanel({
                 setRebalancingResult,
               );
             }
-          } else {
+          } else if (!instantJob) {
             clearPanelResults();
+            displayedPanelJobRef.current = null;
           }
 
           setLoading(false);
@@ -762,6 +839,7 @@ export default function AiRecommendationPanel({
               if (finalJob.status === "completed") {
                 panelsAppliedFromJob = true;
                 latestJobForRecovery = finalJob;
+                displayedPanelJobRef.current = finalJob;
               }
             } catch (pollErr) {
               if (!deferPanelApply && !panelsAppliedFromJob && jobHasEnginePanelResults(latestJob)) {
@@ -778,20 +856,37 @@ export default function AiRecommendationPanel({
           return;
         }
 
-        if (latestJob.status === "completed" && jobHasEnginePanelResults(latestJob)) {
+        if (
+          !instantJob &&
+          latestJob.status === "completed" &&
+          jobHasEnginePanelResults(latestJob)
+        ) {
           const applied = applyJobToState(latestJob);
           if (applied) {
             panelsAppliedFromJob = true;
+            displayedPanelJobRef.current = latestJob;
             const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
             if (rebalancingData) setRebalancingResult(rebalancingData);
             await hydrateMissingClaudeExplanations(latestJob, panelSetters);
             await fillRecommendationTop2Gap({ job: latestJob, setRecResult });
+            void refreshPanelsFromBackgroundOneShot({
+              currentDisplayedJob: latestJob,
+              applyJobToState,
+              panelSetters,
+              setRecResult,
+              setRebalancingResult,
+              onReplaced: (job) => {
+                displayedPanelJobRef.current = job;
+              },
+            });
             return;
           }
         }
       }
 
-      await loadPanelDataFromApis();
+      if (!instantJob) {
+        await loadPanelDataFromApis();
+      }
       setError("");
     } catch (err) {
       const keepPanels =
@@ -800,12 +895,21 @@ export default function AiRecommendationPanel({
         isCustomerUnauthorizedError(err);
       if (!keepPanels) {
         clearPanelResults();
+        displayedPanelJobRef.current = null;
       }
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
       setLoading(false);
     }
-  }, [user, resolvedExternalJob, applyJobToState, loadPanelDataFromApis, clearPanelResults]);
+  }, [
+    user,
+    sessionRefreshKey,
+    resolvedExternalJob,
+    applyJobToState,
+    loadPanelDataFromApis,
+    clearPanelResults,
+    panelSetters,
+  ]);
 
   useEffect(() => {
     void loadInitialAnalysis();

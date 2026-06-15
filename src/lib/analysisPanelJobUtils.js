@@ -77,3 +77,29 @@ export function pickCompletedFallbackJob(inFlightJob, latestJobFromApi) {
 export function shouldDeferInFlightPanelApply(inFlightJob, completedFallbackJob) {
   return Boolean(completedFallbackJob && jobBlocksPanelLoading(inFlightJob));
 }
+
+/** True when result_json contains at least one engine panel payload (client mirror of server helper). */
+export function isDisplayablePanelJob(job) {
+  const result = job?.result_json ?? {};
+  return Boolean(
+    result.recommendation ||
+      result.insurance_design ||
+      result.coverage_gap ||
+      result.underwriting_risk,
+  );
+}
+
+/** Lower tier = higher display priority (1 = rec/design, 2 = gap/uw, 3 = other). */
+export function panelJobDisplayTier(job) {
+  const result = job?.result_json ?? {};
+  if (result.recommendation || result.insurance_design) return 1;
+  if (result.coverage_gap || result.underwriting_risk) return 2;
+  return 3;
+}
+
+/** Background refresh may replace on-screen job only when tier is equal or better (lower number). */
+export function shouldReplacePanelJobWithBackground(currentJob, backgroundJob) {
+  if (!isDisplayablePanelJob(backgroundJob)) return false;
+  if (!currentJob || !isDisplayablePanelJob(currentJob)) return true;
+  return panelJobDisplayTier(backgroundJob) <= panelJobDisplayTier(currentJob);
+}
