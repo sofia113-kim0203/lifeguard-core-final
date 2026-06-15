@@ -22,8 +22,9 @@ import {
   buildPolicyRowFromSheetRow,
   buildSheetUploadExtractKey,
   resolveExistingSheetPolicyForRow,
+  resolveSheetRowMonthlyPremium,
 } from "../server/coverageSheetPersist.js";
-import { buildUploadExtractKey } from "../server/documentPolicyUploadPersist.js";
+import { buildPolicyRowFromCandidate, buildUploadExtractKey } from "../server/documentPolicyUploadPersist.js";
 import { buildCoverageGapInputFromMemory } from "../server/coverageGapInputBuilder.js";
 import { isCoverageSheetBridgePolicy as isBridgeFromUnified } from "../server/unifiedCustomerState.js";
 
@@ -133,7 +134,51 @@ const tests = [
 
     const policyRow = buildPolicyRowFromSheetRow("cust-1", documentId, row);
     assert(policyRow.source === "upload_extract", "source column must stay upload_extract");
+    assert(policyRow.monthly_premium == null, "amount_value alone must not set monthly_premium");
     assert(isCoverageSheetBridgePolicy(policyRow), "persisted row must be bridge-identifiable");
+  }],
+  ["PR-1 amount_value only does not persist monthly_premium", () => {
+    assert(resolveSheetRowMonthlyPremium({ amount_value: 92490, amount_unit: "won" }) == null, "amount_value is not premium");
+    const policyRow = buildPolicyRowFromSheetRow("cust-1", documentId, {
+      row_index: 0,
+      insurer_name: "메리츠화재",
+      amount_value: 208330,
+      amount_unit: "won",
+    });
+    assert(policyRow.monthly_premium == null, "persist row must leave monthly_premium null");
+  }],
+  ["PR-1 explicit premium fields persist monthly_premium", () => {
+    assert(
+      resolveSheetRowMonthlyPremium({ extracted: { monthly_premium: 85000 } }) === 85000,
+      "extracted.monthly_premium",
+    );
+    assert(resolveSheetRowMonthlyPremium({ premium_amount: 42000 }) === 42000, "row.premium_amount");
+    assert(
+      resolveSheetRowMonthlyPremium({ extracted: { total_premium: "125000" } }) === 125000,
+      "extracted.total_premium",
+    );
+    const policyRow = buildPolicyRowFromSheetRow("cust-1", documentId, {
+      row_index: 1,
+      insurer_name: "메리츠화재",
+      amount_value: 92490,
+      extracted: { monthly_premium: 85000 },
+    });
+    assert(policyRow.monthly_premium === 85000, "premium stored when explicit field present");
+    assert(policyRow.coverage_summary.amount_value === 92490, "amount_value still stored separately");
+  }],
+  ["PR-1 OCR-policy persist path unchanged", () => {
+    const certRow = buildPolicyRowFromCandidate("cust-1", documentId, {
+      fields: {
+        insurer_name: "삼성생명",
+        product_name: "실손의료비",
+        monthly_premium: 45000,
+      },
+      riders: [],
+      confidence: 0.9,
+      tier: "full",
+    });
+    assert(certRow.monthly_premium === 45000, "OCR-policy monthly_premium unchanged");
+    assert(!isCoverageSheetBridgePolicy(certRow), "cert row is not sheet bridge");
   }],
   ["sheet upload_extract_key namespace differs from cert", () => {
     const sheetKey = buildSheetUploadExtractKey(documentId, {
