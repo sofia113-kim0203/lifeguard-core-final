@@ -79,6 +79,7 @@ const RECOMMEND_SIGNAL =
   /뭘\s*가입|무엇을\s*가입|뭐\s*가입|가입해야|들어야|추천|추천해|뭐가\s*부족|어떤\s*보험|어떤\s*보장|보완|보완해야|필요한\s*보험|필요한\s*보장/;
 const DESIGN_SIGNAL =
   /설계안|설계\s*해|설계해|보험설계|플랜\s*짜|구성해|월\s*보험료|보험료\s*맞|예산.{0,6}(맞|기준|으로)|포트폴리오|리밸런싱|재구성/;
+const DESIGN_REVIEW_SIGNAL = /설계\s*(?:다시\s*)?봐(?:줘)?|보험\s*설계(?:해(?:줘)?)?/;
 const CLAIM_ELIGIBILITY_SIGNAL =
   /(보험금|청구|지급|클레임).{0,20}(가능|받을\s*수|나올|될까|되나|돼요|되나요|돼\?)/;
 const CLAIM_RECEIPT_SIGNAL =
@@ -90,7 +91,7 @@ const CLAIM_TOPIC_EVENT_SIGNAL =
 const CLAIM_TERMS_SIGNAL = /약관.{0,16}(지급|보장).{0,16}(되나|될까|가능)/;
 const CLAIM_DIRECT_SIGNAL = /청구\s*가능/;
 const COVERAGE_REVIEW_SIGNAL =
-  /보장\s*(분석|점검|확인|검토|상태|현황)|보장분석|내보험\s*보장|내\s*보장\s*(봐|봐줘|알려|확인)|내\s*보험\s*분석|보장\s*봐/;
+  /보장\s*(분석|점검|확인|검토|상태|현황)|보장분석|내보험\s*보장|내\s*보장\s*(봐|봐줘|알려|확인)|내\s*보험\s*분석|보장\s*봐|보험\s*(?:점검|진단|검토)|전체\s*(?:분석|검토|점검)|내\s*보험\s*(?:진단|검토|분석)|보장\s*점검/i;
 const POLICY_DETAIL_SIGNAL =
   /내\s*보험\s*(?:알려|목록|확인)|내가\s*(?:가입한\s*보험(?:은)?|든\s*보험)|보험\s*보여\s*줘|가입\s*보험\s*확인|내가\s*든\s*보험\s*알려/i;
 
@@ -175,7 +176,9 @@ function isCoverageGapCheck(text) {
 }
 
 function isCoverageReviewRequest(text) {
-  if (RECOMMEND_SIGNAL.test(text) || DESIGN_SIGNAL.test(text)) return false;
+  if (RECOMMEND_SIGNAL.test(text) || DESIGN_SIGNAL.test(text) || DESIGN_REVIEW_SIGNAL.test(text)) {
+    return false;
+  }
   if (
     GAP_SIGNAL.test(text) &&
     /(암|뇌|심장|심혈관|실손|운전자|입원|수술|치아|치매|간병).{0,12}(부족|부족해|모자라|없어|없나|괜찮|충분|충분해|충분한가|괜찮아|괜찮은가)/.test(
@@ -255,7 +258,7 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
-  if (DESIGN_SIGNAL.test(text)) {
+  if (DESIGN_SIGNAL.test(text) || DESIGN_REVIEW_SIGNAL.test(text)) {
     return {
       intent: "design_request",
       confidence: "high",

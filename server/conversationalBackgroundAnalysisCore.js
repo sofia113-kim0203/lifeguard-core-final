@@ -513,6 +513,7 @@ export async function handleConversationalQuestionRequest({
         advisorConversationMode || centralBrainResult?.advisor_conversation_mode === true,
       central_brain_mode: centralBrainResult?.central_brain_mode ?? null,
       central_brain_activated: centralBrainResult?.activated === true,
+      coverage_review_mode: centralBrainResult?.coverage_review_mode === true,
       job_skipped: true,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,
@@ -539,6 +540,65 @@ export async function handleConversationalQuestionRequest({
     message: trimmedQuestion,
     metadata: { source: "customer_dashboard", phase: "phase26-2a" },
   });
+
+  if (centralBrainResult?.reuse_analysis_job_id) {
+    const reusedJob = await loadAnalysisJob(adminClient, centralBrainResult.reuse_analysis_job_id);
+    if (reusedJob) {
+      const initialResponseTimeMs = Date.now() - startedAt;
+      const assistantMessage = await insertConversationMessage(adminClient, customerId, {
+        role: "assistant",
+        message: fastResponse,
+        metadata: mergeConversationMetadata(
+          {
+            source: "conversational_background_analysis",
+            phase: "central-brain-p2",
+            analysis_job_id: reusedJob.id,
+            analysis_job_reused: true,
+            central_brain_mode: centralBrainResult.central_brain_mode ?? null,
+            coverage_review_mode: centralBrainResult.coverage_review_mode === true,
+            memory_version: snapshot.memory_version ?? 0,
+            memory_fact_count: snapshot.fact_count ?? 0,
+            memory_synced: memoryContext.memory_synced,
+            source_data_available: memoryContext.data_available,
+            cache_status: cachePayload.cache_status,
+            initial_response_time_ms: initialResponseTimeMs,
+          },
+          centralBrainResult.metadata ?? {},
+        ),
+      });
+
+      return {
+        ok: true,
+        customer_id: customerId,
+        question: trimmedQuestion,
+        fast_response: fastResponse,
+        initial_response_time_ms: initialResponseTimeMs,
+        analysis_job_id: reusedJob.id,
+        analysis_job: mapAnalysisJobForClient(reusedJob),
+        central_brain_mode: centralBrainResult.central_brain_mode ?? null,
+        central_brain_activated: true,
+        coverage_review_mode: centralBrainResult.coverage_review_mode === true,
+        job_reused: true,
+        user_message_id: userMessage.id,
+        assistant_message_id: assistantMessage.id,
+        cache_status: cachePayload.cache_status,
+        background_refresh_required: cachePayload.background_refresh_required,
+        background_refresh_types: cachePayload.background_refresh_types,
+        memory_version: snapshot.memory_version ?? 0,
+        memory_fact_count: snapshot.fact_count ?? 0,
+        memory_context: {
+          synced: memoryContext.memory_synced,
+          status: memoryContext.memory_sync_status ?? "ready",
+          error: memoryContext.memory_sync_error ?? null,
+          sync_assessment: memoryContext.sync_assessment,
+          rebuild_summary: memoryContext.rebuild_summary ?? null,
+          data_available: memoryContext.data_available,
+          source_summary: memoryContext.sourceSummary,
+        },
+        processing: null,
+      };
+    }
+  }
 
   const { data: jobRow, error: jobError } = await adminClient
     .from("analysis_jobs")

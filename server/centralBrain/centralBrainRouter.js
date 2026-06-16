@@ -9,6 +9,7 @@ import { isAdvisorConversationQuestion } from "../advisorBrain/advisorConversati
 
 export const CENTRAL_BRAIN_MODES = [
   "coverage_gap_reason",
+  "coverage_review_request",
   "factual_lookup",
   "recommendation_reason",
   "advisor_conversation",
@@ -30,6 +31,9 @@ export function isCentralBrainActive(env = process.env) {
 export function resolveCentralBrainMode(classification = {}, question = "") {
   if (classification?.intent === "coverage_gap_check") {
     return "coverage_gap_reason";
+  }
+  if (classification?.intent === "coverage_review_request") {
+    return "coverage_review_request";
   }
   if (isActivatableFactualLookupClassification(classification)) {
     return "factual_lookup";

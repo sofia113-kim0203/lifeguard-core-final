@@ -5,9 +5,20 @@ import { loadUnifiedCustomerState } from "../unifiedCustomerState.js";
 import { buildStructuredMemoryProfile } from "../customerMemorySnapshot.js";
 import { loadLatestCompletedAnalysisJob } from "../advisorBrain/advisorRecommendationReasonResponder.js";
 import { mapJobResultsToAnalysisPanels } from "../../src/lib/analysisPanelJobUtils.js";
+import { buildReviewBundleFromEvidenceData, isCoverageReviewEvidenceSufficient } from "../advisorBrain/advisorCoverageReviewResponder.js";
 import { computePremiumLookupStats } from "../intentGateLayer.js";
 import { createAdvisorBrainContext } from "../advisorBrain/advisorBrainContext.js";
 import { buildToolResult } from "../advisorBrain/advisorToolRunner.js";
+
+function hasStoredPanelEvidence(panels) {
+  if (!panels) return false;
+  return Boolean(
+    panels.coverageGapResult ||
+      panels.underwritingResult ||
+      panels.recommendationResult ||
+      panels.designBundle,
+  );
+}
 
 export async function loadCentralBrainEvidence({
   supabase,
@@ -84,14 +95,21 @@ export async function loadCentralBrainEvidence({
     });
   }
 
-  const hasStoredPanels =
-    Boolean(data.stored_panels?.coverage_gap) ||
-    Boolean(data.stored_panels?.recommendation) ||
-    Boolean(data.stored_panels?.underwriting_risk);
+  const hasStoredPanels = hasStoredPanelEvidence(data.stored_panels);
+  data.review_bundle =
+    plan?.central_mode === "coverage_review_request"
+      ? buildReviewBundleFromEvidenceData(data)
+      : null;
 
   let sufficiency = "insufficient";
   if (plan?.central_mode === "factual_lookup" && data.unified) {
     sufficiency = "sufficient";
+  } else if (plan?.central_mode === "coverage_review_request") {
+    sufficiency = isCoverageReviewEvidenceSufficient(data.review_bundle, data.stored_job)
+      ? "sufficient"
+      : data.unified
+        ? "partial"
+        : "insufficient";
   } else if (
     (plan?.central_mode === "coverage_gap_reason" ||
       plan?.central_mode === "recommendation_reason" ||
@@ -111,6 +129,7 @@ export async function loadCentralBrainEvidence({
     live_engines_executed: false,
     sources,
     data,
+    review_bundle: data.review_bundle,
     sufficiency,
   };
 }
@@ -118,8 +137,10 @@ export async function loadCentralBrainEvidence({
 export function buildReadOnlyToolRunFromBundle(bundle) {
   const panels = bundle?.data?.stored_panels ?? {};
   const gapResult =
+    panels.coverageGapResult ??
     panels.coverage_gap ??
     panels.coverage_gap_result ??
+    bundle?.data?.review_bundle?.coverage_gap ??
     bundle?.data?.stored_job?.result_json?.coverage_gap ??
     null;
 
