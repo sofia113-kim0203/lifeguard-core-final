@@ -11,11 +11,18 @@
   "functions": {
     "api/worker-jobs-runner.js": {
       "maxDuration": 300
+    },
+    "api/analysis-jobs-runner.js": {
+      "maxDuration": 300
     }
   },
   "crons": [
     {
       "path": "/api/worker-jobs-runner",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/analysis-jobs-runner",
       "schedule": "*/2 * * * *"
     }
   ]
