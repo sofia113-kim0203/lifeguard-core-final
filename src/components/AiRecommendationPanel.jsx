@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   analyzeCustomerCoverageGap,
   GAP_LEVEL_LABELS,
@@ -682,12 +682,15 @@ export default function AiRecommendationPanel({
     }
   }, [uwResult?.claudeMeta, recResult?.claudeMeta, designResult?.claudeMeta]);
 
-  const panelSetters = {
-    setGapResult,
-    setUwResult,
-    setRecResult,
-    setDesignResult,
-  };
+  const panelSetters = useMemo(
+    () => ({
+      setGapResult,
+      setUwResult,
+      setRecResult,
+      setDesignResult,
+    }),
+    [],
+  );
 
   const applyJobToState = useCallback((job) => {
     return applyJobResultsToPanelState(job, panelSetters);
