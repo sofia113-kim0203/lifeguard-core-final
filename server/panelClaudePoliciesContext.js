@@ -2,13 +2,15 @@
  * Phase 28 Step 1C — Full insurance policy context for panel Claude prompts.
  */
 
+import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
+
 export function formatPoliciesForClaudePrompt(policies = []) {
   return (policies ?? []).map((policy) => ({
     id: policy.id,
     insurer_name: policy.insurer_name ?? null,
     product_name: policy.product_name ?? null,
     policy_type: policy.policy_type ?? null,
-    monthly_premium: policy.monthly_premium ?? policy.premium_amount ?? null,
+    monthly_premium: resolvePolicyPremium(policy),
     coverage_summary: policy.coverage_summary ?? null,
     effective_from: policy.effective_from ?? policy.contract_date ?? null,
     is_active: policy.is_active ?? null,

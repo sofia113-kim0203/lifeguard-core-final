@@ -1,5 +1,7 @@
 /** Phase 31-C-P0 — Policy Explorer display helpers (no inference). */
 
+import { resolvePolicyPremium } from "./resolvePolicyPremium.js";
+
 export const RIDER_UNAVAILABLE_MESSAGE =
   "아직 특약 정보가 구조화되지 않았습니다.\n보장내역서 또는 증권을 업로드하면 세부 특약까지 분석할 수 있습니다.";
 
@@ -14,13 +16,6 @@ const OCR_CONFIDENCE_KEYS = ["ocr_confidence", "extraction_confidence", "confide
 
 function normalizeText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
-}
-
-function resolvePremium(policy) {
-  const raw = policy?.monthly_premium ?? policy?.premium_amount;
-  if (raw == null || raw === "") return null;
-  const numeric = Number(raw);
-  return Number.isFinite(numeric) ? numeric : null;
 }
 
 export function formatPolicySource(source) {
@@ -43,7 +38,7 @@ export function formatPolicyType(policy) {
 }
 
 export function formatPolicyPremium(policy) {
-  const premium = resolvePremium(policy);
+  const premium = resolvePolicyPremium(policy);
   if (premium == null) return "확인 필요";
   return `${premium.toLocaleString("ko-KR")}원`;
 }
@@ -134,7 +129,7 @@ export function computePolicyExplorerStats(policies = []) {
   let premiumUnknownCount = 0;
 
   for (const policy of list) {
-    const premium = resolvePremium(policy);
+    const premium = resolvePolicyPremium(policy);
     if (premium != null) {
       premiumKnownCount += 1;
       premiumTotal += premium;

@@ -4,6 +4,7 @@
  * Phase 31-C-P1 — policy_detail uses Policy Explorer helpers for per-contract chat answers.
  */
 import { resolveUnifiedPolicyView } from "./customerConversationalTone.js";
+import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 import {
   computePolicyExplorerStats,
   formatInsurerName,
@@ -510,11 +511,7 @@ export function matchPolicyToCategory(policies = [], lookupCategory = null) {
 }
 
 function resolvePositivePremium(policy) {
-  const raw = policy?.monthly_premium ?? policy?.premium_amount ?? null;
-  if (raw == null || raw === "") return null;
-  const premium = Number(raw);
-  if (!Number.isFinite(premium) || premium <= 0) return null;
-  return premium;
+  return resolvePolicyPremium(policy);
 }
 
 export function computePremiumLookupStats(policies = []) {

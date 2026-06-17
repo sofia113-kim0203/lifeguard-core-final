@@ -15,6 +15,7 @@ import {
   assessMemorySyncNeed,
   resolveMemoryDisplayStatus,
 } from "./memoryObservability.js";
+import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 
 export {
   COVERAGE_SHEET_EXTRACTOR_ORIGIN,
@@ -318,7 +319,7 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
       coverage_summary: policy.coverage_summary,
       is_active: policy.is_active,
       source: policy.source ?? null,
-      monthly_premium: policy.monthly_premium ?? null,
+      monthly_premium: resolvePolicyPremium(policy),
       premium_amount: policy.premium_amount ?? null,
       extractor_origin: policy.coverage_summary?.extractor_origin ?? null,
       is_coverage_sheet_bridge: isCoverageSheetBridgePolicy(policy),

@@ -211,5 +211,51 @@ runCase("[object Object] never appears in fact_value", () => {
   assertNoObjectObject(fact.fact_value);
 });
 
+runCase("L1 coverage_sheet_row amount_value → fact 보험료 + holdings monthly_premium", () => {
+  const input = buildInput([
+    {
+      id: POLICY_ID,
+      insurer_name: "KB손보",
+      product_name: "건강보험",
+      policy_type: "general",
+      monthly_premium: null,
+      premium_amount: null,
+      coverage_summary: {
+        record_kind: "coverage_sheet_row",
+        amount_unit: "won",
+        amount_value: 116568,
+      },
+      is_active: true,
+    },
+  ]);
+  const fact = coverageInputFact(input);
+  assert.ok(fact);
+  assert.match(fact.fact_value, /보험료:116568/);
+  assert.equal(input.insurance_holdings[0].monthly_premium, 116568);
+});
+
+runCase("L1 three L1 policies holdings sum 318683", () => {
+  const l1 = (amount) => ({
+    id: `${POLICY_ID}-${amount}`,
+    insurer_name: "KB손보",
+    product_name: "건강보험",
+    policy_type: "general",
+    monthly_premium: null,
+    premium_amount: null,
+    coverage_summary: {
+      record_kind: "coverage_sheet_row",
+      amount_unit: "won",
+      amount_value: amount,
+    },
+    is_active: true,
+  });
+  const input = buildInput([l1(116568), l1(35560), l1(166555)]);
+  const total = input.insurance_holdings.reduce(
+    (sum, holding) => sum + (holding.monthly_premium ?? 0),
+    0,
+  );
+  assert.equal(total, 318683);
+});
+
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
