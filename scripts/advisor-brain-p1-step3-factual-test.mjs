@@ -233,6 +233,49 @@ function makeToolRun(toolResults, calledTools) {
   console.log("K PASS");
 }
 
+// K2 — L1 sidecar policies: resolvePositivePremium → resolvePolicyPremium hub path
+{
+  function l1SidecarPolicy(amountValue, id) {
+    return {
+      id,
+      insurer_name: "KB손보",
+      product_name: "건강보험",
+      monthly_premium: null,
+      premium_amount: null,
+      coverage_summary: {
+        record_kind: "coverage_sheet_row",
+        amount_unit: "won",
+        amount_value: amountValue,
+      },
+    };
+  }
+
+  const l1Policies = [
+    l1SidecarPolicy(116568, "l1-a"),
+    l1SidecarPolicy(35560, "l1-b"),
+    l1SidecarPolicy(166555, "l1-c"),
+  ];
+  const expected = computePremiumLookupStats(l1Policies);
+  assert.deepEqual(expected, {
+    totalCount: 3,
+    premiumKnownCount: 3,
+    premiumUnknownCount: 0,
+    premiumTotal: 318683,
+  });
+
+  const { result } = await runSingleAdvisorTool({
+    toolName: "premium_lookup",
+    allowedTools: ["premium_lookup", "get_policies"],
+    calledTools: [],
+    context: { policies: l1Policies },
+    executors: DEFAULT_TOOL_EXECUTORS,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data, expected);
+  console.log("K2 PASS");
+}
+
 // L — coverage_presence + lookup_category=null: 일반 보장 확인 질문 명시
 {
   const classification = {
