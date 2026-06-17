@@ -3,6 +3,10 @@
  */
 import { buildAdvisorBrainAnswer } from "../advisorBrain/advisorBrainResponder.js";
 import { buildAdvisorConversationAnswer } from "../advisorBrain/advisorConversationResponder.js";
+import {
+  buildCoverageReviewAnswer,
+  COVERAGE_REVIEW_PENDING_MESSAGE,
+} from "../advisorBrain/advisorCoverageReviewResponder.js";
 import { buildRecommendationReasonAnswer } from "../advisorBrain/advisorRecommendationReasonResponder.js";
 import { createAdvisorBrainContext } from "../advisorBrain/advisorBrainContext.js";
 import { routeCentralBrain } from "./centralBrainRouter.js";
@@ -11,6 +15,7 @@ import {
   buildReadOnlyToolRunFromBundle,
   loadCentralBrainEvidence,
 } from "./centralBrainEvidenceLoader.js";
+import { findInFlightAnalysisJob } from "./centralBrainJobUtils.js";
 import {
   buildCentralBrainAssistantMetadata,
   normalizeCentralBrainResponse,
@@ -61,6 +66,32 @@ export async function runCentralBrainTurn({
     jobLoader,
   });
 
+  const mode = route.central_mode;
+
+  if (mode === "coverage_review_request" && bundle.sufficiency !== "sufficient") {
+    const inFlightJob = await findInFlightAnalysisJob(supabase, customerId);
+    return {
+      activated: true,
+      ok: true,
+      message: COVERAGE_REVIEW_PENDING_MESSAGE,
+      route,
+      plan,
+      bundle,
+      skip_analysis_job: false,
+      reuse_analysis_job_id: inFlightJob?.id ?? null,
+      central_brain_mode: mode,
+      coverage_review_mode: true,
+      engine_executed: false,
+      live_engines_executed: false,
+      reason: inFlightJob ? "REUSE_IN_FLIGHT_JOB" : "INSUFFICIENT_STORED_EVIDENCE",
+      metadata: buildCentralBrainAssistantMetadata({
+        centralMode: mode,
+        plan,
+        bundle,
+      }),
+    };
+  }
+
   if (bundle.sufficiency === "insufficient") {
     return {
       activated: true,
@@ -71,7 +102,7 @@ export async function runCentralBrainTurn({
       plan,
       bundle,
       skip_analysis_job: true,
-      central_brain_mode: route.central_mode,
+      central_brain_mode: mode,
       engine_executed: false,
       live_engines_executed: false,
       reason: "INSUFFICIENT_STORED_EVIDENCE",
@@ -83,9 +114,17 @@ export async function runCentralBrainTurn({
   const storedJobLoader = async () => bundle.data.stored_job ?? null;
 
   let advisorResult = null;
-  const mode = route.central_mode;
 
-  if (mode === "recommendation_reason") {
+  if (mode === "coverage_review_request") {
+    advisorResult = await buildCoverageReviewAnswer({
+      question,
+      reviewBundle: bundle.review_bundle ?? bundle.data.review_bundle,
+      storedJob: bundle.data.stored_job ?? null,
+      env,
+      fetchImpl,
+      claudeCall,
+    });
+  } else if (mode === "recommendation_reason") {
     advisorResult = await buildRecommendationReasonAnswer({
       supabase,
       customerId,
@@ -125,6 +164,9 @@ export async function runCentralBrainTurn({
     ? normalizeCentralBrainResponse(advisorResult.message)
     : null;
 
+  const skipAnalysisJob =
+    mode === "coverage_review_request" ? true : plan.skip_analysis_job === true;
+
   return {
     activated: true,
     ok: advisorResult?.ok === true && Boolean(normalizedMessage),
@@ -133,14 +175,15 @@ export async function runCentralBrainTurn({
     plan,
     bundle,
     advisor_result: advisorResult,
-    skip_analysis_job: plan.skip_analysis_job === true,
-    central_brain_mode: route.central_mode,
+    skip_analysis_job: skipAnalysisJob,
+    central_brain_mode: mode,
     engine_executed: false,
     live_engines_executed: false,
-    advisor_conversation_mode: route.central_mode === "advisor_conversation",
-    recommendation_reason_mode: route.central_mode === "recommendation_reason",
+    advisor_conversation_mode: mode === "advisor_conversation",
+    recommendation_reason_mode: mode === "recommendation_reason",
+    coverage_review_mode: mode === "coverage_review_request",
     metadata: buildCentralBrainAssistantMetadata({
-      centralMode: route.central_mode,
+      centralMode: mode,
       plan,
       bundle,
     }),

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { checkSourceConsent } from "./consent.ts";
 import { EXTRACTOR_VERSION } from "./config.ts";
+import { resolvePolicyPremium } from "./resolvePolicyPremium.ts";
 import type { CandidateFact } from "./types.ts";
 import { isIndemnityPolicyType, isPresent, truncate } from "./utils.ts";
 
@@ -287,8 +288,9 @@ export async function extractInsuranceFacts(
     const statusLabel = pol.is_active ? "유지" : "비활성";
     let value = `${insurer}/${product}(${statusLabel})`;
     if (pol.effective_from) value += `, 가입일 ${pol.effective_from}`;
-    if (pol.monthly_premium != null && Number(pol.monthly_premium) > 0) {
-      value += `, 월 ${pol.monthly_premium}원`;
+    const resolvedPremium = resolvePolicyPremium(pol);
+    if (resolvedPremium != null) {
+      value += `, 월 ${resolvedPremium}원`;
     }
     const riderBundle = serializePolicyRiders(
       pol.coverage_summary && typeof pol.coverage_summary === "object"

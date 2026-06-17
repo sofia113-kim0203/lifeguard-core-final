@@ -11,6 +11,7 @@ import {
   detectDirectAnswerIntent,
   extractCustomerSituation,
 } from "./customerConversationalTone.js";
+import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 import { buildClaimFastResponse } from "./claimBridgeLayer.js";
 import {
   buildCoverageReviewFastAnswer,
@@ -141,9 +142,8 @@ function buildGroundingText(workingContext, situation) {
   const policies = Array.isArray(workingContext?.policies) ? workingContext.policies : [];
   const premiumLines = policies
     .map((policy) => {
-      const raw = policy?.monthly_premium ?? policy?.premium_amount ?? null;
-      const premium = raw == null ? null : Number(raw);
-      if (premium == null || Number.isNaN(premium) || premium <= 0) return null;
+      const premium = resolvePolicyPremium(policy);
+      if (premium == null) return null;
       const name = [policy?.insurer_name, policy?.product_name].filter(Boolean).join(" ") || "보험";
       return `${name} 월 ${premium.toLocaleString("ko-KR")}원`;
     })
@@ -151,7 +151,7 @@ function buildGroundingText(workingContext, situation) {
   if (premiumLines.length > 0) {
     lines.push(`- 월 보험료(증권 추출): ${premiumLines.join(", ")}`);
     const total = policies.reduce(
-      (sum, policy) => sum + (Number(policy?.monthly_premium ?? policy?.premium_amount ?? 0) || 0),
+      (sum, policy) => sum + (resolvePolicyPremium(policy) ?? 0),
       0,
     );
     if (total > 0) lines.push(`- 월 보험료 합계: ${total.toLocaleString("ko-KR")}원`);

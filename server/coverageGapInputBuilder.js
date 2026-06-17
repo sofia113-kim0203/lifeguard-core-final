@@ -3,6 +3,7 @@
  */
 import { isCoverageSheetBridgePolicy } from "./coverageSheetBridge.js";
 import { isEligibleRiderLabel } from "./coverageRiderPopulation.js";
+import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 
 function normalizeText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -114,7 +115,7 @@ function buildPolicyFact(policy) {
   const insurer = normalizeText(policy.insurer_name);
   const product = normalizeText(policy.product_name);
   const type = normalizeText(policy.policy_type);
-  const premium = policy.monthly_premium ?? policy.premium_amount;
+  const premium = resolvePolicyPremium(policy);
   const riderContext = buildRiderEligibilityContext(policy);
   const riders = formatRidersForFactValue(policy.coverage_summary?.riders, riderContext);
   const status = policyStatusLabel(policy);
@@ -211,7 +212,7 @@ export function buildCoverageGapInputFromMemory({
     insurer_name: policy.insurer_name ?? null,
     product_name: policy.product_name ?? null,
     policy_type: policy.policy_type ?? null,
-    monthly_premium: policy.monthly_premium ?? policy.premium_amount ?? null,
+    monthly_premium: resolvePolicyPremium(policy),
     riders: normalizeRidersForGapInput(
       policy.coverage_summary?.riders,
       buildRiderEligibilityContext(policy),

@@ -63,6 +63,20 @@ export function planCentralBrainEvidence({ route, memoryVersion = 0, cacheStatus
           "no_analysis_job",
         ],
       };
+    case "coverage_review_request":
+      return {
+        ...base,
+        loaders: [...READ_ONLY_LOADER_KEYS],
+        tools: [],
+        use_stored_job: true,
+        skip_analysis_job: false,
+        rationale: [
+          "comprehensive_review_read_only",
+          "stored_panels_all_engines",
+          "no_live_engines",
+          "skip_job_when_sufficient",
+        ],
+      };
     case "factual_lookup":
       return {
         ...base,

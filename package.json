@@ -59,6 +59,10 @@
     "test:policy-extraction-shadow-unit": "node scripts/policy-extraction-shadow-unit-test.mjs",
     "test:coverage-sheet-extractor-unit": "node scripts/coverage-sheet-extractor-unit-test.mjs",
     "test:coverage-sheet-live-gate-unit": "node scripts/coverage-sheet-live-gate-unit-test.mjs",
+    "test:resolve-policy-premium-unit": "node scripts/resolve-policy-premium-unit-test.mjs",
+    "test:resolve-policy-premium-ts-parity": "node --experimental-strip-types scripts/resolve-policy-premium-ts-parity-test.mjs",
+    "test:coverage-sheet-persist-tdz-regression": "node scripts/coverage-sheet-persist-tdz-regression-test.mjs",
+    "test:document-policy-persist-tdz-regression": "node scripts/document-policy-persist-tdz-regression-test.mjs",
     "test:document-source-policy-retire-unit": "node scripts/document-source-policy-retire-unit-test.mjs",
     "test:orphan-source-deleted-policy-retire-unit": "node scripts/orphan-source-deleted-policy-retire-unit-test.mjs",
     "test:pr-c2b-coverage-sheet-shadow-rls-verify-unit": "node scripts/pr-c2b-coverage-sheet-shadow-rls-verify-unit-test.mjs",
@@ -69,6 +73,7 @@
     "test:advisor-brain-p1-step4": "node scripts/advisor-brain-p1-step4-recommendation-reason-test.mjs",
     "test:advisor-brain-p1-step5": "node scripts/advisor-brain-p1-step5-conversation-test.mjs",
     "test:central-brain-p2-step1": "node scripts/central-brain-p2-step1-test.mjs",
+    "test:central-brain-p0d-coverage-review": "node scripts/central-brain-p0d-coverage-review-test.mjs",
     "test:pr-2-riders-memory-serialize": "node scripts/pr-2-riders-memory-serialize-test.mjs",
     "test:coverage-rider-population": "node scripts/coverage-rider-population-test.mjs",
     "test:phase23-step2a-memory-builder-extractor": "node scripts/phase23-step2a-memory-builder-extractor-test.mjs"

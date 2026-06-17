@@ -174,13 +174,13 @@ export async function persistCoverageSheetRows(admin, customerId, documentId, pa
   const rowCount = passingRows.length;
 
   for (const row of passingRows) {
-    const policyRow = buildPolicyRowFromSheetRow(customerId, documentId, row, existing?.coverage_summary);
     const { row: existing, upload_extract_key: uploadExtractKey } = resolveExistingSheetPolicyForRow(
       existingRows,
       documentId,
       row,
       rowCount,
     );
+    const policyRow = buildPolicyRowFromSheetRow(customerId, documentId, row, existing?.coverage_summary);
     activeKeys.push(uploadExtractKey);
 
     if (existing?.id) {

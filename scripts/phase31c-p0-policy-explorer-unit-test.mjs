@@ -68,4 +68,33 @@ assert.equal(stats.premiumTotal, 45000);
 
 assert.match(RIDER_UNAVAILABLE_MESSAGE, /특약 정보가 구조화되지 않았습니다/);
 
+function l1SidecarPolicy(amountValue, id = "l1") {
+  return {
+    id,
+    insurer_name: "KB손보",
+    product_name: "건강보험",
+    monthly_premium: null,
+    premium_amount: null,
+    coverage_summary: {
+      record_kind: "coverage_sheet_row",
+      amount_unit: "won",
+      amount_value: amountValue,
+    },
+  };
+}
+
+const singleL1 = l1SidecarPolicy(116568, "l1-single");
+assert.equal(formatPolicyPremium(singleL1), "116,568원");
+
+const threeL1 = [
+  l1SidecarPolicy(116568, "l1-a"),
+  l1SidecarPolicy(35560, "l1-b"),
+  l1SidecarPolicy(166555, "l1-c"),
+];
+const l1Stats = computePolicyExplorerStats(threeL1);
+assert.equal(l1Stats.totalCount, 3);
+assert.equal(l1Stats.premiumKnownCount, 3);
+assert.equal(l1Stats.premiumUnknownCount, 0);
+assert.equal(l1Stats.premiumTotal, 318683);
+
 console.log("phase31c-p0-policy-explorer-unit-test: PASS");
