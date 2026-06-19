@@ -110,10 +110,22 @@ const tests = [
     const gate = evaluateCoverageSheetLiveGate(sheet);
     assert(!gate.pass || gate.passing_row_count === 0, "gate must block empty passing rows");
   }],
-  ["isPassingSheetRow rejects missing amount", () => {
-    assert(!isPassingSheetRow({ insurer_name: "메리츠화재", amount_value: null, amount_unit: "won" }), "amount missing");
+  ["isPassingSheetRow separates valid policy from premium presence", () => {
+    assert(
+      isPassingSheetRow({
+        insurer_name: "DB손보",
+        product_name: null,
+        amount_value: null,
+        amount_unit: "premium_unavailable",
+      }),
+      "premium_unavailable slot must pass",
+    );
+    assert(
+      !isPassingSheetRow({ insurer_name: "메리츠화재", amount_value: null, amount_unit: "won" }),
+      "carrier-only null premium must fail",
+    );
     assert(!isPassingSheetRow({ insurer_name: "메리츠화재", amount_value: 100, amount_unit: "unknown" }), "unknown unit");
-    assert(isPassingSheetRow({ insurer_name: "메리츠화재", amount_value: 100, amount_unit: "won" }), "valid row");
+    assert(isPassingSheetRow({ insurer_name: "메리츠화재", amount_value: 100, amount_unit: "won" }), "valid premium row");
   }],
   ["persist mapper sets required bridge identifiers", () => {
     const row = {
