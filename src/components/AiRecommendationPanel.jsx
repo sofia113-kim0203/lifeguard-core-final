@@ -374,23 +374,26 @@ function runInFlightJobPolling({
   jobId,
   deferPanelApply,
   isCancelled,
+  signal = null,
   setAnalysisJob,
   applyJobToState,
   panelSetters,
   setRecResult,
   setRebalancingResult,
 }) {
+  const cancelled = () => Boolean(isCancelled?.() || signal?.aborted);
   return processAnalysisJobUntilComplete({
     jobId,
+    signal,
     onProgress: (job) => {
-      if (isCancelled() || !job) return;
+      if (cancelled() || !job) return;
       setAnalysisJob(job);
       if (!deferPanelApply) {
         applyJobToState(job);
       }
     },
   }).then(async (finalJob) => {
-    if (isCancelled() || !finalJob) return finalJob;
+    if (cancelled() || !finalJob) return finalJob;
     setAnalysisJob(finalJob);
     applyJobToState(finalJob);
     if (finalJob.status === "completed") {
@@ -482,27 +485,27 @@ function applyJobResultsToPanelState(job, setters) {
   const designClaude = resolveClaudeFromJobEntry(claude.insurance_design);
 
   if (mapped.coverageGapResult) {
-    setters.setGapResult({
+    setters.setGapResult((prev) => ({
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: coverageClaude.claudeExplanation,
+      claudeExplanation: coverageClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
       claudeMeta: coverageClaude.claudeMeta,
       memoryUsed: true,
-    });
+    }));
   }
   if (mapped.underwritingResult) {
-    setters.setUwResult({
+    setters.setUwResult((prev) => ({
       underwritingResult: mapped.underwritingResult,
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: underwritingClaude.claudeExplanation,
+      claudeExplanation: underwritingClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
       claudeMeta: underwritingClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
-    });
+    }));
   }
   if (mapped.recommendationResult) {
-    setters.setRecResult(
+    setters.setRecResult((prev) =>
       normalizeRecommendationPanelState(mapped.recommendationResult, {
-        claudeExplanation: recommendationClaude.claudeExplanation,
+        claudeExplanation: recommendationClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
         claudeMeta: recommendationClaude.claudeMeta,
         memoryUsed: true,
         coverageGapUsed: true,
@@ -511,16 +514,16 @@ function applyJobResultsToPanelState(job, setters) {
     );
   }
   if (mapped.designBundle) {
-    setters.setDesignResult({
+    setters.setDesignResult((prev) => ({
       insuranceDesign: mapped.designBundle.insurance_design ?? null,
       customerVisibleDesign: mapped.designBundle.customer_visible_design ?? null,
-      claudeExplanation: designClaude.claudeExplanation,
+      claudeExplanation: designClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
       claudeMeta: designClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
       underwritingUsed: true,
       recommendationUsed: true,
-    });
+    }));
   }
   return Boolean(
     mapped.coverageGapResult ||
@@ -748,7 +751,9 @@ export default function AiRecommendationPanel({
     setRebalancingResult(null);
   }, []);
 
-  const loadInitialAnalysis = useCallback(async () => {
+  const loadInitialAnalysis = useCallback(async ({ signal } = {}) => {
+    const aborted = () => Boolean(signal?.aborted);
+
     if (!user) {
       clearPanelResults();
       displayedPanelJobRef.current = null;
@@ -757,11 +762,14 @@ export default function AiRecommendationPanel({
       return;
     }
 
+    if (aborted()) return;
+
     setError("");
     let panelsAppliedFromJob = false;
     let latestJobForRecovery = null;
 
     const instantJob = await resolveInstantDisplayableJob(resolvedExternalJob);
+    if (aborted()) return;
     if (instantJob) {
       panelsAppliedFromJob = applyJobToState(instantJob);
       latestJobForRecovery = instantJob;
@@ -789,6 +797,8 @@ export default function AiRecommendationPanel({
       return;
     }
 
+    if (aborted()) return;
+
     try {
       let latestJob = resolvedExternalJob ?? null;
       if (!latestJob) {
@@ -801,10 +811,12 @@ export default function AiRecommendationPanel({
       latestJobForRecovery = latestJob ?? latestJobForRecovery;
 
       if (latestJob) {
+        if (aborted()) return;
         setAnalysisJob(latestJob);
 
         if (jobBlocksPanelLoading(latestJob)) {
           const completedFallback = await resolveCompletedFallbackForInFlight(latestJob);
+          if (aborted()) return;
           const deferPanelApply = shouldDeferInFlightPanelApply(latestJob, completedFallback);
 
           if (completedFallback) {
@@ -832,13 +844,15 @@ export default function AiRecommendationPanel({
                 (await runInFlightJobPolling({
                   jobId: latestJob.id,
                   deferPanelApply,
-                  isCancelled: () => false,
+                  signal,
+                  isCancelled: aborted,
                   setAnalysisJob,
                   applyJobToState,
                   panelSetters,
                   setRecResult,
                   setRebalancingResult,
                 })) ?? latestJob;
+              if (aborted()) return;
               if (finalJob.status === "completed") {
                 panelsAppliedFromJob = true;
                 latestJobForRecovery = finalJob;
@@ -866,6 +880,7 @@ export default function AiRecommendationPanel({
         ) {
           const applied = applyJobToState(latestJob);
           if (applied) {
+            if (aborted()) return;
             panelsAppliedFromJob = true;
             displayedPanelJobRef.current = latestJob;
             const rebalancingData = await loadRebalancingPanel({ skipClaude: true });
@@ -890,8 +905,10 @@ export default function AiRecommendationPanel({
       if (!instantJob) {
         await loadPanelDataFromApis();
       }
+      if (aborted()) return;
       setError("");
     } catch (err) {
+      if (aborted()) return;
       const keepPanels =
         panelsAppliedFromJob ||
         jobHasEnginePanelResults(latestJobForRecovery) ||
@@ -902,7 +919,9 @@ export default function AiRecommendationPanel({
       }
       setError(toCustomerErrorMessage(err, "보장·인수 분석을 불러오지 못했습니다."));
     } finally {
-      setLoading(false);
+      if (!aborted()) {
+        setLoading(false);
+      }
     }
   }, [
     user,
@@ -915,7 +934,9 @@ export default function AiRecommendationPanel({
   ]);
 
   useEffect(() => {
-    void loadInitialAnalysis();
+    const controller = new AbortController();
+    void loadInitialAnalysis({ signal: controller.signal });
+    return () => controller.abort();
   }, [loadInitialAnalysis]);
 
   const externalJobSnapshotKey = resolvedExternalJob
@@ -931,7 +952,8 @@ export default function AiRecommendationPanel({
     if (!resolvedExternalJob) return undefined;
 
     let cancelled = false;
-    const isCancelled = () => cancelled;
+    const controller = new AbortController();
+    const isCancelled = () => cancelled || controller.signal.aborted;
 
     void (async () => {
       const inFlightJob = resolvedExternalJob;
@@ -962,6 +984,7 @@ export default function AiRecommendationPanel({
             await runInFlightJobPolling({
               jobId: inFlightJob.id,
               deferPanelApply,
+              signal: controller.signal,
               isCancelled,
               setAnalysisJob,
               applyJobToState,
@@ -1011,6 +1034,7 @@ export default function AiRecommendationPanel({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [externalJobSnapshotKey, applyJobToState, clearPanelResults, loadPanelDataFromApis]);
 
