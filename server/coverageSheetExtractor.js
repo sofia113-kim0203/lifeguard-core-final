@@ -2,6 +2,7 @@
  * L1 Mobile GA Stack coverage analysis sheet extractor — shadow only (no persist).
  */
 import { normalizeOcrTextVariants } from "./documentPolicyExtractor.js";
+import { isPassingSheetRow } from "./coverageSheetRowFilter.js";
 
 export const COVERAGE_SHEET_EXTRACTOR_VERSION = "coverage-sheet-l1-v1";
 export const PASS_CRITERIA_ID = "PASS-L1-V1";
@@ -125,6 +126,14 @@ export function parseAmountLine(line) {
   const cleaned = cleanValue(line);
   if (!cleaned) return null;
 
+  if (/보험료\s*미제공|보험료미제공/i.test(cleaned)) {
+    return {
+      amount_text: cleaned,
+      amount_value: null,
+      amount_unit: "premium_unavailable",
+    };
+  }
+
   if (/실손/.test(cleaned) && !/[0-9,]+/.test(cleaned)) {
     return {
       amount_text: cleaned,
@@ -217,8 +226,60 @@ function computeRowConfidence(row) {
   return Number(Math.min(1, score).toFixed(3));
 }
 
-function parseL1Rows(lines) {
+function detectIndexedStackCarrier(lineIndex, lines) {
+  const cleaned = cleanValue(lines[lineIndex]);
+  const carrier = detectCarrierOnly(cleaned);
+  if (!carrier) return null;
+
+  const prev = cleanValue(lines[lineIndex - 1] ?? "");
+  const next = cleanValue(lines[lineIndex + 1] ?? "");
+
+  let rowIndex = null;
+  if (isRowIndexLine(next)) {
+    rowIndex = Number(next.replace(/[()]/g, ""));
+  } else if (isRowIndexLine(prev)) {
+    rowIndex = Number(prev.replace(/[()]/g, ""));
+  }
+
+  if (rowIndex == null) return null;
+
+  return {
+    row_index: rowIndex,
+    insurer_name: carrier,
+    source_text: cleaned,
+    line_index: lineIndex,
+  };
+}
+
+function collectStackCarriers(lines) {
+  const stackCarriers = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const entry = detectIndexedStackCarrier(index, lines);
+    if (entry) stackCarriers.push(entry);
+  }
+  return stackCarriers;
+}
+
+function collectLegacyCarriers(lines) {
   const carriers = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const cleaned = cleanValue(lines[index]);
+    if (!cleaned || isUiNoiseLine(cleaned)) continue;
+    const carrier = detectCarrierOnly(cleaned);
+    if (!carrier) continue;
+    carriers.push({
+      row_index: null,
+      insurer_name: carrier,
+      source_text: cleaned,
+      line_index: index,
+    });
+  }
+  return carriers;
+}
+
+function parseL1Rows(lines) {
+  const stackCarriers = collectStackCarriers(lines);
+  const carriers = stackCarriers.length >= 2 ? stackCarriers : collectLegacyCarriers(lines);
   const amounts = [];
   const products = [];
   const coverages = [];
@@ -228,23 +289,7 @@ function parseL1Rows(lines) {
     const cleaned = cleanValue(line);
     if (!cleaned || isUiNoiseLine(cleaned)) continue;
 
-    const carrier = detectCarrierOnly(cleaned);
-    if (carrier) {
-      let rowIndex = null;
-      for (let back = index - 1; back >= Math.max(0, index - 3); back -= 1) {
-        if (isRowIndexLine(lines[back])) {
-          rowIndex = Number(lines[back].replace(/[()]/g, ""));
-          break;
-        }
-      }
-      carriers.push({
-        row_index: rowIndex,
-        insurer_name: carrier,
-        source_text: cleaned,
-        line_index: index,
-      });
-      continue;
-    }
+    if (detectCarrierOnly(cleaned)) continue;
 
     const amount = parseAmountLine(cleaned);
     if (amount) {
@@ -273,7 +318,11 @@ function parseL1Rows(lines) {
       coverages.find((entry) => entry.line_index > carrier.line_index && entry.line_index < nextLineIndex) ?? null;
 
     const warnings = [];
-    if (!amount) warnings.push("AMOUNT_MISSING");
+    if (!amount) {
+      warnings.push("AMOUNT_MISSING");
+    } else if (amount.amount_unit === "premium_unavailable") {
+      warnings.push("PREMIUM_UNAVAILABLE");
+    }
     if (amount?.amount_unit === "unknown") warnings.push("UNKNOWN_AMOUNT_UNIT");
     if (amount?.amount_unit === "unknown") warnings.push("MANUAL_REVIEW_CANDIDATE");
 
@@ -298,13 +347,7 @@ function parseL1Rows(lines) {
 }
 
 export function evaluatePassL1V1(rows = []) {
-  const passingRows = rows.filter(
-    (row) =>
-      row.insurer_name &&
-      row.amount_value != null &&
-      row.amount_unit &&
-      row.amount_unit !== "unknown",
-  );
+  const passingRows = rows.filter(isPassingSheetRow);
   return {
     pass: rows.length >= 1 && passingRows.length >= 1,
     passing_row_count: passingRows.length,

@@ -135,11 +135,13 @@ const tests = [
     assert(passState.pass, "evaluatePassL1V1");
     assert(passState.passing_row_count >= 1, `passing_row_count=${passState.passing_row_count}`);
   }],
-  ["amount_unit parsing won/manwon/eok/indemnity", () => {
+  ["amount_unit parsing won/manwon/eok/indemnity/premium_unavailable", () => {
     assert(parseAmountLine("208,330원").amount_unit === "won", "won");
     assert(parseAmountLine("3,000만원").amount_unit === "manwon", "manwon");
     assert(parseAmountLine("1억원").amount_unit === "eok", "eok");
     assert(parseAmountLine("실손의료비").amount_unit === "indemnity", "indemnity");
+    assert(parseAmountLine("보험료미제공").amount_unit === "premium_unavailable", "premium_unavailable");
+    assert(parseAmountLine("보험료미제공").amount_value == null, "premium_unavailable value null");
   }],
   ["NON_L1_LAYOUT guard blocks certificate-style sample", () => {
     const result = extractCoverageSheetFromOcrText(nonL1CertificateSample);
