@@ -161,6 +161,9 @@ export async function processAnalysisJobUntilComplete({
 
     attempts += 1;
     await sleepWithAbort(pollIntervalMs, signal);
+    if (signal?.aborted) {
+      return latestJob;
+    }
   }
 
   return latestJob;
