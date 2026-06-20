@@ -1,0 +1,14 @@
+{
+  "id": "fixture-policy-unavailable-001",
+  "insurer_name": "DB손보",
+  "product_name": "건강보험",
+  "monthly_premium": null,
+  "premium_amount": null,
+  "coverage_summary": {
+    "record_kind": "coverage_sheet_row",
+    "source_document_id": "fixture-doc-coverage-sheet-001",
+    "amount_unit": "premium_unavailable",
+    "amount_text": "보험료미제공",
+    "amount_value": null
+  }
+}

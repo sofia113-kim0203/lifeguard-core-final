@@ -60,6 +60,7 @@
     "test:coverage-sheet-extractor-unit": "node scripts/coverage-sheet-extractor-unit-test.mjs",
     "test:coverage-sheet-live-gate-unit": "node scripts/coverage-sheet-live-gate-unit-test.mjs",
     "test:coverage-sheet-l1-curve-b-p0": "node scripts/coverage-sheet-l1-curve-b-p0-regression-test.mjs",
+    "test:coverage-sheet-p1-a-golden": "node scripts/coverage-sheet-p1-a-golden-fixture-test.mjs",
     "test:resolve-policy-premium-unit": "node scripts/resolve-policy-premium-unit-test.mjs",
     "test:resolve-policy-premium-ts-parity": "node --experimental-strip-types scripts/resolve-policy-premium-ts-parity-test.mjs",
     "test:coverage-sheet-persist-tdz-regression": "node scripts/coverage-sheet-persist-tdz-regression-test.mjs",

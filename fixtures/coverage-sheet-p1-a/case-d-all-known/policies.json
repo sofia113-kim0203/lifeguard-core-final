@@ -1,0 +1,46 @@
+[
+  {
+    "id": "fixture-policy-d-001",
+    "insurer_name": "삼성화재",
+    "monthly_premium": null,
+    "coverage_summary": {
+      "record_kind": "coverage_sheet_row",
+      "source_document_id": "fixture-doc-coverage-sheet-001",
+      "amount_unit": "won",
+      "amount_value": 116568
+    }
+  },
+  {
+    "id": "fixture-policy-d-002",
+    "insurer_name": "현대해상",
+    "monthly_premium": null,
+    "coverage_summary": {
+      "record_kind": "coverage_sheet_row",
+      "source_document_id": "fixture-doc-coverage-sheet-001",
+      "amount_unit": "won",
+      "amount_value": 35560
+    }
+  },
+  {
+    "id": "fixture-policy-d-003",
+    "insurer_name": "DB손보",
+    "monthly_premium": null,
+    "coverage_summary": {
+      "record_kind": "coverage_sheet_row",
+      "source_document_id": "fixture-doc-coverage-sheet-001",
+      "amount_unit": "won",
+      "amount_value": 80000
+    }
+  },
+  {
+    "id": "fixture-policy-d-004",
+    "insurer_name": "한화생명",
+    "monthly_premium": null,
+    "coverage_summary": {
+      "record_kind": "coverage_sheet_row",
+      "source_document_id": "fixture-doc-coverage-sheet-001",
+      "amount_unit": "won",
+      "amount_value": 86555
+    }
+  }
+]

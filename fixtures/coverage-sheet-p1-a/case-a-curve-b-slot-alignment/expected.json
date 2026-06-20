@@ -1,0 +1,12 @@
+{
+  "row_count": 4,
+  "insurers": ["삼성화재", "현대해상", "DB손보", "한화생명"],
+  "passing_count": 4,
+  "samsung_amount_value": 116568,
+  "hyundai_amount_value": 35560,
+  "db_amount_value": null,
+  "db_amount_unit": "premium_unavailable",
+  "hwa_amount_value": 166555,
+  "misattribution_count": 0,
+  "premium_total": 318683
+}
