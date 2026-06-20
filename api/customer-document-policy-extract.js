@@ -53,11 +53,15 @@ export default async function handler(req, res) {
   }
 
   try {
+    const forceRetry =
+      body.force_retry === true ||
+      body.forceRetry === true;
     const result = await runDocumentPolicyExtraction({
       customerId: auth.customerId,
       documentId,
       env: process.env,
       invokeMemory: body.invoke_memory !== false,
+      forceRetry,
     });
 
     res.statusCode = result.ok ? 200 : 422;
