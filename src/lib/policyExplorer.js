@@ -39,8 +39,19 @@ export function formatPolicyType(policy) {
 
 export function formatPolicyPremium(policy) {
   const premium = resolvePolicyPremium(policy);
-  if (premium == null) return "확인 필요";
-  return `${premium.toLocaleString("ko-KR")}원`;
+  if (premium != null) return `${premium.toLocaleString("ko-KR")}원`;
+
+  const summary = policy?.coverage_summary;
+  if (
+    summary &&
+    typeof summary === "object" &&
+    !Array.isArray(summary) &&
+    summary.amount_unit === "premium_unavailable"
+  ) {
+    return "보험료미제공";
+  }
+
+  return "확인 필요";
 }
 
 export function formatOcrConfidence(policy) {

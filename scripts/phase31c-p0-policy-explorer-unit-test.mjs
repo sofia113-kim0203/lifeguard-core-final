@@ -97,4 +97,18 @@ assert.equal(l1Stats.premiumKnownCount, 3);
 assert.equal(l1Stats.premiumUnknownCount, 0);
 assert.equal(l1Stats.premiumTotal, 318683);
 
+const premiumUnavailablePolicy = {
+  id: "l1-unavail",
+  insurer_name: "DB손보",
+  monthly_premium: null,
+  premium_amount: null,
+  coverage_summary: {
+    record_kind: "coverage_sheet_row",
+    amount_unit: "premium_unavailable",
+    amount_text: "보험료미제공",
+    amount_value: null,
+  },
+};
+assert.equal(formatPolicyPremium(premiumUnavailablePolicy), "보험료미제공");
+
 console.log("phase31c-p0-policy-explorer-unit-test: PASS");
