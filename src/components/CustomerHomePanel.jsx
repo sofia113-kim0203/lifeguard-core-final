@@ -4,6 +4,7 @@
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { deriveMemoryStatusFromUnified, memoryStatusLabel, memoryStatusTone } from "../lib/memoryStatus.js";
 import PolicyExplorerSection from "./PolicyExplorerSection.jsx";
+import AdvisorBrainEntry from "./AdvisorBrainEntry.jsx";
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
@@ -188,6 +189,8 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
           프로필·보험·문서·설계안 상태를 확인하고 사이드 메뉴에서 상세 분석으로 이동하세요.
         </p>
       </section>
+
+      <AdvisorBrainEntry disabled={loading} />
 
       <div
         style={{

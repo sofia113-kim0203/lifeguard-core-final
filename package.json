@@ -70,6 +70,7 @@
     "test:pr-c2b-coverage-sheet-shadow-rls-verify-unit": "node scripts/pr-c2b-coverage-sheet-shadow-rls-verify-unit-test.mjs",
     "test:document-upload-category-unit": "node --experimental-strip-types scripts/document-upload-category-unit-test.mjs",
     "test:advisor-brain-p1-tool-scaffold": "node scripts/advisor-brain-p1-tool-scaffold-unit-test.mjs",
+    "test:home-brain-fact": "node scripts/home-brain-fact-unit-test.mjs",
     "test:advisor-brain-p1-step2": "node scripts/advisor-brain-p1-step2-coverage-gap-test.mjs",
     "test:advisor-brain-p1-step3": "node scripts/advisor-brain-p1-step3-factual-test.mjs",
     "test:advisor-brain-p1-step4": "node scripts/advisor-brain-p1-step4-recommendation-reason-test.mjs",
