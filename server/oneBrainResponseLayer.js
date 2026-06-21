@@ -130,6 +130,7 @@ export function finalizeOneBrainResponse({
   surface = ONE_BRAIN_SURFACES.CONSULTATION,
   factBundle = {},
   homeBrainIntent = null,
+  homeRoute = null,
   tomGapVoiceHandled = false,
 } = {}) {
   const normalizedQuestion = normalizeQuestion(question);
@@ -137,9 +138,10 @@ export function finalizeOneBrainResponse({
     ...factBundle,
     question: normalizedQuestion,
   };
+  const isHomeSurface = surface === ONE_BRAIN_SURFACES.HOME;
 
   if (intent === "casual_chat") {
-    if (casualNeedsGuidance(normalizedQuestion, text)) {
+    if (!isHomeSurface && casualNeedsGuidance(normalizedQuestion, text)) {
       const guidanceIntent =
         resolveGuidanceIntent("coverage_gap_check", normalizedQuestion) ??
         resolveGuidanceIntent("general_consultation", normalizedQuestion) ??
@@ -154,6 +156,19 @@ export function finalizeOneBrainResponse({
     const sanitized = sanitizeOneBrainCustomerText(text, bundle);
     if (sanitized) return sanitized;
     return "아직 암 보장 금액이 보이지 않아요. 보장내역서 추가 페이지를 주시면 바로 확인해 드릴게요.";
+  }
+
+  if (isHomeSurface) {
+    if (homeRoute === "high_stakes_defer") {
+      return sanitizeOneBrainCustomerText(text, bundle) || text;
+    }
+    if (isVerifiedPassthrough(intent, { homeBrainIntent, surface })) {
+      const sanitized = sanitizeOneBrainCustomerText(text, bundle);
+      if (sanitized) return sanitized;
+    }
+    const fallbackSanitized = sanitizeOneBrainCustomerText(text, bundle);
+    if (fallbackSanitized) return fallbackSanitized;
+    return "보험 관련 궁금한 점을 편하게 물어보세요. 보장내역서가 있으면 더 정확히 볼게요.";
   }
 
   const guidanceIntent = requiresGuidanceResponse(intent, normalizedQuestion, {

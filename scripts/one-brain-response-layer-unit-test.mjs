@@ -258,8 +258,10 @@ async function main() {
           surface: ONE_BRAIN_SURFACES.HOME,
           factBundle: buildFactBundleFromUnified(unifiedFixture, "내 보험료 얼마야?"),
           homeBrainIntent: composed.intent,
+          homeRoute: "factual_grounded",
         });
-        assert.match(finalizedHome, /318,683원/);
+        assert.match(finalizedHome, /318683원/);
+        assert.doesNotMatch(finalizedHome, /318,683|월\s*보험료|4건의\s*보험/);
       })
     ) {
       passed += 1;
@@ -268,7 +270,7 @@ async function main() {
     }
 
     if (
-      await runCase("T4 home unsupported gap — redirect removed, 3-element guidance", () => {
+      await runCase("T4 home unsupported gap — no guidance inventory dump on HOME", () => {
         const composed = composeHomeBrainFactAnswer(unifiedFixture, "암보험 부족해?");
         assert.equal(composed.intent, "unsupported");
         const finalized = finalizeOneBrainResponse({
@@ -278,10 +280,10 @@ async function main() {
           surface: ONE_BRAIN_SURFACES.HOME,
           factBundle: buildFactBundleFromUnified(unifiedFixture, "암보험 부족해?"),
           homeBrainIntent: composed.intent,
+          homeRoute: "high_stakes_defer",
         });
-        assert.doesNotMatch(finalized, /AI 상담실|다른 메뉴|redirect/i);
-        assert.match(finalized, /318,683원/);
-        assert.match(finalized, /보장금액과 담보 구조를 확인해야 판단할 수 있습니다/);
+        assert.doesNotMatch(finalized, /AI 상담실|318,683|4건|서류\s*1건/);
+        assert.match(finalized, /전문가|확인/);
       })
     ) {
       passed += 1;

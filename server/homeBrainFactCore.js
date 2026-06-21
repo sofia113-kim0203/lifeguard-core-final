@@ -1,45 +1,35 @@
 /**
- * P2-A — Home Advisor Brain fact lookup (JWT/RLS read-only, deterministic).
+ * P2-A / P3 — Home Tom brain (JWT/RLS read-only, 3-way route + inventory guard).
  */
-import {
-  classifyConsultationIntent,
-  computePremiumLookupStats,
-} from "./intentGateLayer.js";
+import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
 import { loadUnifiedCustomerState, loadRawCustomerRecords } from "./unifiedCustomerState.js";
 import {
   finalizeOneBrainResponse,
   ONE_BRAIN_SURFACES,
 } from "./oneBrainResponseLayer.js";
 import { buildFactBundleFromUnified } from "./guidanceLayer/guidanceBuilder.js";
-import { applyTom2AGapVoiceIfEligible } from "./tomThinkingLoop.js";
 import { runTomGapLightVoiceTurn, shouldUseTomGapLightPath } from "./tomGapLightPath.js";
+import { buildCasualChatResponse } from "./fastResponseLayer.js";
+import { violatesHomeInventoryDump } from "./tomThinkingLoop.js";
+import {
+  HOME_BRAIN_ROUTES,
+  HOME_BRAIN_SUPPORTED_INTENTS,
+  HOME_HIGH_STAKES_DEFER_MESSAGE,
+  classifyHomeBrainIntent,
+  composeHomeHighStakesDeferMessage,
+  resolveHomeBrainRoute,
+} from "./homeBrainRouter.js";
 
-export const HOME_BRAIN_UNSUPPORTED_MESSAGE =
-  "더 자세한 분석은 AI 상담실에서 진행할 수 있습니다.";
+export {
+  HOME_BRAIN_SUPPORTED_INTENTS,
+  classifyHomeBrainIntent,
+  HOME_HIGH_STAKES_DEFER_MESSAGE,
+};
 
-export const HOME_BRAIN_SUPPORTED_INTENTS = new Set([
-  "premium_lookup",
-  "policy_count",
-  "insurer_lookup",
-  "premium_unknown_lookup",
-  "memory_recall_lookup",
-]);
+export const HOME_BRAIN_UNSUPPORTED_MESSAGE = HOME_HIGH_STAKES_DEFER_MESSAGE;
 
-const BLOCKED_CLASSIFICATION_INTENTS = new Set([
-  "coverage_gap_check",
-  "coverage_review_request",
-  "recommendation_request",
-  "design_request",
-  "claim_eligibility_check",
-  "policy_detail",
-]);
-
-const PREMIUM_LOOKUP_SIGNAL = /보험료|월\s*납입?|월납|월\s*보험료|납입\s*보험료|보험료\s*합계/;
-const PREMIUM_UNKNOWN_SIGNAL = /보험료\s*미확인|미확인\s*건|미확인\s*보험료/;
-const MEMORY_RECALL_SIGNAL = /(기억|remember)/i;
-const POLICY_COUNT_SIGNAL =
-  /보험\s*(총\s*)?건수|몇\s*건|몇\s*개|가입\s*보험\s*수|보유\s*보험|내\s*보험(?!\s*(?:료|에))/;
-const INSURER_LOOKUP_SIGNAL = /가입한\s*보험사|어느\s*보험사|보험사는|어떤\s*보험사/;
+const HOME_INVENTORY_BLOCKED_FALLBACK =
+  "잠깐 볼게요. 지금은 숫자나 건수를 바로 말씀드리기 어려워요. 보험 관련 질문이면 보장내역서를 주시면 같이 볼게요.";
 
 function normalizeQuestion(question) {
   return String(question ?? "").replace(/\s+/g, " ").trim();
@@ -53,32 +43,15 @@ function joinLabels(labels) {
   return `${list.slice(0, -1).join(", ")}과 ${list[list.length - 1]}`;
 }
 
-export function classifyHomeBrainIntent(question = "") {
-  const text = normalizeQuestion(question);
-  if (!text) return "unsupported";
+function formatWonAmount(amount) {
+  return `${Number(amount).toLocaleString("ko-KR")}`.replace(/,/g, "");
+}
 
-  const classification = classifyConsultationIntent(text);
-  if (BLOCKED_CLASSIFICATION_INTENTS.has(classification.intent)) {
-    return "unsupported";
+export function applyHomeInventoryHardGuard(text = "") {
+  if (violatesHomeInventoryDump(text)) {
+    return HOME_INVENTORY_BLOCKED_FALLBACK;
   }
-
-  if (MEMORY_RECALL_SIGNAL.test(text) && /(정보|나|내|기억|저|알)/.test(text)) {
-    return "memory_recall_lookup";
-  }
-  if (PREMIUM_UNKNOWN_SIGNAL.test(text)) {
-    return "premium_unknown_lookup";
-  }
-  if (PREMIUM_LOOKUP_SIGNAL.test(text)) {
-    return "premium_lookup";
-  }
-  if (POLICY_COUNT_SIGNAL.test(text)) {
-    return "policy_count";
-  }
-  if (INSURER_LOOKUP_SIGNAL.test(text)) {
-    return "insurer_lookup";
-  }
-
-  return "unsupported";
+  return String(text ?? "").trim();
 }
 
 export function buildHomeBrainFactsUsed(unified, stats) {
@@ -102,58 +75,52 @@ export function formatHomeBrainAnswer(intent, unified, stats) {
   const label = customerLabel(unified);
 
   if (stats.totalCount === 0 && intent !== "memory_recall_lookup") {
-    return `${label}, 현재 등록된 가입 보험 정보를 찾지 못했습니다. 고객 분석 화면에서 보험 정보를 저장해 주시면 정확히 안내해 드리겠습니다.`;
+    return `${label}, 지금은 등록된 가입 보험 정보를 찾지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
   }
 
   switch (intent) {
     case "premium_lookup": {
       if (stats.premiumKnownCount === 0) {
-        return `${label}, 현재 등록된 보험 ${stats.totalCount}건 중 월 보험료가 확인된 계약은 없습니다.`;
+        return `${label}, 지금 확인된 납입 보험료가 있는 계약은 없어요.`;
       }
-      const lines = [
-        `현재 확인 가능한 월 보험료는 ${stats.premiumTotal.toLocaleString("ko-KR")}원입니다.`,
-      ];
+      const lines = [`확인된 납입 보험료 합계는 ${formatWonAmount(stats.premiumTotal)}원이에요.`];
       if (stats.premiumUnknownCount > 0) {
-        lines.push(
-          `${stats.premiumKnownCount}건이 합산되었고, 보험료 미확인 ${stats.premiumUnknownCount}건이 있습니다.`,
-        );
-      } else {
-        lines.push(`${stats.premiumKnownCount}건이 합산되었습니다.`);
+        lines.push(`아직 확인되지 않은 계약도 있어요.`);
       }
       return lines.join("\n");
     }
     case "policy_count":
-      return `${label}, 현재 등록된 가입 보험은 ${stats.totalCount}건입니다.`;
+      return `${label}, 지금 확인된 가입 보험은 ${stats.totalCount}개예요.`;
     case "insurer_lookup": {
       const insurers = Array.from(
         new Set((unified?.policies ?? []).map((policy) => policy.insurer_name).filter(Boolean)),
       );
       if (!insurers.length) {
-        return `${label}, 현재 등록된 보험사 정보를 확인하지 못했습니다.`;
+        return `${label}, 지금은 가입 보험사 정보를 확인하지 못했어요.`;
       }
-      return `${label}, 현재 가입하신 보험사는 ${joinLabels(insurers)}입니다.`;
+      return `${label}, 가입하신 보험사는 ${joinLabels(insurers)}이에요.`;
     }
     case "premium_unknown_lookup":
       if (stats.premiumUnknownCount === 0) {
-        return `${label}, 현재 등록된 보험 ${stats.totalCount}건 모두 월 보험료가 확인되었습니다.`;
+        return `${label}, 지금 확인된 계약은 모두 납입 보험료가 확인됐어요.`;
       }
-      return `${label}, 보험료 미확인 ${stats.premiumUnknownCount}건이 있습니다.`;
+      return `${label}, 아직 납입 보험료가 확인되지 않은 계약이 있어요.`;
     case "memory_recall_lookup": {
       const factCount = unified?.memory_fact_count ?? 0;
       const status = unified?.memory_status ?? "ready";
       if (factCount > 0) {
-        return `${label}, ${factCount}개의 고객 정보를 기억하고 있습니다.`;
+        return `${label}, 기억해 둔 정보가 있어요. 필요하시면 말씀해 주세요.`;
       }
       if (status === "degraded") {
-        return `${label}, 고객 정보를 일부만 기억하고 있습니다.`;
+        return `${label}, 기억한 정보가 일부만 있어요.`;
       }
       if (status === "failed") {
-        return `${label}, 고객 정보 기억을 최근에 갱신하지 못했습니다.`;
+        return `${label}, 최근에 기억 정보를 갱신하지 못했어요.`;
       }
-      return `${label}, 아직 기억할 고객 정보가 충분하지 않습니다.`;
+      return `${label}, 아직 기억할 정보가 많지 않아요.`;
     }
     default:
-      return HOME_BRAIN_UNSUPPORTED_MESSAGE;
+      return HOME_HIGH_STAKES_DEFER_MESSAGE;
   }
 }
 
@@ -162,7 +129,7 @@ export function composeHomeBrainFactAnswer(unified, question) {
   if (!HOME_BRAIN_SUPPORTED_INTENTS.has(intent)) {
     return {
       ok: true,
-      answerText: HOME_BRAIN_UNSUPPORTED_MESSAGE,
+      answerText: HOME_HIGH_STAKES_DEFER_MESSAGE,
       intent: "unsupported",
       factsUsed: buildHomeBrainFactsUsed(unified ?? {}, {
         totalCount: unified?.policy_count ?? unified?.policies?.length ?? 0,
@@ -181,6 +148,28 @@ export function composeHomeBrainFactAnswer(unified, question) {
     intent,
     factsUsed: buildHomeBrainFactsUsed(unified, stats),
   };
+}
+
+function finalizeHomeTomResponse({
+  text,
+  question,
+  intent,
+  homeBrainIntent = null,
+  factBundle = {},
+  homeRoute = null,
+  tomGapVoiceHandled = false,
+}) {
+  const finalized = finalizeOneBrainResponse({
+    text,
+    question,
+    intent,
+    surface: ONE_BRAIN_SURFACES.HOME,
+    factBundle,
+    homeBrainIntent,
+    homeRoute,
+    tomGapVoiceHandled,
+  });
+  return applyHomeInventoryHardGuard(finalized);
 }
 
 export async function handleHomeBrainFactRequest({
@@ -206,10 +195,14 @@ export async function handleHomeBrainFactRequest({
     };
   }
 
+  const startedAt = Date.now();
   const consultationIntent = classifyConsultationIntent(trimmedQuestion);
+  const homeRoute = resolveHomeBrainRoute(trimmedQuestion, consultationIntent);
 
-  if (shouldUseTomGapLightPath(consultationIntent, env)) {
-    const startedAt = Date.now();
+  if (
+    homeRoute === HOME_BRAIN_ROUTES.GAP_GROUNDED &&
+    shouldUseTomGapLightPath(consultationIntent, env)
+  ) {
     const raw = await loadRawCustomerRecords(userSupabase, customerId);
     const policies = raw?.policies ?? [];
     const lightTurn = await runTomGapLightVoiceTurn({
@@ -223,19 +216,20 @@ export async function handleHomeBrainFactRequest({
       startedAt,
     });
     const factBundle = lightTurn.factBundle;
-    const answerText = finalizeOneBrainResponse({
+    const answerText = finalizeHomeTomResponse({
       text: lightTurn.tomApply.text,
       question: trimmedQuestion,
       intent: consultationIntent.intent,
-      surface: ONE_BRAIN_SURFACES.HOME,
       factBundle,
       homeBrainIntent: "unsupported",
+      homeRoute,
       tomGapVoiceHandled: true,
     });
     return {
       ok: true,
       answerText,
-      intent: "unsupported",
+      intent: consultationIntent.intent,
+      home_route: homeRoute,
       factsUsed: buildHomeBrainFactsUsed(
         { policies, policy_count: policies.length, memory_fact_count: 0, memory_status: "ready" },
         { totalCount: policies.length, premiumKnownCount: 0, premiumUnknownCount: 0, premiumTotal: 0 },
@@ -248,39 +242,71 @@ export async function handleHomeBrainFactRequest({
     };
   }
 
+  if (homeRoute === HOME_BRAIN_ROUTES.HIGH_STAKES_DEFER) {
+    const answerText = finalizeHomeTomResponse({
+      text: composeHomeHighStakesDeferMessage(),
+      question: trimmedQuestion,
+      intent: consultationIntent.intent,
+      homeBrainIntent: "unsupported",
+      homeRoute,
+      factBundle: { question: trimmedQuestion, policy_count: 0, policies: [] },
+    });
+    return {
+      ok: true,
+      answerText,
+      intent: consultationIntent.intent,
+      home_route: homeRoute,
+      factsUsed: buildHomeBrainFactsUsed(
+        {},
+        { totalCount: 0, premiumKnownCount: 0, premiumUnknownCount: 0, premiumTotal: 0 },
+      ),
+      response_latency_ms: Date.now() - startedAt,
+    };
+  }
+
+  if (homeRoute === HOME_BRAIN_ROUTES.CASUAL_CHAT) {
+    const casualResult = await buildCasualChatResponse({
+      question: trimmedQuestion,
+      history: [],
+      fetchImpl,
+      env,
+    });
+    const answerText = finalizeHomeTomResponse({
+      text: casualResult.text,
+      question: trimmedQuestion,
+      intent: "casual_chat",
+      homeRoute,
+      factBundle: { question: trimmedQuestion, policy_count: 0, policies: [] },
+    });
+    return {
+      ok: true,
+      answerText,
+      intent: "casual_chat",
+      home_route: homeRoute,
+      response_source: casualResult.response_source ?? null,
+      factsUsed: buildHomeBrainFactsUsed(
+        {},
+        { totalCount: 0, premiumKnownCount: 0, premiumUnknownCount: 0, premiumTotal: 0 },
+      ),
+      response_latency_ms: Date.now() - startedAt,
+    };
+  }
+
   const unified = await loadUnifiedCustomerState(userSupabase, customerId);
   const composed = composeHomeBrainFactAnswer(unified, trimmedQuestion);
   const factBundle = buildFactBundleFromUnified(unified, trimmedQuestion);
-  const tomApply = await applyTom2AGapVoiceIfEligible({
-    question: trimmedQuestion,
-    intentClassification: consultationIntent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle,
-    fetchImpl,
-    env,
-    handler: "handleHomeBrainFactRequest",
-  });
-
-  if (tomApply.ran) {
-    const answerText = finalizeOneBrainResponse({
-      text: tomApply.text,
-      question: trimmedQuestion,
-      intent: consultationIntent.intent,
-      surface: ONE_BRAIN_SURFACES.HOME,
-      factBundle,
-      homeBrainIntent: composed.intent,
-      tomGapVoiceHandled: true,
-    });
-    return { ...composed, answerText, tom_voice_trace: tomApply.trace };
-  }
-
-  const answerText = finalizeOneBrainResponse({
+  const answerText = finalizeHomeTomResponse({
     text: composed.answerText,
     question: trimmedQuestion,
     intent: consultationIntent.intent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle,
     homeBrainIntent: composed.intent,
+    homeRoute: HOME_BRAIN_ROUTES.FACTUAL_GROUNDED,
+    factBundle,
   });
-  return { ...composed, answerText, tom_voice_trace: tomApply.trace };
+  return {
+    ...composed,
+    answerText,
+    home_route: HOME_BRAIN_ROUTES.FACTUAL_GROUNDED,
+    response_latency_ms: Date.now() - startedAt,
+  };
 }

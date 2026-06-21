@@ -90,7 +90,7 @@ export function composeTomGapHoldFallback(plan) {
   return `잠깐 볼게요. 지금 자료에선 ${label} 진단비 금액이 안 보여요. 그래서 부족한지는 아직 판단 못 하겠어요. 보장내역서 다음 장 주시면 같이 볼게요.`;
 }
 
-const INVENTORY_DUMP_PATTERNS = [
+export const INVENTORY_DUMP_PATTERNS = [
   /현재\s*\d+\s*건의\s*보험/,
   /월\s*보험료/,
   /318,683|31만8천/,
@@ -99,6 +99,15 @@ const INVENTORY_DUMP_PATTERNS = [
   /문서\s*\d+\s*건/,
   /AI\s*상담실/,
 ];
+
+export function violatesHomeInventoryDump(text = "") {
+  const normalized = String(text ?? "").trim();
+  if (!normalized) return false;
+  for (const pattern of INVENTORY_DUMP_PATTERNS) {
+    if (pattern.test(normalized)) return true;
+  }
+  return false;
+}
 
 export function violatesTomGapVoiceChecks(text, audit) {
   const normalized = String(text ?? "").trim();

@@ -1,6 +1,6 @@
 /**
- * P2-A — POST /api/customer-home-brain-fact
- * JWT/RLS read-only home brain fact answers. No service-role, no writes, no LLM.
+ * P3 — POST /api/customer-home-brain-fact
+ * JWT/RLS read-only home Tom brain. Gap Tom + casual chat may call Claude; no writes.
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";

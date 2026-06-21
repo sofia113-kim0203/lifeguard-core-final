@@ -1,5 +1,5 @@
 /**
- * Phase 28 — Customer home status board (no duplicate nav buttons, no dev DB cards).
+ * Phase 28 / P3 — Customer home: Tom center, cards secondary.
  */
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { deriveMemoryStatusFromUnified, memoryStatusLabel, memoryStatusTone } from "../lib/memoryStatus.js";
@@ -34,9 +34,9 @@ function StatusPill({ label, tone = "default" }) {
     <span
       style={{
         display: "inline-block",
-        padding: "6px 12px",
+        padding: "5px 10px",
         borderRadius: "999px",
-        fontSize: "12px",
+        fontSize: "11px",
         fontWeight: 600,
         background: t.bg,
         border: `1px solid ${t.border}`,
@@ -48,35 +48,34 @@ function StatusPill({ label, tone = "default" }) {
   );
 }
 
-function HomeCard({ title, subtitle, value, footer, emphasized = false, onClick }) {
-  const base = {
-    background: emphasized
-      ? "linear-gradient(160deg, rgba(37, 99, 235, 0.28) 0%, rgba(15, 23, 42, 0.92) 100%)"
-      : "rgba(30, 41, 59, 0.65)",
-    border: emphasized
-      ? "2px solid rgba(96, 165, 250, 0.55)"
-      : "1px solid rgba(148, 163, 184, 0.12)",
-    borderRadius: emphasized ? "22px" : "18px",
-    padding: emphasized ? "30px 32px" : "22px 24px",
-    boxShadow: emphasized ? "0 18px 48px rgba(37, 99, 235, 0.18)" : "none",
-    cursor: onClick ? "pointer" : "default",
-    transition: "transform 0.15s ease, border-color 0.15s ease",
-    fontFamily: FONT,
-    minHeight: emphasized ? "220px" : "168px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-  };
-
+function HomeCard({ title, subtitle, value, footer, onClick }) {
   return (
-    <button type="button" onClick={onClick} style={{ ...base, textAlign: "left", width: "100%" }}>
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: "rgba(30, 41, 59, 0.55)",
+        border: "1px solid rgba(148, 163, 184, 0.12)",
+        borderRadius: "16px",
+        padding: "18px 20px",
+        cursor: onClick ? "pointer" : "default",
+        transition: "transform 0.15s ease, border-color 0.15s ease",
+        fontFamily: FONT,
+        minHeight: "140px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        textAlign: "left",
+        width: "100%",
+      }}
+    >
       <div>
         <div
           style={{
-            fontSize: emphasized ? "13px" : "12px",
+            fontSize: "11px",
             fontWeight: 700,
-            letterSpacing: emphasized ? "0.06em" : "0.04em",
-            color: emphasized ? "#bfdbfe" : "#64748b",
+            letterSpacing: "0.04em",
+            color: "#64748b",
             textTransform: "uppercase",
           }}
         >
@@ -84,10 +83,10 @@ function HomeCard({ title, subtitle, value, footer, emphasized = false, onClick 
         </div>
         <div
           style={{
-            marginTop: "10px",
-            fontSize: emphasized ? "26px" : "20px",
+            marginTop: "8px",
+            fontSize: "17px",
             fontWeight: 700,
-            color: "#f8fafc",
+            color: "#e2e8f0",
             lineHeight: 1.25,
           }}
         >
@@ -96,10 +95,10 @@ function HomeCard({ title, subtitle, value, footer, emphasized = false, onClick 
         {value ? (
           <div
             style={{
-              marginTop: emphasized ? "16px" : "12px",
-              fontSize: emphasized ? "34px" : "28px",
+              marginTop: "10px",
+              fontSize: "22px",
               fontWeight: 800,
-              color: emphasized ? "#dbeafe" : "#e2e8f0",
+              color: "#cbd5e1",
               letterSpacing: "-0.02em",
             }}
           >
@@ -108,7 +107,7 @@ function HomeCard({ title, subtitle, value, footer, emphasized = false, onClick 
         ) : null}
       </div>
       {footer ? (
-        <div style={{ marginTop: "18px", fontSize: "13px", color: "#94a3b8", lineHeight: 1.5 }}>
+        <div style={{ marginTop: "14px", fontSize: "12px", color: "#64748b", lineHeight: 1.5 }}>
           {footer}
         </div>
       ) : null}
@@ -180,82 +179,90 @@ export default function CustomerHomePanel({ user, onNavigate, onOpenAuth }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "28px", fontFamily: FONT }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px", fontFamily: FONT }}>
       <section>
-        <h1 style={{ margin: 0, fontSize: "30px", fontWeight: 700, color: "#f8fafc" }}>
-          {displayName}님의 보험 홈
+        <h1 style={{ margin: 0, fontSize: "22px", fontWeight: 700, color: "#94a3b8" }}>
+          {displayName}님, 안녕하세요
         </h1>
-        <p style={{ margin: "10px 0 0", fontSize: "15px", color: "#94a3b8" }}>
-          프로필·보험·문서·설계안 상태를 확인하고 사이드 메뉴에서 상세 분석으로 이동하세요.
-        </p>
       </section>
 
       <AdvisorBrainEntry disabled={loading} />
 
-      <div
+      <section
         style={{
+          opacity: 0.88,
           display: "flex",
-          flexWrap: "wrap",
-          gap: "10px",
-          alignItems: "center",
+          flexDirection: "column",
+          gap: "16px",
         }}
       >
-        <StatusPill
-          label={`기본 프로필 ${loading ? "…" : basicProfileReady ? "완료" : "입력 필요"}`}
-          tone={basicProfileReady ? "ready" : "default"}
-        />
-        <StatusPill label={`가입 보험 ${loading ? "…" : `${policyCount}건`}`} tone={policyCount > 0 ? "ready" : "default"} />
-        <StatusPill label={`문서 ${loading ? "…" : `${documentCount}건`}`} tone={documentCount > 0 ? "ready" : "default"} />
-        <StatusPill label={`Memory ${loading ? "…" : memoryLabel}`} tone={memoryTone} />
-        <StatusPill label={`분석 ${loading ? "…" : analysisLabel}`} tone={analysisTone} />
-        <StatusPill label={`설계 ${loading ? "…" : designLabel}`} tone={designTone} />
-      </div>
+        <div style={{ fontSize: "12px", fontWeight: 700, color: "#64748b", letterSpacing: "0.06em" }}>
+          보조 정보
+        </div>
 
-      <PolicyExplorerSection
-        dashboardPolicies={dashboard?.insurancePolicies}
-        unifiedPolicies={unified?.policies}
-        variant="summary"
-        loading={loading}
-      />
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            alignItems: "center",
+          }}
+        >
+          <StatusPill
+            label={`기본 프로필 ${loading ? "…" : basicProfileReady ? "완료" : "입력 필요"}`}
+            tone={basicProfileReady ? "ready" : "default"}
+          />
+          <StatusPill label={`가입 보험 ${loading ? "…" : `${policyCount}건`}`} tone={policyCount > 0 ? "ready" : "default"} />
+          <StatusPill label={`문서 ${loading ? "…" : `${documentCount}건`}`} tone={documentCount > 0 ? "ready" : "default"} />
+          <StatusPill label={`Memory ${loading ? "…" : memoryLabel}`} tone={memoryTone} />
+          <StatusPill label={`분석 ${loading ? "…" : analysisLabel}`} tone={analysisTone} />
+          <StatusPill label={`설계 ${loading ? "…" : designLabel}`} tone={designTone} />
+        </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: "18px",
-        }}
-      >
-        <HomeCard
-          subtitle="프로필"
-          title={displayName}
-          value={dashboard?.profileStatus === "active" ? "활성" : "준비 중"}
-          footer="기본 프로필과 동의 상태가 연결됩니다."
-          onClick={() => onNavigate?.("customer")}
+        <PolicyExplorerSection
+          dashboardPolicies={dashboard?.insurancePolicies}
+          unifiedPolicies={unified?.policies}
+          variant="summary"
+          loading={loading}
         />
-        <HomeCard
-          subtitle="내보험"
-          title="가입 보험"
-          value={loading ? "…" : `${policyCount}건`}
-          footer="보유 계약 수와 보장 요약을 확인합니다."
-          onClick={() => onNavigate?.("customer")}
-        />
-        <HomeCard
-          subtitle="내문서"
-          title="업로드 문서"
-          value={loading ? "…" : `${documentCount}건`}
-          footer="증권·약관·의료서류 등 업로드 현황입니다."
-          onClick={() => onNavigate?.("documents")}
-        />
-      </div>
 
-      <HomeCard
-        emphasized
-        subtitle="나만의 설계안"
-        title="AI 맞춤 보험 설계"
-        value={loading ? "…" : designLabel}
-        footer="추천·인수위험·보장공백 분석을 반영한 고객 전용 설계안입니다. AI 보험 추천 메뉴에서 상세 내용을 확인하세요."
-        onClick={() => onNavigate?.("ai")}
-      />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: "14px",
+          }}
+        >
+          <HomeCard
+            subtitle="프로필"
+            title={displayName}
+            value={dashboard?.profileStatus === "active" ? "활성" : "준비 중"}
+            footer="기본 프로필과 동의 상태"
+            onClick={() => onNavigate?.("customer")}
+          />
+          <HomeCard
+            subtitle="내보험"
+            title="가입 보험"
+            value={loading ? "…" : `${policyCount}건`}
+            footer="보유 계약과 보장 요약"
+            onClick={() => onNavigate?.("customer")}
+          />
+          <HomeCard
+            subtitle="내문서"
+            title="업로드 문서"
+            value={loading ? "…" : `${documentCount}건`}
+            footer="증권·약관·의료서류"
+            onClick={() => onNavigate?.("documents")}
+          />
+          <HomeCard
+            subtitle="설계안"
+            title="AI 맞춤 보험 설계"
+            value={loading ? "…" : designLabel}
+            footer="추천·분석 기반 설계안"
+            onClick={() => onNavigate?.("ai")}
+          />
+        </div>
+      </section>
     </div>
   );
 }

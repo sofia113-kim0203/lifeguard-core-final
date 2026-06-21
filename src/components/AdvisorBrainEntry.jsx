@@ -6,87 +6,88 @@ const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
 
 const EXAMPLE_QUESTIONS = [
+  "암보험 부족해?",
+  "분당 맛집 알려줘",
+  "상속세 얼마야?",
   "내 보험료 얼마야?",
-  "보험 몇 개 가입돼 있어?",
-  "어느 보험사 가입돼 있어?",
-  "보험료 미확인 건 있어?",
-  "나를 기억하고 있어?",
 ];
 
 const S = {
-  card: {
-    background: "linear-gradient(160deg, rgba(37, 99, 235, 0.22) 0%, rgba(15, 23, 42, 0.92) 100%)",
-    border: "1px solid rgba(96, 165, 250, 0.35)",
-    borderRadius: "20px",
-    padding: "24px 28px",
+  hero: {
+    background: "linear-gradient(165deg, rgba(37, 99, 235, 0.28) 0%, rgba(15, 23, 42, 0.95) 100%)",
+    border: "1px solid rgba(96, 165, 250, 0.4)",
+    borderRadius: "24px",
+    padding: "32px 32px 28px",
     fontFamily: FONT,
+    boxShadow: "0 20px 56px rgba(37, 99, 235, 0.16)",
   },
   title: {
     margin: 0,
-    fontSize: "18px",
+    fontSize: "24px",
     fontWeight: 700,
     color: "#f8fafc",
   },
   desc: {
-    margin: "8px 0 0",
-    fontSize: "14px",
-    color: "#94a3b8",
-    lineHeight: 1.55,
+    margin: "10px 0 0",
+    fontSize: "15px",
+    color: "#cbd5e1",
+    lineHeight: 1.65,
+    maxWidth: "640px",
   },
   row: {
     display: "flex",
     flexWrap: "wrap",
     gap: "8px",
-    marginTop: "16px",
+    marginTop: "18px",
   },
   chip: {
-    padding: "8px 12px",
+    padding: "8px 14px",
     borderRadius: "999px",
-    border: "1px solid rgba(148, 163, 184, 0.25)",
+    border: "1px solid rgba(148, 163, 184, 0.28)",
     background: "rgba(15, 23, 42, 0.55)",
-    color: "#cbd5e1",
-    fontSize: "12px",
+    color: "#e2e8f0",
+    fontSize: "13px",
     cursor: "pointer",
     fontFamily: FONT,
   },
   inputRow: {
     display: "flex",
     gap: "10px",
-    marginTop: "16px",
+    marginTop: "20px",
     flexWrap: "wrap",
   },
   input: {
-    flex: "1 1 240px",
-    minWidth: "200px",
-    padding: "12px 14px",
-    borderRadius: "10px",
-    border: "1px solid rgba(148, 163, 184, 0.25)",
-    background: "rgba(15, 23, 42, 0.6)",
-    color: "#e2e8f0",
-    fontSize: "14px",
+    flex: "1 1 280px",
+    minWidth: "220px",
+    padding: "14px 16px",
+    borderRadius: "12px",
+    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "rgba(15, 23, 42, 0.65)",
+    color: "#f1f5f9",
+    fontSize: "15px",
     fontFamily: FONT,
     outline: "none",
   },
   btn: {
-    padding: "12px 18px",
-    borderRadius: "10px",
+    padding: "14px 20px",
+    borderRadius: "12px",
     border: "none",
     background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
     color: "#fff",
-    fontSize: "14px",
+    fontSize: "15px",
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
   },
   answer: {
-    marginTop: "16px",
-    padding: "14px 16px",
-    borderRadius: "12px",
-    background: "rgba(15, 23, 42, 0.55)",
-    border: "1px solid rgba(148, 163, 184, 0.15)",
+    marginTop: "18px",
+    padding: "16px 18px",
+    borderRadius: "14px",
+    background: "rgba(15, 23, 42, 0.6)",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
     color: "#e2e8f0",
-    fontSize: "14px",
-    lineHeight: 1.6,
+    fontSize: "15px",
+    lineHeight: 1.65,
     whiteSpace: "pre-wrap",
   },
   error: {
@@ -122,10 +123,10 @@ export default function AdvisorBrainEntry({ disabled = false }) {
   };
 
   return (
-    <section style={S.card}>
-      <h2 style={S.title}>Advisor Brain</h2>
+    <section style={S.hero}>
+      <h2 style={S.title}>Tom</h2>
       <p style={S.desc}>
-        등록된 보험 정보를 바탕으로 바로 답변합니다. 숫자는 시스템에 저장된 데이터만 사용합니다.
+        보험 관련 궁금한 점을 편하게 물어보세요. 보장내역서가 있으면 더 정확히 볼게요.
       </p>
 
       <div style={S.row}>
@@ -147,7 +148,7 @@ export default function AdvisorBrainEntry({ disabled = false }) {
           style={S.input}
           type="text"
           value={question}
-          placeholder="예: 내 보험료 얼마야?"
+          placeholder="Tom에게 물어보세요"
           disabled={disabled || loading}
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={(event) => {
@@ -160,7 +161,7 @@ export default function AdvisorBrainEntry({ disabled = false }) {
           disabled={disabled || loading || !question.trim()}
           onClick={() => submitQuestion(question)}
         >
-          {loading ? "답변 중…" : "질문하기"}
+          {loading ? "답변 중…" : "보내기"}
         </button>
       </div>
 
