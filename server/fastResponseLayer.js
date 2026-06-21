@@ -22,7 +22,35 @@ import {
   generateCasualChatResponse,
   generateGroundedChatResponse,
 } from "./casualChatResponseCore.js";
+import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
 export { generateCasualChatResponse, CASUAL_CHAT_FALLBACK } from "./casualChatResponseCore.js";
+
+// PHASE-A TEMP STOPGAP — B에서 정식 sanitizer로 교체
+export const PHASE_A_LEGACY_JUDGMENT_STOPGAP =
+  "현재 확인된 근거만으로는 단정할 수 없습니다. 보험증권/보장내역서 분석이 완료되면 정확히 안내드릴게요.";
+
+const PHASE_A_JUDGMENT_GENERAL_CONSULTATION_RE =
+  /부족|모자라|충분|괜찮|괜찮아|충분해|어디가\s*부족|공백|갭|가입해야|들어야|추천|보완|설계|구성|플랜|포트폴리오|리밸런싱|재구성|줄이|절감/i;
+
+export function isPhaseAJudgmentLegacyIntent(intentGate = null, question = "") {
+  const intent = intentGate?.intent ?? null;
+  const text = String(question ?? "").trim();
+  if (!intent || !text) return false;
+  if (intent === "design_request") return true;
+  if (intent === "recommendation_request") {
+    return !isRecommendationReasonClassification({ intent }, text);
+  }
+  if (intent === "general_consultation" && PHASE_A_JUDGMENT_GENERAL_CONSULTATION_RE.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function resolvePhaseALegacyStopgap({ intentGate, question }) {
+  if (!isPhaseAJudgmentLegacyIntent(intentGate, question)) return null;
+  // PHASE-A TEMP STOPGAP — B에서 정식 sanitizer로 교체
+  return PHASE_A_LEGACY_JUDGMENT_STOPGAP;
+}
 const STAGE_LABELS = {
   coverage_gap: "보장 공백",
   underwriting_risk: "인수 위험",
@@ -76,7 +104,12 @@ function resolveTargetedFastAnswer({ trimmedQuestion, workingContext, cachePaylo
   }
   return null;
 }
-function buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData }) {
+function buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData, intentGate = null }) {
+  const stopgap = resolvePhaseALegacyStopgap({ intentGate, question: trimmedQuestion });
+  if (stopgap) {
+    // PHASE-A TEMP STOPGAP — B에서 정식 sanitizer로 교체
+    return stopgap;
+  }
   const pending = pendingStageLabels(cachePayload);
   const allFresh = cachePayload?.cache_status === "fresh";
   const lines = [];
@@ -196,13 +229,24 @@ export function buildFastConversationalResponse({
   if (intentGate?.intent === "casual_chat") {
     throw new Error("casual_chat_must_use_buildCasualChatResponse");
   }
+  const stopgap = resolvePhaseALegacyStopgap({ intentGate, question: trimmedQuestion });
+  if (stopgap) {
+    // PHASE-A TEMP STOPGAP — B에서 정식 sanitizer로 교체
+    return stopgap;
+  }
   const targeted = resolveTargetedFastAnswer({ trimmedQuestion, workingContext, cachePayload, intentGate });
   if (targeted) {
     return targeted;
   }
   const situation = extractCustomerSituation(workingContext);
   const hasAnyCustomerData = hasAnyCustomerDataFromInput(memorySnapshot, sourceContext);
-  return buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData });
+  return buildFallbackTemplate({
+    trimmedQuestion,
+    situation,
+    cachePayload,
+    hasAnyCustomerData,
+    intentGate,
+  });
 }
 export async function buildConversationalAnswer({
   question,
@@ -230,6 +274,11 @@ export async function buildConversationalAnswer({
   }
   if (intentGate?.intent === "casual_chat") {
     throw new Error("casual_chat_must_use_buildCasualChatResponse");
+  }
+  const stopgap = resolvePhaseALegacyStopgap({ intentGate, question: trimmedQuestion });
+  if (stopgap) {
+    // PHASE-A TEMP STOPGAP — B에서 정식 sanitizer로 교체
+    return stopgap;
   }
   // Compute the deterministic targeted answer (claim / coverage review / policy detail /
   // factual count) but DEMOTE it from a hijacking shortcut to a grounding reference. The
@@ -261,7 +310,13 @@ export async function buildConversationalAnswer({
     return targeted;
   }
   const hasAnyCustomerData = hasAnyCustomerDataFromInput(memorySnapshot, sourceContext);
-  return buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData });
+  return buildFallbackTemplate({
+    trimmedQuestion,
+    situation,
+    cachePayload,
+    hasAnyCustomerData,
+    intentGate,
+  });
 }
 export async function buildCasualChatResponse({ question, history = [], fetchImpl = fetch, env = process.env } = {}) {
   return generateCasualChatResponse({ question, history, fetchImpl, env });

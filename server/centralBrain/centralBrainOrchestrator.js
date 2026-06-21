@@ -21,6 +21,27 @@ import {
   normalizeCentralBrainResponse,
 } from "./centralBrainResponseNormalizer.js";
 
+export const PHASE_A_PARTIAL_EVIDENCE_GUIDANCE =
+  "현재 확인된 근거만으로는 정확히 단정하기 어렵습니다. 보험증권/보장내역서를 추가로 확인하면 해당 보장을 정확히 분석해 드릴게요.";
+
+const PHASE_A_PARTIAL_EVIDENCE_MODES = new Set([
+  "coverage_gap_reason",
+  "coverage_review_request",
+  "recommendation_reason",
+]);
+
+function buildPartialEvidenceGuidanceMessage(bundle) {
+  const lines = [];
+  const stats = bundle?.data?.premium_stats;
+  if (stats?.premiumKnownCount > 0 && stats?.premiumTotal > 0) {
+    lines.push(
+      `현재 확인 가능한 월 보험료는 ${stats.premiumTotal.toLocaleString("ko-KR")}원입니다.`,
+    );
+  }
+  lines.push(PHASE_A_PARTIAL_EVIDENCE_GUIDANCE);
+  return lines.join("\n");
+}
+
 export async function runCentralBrainTurn({
   question,
   supabase,
@@ -68,7 +89,7 @@ export async function runCentralBrainTurn({
 
   const mode = route.central_mode;
 
-  if (mode === "coverage_review_request" && bundle.sufficiency !== "sufficient") {
+  if (mode === "coverage_review_request" && bundle.sufficiency === "insufficient") {
     const inFlightJob = await findInFlightAnalysisJob(supabase, customerId);
     return {
       activated: true,
@@ -106,6 +127,27 @@ export async function runCentralBrainTurn({
       engine_executed: false,
       live_engines_executed: false,
       reason: "INSUFFICIENT_STORED_EVIDENCE",
+    };
+  }
+
+  if (bundle.sufficiency === "partial" && PHASE_A_PARTIAL_EVIDENCE_MODES.has(mode)) {
+    return {
+      activated: true,
+      ok: true,
+      message: buildPartialEvidenceGuidanceMessage(bundle),
+      route,
+      plan,
+      bundle,
+      skip_analysis_job: plan.skip_analysis_job === true,
+      central_brain_mode: mode,
+      engine_executed: false,
+      live_engines_executed: false,
+      reason: "PARTIAL_EVIDENCE_GUIDANCE",
+      metadata: buildCentralBrainAssistantMetadata({
+        centralMode: mode,
+        plan,
+        bundle,
+      }),
     };
   }
 
