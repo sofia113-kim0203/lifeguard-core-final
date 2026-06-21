@@ -33,6 +33,31 @@ import {
   mergeConversationMetadata,
   runCentralBrainTurn,
 } from "./centralBrain/index.js";
+import {
+  finalizeOneBrainResponse,
+  ONE_BRAIN_SURFACES,
+} from "./oneBrainResponseLayer.js";
+import { buildFactBundleFromLegacyContext } from "./guidanceLayer/guidanceBuilder.js";
+
+function applyOneBrainFinalResponse(
+  fastResponse,
+  { question, intentClassification, memoryContext, cachePayload, analysisContext },
+) {
+  const factBundle = buildFactBundleFromLegacyContext({
+    sourceContext: memoryContext?.sourceContext,
+    snapshot: memoryContext?.snapshot,
+    question,
+    cachePayload,
+    analysisContext,
+  });
+  return finalizeOneBrainResponse({
+    text: fastResponse,
+    question,
+    intent: intentClassification.intent,
+    surface: ONE_BRAIN_SURFACES.CONSULTATION,
+    factBundle,
+  });
+}
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -263,6 +288,13 @@ async function handleCasualChatQuestionRequest({
   const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
   const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
   const casualResult = await buildCasualChatResponse({ question, history, fetchImpl, env });
+  const finalizedText = finalizeOneBrainResponse({
+    text: casualResult.text,
+    question,
+    intent: "casual_chat",
+    surface: ONE_BRAIN_SURFACES.CONSULTATION,
+    factBundle: { question, policy_count: 0, policies: [] },
+  });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
     role: "user",
@@ -278,7 +310,7 @@ async function handleCasualChatQuestionRequest({
 
   const assistantMessage = await insertConversationMessage(adminClient, customerId, {
     role: "assistant",
-    message: casualResult.text,
+    message: finalizedText,
     metadata: {
       source: "casual_claude",
       intent: "casual_chat",
@@ -294,7 +326,7 @@ async function handleCasualChatQuestionRequest({
     ok: true,
     customer_id: customerId,
     question,
-    fast_response: casualResult.text,
+    fast_response: finalizedText,
     source: "casual_claude",
     initial_response_time_ms: initialResponseTimeMs,
     analysis_job_id: null,
@@ -467,6 +499,14 @@ export async function handleConversationalQuestionRequest({
       env,
     });
   }
+
+  fastResponse = applyOneBrainFinalResponse(fastResponse, {
+    question: trimmedQuestion,
+    intentClassification,
+    memoryContext,
+    cachePayload,
+    analysisContext,
+  });
 
   if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {
     const initialResponseTimeMs = Date.now() - startedAt;

@@ -13,9 +13,12 @@ import {
   GUIDANCE_INTENTS,
 } from "../server/guidanceLayer/guidanceBuilder.js";
 import {
-  PHASE_A_LEGACY_JUDGMENT_STOPGAP,
   buildConversationalAnswer,
 } from "../server/fastResponseLayer.js";
+import {
+  finalizeOneBrainResponse,
+  ONE_BRAIN_SURFACES,
+} from "../server/oneBrainResponseLayer.js";
 import { buildFactualLookupAnswer, buildPolicyDetailAnswer } from "../server/intentGateLayer.js";
 import { buildClaimFastResponse } from "../server/claimBridgeLayer.js";
 
@@ -125,8 +128,8 @@ async function main() {
         assert.equal(result.reason, "PARTIAL_EVIDENCE_GUIDANCE");
         assert.match(result.message, /현재 4건의 보험은 확인됩니다/);
         assert.match(result.message, /318,683원/);
-        assert.match(result.message, /다만 암 보장금액은 아직 확인되지 않았습니다/);
-        assert.match(result.message, /암보험이 부족한지는 보장금액을 확인해야 판단할 수 있습니다/);
+        assert.match(result.message, /다만 암 보장/);
+        assert.match(result.message, /보장금액과 담보 구조를 확인해야 판단할 수 있습니다/);
         assert.match(result.message, /보장내역서를 분석하면 암·뇌·심장 보장을 바로 평가해 드릴게요/);
         assert.doesNotMatch(result.message, /AI 상담실|다른 메뉴|이동해|redirect/i);
         assert.doesNotMatch(result.message, /모르겠습니다|알 수 없습니다/);
@@ -173,7 +176,16 @@ async function main() {
           fetchImpl: networkBlockingFetch,
           env: {},
         });
-        assert.equal(designAnswer, PHASE_A_LEGACY_JUDGMENT_STOPGAP);
+        assert.equal(designAnswer, "");
+
+        const finalizedDesign = finalizeOneBrainResponse({
+          text: designAnswer,
+          question: "보험 설계해줘",
+          intent: "design_request",
+          surface: ONE_BRAIN_SURFACES.CONSULTATION,
+          factBundle: { policy_count: 0, policies: [], question: "보험 설계해줘" },
+        });
+        assert.match(finalizedDesign, /설계|분석|확인/);
 
         const policies = [
           {
@@ -217,7 +229,7 @@ async function main() {
           policies: [],
           question: "암보험 부족해?",
         });
-        assert.match(message, /다만 암 보장금액/);
+        assert.match(message, /다만 암 보장 구조와 금액/);
       })
     ) {
       passed += 1;

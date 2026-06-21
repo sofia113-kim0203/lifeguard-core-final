@@ -6,6 +6,11 @@ import {
   computePremiumLookupStats,
 } from "./intentGateLayer.js";
 import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
+import {
+  finalizeOneBrainResponse,
+  ONE_BRAIN_SURFACES,
+} from "./oneBrainResponseLayer.js";
+import { buildFactBundleFromUnified } from "./guidanceLayer/guidanceBuilder.js";
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE =
   "더 자세한 분석은 AI 상담실에서 진행할 수 있습니다.";
@@ -194,5 +199,16 @@ export async function handleHomeBrainFactRequest({ userSupabase, customerId, que
   }
 
   const unified = await loadUnifiedCustomerState(userSupabase, customerId);
-  return composeHomeBrainFactAnswer(unified, trimmedQuestion);
+  const composed = composeHomeBrainFactAnswer(unified, trimmedQuestion);
+  const consultationIntent = classifyConsultationIntent(trimmedQuestion);
+  const factBundle = buildFactBundleFromUnified(unified, trimmedQuestion);
+  const answerText = finalizeOneBrainResponse({
+    text: composed.answerText,
+    question: trimmedQuestion,
+    intent: consultationIntent.intent,
+    surface: ONE_BRAIN_SURFACES.HOME,
+    factBundle,
+    homeBrainIntent: composed.intent,
+  });
+  return { ...composed, answerText };
 }

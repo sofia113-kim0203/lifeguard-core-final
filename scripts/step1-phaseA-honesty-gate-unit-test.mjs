@@ -13,10 +13,13 @@ import {
 import { loadCentralBrainEvidence } from "../server/centralBrain/centralBrainEvidenceLoader.js";
 import { routeCentralBrain, planCentralBrainEvidence } from "../server/centralBrain/index.js";
 import {
-  PHASE_A_LEGACY_JUDGMENT_STOPGAP,
   buildConversationalAnswer,
   isPhaseAJudgmentLegacyIntent,
 } from "../server/fastResponseLayer.js";
+import {
+  finalizeOneBrainResponse,
+  ONE_BRAIN_SURFACES,
+} from "../server/oneBrainResponseLayer.js";
 import { computePremiumLookupStats, buildFactualLookupAnswer } from "../server/intentGateLayer.js";
 import { buildClaimFastResponse } from "../server/claimBridgeLayer.js";
 import { composeHomeBrainFactAnswer } from "../server/homeBrainFactCore.js";
@@ -174,8 +177,8 @@ async function main() {
       assert.equal(result.activated, true);
       assert.equal(result.reason, "PARTIAL_EVIDENCE_GUIDANCE");
       assert.match(result.message, /318,683원/);
-      assert.match(result.message, /다만 암 보장금액은 아직 확인되지 않았습니다/);
-      assert.match(result.message, /보장금액을 확인해야 판단할 수 있습니다/);
+      assert.match(result.message, /다만 암 보장/);
+      assert.match(result.message, /보장금액과 담보 구조를 확인해야 판단할 수 있습니다/);
       assert.doesNotMatch(result.message, /반드시|확실히 부족|부족합니다|없습니다/);
     })
   ) {
@@ -210,7 +213,16 @@ async function main() {
           fetchImpl: networkBlockingFetch,
           env: {},
         });
-        assert.equal(designAnswer, PHASE_A_LEGACY_JUDGMENT_STOPGAP);
+        assert.equal(designAnswer, "");
+
+        const finalizedDesign = finalizeOneBrainResponse({
+          text: designAnswer,
+          question: "보험 설계해줘",
+          intent: "design_request",
+          surface: ONE_BRAIN_SURFACES.CONSULTATION,
+          factBundle: { policy_count: 0, policies: [], question: "보험 설계해줘" },
+        });
+        assert.match(finalizedDesign, /설계|분석|확인/);
 
         const policies = [
           {
