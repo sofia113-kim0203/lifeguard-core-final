@@ -5,12 +5,14 @@ import {
   classifyConsultationIntent,
   computePremiumLookupStats,
 } from "./intentGateLayer.js";
+import { buildPremiumDistributionStats } from "./premiumDistributionStats.js";
 import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE =
   "더 자세한 분석은 AI 상담실에서 진행할 수 있습니다.";
 
 export const HOME_BRAIN_SUPPORTED_INTENTS = new Set([
+  "premium_distribution",
   "premium_lookup",
   "policy_count",
   "insurer_lookup",
@@ -27,6 +29,8 @@ const BLOCKED_CLASSIFICATION_INTENTS = new Set([
   "policy_detail",
 ]);
 
+const PREMIUM_DISTRIBUTION_SIGNAL =
+  /보험료\s*(?:구조|분포)|(?:구조|분포)\s*보여|보험료\s*차트|차트로\s*보여|어느\s*보험사.*(?:제일|가장\s*큰)|(?:제일|가장)\s*큰\s*.*보험사|보험료\s*비중|비중\s*알려|보험사별\s*보험료/;
 const PREMIUM_LOOKUP_SIGNAL = /보험료|월\s*납입?|월납|월\s*보험료|납입\s*보험료|보험료\s*합계/;
 const PREMIUM_UNKNOWN_SIGNAL = /보험료\s*미확인|미확인\s*건|미확인\s*보험료/;
 const MEMORY_RECALL_SIGNAL = /(기억|remember)/i;
@@ -61,6 +65,9 @@ export function classifyHomeBrainIntent(question = "") {
   if (PREMIUM_UNKNOWN_SIGNAL.test(text)) {
     return "premium_unknown_lookup";
   }
+  if (PREMIUM_DISTRIBUTION_SIGNAL.test(text)) {
+    return "premium_distribution";
+  }
   if (PREMIUM_LOOKUP_SIGNAL.test(text)) {
     return "premium_lookup";
   }
@@ -83,6 +90,60 @@ export function buildHomeBrainFactsUsed(unified, stats) {
     premiumTotal: stats.premiumTotal,
     memoryStatus: unified?.memory_status ?? null,
     memoryFactCount: unified?.memory_fact_count ?? 0,
+  };
+}
+
+function buildPremiumDistributionFactsUsed(distribution) {
+  return {
+    portfolioSource: "unified_state.policies",
+    premiumTotal: distribution.premiumTotal,
+    premiumKnownCount: distribution.premiumKnownCount,
+    premiumUnknownCount: distribution.premiumUnknownCount,
+    topInsurer: distribution.topInsurer,
+  };
+}
+
+function formatPremiumDistributionAnswer(distribution) {
+  if (distribution.premiumKnownCount === 0) {
+    return "현재 등록된 보험 중 월 보험료가 확인된 계약은 없습니다.";
+  }
+
+  const lines = [
+    `현재 확인 가능한 월 보험료는 ${distribution.premiumTotal.toLocaleString("ko-KR")}원입니다.`,
+    `보험료가 확인된 보험은 ${distribution.premiumKnownCount}건이며, 보험료 미확인 보험은 ${distribution.premiumUnknownCount}건입니다.`,
+  ];
+
+  if (distribution.topInsurer) {
+    lines.push(
+      `가장 큰 비중은 ${distribution.topInsurer.insurer}입니다. ${distribution.topInsurer.premium.toLocaleString("ko-KR")}원으로 전체의 ${distribution.topInsurer.sharePct}%를 차지합니다.`,
+    );
+  }
+
+  for (const item of distribution.unavailablePolicies) {
+    lines.push(`${item.insurer}는 ${item.reason}으로 합계와 차트에서 제외했습니다.`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildPremiumDistributionRenderPayload(distribution) {
+  return {
+    type: "premium_distribution",
+    chart: {
+      kind: "insurer_premium_bar",
+      unit: "won",
+      total: distribution.premiumTotal,
+      data: distribution.insurers.map(({ insurer, premium, sharePct }) => ({
+        insurer,
+        premium,
+        sharePct,
+      })),
+    },
+    unavailable: distribution.unavailablePolicies.map(({ insurer, reason, policyCount }) => ({
+      insurer,
+      reason,
+      policyCount,
+    })),
   };
 }
 
@@ -167,6 +228,18 @@ export function composeHomeBrainFactAnswer(unified, question) {
   }
 
   const policies = unified?.policies ?? [];
+
+  if (intent === "premium_distribution") {
+    const distribution = buildPremiumDistributionStats(policies);
+    return {
+      ok: true,
+      answerText: formatPremiumDistributionAnswer(distribution),
+      intent,
+      factsUsed: buildPremiumDistributionFactsUsed(distribution),
+      renderPayload: buildPremiumDistributionRenderPayload(distribution),
+    };
+  }
+
   const stats = computePremiumLookupStats(policies);
   return {
     ok: true,

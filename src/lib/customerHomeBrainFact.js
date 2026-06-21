@@ -41,5 +41,6 @@ export async function fetchHomeBrainFact(question) {
     answerText: payload.answerText ?? "",
     intent: payload.intent ?? null,
     factsUsed: payload.factsUsed ?? null,
+    renderPayload: payload.renderPayload ?? null,
   };
 }
