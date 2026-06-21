@@ -184,7 +184,7 @@ async function main() {
         assert.equal(fetchCounter.getCount(), 0);
         assert.doesNotMatch(result.fast_response, /318,683|31만8천|현재 4건의 보험|등록된 서류|등록된 고객 정보/);
         assert.doesNotMatch(result.fast_response, /부족합니다|확실히 부족|반드시 부족|충분합니다/);
-        assert.match(result.fast_response, /필요|보류|보이|보장내역서/);
+        assert.match(result.fast_response, /잠깐|안 보여|같이|판단 못|보장내역서/);
         assert.doesNotMatch(result.fast_response, /AI 상담실|다른 메뉴|redirect/i);
       })
     ) {
@@ -210,7 +210,7 @@ async function main() {
         assert.equal(result.ok, true);
         assert.equal(fetchCounter.getCount(), 0);
         assert.doesNotMatch(result.fast_response, /318,683|현재 4건의 보험/);
-        assert.match(result.fast_response, /필요|보류|보이|보장내역서/);
+        assert.match(result.fast_response, /잠깐|안 보여|같이|판단 못|보장내역서/);
       })
     ) {
       passed += 1;

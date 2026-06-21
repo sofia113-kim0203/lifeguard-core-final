@@ -39,6 +39,10 @@ import {
 } from "./oneBrainResponseLayer.js";
 import { buildFactBundleFromLegacyContext } from "./guidanceLayer/guidanceBuilder.js";
 import { applyTom2AGapVoiceIfEligible } from "./tomThinkingLoop.js";
+import {
+  runTomGapLightVoiceTurn,
+  shouldUseTomGapLightPath,
+} from "./tomGapLightPath.js";
 
 async function applyOneBrainFinalResponse(
   fastResponse,
@@ -420,6 +424,76 @@ export async function handleConversationalQuestionRequest({
   );
 
   const intentClassification = classifyConsultationIntent(trimmedQuestion);
+
+  if (shouldUseTomGapLightPath(intentClassification, env)) {
+    const memoryContext = await ensureCustomerMemoryContext({
+      supabase: adminClient,
+      customerId,
+      supabaseUrl: String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim() || null,
+      serviceRoleKey: String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim() || null,
+    });
+    const policies = memoryContext.sourceContext?.policies ?? [];
+    const lightTurnStartedAt = Date.now();
+    const lightTurn = await runTomGapLightVoiceTurn({
+      question: trimmedQuestion,
+      intentClassification,
+      surface: ONE_BRAIN_SURFACES.CONSULTATION,
+      policies,
+      history: conversationHistory,
+      fetchImpl,
+      env,
+      handler: "handleConversationalQuestionRequest.tom_gap_light",
+      startedAt: lightTurnStartedAt,
+    });
+    const factBundle = lightTurn.factBundle;
+    const fastResponse = finalizeOneBrainResponse({
+      text: lightTurn.tomApply.text,
+      question: trimmedQuestion,
+      intent: intentClassification.intent,
+      surface: ONE_BRAIN_SURFACES.CONSULTATION,
+      factBundle,
+      tomGapVoiceHandled: true,
+    });
+    const initialResponseTimeMs = Date.now() - startedAt;
+    const userMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "user",
+      message: trimmedQuestion,
+      metadata: { source: "customer_dashboard", phase: "p2a-tom-gap-light" },
+    });
+    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "assistant",
+      message: fastResponse,
+      metadata: {
+        source: "conversational_background_analysis",
+        phase: "p2a-tom-gap-light",
+        analysis_job_skipped: true,
+        tom_gap_light_path: true,
+        tom_turn_ms: lightTurn.elapsed_ms,
+        initial_response_time_ms: initialResponseTimeMs,
+      },
+    });
+    return {
+      ok: true,
+      customer_id: customerId,
+      question: trimmedQuestion,
+      fast_response: fastResponse,
+      tom_voice_trace: lightTurn.tomApply.trace,
+      tom_gap_light_path: true,
+      tom_turn_ms: lightTurn.elapsed_ms,
+      initial_response_time_ms: initialResponseTimeMs,
+      skipped_stages: lightTurn.skipped_stages,
+      analysis_job_id: null,
+      analysis_job: null,
+      job_skipped: true,
+      user_message_id: userMessage.id,
+      assistant_message_id: assistantMessage.id,
+      memory_context: {
+        synced: memoryContext.memory_synced,
+        status: memoryContext.memory_sync_status ?? "ready",
+        data_available: memoryContext.data_available,
+      },
+    };
+  }
 
   if (intentClassification.intent === "casual_chat") {
     return handleCasualChatQuestionRequest({

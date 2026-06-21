@@ -5,13 +5,14 @@ import {
   classifyConsultationIntent,
   computePremiumLookupStats,
 } from "./intentGateLayer.js";
-import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
+import { loadUnifiedCustomerState, loadRawCustomerRecords } from "./unifiedCustomerState.js";
 import {
   finalizeOneBrainResponse,
   ONE_BRAIN_SURFACES,
 } from "./oneBrainResponseLayer.js";
 import { buildFactBundleFromUnified } from "./guidanceLayer/guidanceBuilder.js";
 import { applyTom2AGapVoiceIfEligible } from "./tomThinkingLoop.js";
+import { runTomGapLightVoiceTurn, shouldUseTomGapLightPath } from "./tomGapLightPath.js";
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE =
   "더 자세한 분석은 AI 상담실에서 진행할 수 있습니다.";
@@ -205,9 +206,50 @@ export async function handleHomeBrainFactRequest({
     };
   }
 
+  const consultationIntent = classifyConsultationIntent(trimmedQuestion);
+
+  if (shouldUseTomGapLightPath(consultationIntent, env)) {
+    const startedAt = Date.now();
+    const raw = await loadRawCustomerRecords(userSupabase, customerId);
+    const policies = raw?.policies ?? [];
+    const lightTurn = await runTomGapLightVoiceTurn({
+      question: trimmedQuestion,
+      intentClassification: consultationIntent,
+      surface: ONE_BRAIN_SURFACES.HOME,
+      policies,
+      fetchImpl,
+      env,
+      handler: "handleHomeBrainFactRequest.tom_gap_light",
+      startedAt,
+    });
+    const factBundle = lightTurn.factBundle;
+    const answerText = finalizeOneBrainResponse({
+      text: lightTurn.tomApply.text,
+      question: trimmedQuestion,
+      intent: consultationIntent.intent,
+      surface: ONE_BRAIN_SURFACES.HOME,
+      factBundle,
+      homeBrainIntent: "unsupported",
+      tomGapVoiceHandled: true,
+    });
+    return {
+      ok: true,
+      answerText,
+      intent: "unsupported",
+      factsUsed: buildHomeBrainFactsUsed(
+        { policies, policy_count: policies.length, memory_fact_count: 0, memory_status: "ready" },
+        { totalCount: policies.length, premiumKnownCount: 0, premiumUnknownCount: 0, premiumTotal: 0 },
+      ),
+      tom_voice_trace: lightTurn.tomApply.trace,
+      tom_gap_light_path: true,
+      tom_turn_ms: lightTurn.elapsed_ms,
+      response_latency_ms: Date.now() - startedAt,
+      skipped_stages: lightTurn.skipped_stages,
+    };
+  }
+
   const unified = await loadUnifiedCustomerState(userSupabase, customerId);
   const composed = composeHomeBrainFactAnswer(unified, trimmedQuestion);
-  const consultationIntent = classifyConsultationIntent(trimmedQuestion);
   const factBundle = buildFactBundleFromUnified(unified, trimmedQuestion);
   const tomApply = await applyTom2AGapVoiceIfEligible({
     question: trimmedQuestion,

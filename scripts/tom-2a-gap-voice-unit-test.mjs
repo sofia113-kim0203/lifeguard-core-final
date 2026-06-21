@@ -199,7 +199,7 @@ async function main() {
       });
       assert.equal(turn.violation, "judgment_assertion");
       assert.doesNotMatch(turn.text, /부족합니다|3,000만원|확실히 부족/);
-      assert.match(turn.text, /필요|보류|확인되지|보이|보장내역서/);
+      assert.match(turn.text, /잠깐|안 보여|같이|판단 못|보장내역서/);
       const stein = passesSteinTomGapVoiceChecks(turn.text, audit, { question: "암보험 부족해?" });
       assert.equal(stein.ok, true, stein.check ?? "stein_failed");
     })
@@ -258,7 +258,7 @@ async function main() {
       assert.equal(fetchCount, 0);
       assert.doesNotMatch(result.fast_response, /318,683|31만8천|현재 4건의 보험|등록된 서류|등록된 고객 정보/);
       assert.doesNotMatch(result.fast_response, /부족합니다|충분합니다|확실히 부족/);
-      assert.match(result.fast_response, /필요|보류|보이|보장내역서/);
+      assert.match(result.fast_response, /잠깐|안 보여|같이|판단 못|보장내역서/);
       const stein = passesSteinTomGapVoiceChecks(result.fast_response, audit, { question: "암보험 부족해?" });
       assert.equal(stein.ok, true, stein.check ?? "stein_failed");
     })
@@ -300,7 +300,7 @@ async function main() {
       assert.match(decision, /step2_required_before_answer/);
       assert.match(decision, /HOLD/);
       const text = composeTomGapHoldFallback(plan);
-      assert.match(text.split(/[.!?]/)[0], /부족|필요|확인/);
+      assert.match(text.split(/[.!?]/)[0], /잠깐|부족|안 보여/);
       assert.doesNotMatch(text, /318,683|4건/);
     })
   ) {
@@ -337,7 +337,7 @@ async function main() {
         tomGapVoiceHandled: true,
       });
       assert.doesNotMatch(answerText, /318,683|4건|서류\s*1건|고객\s*정보\s*8건/);
-      assert.match(answerText, /필요|보류|보이|보장내역서/);
+      assert.match(answerText, /잠깐|안 보여|같이|판단 못|보장내역서/);
     })
   ) {
     passed += 1;
