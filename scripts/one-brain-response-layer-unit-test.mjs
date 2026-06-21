@@ -150,7 +150,7 @@ async function main() {
     let failed = 0;
 
     if (
-      await runCase("T1 P0 — CB OFF gap bypasses legacy LLM (fetch 0, 3-element)", async () => {
+      await runCase("T1 P0 — CB OFF gap: legacy defer fetch 0, Tom voice (no inventory)", async () => {
         fetchCounter.reset();
         assert.equal(shouldDeferLegacyLlmForOneBrain({ intent: "coverage_gap_check" }, "암보험 부족해?"), true);
 
@@ -176,18 +176,16 @@ async function main() {
           env: {
             CENTRAL_BRAIN_ENABLED: "false",
             ADVISOR_BRAIN_ENABLED: "false",
-            ANTHROPIC_API_KEY: "test-key-should-not-be-used",
+            TOM_2A_GAP_VOICE: "true",
           },
         });
 
         assert.equal(result.ok, true);
         assert.equal(fetchCounter.getCount(), 0);
-        assert.match(result.fast_response, /현재 4건의 보험은 확인됩니다/);
-        assert.match(result.fast_response, /318,683원/);
-        assert.match(result.fast_response, /다만 암 보장/);
-        assert.match(result.fast_response, /보장금액과 담보 구조를 확인해야 판단할 수 있습니다/);
+        assert.doesNotMatch(result.fast_response, /318,683|31만8천|현재 4건의 보험|등록된 서류|등록된 고객 정보/);
+        assert.doesNotMatch(result.fast_response, /부족합니다|확실히 부족|반드시 부족|충분합니다/);
+        assert.match(result.fast_response, /필요|보류|보이|보장내역서/);
         assert.doesNotMatch(result.fast_response, /AI 상담실|다른 메뉴|redirect/i);
-        assert.doesNotMatch(result.fast_response, /부족합니다|확실히 부족|반드시 부족/);
       })
     ) {
       passed += 1;
@@ -196,7 +194,7 @@ async function main() {
     }
 
     if (
-      await runCase("T2 CB ON gap — finalize forces 3-element guidance (fetch 0)", async () => {
+      await runCase("T2 CB ON gap — Tom voice at finalize (no inventory template)", async () => {
         fetchCounter.reset();
         const result = await handleConversationalQuestionRequest({
           question: "암보험 부족해?",
@@ -206,13 +204,13 @@ async function main() {
           env: {
             CENTRAL_BRAIN_ENABLED: "true",
             ADVISOR_BRAIN_ENABLED: "false",
+            TOM_2A_GAP_VOICE: "true",
           },
         });
         assert.equal(result.ok, true);
         assert.equal(fetchCounter.getCount(), 0);
-        assert.match(result.fast_response, /318,683원/);
-        assert.match(result.fast_response, /다만 암 보장/);
-        assert.match(result.fast_response, /보장금액과 담보 구조를 확인해야 판단할 수 있습니다/);
+        assert.doesNotMatch(result.fast_response, /318,683|현재 4건의 보험/);
+        assert.match(result.fast_response, /필요|보류|보이|보장내역서/);
       })
     ) {
       passed += 1;

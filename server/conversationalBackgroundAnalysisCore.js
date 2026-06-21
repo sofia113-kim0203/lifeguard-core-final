@@ -38,10 +38,20 @@ import {
   ONE_BRAIN_SURFACES,
 } from "./oneBrainResponseLayer.js";
 import { buildFactBundleFromLegacyContext } from "./guidanceLayer/guidanceBuilder.js";
+import { runTomThinkingTurn, shouldRunTom2AGapVoice } from "./tomThinkingLoop.js";
 
-function applyOneBrainFinalResponse(
+async function applyOneBrainFinalResponse(
   fastResponse,
-  { question, intentClassification, memoryContext, cachePayload, analysisContext },
+  {
+    question,
+    intentClassification,
+    memoryContext,
+    cachePayload,
+    analysisContext,
+    history = [],
+    fetchImpl = fetch,
+    env = process.env,
+  },
 ) {
   const factBundle = buildFactBundleFromLegacyContext({
     sourceContext: memoryContext?.sourceContext,
@@ -50,6 +60,24 @@ function applyOneBrainFinalResponse(
     cachePayload,
     analysisContext,
   });
+  if (shouldRunTom2AGapVoice(intentClassification, question, ONE_BRAIN_SURFACES.CONSULTATION, env)) {
+    const tom = await runTomThinkingTurn({
+      question,
+      intent: intentClassification.intent,
+      factBundle,
+      history,
+      fetchImpl,
+      env,
+    });
+    return finalizeOneBrainResponse({
+      text: tom.text,
+      question,
+      intent: intentClassification.intent,
+      surface: ONE_BRAIN_SURFACES.CONSULTATION,
+      factBundle,
+      tomGapVoiceHandled: true,
+    });
+  }
   return finalizeOneBrainResponse({
     text: fastResponse,
     question,
@@ -500,12 +528,15 @@ export async function handleConversationalQuestionRequest({
     });
   }
 
-  fastResponse = applyOneBrainFinalResponse(fastResponse, {
+  fastResponse = await applyOneBrainFinalResponse(fastResponse, {
     question: trimmedQuestion,
     intentClassification,
     memoryContext,
     cachePayload,
     analysisContext,
+    history: conversationHistory,
+    fetchImpl,
+    env,
   });
 
   if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {

@@ -130,6 +130,7 @@ export function finalizeOneBrainResponse({
   surface = ONE_BRAIN_SURFACES.CONSULTATION,
   factBundle = {},
   homeBrainIntent = null,
+  tomGapVoiceHandled = false,
 } = {}) {
   const normalizedQuestion = normalizeQuestion(question);
   const bundle = {
@@ -147,6 +148,12 @@ export function finalizeOneBrainResponse({
     }
     const sanitized = sanitizeOneBrainCustomerText(text, bundle);
     return sanitized || "네, 편하게 말씀해 주세요. 필요하시면 보험 상담도 도와드릴게요.";
+  }
+
+  if (intent === "coverage_gap_check" && tomGapVoiceHandled) {
+    const sanitized = sanitizeOneBrainCustomerText(text, bundle);
+    if (sanitized) return sanitized;
+    return "아직 암 보장 금액이 보이지 않아요. 보장내역서 추가 페이지를 주시면 바로 확인해 드릴게요.";
   }
 
   const guidanceIntent = requiresGuidanceResponse(intent, normalizedQuestion, {
