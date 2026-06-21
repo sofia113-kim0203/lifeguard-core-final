@@ -20,9 +20,12 @@ import {
   buildCentralBrainAssistantMetadata,
   normalizeCentralBrainResponse,
 } from "./centralBrainResponseNormalizer.js";
-
-export const PHASE_A_PARTIAL_EVIDENCE_GUIDANCE =
-  "현재 확인된 근거만으로는 정확히 단정하기 어렵습니다. 보험증권/보장내역서를 추가로 확인하면 해당 보장을 정확히 분석해 드릴게요.";
+import {
+  buildFactBundleFromCentralBrainBundle,
+  buildGuidanceResponse,
+  buildInterimPartialGuidanceMessage,
+  GUIDANCE_INTENTS,
+} from "../guidanceLayer/guidanceBuilder.js";
 
 const PHASE_A_PARTIAL_EVIDENCE_MODES = new Set([
   "coverage_gap_reason",
@@ -30,16 +33,15 @@ const PHASE_A_PARTIAL_EVIDENCE_MODES = new Set([
   "recommendation_reason",
 ]);
 
-function buildPartialEvidenceGuidanceMessage(bundle) {
-  const lines = [];
-  const stats = bundle?.data?.premium_stats;
-  if (stats?.premiumKnownCount > 0 && stats?.premiumTotal > 0) {
-    lines.push(
-      `현재 확인 가능한 월 보험료는 ${stats.premiumTotal.toLocaleString("ko-KR")}원입니다.`,
+function buildPartialEvidenceMessage({ mode, bundle, question }) {
+  if (mode === "coverage_gap_reason") {
+    return buildGuidanceResponse(
+      GUIDANCE_INTENTS.GAP,
+      buildFactBundleFromCentralBrainBundle(bundle, question),
+      { question },
     );
   }
-  lines.push(PHASE_A_PARTIAL_EVIDENCE_GUIDANCE);
-  return lines.join("\n");
+  return buildInterimPartialGuidanceMessage(bundle);
 }
 
 export async function runCentralBrainTurn({
@@ -134,7 +136,7 @@ export async function runCentralBrainTurn({
     return {
       activated: true,
       ok: true,
-      message: buildPartialEvidenceGuidanceMessage(bundle),
+      message: buildPartialEvidenceMessage({ mode, bundle, question }),
       route,
       plan,
       bundle,

@@ -8,7 +8,6 @@ import { dirname, join } from "node:path";
 
 import { analyzeCoverageGaps } from "../server/coverageGapAnalysisEngine.js";
 import {
-  PHASE_A_PARTIAL_EVIDENCE_GUIDANCE,
   runCentralBrainTurn,
 } from "../server/centralBrain/centralBrainOrchestrator.js";
 import { loadCentralBrainEvidence } from "../server/centralBrain/centralBrainEvidenceLoader.js";
@@ -175,11 +174,9 @@ async function main() {
       assert.equal(result.activated, true);
       assert.equal(result.reason, "PARTIAL_EVIDENCE_GUIDANCE");
       assert.match(result.message, /318,683원/);
-      assert.match(
-        result.message,
-        new RegExp(PHASE_A_PARTIAL_EVIDENCE_GUIDANCE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-      );
-      assert.doesNotMatch(result.message, /반드시|확실히 부족|가입해야 합니다/);
+      assert.match(result.message, /다만 암 보장금액은 아직 확인되지 않았습니다/);
+      assert.match(result.message, /보장금액을 확인해야 판단할 수 있습니다/);
+      assert.doesNotMatch(result.message, /반드시|확실히 부족|부족합니다|없습니다/);
     })
   ) {
     passed += 1;
