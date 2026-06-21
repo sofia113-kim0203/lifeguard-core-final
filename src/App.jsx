@@ -13,7 +13,20 @@ import DocumentsPanel from "./components/DocumentsPanel.jsx";
 import RoleAccessPanel from "./components/RoleAccessPanel.jsx";
 import { CustomerSessionProvider } from "./context/CustomerSessionProvider.jsx";
 import { useAuthSession } from "./hooks/useAuthSession.js";
+import { useCustomerContext } from "./hooks/useCustomerContext.js";
+import {
+  APP_ROLES,
+  canAccessPath,
+  getRedirectPathForRole,
+  isBackofficePath,
+  isBackofficeRole,
+  LIFEGUARD_PATH,
+  normalizeAppPath,
+  resolveMenuIdFromPath,
+  resolvePathFromMenuId,
+} from "./lib/appRouting.js";
 import { supabase } from "./lib/supabase.js";
+import CustomerLifeguardShell from "./components/CustomerLifeguardShell.jsx";
 
 const CUSTOMER_DASHBOARD_MENU = "customer";
 const AI_CHAT_MENU = "chat";
@@ -106,11 +119,6 @@ function renderMainContent(
   }
 }
 
-function normalizeAppPath(pathname) {
-  const trimmed = (pathname || "/").replace(/\/+$/, "") || "/";
-  return trimmed;
-}
-
 function isResetPasswordPath(pathname) {
   return normalizeAppPath(pathname) === "/reset-password";
 }
@@ -121,12 +129,14 @@ function pageTitle(activeMenu) {
 }
 
 export default function App() {
-  const [activeMenu, setActiveMenu] = useState("home");
+  const [activeMenu, setActiveMenu] = useState(() => resolveMenuIdFromPath(window.location.pathname) ?? "home");
   const [authMode, setAuthMode] = useState("login");
   const [appPath, setAppPath] = useState(() =>
     typeof window !== "undefined" ? normalizeAppPath(window.location.pathname) : "/",
   );
   const { session, user, loading: authLoading } = useAuthSession();
+  const { context, loading: roleLoading } = useCustomerContext(user);
+  const userRole = context?.userRole ?? (user ? APP_ROLES.CUSTOMER : null);
 
   useEffect(() => {
     const syncPath = () => setAppPath(normalizeAppPath(window.location.pathname));
@@ -144,30 +154,13 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
     }
     setAuthMode(mode);
-    navigateTo("/");
+    navigateTo(LIFEGUARD_PATH);
     setActiveMenu(AUTH_MENU);
-  };
-
-  if (isResetPasswordPath(appPath)) {
-    return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
-  }
-
-  useEffect(() => {
-    if (session && activeMenu === AUTH_MENU) {
-      setActiveMenu("home");
-    }
-  }, [session, activeMenu]);
-
-  const handleMenuSelect = (menuId) => {
-    setActiveMenu(menuId);
-  };
-
-  const handleNavigate = (menuId) => {
-    setActiveMenu(menuId);
   };
 
   const handleLoginSuccess = () => {
     setActiveMenu("home");
+    navigateTo(LIFEGUARD_PATH);
   };
 
   const handleOpenAuth = (mode = "login") => {
@@ -178,7 +171,58 @@ export default function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setActiveMenu("home");
+    navigateTo(LIFEGUARD_PATH);
   };
+
+  useEffect(() => {
+    if (session && activeMenu === AUTH_MENU) {
+      setActiveMenu("home");
+    }
+  }, [session, activeMenu]);
+
+  useEffect(() => {
+    if (!user || roleLoading) return;
+    if (userRole === APP_ROLES.CUSTOMER) {
+      if (isBackofficePath(appPath)) {
+        navigateTo(LIFEGUARD_PATH);
+      }
+      return;
+    }
+    const menuFromPath = resolveMenuIdFromPath(appPath);
+    if (menuFromPath && menuFromPath !== activeMenu) {
+      setActiveMenu(menuFromPath);
+    }
+    if (!canAccessPath(appPath, userRole)) {
+      navigateTo(getRedirectPathForRole(appPath, userRole));
+    }
+  }, [user, userRole, appPath, roleLoading, activeMenu]);
+
+  const handleMenuSelect = (menuId) => {
+    setActiveMenu(menuId);
+    if (user && isBackofficeRole(userRole)) {
+      navigateTo(resolvePathFromMenuId(menuId));
+    }
+  };
+
+  const handleNavigate = (menuId) => {
+    handleMenuSelect(menuId);
+  };
+
+  if (isResetPasswordPath(appPath)) {
+    return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
+  }
+
+  if (user && userRole === APP_ROLES.CUSTOMER && !roleLoading) {
+    return (
+      <CustomerLifeguardShell
+        user={user}
+        userRole={userRole}
+        session={session}
+        authLoading={authLoading}
+        onOpenAuth={handleOpenAuth}
+      />
+    );
+  }
 
   const isFullWidth = FULL_WIDTH_MENUS.has(activeMenu);
 

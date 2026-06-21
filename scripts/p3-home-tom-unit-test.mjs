@@ -181,7 +181,7 @@ async function main() {
       assert.equal(result.tom_internal_route, TOM_INTERNAL_ROUTES.DEFER);
       assert.equal(result.tool_used, null);
       assert.equal(result.answerText, HOME_HIGH_STAKES_DEFER_MESSAGE);
-      assert.doesNotMatch(result.answerText, /[\d,]+원|4건|318,683/);
+      assert.doesNotMatch(result.answerText, /[\d,]+원|4건|318,683|보장분석|Gap/i);
     })
   ) {
     passed += 1;
@@ -200,7 +200,7 @@ async function main() {
       });
       assert.equal(result.tom_internal_route, TOM_INTERNAL_ROUTES.CHAT);
       assert.equal(result.tool_used, null);
-      assert.doesNotMatch(result.answerText, /318,683|4건|서류\s*1건|고객\s*정보|AI\s*상담실/);
+      assert.doesNotMatch(result.answerText, /318,683|4건|서류\s*1건|고객\s*정보|AI\s*상담실|필요하시면\s*보험\s*상담/i);
       assert.ok(result.answerText.length > 0);
     })
   ) {

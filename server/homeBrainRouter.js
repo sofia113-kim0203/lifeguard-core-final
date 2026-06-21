@@ -23,7 +23,7 @@ export const HOME_BRAIN_SUPPORTED_INTENTS = new Set([
 ]);
 
 export const HOME_HIGH_STAKES_DEFER_MESSAGE =
-  "그건 같이 생각은 해볼 수 있는데, 정확한 계산은 확인/전문가 영역이에요.";
+  "그건 숫자까지는 제가 여기서 단정하기 어려워요. 공식 자료나 전문가 확인이 필요한 영역이에요.";
 
 const BLOCKED_CLASSIFICATION_INTENTS = new Set([
   "coverage_gap_check",
@@ -41,6 +41,7 @@ const POLICY_COUNT_SIGNAL =
   /보험\s*(총\s*)?건수|몇\s*건|몇\s*개|가입\s*보험\s*수|보유\s*보험|내\s*보험(?!\s*(?:료|에))/;
 const INSURER_LOOKUP_SIGNAL = /가입한\s*보험사|어느\s*보험사|보험사는|어떤\s*보험사/;
 
+const IDENTITY_CHAT_SIGNAL = /누구(?:야|세요|니|냐|신지)|이름\s*뭐|정체|LIFEGUARD\s*가\s*뭐/;
 const HIGH_STAKES_TOPIC_SIGNAL =
   /상속세|상속\s*세|증여세|양도세|소득세|법인세|재무\s*설계|재무\s*관리|세무|세금\s*계산|법인\s*(?:분|설립|세)|투자\s*수익|자산\s*배분|결산|손익|순이익|배당|금융\s*소득|부동산\s*세/i;
 
@@ -98,6 +99,7 @@ export function hasHighStakesSignal(question = "", consultationIntent = null) {
 export function isCasualHomeQuestion(question = "", consultationIntent = null) {
   const text = normalizeQuestion(question);
   if (!text) return false;
+  if (IDENTITY_CHAT_SIGNAL.test(text)) return true;
   if (consultationIntent?.intent === "casual_chat") return true;
   if (detectCasualChatIntent(text)) return true;
   if (hasHighStakesSignal(text, consultationIntent)) return false;

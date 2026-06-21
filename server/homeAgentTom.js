@@ -5,7 +5,7 @@ import { classifyConsultationIntent, hasInsuranceTopicSignal } from "./intentGat
 import { loadRawCustomerRecords } from "./unifiedCustomerState.js";
 import { ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import { runTomGapLightVoiceTurn, shouldUseTomGapLightPath } from "./tomGapLightPath.js";
-import { generateCasualChatResponse, CASUAL_CHAT_FALLBACK } from "./casualChatResponseCore.js";
+import { generateLifeguardChatResponse, LIFEGUARD_CHAT_FALLBACK } from "./lifeguardChatCore.js";
 import {
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   hasHighStakesSignal,
@@ -96,15 +96,15 @@ async function runGapAuditTool({
 }
 
 async function runTomChatTurn({ question, history, fetchImpl, env }) {
-  const llm = await generateCasualChatResponse({
+  const llm = await generateLifeguardChatResponse({
     question,
     history,
     fetchImpl,
     env,
   });
   return {
-    text: llm.ok && llm.text ? llm.text : CASUAL_CHAT_FALLBACK,
-    response_source: llm.response_source ?? "casual_chat_fallback",
+    text: llm.text || LIFEGUARD_CHAT_FALLBACK,
+    response_source: llm.response_source ?? "lifeguard_chat_fallback",
     llm_ok: llm.ok === true,
   };
 }

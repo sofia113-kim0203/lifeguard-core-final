@@ -2,7 +2,7 @@
  * P3 v4 — Home brain helpers + Agent Tom request handler.
  */
 import { computePremiumLookupStats } from "./intentGateLayer.js";
-import { violatesHomeInventoryDump } from "./tomThinkingLoop.js";
+import { applyLifeguardCustomerOutputGuard } from "./lifeguardOutputGuard.js";
 import {
   HOME_BRAIN_SUPPORTED_INTENTS,
   HOME_HIGH_STAKES_DEFER_MESSAGE,
@@ -19,9 +19,6 @@ export {
 };
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE = HOME_HIGH_STAKES_DEFER_MESSAGE;
-
-const HOME_INVENTORY_BLOCKED_FALLBACK =
-  "잠깐 볼게요. 지금은 숫자나 건수를 바로 말씀드리기 어려워요. 보험 관련 질문이면 보장내역서를 주시면 같이 볼게요.";
 
 function normalizeQuestion(question) {
   return String(question ?? "").replace(/\s+/g, " ").trim();
@@ -40,10 +37,7 @@ function formatWonAmount(amount) {
 }
 
 export function applyHomeInventoryHardGuard(text = "") {
-  if (violatesHomeInventoryDump(text)) {
-    return HOME_INVENTORY_BLOCKED_FALLBACK;
-  }
-  return String(text ?? "").trim();
+  return applyLifeguardCustomerOutputGuard(text);
 }
 
 export function buildHomeBrainFactsUsed(unified, stats) {
