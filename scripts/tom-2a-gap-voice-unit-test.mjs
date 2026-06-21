@@ -13,6 +13,7 @@ import {
   formatTomRegulatedEvidenceBlock,
 } from "../server/tomEvidenceLens.js";
 import {
+  applyTom2AGapVoiceIfEligible,
   composeTomGapHoldFallback,
   composeTomThinkingDecision,
   passesSteinTomGapVoiceChecks,
@@ -21,7 +22,7 @@ import {
   shouldRunTom2AGapVoice,
   violatesTomGapVoiceChecks,
 } from "../server/tomThinkingLoop.js";
-import { ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
+import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
 import { buildFactBundleFromLegacyContext } from "../server/guidanceLayer/guidanceBuilder.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -268,10 +269,10 @@ async function main() {
   }
 
   if (
-    await runCase("T6 scope gate — consultation coverage_gap_check only", () => {
+    await runCase("T6 scope gate — home + consultation coverage_gap_check", () => {
       assert.equal(
         shouldRunTom2AGapVoice({ intent: "coverage_gap_check" }, "암보험 부족해?", ONE_BRAIN_SURFACES.HOME),
-        false,
+        true,
       );
       assert.equal(
         shouldRunTom2AGapVoice({ intent: "coverage_gap_check" }, "암보험 부족해?", ONE_BRAIN_SURFACES.CONSULTATION),
@@ -301,6 +302,42 @@ async function main() {
       const text = composeTomGapHoldFallback(plan);
       assert.match(text.split(/[.!?]/)[0], /부족|필요|확인/);
       assert.doesNotMatch(text, /318,683|4건/);
+    })
+  ) {
+    passed += 1;
+  } else {
+    failed += 1;
+  }
+
+  if (
+    await runCase("T8 home preview path — HOME surface Tom not guidance inventory", async () => {
+      const tomApply = await applyTom2AGapVoiceIfEligible({
+        question: "암보험 부족해?",
+        intentClassification: { intent: "coverage_gap_check" },
+        surface: ONE_BRAIN_SURFACES.HOME,
+        factBundle,
+        fetchImpl: async () => {
+          throw new Error("network_blocked");
+        },
+        env: { TOM_2A_GAP_VOICE: "true" },
+        handler: "handleHomeBrainFactRequest",
+      });
+      assert.equal(tomApply.ran, true);
+      assert.equal(tomApply.trace.handler, "handleHomeBrainFactRequest");
+      assert.equal(tomApply.trace.surface, "home");
+      assert.equal(tomApply.trace.intent, "coverage_gap_check");
+      assert.equal(tomApply.trace.tom_ran, true);
+      const answerText = finalizeOneBrainResponse({
+        text: tomApply.text,
+        question: "암보험 부족해?",
+        intent: "coverage_gap_check",
+        surface: ONE_BRAIN_SURFACES.HOME,
+        factBundle,
+        homeBrainIntent: "unsupported",
+        tomGapVoiceHandled: true,
+      });
+      assert.doesNotMatch(answerText, /318,683|4건|서류\s*1건|고객\s*정보\s*8건/);
+      assert.match(answerText, /필요|보류|보이|보장내역서/);
     })
   ) {
     passed += 1;

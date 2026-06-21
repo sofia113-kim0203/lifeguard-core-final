@@ -38,7 +38,7 @@ import {
   ONE_BRAIN_SURFACES,
 } from "./oneBrainResponseLayer.js";
 import { buildFactBundleFromLegacyContext } from "./guidanceLayer/guidanceBuilder.js";
-import { runTomThinkingTurn, shouldRunTom2AGapVoice } from "./tomThinkingLoop.js";
+import { applyTom2AGapVoiceIfEligible } from "./tomThinkingLoop.js";
 
 async function applyOneBrainFinalResponse(
   fastResponse,
@@ -60,31 +60,39 @@ async function applyOneBrainFinalResponse(
     cachePayload,
     analysisContext,
   });
-  if (shouldRunTom2AGapVoice(intentClassification, question, ONE_BRAIN_SURFACES.CONSULTATION, env)) {
-    const tom = await runTomThinkingTurn({
-      question,
-      intent: intentClassification.intent,
-      factBundle,
-      history,
-      fetchImpl,
-      env,
-    });
-    return finalizeOneBrainResponse({
-      text: tom.text,
+  const tomApply = await applyTom2AGapVoiceIfEligible({
+    question,
+    intentClassification,
+    surface: ONE_BRAIN_SURFACES.CONSULTATION,
+    factBundle,
+    history,
+    fetchImpl,
+    env,
+    handler: "handleConversationalQuestionRequest.applyOneBrainFinalResponse",
+  });
+  if (tomApply.ran) {
+    return {
+      text: finalizeOneBrainResponse({
+        text: tomApply.text,
+        question,
+        intent: intentClassification.intent,
+        surface: ONE_BRAIN_SURFACES.CONSULTATION,
+        factBundle,
+        tomGapVoiceHandled: true,
+      }),
+      tom_voice_trace: tomApply.trace,
+    };
+  }
+  return {
+    text: finalizeOneBrainResponse({
+      text: fastResponse,
       question,
       intent: intentClassification.intent,
       surface: ONE_BRAIN_SURFACES.CONSULTATION,
       factBundle,
-      tomGapVoiceHandled: true,
-    });
-  }
-  return finalizeOneBrainResponse({
-    text: fastResponse,
-    question,
-    intent: intentClassification.intent,
-    surface: ONE_BRAIN_SURFACES.CONSULTATION,
-    factBundle,
-  });
+    }),
+    tom_voice_trace: tomApply.trace,
+  };
 }
 
 function createUserSupabaseClient(authHeader, env = process.env) {
@@ -528,7 +536,7 @@ export async function handleConversationalQuestionRequest({
     });
   }
 
-  fastResponse = await applyOneBrainFinalResponse(fastResponse, {
+  const finalized = await applyOneBrainFinalResponse(fastResponse, {
     question: trimmedQuestion,
     intentClassification,
     memoryContext,
@@ -538,6 +546,8 @@ export async function handleConversationalQuestionRequest({
     fetchImpl,
     env,
   });
+  fastResponse = finalized.text;
+  const tomVoiceTrace = finalized.tom_voice_trace ?? null;
 
   if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {
     const initialResponseTimeMs = Date.now() - startedAt;
@@ -575,6 +585,7 @@ export async function handleConversationalQuestionRequest({
       customer_id: customerId,
       question: trimmedQuestion,
       fast_response: fastResponse,
+      tom_voice_trace: tomVoiceTrace,
       initial_response_time_ms: initialResponseTimeMs,
       analysis_job_id: null,
       analysis_job: null,
@@ -643,6 +654,7 @@ export async function handleConversationalQuestionRequest({
         customer_id: customerId,
         question: trimmedQuestion,
         fast_response: fastResponse,
+      tom_voice_trace: tomVoiceTrace,
         initial_response_time_ms: initialResponseTimeMs,
         analysis_job_id: reusedJob.id,
         analysis_job: mapAnalysisJobForClient(reusedJob),
@@ -753,6 +765,7 @@ export async function handleConversationalQuestionRequest({
     customer_id: customerId,
     question: trimmedQuestion,
     fast_response: fastResponse,
+    tom_voice_trace: tomVoiceTrace,
     initial_response_time_ms: initialResponseTimeMs,
     analysis_job_id: jobRow.id,
     analysis_job: mapAnalysisJobForClient(latestJob),
