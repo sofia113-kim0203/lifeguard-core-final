@@ -14,12 +14,15 @@ function mapServerError(payload, status) {
   return "질문에 답변하지 못했습니다.";
 }
 
-export async function fetchHomeBrainFact(question) {
+export async function fetchHomeBrainFact(question, history = []) {
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
-    body: { question: trimmed },
+    body: {
+      question: trimmed,
+      history: Array.isArray(history) ? history : [],
+    },
   });
 
   try {
@@ -40,6 +43,8 @@ export async function fetchHomeBrainFact(question) {
   return {
     answerText: payload.answerText ?? "",
     intent: payload.intent ?? null,
+    homeRoute: payload.tom_internal_route ?? payload.home_route ?? null,
+    toolUsed: payload.tool_used ?? null,
     factsUsed: payload.factsUsed ?? null,
   };
 }

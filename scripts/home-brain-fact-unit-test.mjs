@@ -99,9 +99,9 @@ test("G7-2 API ignores request body customerId (static)", () => {
 
 test("G7-3 foreign customerId cannot override auth customerId (static + handler contract)", () => {
   const apiSource = readFileSync(join(ROOT, "api/customer-home-brain-fact.js"), "utf8");
-  const coreSource = readFileSync(join(ROOT, "server/homeBrainFactCore.js"), "utf8");
+  const agentSource = readFileSync(join(ROOT, "server/homeAgentTom.js"), "utf8");
   assert.match(apiSource, /requireCustomerAuth\(userSupabase\)/);
-  assert.match(coreSource, /loadUnifiedCustomerState\(userSupabase,\s*customerId\)/);
+  assert.match(agentSource, /loadRawCustomerRecords\(userSupabase,\s*customerId\)/);
   assert.doesNotMatch(apiSource, /createServiceRoleSupabaseClient|SERVICE_ROLE|adminSupabase/);
 });
 
@@ -109,8 +109,9 @@ test("forbidden service-role / write / LLM imports absent", () => {
   const files = [
     "api/customer-home-brain-fact.js",
     "server/homeBrainFactCore.js",
+    "server/homeAgentTom.js",
     "src/lib/customerHomeBrainFact.js",
-    "src/components/AdvisorBrainEntry.jsx",
+    "src/components/LifeguardHomeChat.jsx",
   ];
   const banned = [
     "createServiceRoleSupabaseClient",

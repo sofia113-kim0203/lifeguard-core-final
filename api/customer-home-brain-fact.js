@@ -33,6 +33,7 @@ export default async function handler(req, res) {
   try {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const question = String(body?.question ?? "").trim();
+    const history = Array.isArray(body?.history) ? body.history : [];
 
     const authHeader = readCustomerAuthHeader(req);
     const userSupabase = createUserSupabaseClient(authHeader);
@@ -55,6 +56,7 @@ export default async function handler(req, res) {
       userSupabase,
       customerId: resolved.customerId,
       question,
+      history,
     });
 
     if (!result.ok) {
