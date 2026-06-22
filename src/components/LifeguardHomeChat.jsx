@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
+import { listDocuments } from "../lib/customerDocuments.js";
 import { fetchHomeBrainFact } from "../lib/customerHomeBrainFact.js";
 import { supabase } from "../lib/supabase.js";
 import { buildLifeguardHomeGreeting } from "../lib/lifeguardGreeting.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
-import { toCustomerErrorMessage } from "../lib/uiLocale.js";
+import {
+  formatDocClass,
+  formatDocumentPipelineStatus,
+  formatUploadDate,
+  toCustomerErrorMessage,
+} from "../lib/uiLocale.js";
 
 const EXAMPLE_QUESTIONS = [
   "보험료 너무 비싼가?",
@@ -41,17 +47,67 @@ function LayerPanel({ title, children, onBack }) {
   );
 }
 
+function formatAnalysisComplete(document) {
+  const extractionStatus = document?.metadata_json?.policy_extraction_status;
+  if (document?.ingest_status === "ready" && extractionStatus === "completed") {
+    return "완료";
+  }
+  if (extractionStatus === "extraction_failed") return "실패";
+  if (extractionStatus === "pending_manual_review") return "검토 대기";
+  if (document?.ingest_status === "ready") return "진행 중";
+  return "대기";
+}
+
+function CustomerDocumentsList({ documents, loading, error }) {
+  if (loading) {
+    return <p style={{ margin: 0, color: LG.textMuted }}>문서를 불러오는 중…</p>;
+  }
+  if (error) {
+    return <p style={{ margin: 0, color: "#B91C1C" }}>{error}</p>;
+  }
+  if (documents.length === 0) {
+    return <p style={{ margin: 0, color: LG.textMuted }}>아직 업로드된 문서가 없어요</p>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {documents.map((document) => (
+        <div
+          key={document.id}
+          style={{
+            border: `1px solid ${LG.border}`,
+            borderRadius: "10px",
+            padding: "14px 16px",
+            background: LG.surface,
+          }}
+        >
+          <div style={{ fontWeight: 600, color: LG.text, marginBottom: "8px", wordBreak: "break-all" }}>
+            {document.original_filename ?? "—"}
+          </div>
+          <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
+            <div>문서 유형: {formatDocClass(document.doc_class)}</div>
+            <div>업로드일: {formatUploadDate(document.created_at)}</div>
+            <div>OCR/분석: {formatDocumentPipelineStatus(document)}</div>
+            <div>분석 완료: {formatAnalysisComplete(document)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LifeguardHomeChat({ layer1Only = true, disabled = false, displayName: displayNameProp }) {
   const session = useOptionalCustomerSession();
+  const authUser = session?.user ?? null;
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
+  const focusTimerRef = useRef(null);
   const displayName =
     displayNameProp ??
     session?.dashboardData?.displayName ??
     session?.unifiedState?.profile?.display_name ??
     "고객";
   const policyCount = session?.unifiedState?.policy_count ?? session?.dashboardData?.insurancePolicyCount ?? 0;
-  const documentCount = session?.unifiedState?.document_count ?? 0;
   const loadingSession = Boolean(session?.loading);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -63,6 +119,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
   const [threadId, setThreadId] = useState(() => `thread-${Date.now()}`);
+  const [documents, setDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsError, setDocumentsError] = useState("");
 
   const greeting = useMemo(
     () => buildLifeguardHomeGreeting(displayName, session?.unifiedState),
@@ -70,19 +129,66 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   );
   const isDisabled = disabled || loadingSession;
 
-  const focusChatInput = () => {
+  const focusChatInput = useCallback(() => {
+    if (focusTimerRef.current) {
+      window.clearTimeout(focusTimerRef.current);
+      focusTimerRef.current = null;
+    }
     window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
+      focusTimerRef.current = window.setTimeout(() => {
+        const el = inputRef.current;
+        if (!el || el.disabled || el.readOnly) return;
+        el.focus({ preventScroll: false });
+        const len = el.value?.length ?? 0;
+        try {
+          el.setSelectionRange(len, len);
+        } catch {
+          // ignore selection errors on unsupported inputs
+        }
+      }, 0);
     });
-  };
+  }, []);
+
+  useEffect(() => () => {
+    if (focusTimerRef.current) window.clearTimeout(focusTimerRef.current);
+  }, []);
+
+  const goBackToChat = useCallback(() => {
+    setPanelView("chat");
+    setSidebarOpen(false);
+    focusChatInput();
+  }, [focusChatInput]);
 
   useEffect(() => {
     if (panelView === "chat") focusChatInput();
-  }, [panelView]);
+  }, [panelView, focusChatInput]);
 
   useEffect(() => {
     if (panelView === "chat" && !loading) focusChatInput();
-  }, [loading, panelView]);
+  }, [loading, panelView, messages.length, focusChatInput]);
+
+  useEffect(() => {
+    if (panelView !== "documents" || !authUser) return undefined;
+    let cancelled = false;
+    setDocumentsLoading(true);
+    setDocumentsError("");
+    listDocuments(authUser, { categoryKey: "all" })
+      .then((result) => {
+        if (cancelled) return;
+        setDocuments(result.documents ?? []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDocuments([]);
+        setDocumentsError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
+      })
+      .finally(() => {
+        if (!cancelled) setDocumentsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [panelView, authUser]);
 
   const submitQuestion = async (value) => {
     const trimmed = String(value ?? "").trim();
@@ -122,6 +228,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setError("");
     setPanelView("chat");
     setSidebarOpen(false);
+    focusChatInput();
   };
 
   const handleAttachClick = () => {
@@ -190,6 +297,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     setThreadId(thread.id);
                     setPanelView("chat");
                     setSidebarOpen(false);
+                    focusChatInput();
                   }}
                 >
                   {thread.preview}
@@ -262,7 +370,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           }}
         >
           {panelView === "insurance" ? (
-            <LayerPanel title="내 보험" onBack={() => setPanelView("chat")}>
+            <LayerPanel title="내 보험" onBack={goBackToChat}>
               {policyCount > 0
                 ? "등록된 보험이 있어요. 궁금한 점은 대화로 물어보시면 같이 볼게요."
                 : "아직 등록된 보험이 없어요. 필요하면 대화에서 편하게 말씀해 주세요."}
@@ -270,15 +378,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           ) : null}
 
           {panelView === "documents" ? (
-            <LayerPanel title="내 문서" onBack={() => setPanelView("chat")}>
-              {documentCount > 0
-                ? "업로드된 문서가 있어요. 대화에서 \"이 문서 봐줘\"처럼 말씀해 주세요."
-                : "아직 문서가 없어요. 필요할 때 대화로 알려 주세요."}
+            <LayerPanel title="내 문서" onBack={goBackToChat}>
+              <CustomerDocumentsList documents={documents} loading={documentsLoading} error={documentsError} />
             </LayerPanel>
           ) : null}
 
           {panelView === "settings" ? (
-            <LayerPanel title="설정" onBack={() => setPanelView("chat")}>
+            <LayerPanel title="설정" onBack={goBackToChat}>
               <p style={{ margin: 0 }}>{displayName}님으로 사용 중이에요.</p>
             </LayerPanel>
           ) : null}
@@ -442,7 +548,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 ref={inputRef}
                 rows={1}
                 value={input}
+                readOnly={false}
                 disabled={isDisabled}
+                aria-label="질문 입력"
                 placeholder="무엇이든 편하게 물어보세요"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {

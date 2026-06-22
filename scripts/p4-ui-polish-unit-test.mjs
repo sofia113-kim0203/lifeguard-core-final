@@ -90,6 +90,37 @@ async function main() {
     passed += 1;
   } else failed += 1;
 
+  if (
+    await runCase("T6 documents panel — listDocuments wired read-only", () => {
+      const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
+      assert.match(chat, /listDocuments\(authUser/);
+      assert.match(chat, /CustomerDocumentsList/);
+      assert.match(chat, /formatDocClass\(document\.doc_class\)/);
+      assert.match(chat, /formatDocumentPipelineStatus\(document\)/);
+      assert.match(chat, /formatUploadDate\(document\.created_at\)/);
+      assert.match(chat, /아직 업로드된 문서가 없어요/);
+      assert.doesNotMatch(chat, /업로드된 문서가 있어요\. 대화에서/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T7 chat focus — two-stage refocus after navigation and send", () => {
+      const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
+      assert.match(chat, /requestAnimationFrame/);
+      assert.match(chat, /window\.setTimeout/);
+      assert.match(chat, /goBackToChat/);
+      assert.match(chat, /focusChatInput\(\)/);
+      assert.match(chat, /ref=\{inputRef\}/);
+      assert.match(chat, /<textarea/);
+      assert.doesNotMatch(chat, /disabled=\{isDisabled \|\| loading\}/);
+      assert.match(chat, /e\.shiftKey/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
   console.log(`${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
