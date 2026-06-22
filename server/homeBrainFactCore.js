@@ -2,7 +2,7 @@
  * P3 v4 — Home brain helpers + Agent Tom request handler.
  */
 import { computePremiumLookupStats } from "./intentGateLayer.js";
-import { applyLifeguardCustomerOutputGuard } from "./lifeguardOutputGuard.js";
+import { applyLifeguardCustomerOutputGuard, polishLifeguardCustomerText } from "./lifeguardOutputGuard.js";
 import {
   HOME_BRAIN_SUPPORTED_INTENTS,
   HOME_HIGH_STAKES_DEFER_MESSAGE,
@@ -19,6 +19,15 @@ export {
 };
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE = HOME_HIGH_STAKES_DEFER_MESSAGE;
+
+export const P5_BRAIN_RESPONSE_SOURCES = new Set([
+  "p5_brain_customer_state",
+  "p5_brain_state_guarded",
+]);
+
+export function isP5BrainResponseSource(responseSource) {
+  return P5_BRAIN_RESPONSE_SOURCES.has(responseSource);
+}
 
 function normalizeQuestion(question) {
   return String(question ?? "").replace(/\s+/g, " ").trim();
@@ -38,6 +47,11 @@ function formatWonAmount(amount) {
 
 export function applyHomeInventoryHardGuard(text = "") {
   return applyLifeguardCustomerOutputGuard(text);
+}
+
+/** P5-BRAIN customer text: polish only; do not apply engine-term/deflection guard on state topics. */
+export function applyP5BrainCustomerTextGuard(text = "") {
+  return polishLifeguardCustomerText(text);
 }
 
 export function buildHomeBrainFactsUsed(unified, stats) {
@@ -126,7 +140,12 @@ function finalizeHomeAgentResponse({
   factBundle = {},
   tomGapVoiceHandled = false,
   tomInternalRoute = null,
+  responseSource = null,
 }) {
+  if (isP5BrainResponseSource(responseSource)) {
+    return applyP5BrainCustomerTextGuard(text);
+  }
+
   const homeRoute =
     tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL
       ? "gap_grounded"
@@ -190,6 +209,7 @@ export async function handleHomeBrainFactRequest({
     factBundle: agentTurn.factBundle ?? { question: trimmedQuestion, policy_count: 0, policies: [] },
     tomGapVoiceHandled: agentTurn.tomGapVoiceHandled === true,
     tomInternalRoute: agentTurn.tomInternalRoute,
+    responseSource: agentTurn.responseSource ?? null,
   });
 
   const policies = agentTurn.factBundle?.policies ?? [];

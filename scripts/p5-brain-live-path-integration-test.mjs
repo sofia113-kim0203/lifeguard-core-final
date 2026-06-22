@@ -253,6 +253,33 @@ async function main() {
     passed += 1;
   } else failed += 1;
 
+  if (
+    await runCase("I8 Q3 finalize — P5 continue text survives handleHomeBrainFactRequest", async () => {
+      const { handleHomeBrainFactRequest } = await import("../server/homeBrainFactCore.js");
+      const supabase = buildJwtPathMockSupabase({ conversationRows: [] });
+      const result = await handleHomeBrainFactRequest({
+        question: "지난번 대화 이어서 하자",
+        history: [
+          { role: "user", content: "보험료 너무 비싼가?" },
+          { role: "assistant", content: "총 보험료는 검증이 필요해요." },
+          { role: "user", content: "보장 분석도 해줘" },
+        ],
+        userSupabase: supabase,
+        customerId: "cust-jwt",
+        fetchImpl: async () => {
+          throw new Error("LLM should not be called");
+        },
+      });
+      assert.equal(result.response_source, "p5_brain_customer_state");
+      assert.match(result.answerText, /최근에는/);
+      assert.match(result.answerText, /보장분석/);
+      assert.match(result.answerText, /이어서 보고 싶으세요/);
+      assert.doesNotMatch(result.answerText, /말씀드리기 어려워요|기억하지 못|얼마 내세요|가입 내역에 접근/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
   console.log(`${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }

@@ -185,6 +185,9 @@ async function main() {
       assert.match(tom, /resolveP5BrainPilotAnswer/);
       assert.match(tom, /p5_brain_customer_state/);
       assert.match(tom, /p5_brain_state_guarded/);
+      assert.match(tom, /isP5BrainResponseSource|p5_brain_customer_state/);
+      const core = readFileSync(join(ROOT, "server/homeBrainFactCore.js"), "utf8");
+      assert.match(core, /isP5BrainResponseSource\(responseSource\)/);
       assert.doesNotMatch(
         tom,
         /composeP5BrainStateAwareAnswer[\s\S]*if \(stateAnswer\.ok && stateAnswer\.text\)/,
