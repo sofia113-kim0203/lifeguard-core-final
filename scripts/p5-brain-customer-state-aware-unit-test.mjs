@@ -15,7 +15,7 @@ import {
   matchP5BrainPilotQuestion,
   P5_BRAIN_PILOT_KEYS,
 } from "../server/p5BrainPilotQuestions.js";
-import { composeP5BrainStateAwareAnswer } from "../server/p5BrainStateAwareAnswer.js";
+import { composeP5BrainStateAwareAnswer, resolveP5BrainPilotAnswer } from "../server/p5BrainStateAwareAnswer.js";
 import { violatesHomeInventoryDump } from "../server/tomThinkingLoop.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -92,13 +92,17 @@ async function main() {
   let failed = 0;
 
   if (
-    await runCase("T1 pilot matcher — only 4 questions", () => {
+    await runCase("T1 pilot matcher — 5 pilot questions", () => {
       assert.equal(matchP5BrainPilotQuestion("보험료 너무 비싼가?"), P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN);
       assert.equal(matchP5BrainPilotQuestion("암보험 부족한가?"), P5_BRAIN_PILOT_KEYS.CANCER_COVERAGE);
       assert.equal(matchP5BrainPilotQuestion("내 보험 분석해줘"), P5_BRAIN_PILOT_KEYS.INSURANCE_ANALYSIS);
       assert.equal(
         matchP5BrainPilotQuestion("지난번 이야기 이어서 하자"),
         P5_BRAIN_PILOT_KEYS.CONTINUE_CONVERSATION,
+      );
+      assert.equal(
+        matchP5BrainPilotQuestion("내 문서에 암 관련 내용 있어?"),
+        P5_BRAIN_PILOT_KEYS.DOCUMENT_CANCER_CONTENT,
       );
       assert.equal(matchP5BrainPilotQuestion("분당에서 가족이랑 갈 만한 곳 추천해줘"), null);
     })
@@ -174,12 +178,60 @@ async function main() {
   } else failed += 1;
 
   if (
-    await runCase("T6 wiring — homeAgentTom loads bundle before answer", () => {
+    await runCase("T6 wiring — homeAgentTom never falls through on pilot match", () => {
       const tom = readFileSync(join(ROOT, "server/homeAgentTom.js"), "utf8");
       assert.match(tom, /buildCustomerContextBundle/);
       assert.match(tom, /matchP5BrainPilotQuestion/);
-      assert.match(tom, /composeP5BrainStateAwareAnswer/);
+      assert.match(tom, /resolveP5BrainPilotAnswer/);
       assert.match(tom, /p5_brain_customer_state/);
+      assert.match(tom, /p5_brain_state_guarded/);
+      assert.doesNotMatch(
+        tom,
+        /composeP5BrainStateAwareAnswer[\s\S]*if \(stateAnswer\.ok && stateAnswer\.text\)/,
+      );
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T7 guarded premium — no policies still returns P5 answer", () => {
+      const emptyBundle = {
+        ...mockBundle,
+        policies: [],
+        documents: [],
+        documentCount: 0,
+      };
+      const answer = resolveP5BrainPilotAnswer(
+        P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN,
+        "보험료 비싼가",
+        emptyBundle,
+      );
+      assert.equal(answer.guarded, true);
+      assert.match(answer.text, /확인되는 가입 보험이 없어요/);
+      assert.doesNotMatch(answer.text, /얼마 내시|318,683|4건/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T8 document cancer — existence-only copy", () => {
+      const withDocs = resolveP5BrainPilotAnswer(
+        P5_BRAIN_PILOT_KEYS.DOCUMENT_CANCER_CONTENT,
+        "내 문서에 암 관련 내용 있어?",
+        mockBundle,
+      );
+      assert.match(withDocs.text, /업로드된 문서가 있는 것은 확인돼요/);
+      assert.match(withDocs.text, /문서 내용 확인이 필요합니다/);
+
+      const noDocs = resolveP5BrainPilotAnswer(
+        P5_BRAIN_PILOT_KEYS.DOCUMENT_CANCER_CONTENT,
+        "내 문서에 암 관련 내용 있어?",
+        { ...mockBundle, documents: [], documentCount: 0 },
+      );
+      assert.equal(noDocs.guarded, true);
+      assert.match(noDocs.text, /업로드 문서가 없어 판단할 수 없습니다/);
     })
   ) {
     passed += 1;

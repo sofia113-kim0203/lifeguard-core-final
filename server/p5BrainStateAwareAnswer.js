@@ -1,5 +1,5 @@
 /**
- * P5-BRAIN — state-aware answers for the 4 pilot questions only.
+ * P5-BRAIN — state-aware answers for pilot questions only.
  * Customer-facing text: verified facts only; no inventory dumps or unverified numbers.
  */
 import { P5_BRAIN_PILOT_KEYS } from "./p5BrainPilotQuestions.js";
@@ -103,6 +103,73 @@ function composeContinueConversationAnswer(bundle) {
   };
 }
 
+function composeDocumentCancerContentAnswer(bundle) {
+  if (hasDocuments(bundle)) {
+    return {
+      ok: true,
+      text: [
+        "업로드된 문서가 있는 것은 확인돼요.",
+        "다만 암 관련 내용 확정은 문서 내용 확인이 필요합니다.",
+      ].join("\n"),
+    };
+  }
+
+  return {
+    ok: true,
+    text: "현재 확인되는 업로드 문서가 없어 판단할 수 없습니다.",
+    guarded: true,
+  };
+}
+
+function composeP5BrainGuardedAnswer(pilotKey, bundle, reason = null) {
+  switch (pilotKey) {
+    case P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN:
+      return {
+        text: [
+          "현재 확인되는 가입 보험이 없어요.",
+          "보험 정보를 저장해 주시면 보험료 부담을 같이 보면 됩니다.",
+        ].join("\n"),
+        guarded: true,
+        reason: reason ?? "no_policies",
+      };
+    case P5_BRAIN_PILOT_KEYS.CANCER_COVERAGE:
+      return {
+        text: [
+          "현재 확인되는 가입 보험이나 업로드 문서가 없어요.",
+          "암보장 여부는 보험 정보나 문서가 확인되면 같이 볼게요.",
+        ].join("\n"),
+        guarded: true,
+        reason: reason ?? "no_state",
+      };
+    case P5_BRAIN_PILOT_KEYS.INSURANCE_ANALYSIS:
+      return {
+        text: [
+          "현재 확인되는 가입 보험이나 업로드 문서가 없어요.",
+          "궁금하신 주제를 말씀해 주시면 거기서부터 같이 볼게요.",
+        ].join("\n"),
+        guarded: true,
+        reason: reason ?? "no_state",
+      };
+    case P5_BRAIN_PILOT_KEYS.CONTINUE_CONVERSATION:
+      return {
+        text: [
+          "아직 이어갈 최근 대화가 확인되지 않아요.",
+          "지금 궁금하신 주제를 말씀해 주시면 거기서부터 같이 볼게요.",
+        ].join("\n"),
+        guarded: true,
+        reason: reason ?? "no_recent_conversation",
+      };
+    case P5_BRAIN_PILOT_KEYS.DOCUMENT_CANCER_CONTENT:
+      return composeDocumentCancerContentAnswer(bundle);
+    default:
+      return {
+        text: "지금은 고객 상태를 확인하는 중이에요. 궁금하신 내용을 조금 더 알려주시면 같이 볼게요.",
+        guarded: true,
+        reason: reason ?? "unknown_pilot_key",
+      };
+  }
+}
+
 /** @returns {{ ok: boolean, text?: string, reason?: string }} */
 export function composeP5BrainStateAwareAnswer(pilotKey, _question, bundle) {
   switch (pilotKey) {
@@ -114,7 +181,31 @@ export function composeP5BrainStateAwareAnswer(pilotKey, _question, bundle) {
       return composeInsuranceAnalysisAnswer(bundle);
     case P5_BRAIN_PILOT_KEYS.CONTINUE_CONVERSATION:
       return composeContinueConversationAnswer(bundle);
+    case P5_BRAIN_PILOT_KEYS.DOCUMENT_CANCER_CONTENT:
+      return composeDocumentCancerContentAnswer(bundle);
     default:
       return { ok: false, reason: "unknown_pilot_key" };
   }
+}
+
+/**
+ * Always returns a pilot answer; never falls through to legacy chat.
+ * @returns {{ text: string, guarded: boolean, reason?: string|null }}
+ */
+export function resolveP5BrainPilotAnswer(pilotKey, _question, bundle) {
+  const composed = composeP5BrainStateAwareAnswer(pilotKey, _question, bundle);
+  if (composed.ok && composed.text) {
+    return {
+      text: composed.text,
+      guarded: composed.guarded === true,
+      reason: composed.reason ?? null,
+    };
+  }
+
+  const guarded = composeP5BrainGuardedAnswer(pilotKey, bundle, composed.reason ?? null);
+  return {
+    text: guarded.text,
+    guarded: guarded.guarded !== false,
+    reason: guarded.reason ?? composed.reason ?? null,
+  };
 }

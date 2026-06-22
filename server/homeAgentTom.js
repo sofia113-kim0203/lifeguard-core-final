@@ -4,7 +4,7 @@
 import { classifyConsultationIntent, hasInsuranceTopicSignal } from "./intentGateLayer.js";
 import { buildCustomerContextBundle } from "./buildCustomerContextBundle.js";
 import { matchP5BrainPilotQuestion } from "./p5BrainPilotQuestions.js";
-import { composeP5BrainStateAwareAnswer } from "./p5BrainStateAwareAnswer.js";
+import { resolveP5BrainPilotAnswer } from "./p5BrainStateAwareAnswer.js";
 import { loadRawCustomerRecords } from "./unifiedCustomerState.js";
 import { ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import { runTomGapLightVoiceTurn, shouldUseTomGapLightPath } from "./tomGapLightPath.js";
@@ -132,36 +132,41 @@ export async function runHomeAgentTomTurn({
 
   const pilotKey = matchP5BrainPilotQuestion(trimmedQuestion);
   if (pilotKey && userSupabase && customerId) {
-    const customerContext = await buildCustomerContextBundle(userSupabase, customerId);
-    const stateAnswer = composeP5BrainStateAwareAnswer(pilotKey, trimmedQuestion, customerContext);
-    if (stateAnswer.ok && stateAnswer.text) {
-      const tomInternalRoute = TOM_INTERNAL_ROUTES.CHAT;
-      return {
-        text: stateAnswer.text,
-        tomInternalRoute,
-        consultationIntent,
-        toolUsed: null,
-        responseSource: "p5_brain_customer_state",
-        factBundle: {
-          question: trimmedQuestion,
-          policy_count: customerContext.policies?.length ?? 0,
-          policies: customerContext.policies ?? [],
-          document_count: customerContext.documentCount ?? 0,
-          memory_fact_count: customerContext.memoryFactCount ?? 0,
-          customer_context_used: true,
-          pilot_key: pilotKey,
-        },
-        tomGapVoiceHandled: false,
-        trace: {
-          tom_internal_route: tomInternalRoute,
-          consultation_intent: consultationIntent.intent,
-          tool_used: null,
-          agent: "home_agent_tom",
-          p5_brain_pilot: pilotKey,
-          customer_context_used: true,
-        },
-      };
-    }
+    const customerContext = await buildCustomerContextBundle(userSupabase, customerId, {
+      requestHistory: conversationHistory,
+    });
+    const stateAnswer = resolveP5BrainPilotAnswer(pilotKey, trimmedQuestion, customerContext);
+    const tomInternalRoute = TOM_INTERNAL_ROUTES.CHAT;
+    const responseSource = stateAnswer.guarded
+      ? "p5_brain_state_guarded"
+      : "p5_brain_customer_state";
+    return {
+      text: stateAnswer.text,
+      tomInternalRoute,
+      consultationIntent,
+      toolUsed: null,
+      responseSource,
+      factBundle: {
+        question: trimmedQuestion,
+        policy_count: customerContext.policies?.length ?? 0,
+        policies: customerContext.policies ?? [],
+        document_count: customerContext.documentCount ?? 0,
+        memory_fact_count: customerContext.memoryFactCount ?? 0,
+        customer_context_used: true,
+        pilot_key: pilotKey,
+        p5_brain_guarded: stateAnswer.guarded === true,
+      },
+      tomGapVoiceHandled: false,
+      trace: {
+        tom_internal_route: tomInternalRoute,
+        consultation_intent: consultationIntent.intent,
+        tool_used: null,
+        agent: "home_agent_tom",
+        p5_brain_pilot: pilotKey,
+        p5_brain_guarded: stateAnswer.guarded === true,
+        customer_context_used: true,
+      },
+    };
   }
 
   const tomInternalRoute = resolveTomInternalRoute(trimmedQuestion, consultationIntent);

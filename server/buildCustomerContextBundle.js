@@ -41,6 +41,16 @@ function extractTopicsFromMessages(messages = []) {
   return topics;
 }
 
+function normalizeRequestHistory(history = []) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .map((turn) => ({
+      role: turn?.role === "assistant" ? "assistant" : "user",
+      content: String(turn?.content ?? turn?.message ?? "").trim(),
+    }))
+    .filter((turn) => turn.content);
+}
+
 export function buildRecentConversationSummary(rows = []) {
   const sorted = [...rows].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -53,6 +63,53 @@ export function buildRecentConversationSummary(rows = []) {
     topics: extractTopicsFromMessages(latestUserMessages),
     latestUserMessages,
     messageCount: sorted.length,
+  };
+}
+
+/** Merge in-session request history (most recent) with persisted lifeguard chat rows. */
+export function buildMergedRecentConversationSummary(dbRows = [], requestHistory = []) {
+  const dbSummary = buildRecentConversationSummary(dbRows);
+  const requestTurns = normalizeRequestHistory(requestHistory);
+  const requestUserMessages = requestTurns
+    .filter((turn) => turn.role === "user")
+    .map((turn) => turn.content)
+    .filter(Boolean);
+
+  if (requestUserMessages.length === 0) {
+    return dbSummary;
+  }
+
+  const seen = new Set();
+  const mergedUserMessages = [];
+  for (const message of [...requestUserMessages.slice(-8).reverse(), ...(dbSummary.latestUserMessages ?? [])]) {
+    if (seen.has(message)) continue;
+    seen.add(message);
+    mergedUserMessages.push(message);
+    if (mergedUserMessages.length >= 8) break;
+  }
+
+  return {
+    hasHistory: mergedUserMessages.length > 0,
+    topics: extractTopicsFromMessages(mergedUserMessages),
+    latestUserMessages: mergedUserMessages,
+    messageCount: (dbSummary.messageCount ?? 0) + requestUserMessages.length,
+    includesRequestHistory: true,
+  };
+}
+
+export function compareCustomerExistenceFlags(unifiedState, bundle) {
+  const unifiedHasPolicies = (unifiedState?.policies?.length ?? unifiedState?.policy_count ?? 0) > 0;
+  const bundleHasPolicies = (bundle?.policies?.length ?? 0) > 0;
+  const unifiedHasDocuments =
+    (unifiedState?.document_count ?? 0) > 0 || (unifiedState?.documents?.length ?? 0) > 0;
+  const bundleHasDocuments =
+    (bundle?.documentCount ?? 0) > 0 || (bundle?.documents?.length ?? 0) > 0;
+
+  return {
+    policiesMatch: unifiedHasPolicies === bundleHasPolicies,
+    documentsMatch: unifiedHasDocuments === bundleHasDocuments,
+    unified: { hasPolicies: unifiedHasPolicies, hasDocuments: unifiedHasDocuments },
+    bundle: { hasPolicies: bundleHasPolicies, hasDocuments: bundleHasDocuments },
   };
 }
 
@@ -93,8 +150,9 @@ export function formatCustomerContextBlock(bundle) {
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} customerId
+ * @param {{ requestHistory?: Array<{ role?: string, content?: string, message?: string }> }} [options]
  */
-export async function buildCustomerContextBundle(supabase, customerId) {
+export async function buildCustomerContextBundle(supabase, customerId, { requestHistory = [] } = {}) {
   if (!supabase) throw new Error("supabase_required");
   if (!customerId) throw new Error("customer_id_required");
 
@@ -119,6 +177,6 @@ export async function buildCustomerContextBundle(supabase, customerId) {
     documentCount: raw.document_count ?? 0,
     memoryFacts,
     memoryFactCount: snapshot?.fact_count ?? memoryFacts.length,
-    recentConversation: buildRecentConversationSummary(conversationRows),
+    recentConversation: buildMergedRecentConversationSummary(conversationRows, requestHistory),
   };
 }
