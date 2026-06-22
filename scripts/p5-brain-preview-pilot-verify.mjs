@@ -47,14 +47,22 @@ const PILOTS = [
     label: "premium_burden",
     question: "보험료 비싼가",
     history: [],
-    allowedSources: ["p5_brain_customer_state", "p5_brain_state_guarded"],
+    allowedSources: [
+      "sales_director_pilot_compose",
+      "sales_director_pilot_guarded",
+      "sales_director_guarded_hold",
+    ],
     forbidden: /얼마 내시|318,683|4건/,
   },
   {
     label: "document_cancer",
     question: "내 문서에 암 관련 내용 있어?",
     history: [],
-    allowedSources: ["p5_brain_customer_state", "p5_brain_state_guarded"],
+    allowedSources: [
+      "sales_director_pilot_compose",
+      "sales_director_pilot_guarded",
+      "sales_director_guarded_hold",
+    ],
     forbidden: /318,683|4건|\d+\s*건/,
   },
   {
@@ -64,14 +72,22 @@ const PILOTS = [
       { role: "user", content: "보험료 너무 비싼가?" },
       { role: "assistant", content: "총 보험료는 검증이 필요해요." },
     ],
-    allowedSources: ["p5_brain_customer_state", "p5_brain_state_guarded"],
+    allowedSources: [
+      "sales_director_pilot_compose",
+      "sales_director_pilot_guarded",
+      "sales_director_guarded_hold",
+    ],
     forbidden: /기억하지 못|무슨 이야기|얼마 내시/,
   },
   {
     label: "insurance_analysis",
     question: "내 보험 분석해줘",
     history: [],
-    allowedSources: ["p5_brain_customer_state", "p5_brain_state_guarded"],
+    allowedSources: [
+      "sales_director_pilot_compose",
+      "sales_director_pilot_guarded",
+      "sales_director_guarded_hold",
+    ],
     forbidden: /318,683|4건|\d+\s*건/,
   },
 ];

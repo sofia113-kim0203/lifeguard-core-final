@@ -8,20 +8,17 @@ import {
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
 } from "./homeBrainRouter.js";
-import { runHomeAgentTomTurn, TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
+import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import {
-  buildLoadedContextFromSnapshot,
-  buildReconciliationWarning,
-  loadCustomerContextSnapshot,
-  snapshotToContextBundle,
-} from "./customerContextSnapshot.js";
+  buildSalesDirectorFactsUsed,
+  buildSalesDirectorLoopObservability,
+  runSalesDirectorLoopTurn,
+} from "./salesDirectorLoop.js";
 import {
-  buildFactoryCalled,
   buildGuardResult,
-  buildObservabilityPayload,
+  isSalesDirectorPilotResponseSource,
 } from "./customerObservability.js";
-import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
@@ -119,7 +116,7 @@ export function formatHomeBrainAnswer(intent, unified, stats) {
   }
 }
 
-/** Legacy compose helper — kept for unit tests; home runtime uses Agent Tom only. */
+/** Legacy compose helper — kept for unit tests; home runtime uses Sales Director Loop. */
 export function composeHomeBrainFactAnswer(unified, question) {
   const intent = classifyHomeBrainIntent(question);
   if (!HOME_BRAIN_SUPPORTED_INTENTS.has(intent)) {
@@ -153,19 +150,23 @@ function finalizeHomeAgentResponse({
   tomGapVoiceHandled = false,
   tomInternalRoute = null,
   responseSource = null,
+  salesDirectorResponseSource = null,
 }) {
   const originalText = text;
+  const pilotSource = salesDirectorResponseSource ?? responseSource;
 
-  if (isP5BrainResponseSource(responseSource)) {
+  if (isP5BrainResponseSource(responseSource) || isSalesDirectorPilotResponseSource(pilotSource)) {
     const finalText = applyP5BrainCustomerTextGuard(text);
     return {
       text: finalText,
       guardResult: buildGuardResult({
-        responseSource,
+        responseSource: pilotSource,
         originalText,
         afterFinalizeText: originalText,
         finalText,
-        p5BrainGuarded: responseSource === "p5_brain_state_guarded",
+        p5BrainGuarded:
+          responseSource === "p5_brain_state_guarded" ||
+          salesDirectorResponseSource === "sales_director_pilot_guarded",
       }),
     };
   }
@@ -192,7 +193,7 @@ function finalizeHomeAgentResponse({
   return {
     text: finalText,
     guardResult: buildGuardResult({
-      responseSource,
+      responseSource: salesDirectorResponseSource ?? responseSource,
       originalText,
       afterFinalizeText: afterFinalize,
       finalText,
@@ -226,26 +227,42 @@ export async function handleHomeBrainFactRequest({
 
   const startedAt = Date.now();
 
-  const [contextSnapshot, unifiedState] = await Promise.all([
-    loadCustomerContextSnapshot(userSupabase, customerId, { requestHistory: history }),
-    loadUnifiedCustomerState(userSupabase, customerId),
-  ]);
-  const loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
-  const reconciliationWarning = buildReconciliationWarning(unifiedState, contextSnapshot);
-  const customerContextBundle = snapshotToContextBundle(contextSnapshot);
-
-  const agentTurn = await runHomeAgentTomTurn({
-    question: trimmedQuestion,
-    history,
+  const loopResult = await runSalesDirectorLoopTurn({
     userSupabase,
     customerId,
-    customerContextBundle,
+    question: trimmedQuestion,
+    history,
     env,
     fetchImpl,
     startedAt,
   });
 
+  if (!loopResult.ok) return loopResult;
+
+  const {
+    agentTurn,
+    modeDecision,
+    loadedContext,
+    reconciliationWarning,
+    contextSnapshot,
+    salesDirectorTrace,
+    truthGate,
+  } = loopResult;
+
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
+
+  const observabilityPreview = buildSalesDirectorLoopObservability({
+    modeDecision,
+    agentTurn,
+    loadedContext,
+    guardResult: null,
+    contextSnapshotId: contextSnapshot.context_snapshot_id,
+    reconciliationWarning,
+    factsUsed: null,
+    loadedContextContradictions: null,
+    salesDirectorTrace,
+  });
+
   const finalized = finalizeHomeAgentResponse({
     text: agentTurn.text,
     question: trimmedQuestion,
@@ -254,24 +271,31 @@ export async function handleHomeBrainFactRequest({
     tomGapVoiceHandled: agentTurn.tomGapVoiceHandled === true,
     tomInternalRoute: agentTurn.tomInternalRoute,
     responseSource: agentTurn.responseSource ?? null,
+    salesDirectorResponseSource: observabilityPreview.response_source,
   });
   const answerText = finalized.text;
 
-  const policies = agentTurn.factBundle?.policies ?? customerContextBundle?.policies ?? [];
-  const memoryFactCount =
-    agentTurn.factBundle?.memory_fact_count ?? customerContextBundle?.memoryFactCount ?? 0;
-  const pilotKey = agentTurn.factBundle?.pilot_key ?? agentTurn.trace?.p5_brain_pilot ?? null;
-
-  const observability = buildObservabilityPayload({
-    responseSource: agentTurn.responseSource ?? null,
-    tomInternalRoute: agentTurn.tomInternalRoute,
-    toolUsed: agentTurn.toolUsed,
-    pilotKey,
+  const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
+    agentTurn,
+    customerContextBundle: loopResult.customerContextBundle,
     loadedContext,
-    factoryCalled: buildFactoryCalled({ toolUsed: agentTurn.toolUsed }),
+    computeStats: computePremiumLookupStats,
+    buildFactsUsed: buildHomeBrainFactsUsed,
+  });
+
+  const observability = buildSalesDirectorLoopObservability({
+    modeDecision,
+    agentTurn,
+    loadedContext,
     guardResult: finalized.guardResult,
     contextSnapshotId: contextSnapshot.context_snapshot_id,
     reconciliationWarning,
+    factsUsed,
+    loadedContextContradictions,
+    salesDirectorTrace: {
+      ...salesDirectorTrace,
+      truth_gate: truthGate,
+    },
   });
 
   return {
@@ -281,7 +305,9 @@ export async function handleHomeBrainFactRequest({
     home_route: agentTurn.tomInternalRoute,
     tom_internal_route: agentTurn.tomInternalRoute,
     tool_used: agentTurn.toolUsed,
-    agent: "home_agent_tom",
+    agent: "sales_director_loop",
+    sales_director_loop: true,
+    sales_director_mode: observability.sales_director_mode,
     response_source: observability.response_source,
     selected_route: observability.selected_route,
     loaded_context: observability.loaded_context,
@@ -289,19 +315,13 @@ export async function handleHomeBrainFactRequest({
     guard_result: observability.guard_result,
     context_snapshot_id: observability.context_snapshot_id,
     reconciliation_warning: observability.reconciliation_warning,
+    loaded_context_contradictions: observability.loaded_context_contradictions,
+    sales_director_trace: observability.sales_director_trace,
     tom_voice_trace: agentTurn.tomVoiceTrace ?? agentTurn.trace,
     tom_gap_light_path: agentTurn.tomGapLightPath === true,
     tom_turn_ms: agentTurn.tomTurnMs ?? null,
     skipped_stages: agentTurn.skippedStages ?? null,
-    factsUsed: buildHomeBrainFactsUsed(
-      {
-        policies,
-        policy_count: policies.length || agentTurn.factBundle?.policy_count || 0,
-        memory_fact_count: memoryFactCount,
-        memory_status: memoryFactCount > 0 ? "ready" : "empty",
-      },
-      computePremiumLookupStats(policies),
-    ),
+    factsUsed,
     response_latency_ms: Date.now() - startedAt,
   };
 }

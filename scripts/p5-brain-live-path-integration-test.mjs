@@ -273,7 +273,9 @@ async function main() {
           throw new Error("LLM should not be called");
         },
       });
-      assert.equal(result.response_source, "p5_brain_customer_state");
+      assert.equal(result.response_source, "sales_director_pilot_compose");
+      assert.equal(result.sales_director_loop, true);
+      assert.equal(result.selected_route, "sales_director_pilot_mode");
       assert.match(result.answerText, /최근에/);
       assert.match(result.answerText, /보장 분석/);
       assert.match(result.answerText, /이어서 보고 싶으세요/);

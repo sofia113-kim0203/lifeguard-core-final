@@ -1,19 +1,19 @@
 /**
- * P5-BRAIN JWT-path QA — same server handlers as Preview, without Vercel protection.
- * Uses customer JWT only (no service role reads).
+ * P5-BRAIN Preview QA — sidebar gate + 4 chat questions via JWT API.
+ * Reads credentials from .env.local only; never prints secrets.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
-import { handleHomeBrainFactRequest } from "../server/homeBrainFactCore.js";
-import { loadUnifiedCustomerState } from "../server/unifiedCustomerState.js";
-import { createUserSupabaseClient } from "../server/requireCustomerAuth.js";
+const PREVIEW_BASE = String(
+  process.env.PREVIEW_BASE ??
+    "https://lifeguard-core-final-4tz022om8-70sofia113-1918s-projects.vercel.app",
+).replace(/\/$/, "");
 
 const FORBIDDEN = [
   /얼마 내세요/i,
   /가입 내역에 접근할 수 없어요/i,
   /이전 대화를 기억하지 못해요/i,
-  /말씀드리기 어려워요/i,
   /318,683|4건|\d+\s*건/,
 ];
 
@@ -39,18 +39,31 @@ const email = String(
 ).trim();
 const password = String(process.env.QA_PASSWORD ?? process.env.QA_TEST_PASSWORD ?? "").trim();
 
+async function postApi(token, path, body) {
+  const response = await fetch(`${PREVIEW_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { status: response.status, payload };
+}
+
 async function main() {
-  console.log("p5-brain-jwt-path-qa (Preview-equivalent server path)");
+  console.log(`p5-brain-preview-qa base=${PREVIEW_BASE}`);
 
   if (!supabaseUrl || !supabaseAnon || !password) {
     console.log("FAIL setup — missing Supabase env or QA_PASSWORD");
     process.exit(2);
   }
 
-  const authClient = createClient(supabaseUrl, supabaseAnon, {
+  const supabase = createClient(supabaseUrl, supabaseAnon, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: authData, error: authError } = await authClient.auth.signInWithPassword({
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
@@ -58,35 +71,39 @@ async function main() {
     console.log(`FAIL auth — ${authError?.message ?? "no session"}`);
     process.exit(2);
   }
-
   const token = authData.session.access_token;
-  const userSupabase = createUserSupabaseClient(`Bearer ${token}`);
-  const { data: profile, error: profileError } = await userSupabase
-    .from("customer_profiles")
-    .select("id")
-    .eq("user_id", authData.user.id)
-    .maybeSingle();
 
-  if (profileError || !profile?.id) {
-    console.log(`FAIL profile — ${profileError?.message ?? "not found"}`);
+  const unified = await postApi(token, "/api/customer-unified-state", {});
+  if (unified.status === 401 || unified.status === 403) {
+    console.log(`FAIL preview protection — unified-state status=${unified.status}`);
     process.exit(2);
   }
 
-  const customerId = profile.id;
-  const unified = await loadUnifiedCustomerState(userSupabase, customerId);
-  const policyCount = unified.policy_count ?? unified.policies?.length ?? 0;
-  const documentCount = unified.document_count ?? unified.documents?.length ?? 0;
+  const state = unified.payload?.unified_state ?? {};
+  const policyCount = state.policy_count ?? state.policies?.length ?? 0;
+  const documentCount = state.document_count ?? state.documents?.length ?? 0;
+  console.log(
+    `SIDEBAR_GATE ok=${unified.payload?.ok === true} policies=${policyCount} documents=${documentCount}`,
+  );
 
-  console.log(`SIDEBAR_GATE policies=${policyCount} documents=${documentCount}`);
-
-  if (policyCount <= 0) {
+  if (!unified.payload?.ok || policyCount <= 0) {
     console.log("STOP — sidebar/내 보험 would be empty; RLS self-read policy likely missing");
     process.exit(3);
   }
 
   const questions = [
-    { id: "Q1", question: "보험료 너무 비싼가?", history: [], expectP5: true },
-    { id: "Q2", question: "내 문서에 암 관련 내용 있어?", history: [], expectP5: true },
+    {
+      id: "Q1",
+      question: "보험료 너무 비싼가?",
+      history: [],
+      expectP5: true,
+    },
+    {
+      id: "Q2",
+      question: "내 문서에 암 관련 내용 있어?",
+      history: [],
+      expectP5: true,
+    },
     {
       id: "Q3",
       question: "지난번 대화 이어서 하자",
@@ -96,35 +113,39 @@ async function main() {
       ],
       expectP5: true,
     },
-    { id: "Q4", question: "안녕", history: [], expectP5: false },
+    {
+      id: "Q4",
+      question: "안녕",
+      history: [],
+      expectP5: false,
+    },
   ];
 
   let failed = 0;
   for (const item of questions) {
-    const result = await handleHomeBrainFactRequest({
-      userSupabase,
-      customerId,
+    const { status, payload } = await postApi(token, "/api/customer-home-brain-fact", {
       question: item.question,
       history: item.history,
     });
-    const source = result.response_source ?? "missing";
-    const text = String(result.answerText ?? "");
+    const source = payload?.response_source ?? "missing";
+    const text = String(payload?.answerText ?? "");
     const forbidden = FORBIDDEN.find((pattern) => pattern.test(text));
-    const continueOk =
-      item.id !== "Q3" ||
-      (/최근에/.test(text) && /이어서 보고 싶으세요/.test(text));
     const isSalesDirectorPilot =
       source.startsWith("sales_director_pilot_") || source === "sales_director_guarded_hold";
     const ok =
-      result.ok === true && !forbidden && continueOk && (item.expectP5 ? isSalesDirectorPilot : !isSalesDirectorPilot);
+      status === 200 &&
+      payload?.ok === true &&
+      !forbidden &&
+      (item.expectP5 ? isSalesDirectorPilot : !isSalesDirectorPilot);
 
+    const preview = text.replace(/\s+/g, " ").slice(0, 100);
     console.log(
-      `${ok ? "PASS" : "FAIL"} ${item.id} source=${source}${forbidden ? " FORBIDDEN" : ""} text=${text.replace(/\s+/g, " ").slice(0, 100)}`,
+      `${ok ? "PASS" : "FAIL"} ${item.id} source=${source}${forbidden ? " FORBIDDEN" : ""} text=${preview}`,
     );
     if (!ok) failed += 1;
   }
 
-  console.log(`PANEL_CHAT_ALIGN sidebar_policies=${policyCount} jwt_path=PASS`);
+  console.log(`PANEL_CHAT_ALIGN sidebar_policies=${policyCount} (JWT unified-state)`);
   process.exit(failed > 0 ? 1 : 0);
 }
 

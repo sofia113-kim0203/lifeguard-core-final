@@ -53,5 +53,9 @@ export async function fetchHomeBrainFact(question, history = []) {
     guardResult: payload.guard_result ?? null,
     contextSnapshotId: payload.context_snapshot_id ?? null,
     reconciliationWarning: payload.reconciliation_warning ?? null,
+    salesDirectorLoop: payload.sales_director_loop === true,
+    salesDirectorMode: payload.sales_director_mode ?? null,
+    loadedContextContradictions: payload.loaded_context_contradictions ?? null,
+    salesDirectorTrace: payload.sales_director_trace ?? null,
   };
 }
