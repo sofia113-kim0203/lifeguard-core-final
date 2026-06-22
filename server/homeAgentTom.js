@@ -122,6 +122,7 @@ export async function runHomeAgentTomTurn({
   history = [],
   userSupabase,
   customerId,
+  customerContextBundle = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -132,9 +133,11 @@ export async function runHomeAgentTomTurn({
 
   const pilotKey = matchP5BrainPilotQuestion(trimmedQuestion);
   if (pilotKey && userSupabase && customerId) {
-    const customerContext = await buildCustomerContextBundle(userSupabase, customerId, {
-      requestHistory: conversationHistory,
-    });
+    const customerContext =
+      customerContextBundle ??
+      (await buildCustomerContextBundle(userSupabase, customerId, {
+        requestHistory: conversationHistory,
+      }));
     const stateAnswer = resolveP5BrainPilotAnswer(pilotKey, trimmedQuestion, customerContext);
     const tomInternalRoute = TOM_INTERNAL_ROUTES.CHAT;
     const responseSource = stateAnswer.guarded

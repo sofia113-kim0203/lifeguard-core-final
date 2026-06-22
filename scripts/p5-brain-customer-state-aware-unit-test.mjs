@@ -131,15 +131,15 @@ async function main() {
   } else failed += 1;
 
   if (
-    await runCase("T3 continue conversation — uses recent topics", () => {
+    await runCase("T3 continue conversation — uses recent turn excerpt", () => {
       const result = composeP5BrainStateAwareAnswer(
         P5_BRAIN_PILOT_KEYS.CONTINUE_CONVERSATION,
         "지난번 이야기 이어서 하자",
         mockBundle,
       );
       assert.equal(result.ok, true);
-      assert.match(result.text, /최근에는/);
-      assert.match(result.text, /보험료/);
+      assert.match(result.text, /최근에/);
+      assert.match(result.text, /보장분석/);
       assert.doesNotMatch(result.text, /무슨 이야기/);
       assert.equal(violatesHomeInventoryDump(result.text), false);
     })

@@ -4,12 +4,12 @@
  */
 import { P5_BRAIN_PILOT_KEYS } from "./p5BrainPilotQuestions.js";
 
-function joinTopics(topics = []) {
-  const list = topics.filter(Boolean);
-  if (list.length === 0) return "보험 관련 이야기";
-  if (list.length === 1) return `${list[0]} 이야기`;
-  if (list.length === 2) return `${list[0]}와 ${list[1]} 이야기`;
-  return `${list.slice(0, -1).join(", ")}와 ${list[list.length - 1]} 이야기`;
+function formatRecentTurnExcerpt(recent = {}) {
+  const excerpt = String(
+    recent.latestUserMessageExcerpt ?? recent.latestUserMessages?.[0] ?? "",
+  ).trim();
+  if (!excerpt) return null;
+  return excerpt.length > 60 ? `${excerpt.slice(0, 60)}…` : excerpt;
 }
 
 function hasPolicies(bundle) {
@@ -94,12 +94,14 @@ function composeContinueConversationAnswer(bundle) {
     return { ok: false, reason: "no_recent_conversation" };
   }
 
+  const excerpt = formatRecentTurnExcerpt(recent);
+  const lead = excerpt
+    ? `최근에 "${excerpt}" 이야기를 나눴어요.`
+    : "최근 대화가 확인돼요.";
+
   return {
     ok: true,
-    text: [
-      `최근에는 ${joinTopics(recent.topics)}를 나눴어요.`,
-      "어떤 부분을 이어서 보고 싶으세요?",
-    ].join("\n"),
+    text: [lead, "어떤 부분을 이어서 보고 싶으세요?"].join("\n"),
   };
 }
 

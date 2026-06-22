@@ -78,6 +78,9 @@ function buildJwtPathMockSupabase({
           if (table === "customer_conversations") {
             payload = { data: conversationRows, error: null };
           }
+          if (table === "customer_consents") {
+            payload = { data: [{ id: "c1", consent_type: "terms_of_service", granted: true }], error: null };
+          }
           if (table === "customer_analysis_cache") {
             payload = { data: [], error: null };
           }
@@ -174,7 +177,7 @@ async function main() {
         },
       });
       assert.match(turn.responseSource, /^p5_brain_/);
-      assert.match(turn.text, /최근에는/);
+      assert.match(turn.text, /최근에/);
       assert.match(turn.text, /보험료/);
       assert.doesNotMatch(turn.text, /기억하지 못|무슨 이야기/);
     })
@@ -226,7 +229,7 @@ async function main() {
         { role: "user", content: "보험료 부담돼" },
       ]);
       assert.equal(summary.hasHistory, true);
-      assert.match(summary.topics.join(","), /보험료/);
+      assert.match(summary.latestUserMessageExcerpt, /보험료/);
     })
   ) {
     passed += 1;
@@ -238,7 +241,7 @@ async function main() {
         policies: mockPolicies,
         documents: [],
         documentCount: 0,
-        recentConversation: { hasHistory: false, topics: [], latestUserMessages: [] },
+        recentConversation: { hasHistory: false, latestUserMessages: [], latestUserMessageExcerpt: null },
       };
       const answer = resolveP5BrainPilotAnswer(
         P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN,
@@ -271,9 +274,12 @@ async function main() {
         },
       });
       assert.equal(result.response_source, "p5_brain_customer_state");
-      assert.match(result.answerText, /최근에는/);
-      assert.match(result.answerText, /보장분석/);
+      assert.match(result.answerText, /최근에/);
+      assert.match(result.answerText, /보장 분석/);
       assert.match(result.answerText, /이어서 보고 싶으세요/);
+      assert.ok(result.loaded_context);
+      assert.equal(result.loaded_context.conversations.phase_filter_applied, false);
+      assert.ok(result.context_snapshot_id);
       assert.doesNotMatch(result.answerText, /말씀드리기 어려워요|기억하지 못|얼마 내세요|가입 내역에 접근/);
     })
   ) {

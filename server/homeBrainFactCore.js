@@ -10,6 +10,18 @@ import {
 } from "./homeBrainRouter.js";
 import { runHomeAgentTomTurn, TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
+import {
+  buildLoadedContextFromSnapshot,
+  buildReconciliationWarning,
+  loadCustomerContextSnapshot,
+  snapshotToContextBundle,
+} from "./customerContextSnapshot.js";
+import {
+  buildFactoryCalled,
+  buildGuardResult,
+  buildObservabilityPayload,
+} from "./customerObservability.js";
+import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
@@ -142,8 +154,20 @@ function finalizeHomeAgentResponse({
   tomInternalRoute = null,
   responseSource = null,
 }) {
+  const originalText = text;
+
   if (isP5BrainResponseSource(responseSource)) {
-    return applyP5BrainCustomerTextGuard(text);
+    const finalText = applyP5BrainCustomerTextGuard(text);
+    return {
+      text: finalText,
+      guardResult: buildGuardResult({
+        responseSource,
+        originalText,
+        afterFinalizeText: originalText,
+        finalText,
+        p5BrainGuarded: responseSource === "p5_brain_state_guarded",
+      }),
+    };
   }
 
   const homeRoute =
@@ -153,7 +177,7 @@ function finalizeHomeAgentResponse({
         ? "casual_chat"
         : "high_stakes_defer";
 
-  const finalized = finalizeOneBrainResponse({
+  const afterFinalize = finalizeOneBrainResponse({
     text,
     question,
     intent,
@@ -163,7 +187,17 @@ function finalizeHomeAgentResponse({
     homeRoute,
     tomGapVoiceHandled,
   });
-  return applyHomeInventoryHardGuard(finalized);
+  const finalText = applyHomeInventoryHardGuard(afterFinalize);
+
+  return {
+    text: finalText,
+    guardResult: buildGuardResult({
+      responseSource,
+      originalText,
+      afterFinalizeText: afterFinalize,
+      finalText,
+    }),
+  };
 }
 
 export async function handleHomeBrainFactRequest({
@@ -191,18 +225,28 @@ export async function handleHomeBrainFactRequest({
   }
 
   const startedAt = Date.now();
+
+  const [contextSnapshot, unifiedState] = await Promise.all([
+    loadCustomerContextSnapshot(userSupabase, customerId, { requestHistory: history }),
+    loadUnifiedCustomerState(userSupabase, customerId),
+  ]);
+  const loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
+  const reconciliationWarning = buildReconciliationWarning(unifiedState, contextSnapshot);
+  const customerContextBundle = snapshotToContextBundle(contextSnapshot);
+
   const agentTurn = await runHomeAgentTomTurn({
     question: trimmedQuestion,
     history,
     userSupabase,
     customerId,
+    customerContextBundle,
     env,
     fetchImpl,
     startedAt,
   });
 
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
-  const answerText = finalizeHomeAgentResponse({
+  const finalized = finalizeHomeAgentResponse({
     text: agentTurn.text,
     question: trimmedQuestion,
     intent,
@@ -211,9 +255,25 @@ export async function handleHomeBrainFactRequest({
     tomInternalRoute: agentTurn.tomInternalRoute,
     responseSource: agentTurn.responseSource ?? null,
   });
+  const answerText = finalized.text;
 
-  const policies = agentTurn.factBundle?.policies ?? [];
-  const memoryFactCount = agentTurn.factBundle?.memory_fact_count ?? 0;
+  const policies = agentTurn.factBundle?.policies ?? customerContextBundle?.policies ?? [];
+  const memoryFactCount =
+    agentTurn.factBundle?.memory_fact_count ?? customerContextBundle?.memoryFactCount ?? 0;
+  const pilotKey = agentTurn.factBundle?.pilot_key ?? agentTurn.trace?.p5_brain_pilot ?? null;
+
+  const observability = buildObservabilityPayload({
+    responseSource: agentTurn.responseSource ?? null,
+    tomInternalRoute: agentTurn.tomInternalRoute,
+    toolUsed: agentTurn.toolUsed,
+    pilotKey,
+    loadedContext,
+    factoryCalled: buildFactoryCalled({ toolUsed: agentTurn.toolUsed }),
+    guardResult: finalized.guardResult,
+    contextSnapshotId: contextSnapshot.context_snapshot_id,
+    reconciliationWarning,
+  });
+
   return {
     ok: true,
     answerText,
@@ -222,7 +282,13 @@ export async function handleHomeBrainFactRequest({
     tom_internal_route: agentTurn.tomInternalRoute,
     tool_used: agentTurn.toolUsed,
     agent: "home_agent_tom",
-    response_source: agentTurn.responseSource ?? null,
+    response_source: observability.response_source,
+    selected_route: observability.selected_route,
+    loaded_context: observability.loaded_context,
+    factory_called: observability.factory_called,
+    guard_result: observability.guard_result,
+    context_snapshot_id: observability.context_snapshot_id,
+    reconciliation_warning: observability.reconciliation_warning,
     tom_voice_trace: agentTurn.tomVoiceTrace ?? agentTurn.trace,
     tom_gap_light_path: agentTurn.tomGapLightPath === true,
     tom_turn_ms: agentTurn.tomTurnMs ?? null,

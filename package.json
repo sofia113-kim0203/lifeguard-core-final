@@ -87,7 +87,9 @@
     "test:p4-ui-polish": "node scripts/p4-ui-polish-unit-test.mjs",
     "test:p5-state": "node scripts/p5-state-unit-test.mjs",
     "test:p5-brain": "node scripts/p5-brain-customer-state-aware-unit-test.mjs",
-    "test:p5-brain-live": "node scripts/p5-brain-live-path-integration-test.mjs"
+    "test:p5-brain-live": "node scripts/p5-brain-live-path-integration-test.mjs",
+    "test:p6-l2-cross-tenant": "node scripts/p6-l2-cross-tenant-rls-verify.mjs",
+    "test:p6-1": "node scripts/p6-1-customer-context-snapshot-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

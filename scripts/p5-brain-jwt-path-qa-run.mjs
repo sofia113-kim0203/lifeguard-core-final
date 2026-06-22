@@ -112,7 +112,7 @@ async function main() {
     const forbidden = FORBIDDEN.find((pattern) => pattern.test(text));
     const continueOk =
       item.id !== "Q3" ||
-      (/최근에는/.test(text) && /이어서 보고 싶으세요/.test(text));
+      (/최근에/.test(text) && /이어서 보고 싶으세요/.test(text));
     const isP5 = source.startsWith("p5_brain_");
     const ok =
       result.ok === true && !forbidden && continueOk && (item.expectP5 ? isP5 : !isP5);

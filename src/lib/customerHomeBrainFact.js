@@ -46,5 +46,12 @@ export async function fetchHomeBrainFact(question, history = []) {
     homeRoute: payload.tom_internal_route ?? payload.home_route ?? null,
     toolUsed: payload.tool_used ?? null,
     factsUsed: payload.factsUsed ?? null,
+    responseSource: payload.response_source ?? null,
+    selectedRoute: payload.selected_route ?? null,
+    loadedContext: payload.loaded_context ?? null,
+    factoryCalled: payload.factory_called ?? [],
+    guardResult: payload.guard_result ?? null,
+    contextSnapshotId: payload.context_snapshot_id ?? null,
+    reconciliationWarning: payload.reconciliation_warning ?? null,
   };
 }
