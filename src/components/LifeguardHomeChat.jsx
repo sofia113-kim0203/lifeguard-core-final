@@ -2,12 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { listDocuments } from "../lib/customerDocuments.js";
 import { fetchHomeBrainFact } from "../lib/customerHomeBrainFact.js";
+import {
+  activeSessionStorageKey,
+  createLifeguardSessionId,
+  listLifeguardRecentSessions,
+  loadLifeguardSessionMessages,
+  persistLifeguardChatTurn,
+} from "../lib/lifeguardChatSessions.js";
 import { supabase } from "../lib/supabase.js";
 import { buildLifeguardHomeGreeting } from "../lib/lifeguardGreeting.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import {
   formatDocClass,
-  formatDocumentPipelineStatus,
+  formatIngestStatus,
   formatUploadDate,
   toCustomerErrorMessage,
 } from "../lib/uiLocale.js";
@@ -50,12 +57,64 @@ function LayerPanel({ title, children, onBack }) {
 function formatAnalysisComplete(document) {
   const extractionStatus = document?.metadata_json?.policy_extraction_status;
   if (document?.ingest_status === "ready" && extractionStatus === "completed") {
-    return "완료";
+    return "분석 완료";
   }
-  if (extractionStatus === "extraction_failed") return "실패";
+  if (extractionStatus === "extraction_failed") return "분석 실패";
   if (extractionStatus === "pending_manual_review") return "검토 대기";
-  if (document?.ingest_status === "ready") return "진행 중";
+  if (document?.ingest_status === "ready") return "분석 진행 중";
   return "대기";
+}
+
+function formatOcrStatus(document) {
+  if (document?.ingest_status === "ready") return "OCR 완료";
+  return formatIngestStatus(document?.ingest_status);
+}
+
+function formatMonthlyPremium(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "—";
+  return `월 ${Math.round(numeric).toLocaleString("ko-KR")}원`;
+}
+
+function listCardStyle() {
+  return {
+    border: `1px solid ${LG.border}`,
+    borderRadius: "10px",
+    padding: "14px 16px",
+    background: LG.surface,
+  };
+}
+
+function CustomerInsuranceList({ policies, loading }) {
+  if (loading) {
+    return <p style={{ margin: 0, color: LG.textMuted }}>보험 정보를 불러오는 중…</p>;
+  }
+  if (!policies.length) {
+    return (
+      <p style={{ margin: 0, color: LG.textMuted }}>
+        아직 등록된 보험이 없어요. 필요하면 대화에서 편하게 말씀해 주세요.
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {policies.map((policy) => (
+        <div key={policy.id} style={listCardStyle()}>
+          <div style={{ fontWeight: 600, color: LG.text, marginBottom: "6px" }}>
+            {policy.insurer_name ?? "—"}
+          </div>
+          {policy.product_name ? (
+            <div style={{ fontSize: "14px", color: LG.textMuted, marginBottom: "4px" }}>{policy.product_name}</div>
+          ) : null}
+          <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
+            <div>{formatMonthlyPremium(policy.monthly_premium)}</div>
+            <div>상태: {policy.is_active ? "active" : policy.policy_status ?? "—"}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CustomerDocumentsList({ documents, loading, error }) {
@@ -72,23 +131,15 @@ function CustomerDocumentsList({ documents, loading, error }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {documents.map((document) => (
-        <div
-          key={document.id}
-          style={{
-            border: `1px solid ${LG.border}`,
-            borderRadius: "10px",
-            padding: "14px 16px",
-            background: LG.surface,
-          }}
-        >
+        <div key={document.id} style={listCardStyle()}>
           <div style={{ fontWeight: 600, color: LG.text, marginBottom: "8px", wordBreak: "break-all" }}>
             {document.original_filename ?? "—"}
           </div>
           <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
             <div>문서 유형: {formatDocClass(document.doc_class)}</div>
             <div>업로드일: {formatUploadDate(document.created_at)}</div>
-            <div>OCR/분석: {formatDocumentPipelineStatus(document)}</div>
-            <div>분석 완료: {formatAnalysisComplete(document)}</div>
+            <div>OCR: {formatOcrStatus(document)}</div>
+            <div>분석: {formatAnalysisComplete(document)}</div>
           </div>
         </div>
       ))}
@@ -107,7 +158,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     session?.dashboardData?.displayName ??
     session?.unifiedState?.profile?.display_name ??
     "고객";
-  const policyCount = session?.unifiedState?.policy_count ?? session?.dashboardData?.insurancePolicyCount ?? 0;
+  const policies = session?.unifiedState?.policies ?? [];
+  const customerId = session?.dashboardData?.customerId ?? session?.unifiedState?.customer_id ?? null;
   const loadingSession = Boolean(session?.loading);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -118,7 +170,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [attachHint, setAttachHint] = useState("");
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
-  const [threadId, setThreadId] = useState(() => `thread-${Date.now()}`);
+  const [sessionId, setSessionId] = useState(() => createLifeguardSessionId());
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
@@ -190,6 +242,64 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     };
   }, [panelView, authUser]);
 
+  useEffect(() => {
+    if (!authUser || !customerId || loadingSession) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const recent = await listLifeguardRecentSessions(authUser, { customerId });
+        if (cancelled) return;
+        setThreads(recent);
+
+        const storageKey = activeSessionStorageKey(customerId);
+        const storedSessionId = window.sessionStorage.getItem(storageKey);
+        const activeId = storedSessionId ?? createLifeguardSessionId();
+        setSessionId(activeId);
+        window.sessionStorage.setItem(storageKey, activeId);
+
+        if (storedSessionId && recent.some((entry) => entry.id === storedSessionId)) {
+          const restored = await loadLifeguardSessionMessages(authUser, storedSessionId, { customerId });
+          if (!cancelled) setMessages(restored);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser, customerId, loadingSession]);
+
+  const openSession = useCallback(
+    async (targetSessionId) => {
+      setPanelView("chat");
+      setSidebarOpen(false);
+      if (!authUser || !customerId) {
+        focusChatInput();
+        return;
+      }
+
+      setSessionId(targetSessionId);
+      setError("");
+      window.sessionStorage.setItem(activeSessionStorageKey(customerId), targetSessionId);
+
+      try {
+        const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
+        setMessages(restored);
+      } catch (err) {
+        setMessages([]);
+        setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
+      } finally {
+        focusChatInput();
+      }
+    },
+    [authUser, customerId, focusChatInput],
+  );
+
   const submitQuestion = async (value) => {
     const trimmed = String(value ?? "").trim();
     if (!trimmed || isDisabled || loading) return;
@@ -209,10 +319,18 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       const result = await fetchHomeBrainFact(trimmed, history);
       const assistantMessage = { role: "assistant", content: result.answerText };
       setMessages([...nextMessages, assistantMessage]);
-      setThreads((prev) => {
-        const preview = trimmed.length > 28 ? `${trimmed.slice(0, 28)}…` : trimmed;
-        return [{ id: threadId, preview }, ...prev.filter((t) => t.id !== threadId)].slice(0, 12);
-      });
+
+      if (authUser && customerId) {
+        await persistLifeguardChatTurn(authUser, {
+          sessionId,
+          customerId,
+          userMessage: trimmed,
+          assistantMessage: result.answerText,
+        });
+        window.sessionStorage.setItem(activeSessionStorageKey(customerId), sessionId);
+        const recent = await listLifeguardRecentSessions(authUser, { customerId });
+        setThreads(recent);
+      }
     } catch (err) {
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
     } finally {
@@ -222,12 +340,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   };
 
   const startNewChat = () => {
-    setThreadId(`thread-${Date.now()}`);
+    const newSessionId = createLifeguardSessionId();
+    setSessionId(newSessionId);
     setMessages([]);
     setInput("");
     setError("");
     setPanelView("chat");
     setSidebarOpen(false);
+    if (customerId) {
+      window.sessionStorage.setItem(activeSessionStorageKey(customerId), newSessionId);
+    }
     focusChatInput();
   };
 
@@ -292,13 +414,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 <button
                   key={thread.id}
                   type="button"
-                  style={sidebarBtn(false)}
-                  onClick={() => {
-                    setThreadId(thread.id);
-                    setPanelView("chat");
-                    setSidebarOpen(false);
-                    focusChatInput();
-                  }}
+                  style={sidebarBtn(sessionId === thread.id)}
+                  onClick={() => openSession(thread.id)}
                 >
                   {thread.preview}
                 </button>
@@ -371,9 +488,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         >
           {panelView === "insurance" ? (
             <LayerPanel title="내 보험" onBack={goBackToChat}>
-              {policyCount > 0
-                ? "등록된 보험이 있어요. 궁금한 점은 대화로 물어보시면 같이 볼게요."
-                : "아직 등록된 보험이 없어요. 필요하면 대화에서 편하게 말씀해 주세요."}
+              <CustomerInsuranceList policies={policies} loading={loadingSession} />
             </LayerPanel>
           ) : null}
 

@@ -96,8 +96,8 @@ async function main() {
       assert.match(chat, /listDocuments\(authUser/);
       assert.match(chat, /CustomerDocumentsList/);
       assert.match(chat, /formatDocClass\(document\.doc_class\)/);
-      assert.match(chat, /formatDocumentPipelineStatus\(document\)/);
-      assert.match(chat, /formatUploadDate\(document\.created_at\)/);
+      assert.match(chat, /formatOcrStatus\(document\)/);
+      assert.match(chat, /formatAnalysisComplete\(document\)/);
       assert.match(chat, /아직 업로드된 문서가 없어요/);
       assert.doesNotMatch(chat, /업로드된 문서가 있어요\. 대화에서/);
     })
