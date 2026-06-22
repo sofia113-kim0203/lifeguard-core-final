@@ -238,7 +238,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             padding: "24px 20px 16px",
             display: "flex",
             flexDirection: "column",
-            gap: "16px",
+            gap: "0",
             maxWidth: "720px",
             width: "100%",
             margin: "0 auto",
@@ -334,26 +334,45 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 <div
                   key={`${index}-${msg.role}`}
                   style={{
-                    alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
-                    maxWidth: "88%",
-                    padding: "12px 16px",
-                    borderRadius: "18px",
-                    background: msg.role === "user" ? LG.userBubble : LG.assistantBubble,
-                    border: `1px solid ${LG.border}`,
-                    color: LG.text,
-                    fontSize: "15px",
-                    lineHeight: 1.65,
-                    whiteSpace: "pre-wrap",
-                    boxShadow: msg.role === "assistant" ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                    padding: msg.role === "user" ? "14px 0 6px" : "6px 0 22px",
                   }}
                 >
-                  {msg.content}
+                  <div
+                    style={{
+                      maxWidth: msg.role === "user" ? "88%" : "92%",
+                      textAlign: msg.role === "user" ? "right" : "left",
+                      color: LG.text,
+                      fontSize: msg.role === "user" ? "15px" : "16px",
+                      fontWeight: msg.role === "user" ? 400 : 450,
+                      lineHeight: 1.75,
+                      whiteSpace: "pre-wrap",
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
                 </div>
               ))
             : null}
 
           {loading && panelView === "chat" ? (
-            <div style={{ alignSelf: "flex-start", color: LG.textSoft, fontSize: "14px" }}>답변 중…</div>
+            <div
+              style={{
+                alignSelf: "flex-start",
+                color: LG.textMuted,
+                fontSize: "15px",
+                lineHeight: 1.75,
+                fontWeight: 400,
+                padding: "6px 0 16px",
+              }}
+            >
+              답변 중…
+            </div>
           ) : null}
         </div>
 
@@ -392,13 +411,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 style={{
                   border: "none",
                   background: "transparent",
-                  fontSize: "20px",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: LG.textMuted,
                   cursor: "pointer",
-                  padding: "4px 6px",
-                  lineHeight: 1,
+                  padding: "4px 8px",
+                  fontFamily: LG.sans,
                 }}
               >
-                📎
+                첨부
               </button>
               <input
                 type="text"

@@ -33,6 +33,26 @@ export const DEFLECTION_PATTERNS = [
 const GUARD_FALLBACK =
   "잠깐만요 — 지금은 그렇게 말씀드리기 어려워요. 편하게 다른 얘기 이어가도 돼요.";
 
+/** P4-UI POLISH — strip all emoji/emoticons from customer-facing text. */
+export function stripCustomerFacingEmojis(text = "") {
+  return String(text ?? "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
+    .replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** P4-UI POLISH — no "LIFEGUARD:" speaker prefix in transcript-style replies. */
+export function stripLifeguardSpeakerPrefix(text = "") {
+  return String(text ?? "")
+    .replace(/^LIFEGUARD\s*[:：]\s*/i, "")
+    .trim();
+}
+
+export function polishLifeguardCustomerText(text = "") {
+  return stripLifeguardSpeakerPrefix(stripCustomerFacingEmojis(text));
+}
+
 export function violatesEngineTermLeak(text = "") {
   const normalized = String(text ?? "").trim();
   if (!normalized) return false;
@@ -46,7 +66,7 @@ export function violatesDeflectionPhrase(text = "") {
 }
 
 export function applyLifeguardCustomerOutputGuard(text = "") {
-  let out = String(text ?? "").trim();
+  let out = polishLifeguardCustomerText(text);
   if (violatesHomeInventoryDump(out) || violatesEngineTermLeak(out) || violatesDeflectionPhrase(out)) {
     return GUARD_FALLBACK;
   }

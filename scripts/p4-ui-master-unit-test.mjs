@@ -58,7 +58,7 @@ async function main() {
       const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
       assert.match(chat, /LG\.bg/);
       assert.match(chat, /LG\.button|LG\.text/);
-      assert.match(chat, /📎/);
+      assert.match(chat, /📎|첨부/);
       assert.match(chat, /무엇이든 편하게 물어보세요/);
       assert.doesNotMatch(chat, /#0d9488|0d9488|teal/i);
       assert.doesNotMatch(chat, /linear-gradient\(145deg, #0b1220/);
