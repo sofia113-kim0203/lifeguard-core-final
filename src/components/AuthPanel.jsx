@@ -105,26 +105,31 @@ function TextInput({ className = "", ...props }) {
   );
 }
 
-function PrimaryButton({ children, ...props }) {
+function PrimaryButton({ children, disabled = false, style, ...props }) {
   return (
     <button
-      type="button"
       {...props}
+      type={props.type ?? "button"}
+      disabled={disabled}
       style={{
         width: "100%",
         minHeight: "48px",
         padding: "14px 20px",
         border: "none",
         borderRadius: "10px",
-        background: props.disabled ? LG.buttonDisabled : LG.button,
+        background: disabled ? LG.buttonDisabled : LG.button,
         color: "#FFFFFF",
         fontSize: "16px",
         fontWeight: 600,
         fontFamily: LG.sans,
-        cursor: props.disabled ? "not-allowed" : "pointer",
-        ...(props.style ?? {}),
+        cursor: disabled ? "not-allowed" : "pointer",
+        WebkitTextFillColor: "#FFFFFF",
+        opacity: disabled ? 0.72 : 1,
+        ...style,
       }}
-    />
+    >
+      {children}
+    </button>
   );
 }
 

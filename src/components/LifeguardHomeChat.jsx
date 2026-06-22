@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { fetchHomeBrainFact } from "../lib/customerHomeBrainFact.js";
 import { supabase } from "../lib/supabase.js";
@@ -44,6 +44,7 @@ function LayerPanel({ title, children, onBack }) {
 export default function LifeguardHomeChat({ layer1Only = true, disabled = false, displayName: displayNameProp }) {
   const session = useOptionalCustomerSession();
   const fileInputRef = useRef(null);
+  const inputRef = useRef(null);
   const displayName =
     displayNameProp ??
     session?.dashboardData?.displayName ??
@@ -69,6 +70,20 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   );
   const isDisabled = disabled || loadingSession;
 
+  const focusChatInput = () => {
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  };
+
+  useEffect(() => {
+    if (panelView === "chat") focusChatInput();
+  }, [panelView]);
+
+  useEffect(() => {
+    if (panelView === "chat" && !loading) focusChatInput();
+  }, [loading, panelView]);
+
   const submitQuestion = async (value) => {
     const trimmed = String(value ?? "").trim();
     if (!trimmed || isDisabled || loading) return;
@@ -79,6 +94,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
     setInput("");
+    focusChatInput();
     setLoading(true);
     setError("");
 
@@ -95,6 +111,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
     } finally {
       setLoading(false);
+      focusChatInput();
     }
   };
 
@@ -421,14 +438,18 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               >
                 첨부
               </button>
-              <input
-                type="text"
+              <textarea
+                ref={inputRef}
+                rows={1}
                 value={input}
-                disabled={isDisabled || loading}
+                disabled={isDisabled}
                 placeholder="무엇이든 편하게 물어보세요"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) submitQuestion(input);
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitQuestion(input);
+                  }
                 }}
                 style={{
                   flex: 1,
@@ -439,6 +460,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                   fontFamily: LG.sans,
                   outline: "none",
                   minWidth: 0,
+                  resize: "none",
+                  lineHeight: 1.5,
+                  padding: "6px 0",
+                  maxHeight: "120px",
                 }}
               />
               <button
