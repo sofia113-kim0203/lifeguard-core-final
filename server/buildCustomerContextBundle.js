@@ -61,43 +61,28 @@ export function formatCustomerContextBlock(bundle) {
 
   const lines = ["[현재 고객 상태]"];
 
-  const policyCount = bundle.policies?.length ?? 0;
-  if (policyCount > 0) {
-    lines.push(`보험: ${policyCount}건`);
-    for (const policy of bundle.policies.slice(0, 8)) {
-      const premium =
-        policy.monthly_premium != null
-          ? `월 ${Number(policy.monthly_premium).toLocaleString("ko-KR")}원`
-          : "보험료 미확인";
-      lines.push(`- ${policy.insurer_name ?? "보험사"} / ${policy.product_name ?? "상품"} (${premium})`);
-    }
+  if ((bundle.policies?.length ?? 0) > 0) {
+    lines.push("보험: 가입 정보 있음");
   } else {
-    lines.push("보험: 등록 정보 없음");
+    lines.push("보험: 없음");
   }
 
-  const docCount = bundle.documentCount ?? bundle.documents?.length ?? 0;
-  if (docCount > 0) {
-    lines.push(`문서: ${docCount}건`);
-    for (const doc of (bundle.documents ?? []).slice(0, 5)) {
-      lines.push(`- ${doc.original_filename ?? "문서"} (${doc.ingest_status ?? "상태 미확인"})`);
-    }
+  if ((bundle.documentCount ?? 0) > 0 || (bundle.documents ?? []).length > 0) {
+    lines.push("문서: 업로드 있음");
   } else {
     lines.push("문서: 없음");
   }
 
   const memoryFacts = bundle.memoryFacts ?? [];
   if (memoryFacts.length > 0) {
-    lines.push(`기억: ${memoryFacts.length}건`);
-    for (const fact of memoryFacts.slice(0, 5)) {
-      lines.push(`- ${fact.fact_key}: ${fact.fact_value}`);
-    }
+    lines.push("기억: 저장된 정보 있음");
   } else {
     lines.push("기억: 없음");
   }
 
   const recent = bundle.recentConversation ?? {};
   if (recent.hasHistory) {
-    lines.push(`최근 대화: ${recent.latestUserMessages?.slice(0, 3).join(" / ") ?? "있음"}`);
+    lines.push(`최근 대화: 있음 (${(recent.topics ?? []).join(", ") || "주제 미분류"})`);
   } else {
     lines.push("최근 대화: 없음");
   }

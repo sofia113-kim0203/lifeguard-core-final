@@ -10,11 +10,13 @@ import {
   buildRecentConversationSummary,
   formatCustomerContextBlock,
 } from "../server/buildCustomerContextBundle.js";
+import { applyHomeInventoryHardGuard } from "../server/homeBrainFactCore.js";
 import {
   matchP5BrainPilotQuestion,
   P5_BRAIN_PILOT_KEYS,
 } from "../server/p5BrainPilotQuestions.js";
 import { composeP5BrainStateAwareAnswer } from "../server/p5BrainStateAwareAnswer.js";
+import { violatesHomeInventoryDump } from "../server/tomThinkingLoop.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -52,14 +54,6 @@ const mockPolicies = [
     monthly_premium: 166555,
     policy_type: "cancer",
   },
-  {
-    id: "p4",
-    insurer_name: "메리츠",
-    product_name: "운전자",
-    monthly_premium: null,
-    premium_amount: null,
-    policy_type: "auto",
-  },
 ];
 
 const mockBundle = {
@@ -79,7 +73,7 @@ const mockBundle = {
     },
     {
       role: "assistant",
-      message: "월 보험료 합계를 확인해 볼게요.",
+      message: "총 보험료는 검증이 필요해요.",
       metadata_json: { phase: "lifeguard-home-chat", session_id: "s1", source: "lifeguard_home_chat" },
       created_at: "2026-06-17T10:00:01.000Z",
     },
@@ -113,16 +107,20 @@ async function main() {
   } else failed += 1;
 
   if (
-    await runCase("T2 premium burden — uses policy count and premium total", () => {
+    await runCase("T2 premium burden — existence only, no unverified totals", () => {
       const result = composeP5BrainStateAwareAnswer(
         P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN,
         "보험료 너무 비싼가?",
         mockBundle,
       );
       assert.equal(result.ok, true);
-      assert.match(result.text, /4건/);
-      assert.match(result.text, /318,683원/);
+      assert.match(result.text, /가입된 보험이 있는 것은 확인돼요/);
+      assert.match(result.text, /총 보험료는 현재 검증이 필요합니다/);
+      assert.match(result.text, /총액 때문인지, 최근 인상 때문인지/);
+      assert.doesNotMatch(result.text, /318,683|4건|월\s*보험료/);
       assert.doesNotMatch(result.text, /얼마 내시는지/);
+      assert.equal(violatesHomeInventoryDump(result.text), false);
+      assert.equal(violatesHomeInventoryDump(applyHomeInventoryHardGuard(result.text)), false);
     })
   ) {
     passed += 1;
@@ -139,34 +137,37 @@ async function main() {
       assert.match(result.text, /최근에는/);
       assert.match(result.text, /보험료/);
       assert.doesNotMatch(result.text, /무슨 이야기/);
+      assert.equal(violatesHomeInventoryDump(result.text), false);
     })
   ) {
     passed += 1;
   } else failed += 1;
 
   if (
-    await runCase("T4 insurance analysis — uses policies and documents", () => {
+    await runCase("T4 insurance analysis — existence without inventory dump", () => {
       const result = composeP5BrainStateAwareAnswer(
         P5_BRAIN_PILOT_KEYS.INSURANCE_ANALYSIS,
         "내 보험 분석해줘",
         mockBundle,
       );
       assert.equal(result.ok, true);
-      assert.match(result.text, /보험 4건/);
-      assert.match(result.text, /문서 2건/);
+      assert.match(result.text, /가입된 보험과 업로드된 문서가 확인돼요/);
+      assert.doesNotMatch(result.text, /\d+\s*건/);
+      assert.equal(violatesHomeInventoryDump(result.text), false);
     })
   ) {
     passed += 1;
   } else failed += 1;
 
   if (
-    await runCase("T5 context block — includes insurance, documents, memory, recent", () => {
+    await runCase("T5 context block — presence flags only", () => {
       const block = formatCustomerContextBlock(mockBundle);
       assert.match(block, /\[현재 고객 상태\]/);
-      assert.match(block, /보험: 4건/);
-      assert.match(block, /문서: 2건/);
-      assert.match(block, /기억: 1건/);
-      assert.match(block, /최근 대화:/);
+      assert.match(block, /보험: 가입 정보 있음/);
+      assert.match(block, /문서: 업로드 있음/);
+      assert.match(block, /기억: 저장된 정보 있음/);
+      assert.match(block, /최근 대화: 있음/);
+      assert.doesNotMatch(block, /318,683|월\s*\d|보험:\s*\d+건/);
     })
   ) {
     passed += 1;
