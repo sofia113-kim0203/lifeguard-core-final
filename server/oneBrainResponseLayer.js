@@ -7,6 +7,7 @@ import {
   resolveGuidanceIntent,
   GUIDANCE_INTENTS,
 } from "./guidanceLayer/guidanceBuilder.js";
+import { LIFEGUARD_CHAT_FALLBACK } from "./lifeguardChatCore.js";
 
 export const ONE_BRAIN_SURFACES = {
   CONSULTATION: "consultation",
@@ -149,7 +150,7 @@ export function finalizeOneBrainResponse({
       return buildGuidanceResponse(guidanceIntent, bundle, { question: normalizedQuestion });
     }
     const sanitized = sanitizeOneBrainCustomerText(text, bundle);
-    return sanitized || "네, 편하게 말씀해 주세요. 필요하시면 보험 상담도 도와드릴게요.";
+    return sanitized || LIFEGUARD_CHAT_FALLBACK;
   }
 
   if (intent === "coverage_gap_check" && tomGapVoiceHandled) {
@@ -168,7 +169,7 @@ export function finalizeOneBrainResponse({
     }
     const fallbackSanitized = sanitizeOneBrainCustomerText(text, bundle);
     if (fallbackSanitized) return fallbackSanitized;
-    return "보험 관련 궁금한 점을 편하게 물어보세요. 보장내역서가 있으면 더 정확히 볼게요.";
+    return LIFEGUARD_CHAT_FALLBACK;
   }
 
   const guidanceIntent = requiresGuidanceResponse(intent, normalizedQuestion, {

@@ -164,7 +164,8 @@ async function main() {
       assert.match(app, /CustomerLifeguardShell/);
       assert.match(app, /APP_ROLES\.CUSTOMER/);
       assert.match(chat, /설정/);
-      assert.match(chat, /분당 맛집 알려줘/);
+      assert.match(chat, /분당에서 가족이랑 갈 만한 곳 추천해줘/);
+      assert.match(chat, /당신의 보험 파트너/);
       assert.doesNotMatch(chat, />\s*Tom\s*</);
       assert.equal(isBackofficePath("/customer-analysis"), true);
       assert.equal(getRedirectPathForRole("/admin", APP_ROLES.CUSTOMER), "/");

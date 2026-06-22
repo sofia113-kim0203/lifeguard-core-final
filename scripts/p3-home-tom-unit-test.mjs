@@ -232,7 +232,7 @@ async function main() {
       const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
       const panel = readFileSync(join(ROOT, "src/components/CustomerHomePanel.jsx"), "utf8");
       assert.match(chat, /LIFEGUARD/);
-      assert.match(chat, /당신의 보험을 이해하는 AI/);
+      assert.match(chat, /당신의 보험 파트너/);
       assert.match(chat, /무엇이든 편하게 물어보세요/);
       assert.match(chat, /#0d9488/);
       assert.doesNotMatch(chat, />\s*Tom\s*</);

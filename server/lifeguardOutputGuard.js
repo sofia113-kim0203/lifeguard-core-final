@@ -1,23 +1,32 @@
 /**
- * P3.5 — Customer-facing output guard (inventory + engine term leak).
+ * P4-A — Customer-facing output guard (inventory + engine term leak + deflection).
  */
 import { violatesHomeInventoryDump } from "./tomThinkingLoop.js";
 
 export const ENGINE_TERM_PATTERNS = [
   /\bGap\b/i,
+  /\bCoverage\s*Gap\b/i,
+  /\bRecommendation\s*Engine\b/i,
+  /\bDesign\s*Engine\b/i,
+  /\bCustomer\s*Analysis\b/i,
   /보장\s*분석/,
   /추천\s*엔진/,
+  /설계\s*엔진/,
+  /보험\s*분석\s*엔진/,
   /gap_audit/,
   /coverage_gap/i,
   /Central\s*Brain/i,
   /Advisor\s*Brain/i,
   /Tom\s*decision/i,
   /분석\s*엔진/,
-  /설계\s*엔진/,
 ];
 
 export const DEFLECTION_PATTERNS = [
   /필요하시면\s*보험\s*상담도\s*도와/,
+  /보험\s*상담도\s*가능/,
+  /보험\s*상담도\s*도와/,
+  /보험\s*이야기\s*해볼까/,
+  /보험\s*얘기\s*해볼까/,
   /AI\s*상담실/,
 ];
 

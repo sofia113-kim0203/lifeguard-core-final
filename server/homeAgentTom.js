@@ -10,6 +10,7 @@ import {
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   hasHighStakesSignal,
   isCasualHomeQuestion,
+  isConversationalInsuranceBridgeQuestion,
 } from "./homeBrainRouter.js";
 
 export const TOM_INTERNAL_ROUTES = {
@@ -49,6 +50,10 @@ export function resolveTomInternalRoute(question = "", consultationIntent = null
 
   if (hasHighStakesSignal(question, classification)) {
     return TOM_INTERNAL_ROUTES.DEFER;
+  }
+
+  if (isConversationalInsuranceBridgeQuestion(question, classification)) {
+    return TOM_INTERNAL_ROUTES.CHAT;
   }
 
   if (isCasualHomeQuestion(question, classification)) {

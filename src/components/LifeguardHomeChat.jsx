@@ -8,21 +8,19 @@ const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif';
 const SERIF = 'var(--font-serif, "Playfair Display", Georgia, "Times New Roman", serif)';
 
-const EXAMPLE_QUESTIONS = ["분당 맛집 알려줘", "너 누구야?", "암보험 부족해?"];
+const EXAMPLE_QUESTIONS = [
+  "보험료 너무 비싼가?",
+  "암보험 부족한가?",
+  "대장 선종 제거했는데 보험금 받을 수 있나?",
+  "지난번 이야기 이어서 하자",
+  "분당에서 가족이랑 갈 만한 곳 추천해줘",
+];
 
 const TEAL = "#0d9488";
 const TEAL_HOVER = "#0f766e";
 
 function pickGreeting(displayName = "고객") {
-  const hour = new Date().getHours();
-  const pool = [
-    `${displayName}님, 오늘 뭐든 편하게 말해 주세요.`,
-    `안녕하세요. 저는 LIFEGUARD예요 — 궁금한 걸 편하게 물어보세요.`,
-    `${displayName}님, 가벼운 얘기부터 진지한 얘기까지 같이 볼게요.`,
-  ];
-  if (hour < 12) return pool[1];
-  if (hour < 18) return pool[0];
-  return pool[2];
+  return `안녕하세요 ${displayName}님.\n오늘은 무엇을 도와드릴까요?`;
 }
 
 function sidebarBtnStyle(active) {
@@ -196,7 +194,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             <div style={{ fontFamily: SERIF, fontSize: "22px", fontWeight: 700, letterSpacing: "0.04em", color: "#f8fafc" }}>
               LIFEGUARD
             </div>
-            <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>당신의 보험을 이해하는 AI</div>
+            <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>당신의 보험 파트너</div>
           </div>
         </header>
 
@@ -244,7 +242,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
           {panelView === "chat" && messages.length === 0 ? (
             <div style={{ marginTop: "12vh", textAlign: "center" }}>
-              <p style={{ margin: 0, fontSize: "18px", lineHeight: 1.65, color: "#e2e8f0", maxWidth: "520px", marginInline: "auto" }}>
+              <p style={{ margin: 0, fontSize: "18px", lineHeight: 1.65, color: "#e2e8f0", maxWidth: "520px", marginInline: "auto", whiteSpace: "pre-line" }}>
                 {greeting}
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", marginTop: "24px" }}>

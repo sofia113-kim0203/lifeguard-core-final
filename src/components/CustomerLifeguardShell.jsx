@@ -1,5 +1,5 @@
 /**
- * P3.5 — Customer layer-1 shell: full-viewport LIFEGUARD chat only.
+ * P4-A — Customer layer-1 shell: full-viewport LIFEGUARD chat only (no backoffice menus).
  */
 import { useEffect } from "react";
 import { CustomerSessionProvider } from "../context/CustomerSessionProvider.jsx";

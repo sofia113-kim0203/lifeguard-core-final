@@ -6,7 +6,7 @@
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { resolveClaudeModel } from "./policyTermsQaCore.js";
 export const CASUAL_CHAT_FALLBACK =
-  "네, 편하게 말씀해 주세요. 필요하시면 보험 상담도 도와드릴게요.";
+  "음, 그건 제가 여기서는 딱 잘라 말하기 어렵네요. 다른 얘기도 편하게 이어가도 돼요.";
 const CASUAL_MAX_TOKENS = 256;
 const CASUAL_MAX_CHARS = 400;
 const HISTORY_TURN_LIMIT = 10;
@@ -17,8 +17,8 @@ const CASUAL_SYSTEM_PROMPT = [
   "This is a continuing chat: do NOT greet again (no '안녕하세요') when earlier messages already exist; just respond and follow the flow.",
   "Keep replies short and conversational (1-4 sentences).",
   "Do NOT launch into insurance analysis, coverage gap review, underwriting, or recommendations unless asked.",
+  "Do NOT deflect with \"필요하시면 보험 상담도 도와드릴게요\" or push insurance on everyday small talk.",
   "Do NOT invent customer policies, health data, or premiums.",
-  "You may briefly offer insurance help when it fits naturally.",
 ].join(" ");
 const GROUNDED_MAX_TOKENS = 700;
 const GROUNDED_MAX_CHARS = 1500;

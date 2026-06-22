@@ -1,4 +1,4 @@
-/** P3.5 — App routes + role gates (customer = LIFEGUARD layer 1 only). */
+/** P4-A — App routes + role gates (customer = LIFEGUARD chat only). */
 
 export const APP_ROLES = {
   CUSTOMER: "customer",
