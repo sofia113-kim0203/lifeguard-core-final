@@ -82,7 +82,8 @@
     "test:pr-2-riders-memory-serialize": "node scripts/pr-2-riders-memory-serialize-test.mjs",
     "test:coverage-rider-population": "node scripts/coverage-rider-population-test.mjs",
     "test:phase23-step2a-memory-builder-extractor": "node scripts/phase23-step2a-memory-builder-extractor-test.mjs",
-    "test:p4-a-lifeguard-customer-first": "node scripts/p4-a-lifeguard-customer-first-unit-test.mjs"
+    "test:p4-a-lifeguard-customer-first": "node scripts/p4-a-lifeguard-customer-first-unit-test.mjs",
+    "test:p4-ui-master": "node scripts/p4-ui-master-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

@@ -27,6 +27,7 @@ import {
 } from "./lib/appRouting.js";
 import { supabase } from "./lib/supabase.js";
 import CustomerLifeguardShell from "./components/CustomerLifeguardShell.jsx";
+import { LG } from "./lib/lifeguardCustomerTheme.js";
 
 const CUSTOMER_DASHBOARD_MENU = "customer";
 const AI_CHAT_MENU = "chat";
@@ -212,14 +213,34 @@ export default function App() {
     return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
   }
 
-  if (user && userRole === APP_ROLES.CUSTOMER && !roleLoading) {
+  if (authLoading || (user && roleLoading)) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: LG.bg,
+          color: LG.textMuted,
+          fontFamily: LG.sans,
+        }}
+      >
+        잠시만요…
+      </div>
+    );
+  }
+
+  if (!user || userRole === APP_ROLES.CUSTOMER) {
     return (
       <CustomerLifeguardShell
         user={user}
-        userRole={userRole}
+        userRole={userRole ?? APP_ROLES.CUSTOMER}
         session={session}
         authLoading={authLoading}
+        authMode={authMode}
         onOpenAuth={handleOpenAuth}
+        onLoginSuccess={handleLoginSuccess}
       />
     );
   }

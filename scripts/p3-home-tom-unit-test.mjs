@@ -231,10 +231,9 @@ async function main() {
     await runCase("T8 UI — LIFEGUARD chat, Tom customer exposure 0", () => {
       const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
       const panel = readFileSync(join(ROOT, "src/components/CustomerHomePanel.jsx"), "utf8");
-      assert.match(chat, /LIFEGUARD/);
-      assert.match(chat, /당신의 보험 파트너/);
+      assert.match(chat, /buildLifeguardHomeGreeting|greeting\.title/);
+      assert.match(chat, /buildLifeguardHomeGreeting|LG\.bg/);
       assert.match(chat, /무엇이든 편하게 물어보세요/);
-      assert.match(chat, /#0d9488/);
       assert.doesNotMatch(chat, />\s*Tom\s*</);
       assert.match(panel, /LifeguardHomeChat/);
       assert.doesNotMatch(panel, /PolicyExplorerSection|StatusPill/);

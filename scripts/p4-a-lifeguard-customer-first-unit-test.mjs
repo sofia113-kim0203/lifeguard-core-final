@@ -79,12 +79,11 @@ async function main() {
   if (
     await runCase("T1 customer UI — LIFEGUARD partner copy + example chips", () => {
       const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
-      assert.match(chat, /당신의 보험 파트너/);
-      assert.match(chat, /안녕하세요 \$\{displayName\}님/);
-      assert.match(chat, /오늘은 무엇을 도와드릴까요/);
+      assert.match(chat, /buildLifeguardHomeGreeting/);
       assert.match(chat, /분당에서 가족이랑 갈 만한 곳 추천해줘/);
       assert.match(chat, /대장 선종 제거했는데 보험금 받을 수 있나/);
       assert.doesNotMatch(chat, /고객분석|AI상담실|설계사데스크|관리자/);
+      assert.doesNotMatch(chat, /#0d9488|0d9488/);
     })
   ) {
     passed += 1;
