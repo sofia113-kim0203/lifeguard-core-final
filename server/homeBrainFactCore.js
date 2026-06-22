@@ -193,6 +193,7 @@ export async function handleHomeBrainFactRequest({
   });
 
   const policies = agentTurn.factBundle?.policies ?? [];
+  const memoryFactCount = agentTurn.factBundle?.memory_fact_count ?? 0;
   return {
     ok: true,
     answerText,
@@ -210,15 +211,10 @@ export async function handleHomeBrainFactRequest({
       {
         policies,
         policy_count: policies.length || agentTurn.factBundle?.policy_count || 0,
-        memory_fact_count: 0,
-        memory_status: "ready",
+        memory_fact_count: memoryFactCount,
+        memory_status: memoryFactCount > 0 ? "ready" : "empty",
       },
-      {
-        totalCount: policies.length || agentTurn.factBundle?.policy_count || 0,
-        premiumKnownCount: 0,
-        premiumUnknownCount: 0,
-        premiumTotal: 0,
-      },
+      computePremiumLookupStats(policies),
     ),
     response_latency_ms: Date.now() - startedAt,
   };

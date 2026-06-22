@@ -1,0 +1,194 @@
+/**
+ * P5-BRAIN — customer state aware home brain unit tests (mock fixtures only).
+ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+import {
+  buildRecentConversationSummary,
+  formatCustomerContextBlock,
+} from "../server/buildCustomerContextBundle.js";
+import {
+  matchP5BrainPilotQuestion,
+  P5_BRAIN_PILOT_KEYS,
+} from "../server/p5BrainPilotQuestions.js";
+import { composeP5BrainStateAwareAnswer } from "../server/p5BrainStateAwareAnswer.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, "..");
+
+async function runCase(name, fn) {
+  try {
+    await fn();
+    console.log(`PASS ${name}`);
+    return true;
+  } catch (error) {
+    console.log(`FAIL ${name}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
+const mockPolicies = [
+  {
+    id: "p1",
+    insurer_name: "삼성화재",
+    product_name: "실손",
+    monthly_premium: 116568,
+    policy_type: "health",
+  },
+  {
+    id: "p2",
+    insurer_name: "현대해상",
+    product_name: "종합",
+    monthly_premium: 35560,
+    policy_type: "life",
+  },
+  {
+    id: "p3",
+    insurer_name: "DB손보",
+    product_name: "암보험",
+    monthly_premium: 166555,
+    policy_type: "cancer",
+  },
+  {
+    id: "p4",
+    insurer_name: "메리츠",
+    product_name: "운전자",
+    monthly_premium: null,
+    premium_amount: null,
+    policy_type: "auto",
+  },
+];
+
+const mockBundle = {
+  customerId: "cust-1",
+  profile: { display_name: "진우" },
+  policies: mockPolicies,
+  documents: [{ original_filename: "보장내역서.pdf", ingest_status: "ready" }],
+  documentCount: 2,
+  memoryFacts: [{ fact_key: "insurance.goal", fact_value: "보험료 부담", fact_type: "preference" }],
+  memoryFactCount: 1,
+  recentConversation: buildRecentConversationSummary([
+    {
+      role: "user",
+      message: "보험료 너무 비싼가?",
+      metadata_json: { phase: "lifeguard-home-chat", session_id: "s1", source: "lifeguard_home_chat" },
+      created_at: "2026-06-17T10:00:00.000Z",
+    },
+    {
+      role: "assistant",
+      message: "월 보험료 합계를 확인해 볼게요.",
+      metadata_json: { phase: "lifeguard-home-chat", session_id: "s1", source: "lifeguard_home_chat" },
+      created_at: "2026-06-17T10:00:01.000Z",
+    },
+    {
+      role: "user",
+      message: "보장분석도 해줘",
+      metadata_json: { phase: "lifeguard-home-chat", session_id: "s1", source: "lifeguard_home_chat" },
+      created_at: "2026-06-17T10:05:00.000Z",
+    },
+  ]),
+};
+
+async function main() {
+  console.log("p5-brain-customer-state-aware-unit-test");
+  let passed = 0;
+  let failed = 0;
+
+  if (
+    await runCase("T1 pilot matcher — only 4 questions", () => {
+      assert.equal(matchP5BrainPilotQuestion("보험료 너무 비싼가?"), P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN);
+      assert.equal(matchP5BrainPilotQuestion("암보험 부족한가?"), P5_BRAIN_PILOT_KEYS.CANCER_COVERAGE);
+      assert.equal(matchP5BrainPilotQuestion("내 보험 분석해줘"), P5_BRAIN_PILOT_KEYS.INSURANCE_ANALYSIS);
+      assert.equal(
+        matchP5BrainPilotQuestion("지난번 이야기 이어서 하자"),
+        P5_BRAIN_PILOT_KEYS.CONTINUE_CONVERSATION,
+      );
+      assert.equal(matchP5BrainPilotQuestion("분당에서 가족이랑 갈 만한 곳 추천해줘"), null);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T2 premium burden — uses policy count and premium total", () => {
+      const result = composeP5BrainStateAwareAnswer(
+        P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN,
+        "보험료 너무 비싼가?",
+        mockBundle,
+      );
+      assert.equal(result.ok, true);
+      assert.match(result.text, /4건/);
+      assert.match(result.text, /318,683원/);
+      assert.doesNotMatch(result.text, /얼마 내시는지/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T3 continue conversation — uses recent topics", () => {
+      const result = composeP5BrainStateAwareAnswer(
+        P5_BRAIN_PILOT_KEYS.CONTINUE_CONVERSATION,
+        "지난번 이야기 이어서 하자",
+        mockBundle,
+      );
+      assert.equal(result.ok, true);
+      assert.match(result.text, /최근에는/);
+      assert.match(result.text, /보험료/);
+      assert.doesNotMatch(result.text, /무슨 이야기/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T4 insurance analysis — uses policies and documents", () => {
+      const result = composeP5BrainStateAwareAnswer(
+        P5_BRAIN_PILOT_KEYS.INSURANCE_ANALYSIS,
+        "내 보험 분석해줘",
+        mockBundle,
+      );
+      assert.equal(result.ok, true);
+      assert.match(result.text, /보험 4건/);
+      assert.match(result.text, /문서 2건/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T5 context block — includes insurance, documents, memory, recent", () => {
+      const block = formatCustomerContextBlock(mockBundle);
+      assert.match(block, /\[현재 고객 상태\]/);
+      assert.match(block, /보험: 4건/);
+      assert.match(block, /문서: 2건/);
+      assert.match(block, /기억: 1건/);
+      assert.match(block, /최근 대화:/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T6 wiring — homeAgentTom loads bundle before answer", () => {
+      const tom = readFileSync(join(ROOT, "server/homeAgentTom.js"), "utf8");
+      assert.match(tom, /buildCustomerContextBundle/);
+      assert.match(tom, /matchP5BrainPilotQuestion/);
+      assert.match(tom, /composeP5BrainStateAwareAnswer/);
+      assert.match(tom, /p5_brain_customer_state/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  console.log(`${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

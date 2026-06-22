@@ -85,7 +85,8 @@
     "test:p4-a-lifeguard-customer-first": "node scripts/p4-a-lifeguard-customer-first-unit-test.mjs",
     "test:p4-ui-master": "node scripts/p4-ui-master-unit-test.mjs",
     "test:p4-ui-polish": "node scripts/p4-ui-polish-unit-test.mjs",
-    "test:p5-state": "node scripts/p5-state-unit-test.mjs"
+    "test:p5-state": "node scripts/p5-state-unit-test.mjs",
+    "test:p5-brain": "node scripts/p5-brain-customer-state-aware-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

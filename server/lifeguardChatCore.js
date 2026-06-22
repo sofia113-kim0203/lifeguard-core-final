@@ -99,10 +99,15 @@ async function callChatAnthropic({ apiKey, modelName, system, messages, maxToken
 export async function generateLifeguardChatResponse({
   question,
   history = [],
+  customerContextBlock = "",
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
   const trimmedQuestion = String(question ?? "").trim();
+  const contextBlock = String(customerContextBlock ?? "").trim();
+  const userContent = contextBlock
+    ? `${contextBlock}\n\n[고객 질문]\n${trimmedQuestion}`
+    : trimmedQuestion;
   const apiKey = resolveAnthropicApiKey(env);
   const modelName = resolveClaudeModel(env);
   if (!apiKey || !trimmedQuestion) {
@@ -118,7 +123,7 @@ export async function generateLifeguardChatResponse({
       apiKey,
       modelName,
       system: LIFEGUARD_AGENT_SYSTEM_PROMPT,
-      messages: buildMessagesFromHistory(history, trimmedQuestion),
+      messages: buildMessagesFromHistory(history, userContent),
       maxTokens: LIFEGUARD_MAX_TOKENS,
       maxChars: LIFEGUARD_MAX_CHARS,
       fetchImpl,

@@ -2,6 +2,9 @@
  * P3 v4 — Agent Tom: LLM-first home brain with internal routing + gap tool only.
  */
 import { classifyConsultationIntent, hasInsuranceTopicSignal } from "./intentGateLayer.js";
+import { buildCustomerContextBundle } from "./buildCustomerContextBundle.js";
+import { matchP5BrainPilotQuestion } from "./p5BrainPilotQuestions.js";
+import { composeP5BrainStateAwareAnswer } from "./p5BrainStateAwareAnswer.js";
 import { loadRawCustomerRecords } from "./unifiedCustomerState.js";
 import { ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import { runTomGapLightVoiceTurn, shouldUseTomGapLightPath } from "./tomGapLightPath.js";
@@ -126,6 +129,41 @@ export async function runHomeAgentTomTurn({
   const trimmedQuestion = normalizeQuestion(question);
   const conversationHistory = normalizeHistory(history);
   const consultationIntent = classifyConsultationIntent(trimmedQuestion);
+
+  const pilotKey = matchP5BrainPilotQuestion(trimmedQuestion);
+  if (pilotKey && userSupabase && customerId) {
+    const customerContext = await buildCustomerContextBundle(userSupabase, customerId);
+    const stateAnswer = composeP5BrainStateAwareAnswer(pilotKey, trimmedQuestion, customerContext);
+    if (stateAnswer.ok && stateAnswer.text) {
+      const tomInternalRoute = TOM_INTERNAL_ROUTES.CHAT;
+      return {
+        text: stateAnswer.text,
+        tomInternalRoute,
+        consultationIntent,
+        toolUsed: null,
+        responseSource: "p5_brain_customer_state",
+        factBundle: {
+          question: trimmedQuestion,
+          policy_count: customerContext.policies?.length ?? 0,
+          policies: customerContext.policies ?? [],
+          document_count: customerContext.documentCount ?? 0,
+          memory_fact_count: customerContext.memoryFactCount ?? 0,
+          customer_context_used: true,
+          pilot_key: pilotKey,
+        },
+        tomGapVoiceHandled: false,
+        trace: {
+          tom_internal_route: tomInternalRoute,
+          consultation_intent: consultationIntent.intent,
+          tool_used: null,
+          agent: "home_agent_tom",
+          p5_brain_pilot: pilotKey,
+          customer_context_used: true,
+        },
+      };
+    }
+  }
+
   const tomInternalRoute = resolveTomInternalRoute(trimmedQuestion, consultationIntent);
 
   const baseTrace = {
