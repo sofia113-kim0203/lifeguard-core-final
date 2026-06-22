@@ -108,13 +108,14 @@ async function main() {
   if (
     await runCase("T7 chat focus — two-stage refocus after navigation and send", () => {
       const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
+      const textareaBlock = chat.match(/<textarea[\s\S]*?\/>/)?.[0] ?? "";
       assert.match(chat, /requestAnimationFrame/);
       assert.match(chat, /window\.setTimeout/);
       assert.match(chat, /goBackToChat/);
       assert.match(chat, /focusChatInput\(\)/);
       assert.match(chat, /ref=\{inputRef\}/);
-      assert.match(chat, /<textarea/);
-      assert.doesNotMatch(chat, /disabled=\{isDisabled \|\| loading\}/);
+      assert.match(textareaBlock, /disabled=\{isDisabled\}/);
+      assert.doesNotMatch(textareaBlock, /loading/);
       assert.match(chat, /e\.shiftKey/);
     })
   ) {
