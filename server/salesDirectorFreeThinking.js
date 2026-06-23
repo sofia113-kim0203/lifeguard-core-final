@@ -264,10 +264,14 @@ export async function composeSalesDirectorFreeThinkingAnswer({
   contextSnapshotId = "",
   fetchImpl = fetch,
   env = process.env,
+  streamHandlers = null,
+  requestStartedAt = null,
 } = {}) {
   const latency = {
     free_thinking_prepare_ms: 0,
     claude_ms: 0,
+    first_token_ms: 0,
+    ttft_ms: 0,
     parse_ms: 0,
   };
 
@@ -283,6 +287,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
 
   const apiKey = resolveAnthropicApiKey(env);
   if (apiKey) {
+    let streamed = false;
     const llm = await generateLifeguardChatResponse({
       question,
       history,
@@ -290,10 +295,26 @@ export async function composeSalesDirectorFreeThinkingAnswer({
       systemPrompt: SALES_DIRECTOR_FREE_THINKING_PROMPT,
       historyTurnLimit: FREE_THINKING_HISTORY_TURN_LIMIT,
       historyContentMaxChars: FREE_THINKING_HISTORY_MAX_CHARS,
+      streamHandlers: streamHandlers?.onDelta
+        ? {
+            onDelta: (chunk) => {
+              streamed = true;
+              streamHandlers.onDelta(chunk);
+            },
+            onFirstToken: (firstTokenMs) => {
+              latency.first_token_ms = firstTokenMs;
+              if (requestStartedAt) {
+                latency.ttft_ms = Math.max(0, Date.now() - requestStartedAt);
+                streamHandlers.onFirstToken?.(latency.ttft_ms);
+              }
+            },
+          }
+        : null,
       fetchImpl,
       env,
     });
     latency.claude_ms += llm.timing?.claude_ms ?? 0;
+    latency.first_token_ms = Math.max(latency.first_token_ms, llm.timing?.first_token_ms ?? 0);
     latency.parse_ms += llm.timing?.parse_ms ?? 0;
 
     const validateStart = Date.now();
@@ -317,6 +338,20 @@ export async function composeSalesDirectorFreeThinkingAnswer({
       };
     }
     latency.parse_ms += markLatencyMs(validateStart);
+
+    if (streamed) {
+      const deterministic = composeDeterministicFreeThinking({
+        question,
+        topic,
+        customerContextBundle,
+        loadedContext,
+        contextSnapshotId,
+      });
+      if (deterministic?.text && !violatesManualTemplate(deterministic.text)) {
+        streamHandlers?.onReplace?.(deterministic.text);
+        return { ...deterministic, source: deterministic.source ?? "deterministic", latency };
+      }
+    }
   }
 
   const deterministicStart = Date.now();

@@ -54,6 +54,27 @@ function buildMessagesFromHistory(history, finalUserContent, { turnLimit, conten
   return seq;
 }
 
+function parseAnthropicSseChunk(buffer) {
+  const events = [];
+  const lines = buffer.split("\n");
+  let eventName = "message";
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      eventName = line.slice(6).trim();
+      continue;
+    }
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    try {
+      events.push({ eventName, data: JSON.parse(payload) });
+    } catch {
+      // ignore malformed SSE chunks
+    }
+  }
+  return events;
+}
+
 async function callChatAnthropic({ apiKey, modelName, system, messages, maxTokens, maxChars, fetchImpl = fetch }) {
   const requestStartedAt = Date.now();
   const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
@@ -92,7 +113,7 @@ async function callChatAnthropic({ apiKey, modelName, system, messages, maxToken
       ok: false,
       error_type: body?.error?.type ?? "CLAUDE_API_ERROR",
       request_id: requestId,
-      timing: { claude_ms, parse_ms },
+      timing: { claude_ms, parse_ms, first_token_ms: 0 },
     };
   }
   return {
@@ -100,7 +121,114 @@ async function callChatAnthropic({ apiKey, modelName, system, messages, maxToken
     text: maxChars ? text.slice(0, maxChars) : text,
     model: body?.model ?? modelName,
     request_id: requestId,
-    timing: { claude_ms, parse_ms },
+    timing: { claude_ms, parse_ms, first_token_ms: claude_ms > 0 ? claude_ms : 0 },
+  };
+}
+
+async function streamChatAnthropic({
+  apiKey,
+  modelName,
+  system,
+  messages,
+  maxTokens,
+  maxChars,
+  fetchImpl = fetch,
+  onDelta = null,
+  onFirstToken = null,
+} = {}) {
+  const requestStartedAt = Date.now();
+  let firstTokenAt = null;
+  let fullText = "";
+  let truncated = false;
+
+  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: modelName,
+      max_tokens: maxTokens,
+      stream: true,
+      system,
+      messages,
+    }),
+  });
+
+  const requestId =
+    response.headers.get("request-id") ?? response.headers.get("x-request-id") ?? null;
+
+  if (!response.ok || !response.body) {
+    const rawBody = await response.text().catch(() => "");
+    let body = {};
+    try {
+      body = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      body = {};
+    }
+    return {
+      ok: false,
+      error_type: body?.error?.type ?? "CLAUDE_API_ERROR",
+      request_id: requestId,
+      timing: {
+        claude_ms: Math.max(0, Date.now() - requestStartedAt),
+        parse_ms: 0,
+        first_token_ms: 0,
+      },
+    };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let splitAt = buffer.indexOf("\n\n");
+    while (splitAt >= 0) {
+      const chunk = buffer.slice(0, splitAt);
+      buffer = buffer.slice(splitAt + 2);
+      splitAt = buffer.indexOf("\n\n");
+
+      for (const event of parseAnthropicSseChunk(chunk)) {
+        if (event.data?.type !== "content_block_delta") continue;
+        if (event.data?.delta?.type !== "text_delta") continue;
+        const piece = String(event.data.delta.text ?? "");
+        if (!piece) continue;
+
+        if (!firstTokenAt) {
+          firstTokenAt = Date.now();
+          onFirstToken?.(Math.max(0, firstTokenAt - requestStartedAt));
+        }
+
+        if (maxChars && fullText.length >= maxChars) {
+          truncated = true;
+          continue;
+        }
+
+        const allowed = maxChars ? piece.slice(0, maxChars - fullText.length) : piece;
+        fullText += allowed;
+        onDelta?.(allowed);
+        if (maxChars && fullText.length >= maxChars) truncated = true;
+      }
+    }
+  }
+
+  const claude_ms = Math.max(0, Date.now() - requestStartedAt);
+  const first_token_ms = firstTokenAt ? Math.max(0, firstTokenAt - requestStartedAt) : 0;
+
+  return {
+    ok: true,
+    text: fullText.trim(),
+    model: modelName,
+    request_id: requestId,
+    truncated,
+    timing: { claude_ms, parse_ms: 0, first_token_ms },
   };
 }
 
@@ -111,6 +239,7 @@ export async function generateLifeguardChatResponse({
   systemPrompt = LIFEGUARD_AGENT_SYSTEM_PROMPT,
   historyTurnLimit = HISTORY_TURN_LIMIT,
   historyContentMaxChars = HISTORY_CONTENT_MAX_CHARS,
+  streamHandlers = null,
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
@@ -130,18 +259,27 @@ export async function generateLifeguardChatResponse({
     };
   }
   try {
-    const claudeResult = await callChatAnthropic({
+    const messages = buildMessagesFromHistory(history, userContent, {
+      turnLimit: historyTurnLimit,
+      contentMaxChars: historyContentMaxChars,
+    });
+    const claudeArgs = {
       apiKey,
       modelName,
       system: systemPrompt,
-      messages: buildMessagesFromHistory(history, userContent, {
-        turnLimit: historyTurnLimit,
-        contentMaxChars: historyContentMaxChars,
-      }),
+      messages,
       maxTokens: LIFEGUARD_MAX_TOKENS,
       maxChars: LIFEGUARD_MAX_CHARS,
       fetchImpl,
-    });
+    };
+    const claudeResult =
+      streamHandlers?.onDelta || streamHandlers?.onFirstToken
+        ? await streamChatAnthropic({
+            ...claudeArgs,
+            onDelta: streamHandlers?.onDelta ?? null,
+            onFirstToken: streamHandlers?.onFirstToken ?? null,
+          })
+        : await callChatAnthropic(claudeArgs);
     if (claudeResult.ok && claudeResult.text) {
       return {
         ok: true,

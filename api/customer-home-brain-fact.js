@@ -10,12 +10,23 @@ import {
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
 import { handleHomeBrainFactRequest } from "../server/homeBrainFactCore.js";
+import {
+  initHomeBrainFactSseResponse,
+  writeHomeBrainFactSseError,
+  writeHomeBrainFactSseEvent,
+} from "../server/homeBrainFactStream.js";
+
+function wantsStream(body, req) {
+  if (body?.stream === true) return true;
+  const accept = String(req.headers?.accept ?? "");
+  return accept.includes("text/event-stream");
+}
 
 /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res */
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
 
   if (req.method === "OPTIONS") {
     res.statusCode = 200;
@@ -34,6 +45,7 @@ export default async function handler(req, res) {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
+    const stream = wantsStream(body, req);
 
     const authHeader = readCustomerAuthHeader(req);
     const userSupabase = createUserSupabaseClient(authHeader);
@@ -49,6 +61,42 @@ export default async function handler(req, res) {
       res.statusCode = resolved.reason === "UNAUTHORIZED" ? 401 : 403;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(resolved));
+      return;
+    }
+
+    if (stream) {
+      initHomeBrainFactSseResponse(res);
+      const requestStartedAt = Date.now();
+      const streamHandlers = {
+        _emitted: false,
+        onDelta(text) {
+          streamHandlers._emitted = true;
+          writeHomeBrainFactSseEvent(res, "delta", { text: String(text ?? "") });
+        },
+        onFirstToken(ttftMs) {
+          writeHomeBrainFactSseEvent(res, "ttft", { ttft_ms: ttftMs });
+        },
+        onReplace(text) {
+          writeHomeBrainFactSseEvent(res, "replace", { text: String(text ?? "") });
+        },
+      };
+
+      const result = await handleHomeBrainFactRequest({
+        userSupabase,
+        customerId: resolved.customerId,
+        question,
+        history,
+        streamHandlers,
+        requestStartedAt,
+      });
+
+      if (!result.ok) {
+        writeHomeBrainFactSseError(res, result);
+        return;
+      }
+
+      writeHomeBrainFactSseEvent(res, "done", result);
+      res.end();
       return;
     }
 
@@ -70,6 +118,14 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify(result));
   } catch (error) {
+    if (res.getHeader("Content-Type") === "text/event-stream; charset=utf-8") {
+      writeHomeBrainFactSseError(res, {
+        ok: false,
+        reason: "SERVER_ERROR",
+        error_message: error instanceof Error ? error.message : "Home brain fact lookup failed.",
+      });
+      return;
+    }
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { listDocuments } from "../lib/customerDocuments.js";
-import { fetchHomeBrainFact } from "../lib/customerHomeBrainFact.js";
+import { fetchHomeBrainFactStream } from "../lib/customerHomeBrainFact.js";
 import {
   activeSessionStorageKey,
   createLifeguardSessionId,
@@ -166,6 +166,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [panelView, setPanelView] = useState("chat");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [attachHint, setAttachHint] = useState("");
   const [messages, setMessages] = useState([]);
@@ -312,20 +313,55 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setInput("");
     focusChatInput();
     setLoading(true);
+    setStreaming(false);
     setError("");
 
     try {
       const history = nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
-      const result = await fetchHomeBrainFact(trimmed, history);
-      const assistantMessage = { role: "assistant", content: result.answerText };
-      setMessages([...nextMessages, assistantMessage]);
+      setMessages([...nextMessages, { role: "assistant", content: "" }]);
+
+      let streamedText = "";
+      const result = await fetchHomeBrainFactStream(trimmed, history, {
+        onDelta: (chunk) => {
+          streamedText += chunk;
+          setStreaming(true);
+          setLoading(false);
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role !== "assistant") return prev;
+            copy[copy.length - 1] = { ...last, content: streamedText };
+            return copy;
+          });
+        },
+        onReplace: (text) => {
+          streamedText = String(text ?? "");
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role !== "assistant") return prev;
+            copy[copy.length - 1] = { ...last, content: streamedText };
+            return copy;
+          });
+        },
+      });
+
+      const finalText = result.answerText || streamedText;
+      setMessages((prev) => {
+        const copy = [...prev];
+        const last = copy[copy.length - 1];
+        if (last?.role === "assistant") {
+          copy[copy.length - 1] = { ...last, content: finalText };
+        }
+        return copy;
+      });
 
       if (authUser && customerId) {
         await persistLifeguardChatTurn(authUser, {
           sessionId,
           customerId,
           userMessage: trimmed,
-          assistantMessage: result.answerText,
+          assistantMessage: finalText,
         });
         window.sessionStorage.setItem(activeSessionStorageKey(customerId), sessionId);
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
@@ -335,6 +371,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
     } finally {
       setLoading(false);
+      setStreaming(false);
       focusChatInput();
     }
   };
@@ -545,7 +582,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                   <button
                     key={example}
                     type="button"
-                    disabled={isDisabled || loading}
+                    disabled={isDisabled || loading || streaming}
                     onClick={() => submitQuestion(example)}
                     style={{
                       padding: "10px 16px",
@@ -598,7 +635,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               ))
             : null}
 
-          {loading && panelView === "chat" ? (
+          {loading && !streaming && panelView === "chat" ? (
             <div
               style={{
                 alignSelf: "flex-start",
@@ -691,7 +728,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               />
               <button
                 type="button"
-                disabled={isDisabled || loading || !input.trim()}
+                disabled={isDisabled || loading || streaming || !input.trim()}
                 onClick={() => submitQuestion(input)}
                 style={{
                   border: "none",

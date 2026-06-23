@@ -208,6 +208,8 @@ export async function handleHomeBrainFactRequest({
   history = [],
   env = process.env,
   fetchImpl = fetch,
+  streamHandlers = null,
+  requestStartedAt = null,
 }) {
   const trimmedQuestion = normalizeQuestion(question);
   if (!trimmedQuestion) {
@@ -225,7 +227,7 @@ export async function handleHomeBrainFactRequest({
     };
   }
 
-  const startedAt = Date.now();
+  const startedAt = requestStartedAt ?? Date.now();
 
   const loopResult = await runSalesDirectorLoopTurn({
     userSupabase,
@@ -235,6 +237,8 @@ export async function handleHomeBrainFactRequest({
     env,
     fetchImpl,
     startedAt,
+    streamHandlers,
+    requestStartedAt: startedAt,
   });
 
   if (!loopResult.ok) return loopResult;
@@ -277,6 +281,18 @@ export async function handleHomeBrainFactRequest({
     salesDirectorResponseSource: observabilityPreview.response_source,
   });
   const answerText = finalized.text;
+
+  if (streamHandlers?.onDelta && !streamHandlers._emitted) {
+    streamHandlers.onDelta(answerText);
+    streamHandlers._emitted = true;
+    streamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
+  } else if (
+    streamHandlers?.onReplace &&
+    streamHandlers._emitted &&
+    answerText !== agentTurn.text
+  ) {
+    streamHandlers.onReplace(answerText);
+  }
 
   const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
     agentTurn,

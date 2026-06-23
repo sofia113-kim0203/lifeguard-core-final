@@ -189,6 +189,8 @@ export async function refineWithConversationBrain({
   fetchImpl = fetch,
   env = process.env,
   latencyBucket = null,
+  streamHandlers = null,
+  requestStartedAt = null,
 } = {}) {
   const decisionStart = Date.now();
   const decision = shouldApplyConversationBrain({
@@ -213,6 +215,8 @@ export async function refineWithConversationBrain({
     contextSnapshotId,
     fetchImpl,
     env,
+    streamHandlers,
+    requestStartedAt,
   });
   mergeFreeThinkingLatency(latencyBucket, freeThinking?.latency);
 
@@ -227,6 +231,15 @@ export async function refineWithConversationBrain({
     });
     if (latencyBucket) {
       latencyBucket.free_thinking_prepare_ms += markLatencyMs(fallbackStart);
+    }
+    if (composed?.text && streamHandlers?.onDelta && !streamHandlers._emitted) {
+      streamHandlers.onDelta(composed.text);
+      streamHandlers._emitted = true;
+      if (requestStartedAt) {
+        const ttft = Math.max(0, Date.now() - requestStartedAt);
+        latencyBucket.ttft_ms = Math.max(latencyBucket?.ttft_ms ?? 0, ttft);
+        streamHandlers.onFirstToken?.(ttft);
+      }
     }
   }
 

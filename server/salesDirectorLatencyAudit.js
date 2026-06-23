@@ -9,6 +9,8 @@ export function createSalesDirectorLatencyBucket() {
     handler_ms: 0,
     free_thinking_prepare_ms: 0,
     claude_ms: 0,
+    first_token_ms: 0,
+    ttft_ms: 0,
     parse_ms: 0,
     compose_ms: 0,
     total_ms: 0,
@@ -29,6 +31,8 @@ export function mergeFreeThinkingLatency(bucket, freeThinkingLatency = null) {
   if (!bucket || !freeThinkingLatency) return bucket;
   bucket.free_thinking_prepare_ms += freeThinkingLatency.free_thinking_prepare_ms ?? 0;
   bucket.claude_ms += freeThinkingLatency.claude_ms ?? 0;
+  bucket.first_token_ms = Math.max(bucket.first_token_ms ?? 0, freeThinkingLatency.first_token_ms ?? 0);
+  bucket.ttft_ms = Math.max(bucket.ttft_ms ?? 0, freeThinkingLatency.ttft_ms ?? 0);
   bucket.parse_ms += freeThinkingLatency.parse_ms ?? 0;
   return bucket;
 }

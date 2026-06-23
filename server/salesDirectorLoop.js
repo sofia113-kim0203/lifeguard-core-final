@@ -129,6 +129,8 @@ export async function runSalesDirectorLoopTurn({
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
+  streamHandlers = null,
+  requestStartedAt = null,
 } = {}) {
   const trimmedQuestion = normalizeSalesDirectorQuestion(question);
   const loopStartedAt = startedAt ?? Date.now();
@@ -210,6 +212,8 @@ export async function runSalesDirectorLoopTurn({
     fetchImpl,
     env,
     latencyBucket: latency,
+    streamHandlers,
+    requestStartedAt: requestStartedAt ?? startedAt,
   });
   if (conversationRefinement.applied) {
     agentTurn = conversationRefinement.agentTurn;
