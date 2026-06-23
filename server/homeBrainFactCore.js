@@ -247,10 +247,13 @@ export async function handleHomeBrainFactRequest({
     contextSnapshot,
     salesDirectorTrace,
     truthGate,
+    latency: loopLatency,
+    loopStartedAt,
   } = loopResult;
 
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
 
+  const composeStart = Date.now();
   const observabilityPreview = buildSalesDirectorLoopObservability({
     modeDecision,
     agentTurn,
@@ -295,6 +298,11 @@ export async function handleHomeBrainFactRequest({
     salesDirectorTrace: {
       ...salesDirectorTrace,
       truth_gate: truthGate,
+      latency: {
+        ...(loopLatency ?? {}),
+        compose_ms: Date.now() - composeStart,
+        total_ms: Date.now() - startedAt,
+      },
     },
   });
 

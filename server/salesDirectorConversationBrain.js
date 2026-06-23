@@ -3,6 +3,7 @@
  */
 import { TOM_INTERNAL_ROUTES, INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE } from "./homeAgentTom.js";
 import { composeSalesDirectorFreeThinkingAnswer } from "./salesDirectorFreeThinking.js";
+import { markLatencyMs, mergeFreeThinkingLatency } from "./salesDirectorLatencyAudit.js";
 
 export const CONVERSATION_BRAIN_TOPICS = {
   CANCER_COVERAGE: "cancer_coverage",
@@ -187,13 +188,18 @@ export async function refineWithConversationBrain({
   contextSnapshotId = "",
   fetchImpl = fetch,
   env = process.env,
+  latencyBucket = null,
 } = {}) {
+  const decisionStart = Date.now();
   const decision = shouldApplyConversationBrain({
     question,
     loadedContext,
     customerContextBundle,
     agentTurn,
   });
+  if (latencyBucket) {
+    latencyBucket.free_thinking_prepare_ms += markLatencyMs(decisionStart);
+  }
   if (!decision.apply || !decision.topic) {
     return { agentTurn, applied: false, freeThinkingApplied: false };
   }
@@ -208,15 +214,20 @@ export async function refineWithConversationBrain({
     fetchImpl,
     env,
   });
+  mergeFreeThinkingLatency(latencyBucket, freeThinking?.latency);
 
   let composed = freeThinking;
   if (!composed?.text || violatesForbiddenOpening(composed.text)) {
+    const fallbackStart = Date.now();
     composed = composeConversationBrainAnswer({
       topic: decision.topic,
       question,
       customerContextBundle,
       loadedContext,
     });
+    if (latencyBucket) {
+      latencyBucket.free_thinking_prepare_ms += markLatencyMs(fallbackStart);
+    }
   }
 
   if (!composed?.text || violatesForbiddenOpening(composed.text)) {

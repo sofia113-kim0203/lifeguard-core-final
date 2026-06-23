@@ -93,7 +93,8 @@
     "test:p6-2a": "node scripts/p6-2a-sales-director-loop-unit-test.mjs",
     "test:p6-2b-1": "node scripts/p6-2b-1-sales-director-tool-brain-unit-test.mjs",
     "test:p6-2b-2": "node scripts/p6-2b-2-sales-director-conversation-brain-unit-test.mjs",
-    "test:p6-2b-3": "node scripts/p6-2b-3-sales-director-free-thinking-unit-test.mjs"
+    "test:p6-2b-3": "node scripts/p6-2b-3-sales-director-free-thinking-unit-test.mjs",
+    "test:p6-2b-4": "node scripts/p6-2b-4-sales-director-latency-audit-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

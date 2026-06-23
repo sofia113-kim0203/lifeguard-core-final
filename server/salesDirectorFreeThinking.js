@@ -5,6 +5,7 @@
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { generateLifeguardChatResponse } from "./lifeguardChatCore.js";
 import { CONVERSATION_BRAIN_TOPICS } from "./salesDirectorConversationBrain.js";
+import { markLatencyMs } from "./salesDirectorLatencyAudit.js";
 
 export const FORBIDDEN_MANUAL_PHRASES = [
   /^가입된\s*보험은\s*확인돼요/,
@@ -238,12 +239,20 @@ export async function composeSalesDirectorFreeThinkingAnswer({
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
+  const latency = {
+    free_thinking_prepare_ms: 0,
+    claude_ms: 0,
+    parse_ms: 0,
+  };
+
+  const prepareStart = Date.now();
   const contextBlock = buildSalesDirectorThinkingContext({
     question,
     customerContextBundle,
     loadedContext,
     topic,
   });
+  latency.free_thinking_prepare_ms += markLatencyMs(prepareStart);
 
   const apiKey = resolveAnthropicApiKey(env);
   if (apiKey) {
@@ -255,12 +264,17 @@ export async function composeSalesDirectorFreeThinkingAnswer({
       fetchImpl,
       env,
     });
+    latency.claude_ms += llm.timing?.claude_ms ?? 0;
+    latency.parse_ms += llm.timing?.parse_ms ?? 0;
+
+    const validateStart = Date.now();
     if (
       llm.ok &&
       llm.text &&
       !violatesManualTemplate(llm.text) &&
       hasFreeThinkingQualities(llm.text)
     ) {
+      latency.parse_ms += markLatencyMs(validateStart);
       const policies = customerContextBundle?.policies ?? [];
       return {
         text: llm.text,
@@ -270,10 +284,13 @@ export async function composeSalesDirectorFreeThinkingAnswer({
         policy_count: policies.length,
         memory_used: (customerContextBundle?.memoryFacts ?? []).length > 0,
         llm_response_source: llm.response_source,
+        latency,
       };
     }
+    latency.parse_ms += markLatencyMs(validateStart);
   }
 
+  const deterministicStart = Date.now();
   const deterministic = composeDeterministicFreeThinking({
     question,
     topic,
@@ -281,8 +298,9 @@ export async function composeSalesDirectorFreeThinkingAnswer({
     loadedContext,
     contextSnapshotId,
   });
+  latency.free_thinking_prepare_ms += markLatencyMs(deterministicStart);
   if (!deterministic?.text || violatesManualTemplate(deterministic.text)) {
     return null;
   }
-  return deterministic;
+  return { ...deterministic, latency };
 }

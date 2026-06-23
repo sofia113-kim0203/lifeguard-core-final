@@ -53,6 +53,7 @@ function buildMessagesFromHistory(history, finalUserContent) {
 }
 
 async function callChatAnthropic({ apiKey, modelName, system, messages, maxTokens, maxChars, fetchImpl = fetch }) {
+  const requestStartedAt = Date.now();
   const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -67,8 +68,10 @@ async function callChatAnthropic({ apiKey, modelName, system, messages, maxToken
       messages,
     }),
   });
+  const claude_ms = Math.max(0, Date.now() - requestStartedAt);
   const requestId =
     response.headers.get("request-id") ?? response.headers.get("x-request-id") ?? null;
+  const parseStartedAt = Date.now();
   const rawBody = await response.text();
   let body = {};
   try {
@@ -76,23 +79,26 @@ async function callChatAnthropic({ apiKey, modelName, system, messages, maxToken
   } catch {
     body = {};
   }
-  if (!response.ok) {
-    return {
-      ok: false,
-      error_type: body?.error?.type ?? "CLAUDE_API_ERROR",
-      request_id: requestId,
-    };
-  }
   const text = (body?.content ?? [])
     .filter((block) => block?.type === "text")
     .map((block) => block.text)
     .join("")
     .trim();
+  const parse_ms = Math.max(0, Date.now() - parseStartedAt);
+  if (!response.ok) {
+    return {
+      ok: false,
+      error_type: body?.error?.type ?? "CLAUDE_API_ERROR",
+      request_id: requestId,
+      timing: { claude_ms, parse_ms },
+    };
+  }
   return {
     ok: true,
     text: maxChars ? text.slice(0, maxChars) : text,
     model: body?.model ?? modelName,
     request_id: requestId,
+    timing: { claude_ms, parse_ms },
   };
 }
 
@@ -137,6 +143,7 @@ export async function generateLifeguardChatResponse({
         reason: null,
         model: claudeResult.model,
         request_id: claudeResult.request_id,
+        timing: claudeResult.timing ?? null,
       };
     }
     return {
@@ -144,6 +151,7 @@ export async function generateLifeguardChatResponse({
       text: LIFEGUARD_CHAT_FALLBACK,
       response_source: "lifeguard_chat_fallback",
       reason: claudeResult.error_type ?? "CLAUDE_API_ERROR",
+      timing: claudeResult.timing ?? null,
     };
   } catch {
     return {

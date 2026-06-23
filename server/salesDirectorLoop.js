@@ -28,6 +28,10 @@ import {
   runSalesDirectorToolBrainSlice,
 } from "./salesDirectorToolBrain.js";
 import { refineWithConversationBrain } from "./salesDirectorConversationBrain.js";
+import {
+  createSalesDirectorLatencyBucket,
+  markLatencyMs,
+} from "./salesDirectorLatencyAudit.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
@@ -128,16 +132,21 @@ export async function runSalesDirectorLoopTurn({
   startedAt = Date.now(),
 } = {}) {
   const trimmedQuestion = normalizeSalesDirectorQuestion(question);
+  const loopStartedAt = startedAt ?? Date.now();
+  const latency = createSalesDirectorLatencyBucket();
 
   let snapshot = contextSnapshot;
   let unified = unifiedState;
   if (!snapshot || !unified) {
+    const snapshotLoadStart = Date.now();
     [snapshot, unified] = await Promise.all([
       snapshot ?? loadCustomerContextSnapshot(userSupabase, customerId, { requestHistory: history }),
       unified ?? loadUnifiedCustomerState(userSupabase, customerId),
     ]);
+    latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
   }
 
+  const memoryHydrateStart = Date.now();
   const snapshotCheck = assertSnapshotReady(snapshot);
   if (!snapshotCheck.ok) return snapshotCheck;
 
@@ -149,7 +158,9 @@ export async function runSalesDirectorLoopTurn({
     consultationIntent: classifyConsultationIntent(trimmedQuestion),
     env,
   });
+  latency.memory_ms = markLatencyMs(memoryHydrateStart);
 
+  const toolBrainStart = Date.now();
   const toolPlan = planSalesDirectorToolBrain({
     question: trimmedQuestion,
     loadedContext,
@@ -164,6 +175,7 @@ export async function runSalesDirectorLoopTurn({
     loadedContext,
     consultationIntent: modeDecision.consultationIntent,
   });
+  latency.tool_brain_ms = markLatencyMs(toolBrainStart);
 
   let agentTurn;
   if (toolBrainResult?.handled) {
@@ -173,6 +185,7 @@ export async function runSalesDirectorLoopTurn({
       modeDecision.mode = SALES_DIRECTOR_MODES.PILOT;
     }
   } else {
+    const handlerStart = Date.now();
     agentTurn = await runHomeAgentTomTurn({
       question: trimmedQuestion,
       history,
@@ -181,8 +194,9 @@ export async function runSalesDirectorLoopTurn({
       customerContextBundle,
       env,
       fetchImpl,
-      startedAt,
+      startedAt: loopStartedAt,
     });
+    latency.handler_ms = markLatencyMs(handlerStart);
   }
 
   const conversationRefinement = await refineWithConversationBrain({
@@ -195,6 +209,7 @@ export async function runSalesDirectorLoopTurn({
     contextSnapshotId: snapshot.context_snapshot_id ?? "",
     fetchImpl,
     env,
+    latencyBucket: latency,
   });
   if (conversationRefinement.applied) {
     agentTurn = conversationRefinement.agentTurn;
@@ -230,6 +245,10 @@ export async function runSalesDirectorLoopTurn({
     tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
     conversation_brain: agentTurn.trace?.conversation_brain ?? null,
     truth_gate: truthGate,
+    latency: {
+      ...latency,
+      total_ms: markLatencyMs(loopStartedAt),
+    },
   };
 
   return {
@@ -243,6 +262,8 @@ export async function runSalesDirectorLoopTurn({
     agentTurn,
     salesDirectorTrace,
     truthGate,
+    latency,
+    loopStartedAt,
   };
 }
 
