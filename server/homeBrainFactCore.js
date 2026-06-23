@@ -16,6 +16,10 @@ import {
   runSalesDirectorLoopTurn,
 } from "./salesDirectorLoop.js";
 import {
+  buildSalesDirectorFactoryAudit,
+  probeStoredFactoryRecords,
+} from "./salesDirectorFactoryAudit.js";
+import {
   buildGuardResult,
   isSalesDirectorPilotResponseSource,
 } from "./customerObservability.js";
@@ -229,17 +233,20 @@ export async function handleHomeBrainFactRequest({
 
   const startedAt = requestStartedAt ?? Date.now();
 
-  const loopResult = await runSalesDirectorLoopTurn({
-    userSupabase,
-    customerId,
-    question: trimmedQuestion,
-    history,
-    env,
-    fetchImpl,
-    startedAt,
-    streamHandlers,
-    requestStartedAt: startedAt,
-  });
+  const [loopResult, storedFactoryProbe] = await Promise.all([
+    runSalesDirectorLoopTurn({
+      userSupabase,
+      customerId,
+      question: trimmedQuestion,
+      history,
+      env,
+      fetchImpl,
+      startedAt,
+      streamHandlers,
+      requestStartedAt: startedAt,
+    }),
+    probeStoredFactoryRecords(userSupabase, customerId),
+  ]);
 
   if (!loopResult.ok) return loopResult;
 
@@ -258,6 +265,14 @@ export async function handleHomeBrainFactRequest({
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
 
   const composeStart = Date.now();
+  const factoryAudit = buildSalesDirectorFactoryAudit({
+    customerContextBundle: loopResult.customerContextBundle,
+    loadedContext,
+    agentTurn,
+    salesDirectorTrace,
+    storedProbe: storedFactoryProbe,
+  });
+
   const observabilityPreview = buildSalesDirectorLoopObservability({
     modeDecision,
     agentTurn,
@@ -314,6 +329,8 @@ export async function handleHomeBrainFactRequest({
     salesDirectorTrace: {
       ...salesDirectorTrace,
       truth_gate: truthGate,
+      sales_director_factory_audit: factoryAudit,
+      answer_evidence: factoryAudit.answer_evidence,
       latency: {
         ...(loopLatency ?? {}),
         compose_ms: Date.now() - composeStart,
@@ -341,6 +358,10 @@ export async function handleHomeBrainFactRequest({
     reconciliation_warning: observability.reconciliation_warning,
     loaded_context_contradictions: observability.loaded_context_contradictions,
     sales_director_trace: observability.sales_director_trace,
+    sales_director_factory_audit: factoryAudit,
+    answer_evidence: factoryAudit.answer_evidence,
+    factory_hypothesis: factoryAudit.hypothesis,
+    factory_primary_disconnect: factoryAudit.primary_disconnect,
     tom_voice_trace: agentTurn.tomVoiceTrace ?? agentTurn.trace,
     tom_gap_light_path: agentTurn.tomGapLightPath === true,
     tom_turn_ms: agentTurn.tomTurnMs ?? null,
