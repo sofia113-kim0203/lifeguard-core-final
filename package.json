@@ -91,7 +91,8 @@
     "test:p6-l2-cross-tenant": "node scripts/p6-l2-cross-tenant-rls-verify.mjs",
     "test:p6-1": "node scripts/p6-1-customer-context-snapshot-unit-test.mjs",
     "test:p6-2a": "node scripts/p6-2a-sales-director-loop-unit-test.mjs",
-    "test:p6-2b-1": "node scripts/p6-2b-1-sales-director-tool-brain-unit-test.mjs"
+    "test:p6-2b-1": "node scripts/p6-2b-1-sales-director-tool-brain-unit-test.mjs",
+    "test:p6-2b-2": "node scripts/p6-2b-2-sales-director-conversation-brain-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

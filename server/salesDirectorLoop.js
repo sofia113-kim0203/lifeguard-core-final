@@ -27,6 +27,7 @@ import {
   planSalesDirectorToolBrain,
   runSalesDirectorToolBrainSlice,
 } from "./salesDirectorToolBrain.js";
+import { refineWithConversationBrain } from "./salesDirectorConversationBrain.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
@@ -184,6 +185,21 @@ export async function runSalesDirectorLoopTurn({
     });
   }
 
+  const conversationRefinement = refineWithConversationBrain({
+    agentTurn,
+    question: trimmedQuestion,
+    customerContextBundle,
+    loadedContext,
+    consultationIntent: modeDecision.consultationIntent,
+  });
+  if (conversationRefinement.applied) {
+    agentTurn = conversationRefinement.agentTurn;
+    if (modeDecision.mode !== SALES_DIRECTOR_MODES.GAP) {
+      modeDecision.conversation_brain_handled = true;
+      modeDecision.mode = SALES_DIRECTOR_MODES.PILOT;
+    }
+  }
+
   const snapshotToolTrace =
     toolPlan.snapshot_trace_only === true
       ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle })
@@ -198,10 +214,15 @@ export async function runSalesDirectorLoopTurn({
   const salesDirectorTrace = {
     sales_director_loop: true,
     sales_director_mode: modeDecision.mode,
-    sales_director_step: toolBrainResult?.handled ? "tool_brain_complete" : "handler_complete",
+    sales_director_step: conversationRefinement.applied
+      ? "conversation_brain_complete"
+      : toolBrainResult?.handled
+        ? "tool_brain_complete"
+        : "handler_complete",
     legacy_response_source: agentTurn.responseSource ?? null,
     legacy_tom_internal_route: agentTurn.tomInternalRoute ?? null,
     tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
+    conversation_brain: agentTurn.trace?.conversation_brain ?? null,
     truth_gate: truthGate,
   };
 
