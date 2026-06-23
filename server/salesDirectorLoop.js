@@ -185,12 +185,16 @@ export async function runSalesDirectorLoopTurn({
     });
   }
 
-  const conversationRefinement = refineWithConversationBrain({
+  const conversationRefinement = await refineWithConversationBrain({
     agentTurn,
     question: trimmedQuestion,
+    history,
     customerContextBundle,
     loadedContext,
     consultationIntent: modeDecision.consultationIntent,
+    contextSnapshotId: snapshot.context_snapshot_id ?? "",
+    fetchImpl,
+    env,
   });
   if (conversationRefinement.applied) {
     agentTurn = conversationRefinement.agentTurn;
@@ -214,11 +218,13 @@ export async function runSalesDirectorLoopTurn({
   const salesDirectorTrace = {
     sales_director_loop: true,
     sales_director_mode: modeDecision.mode,
-    sales_director_step: conversationRefinement.applied
-      ? "conversation_brain_complete"
-      : toolBrainResult?.handled
-        ? "tool_brain_complete"
-        : "handler_complete",
+    sales_director_step: conversationRefinement.freeThinkingApplied
+      ? "free_thinking_complete"
+      : conversationRefinement.applied
+        ? "conversation_brain_complete"
+        : toolBrainResult?.handled
+          ? "tool_brain_complete"
+          : "handler_complete",
     legacy_response_source: agentTurn.responseSource ?? null,
     legacy_tom_internal_route: agentTurn.tomInternalRoute ?? null,
     tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,

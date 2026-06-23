@@ -171,7 +171,7 @@ async function main() {
       assert.ok(result.factsUsed.totalCount > 0);
       const trace = result.sales_director_trace?.tool_brain;
       assert.ok(trace?.snapshot_insurance_used === true || trace?.delegated_to === "pilot_handler");
-      assert.match(result.answerText, /가입된 보험|확인/);
+      assert.match(result.answerText, /부담|걱정|신경|기억나|보면/);
       assert.doesNotMatch(result.answerText, /318,683|161568|\d{6,}원/);
     }),
   );

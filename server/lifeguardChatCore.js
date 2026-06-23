@@ -100,6 +100,7 @@ export async function generateLifeguardChatResponse({
   question,
   history = [],
   customerContextBlock = "",
+  systemPrompt = LIFEGUARD_AGENT_SYSTEM_PROMPT,
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
@@ -122,7 +123,7 @@ export async function generateLifeguardChatResponse({
     const claudeResult = await callChatAnthropic({
       apiKey,
       modelName,
-      system: LIFEGUARD_AGENT_SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: buildMessagesFromHistory(history, userContent),
       maxTokens: LIFEGUARD_MAX_TOKENS,
       maxChars: LIFEGUARD_MAX_CHARS,

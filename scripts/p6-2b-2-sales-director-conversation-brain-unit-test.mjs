@@ -85,7 +85,10 @@ async function assertPassQuestion(name, question, supabase) {
   assert.equal(result.sales_director_loop, true);
   assert.equal(result.loaded_context.policies, "present");
   assert.ok(result.factsUsed.totalCount > 0);
-  assert.equal(result.sales_director_trace?.conversation_brain?.status, "p6_2b_2");
+      assert.equal(
+        result.sales_director_trace?.conversation_brain?.free_thinking?.status,
+        "p6_2b_3",
+      );
   assert.equal(violatesForbiddenOpening(result.answerText), false);
   assert.doesNotMatch(result.answerText, /숫자로\s*말씀드리기\s*어려|보장내역서를\s*주시면\s*같이\s*확인해\s*볼게요\.?\s*$/);
   assert.match(result.answerText, /[?？]/);

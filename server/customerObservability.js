@@ -20,6 +20,7 @@ const SALES_DIRECTOR_PILOT_RESPONSE_SOURCES = new Set([
   "sales_director_pilot_guarded",
   "sales_director_tool_brain",
   "sales_director_conversation_brain",
+  "sales_director_free_thinking",
 ]);
 
 function isP5BrainResponseSource(responseSource) {

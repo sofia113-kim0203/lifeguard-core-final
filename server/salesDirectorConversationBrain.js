@@ -1,9 +1,8 @@
 /**
- * P6-2B-2 — Sales Director Conversation Brain.
- * When insurance is already read (snapshot/factsUsed), continue the dialogue — no dead-end defer.
- * Uses Snapshot + Memory only. No new tools/APIs/guards.
+ * P6-2B-2 / P6-2B-3 — Sales Director Conversation + Free Thinking.
  */
 import { TOM_INTERNAL_ROUTES, INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE } from "./homeAgentTom.js";
+import { composeSalesDirectorFreeThinkingAnswer } from "./salesDirectorFreeThinking.js";
 
 export const CONVERSATION_BRAIN_TOPICS = {
   CANCER_COVERAGE: "cancer_coverage",
@@ -176,14 +175,18 @@ export function shouldApplyConversationBrain({
 }
 
 /**
- * Replace dead-end defer (or enrich pilot) with 5-part conversation when insurance is already read.
+ * Replace dead-end defer with free-thinking dialogue when insurance is already read.
  */
-export function refineWithConversationBrain({
+export async function refineWithConversationBrain({
   agentTurn,
   question = "",
+  history = [],
   customerContextBundle = null,
   loadedContext = null,
   consultationIntent = null,
+  contextSnapshotId = "",
+  fetchImpl = fetch,
+  env = process.env,
 } = {}) {
   const decision = shouldApplyConversationBrain({
     question,
@@ -192,17 +195,32 @@ export function refineWithConversationBrain({
     agentTurn,
   });
   if (!decision.apply || !decision.topic) {
-    return { agentTurn, applied: false };
+    return { agentTurn, applied: false, freeThinkingApplied: false };
   }
 
-  const composed = composeConversationBrainAnswer({
-    topic: decision.topic,
+  const freeThinking = await composeSalesDirectorFreeThinkingAnswer({
     question,
+    history,
+    topic: decision.topic,
     customerContextBundle,
     loadedContext,
+    contextSnapshotId,
+    fetchImpl,
+    env,
   });
+
+  let composed = freeThinking;
   if (!composed?.text || violatesForbiddenOpening(composed.text)) {
-    return { agentTurn, applied: false };
+    composed = composeConversationBrainAnswer({
+      topic: decision.topic,
+      question,
+      customerContextBundle,
+      loadedContext,
+    });
+  }
+
+  if (!composed?.text || violatesForbiddenOpening(composed.text)) {
+    return { agentTurn, applied: false, freeThinkingApplied: false };
   }
 
   const conversationTrace = {
@@ -212,17 +230,26 @@ export function refineWithConversationBrain({
     memory_used: composed.memory_used === true,
     snapshot_insurance_used: true,
     policy_count_from_snapshot: composed.policy_count ?? 0,
-    structure: ["empathy", "known", "unknown", "question", "next_action"],
+    free_thinking: freeThinking?.text
+      ? {
+          status: "p6_2b_3",
+          source: freeThinking.source ?? "deterministic",
+          opening_variant: freeThinking.opening_variant ?? null,
+        }
+      : null,
   };
 
   return {
     applied: true,
+    freeThinkingApplied: Boolean(freeThinking?.text),
     agentTurn: {
       ...agentTurn,
       text: composed.text,
       tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
       consultationIntent: consultationIntent ?? agentTurn?.consultationIntent,
-      responseSource: "sales_director_conversation_brain",
+      responseSource: freeThinking?.text
+        ? "sales_director_free_thinking"
+        : "sales_director_conversation_brain",
       factBundle: {
         ...(agentTurn?.factBundle ?? {}),
         question,
@@ -232,10 +259,11 @@ export function refineWithConversationBrain({
         customer_context_used: true,
         conversation_brain_topic: decision.topic,
         conversation_brain_applied: true,
+        free_thinking_applied: Boolean(freeThinking?.text),
       },
       trace: {
         ...(agentTurn?.trace ?? {}),
-        agent: "sales_director_conversation_brain",
+        agent: freeThinking?.text ? "sales_director_free_thinking" : "sales_director_conversation_brain",
         conversation_brain: conversationTrace,
       },
       conversationBrainTrace: conversationTrace,
