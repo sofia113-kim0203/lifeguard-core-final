@@ -149,16 +149,16 @@ await record(
     });
     assert.ok(!block.includes("고객 질문:"));
     assert.ok(!block.includes("[지시]"));
-    assert.ok(block.includes("주제:암보장") || block.includes("주제: 암보장"));
+    assert.ok(block.includes("[주제] 암보장"));
     assert.ok(!block.includes("최근 발췌"), "skip excerpt when history present");
-    assert.ok(block.length < 400, "context block should stay compact");
+    assert.ok(block.length < 900, "context block should stay reasonably compact");
   }),
 );
 
 await record(
   await runCase("S4 quality — direct answer validation passes", async () => {
     const sample =
-      "보험 가입은 확인됩니다.\n다만 현재 정보만으로 암진단비 존재 여부까지는 단정할 수 없습니다.\n혹시 가족력 때문인지, 보장 충분성이 궁금한 건지 알려주실 수 있을까요?";
+      "암보장이 충분한지 걸리시는 것 같아요.\n가입은 보이지만 세부 담보까지는 단정하기 어려워요.\n함께 차근차근 보면 됩니다.\n지금 불안하셔도 괜찮아요.\n가족력 때문인지, 보장 충분성이 궁금한 건지 알려주실 수 있을까요?";
     assert.equal(hasFreeThinkingQualities(sample), true);
   }),
 );

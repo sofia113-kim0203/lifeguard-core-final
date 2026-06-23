@@ -99,7 +99,8 @@
     "test:p6-2b-6": "node scripts/p6-2b-6-sales-director-streaming-unit-test.mjs",
     "test:p6-2b-6a": "node scripts/p6-2b-6a-ttft-optimization-unit-test.mjs",
     "test:p7-0": "node scripts/p7-0-factory-visibility-audit-unit-test.mjs",
-    "test:p7-1": "node scripts/p7-1-coverage-gap-context-injection-unit-test.mjs"
+    "test:p7-1": "node scripts/p7-1-coverage-gap-context-injection-unit-test.mjs",
+    "test:p7-persona": "node scripts/p7-persona-trusted-advisor-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

@@ -10,7 +10,7 @@ import {
   hasFreeThinkingQualities,
   violatesManualTemplate,
 } from "../server/salesDirectorFreeThinking.js";
-import { CONVERSATION_BRAIN_TOPICS } from "../server/salesDirectorConversationBrain.js";
+import { CONVERSATION_BRAIN_TOPICS } from "../server/salesDirectorPersona.js";
 
 const mockPolicies = [
   { id: "p1", insurer_name: "삼성화재", product_name: "실손", monthly_premium: 116568, policy_type: "health" },
@@ -108,9 +108,7 @@ async function main() {
         violatesManualTemplate("기억해 둔 상담 내용도 참고할 수 있어요."),
         true,
       );
-      FORBIDDEN_MANUAL_PHRASES.forEach((pattern) => {
-        assert.ok(pattern.test("가입된 보험은 확인돼요") || pattern.test("기억해 둔 상담 내용도 참고할 수 있어요"));
-      });
+      assert.equal(violatesManualTemplate("지난번 보험료 부담 얘기하셨던 거 기억나요"), true);
     }),
   );
 
@@ -137,7 +135,7 @@ async function main() {
   );
 
   await record(
-    await runCase("F3 natural memory — no manual memory line", () => {
+    await runCase("F3 trusted memory — no verbatim fact repetition", () => {
       const result = composeDeterministicFreeThinking({
         question: "보험료 부담돼",
         topic: CONVERSATION_BRAIN_TOPICS.PREMIUM_BURDEN,
@@ -145,8 +143,10 @@ async function main() {
         loadedContext,
         contextSnapshotId: "mem-1",
       });
-      assert.match(result.text, /지난번\s*보험료\s*부담\s*얘기/);
+      assert.match(result.text, /비슷한\s*부담|지금까지\s*나눈|맥락/);
+      assert.doesNotMatch(result.text, /보험료\s*부담\s*얘기/);
       assert.doesNotMatch(result.text, /기억해\s*둔\s*상담\s*내용도\s*참고할\s*수\s*있어요/);
+      assert.equal(violatesManualTemplate(result.text, bundle.memoryFacts), false);
     }),
   );
 

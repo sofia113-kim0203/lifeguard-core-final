@@ -1,15 +1,24 @@
 /**
- * P6-2B-2 / P6-2B-3 — Sales Director Conversation + Free Thinking.
+ * P6-2B-2 / P6-2B-3 / P7-PERSONA — Sales Director Conversation + Free Thinking.
  */
 import { TOM_INTERNAL_ROUTES, INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE } from "./homeAgentTom.js";
 import { composeSalesDirectorFreeThinkingAnswer } from "./salesDirectorFreeThinking.js";
 import { markLatencyMs, mergeFreeThinkingLatency } from "./salesDirectorLatencyAudit.js";
+import {
+  SALES_DIRECTOR_PERSONA_ID,
+  CONVERSATION_BRAIN_TOPICS,
+  buildPersonaFollowUpQuestion,
+  buildSituationFrame,
+  buildExplanationFrame,
+  buildJudgmentFrame,
+  buildTrustMemoryAcknowledgment,
+  buildTrustReassurance,
+  composeTrustedAdvisorTurn,
+  inferCustomerIntent,
+  violatesMemoryValueRepetition,
+} from "./salesDirectorPersona.js";
 
-export const CONVERSATION_BRAIN_TOPICS = {
-  CANCER_COVERAGE: "cancer_coverage",
-  PREMIUM_BURDEN: "premium_burden",
-  ADEQUACY: "adequacy",
-};
+export { CONVERSATION_BRAIN_TOPICS };
 
 const FORBIDDEN_OPENING =
   /^(그\s*부분은|확인\s*어렵|판단\s*어렵|모르겠|잘\s*모르)/;
@@ -65,10 +74,16 @@ export function hasConversationContinuation(text = "") {
   return /[?？]|할까요|볼게요|말씀해\s*주|알려주|이어|같이\s*보|궁금/.test(String(text ?? ""));
 }
 
-function cancerProductSignal(policies = []) {
-  return policies.some((policy) =>
-    /암|cancer/i.test(`${policy.product_name ?? ""} ${policy.policy_type ?? ""}`),
-  );
+function policySignals(policies = []) {
+  const labels = [];
+  for (const policy of policies) {
+    const name = `${policy.product_name ?? ""} ${policy.policy_type ?? ""}`.trim();
+    if (/암|cancer/i.test(name)) labels.push("암 관련");
+    else if (/실손|health/i.test(name)) labels.push("실손/건강");
+    else if (/운전|auto/i.test(name)) labels.push("운전자");
+    else if (name) labels.push("기타");
+  }
+  return [...new Set(labels)].join("·");
 }
 
 function memoryObservation(loadedContext, customerContextBundle) {
@@ -84,64 +99,40 @@ export function composeConversationBrainAnswer({
   loadedContext = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
+  const memoryFacts = customerContextBundle?.memoryFacts ?? [];
   const memoryUsed = memoryObservation(loadedContext, customerContextBundle);
+  const gapCtx = customerContextBundle?.coverageGapContext ?? null;
+  const signalText = policySignals(policies);
 
-  if (topic === CONVERSATION_BRAIN_TOPICS.CANCER_COVERAGE) {
-    const empathy = "암보장이 신경 쓰이시는군요.";
-    const known = cancerProductSignal(policies)
-      ? "가입된 보험 중 암 관련 상품명은 확인돼요."
-      : "가입된 보험은 확인돼요.";
-    const unknown =
-      "다만 현재 정보만으로는 암 진단비·치료비 금액까지는 보이지 않아요.";
-    const question =
-      "혹시 가족력 때문에 걱정되시는 건가요, 아니면 현재 가입 상태가 충분한지 궁금하신 건가요?";
-    const next = "그 이유를 알면 우선 부족 가능성부터 같이 볼게요.";
-    const memoryLine = memoryUsed ? "기억해 둔 상담 내용도 참고할 수 있어요." : null;
-    return {
-      text: [empathy, known, memoryLine, unknown, question, next].filter(Boolean).join("\n"),
-      policies,
-      policy_count: policies.length,
-      memory_used: memoryUsed,
-    };
+  const composed = composeTrustedAdvisorTurn({
+    topic,
+    memoryFacts: memoryUsed ? memoryFacts : [],
+    loadedContext,
+    policySignalText: signalText,
+    gapCtx,
+    opening: inferCustomerIntent(topic),
+  });
+
+  if (violatesMemoryValueRepetition(composed.text, memoryFacts)) {
+    const fallbackParts = [
+      inferCustomerIntent(topic),
+      buildSituationFrame({ loadedContext, policySignalText: signalText, gapCtx, topic }),
+      buildJudgmentFrame({ topic, gapCtx }),
+      buildExplanationFrame({ topic, gapCtx }),
+      buildTrustReassurance(topic),
+      buildPersonaFollowUpQuestion(topic),
+    ].filter(Boolean);
+    composed.text = fallbackParts.join("\n");
   }
 
-  if (topic === CONVERSATION_BRAIN_TOPICS.PREMIUM_BURDEN) {
-    return {
-      text: [
-        "보험료 부담이 걱정되시는군요.",
-        "가입된 보험은 확인돼요.",
-        memoryUsed ? "기억해 둔 상담 내용도 참고할 수 있어요." : null,
-        "다만 총 보험료는 현재 검증이 필요해서, 지금 숫자로 단정하긴 어려워요.",
-        "부담이 총액 때문인지, 최근 인상 때문인지 알려주시면 그 기준으로 같이 판단해볼게요.",
-        "먼저 어떤 보험료가 가장 신경 쓰이는지부터 말씀해 주실까요?",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      policies,
-      policy_count: policies.length,
-      memory_used: memoryUsed,
-    };
-  }
-
-  if (topic === CONVERSATION_BRAIN_TOPICS.ADEQUACY) {
-    return {
-      text: [
-        "전체적으로 괜찮은지 한번에 짚어주셨네요.",
-        "가입된 보험은 확인돼요.",
-        memoryUsed ? "기억해 둔 상담 내용도 참고할 수 있어요." : null,
-        "다만 담보 범위·한도·공백까지는 현재 정보만으로는 단정하기 어려워요.",
-        "특히 암·실손·운전자 중 어느 부분이 더 걱정되세요?",
-        "걱정 지점을 알려주시면 그 부분부터 충분한지 같이 보면 됩니다.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      policies,
-      policy_count: policies.length,
-      memory_used: memoryUsed,
-    };
-  }
-
-  return null;
+  return {
+    text: composed.text,
+    policies,
+    policy_count: policies.length,
+    memory_used: memoryUsed,
+    coverage_gap_used: Boolean(gapCtx?.loaded && gapCtx?.signals?.length > 0),
+    persona: SALES_DIRECTOR_PERSONA_ID,
+  };
 }
 
 export function shouldApplyConversationBrain({
@@ -175,9 +166,6 @@ export function shouldApplyConversationBrain({
   return { apply: false, reason: "already_conversational" };
 }
 
-/**
- * Replace dead-end defer with free-thinking dialogue when insurance is already read.
- */
 export async function refineWithConversationBrain({
   agentTurn,
   question = "",
@@ -248,7 +236,8 @@ export async function refineWithConversationBrain({
   }
 
   const conversationTrace = {
-    status: "p6_2b_2",
+    status: "p7_persona",
+    persona: SALES_DIRECTOR_PERSONA_ID,
     topic: decision.topic,
     reason: decision.reason,
     memory_used: composed.memory_used === true,
@@ -260,6 +249,7 @@ export async function refineWithConversationBrain({
           status: "p6_2b_3",
           source: freeThinking.source ?? "deterministic",
           opening_variant: freeThinking.opening_variant ?? null,
+          persona: freeThinking.persona ?? SALES_DIRECTOR_PERSONA_ID,
         }
       : null,
   };
@@ -287,6 +277,7 @@ export async function refineWithConversationBrain({
         conversation_brain_topic: decision.topic,
         conversation_brain_applied: true,
         free_thinking_applied: Boolean(freeThinking?.text),
+        sales_director_persona: SALES_DIRECTOR_PERSONA_ID,
       },
       trace: {
         ...(agentTurn?.trace ?? {}),

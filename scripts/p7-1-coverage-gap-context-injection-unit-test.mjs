@@ -148,7 +148,7 @@ await record(
       loadedContext: { policies: "present" },
     });
     assert.equal(result.coverage_gap_used, true);
-    assert.match(result.text, /공백 신호/);
+    assert.match(result.text, /볼 여지|함께 봐야/);
     assert.doesNotMatch(result.text, /부족한\s*보장/i);
   }),
 );
