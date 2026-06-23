@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 
 import { loadSalesDirectorTurnContext } from "../server/customerContextSnapshot.js";
 import { runSalesDirectorLoopTurn } from "../server/salesDirectorLoop.js";
+import { clearSalesDirectorTurnContextCache } from "../server/salesDirectorTurnContextCache.js";
 import {
   buildSalesDirectorThinkingContext,
   hasFreeThinkingQualities,
@@ -98,6 +99,8 @@ async function runCase(name, fn) {
 let passed = 0;
 let failed = 0;
 
+clearSalesDirectorTurnContextCache();
+
 async function record(ok) {
   if (ok) passed += 1;
   else failed += 1;
@@ -115,6 +118,7 @@ await record(
 
 await record(
   await runCase("S2 loop — uses deduped turn context", async () => {
+    clearSalesDirectorTurnContextCache();
     const { supabase, counts } = buildCountingSupabase();
     await runSalesDirectorLoopTurn({
       userSupabase: supabase,
@@ -145,7 +149,7 @@ await record(
     });
     assert.ok(!block.includes("고객 질문:"));
     assert.ok(!block.includes("[지시]"));
-    assert.ok(block.includes("주제: 암보장"));
+    assert.ok(block.includes("주제:암보장") || block.includes("주제: 암보장"));
     assert.ok(!block.includes("최근 발췌"), "skip excerpt when history present");
     assert.ok(block.length < 400, "context block should stay compact");
   }),

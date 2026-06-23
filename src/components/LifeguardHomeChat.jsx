@@ -644,9 +644,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 lineHeight: 1.75,
                 fontWeight: 400,
                 padding: "6px 0 16px",
+                letterSpacing: "0.12em",
               }}
+              aria-live="polite"
             >
-              답변 중…
+              ···
             </div>
           ) : null}
         </div>

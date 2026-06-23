@@ -239,6 +239,9 @@ export async function generateLifeguardChatResponse({
   systemPrompt = LIFEGUARD_AGENT_SYSTEM_PROMPT,
   historyTurnLimit = HISTORY_TURN_LIMIT,
   historyContentMaxChars = HISTORY_CONTENT_MAX_CHARS,
+  maxTokens = LIFEGUARD_MAX_TOKENS,
+  maxChars = LIFEGUARD_MAX_CHARS,
+  modelName = null,
   streamHandlers = null,
   fetchImpl = fetch,
   env = process.env,
@@ -249,7 +252,7 @@ export async function generateLifeguardChatResponse({
     ? `${contextBlock}\n\n[고객 질문]\n${trimmedQuestion}`
     : trimmedQuestion;
   const apiKey = resolveAnthropicApiKey(env);
-  const modelName = resolveClaudeModel(env);
+  const resolvedModelName = modelName ?? resolveClaudeModel(env);
   if (!apiKey || !trimmedQuestion) {
     return {
       ok: false,
@@ -265,11 +268,11 @@ export async function generateLifeguardChatResponse({
     });
     const claudeArgs = {
       apiKey,
-      modelName,
+      modelName: resolvedModelName,
       system: systemPrompt,
       messages,
-      maxTokens: LIFEGUARD_MAX_TOKENS,
-      maxChars: LIFEGUARD_MAX_CHARS,
+      maxTokens,
+      maxChars,
       fetchImpl,
     };
     const claudeResult =

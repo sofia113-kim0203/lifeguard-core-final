@@ -124,6 +124,53 @@ export function buildUnifiedProvenance({
   };
 }
 
+export async function loadSalesDirectorMinimalRawRecords(supabase, customerId) {
+  if (!supabase) throw new Error("supabase_required");
+  if (!customerId) throw new Error("customer_id_required");
+
+  const [profileResult, policiesResult] = await Promise.all([
+    supabase
+      .from("customer_profiles")
+      .select(PROFILE_SELECT)
+      .eq("id", customerId)
+      .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("active_profile_insurance_policies")
+      .select(POLICY_LIST_SELECT)
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (profileResult.error) {
+    throw new Error(`profile_lookup_failed: ${profileResult.error.message}`);
+  }
+  if (policiesResult.error) {
+    throw new Error(`policy_lookup_failed: ${policiesResult.error.message}`);
+  }
+
+  const profile = profileResult.data ?? null;
+  const policies = policiesResult.data ?? [];
+
+  return {
+    profile,
+    health: null,
+    health_details: {},
+    policies,
+    documents: [],
+    document_count: 0,
+    documents_preview_count: 0,
+    flags: {
+      has_profile: Boolean(
+        profile?.display_name || profile?.birth_date || profile?.gender || profile?.job_category,
+      ),
+      has_health: false,
+      has_policies: policies.length > 0,
+      has_documents: false,
+    },
+  };
+}
+
 export async function loadRawCustomerRecords(supabase, customerId) {
   if (!supabase) throw new Error("supabase_required");
   if (!customerId) throw new Error("customer_id_required");

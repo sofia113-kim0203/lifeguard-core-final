@@ -16,17 +16,11 @@ const PREMIUM_DUMP = /\d{1,3}(,\d{3})+\s*원|\d{5,}\s*원/;
 const COUNT_DUMP = /\d+\s*건/;
 
 export const SALES_DIRECTOR_FREE_THINKING_PROMPT = [
-  "You are a 15-year veteran insurance sales director (영업부장) speaking directly to your customer in Korean.",
-  "Use ONLY the context block — policy type signals, memory facts. Never invent premiums, coverage amounts, or history.",
-  "Speak in this order (3-5 short lines, natural — not a visible checklist):",
-  "1) Direct answer to their question first.",
-  "2) What is confirmed from context, and what cannot be asserted yet.",
-  "3) One intent question (why they ask) — never open with \"왜 궁금하세요?\" alone.",
-  "You MAY use grounded opinion (\"내가 보기엔\", \"느낌상\") and memory naturally if listed.",
-  "Never start with \"확인 어렵습니다\", \"판단 어렵습니다\", or \"가입된 보험은 확인돼요\" as a formula.",
-  "Never say \"기억해 둔 상담 내용도 참고할 수 있어요\".",
-  "Never end with \"보장내역서를 주세요\" alone — always ask a question or propose a next step.",
-  "No emojis. No engine/tool names.",
+  "당신은 15년차 보험 영업부장입니다. 한국어로 고객에게 직접 말합니다.",
+  "컨텍스트에 없는 보험료·담보·이력은 지어내지 마세요.",
+  "순서: ①질문 직답(첫 문장 20자 내외) ②확인 사실/한계 ③의도 질문 1개.",
+  "\"가입된 보험은 확인돼요\", \"기억해 둔 상담 내용도 참고할 수 있어요\", \"왜 궁금하세요?\" 단독 금지.",
+  "3-4줄. 이모지·엔진명 금지.",
 ].join(" ");
 
 const TOPIC_CONTEXT_LABELS = {
@@ -35,9 +29,20 @@ const TOPIC_CONTEXT_LABELS = {
   adequacy: "보장 충분성",
 };
 
-const FREE_THINKING_HISTORY_TURN_LIMIT = 4;
-const FREE_THINKING_HISTORY_MAX_CHARS = 600;
-const FREE_THINKING_MEMORY_FACT_LIMIT = 4;
+const FREE_THINKING_HISTORY_TURN_LIMIT = 2;
+const FREE_THINKING_HISTORY_MAX_CHARS = 300;
+const FREE_THINKING_MEMORY_FACT_LIMIT = 2;
+export const FREE_THINKING_MAX_TOKENS = 280;
+export const FREE_THINKING_MAX_CHARS = 420;
+const DEFAULT_FREE_THINKING_MODEL = "claude-haiku-4-5";
+
+export function resolveSalesDirectorFreeThinkingModel(env = process.env) {
+  return String(
+    env.SALES_DIRECTOR_FREE_THINKING_MODEL ??
+      env.ANTHROPIC_FAST_MODEL ??
+      DEFAULT_FREE_THINKING_MODEL,
+  ).trim();
+}
 
 function hashSeed(value = "") {
   let hash = 0;
@@ -124,14 +129,14 @@ export function buildSalesDirectorThinkingContext({
   const hasHistory = Array.isArray(history) && history.length > 0;
 
   const lines = [
-    "[영업부장 사실]",
-    topic ? `주제: ${TOPIC_CONTEXT_LABELS[topic] ?? topic}` : null,
-    `보험 가입: ${loadedContext?.policies === "present" ? "있음" : "없음"}`,
+    "[사실]",
+    topic ? `주제:${TOPIC_CONTEXT_LABELS[topic] ?? topic}` : null,
+    `가입:${loadedContext?.policies === "present" ? "있음" : "없음"}`,
   ].filter(Boolean);
   if (signals.length) {
-    lines.push(`상품 유형(이름 수준): ${signals.join(", ")}`);
+    lines.push(`유형:${signals.join(",")}`);
   }
-  lines.push("검증된 보험료·담보 금액: 없음 (단정 금지)");
+  lines.push("보험료·담보:미검증");
   if (memoryLines.length) {
     lines.push(`Memory: ${memoryLines.join(" | ")}`);
   }
@@ -295,6 +300,9 @@ export async function composeSalesDirectorFreeThinkingAnswer({
       systemPrompt: SALES_DIRECTOR_FREE_THINKING_PROMPT,
       historyTurnLimit: FREE_THINKING_HISTORY_TURN_LIMIT,
       historyContentMaxChars: FREE_THINKING_HISTORY_MAX_CHARS,
+      maxTokens: FREE_THINKING_MAX_TOKENS,
+      maxChars: FREE_THINKING_MAX_CHARS,
+      modelName: resolveSalesDirectorFreeThinkingModel(env),
       streamHandlers: streamHandlers?.onDelta
         ? {
             onDelta: (chunk) => {

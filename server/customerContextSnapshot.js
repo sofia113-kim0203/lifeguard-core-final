@@ -1,11 +1,16 @@
 /**
  * P6-1 — CustomerContextSnapshot: single JWT/RLS read path for every customer-facing turn.
  */
-import { loadCustomerMemorySnapshot } from "./customerMemorySnapshot.js";
+import { loadCustomerMemoryFactsOnly } from "./customerMemorySnapshot.js";
 import {
   buildUnifiedCustomerStateFromRecords,
   loadRawCustomerRecords,
+  loadSalesDirectorMinimalRawRecords,
 } from "./unifiedCustomerState.js";
+import {
+  readSalesDirectorTurnContextCache,
+  writeSalesDirectorTurnContextCache,
+} from "./salesDirectorTurnContextCache.js";
 import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 import {
   buildMergedRecentConversationSummary,
@@ -184,14 +189,33 @@ export function buildCustomerContextSnapshotFromRecords({
   return snapshot;
 }
 
-async function loadSnapshotSourceRecords(supabase, customerId) {
-  const raw = await loadRawCustomerRecords(supabase, customerId);
-  const [memorySnapshot, conversationRows, consents] = await Promise.all([
-    loadCustomerMemorySnapshot(supabase, customerId, { profile: raw.profile }),
-    loadRecentConversationRows(supabase, customerId),
-    loadCustomerConsents(supabase, customerId),
+async function loadSnapshotSourceRecords(
+  supabase,
+  customerId,
+  { requestHistory = [], salesDirectorFast = false } = {},
+) {
+  const normalizedHistory = normalizeRequestHistoryForSnapshot(requestHistory);
+  const skipConversationDb = salesDirectorFast || normalizedHistory.length > 0;
+  const skipConsents = salesDirectorFast;
+
+  const rawLoader = salesDirectorFast
+    ? loadSalesDirectorMinimalRawRecords(supabase, customerId)
+    : loadRawCustomerRecords(supabase, customerId);
+
+  const [raw, memoryPartial, conversationRows, consents] = await Promise.all([
+    rawLoader,
+    loadCustomerMemoryFactsOnly(supabase, customerId),
+    skipConversationDb ? Promise.resolve([]) : loadRecentConversationRows(supabase, customerId),
+    skipConsents ? Promise.resolve([]) : loadCustomerConsents(supabase, customerId),
   ]);
-  return { raw, memorySnapshot, conversationRows, consents };
+
+  const memorySnapshot = {
+    ...memoryPartial,
+    profile: raw.profile ?? null,
+    memory_version: raw.profile?.memory_version ?? memoryPartial.memory_version ?? 0,
+  };
+
+  return { raw, memorySnapshot, conversationRows, consents, normalizedHistory };
 }
 
 export async function loadCustomerContextSnapshot(
@@ -202,11 +226,11 @@ export async function loadCustomerContextSnapshot(
   if (!supabase) throw new Error("supabase_required");
   if (!customerId) throw new Error("customer_id_required");
 
-  const normalizedHistory = normalizeRequestHistoryForSnapshot(requestHistory);
-  const { raw, memorySnapshot, conversationRows, consents } = await loadSnapshotSourceRecords(
-    supabase,
-    customerId,
-  );
+  const { raw, memorySnapshot, conversationRows, consents, normalizedHistory } =
+    await loadSnapshotSourceRecords(supabase, customerId, {
+      requestHistory,
+      salesDirectorFast: false,
+    });
 
   return buildCustomerContextSnapshotFromRecords({
     customerId,
@@ -219,7 +243,7 @@ export async function loadCustomerContextSnapshot(
 }
 
 /**
- * P6-2B-5 — Single DB round-trip for snapshot + unified (no duplicate raw/memory queries).
+ * P6-2B-5/6a — Single DB round-trip for snapshot + unified (no duplicate raw/memory queries).
  */
 export async function loadSalesDirectorTurnContext(
   supabase,
@@ -229,11 +253,14 @@ export async function loadSalesDirectorTurnContext(
   if (!supabase) throw new Error("supabase_required");
   if (!customerId) throw new Error("customer_id_required");
 
-  const normalizedHistory = normalizeRequestHistoryForSnapshot(requestHistory);
-  const { raw, memorySnapshot, conversationRows, consents } = await loadSnapshotSourceRecords(
-    supabase,
-    customerId,
-  );
+  const cached = readSalesDirectorTurnContextCache(customerId);
+  if (cached) return cached;
+
+  const { raw, memorySnapshot, conversationRows, consents, normalizedHistory } =
+    await loadSnapshotSourceRecords(supabase, customerId, {
+      requestHistory,
+      salesDirectorFast: true,
+    });
 
   const snapshot = buildCustomerContextSnapshotFromRecords({
     customerId,
@@ -245,7 +272,9 @@ export async function loadSalesDirectorTurnContext(
   });
   const unifiedState = buildUnifiedCustomerStateFromRecords(raw, memorySnapshot, { customerId });
 
-  return { snapshot, unifiedState };
+  writeSalesDirectorTurnContextCache(customerId, snapshot, unifiedState);
+
+  return { snapshot, unifiedState, from_cache: false };
 }
 
 export function buildLoadedContextFromSnapshot(snapshot) {

@@ -6,6 +6,7 @@ import {
   runHomeAgentTomTurn,
   resolveTomInternalRoute,
   TOM_INTERNAL_ROUTES,
+  INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE,
 } from "./homeAgentTom.js";
 import { matchP5BrainPilotQuestion } from "./p5BrainPilotQuestions.js";
 import { shouldUseTomGapLightPath } from "./tomGapLightPath.js";
@@ -26,7 +27,7 @@ import {
   planSalesDirectorToolBrain,
   runSalesDirectorToolBrainSlice,
 } from "./salesDirectorToolBrain.js";
-import { refineWithConversationBrain } from "./salesDirectorConversationBrain.js";
+import { refineWithConversationBrain, shouldApplyConversationBrain } from "./salesDirectorConversationBrain.js";
 import {
   createSalesDirectorLatencyBucket,
   markLatencyMs,
@@ -115,6 +116,19 @@ function assertSnapshotReady(contextSnapshot) {
   return { ok: true, loadedContext, bundle: snapshotToContextBundle(contextSnapshot) };
 }
 
+function buildConversationBrainStubTurn(question, consultationIntent) {
+  return {
+    text: INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE,
+    tomInternalRoute: TOM_INTERNAL_ROUTES.DEFER,
+    consultationIntent,
+    toolUsed: null,
+    responseSource: "tom_internal_defer",
+    factBundle: { question, policy_count: 0, policies: [] },
+    tomGapVoiceHandled: false,
+    trace: { agent: "sales_director_stub_defer", tool_used: null, tom_ran: false },
+  };
+}
+
 /**
  * P6-2A loop skeleton:
  * load snapshot → understand intent → decide mode → existing handler → compose (caller) → observability
@@ -146,6 +160,9 @@ export async function runSalesDirectorLoopTurn({
     snapshot = snapshot ?? turnContext.snapshot;
     unified = unified ?? turnContext.unifiedState;
     latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
+    if (turnContext.from_cache) {
+      latency.snapshot_cache_hit = true;
+    }
   }
 
   const memoryHydrateStart = Date.now();
@@ -187,18 +204,30 @@ export async function runSalesDirectorLoopTurn({
       modeDecision.mode = SALES_DIRECTOR_MODES.PILOT;
     }
   } else {
-    const handlerStart = Date.now();
-    agentTurn = await runHomeAgentTomTurn({
+    const stubTurn = buildConversationBrainStubTurn(trimmedQuestion, modeDecision.consultationIntent);
+    const conversationPlan = shouldApplyConversationBrain({
       question: trimmedQuestion,
-      history,
-      userSupabase,
-      customerId,
+      loadedContext,
       customerContextBundle,
-      env,
-      fetchImpl,
-      startedAt: loopStartedAt,
+      agentTurn: stubTurn,
     });
-    latency.handler_ms = markLatencyMs(handlerStart);
+    if (conversationPlan.apply) {
+      agentTurn = stubTurn;
+      latency.handler_ms = 0;
+    } else {
+      const handlerStart = Date.now();
+      agentTurn = await runHomeAgentTomTurn({
+        question: trimmedQuestion,
+        history,
+        userSupabase,
+        customerId,
+        customerContextBundle,
+        env,
+        fetchImpl,
+        startedAt: loopStartedAt,
+      });
+      latency.handler_ms = markLatencyMs(handlerStart);
+    }
   }
 
   const conversationRefinement = await refineWithConversationBrain({
@@ -249,6 +278,7 @@ export async function runSalesDirectorLoopTurn({
     tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
     conversation_brain: agentTurn.trace?.conversation_brain ?? null,
     truth_gate: truthGate,
+    snapshot_cache_hit: latency.snapshot_cache_hit === true,
     latency: {
       ...latency,
       total_ms: markLatencyMs(loopStartedAt),

@@ -97,6 +97,45 @@ export function mapMemoryFactsForResponse(facts) {
   }));
 }
 
+export async function loadCustomerMemoryFactsOnly(
+  supabase,
+  customerId,
+  { limit = DEFAULT_MEMORY_FACT_LIMIT, profile = null } = {},
+) {
+  if (!customerId) throw new Error("customer_id_required");
+
+  const [countResult, factsResult] = await Promise.all([
+    supabase
+      .from("customer_memory_facts")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", customerId),
+    supabase
+      .from("customer_memory_facts")
+      .select("id, fact_key, fact_value, fact_type, importance, updated_at, metadata_json, source_table")
+      .eq("customer_id", customerId)
+      .is("superseded_at", null),
+  ]);
+
+  if (countResult.error) throw new Error(`memory_count_failed: ${countResult.error.message}`);
+  if (factsResult.error) throw new Error(`memory_snapshot_failed: ${factsResult.error.message}`);
+
+  const facts = (Array.isArray(factsResult.data) ? factsResult.data : [])
+    .filter((fact) => !fact?.metadata_json?.revoked_at)
+    .filter((fact) => fact.fact_type !== "system")
+    .sort(compareMemoryFacts)
+    .slice(0, limit);
+
+  return {
+    customer_id: customerId,
+    memory_version: profile?.memory_version ?? 0,
+    profile: profile ?? null,
+    facts,
+    fact_count: countResult.count ?? 0,
+    snapshot_facts_count: facts.length,
+    prompt_block: formatCustomerMemorySnapshotForPrompt(facts),
+  };
+}
+
 export async function loadCustomerMemorySnapshot(
   supabase,
   customerId,
