@@ -22,6 +22,11 @@ import {
   SALES_DIRECTOR_MODES,
 } from "./customerObservability.js";
 import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
+import {
+  buildSnapshotToolTraceOnly,
+  planSalesDirectorToolBrain,
+  runSalesDirectorToolBrainSlice,
+} from "./salesDirectorToolBrain.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
@@ -144,16 +149,45 @@ export async function runSalesDirectorLoopTurn({
     env,
   });
 
-  const agentTurn = await runHomeAgentTomTurn({
+  const toolPlan = planSalesDirectorToolBrain({
     question: trimmedQuestion,
-    history,
-    userSupabase,
-    customerId,
-    customerContextBundle,
-    env,
-    fetchImpl,
-    startedAt,
+    loadedContext,
+    modeDecision,
+    pilotKey: modeDecision.pilotKey,
   });
+
+  let toolBrainResult = runSalesDirectorToolBrainSlice({
+    plan: toolPlan,
+    question: trimmedQuestion,
+    customerContextBundle,
+    loadedContext,
+    consultationIntent: modeDecision.consultationIntent,
+  });
+
+  let agentTurn;
+  if (toolBrainResult?.handled) {
+    agentTurn = toolBrainResult.agentTurn;
+    if (modeDecision.mode !== SALES_DIRECTOR_MODES.GAP) {
+      modeDecision.tool_brain_handled = true;
+      modeDecision.mode = SALES_DIRECTOR_MODES.PILOT;
+    }
+  } else {
+    agentTurn = await runHomeAgentTomTurn({
+      question: trimmedQuestion,
+      history,
+      userSupabase,
+      customerId,
+      customerContextBundle,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
+  const snapshotToolTrace =
+    toolPlan.snapshot_trace_only === true
+      ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle })
+      : toolBrainResult?.agentTurn?.toolBrainTrace ?? null;
 
   const truthGate = createTruthGatePlaceholder({
     draftText: agentTurn.text,
@@ -164,9 +198,10 @@ export async function runSalesDirectorLoopTurn({
   const salesDirectorTrace = {
     sales_director_loop: true,
     sales_director_mode: modeDecision.mode,
-    sales_director_step: "handler_complete",
+    sales_director_step: toolBrainResult?.handled ? "tool_brain_complete" : "handler_complete",
     legacy_response_source: agentTurn.responseSource ?? null,
     legacy_tom_internal_route: agentTurn.tomInternalRoute ?? null,
+    tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
     truth_gate: truthGate,
   };
 
@@ -225,7 +260,14 @@ export function buildSalesDirectorFactsUsed({
   computeStats,
   buildFactsUsed,
 }) {
-  const policies = agentTurn?.factBundle?.policies ?? customerContextBundle?.policies ?? [];
+  const fromFactBundle = agentTurn?.factBundle?.policies;
+  const snapshotPolicies = customerContextBundle?.policies ?? [];
+  const policies =
+    Array.isArray(fromFactBundle) && fromFactBundle.length > 0
+      ? fromFactBundle
+      : loadedContext?.policies === "present" && snapshotPolicies.length > 0
+        ? snapshotPolicies
+        : fromFactBundle ?? snapshotPolicies ?? [];
   const memoryFactCount =
     agentTurn?.factBundle?.memory_fact_count ?? customerContextBundle?.memoryFactCount ?? 0;
   const factsUsed = buildFactsUsed(

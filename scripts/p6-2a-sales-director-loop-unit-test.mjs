@@ -170,7 +170,7 @@ async function main() {
   );
 
   await record(
-    await runCase("S4 defer path — contradiction trace when factBundle empty", async () => {
+    await runCase("S4 defer path — snapshot-backed factsUsed when policies present", async () => {
       const supabase = buildJwtPathMockSupabase();
       const result = await handleHomeBrainFactRequest({
         question: "내 보험료 얼마야?",
@@ -183,9 +183,8 @@ async function main() {
       });
       assert.equal(result.selected_route, SALES_DIRECTOR_MODES.DEFER);
       assert.equal(result.response_source, "sales_director_guarded_hold");
-      assert.ok(result.loaded_context_contradictions);
-      assert.equal(result.factsUsed.totalCount, 0);
       assert.equal(result.loaded_context.policies, "present");
+      assert.ok(result.factsUsed.totalCount > 0);
     }),
   );
 
