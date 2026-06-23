@@ -26,6 +26,31 @@ const EXAMPLE_QUESTIONS = [
   "분당에서 가족이랑 갈 만한 곳 추천해줘",
 ];
 
+const DESKTOP_SIDEBAR_BREAKPOINT = 768;
+
+const THINKING_PROGRESS_MESSAGES = [
+  "영업부장이 확인 중이에요...",
+  "가입 정보와 상담 내용을 살펴보고 있어요...",
+  "답변을 정리하고 있어요...",
+];
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
+}
+
 function sidebarBtn(active) {
   return {
     width: "100%",
@@ -147,6 +172,69 @@ function CustomerDocumentsList({ documents, loading, error }) {
   );
 }
 
+function SidebarNav({
+  sessionId,
+  threads,
+  panelView,
+  onNewChat,
+  onOpenSession,
+  onPanelChange,
+  onSignOut,
+  style = {},
+}) {
+  return (
+    <aside style={style}>
+      <button type="button" onClick={onNewChat} style={sidebarBtn(false)}>
+        새 대화
+      </button>
+      <div
+        style={{
+          fontSize: "11px",
+          fontWeight: 600,
+          color: LG.textSoft,
+          marginTop: "16px",
+          marginBottom: "4px",
+          letterSpacing: "0.08em",
+        }}
+      >
+        최근 대화
+      </div>
+      {threads.length === 0 ? (
+        <div style={{ fontSize: "13px", color: LG.textSoft, padding: "8px 12px" }}>아직 대화가 없어요</div>
+      ) : (
+        threads.slice(0, 8).map((thread) => (
+          <button
+            key={thread.id}
+            type="button"
+            style={sidebarBtn(sessionId === thread.id)}
+            onClick={() => onOpenSession(thread.id)}
+          >
+            {thread.preview}
+          </button>
+        ))
+      )}
+      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
+        <button type="button" style={sidebarBtn(panelView === "insurance")} onClick={() => onPanelChange("insurance")}>
+          내 보험
+        </button>
+        <button type="button" style={sidebarBtn(panelView === "documents")} onClick={() => onPanelChange("documents")}>
+          내 문서
+        </button>
+        <button type="button" style={sidebarBtn(panelView === "settings")} onClick={() => onPanelChange("settings")}>
+          설정
+        </button>
+        <button
+          type="button"
+          style={{ ...sidebarBtn(false), marginTop: "8px", color: LG.textMuted }}
+          onClick={onSignOut}
+        >
+          로그아웃
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 export default function LifeguardHomeChat({ layer1Only = true, disabled = false, displayName: displayNameProp }) {
   const session = useOptionalCustomerSession();
   const authUser = session?.user ?? null;
@@ -175,6 +263,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
+  const [thinkingIndex, setThinkingIndex] = useState(0);
+
+  const isDesktopSidebar = useMediaQuery(`(min-width: ${DESKTOP_SIDEBAR_BREAKPOINT}px)`);
 
   const greeting = useMemo(
     () => buildLifeguardHomeGreeting(displayName, session?.unifiedState),
@@ -219,6 +310,28 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   useEffect(() => {
     if (panelView === "chat" && !loading) focusChatInput();
   }, [loading, panelView, messages.length, focusChatInput]);
+
+  useEffect(() => {
+    if (!loading || streaming) return undefined;
+    const timer = window.setInterval(() => {
+      setThinkingIndex((current) => (current + 1) % THINKING_PROGRESS_MESSAGES.length);
+    }, 2600);
+    return () => window.clearInterval(timer);
+  }, [loading, streaming]);
+
+  useEffect(() => {
+    if (!loading || streaming) return;
+    setMessages((prev) => {
+      const copy = [...prev];
+      const last = copy[copy.length - 1];
+      if (last?.role !== "assistant" || !last.thinking) return prev;
+      copy[copy.length - 1] = {
+        ...last,
+        content: THINKING_PROGRESS_MESSAGES[thinkingIndex],
+      };
+      return copy;
+    });
+  }, [thinkingIndex, loading, streaming]);
 
   useEffect(() => {
     if (panelView !== "documents" || !authUser) return undefined;
@@ -314,11 +427,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     focusChatInput();
     setLoading(true);
     setStreaming(false);
+    setThinkingIndex(0);
     setError("");
 
     try {
       const history = nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
-      setMessages([...nextMessages, { role: "assistant", content: "" }]);
+      setMessages([
+        ...nextMessages,
+        { role: "assistant", content: THINKING_PROGRESS_MESSAGES[0], thinking: true },
+      ]);
 
       let streamedText = "";
       const result = await fetchHomeBrainFactStream(trimmed, history, {
@@ -330,17 +447,19 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             const copy = [...prev];
             const last = copy[copy.length - 1];
             if (last?.role !== "assistant") return prev;
-            copy[copy.length - 1] = { ...last, content: streamedText };
+            copy[copy.length - 1] = { role: "assistant", content: streamedText, thinking: false };
             return copy;
           });
         },
         onReplace: (text) => {
           streamedText = String(text ?? "");
+          setLoading(false);
+          setStreaming(false);
           setMessages((prev) => {
             const copy = [...prev];
             const last = copy[copy.length - 1];
             if (last?.role !== "assistant") return prev;
-            copy[copy.length - 1] = { ...last, content: streamedText };
+            copy[copy.length - 1] = { role: "assistant", content: streamedText, thinking: false };
             return copy;
           });
         },
@@ -351,7 +470,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         const copy = [...prev];
         const last = copy[copy.length - 1];
         if (last?.role === "assistant") {
-          copy[copy.length - 1] = { ...last, content: finalText };
+          copy[copy.length - 1] = { role: "assistant", content: finalText, thinking: false };
         }
         return copy;
       });
@@ -368,6 +487,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         setThreads(recent);
       }
     } catch (err) {
+      setMessages((prev) => {
+        const copy = [...prev];
+        const last = copy[copy.length - 1];
+        if (last?.role === "assistant" && last.thinking) {
+          copy.pop();
+        }
+        return copy;
+      });
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
     } finally {
       setLoading(false);
@@ -395,92 +522,76 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     window.setTimeout(() => setAttachHint(""), 4000);
   };
 
+  const sidebarProps = {
+    sessionId,
+    threads,
+    panelView,
+    onNewChat: startNewChat,
+    onOpenSession: openSession,
+    onPanelChange: (view) => {
+      setPanelView(view);
+      if (!isDesktopSidebar) setSidebarOpen(false);
+    },
+    onSignOut: () => supabase.auth.signOut(),
+  };
+
+  const desktopSidebarStyle = {
+    width: "280px",
+    flexShrink: 0,
+    position: "sticky",
+    top: 0,
+    alignSelf: "flex-start",
+    height: "100vh",
+    overflowY: "auto",
+    borderRight: `1px solid ${LG.border}`,
+    background: LG.sidebarBg,
+    padding: "20px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  };
+
+  const mobileSidebarStyle = {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: "280px",
+    zIndex: 30,
+    borderRight: `1px solid ${LG.border}`,
+    background: LG.sidebarBg,
+    padding: "20px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    boxShadow: "4px 0 24px rgba(0,0,0,0.06)",
+  };
+
   return (
     <div
       style={{
         display: "flex",
-        minHeight: "100vh",
+        height: "100vh",
+        overflow: "hidden",
         fontFamily: LG.sans,
         background: LG.bg,
         color: LG.text,
       }}
     >
-      {sidebarOpen ? (
+      {isDesktopSidebar ? <SidebarNav {...sidebarProps} style={desktopSidebarStyle} /> : null}
+
+      {!isDesktopSidebar && sidebarOpen ? (
         <>
           <div
             role="presentation"
             onClick={() => setSidebarOpen(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(17,17,17,0.18)", zIndex: 20 }}
           />
-          <aside
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              bottom: 0,
-              width: "280px",
-              zIndex: 30,
-              borderRight: `1px solid ${LG.border}`,
-              background: LG.sidebarBg,
-              padding: "20px 16px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-              boxShadow: "4px 0 24px rgba(0,0,0,0.06)",
-            }}
-          >
-            <button type="button" onClick={startNewChat} style={sidebarBtn(false)}>
-              새 대화
-            </button>
-            <div
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                color: LG.textSoft,
-                marginTop: "16px",
-                marginBottom: "4px",
-                letterSpacing: "0.08em",
-              }}
-            >
-              최근 대화
-            </div>
-            {threads.length === 0 ? (
-              <div style={{ fontSize: "13px", color: LG.textSoft, padding: "8px 12px" }}>아직 대화가 없어요</div>
-            ) : (
-              threads.slice(0, 8).map((thread) => (
-                <button
-                  key={thread.id}
-                  type="button"
-                  style={sidebarBtn(sessionId === thread.id)}
-                  onClick={() => openSession(thread.id)}
-                >
-                  {thread.preview}
-                </button>
-              ))
-            )}
-            <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
-              <button type="button" style={sidebarBtn(panelView === "insurance")} onClick={() => setPanelView("insurance")}>
-                내 보험
-              </button>
-              <button type="button" style={sidebarBtn(panelView === "documents")} onClick={() => setPanelView("documents")}>
-                내 문서
-              </button>
-              <button type="button" style={sidebarBtn(panelView === "settings")} onClick={() => setPanelView("settings")}>
-                설정
-              </button>
-              <button
-                type="button"
-                style={{ ...sidebarBtn(false), marginTop: "8px", color: LG.textMuted }}
-                onClick={() => supabase.auth.signOut()}
-              >
-                로그아웃
-              </button>
-            </div>
-          </aside>
+          <SidebarNav {...sidebarProps} style={mobileSidebarStyle} />
         </>
       ) : null}
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
         <header
           style={{
             display: "flex",
@@ -489,31 +600,35 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             padding: "14px 20px",
             borderBottom: `1px solid ${LG.border}`,
             background: LG.bg,
+            flexShrink: 0,
           }}
         >
-          <button
-            type="button"
-            aria-label="메뉴"
-            onClick={() => setSidebarOpen(true)}
-            style={{
-              border: `1px solid ${LG.border}`,
-              background: LG.surface,
-              color: LG.text,
-              borderRadius: "8px",
-              width: "40px",
-              height: "40px",
-              cursor: "pointer",
-              fontSize: "18px",
-            }}
-          >
-            ☰
-          </button>
+          {!isDesktopSidebar ? (
+            <button
+              type="button"
+              aria-label="메뉴"
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                border: `1px solid ${LG.border}`,
+                background: LG.surface,
+                color: LG.text,
+                borderRadius: "8px",
+                width: "40px",
+                height: "40px",
+                cursor: "pointer",
+                fontSize: "18px",
+              }}
+            >
+              ☰
+            </button>
+          ) : null}
         </header>
 
         <div
           style={{
             flex: 1,
             overflowY: "auto",
+            minHeight: 0,
             padding: "24px 20px 16px",
             display: "flex",
             flexDirection: "column",
@@ -619,7 +734,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     style={{
                       maxWidth: msg.role === "user" ? "88%" : "92%",
                       textAlign: msg.role === "user" ? "right" : "left",
-                      color: LG.text,
+                      color: msg.thinking ? LG.textMuted : LG.text,
                       fontSize: msg.role === "user" ? "15px" : "16px",
                       fontWeight: msg.role === "user" ? 400 : 450,
                       lineHeight: 1.75,
@@ -628,29 +743,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                       border: "none",
                       boxShadow: "none",
                     }}
+                    aria-live={msg.thinking ? "polite" : undefined}
                   >
                     {msg.content}
                   </div>
                 </div>
               ))
             : null}
-
-          {loading && !streaming && panelView === "chat" ? (
-            <div
-              style={{
-                alignSelf: "flex-start",
-                color: LG.textMuted,
-                fontSize: "15px",
-                lineHeight: 1.75,
-                fontWeight: 400,
-                padding: "6px 0 16px",
-                letterSpacing: "0.12em",
-              }}
-              aria-live="polite"
-            >
-              ···
-            </div>
-          ) : null}
         </div>
 
         {panelView === "chat" ? (
@@ -662,6 +761,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               width: "100%",
               margin: "0 auto",
               background: LG.bg,
+              flexShrink: 0,
             }}
           >
             {error ? <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{error}</div> : null}
