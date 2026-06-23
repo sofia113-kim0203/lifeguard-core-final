@@ -253,6 +253,7 @@ export async function refineWithConversationBrain({
     reason: decision.reason,
     memory_used: composed.memory_used === true,
     snapshot_insurance_used: true,
+    coverage_gap_used: composed.coverage_gap_used === true,
     policy_count_from_snapshot: composed.policy_count ?? 0,
     free_thinking: freeThinking?.text
       ? {
@@ -281,6 +282,8 @@ export async function refineWithConversationBrain({
         policies: composed.policies ?? [],
         memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
         customer_context_used: true,
+        coverage_gap_used: composed.coverage_gap_used === true,
+        coverage_gap_record_count: customerContextBundle?.coverageGapContext?.record_count ?? 0,
         conversation_brain_topic: decision.topic,
         conversation_brain_applied: true,
         free_thinking_applied: Boolean(freeThinking?.text),

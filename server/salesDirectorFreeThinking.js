@@ -5,11 +5,13 @@
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { generateLifeguardChatResponse } from "./lifeguardChatCore.js";
 import { CONVERSATION_BRAIN_TOPICS } from "./salesDirectorConversationBrain.js";
+import { buildCoverageGapDirectorContextLines } from "./salesDirectorCoverageGapContext.js";
 import { markLatencyMs } from "./salesDirectorLatencyAudit.js";
 
 export const FORBIDDEN_MANUAL_PHRASES = [
   /^가입된\s*보험은\s*확인돼요/,
   /기억해\s*둔\s*상담\s*내용도\s*참고할\s*수\s*있어요/,
+  /부족한\s*보장|우선\s*보강\s*항목|Gap\s*분석|coverage_gap|엔진\s*결과/i,
 ];
 
 const PREMIUM_DUMP = /\d{1,3}(,\d{3})+\s*원|\d{5,}\s*원/;
@@ -17,10 +19,11 @@ const COUNT_DUMP = /\d+\s*건/;
 
 export const SALES_DIRECTOR_FREE_THINKING_PROMPT = [
   "당신은 15년차 보험 영업부장입니다. 한국어로 고객에게 직접 말합니다.",
-  "컨텍스트에 없는 보험료·담보·이력은 지어내지 마세요.",
+  "Snapshot·Memory·Gap(내부) 신호를 참고해 본인 판단으로 말하세요. Gap 표·엔진 문구를 읽어주지 마세요.",
+  "컨텍스트에 없는 보험료·담보·상품명·금액·이력은 지어내지 마세요.",
   "순서: ①질문 직답(첫 문장 20자 내외) ②확인 사실/한계 ③의도 질문 1개.",
   "\"가입된 보험은 확인돼요\", \"기억해 둔 상담 내용도 참고할 수 있어요\", \"왜 궁금하세요?\" 단독 금지.",
-  "3-4줄. 이모지·엔진명 금지.",
+  "3-4줄. 이모지·엔진명·Gap 분석 보고체 금지.",
 ].join(" ");
 
 const TOPIC_CONTEXT_LABELS = {
@@ -140,10 +143,19 @@ export function buildSalesDirectorThinkingContext({
   if (memoryLines.length) {
     lines.push(`Memory: ${memoryLines.join(" | ")}`);
   }
+  const gapLines = buildCoverageGapDirectorContextLines(customerContextBundle?.coverageGapContext);
+  if (gapLines.length) {
+    lines.push(...gapLines);
+  }
   if (excerpt && !hasHistory) {
     lines.push(`최근 발췌: ${excerpt.slice(0, 60)}`);
   }
   return lines.join("\n");
+}
+
+export function coverageGapUsedInThinking(customerContextBundle = null) {
+  const ctx = customerContextBundle?.coverageGapContext;
+  return Boolean(ctx?.loaded && ctx?.signals?.length > 0);
 }
 
 export function hasFreeThinkingQualities(text = "") {
@@ -181,6 +193,15 @@ export function composeDeterministicFreeThinking({
   const memoryLine = buildNaturalMemoryLine(memoryFacts, topic);
   const signals = policySignals(policies);
   const signalText = signals.length ? signals.join("·") : "가입 계약";
+  const gapCtx = customerContextBundle?.coverageGapContext;
+  const gapConcernLine =
+    gapCtx?.top_concerns?.length > 0
+      ? `내부 공백 신호로는 ${gapCtx.top_concerns.join("·")} 쪽이 먼저 보여요.`
+      : null;
+  const gapMaintainedLine =
+    gapCtx?.maintained?.length > 0 && topic === CONVERSATION_BRAIN_TOPICS.ADEQUACY
+      ? `${gapCtx.maintained.join("·")} 쪽은 유지 신호가 있어요.`
+      : null;
 
   if (topic === CONVERSATION_BRAIN_TOPICS.ADEQUACY) {
     const opening = pickVariant(seed, [
@@ -191,6 +212,8 @@ export function composeDeterministicFreeThinking({
     ]);
     const parts = [
       opening,
+      gapConcernLine,
+      gapMaintainedLine,
       memoryLine ? `${memoryLine} 우선 ${signalText} 쪽은 보이는데, 담보·한도·공백까지는 이 정보만으론 단정하기 어려워요.` : `내가 보기엔 ${signalText} 쪽 가입은 보이는데, 담보·한도·공백까지는 이 정보만으론 단정하기 어려워요.`,
       "느낌상 지금은 '어디가 비어 있을까'보다 '지금 걱정 축이 어디냐'를 먼저 짚는 게 좋을 것 같아요.",
       "특히 암·실손·운전자 중 어디가 더 신경 쓰이세요?",
@@ -203,6 +226,7 @@ export function composeDeterministicFreeThinking({
       policies,
       policy_count: policies.length,
       memory_used: memoryFacts.length > 0,
+      coverage_gap_used: coverageGapUsedInThinking(customerContextBundle),
     };
   }
 
@@ -213,11 +237,16 @@ export function composeDeterministicFreeThinking({
       "암보장 여부부터 말씀드리면,",
     ]);
     const cancerHint = signals.includes("암 관련")
-      ? "암 관련 상품명은 보이지만, 암진단비 존재 여부까지는 이 정보만으론 단정할 수 없어요."
-      : "상품명만으로는 암 담보 여부를 단정하긴 어려워요.";
+      ? gapCtx?.top_concerns?.includes("암")
+        ? "암 관련 상품은 보이지만, 내부 공백 신호도 있어서 담보 충분 여부는 함께 봐야 해요."
+        : "암 관련 상품명은 보이지만, 암진단비 존재 여부까지는 이 정보만으론 단정할 수 없어요."
+      : gapCtx?.top_concerns?.includes("암")
+        ? "암 쪽 공백 신호가 있어서, 가입 여부와 별개로 부족 가능성부터 짚는 게 맞아요."
+        : "상품명만으로는 암 담보 여부를 단정하긴 어려워요.";
     const parts = [
       opening,
       cancerHint,
+      gapConcernLine,
       memoryLine,
       "혹시 가족력 때문인지, 지금 가입 충분성이 궁금한 건지 알려주실 수 있을까요?",
       "그 이유를 알면 우선 부족 가능성부터 같이 볼게요.",
@@ -229,6 +258,7 @@ export function composeDeterministicFreeThinking({
       policies,
       policy_count: policies.length,
       memory_used: memoryFacts.length > 0,
+      coverage_gap_used: coverageGapUsedInThinking(customerContextBundle),
     };
   }
 
@@ -254,6 +284,7 @@ export function composeDeterministicFreeThinking({
       policies,
       policy_count: policies.length,
       memory_used: memoryFacts.length > 0,
+      coverage_gap_used: coverageGapUsedInThinking(customerContextBundle),
     };
   }
 
@@ -341,6 +372,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
         policies,
         policy_count: policies.length,
         memory_used: (customerContextBundle?.memoryFacts ?? []).length > 0,
+        coverage_gap_used: coverageGapUsedInThinking(customerContextBundle),
         llm_response_source: llm.response_source,
         latency,
       };

@@ -142,16 +142,25 @@ function memoryUsed(agentTurn = {}) {
   );
 }
 
-function engineLoaded(agentTurn = {}, factoryKey) {
+function engineLoaded(agentTurn = {}, factoryKey, customerContextBundle = null) {
   if (factoryKey === "coverage_gap") {
-    return agentTurn?.toolUsed === "gap_audit" || agentTurn?.tomGapLightPath === true;
+    return (
+      customerContextBundle?.coverageGapContext?.loaded === true ||
+      agentTurn?.toolUsed === "gap_audit" ||
+      agentTurn?.tomGapLightPath === true
+    );
   }
   return false;
 }
 
-function engineUsed(agentTurn = {}, factoryKey) {
+function engineUsed(agentTurn = {}, factoryKey, customerContextBundle = null) {
   if (factoryKey === "coverage_gap") {
-    return agentTurn?.toolUsed === "gap_audit" || agentTurn?.tomGapLightPath === true;
+    return (
+      agentTurn?.trace?.conversation_brain?.coverage_gap_used === true ||
+      agentTurn?.factBundle?.coverage_gap_used === true ||
+      agentTurn?.toolUsed === "gap_audit" ||
+      agentTurn?.tomGapLightPath === true
+    );
   }
   return false;
 }
@@ -270,12 +279,19 @@ export function buildSalesDirectorFactoryAudit({
 
   for (const factoryKey of Object.keys(STORED_FACTORY_KEYS)) {
     const stored = storedProbe?.availability?.[factoryKey] ?? factoryEntry();
+    const bundleGap = customerContextBundle?.coverageGapContext;
     audit[factoryKey] = factoryEntry({
-      available: stored.available === true,
-      loaded: engineLoaded(agentTurn, factoryKey),
-      used: engineUsed(agentTurn, factoryKey),
-      record_count: stored.record_count ?? 0,
-      source: stored.source ?? null,
+      available: stored.available === true || bundleGap?.available === true,
+      loaded: engineLoaded(agentTurn, factoryKey, customerContextBundle),
+      used: engineUsed(agentTurn, factoryKey, customerContextBundle),
+      record_count:
+        factoryKey === "coverage_gap" && bundleGap?.record_count
+          ? bundleGap.record_count
+          : stored.record_count ?? 0,
+      source:
+        factoryKey === "coverage_gap" && bundleGap?.source
+          ? bundleGap.source
+          : stored.source ?? null,
     });
   }
 

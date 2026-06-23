@@ -32,6 +32,7 @@ import {
   createSalesDirectorLatencyBucket,
   markLatencyMs,
 } from "./salesDirectorLatencyAudit.js";
+import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
@@ -152,17 +153,24 @@ export async function runSalesDirectorLoopTurn({
 
   let snapshot = contextSnapshot;
   let unified = unifiedState;
+  let coverageGapContext = null;
   if (!snapshot || !unified) {
     const snapshotLoadStart = Date.now();
-    const turnContext = await loadSalesDirectorTurnContext(userSupabase, customerId, {
-      requestHistory: history,
-    });
+    const [turnContext, gapContext] = await Promise.all([
+      loadSalesDirectorTurnContext(userSupabase, customerId, {
+        requestHistory: history,
+      }),
+      loadSalesDirectorCoverageGapContext(userSupabase, customerId),
+    ]);
     snapshot = snapshot ?? turnContext.snapshot;
     unified = unified ?? turnContext.unifiedState;
+    coverageGapContext = gapContext;
     latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
     if (turnContext.from_cache) {
       latency.snapshot_cache_hit = true;
     }
+  } else {
+    coverageGapContext = await loadSalesDirectorCoverageGapContext(userSupabase, customerId);
   }
 
   const memoryHydrateStart = Date.now();
@@ -170,6 +178,7 @@ export async function runSalesDirectorLoopTurn({
   if (!snapshotCheck.ok) return snapshotCheck;
 
   const { loadedContext, bundle: customerContextBundle } = snapshotCheck;
+  customerContextBundle.coverageGapContext = coverageGapContext ?? customerContextBundle.coverageGapContext;
   const reconciliationWarning = buildReconciliationWarning(unified, snapshot);
 
   const modeDecision = decideSalesDirectorMode({
