@@ -100,17 +100,21 @@ export function mapMemoryFactsForResponse(facts) {
 export async function loadCustomerMemorySnapshot(
   supabase,
   customerId,
-  { limit = DEFAULT_MEMORY_FACT_LIMIT, maxChars = DEFAULT_MEMORY_SNAPSHOT_MAX_CHARS } = {},
+  { limit = DEFAULT_MEMORY_FACT_LIMIT, maxChars = DEFAULT_MEMORY_SNAPSHOT_MAX_CHARS, profile = null } = {},
 ) {
   if (!customerId) throw new Error("customer_id_required");
 
-  const { data: profile, error: profileError } = await supabase
-    .from("customer_profiles")
-    .select("id, display_name, birth_date, gender, job_category, marital_status, family_composition, insurance_goal, monthly_insurance_budget, memory_version")
-    .eq("id", customerId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (profileError) throw new Error(`profile_lookup_failed: ${profileError.message}`);
+  let resolvedProfile = profile;
+  if (!resolvedProfile) {
+    const { data, error: profileError } = await supabase
+      .from("customer_profiles")
+      .select("id, display_name, birth_date, gender, job_category, marital_status, family_composition, insurance_goal, monthly_insurance_budget, memory_version")
+      .eq("id", customerId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (profileError) throw new Error(`profile_lookup_failed: ${profileError.message}`);
+    resolvedProfile = data ?? null;
+  }
 
   const [countResult, factsResult] = await Promise.all([
     supabase
@@ -135,8 +139,8 @@ export async function loadCustomerMemorySnapshot(
 
   return {
     customer_id: customerId,
-    memory_version: profile?.memory_version ?? 0,
-    profile: profile ?? null,
+    memory_version: resolvedProfile?.memory_version ?? 0,
+    profile: resolvedProfile ?? null,
     facts,
     fact_count: countResult.count ?? 0,
     snapshot_facts_count: facts.length,

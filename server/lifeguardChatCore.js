@@ -28,14 +28,16 @@ const LIFEGUARD_AGENT_SYSTEM_PROMPT = [
   "Keep replies conversational (1-5 sentences). Answer directly or ask a natural follow-up when helpful — never forced.",
 ].join(" ");
 
-function buildMessagesFromHistory(history, finalUserContent) {
+function buildMessagesFromHistory(history, finalUserContent, { turnLimit, contentMaxChars } = {}) {
   const seq = [];
-  const turns = Array.isArray(history) ? history.slice(-HISTORY_TURN_LIMIT) : [];
+  const maxTurns = turnLimit ?? HISTORY_TURN_LIMIT;
+  const maxChars = contentMaxChars ?? HISTORY_CONTENT_MAX_CHARS;
+  const turns = Array.isArray(history) ? history.slice(-maxTurns) : [];
   for (const turn of turns) {
     const role = turn?.role === "assistant" ? "assistant" : turn?.role === "user" ? "user" : null;
     let content = String(turn?.content ?? turn?.message ?? "").trim();
     if (!role || !content) continue;
-    if (content.length > HISTORY_CONTENT_MAX_CHARS) content = content.slice(0, HISTORY_CONTENT_MAX_CHARS);
+    if (content.length > maxChars) content = content.slice(0, maxChars);
     if (seq.length && seq[seq.length - 1].role === role) {
       seq[seq.length - 1].content += `\n${content}`;
     } else {
@@ -107,6 +109,8 @@ export async function generateLifeguardChatResponse({
   history = [],
   customerContextBlock = "",
   systemPrompt = LIFEGUARD_AGENT_SYSTEM_PROMPT,
+  historyTurnLimit = HISTORY_TURN_LIMIT,
+  historyContentMaxChars = HISTORY_CONTENT_MAX_CHARS,
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
@@ -130,7 +134,10 @@ export async function generateLifeguardChatResponse({
       apiKey,
       modelName,
       system: systemPrompt,
-      messages: buildMessagesFromHistory(history, userContent),
+      messages: buildMessagesFromHistory(history, userContent, {
+        turnLimit: historyTurnLimit,
+        contentMaxChars: historyContentMaxChars,
+      }),
       maxTokens: LIFEGUARD_MAX_TOKENS,
       maxChars: LIFEGUARD_MAX_CHARS,
       fetchImpl,

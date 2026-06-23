@@ -12,7 +12,7 @@ import { shouldUseTomGapLightPath } from "./tomGapLightPath.js";
 import {
   buildLoadedContextFromSnapshot,
   buildReconciliationWarning,
-  loadCustomerContextSnapshot,
+  loadSalesDirectorTurnContext,
   snapshotToContextBundle,
 } from "./customerContextSnapshot.js";
 import {
@@ -21,7 +21,6 @@ import {
   detectLoadedContextContradictions,
   SALES_DIRECTOR_MODES,
 } from "./customerObservability.js";
-import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
 import {
   buildSnapshotToolTraceOnly,
   planSalesDirectorToolBrain,
@@ -139,10 +138,11 @@ export async function runSalesDirectorLoopTurn({
   let unified = unifiedState;
   if (!snapshot || !unified) {
     const snapshotLoadStart = Date.now();
-    [snapshot, unified] = await Promise.all([
-      snapshot ?? loadCustomerContextSnapshot(userSupabase, customerId, { requestHistory: history }),
-      unified ?? loadUnifiedCustomerState(userSupabase, customerId),
-    ]);
+    const turnContext = await loadSalesDirectorTurnContext(userSupabase, customerId, {
+      requestHistory: history,
+    });
+    snapshot = snapshot ?? turnContext.snapshot;
+    unified = unified ?? turnContext.unifiedState;
     latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
   }
 

@@ -2,7 +2,10 @@
  * P6-1 — CustomerContextSnapshot: single JWT/RLS read path for every customer-facing turn.
  */
 import { loadCustomerMemorySnapshot } from "./customerMemorySnapshot.js";
-import { loadRawCustomerRecords } from "./unifiedCustomerState.js";
+import {
+  buildUnifiedCustomerStateFromRecords,
+  loadRawCustomerRecords,
+} from "./unifiedCustomerState.js";
 import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 import {
   buildMergedRecentConversationSummary,
@@ -97,22 +100,16 @@ export function snapshotToContextBundle(snapshot) {
  * @param {string} customerId
  * @param {{ requestHistory?: Array<{ role?: string, content?: string, message?: string }> }} [options]
  */
-export async function loadCustomerContextSnapshot(
-  supabase,
+export function buildCustomerContextSnapshotFromRecords({
   customerId,
-  { requestHistory = [] } = {},
-) {
-  if (!supabase) throw new Error("supabase_required");
+  raw,
+  memorySnapshot,
+  conversationRows = [],
+  consents = [],
+  normalizedHistory = [],
+} = {}) {
   if (!customerId) throw new Error("customer_id_required");
-
-  const normalizedHistory = normalizeRequestHistoryForSnapshot(requestHistory);
-
-  const [raw, memorySnapshot, conversationRows, consents] = await Promise.all([
-    loadRawCustomerRecords(supabase, customerId),
-    loadCustomerMemorySnapshot(supabase, customerId),
-    loadRecentConversationRows(supabase, customerId),
-    loadCustomerConsents(supabase, customerId),
-  ]);
+  if (!raw) throw new Error("raw_records_required");
 
   const policies = (raw.policies ?? []).map((policy) => ({
     ...policy,
@@ -185,6 +182,70 @@ export async function loadCustomerContextSnapshot(
   });
 
   return snapshot;
+}
+
+async function loadSnapshotSourceRecords(supabase, customerId) {
+  const raw = await loadRawCustomerRecords(supabase, customerId);
+  const [memorySnapshot, conversationRows, consents] = await Promise.all([
+    loadCustomerMemorySnapshot(supabase, customerId, { profile: raw.profile }),
+    loadRecentConversationRows(supabase, customerId),
+    loadCustomerConsents(supabase, customerId),
+  ]);
+  return { raw, memorySnapshot, conversationRows, consents };
+}
+
+export async function loadCustomerContextSnapshot(
+  supabase,
+  customerId,
+  { requestHistory = [] } = {},
+) {
+  if (!supabase) throw new Error("supabase_required");
+  if (!customerId) throw new Error("customer_id_required");
+
+  const normalizedHistory = normalizeRequestHistoryForSnapshot(requestHistory);
+  const { raw, memorySnapshot, conversationRows, consents } = await loadSnapshotSourceRecords(
+    supabase,
+    customerId,
+  );
+
+  return buildCustomerContextSnapshotFromRecords({
+    customerId,
+    raw,
+    memorySnapshot,
+    conversationRows,
+    consents,
+    normalizedHistory,
+  });
+}
+
+/**
+ * P6-2B-5 — Single DB round-trip for snapshot + unified (no duplicate raw/memory queries).
+ */
+export async function loadSalesDirectorTurnContext(
+  supabase,
+  customerId,
+  { requestHistory = [] } = {},
+) {
+  if (!supabase) throw new Error("supabase_required");
+  if (!customerId) throw new Error("customer_id_required");
+
+  const normalizedHistory = normalizeRequestHistoryForSnapshot(requestHistory);
+  const { raw, memorySnapshot, conversationRows, consents } = await loadSnapshotSourceRecords(
+    supabase,
+    customerId,
+  );
+
+  const snapshot = buildCustomerContextSnapshotFromRecords({
+    customerId,
+    raw,
+    memorySnapshot,
+    conversationRows,
+    consents,
+    normalizedHistory,
+  });
+  const unifiedState = buildUnifiedCustomerStateFromRecords(raw, memorySnapshot, { customerId });
+
+  return { snapshot, unifiedState };
 }
 
 export function buildLoadedContextFromSnapshot(snapshot) {

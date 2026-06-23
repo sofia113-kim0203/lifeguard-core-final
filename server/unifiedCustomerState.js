@@ -209,15 +209,16 @@ export async function loadRawCustomerRecords(supabase, customerId) {
   };
 }
 
-export async function loadUnifiedCustomerState(
-  supabase,
-  customerId,
-  { includeSnapshot = true, lastEvent = null } = {},
+export function buildUnifiedCustomerStateFromRecords(
+  raw,
+  memorySnapshot = null,
+  { customerId, lastEvent = null } = {},
 ) {
-  const raw = await loadRawCustomerRecords(supabase, customerId);
-  const snapshot = includeSnapshot ? await loadCustomerMemorySnapshot(supabase, customerId) : null;
-  const structuredMemory = snapshot ? buildStructuredMemoryProfile(snapshot) : null;
-  const memoryVersion = snapshot?.memory_version ?? raw.profile?.memory_version ?? 0;
+  if (!raw) throw new Error("raw_records_required");
+  if (!customerId) throw new Error("customer_id_required");
+
+  const structuredMemory = memorySnapshot ? buildStructuredMemoryProfile(memorySnapshot) : null;
+  const memoryVersion = memorySnapshot?.memory_version ?? raw.profile?.memory_version ?? 0;
   const policyIds = extractPolicyIds(raw.policies);
   const memorySyncAssessment = assessMemorySyncNeed(
     {
@@ -225,11 +226,11 @@ export async function loadUnifiedCustomerState(
       has_health: raw.flags.has_health,
       has_policies: raw.flags.has_policies,
     },
-    snapshot,
+    memorySnapshot,
   );
   const memoryStatus = resolveMemoryDisplayStatus({ syncAssessment: memorySyncAssessment });
 
-  const state = {
+  return {
     contract_version: UNIFIED_STATE_VERSION,
     customer_id: customerId,
     memory_version: memoryVersion,
@@ -253,10 +254,10 @@ export async function loadUnifiedCustomerState(
     documents: raw.documents,
     document_count: raw.document_count,
     documents_preview_count: raw.documents_preview_count,
-    snapshot,
+    snapshot: memorySnapshot,
     structured_memory: structuredMemory,
-    memory_fact_count: snapshot?.fact_count ?? 0,
-    insurance_policy_count_fact: getInsurancePolicyCountFact(snapshot),
+    memory_fact_count: memorySnapshot?.fact_count ?? 0,
+    insurance_policy_count_fact: getInsurancePolicyCountFact(memorySnapshot),
     memory_status: memoryStatus,
     memory_sync_assessment: memorySyncAssessment,
     provenance: buildUnifiedProvenance({
@@ -264,12 +265,20 @@ export async function loadUnifiedCustomerState(
       documents: raw.documents,
       documentCount: raw.document_count,
       documentsPreviewCount: raw.documents_preview_count,
-      snapshot,
+      snapshot: memorySnapshot,
     }),
     flags: raw.flags,
   };
+}
 
-  return state;
+export async function loadUnifiedCustomerState(
+  supabase,
+  customerId,
+  { includeSnapshot = true, lastEvent = null } = {},
+) {
+  const raw = await loadRawCustomerRecords(supabase, customerId);
+  const snapshot = includeSnapshot ? await loadCustomerMemorySnapshot(supabase, customerId) : null;
+  return buildUnifiedCustomerStateFromRecords(raw, snapshot, { customerId, lastEvent });
 }
 
 export function toSourceContext(unifiedState) {

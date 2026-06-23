@@ -17,18 +17,27 @@ const COUNT_DUMP = /\d+\s*건/;
 
 export const SALES_DIRECTOR_FREE_THINKING_PROMPT = [
   "You are a 15-year veteran insurance sales director (영업부장) speaking directly to your customer in Korean.",
-  "You received ONLY the customer context block below — policies (names/types only, no verified premiums), memory facts, recent talk excerpts.",
-  "Think first: why did they ask? what worry hides behind the words? what should you say first?",
-  "Then speak naturally — NOT a fixed manual. Vary your opening each time.",
-  "You MAY observe (\"~가 더 궁금하신 것 같네요\"), share grounded opinion (\"내가 보기엔\", \"느낌상\", \"우선은\"), and ask one good question.",
-  "Use memory naturally if present (e.g. \"지난번 ○○ 얘기하셨던 거 기억나요\") — only facts listed in context.",
-  "Never start with \"확인 어렵습니다\", \"판단 어렵습니다\", \"가입된 보험은 확인돼요\" as a formula.",
+  "Use ONLY the context block — policy type signals, memory facts. Never invent premiums, coverage amounts, or history.",
+  "Speak in this order (3-5 short lines, natural — not a visible checklist):",
+  "1) Direct answer to their question first.",
+  "2) What is confirmed from context, and what cannot be asserted yet.",
+  "3) One intent question (why they ask) — never open with \"왜 궁금하세요?\" alone.",
+  "You MAY use grounded opinion (\"내가 보기엔\", \"느낌상\") and memory naturally if listed.",
+  "Never start with \"확인 어렵습니다\", \"판단 어렵습니다\", or \"가입된 보험은 확인돼요\" as a formula.",
   "Never say \"기억해 둔 상담 내용도 참고할 수 있어요\".",
-  "Never invent policies, premiums, coverage amounts, memory, or customer history not in context.",
-  "Never end with \"보장내역서를 주세요\" alone — always ask a question or propose a next step together.",
-  "Do NOT follow a rigid 5-step checklist visibly. Flow like a real consultation (3-6 short lines).",
+  "Never end with \"보장내역서를 주세요\" alone — always ask a question or propose a next step.",
   "No emojis. No engine/tool names.",
 ].join(" ");
+
+const TOPIC_CONTEXT_LABELS = {
+  cancer_coverage: "암보장",
+  premium_burden: "보험료 부담",
+  adequacy: "보장 충분성",
+};
+
+const FREE_THINKING_HISTORY_TURN_LIMIT = 4;
+const FREE_THINKING_HISTORY_MAX_CHARS = 600;
+const FREE_THINKING_MEMORY_FACT_LIMIT = 4;
 
 function hashSeed(value = "") {
   let hash = 0;
@@ -50,9 +59,26 @@ function policySignals(policies = []) {
   return [...new Set(labels)];
 }
 
-function formatMemoryFactsForContext(memoryFacts = []) {
-  return memoryFacts
-    .slice(0, 8)
+function formatMemoryFactsForContext(memoryFacts = [], topic = null) {
+  const topicPatterns = {
+    cancer_coverage: /암|cancer|가족력/i,
+    premium_burden: /보험료|부담|premium/i,
+    adequacy: /goal|보장|걱정|충분/i,
+  };
+  const pattern = topic ? topicPatterns[topic] : null;
+  const prioritized = pattern
+    ? [
+        ...memoryFacts.filter((fact) =>
+          pattern.test(`${fact.fact_key ?? ""} ${fact.fact_value ?? fact.value ?? ""}`),
+        ),
+        ...memoryFacts.filter(
+          (fact) => !pattern.test(`${fact.fact_key ?? ""} ${fact.fact_value ?? fact.value ?? ""}`),
+        ),
+      ]
+    : memoryFacts;
+
+  return prioritized
+    .slice(0, FREE_THINKING_MEMORY_FACT_LIMIT)
     .map((fact) => {
       const key = String(fact.fact_key ?? "").trim();
       const value = String(fact.fact_value ?? fact.value ?? "").trim();
@@ -82,6 +108,7 @@ export function buildNaturalMemoryLine(memoryFacts = [], topic = null) {
 
 export function buildSalesDirectorThinkingContext({
   question = "",
+  history = [],
   customerContextBundle = null,
   loadedContext = null,
   topic = null,
@@ -90,37 +117,37 @@ export function buildSalesDirectorThinkingContext({
   const memoryFacts = customerContextBundle?.memoryFacts ?? [];
   const recent = customerContextBundle?.recentConversation ?? {};
   const signals = policySignals(policies);
-  const memoryLines = formatMemoryFactsForContext(memoryFacts);
+  const memoryLines = formatMemoryFactsForContext(memoryFacts, topic);
   const excerpt = String(
     recent.latestUserMessageExcerpt ?? recent.latestUserMessages?.[0] ?? "",
   ).trim();
+  const hasHistory = Array.isArray(history) && history.length > 0;
 
   const lines = [
-    "[영업부장에게 전달된 사실 — 이것만 사용]",
-    `고객 질문: ${question}`,
-    `보험 가입 여부: ${loadedContext?.policies === "present" ? "있음" : "없음"}`,
-  ];
+    "[영업부장 사실]",
+    topic ? `주제: ${TOPIC_CONTEXT_LABELS[topic] ?? topic}` : null,
+    `보험 가입: ${loadedContext?.policies === "present" ? "있음" : "없음"}`,
+  ].filter(Boolean);
   if (signals.length) {
-    lines.push(`보이는 상품 유형(이름 수준): ${signals.join(", ")}`);
+    lines.push(`상품 유형(이름 수준): ${signals.join(", ")}`);
   }
-  lines.push("검증된 총 보험료: 없음 (단정 금지)");
-  lines.push("검증된 담보 금액: 없음 (단정 금지)");
+  lines.push("검증된 보험료·담보 금액: 없음 (단정 금지)");
   if (memoryLines.length) {
-    lines.push(`Memory facts: ${memoryLines.join(" | ")}`);
+    lines.push(`Memory: ${memoryLines.join(" | ")}`);
   }
-  if (excerpt) {
-    lines.push(`최근 대화 발췌: ${excerpt.slice(0, 80)}`);
+  if (excerpt && !hasHistory) {
+    lines.push(`최근 발췌: ${excerpt.slice(0, 60)}`);
   }
-  lines.push("[지시] 관찰·생각·자연스러운 한국어 답변. 매뉴얼 조립 금지.");
   return lines.join("\n");
 }
 
 export function hasFreeThinkingQualities(text = "") {
   const body = String(text ?? "");
-  return (
-    /보기엔|느낌상|것\s*같|우선|좋은\s*질문|전체적으로|지금\s*걱정|연장선|기억나/.test(body) &&
-    (/[?？]|할까요|볼게요|말씀해|알려주|짚어|보면/.test(body))
-  );
+  const hasDirectAnswer = /확인|단정|어렵|없습니다|있습니다|보입니다|가입|담보|보장|정보/.test(body);
+  const hasQuestion = /[?？]|할까요|볼게요|말씀해|알려주|짚어|보면/.test(body);
+  const hasDirectorVoice =
+    /보기엔|느낌상|것\s*같|우선|전체적으로|지금\s*걱정|연장선|기억나|다만|혹시|우선은/.test(body);
+  return hasDirectAnswer && hasQuestion && hasDirectorVoice;
 }
 
 export function violatesManualTemplate(text = "") {
@@ -176,19 +203,18 @@ export function composeDeterministicFreeThinking({
 
   if (topic === CONVERSATION_BRAIN_TOPICS.CANCER_COVERAGE) {
     const opening = pickVariant(`${seed}:c`, [
-      "암보장 쪽이 마음에 걸리시는군요.",
-      "지금 걱정되는 건 암 쪽 담보인 것 같네요.",
-      "보험은 확인되는데, 암 진단비까지 바로 말하기는 어려운 질문이에요.",
+      "보험 가입은 확인됩니다.",
+      "가입된 보험은 보이는데,",
+      "암보장 여부부터 말씀드리면,",
     ]);
     const cancerHint = signals.includes("암 관련")
-      ? "암 관련 상품명은 보이긴 해요."
+      ? "암 관련 상품명은 보이지만, 암진단비 존재 여부까지는 이 정보만으론 단정할 수 없어요."
       : "상품명만으로는 암 담보 여부를 단정하긴 어려워요.";
     const parts = [
       opening,
-      memoryLine,
       cancerHint,
-      "내가 보기엔 가족력 걱정인지, 지금 가입 충분성 걱정인지에 따라 보는 순서가 달라져요.",
-      "혹시 가족력 때문인가요, 아니면 지금 가입 상태가 충분한지 궁금하신 건가요?",
+      memoryLine,
+      "혹시 가족력 때문인지, 지금 가입 충분성이 궁금한 건지 알려주실 수 있을까요?",
       "그 이유를 알면 우선 부족 가능성부터 같이 볼게요.",
     ];
     return {
@@ -248,6 +274,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
   const prepareStart = Date.now();
   const contextBlock = buildSalesDirectorThinkingContext({
     question,
+    history,
     customerContextBundle,
     loadedContext,
     topic,
@@ -261,6 +288,8 @@ export async function composeSalesDirectorFreeThinkingAnswer({
       history,
       customerContextBlock: contextBlock,
       systemPrompt: SALES_DIRECTOR_FREE_THINKING_PROMPT,
+      historyTurnLimit: FREE_THINKING_HISTORY_TURN_LIMIT,
+      historyContentMaxChars: FREE_THINKING_HISTORY_MAX_CHARS,
       fetchImpl,
       env,
     });
