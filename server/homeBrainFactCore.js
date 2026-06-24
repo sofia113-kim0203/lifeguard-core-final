@@ -159,6 +159,8 @@ function applyHomeSalesDirectorFormatter({
   factBundle = {},
   customerState = null,
   tomInternalRoute = null,
+  responseSource = null,
+  freeThinking = null,
 }) {
   const homeRoute =
     tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL
@@ -184,6 +186,11 @@ function applyHomeSalesDirectorFormatter({
     surface: ONE_BRAIN_SURFACES.HOME,
     factBundle,
     customerState,
+    responseSource,
+    conversationContext: {
+      freeThinking,
+      responseSource,
+    },
   }).text;
 }
 
@@ -209,6 +216,8 @@ function finalizeHomeAgentResponse({
       factBundle,
       customerState,
       tomInternalRoute,
+      responseSource,
+      freeThinking: customerState?.freeThinking ?? null,
     });
     const finalText = applyP5BrainCustomerTextGuard(formatted);
     return {
@@ -348,6 +357,7 @@ export async function handleHomeBrainFactRequest({
       question: trimmedQuestion,
       coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
       keyOrchestrator: loopResult.modeDecision?.key_orchestrator === true,
+      freeThinking: salesDirectorTrace?.conversation_brain?.free_thinking ?? null,
     },
   });
   const answerText = finalized.text;

@@ -2,7 +2,11 @@
  * P9-2 — Human Understanding Loop (Tom Core Loop v1)
  * People first, insurance as tool. Frame + basisTaggedFacts are thinking material, not slot templates.
  */
-import { computePremiumLookupStats } from "./intentGateLayer.js";
+import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import {
+  hasFreeThinkingQualities,
+  violatesManualTemplate,
+} from "./salesDirectorFreeThinking.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
@@ -768,11 +772,59 @@ function polishHumanOutput(text = "") {
   return cleaned;
 }
 
+export function shouldPreserveFactualLookupFreeThinkingAnswer({
+  classificationIntent = "",
+  question = "",
+  rawText = "",
+  responseSource = null,
+  freeThinking = null,
+} = {}) {
+  if (classificationIntent !== "factual_lookup") return false;
+  if (responseSource !== "sales_director_free_thinking") return false;
+  if (freeThinking?.status !== "p6_2b_3" || freeThinking?.source !== "claude") return false;
+
+  const consultation = classifyConsultationIntent(question);
+  if (consultation.lookup_sub_intent !== "coverage_presence") return false;
+
+  const text = String(rawText ?? "").trim();
+  if (!text) return false;
+  if (violatesManualTemplate(text)) return false;
+  if (!hasFreeThinkingQualities(text)) return false;
+
+  return true;
+}
+
 export function finalizeHumanSalesDirectorResponse(input = {}) {
   const question = normalizeQuestion(input.factBundle?.question ?? input.customerState?.question ?? input.question ?? "");
   const classificationIntent = input.classificationIntent ?? "";
   const resolvedIntent =
     input.intent ?? resolveSalesDirectorJudgmentIntent(classificationIntent, question);
+
+  const freeThinking =
+    input.conversationContext?.freeThinking ?? input.customerState?.freeThinking ?? null;
+  const responseSource =
+    input.conversationContext?.responseSource ?? input.responseSource ?? null;
+
+  if (
+    shouldPreserveFactualLookupFreeThinkingAnswer({
+      classificationIntent,
+      question,
+      rawText: input.rawText ?? "",
+      responseSource,
+      freeThinking,
+    })
+  ) {
+    return {
+      text: normalizeText(input.rawText ?? ""),
+      intent: resolvedIntent,
+      applied: false,
+      humanFrame: null,
+      basisTaggedFacts: null,
+      forbidden_pattern_scan: null,
+      generation_mode: "free_thinking_preserved",
+      p9_version: "p9-2",
+    };
+  }
 
   const bundle = {
     ...input.factBundle,
