@@ -299,7 +299,6 @@ export async function composeSalesDirectorFreeThinkingAnswer({
         contextSnapshotId,
       });
       if (deterministic?.text && !violatesManualTemplate(deterministic.text, memoryFacts)) {
-        streamHandlers?.onReplace?.(deterministic.text);
         return { ...deterministic, source: deterministic.source ?? "deterministic", latency };
       }
     }
