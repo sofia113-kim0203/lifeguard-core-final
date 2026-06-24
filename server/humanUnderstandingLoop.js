@@ -714,11 +714,27 @@ export function generateHumanSalesDirectorResponse({
   const useKeyOrchestrator = shouldUseKeyOrchestratorCompose(guardrails, factBundle);
   const resolvedIntent = intent ?? humanFrame.resolved_intent;
 
+  let keyComposeTrace = {
+    called: false,
+    skip_reason: useKeyOrchestrator ? null : "key_orchestrator_compose_not_selected",
+    text_preview: "",
+    used_safe_fallback: false,
+  };
+
   let text = useKeyOrchestrator
     ? buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent })
     : humanFrame.is_trust_human_question && !humanFrame.needs_insurance_tools
       ? buildTrustResponse(humanFrame)
       : buildInsuranceNaturalResponse(humanFrame, basisTaggedFacts, factBundle);
+
+  if (useKeyOrchestrator) {
+    keyComposeTrace = {
+      called: true,
+      skip_reason: null,
+      text_preview: String(text ?? "").slice(0, 300),
+      used_safe_fallback: false,
+    };
+  }
 
   if (
     !useKeyOrchestrator &&
@@ -742,6 +758,8 @@ export function generateHumanSalesDirectorResponse({
           resolvedIntent,
         }),
       );
+      keyComposeTrace.used_safe_fallback = true;
+      keyComposeTrace.text_preview = String(text ?? "").slice(0, 300);
     } else if (humanFrame.is_trust_human_question && !humanFrame.needs_insurance_tools) {
       text = polishHumanOutput(buildTrustResponse(humanFrame));
     } else {
@@ -763,6 +781,7 @@ export function generateHumanSalesDirectorResponse({
     forbidden_pattern_scan: detectForbiddenOutputPatterns(text),
     generation_mode,
     intent: resolvedIntent,
+    key_compose_trace: keyComposeTrace,
   };
 }
 
@@ -912,6 +931,12 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
       forbidden_pattern_scan: null,
       generation_mode: "free_thinking_preserved",
       p9_version: "p9-2",
+      key_compose_trace: {
+        called: false,
+        skip_reason: "free_thinking_preserved_before_hul_compose",
+        text_preview: "",
+        used_safe_fallback: false,
+      },
       preserve_gate_trace: buildPreserveGateRuntimeTrace({
         classificationIntent,
         question,
@@ -989,6 +1014,7 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     forbidden_pattern_scan: generated.forbidden_pattern_scan,
     generation_mode: generated.generation_mode,
     p9_version: "p9-2",
+    key_compose_trace: generated.key_compose_trace ?? null,
     preserve_gate_trace: buildPreserveGateRuntimeTrace({
       classificationIntent,
       question,

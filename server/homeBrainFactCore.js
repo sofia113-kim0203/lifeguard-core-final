@@ -25,6 +25,7 @@ import {
   probeStoredFactoryRecords,
 } from "./salesDirectorFactoryAudit.js";
 import { buildSalesDirectorJudgmentAudit } from "./salesDirectorJudgmentAudit.js";
+import { buildKeyPathRuntimeTrace } from "./keyPathRuntimeTrace.js";
 import {
   buildGuardResult,
   isSalesDirectorPilotResponseSource,
@@ -224,6 +225,7 @@ function finalizeHomeAgentResponse({
     return {
       text: finalText,
       preserveGateTrace: finalized.preserve_gate_trace ?? null,
+      finalizeTrace: finalized,
       guardResult: buildGuardResult({
         responseSource: pilotSource,
         originalText,
@@ -294,6 +296,38 @@ export async function handleHomeBrainFactRequest({
 
   const startedAt = requestStartedAt ?? Date.now();
 
+  const sseTrace = {
+    delta_count: 0,
+    replace_count: 0,
+    first_delta_preview: "",
+    replace_preview: "",
+  };
+  let activeStreamHandlers = streamHandlers;
+  if (streamHandlers) {
+    activeStreamHandlers = {
+      ...streamHandlers,
+      onDelta(text) {
+        sseTrace.delta_count += 1;
+        if (!sseTrace.first_delta_preview) {
+          sseTrace.first_delta_preview = String(text ?? "").slice(0, 300);
+        }
+        streamHandlers.onDelta?.(text);
+      },
+      onReplace(text) {
+        sseTrace.replace_count += 1;
+        sseTrace.replace_preview = String(text ?? "").slice(0, 300);
+        streamHandlers.onReplace?.(text);
+      },
+      onFirstToken: streamHandlers.onFirstToken,
+      get _emitted() {
+        return streamHandlers._emitted;
+      },
+      set _emitted(value) {
+        streamHandlers._emitted = value;
+      },
+    };
+  }
+
   const [loopResult, storedFactoryProbe] = await Promise.all([
     runSalesDirectorLoopTurn({
       userSupabase,
@@ -303,7 +337,7 @@ export async function handleHomeBrainFactRequest({
       env,
       fetchImpl,
       startedAt,
-      streamHandlers,
+      streamHandlers: activeStreamHandlers,
       requestStartedAt: startedAt,
     }),
     probeStoredFactoryRecords(userSupabase, customerId),
@@ -364,16 +398,16 @@ export async function handleHomeBrainFactRequest({
   });
   const answerText = finalized.text;
 
-  if (streamHandlers?.onDelta && !streamHandlers._emitted) {
-    streamHandlers.onDelta(answerText);
-    streamHandlers._emitted = true;
-    streamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
+  if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
+    activeStreamHandlers.onDelta(answerText);
+    activeStreamHandlers._emitted = true;
+    activeStreamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
   } else if (
-    streamHandlers?.onReplace &&
-    streamHandlers._emitted &&
+    activeStreamHandlers?.onReplace &&
+    activeStreamHandlers._emitted &&
     answerText !== agentTurn.text
   ) {
-    streamHandlers.onReplace(answerText);
+    activeStreamHandlers.onReplace(answerText);
   }
 
   const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
@@ -389,6 +423,21 @@ export async function handleHomeBrainFactRequest({
     customerContextBundle: loopResult.customerContextBundle,
     factoryAudit,
     answerEvidence: factoryAudit.answer_evidence,
+  });
+
+  const keyPathTrace = buildKeyPathRuntimeTrace({
+    question: trimmedQuestion,
+    customerId,
+    consultationIntent: agentTurn.consultationIntent ?? modeDecision.consultationIntent,
+    env,
+    modeDecision,
+    agentTurn,
+    salesDirectorTrace,
+    keyLoop: salesDirectorTrace?.key_loop_trace ?? null,
+    finalizeTrace: finalized.finalizeTrace ?? null,
+    observability: observabilityPreview,
+    answerText,
+    sseTrace,
   });
 
   const observability = buildSalesDirectorLoopObservability({
@@ -407,6 +456,7 @@ export async function handleHomeBrainFactRequest({
       sales_director_judgment_audit: judgmentAudit,
       answer_evidence: factoryAudit.answer_evidence,
       p10_3e_preserve_gate: finalized.preserveGateTrace ?? null,
+      p10_4_key_path_trace: keyPathTrace,
       latency: {
         ...(loopLatency ?? {}),
         compose_ms: Date.now() - composeStart,

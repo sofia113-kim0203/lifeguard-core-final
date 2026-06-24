@@ -193,6 +193,13 @@ export async function runSalesDirectorLoopTurn({
   });
   latency.memory_ms = markLatencyMs(memoryHydrateStart);
 
+  let keyLoopTrace = {
+    entered: false,
+    handled: false,
+    failed_reason: null,
+    legacy_fallback: null,
+  };
+
   if (
     shouldUseSalesDirectorKeyOrchestrator({
       question: trimmedQuestion,
@@ -201,6 +208,7 @@ export async function runSalesDirectorLoopTurn({
       env,
     })
   ) {
+    keyLoopTrace.entered = true;
     const keyTurn = await runSalesDirectorKeyTurn({
       userSupabase,
       customerId,
@@ -222,8 +230,16 @@ export async function runSalesDirectorLoopTurn({
     });
 
     if (keyTurn?.handled && keyTurn.result) {
+      keyLoopTrace.handled = true;
+      keyTurn.result.salesDirectorTrace = {
+        ...(keyTurn.result.salesDirectorTrace ?? {}),
+        key_loop_trace: keyLoopTrace,
+      };
       return keyTurn.result;
     }
+
+    keyLoopTrace.failed_reason = keyTurn?.reason ?? "key_turn_not_handled";
+    keyLoopTrace.legacy_fallback = keyTurn?.legacy_fallback ?? isKeyLegacyFallbackEnabled(env);
 
     if (!isKeyLegacyFallbackEnabled(env)) {
       return {
@@ -332,6 +348,7 @@ export async function runSalesDirectorLoopTurn({
     legacy_tom_internal_route: agentTurn.tomInternalRoute ?? null,
     tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
     conversation_brain: agentTurn.trace?.conversation_brain ?? null,
+    key_loop_trace: keyLoopTrace,
     truth_gate: truthGate,
     snapshot_cache_hit: latency.snapshot_cache_hit === true,
     latency: {
