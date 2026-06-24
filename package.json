@@ -100,7 +100,12 @@
     "test:p6-2b-6a": "node scripts/p6-2b-6a-ttft-optimization-unit-test.mjs",
     "test:p7-0": "node scripts/p7-0-factory-visibility-audit-unit-test.mjs",
     "test:p7-1": "node scripts/p7-1-coverage-gap-context-injection-unit-test.mjs",
-    "test:p7-persona": "node scripts/p7-persona-trusted-advisor-unit-test.mjs"
+    "test:p7-persona": "node scripts/p7-persona-trusted-advisor-unit-test.mjs",
+    "test:p8-0": "node scripts/p8-0-judgment-audit-unit-test.mjs",
+    "report:p8-0": "node scripts/p8-0-judgment-audit-report.mjs",
+    "test:p9-1": "node scripts/p9-1-sales-director-formatter-unit-test.mjs",
+    "test:p9-2": "node scripts/p9-2-human-understanding-loop-unit-test.mjs",
+    "test:p10-3f": "node scripts/p10-3f-preserve-gate-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

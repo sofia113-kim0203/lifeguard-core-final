@@ -191,7 +191,7 @@ function applyHomeSalesDirectorFormatter({
       freeThinking,
       responseSource,
     },
-  }).text;
+  });
 }
 
 function finalizeHomeAgentResponse({
@@ -209,7 +209,7 @@ function finalizeHomeAgentResponse({
   const pilotSource = salesDirectorResponseSource ?? responseSource;
 
   if (isP5BrainResponseSource(responseSource) || isSalesDirectorPilotResponseSource(pilotSource)) {
-    const formatted = applyHomeSalesDirectorFormatter({
+    const finalized = applyHomeSalesDirectorFormatter({
       text,
       question,
       intent,
@@ -219,9 +219,11 @@ function finalizeHomeAgentResponse({
       responseSource,
       freeThinking: customerState?.freeThinking ?? null,
     });
+    const formatted = finalized.text;
     const finalText = applyP5BrainCustomerTextGuard(formatted);
     return {
       text: finalText,
+      preserveGateTrace: finalized.preserve_gate_trace ?? null,
       guardResult: buildGuardResult({
         responseSource: pilotSource,
         originalText,
@@ -404,6 +406,7 @@ export async function handleHomeBrainFactRequest({
       sales_director_factory_audit: factoryAudit,
       sales_director_judgment_audit: judgmentAudit,
       answer_evidence: factoryAudit.answer_evidence,
+      p10_3e_preserve_gate: finalized.preserveGateTrace ?? null,
       latency: {
         ...(loopLatency ?? {}),
         compose_ms: Date.now() - composeStart,

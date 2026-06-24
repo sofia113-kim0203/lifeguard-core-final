@@ -43,7 +43,7 @@ export function matchConversationBrainTopic(question = "") {
   const q = normalizeQuestion(question);
   if (!q) return null;
 
-  if (/암\s*보장|암보장|암\s*담보|암\s*관련/.test(q)) {
+  if (/암\s*보장|암보장|암\s*담보|암\s*관련|암보험/.test(q)) {
     return CONVERSATION_BRAIN_TOPICS.CANCER_COVERAGE;
   }
   if (/보험료.*(부담|비싼|높)/.test(q)) {

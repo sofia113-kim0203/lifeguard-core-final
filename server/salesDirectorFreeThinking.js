@@ -2,6 +2,8 @@
  * P6-2B-3 / P7-PERSONA — Sales Director Free Thinking.
  */
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
+import { hasCoveragePresenceFactualAnswer } from "./coveragePresencePreserveGate.js";
+import { classifyConsultationIntent } from "./intentGateLayer.js";
 import { generateLifeguardChatResponse } from "./lifeguardChatCore.js";
 import { CONVERSATION_BRAIN_TOPICS } from "./salesDirectorPersona.js";
 import { buildCoverageGapDirectorContextLines } from "./salesDirectorCoverageGapContext.js";
@@ -126,6 +128,15 @@ export function hasFreeThinkingQualities(text = "") {
   const hasReassurance = /괜찮|천천히|함께|곁|걱정|안심|덜\s*답답|혼자\s*감당/.test(body);
   const hasQuestion = /[?？]|할까요|볼게요|말씀해|알려주|짚어|보면/.test(body);
   return hasIntent && hasSituation && hasJudgment && hasReassurance && hasQuestion;
+}
+
+/** P10-3F — accept short factual Claude FT for coverage_presence without relaxing hasFreeThinkingQualities globally. */
+export function passesCoveragePresenceFactualFreeThinkingText(text = "", question = "", memoryFacts = []) {
+  if (violatesManualTemplate(text, memoryFacts)) return false;
+  if (hasFreeThinkingQualities(text)) return true;
+  const consultation = classifyConsultationIntent(question);
+  if (consultation.lookup_sub_intent !== "coverage_presence") return false;
+  return hasCoveragePresenceFactualAnswer(text);
 }
 
 export function violatesManualTemplate(text = "", memoryFacts = []) {
@@ -270,8 +281,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
     if (
       llm.ok &&
       llm.text &&
-      !violatesManualTemplate(llm.text, memoryFacts) &&
-      hasFreeThinkingQualities(llm.text)
+      passesCoveragePresenceFactualFreeThinkingText(llm.text, question, memoryFacts)
     ) {
       latency.parse_ms += markLatencyMs(validateStart);
       const policies = customerContextBundle?.policies ?? [];

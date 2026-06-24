@@ -3,6 +3,7 @@
  * People first, insurance as tool. Frame + basisTaggedFacts are thinking material, not slot templates.
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import { hasCoveragePresenceFactualAnswer, isGenericHulCounselingIntro } from "./coveragePresencePreserveGate.js";
 import {
   hasFreeThinkingQualities,
   violatesManualTemplate,
@@ -789,9 +790,95 @@ export function shouldPreserveFactualLookupFreeThinkingAnswer({
   const text = String(rawText ?? "").trim();
   if (!text) return false;
   if (violatesManualTemplate(text)) return false;
-  if (!hasFreeThinkingQualities(text)) return false;
+  if (hasFreeThinkingQualities(text)) return true;
+  if (hasCoveragePresenceFactualAnswer(text)) return true;
 
-  return true;
+  return false;
+}
+
+function resolveCoveragePresencePreservePath(text = "") {
+  if (hasFreeThinkingQualities(text)) return "free_thinking_qualities";
+  if (hasCoveragePresenceFactualAnswer(text)) return "coverage_presence_factual";
+  return null;
+}
+
+/**
+ * P10-3E READ ONLY runtime trace — preserve gate diagnostics (no answer logic change).
+ */
+export function buildPreserveGateRuntimeTrace({
+  classificationIntent = "",
+  question = "",
+  rawText = "",
+  responseSource = null,
+  freeThinking = null,
+  finalText = "",
+  hulOverwriteEntered = false,
+} = {}) {
+  const consultation = classifyConsultationIntent(question);
+  const text = String(rawText ?? "").trim();
+  const violatesManualTemplateResult = violatesManualTemplate(text);
+  const hasFreeThinkingQualitiesResult = hasFreeThinkingQualities(text);
+  const hasCoveragePresenceFactualAnswerResult = hasCoveragePresenceFactualAnswer(text);
+  const genericHulIntroBlocked = isGenericHulCounselingIntro(text);
+  const preservePath = resolveCoveragePresencePreservePath(text);
+  const shouldPreserve = shouldPreserveFactualLookupFreeThinkingAnswer({
+    classificationIntent,
+    question,
+    rawText,
+    responseSource,
+    freeThinking,
+  });
+
+  const failedConditions = [];
+  if (classificationIntent !== "factual_lookup") {
+    failedConditions.push("classificationIntent !== factual_lookup");
+  }
+  if (responseSource !== "sales_director_free_thinking") {
+    failedConditions.push("responseSource !== sales_director_free_thinking");
+  }
+  if (freeThinking?.status !== "p6_2b_3") {
+    failedConditions.push("freeThinking.status !== p6_2b_3");
+  }
+  if (freeThinking?.source !== "claude") {
+    failedConditions.push("freeThinking.source !== claude");
+  }
+  if (consultation.lookup_sub_intent !== "coverage_presence") {
+    failedConditions.push("lookup_sub_intent !== coverage_presence");
+  }
+  if (!text) {
+    failedConditions.push("rawText empty");
+  }
+  if (violatesManualTemplateResult) {
+    failedConditions.push("violatesManualTemplate === true");
+  }
+  if (genericHulIntroBlocked) {
+    failedConditions.push("isGenericHulCounselingIntro === true");
+  }
+  if (!hasFreeThinkingQualitiesResult && !hasCoveragePresenceFactualAnswerResult) {
+    failedConditions.push("hasFreeThinkingQualities === false");
+    failedConditions.push("hasCoveragePresenceFactualAnswer === false");
+  }
+
+  return {
+    audit: "p10_3f_preserve_gate",
+    read_only: true,
+    classificationIntent,
+    lookup_sub_intent: consultation.lookup_sub_intent ?? null,
+    lookup_category: consultation.lookup_category ?? null,
+    responseSource: responseSource ?? null,
+    freeThinking_status: freeThinking?.status ?? null,
+    freeThinking_source: freeThinking?.source ?? null,
+    freeThinking_rawText_preview: text.slice(0, 300),
+    violatesManualTemplate: violatesManualTemplateResult,
+    hasFreeThinkingQualities: hasFreeThinkingQualitiesResult,
+    hasCoveragePresenceFactualAnswer: hasCoveragePresenceFactualAnswerResult,
+    is_generic_hul_intro_blocked: genericHulIntroBlocked,
+    preserve_path: preservePath,
+    shouldPreserveFactualLookupFreeThinkingAnswer: shouldPreserve,
+    failed_conditions: failedConditions,
+    hul_overwrite_entered: hulOverwriteEntered,
+    final_text_preview: String(finalText ?? "").slice(0, 300),
+  };
 }
 
 export function finalizeHumanSalesDirectorResponse(input = {}) {
@@ -804,18 +891,20 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     input.conversationContext?.freeThinking ?? input.customerState?.freeThinking ?? null;
   const responseSource =
     input.conversationContext?.responseSource ?? input.responseSource ?? null;
+  const rawText = input.rawText ?? "";
 
-  if (
-    shouldPreserveFactualLookupFreeThinkingAnswer({
-      classificationIntent,
-      question,
-      rawText: input.rawText ?? "",
-      responseSource,
-      freeThinking,
-    })
-  ) {
+  const shouldPreserve = shouldPreserveFactualLookupFreeThinkingAnswer({
+    classificationIntent,
+    question,
+    rawText,
+    responseSource,
+    freeThinking,
+  });
+
+  if (shouldPreserve) {
+    const preservedText = normalizeText(rawText);
     return {
-      text: normalizeText(input.rawText ?? ""),
+      text: preservedText,
       intent: resolvedIntent,
       applied: false,
       humanFrame: null,
@@ -823,6 +912,15 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
       forbidden_pattern_scan: null,
       generation_mode: "free_thinking_preserved",
       p9_version: "p9-2",
+      preserve_gate_trace: buildPreserveGateRuntimeTrace({
+        classificationIntent,
+        question,
+        rawText,
+        responseSource,
+        freeThinking,
+        finalText: preservedText,
+        hulOverwriteEntered: false,
+      }),
     };
   }
 
@@ -891,5 +989,14 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     forbidden_pattern_scan: generated.forbidden_pattern_scan,
     generation_mode: generated.generation_mode,
     p9_version: "p9-2",
+    preserve_gate_trace: buildPreserveGateRuntimeTrace({
+      classificationIntent,
+      question,
+      rawText,
+      responseSource,
+      freeThinking,
+      finalText: generated.text,
+      hulOverwriteEntered: true,
+    }),
   };
 }
