@@ -31,6 +31,7 @@ export function mapHomeBrainFactPayload(payload) {
     answerEvidence: payload.answer_evidence ?? [],
     factoryHypothesis: payload.factory_hypothesis ?? null,
     factoryPrimaryDisconnect: payload.factory_primary_disconnect ?? null,
+    salesDirectorJudgmentAudit: payload.sales_director_judgment_audit ?? null,
     responseLatencyMs: payload.response_latency_ms ?? null,
     ttftMs: payload.sales_director_trace?.latency?.ttft_ms ?? null,
   };

@@ -33,6 +33,11 @@ import {
   markLatencyMs,
 } from "./salesDirectorLatencyAudit.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
+import {
+  isKeyLegacyFallbackEnabled,
+  runSalesDirectorKeyTurn,
+  shouldUseSalesDirectorKeyOrchestrator,
+} from "./salesDirectorKeyOrchestrator.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
@@ -187,6 +192,47 @@ export async function runSalesDirectorLoopTurn({
     env,
   });
   latency.memory_ms = markLatencyMs(memoryHydrateStart);
+
+  if (
+    shouldUseSalesDirectorKeyOrchestrator({
+      question: trimmedQuestion,
+      customerId,
+      consultationIntent: modeDecision.consultationIntent,
+      env,
+    })
+  ) {
+    const keyTurn = await runSalesDirectorKeyTurn({
+      userSupabase,
+      customerId,
+      question: trimmedQuestion,
+      history,
+      env,
+      fetchImpl,
+      startedAt: loopStartedAt,
+      streamHandlers,
+      requestStartedAt: requestStartedAt ?? startedAt,
+      snapshot,
+      unified,
+      loadedContext,
+      customerContextBundle,
+      reconciliationWarning,
+      modeDecision,
+      latency,
+      loopStartedAt,
+    });
+
+    if (keyTurn?.handled && keyTurn.result) {
+      return keyTurn.result;
+    }
+
+    if (!isKeyLegacyFallbackEnabled(env)) {
+      return {
+        ok: false,
+        reason: "KEY_ORCHESTRATOR_FAILED",
+        error_message: keyTurn?.reason ?? "key_turn_failed",
+      };
+    }
+  }
 
   const toolBrainStart = Date.now();
   const toolPlan = planSalesDirectorToolBrain({

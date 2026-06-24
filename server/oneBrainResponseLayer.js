@@ -8,6 +8,11 @@ import {
   GUIDANCE_INTENTS,
 } from "./guidanceLayer/guidanceBuilder.js";
 import { LIFEGUARD_CHAT_FALLBACK } from "./lifeguardChatCore.js";
+import {
+  finalizeSalesDirectorResponse,
+  resolveSalesDirectorJudgmentIntent,
+  shouldApplySalesDirectorFormatter,
+} from "./salesDirectorFormatter.js";
 
 export const ONE_BRAIN_SURFACES = {
   CONSULTATION: "consultation",
@@ -124,6 +129,32 @@ function casualNeedsGuidance(question, text) {
   return false;
 }
 
+function applySalesDirectorFormatterLayer(
+  text,
+  { intent, question, surface, factBundle, homeBrainIntent, homeRoute },
+) {
+  if (
+    !shouldApplySalesDirectorFormatter(intent, question, {
+      surface,
+      homeBrainIntent,
+      homeRoute,
+      homeVerifiedIntents: HOME_VERIFIED_INTENTS,
+    })
+  ) {
+    return text;
+  }
+  return finalizeSalesDirectorResponse({
+    rawText: text,
+    intent: resolveSalesDirectorJudgmentIntent(intent, question),
+    classificationIntent: intent,
+    surface,
+    factBundle,
+    homeBrainIntent,
+    homeRoute,
+    homeVerifiedIntents: HOME_VERIFIED_INTENTS,
+  }).text;
+}
+
 export function finalizeOneBrainResponse({
   text = "",
   question = "",
@@ -141,13 +172,35 @@ export function finalizeOneBrainResponse({
   };
   const isHomeSurface = surface === ONE_BRAIN_SURFACES.HOME;
 
+  const formatterContext = {
+    intent,
+    question: normalizedQuestion,
+    surface,
+    factBundle: bundle,
+    homeBrainIntent,
+    homeRoute,
+  };
+
   if (intent === "casual_chat") {
+    if (
+      shouldApplySalesDirectorFormatter(intent, normalizedQuestion, {
+        surface,
+        homeBrainIntent,
+        homeRoute,
+        homeVerifiedIntents: HOME_VERIFIED_INTENTS,
+      })
+    ) {
+      return applySalesDirectorFormatterLayer(text || normalizedQuestion, formatterContext);
+    }
     if (!isHomeSurface && casualNeedsGuidance(normalizedQuestion, text)) {
       const guidanceIntent =
         resolveGuidanceIntent("coverage_gap_check", normalizedQuestion) ??
         resolveGuidanceIntent("general_consultation", normalizedQuestion) ??
         GUIDANCE_INTENTS.GENERAL_JUDGMENT;
-      return buildGuidanceResponse(guidanceIntent, bundle, { question: normalizedQuestion });
+      return applySalesDirectorFormatterLayer(
+        buildGuidanceResponse(guidanceIntent, bundle, { question: normalizedQuestion }),
+        formatterContext,
+      );
     }
     const sanitized = sanitizeOneBrainCustomerText(text, bundle);
     return sanitized || LIFEGUARD_CHAT_FALLBACK;
@@ -155,7 +208,9 @@ export function finalizeOneBrainResponse({
 
   if (intent === "coverage_gap_check" && tomGapVoiceHandled) {
     const sanitized = sanitizeOneBrainCustomerText(text, bundle);
-    if (sanitized) return sanitized;
+    if (sanitized) {
+      return sanitized;
+    }
     return "아직 암 보장 금액이 보이지 않아요. 보장내역서 추가 페이지를 주시면 바로 확인해 드릴게요.";
   }
 
@@ -168,7 +223,9 @@ export function finalizeOneBrainResponse({
       if (sanitized) return sanitized;
     }
     const fallbackSanitized = sanitizeOneBrainCustomerText(text, bundle);
-    if (fallbackSanitized) return fallbackSanitized;
+    if (fallbackSanitized) {
+      return applySalesDirectorFormatterLayer(fallbackSanitized, formatterContext);
+    }
     return LIFEGUARD_CHAT_FALLBACK;
   }
 
@@ -177,15 +234,21 @@ export function finalizeOneBrainResponse({
     surface,
   });
   if (guidanceIntent) {
-    return buildGuidanceResponse(guidanceIntent, bundle, { question: normalizedQuestion });
+    return applySalesDirectorFormatterLayer(
+      buildGuidanceResponse(guidanceIntent, bundle, { question: normalizedQuestion }),
+      formatterContext,
+    );
   }
 
   if (isVerifiedPassthrough(intent, { homeBrainIntent, surface })) {
     const sanitized = sanitizeOneBrainCustomerText(text, bundle);
     if (!sanitized) {
-      return buildGuidanceResponse(GUIDANCE_INTENTS.GENERAL_JUDGMENT, bundle, {
-        question: normalizedQuestion,
-      });
+      return applySalesDirectorFormatterLayer(
+        buildGuidanceResponse(GUIDANCE_INTENTS.GENERAL_JUDGMENT, bundle, {
+          question: normalizedQuestion,
+        }),
+        formatterContext,
+      );
     }
     return sanitized;
   }
@@ -196,12 +259,15 @@ export function finalizeOneBrainResponse({
     REDIRECT_PATTERNS.some((pattern) => pattern.test(text)) ||
     STANDALONE_IGNORANCE_PATTERNS.some((pattern) => pattern.test(fallbackSanitized))
   ) {
-    return buildGuidanceResponse(GUIDANCE_INTENTS.GENERAL_JUDGMENT, bundle, {
-      question: normalizedQuestion,
-    });
+    return applySalesDirectorFormatterLayer(
+      buildGuidanceResponse(GUIDANCE_INTENTS.GENERAL_JUDGMENT, bundle, {
+        question: normalizedQuestion,
+      }),
+      formatterContext,
+    );
   }
 
-  return fallbackSanitized;
+  return applySalesDirectorFormatterLayer(fallbackSanitized, formatterContext);
 }
 
 export function shouldDeferLegacyLlmForOneBrain(intentGate = null, question = "") {

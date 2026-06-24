@@ -11,6 +11,11 @@ import {
 import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import {
+  finalizeSalesDirectorResponse,
+  resolveSalesDirectorJudgmentIntent,
+  shouldApplySalesDirectorFormatter,
+} from "./salesDirectorFormatter.js";
+import {
   buildSalesDirectorFactsUsed,
   buildSalesDirectorLoopObservability,
   runSalesDirectorLoopTurn,
@@ -19,6 +24,7 @@ import {
   buildSalesDirectorFactoryAudit,
   probeStoredFactoryRecords,
 } from "./salesDirectorFactoryAudit.js";
+import { buildSalesDirectorJudgmentAudit } from "./salesDirectorJudgmentAudit.js";
 import {
   buildGuardResult,
   isSalesDirectorPilotResponseSource,
@@ -146,6 +152,41 @@ export function composeHomeBrainFactAnswer(unified, question) {
   };
 }
 
+function applyHomeSalesDirectorFormatter({
+  text,
+  question,
+  intent,
+  factBundle = {},
+  customerState = null,
+  tomInternalRoute = null,
+}) {
+  const homeRoute =
+    tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL
+      ? "gap_grounded"
+      : tomInternalRoute === TOM_INTERNAL_ROUTES.CHAT
+        ? "casual_chat"
+        : "high_stakes_defer";
+
+  if (
+    !shouldApplySalesDirectorFormatter(intent, question, {
+      surface: ONE_BRAIN_SURFACES.HOME,
+      homeBrainIntent: "unsupported",
+      homeRoute,
+    })
+  ) {
+    return text;
+  }
+
+  return finalizeSalesDirectorResponse({
+    rawText: text,
+    intent: resolveSalesDirectorJudgmentIntent(intent, question),
+    classificationIntent: intent,
+    surface: ONE_BRAIN_SURFACES.HOME,
+    factBundle,
+    customerState,
+  }).text;
+}
+
 function finalizeHomeAgentResponse({
   text,
   question,
@@ -155,18 +196,27 @@ function finalizeHomeAgentResponse({
   tomInternalRoute = null,
   responseSource = null,
   salesDirectorResponseSource = null,
+  customerState = null,
 }) {
   const originalText = text;
   const pilotSource = salesDirectorResponseSource ?? responseSource;
 
   if (isP5BrainResponseSource(responseSource) || isSalesDirectorPilotResponseSource(pilotSource)) {
-    const finalText = applyP5BrainCustomerTextGuard(text);
+    const formatted = applyHomeSalesDirectorFormatter({
+      text,
+      question,
+      intent,
+      factBundle,
+      customerState,
+      tomInternalRoute,
+    });
+    const finalText = applyP5BrainCustomerTextGuard(formatted);
     return {
       text: finalText,
       guardResult: buildGuardResult({
         responseSource: pilotSource,
         originalText,
-        afterFinalizeText: originalText,
+        afterFinalizeText: formatted,
         finalText,
         p5BrainGuarded:
           responseSource === "p5_brain_state_guarded" ||
@@ -294,6 +344,11 @@ export async function handleHomeBrainFactRequest({
     tomInternalRoute: agentTurn.tomInternalRoute,
     responseSource: agentTurn.responseSource ?? null,
     salesDirectorResponseSource: observabilityPreview.response_source,
+    customerState: {
+      question: trimmedQuestion,
+      coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
+      keyOrchestrator: loopResult.modeDecision?.key_orchestrator === true,
+    },
   });
   const answerText = finalized.text;
 
@@ -317,6 +372,13 @@ export async function handleHomeBrainFactRequest({
     buildFactsUsed: buildHomeBrainFactsUsed,
   });
 
+  const judgmentAudit = buildSalesDirectorJudgmentAudit({
+    answerText,
+    customerContextBundle: loopResult.customerContextBundle,
+    factoryAudit,
+    answerEvidence: factoryAudit.answer_evidence,
+  });
+
   const observability = buildSalesDirectorLoopObservability({
     modeDecision,
     agentTurn,
@@ -330,6 +392,7 @@ export async function handleHomeBrainFactRequest({
       ...salesDirectorTrace,
       truth_gate: truthGate,
       sales_director_factory_audit: factoryAudit,
+      sales_director_judgment_audit: judgmentAudit,
       answer_evidence: factoryAudit.answer_evidence,
       latency: {
         ...(loopLatency ?? {}),
@@ -359,6 +422,7 @@ export async function handleHomeBrainFactRequest({
     loaded_context_contradictions: observability.loaded_context_contradictions,
     sales_director_trace: observability.sales_director_trace,
     sales_director_factory_audit: factoryAudit,
+    sales_director_judgment_audit: judgmentAudit,
     answer_evidence: factoryAudit.answer_evidence,
     factory_hypothesis: factoryAudit.hypothesis,
     factory_primary_disconnect: factoryAudit.primary_disconnect,

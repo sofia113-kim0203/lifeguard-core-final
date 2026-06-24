@@ -8,6 +8,7 @@ export const SALES_DIRECTOR_MODES = {
   CHAT: "sales_director_chat_mode",
   DEFER: "sales_director_guarded_hold_mode",
   GAP: "sales_director_factory_gap_mode",
+  KEY: "sales_director_key_mode",
 };
 
 const P5_BRAIN_RESPONSE_SOURCES = new Set([
@@ -21,6 +22,7 @@ const SALES_DIRECTOR_PILOT_RESPONSE_SOURCES = new Set([
   "sales_director_tool_brain",
   "sales_director_conversation_brain",
   "sales_director_free_thinking",
+  "sales_director_key",
 ]);
 
 function isP5BrainResponseSource(responseSource) {
@@ -66,6 +68,8 @@ export function mapSalesDirectorResponseSource({
       return p5Guarded ? "sales_director_pilot_guarded" : "sales_director_pilot_compose";
     case SALES_DIRECTOR_MODES.GAP:
       return "sales_director_factory_gap";
+    case SALES_DIRECTOR_MODES.KEY:
+      return "sales_director_key";
     case SALES_DIRECTOR_MODES.DEFER:
       return "sales_director_guarded_hold";
     case SALES_DIRECTOR_MODES.CHAT:
