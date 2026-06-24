@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
+import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
 import { listDocuments } from "../lib/customerDocuments.js";
 import { fetchHomeBrainFactStream } from "../lib/customerHomeBrainFact.js";
 import {
@@ -264,6 +266,36 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
   const [thinkingIndex, setThinkingIndex] = useState(0);
+  const loadDocumentsRef = useRef(async () => {});
+
+  const uploadFlow = useCustomerDocumentUpload({
+    user: authUser,
+    refreshSession: session?.refreshSession,
+    setActiveAnalysisJob: session?.setActiveAnalysisJob,
+    onUploadComplete: async () => {
+      await loadDocumentsRef.current();
+    },
+  });
+
+  const reloadDocuments = useCallback(async () => {
+    if (!authUser) return;
+    setDocumentsLoading(true);
+    setDocumentsError("");
+    try {
+      const result = await listDocuments(authUser, { categoryKey: "all" });
+      setDocuments(result.documents ?? []);
+      uploadFlow.syncFromListResult(result);
+    } catch (err) {
+      setDocuments([]);
+      setDocumentsError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }, [authUser, uploadFlow.syncFromListResult]);
+
+  useEffect(() => {
+    loadDocumentsRef.current = reloadDocuments;
+  }, [reloadDocuments]);
 
   const isDesktopSidebar = useMediaQuery(`(min-width: ${DESKTOP_SIDEBAR_BREAKPOINT}px)`);
 
@@ -335,26 +367,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   useEffect(() => {
     if (panelView !== "documents" || !authUser) return undefined;
-    let cancelled = false;
-    setDocumentsLoading(true);
-    setDocumentsError("");
-    listDocuments(authUser, { categoryKey: "all" })
-      .then((result) => {
-        if (cancelled) return;
-        setDocuments(result.documents ?? []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setDocuments([]);
-        setDocumentsError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
-      })
-      .finally(() => {
-        if (!cancelled) setDocumentsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [panelView, authUser]);
+    reloadDocuments();
+    return undefined;
+  }, [panelView, authUser, reloadDocuments]);
 
   useEffect(() => {
     if (!authUser || !customerId || loadingSession) return undefined;
@@ -646,6 +661,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
           {panelView === "documents" ? (
             <LayerPanel title="내 문서" onBack={goBackToChat}>
+              <CustomerDocumentUploadFlow
+                variant="customer"
+                user={authUser}
+                refreshSession={session?.refreshSession}
+                setActiveAnalysisJob={session?.setActiveAnalysisJob}
+                uploadHook={uploadFlow}
+              />
               <CustomerDocumentsList documents={documents} loading={documentsLoading} error={documentsError} />
             </LayerPanel>
           ) : null}
