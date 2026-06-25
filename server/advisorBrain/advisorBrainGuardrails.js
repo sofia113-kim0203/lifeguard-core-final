@@ -107,6 +107,32 @@ export function assertNoUnsupportedFact(text = "", { hasPremiumEvidence = false,
   return { ok: violations.length === 0, violations };
 }
 
+const ADVISOR_POLICY_COUNT_SAFE_REPLACEMENT =
+  "가입 보험은 등록 정보 기준으로 확인 중입니다";
+
+/** Strip LLM/stale-memory insurance policy *count* claims (건수). Premium amounts unchanged. */
+function stripInsurancePolicyCountFromAdvisorMessage(text = "") {
+  let out = String(text ?? "");
+
+  const patterns = [
+    /(?:현재\s*)?(?:등록(?:된)?\s*)?(?:확인(?:되(?:는|된)|되는)\s*)?(?:(?:가입|보유)\s*)?보험(?:은|이|를|의|은)?\s*(?:총\s*)?[\d,]+\s*건(?:의\s*(?:(?:가입|보유)\s*)?보험)?(?:입니다|이에요|으로\s*확인(?:됩니다|돼요|되)?)?/gi,
+    /[\d,]+\s*건(?:의\s*(?:(?:가입|보유)\s*)?보험)(?:입니다|이에요)?/gi,
+  ];
+
+  if (/보험/.test(out)) {
+    patterns.push(/(?:포함\s*)?(?:총|합계)\s*[\d,]+\s*건(?:입니다|이에요)?/gi);
+  }
+
+  for (const pattern of patterns) {
+    out = out.replace(pattern, ADVISOR_POLICY_COUNT_SAFE_REPLACEMENT);
+  }
+
+  const escapedSafe = ADVISOR_POLICY_COUNT_SAFE_REPLACEMENT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  out = out.replace(new RegExp(`(?:${escapedSafe}\\s*){2,}`, "g"), `${ADVISOR_POLICY_COUNT_SAFE_REPLACEMENT} `);
+
+  return out.replace(/\s{2,}/g, " ").trim();
+}
+
 export function sanitizeAdvisorBrainMessage(
   message,
   { hasPremiumEvidence = false, hasCoverageEvidence = false } = {},
@@ -114,13 +140,14 @@ export function sanitizeAdvisorBrainMessage(
   const original = String(message ?? "").trim();
   if (!original) return original;
 
-  const factCheck = assertNoUnsupportedFact(original, {
+  let sanitized = stripInsurancePolicyCountFromAdvisorMessage(original);
+
+  const factCheck = assertNoUnsupportedFact(sanitized, {
     hasPremiumEvidence,
     hasCoverageEvidence,
   });
-  if (factCheck.ok) return original;
+  if (factCheck.ok) return sanitized;
 
-  let sanitized = original;
   sanitized = sanitized.replace(/반드시\s*가입\s*가능/gi, "확인 필요");
   sanitized = sanitized.replace(/100%\s*보장/gi, "확인 필요");
   sanitized = sanitized.replace(/확실히\s*받을\s*수\s*있/gi, "확인 필요");
