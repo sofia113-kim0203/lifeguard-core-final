@@ -30,6 +30,7 @@ import {
   buildGuardResult,
   isSalesDirectorPilotResponseSource,
 } from "./customerObservability.js";
+import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
@@ -74,10 +75,17 @@ export function applyP5BrainCustomerTextGuard(text = "") {
   return polishLifeguardCustomerText(text);
 }
 
+function resolveHomeBrainPolicyCount(unified = null) {
+  const fields = resolveActivePolicyCountFromUnified(unified);
+  return fields.active_policy_count;
+}
+
 export function buildHomeBrainFactsUsed(unified, stats) {
+  const policyCount = resolveHomeBrainPolicyCount(unified);
   return {
     portfolioSource: "unified_state.policies",
-    totalCount: stats.totalCount,
+    totalCount: policyCount,
+    active_policy_count: policyCount,
     premiumKnownCount: stats.premiumKnownCount,
     premiumUnknownCount: stats.premiumUnknownCount,
     premiumTotal: stats.premiumTotal,
@@ -93,8 +101,9 @@ function customerLabel(unified) {
 
 export function formatHomeBrainAnswer(intent, unified, stats) {
   const label = customerLabel(unified);
+  const policyCount = resolveHomeBrainPolicyCount(unified);
 
-  if (stats.totalCount === 0 && intent !== "memory_recall_lookup") {
+  if (policyCount === 0 && intent !== "memory_recall_lookup") {
     return `${label}, 지금은 등록된 가입 보험 정보를 찾지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
   }
 
@@ -105,8 +114,12 @@ export function formatHomeBrainAnswer(intent, unified, stats) {
       }
       return `확인된 납입 보험료 합계는 ${formatWonAmount(stats.premiumTotal)}원이에요.`;
     }
-    case "policy_count":
-      return `${label}, 지금 확인된 가입 보험은 ${stats.totalCount}개예요.`;
+    case "policy_count": {
+      if (typeof policyCount === "number" && policyCount > 0) {
+        return `${label}, 지금 확인된 가입 보험은 ${policyCount}개예요.`;
+      }
+      return `${label}, 지금 가입 보험 개수는 확인 중이에요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
+    }
     case "insurer_lookup": {
       const insurers = Array.from(
         new Set((unified?.policies ?? []).map((policy) => policy.insurer_name).filter(Boolean)),
@@ -136,7 +149,6 @@ export function composeHomeBrainFactAnswer(unified, question) {
       answerText: HOME_HIGH_STAKES_DEFER_MESSAGE,
       intent: "unsupported",
       factsUsed: buildHomeBrainFactsUsed(unified ?? {}, {
-        totalCount: unified?.policy_count ?? unified?.policies?.length ?? 0,
         premiumKnownCount: 0,
         premiumUnknownCount: 0,
         premiumTotal: 0,
@@ -384,7 +396,11 @@ export async function handleHomeBrainFactRequest({
     text: agentTurn.text,
     question: trimmedQuestion,
     intent,
-    factBundle: agentTurn.factBundle ?? { question: trimmedQuestion, policy_count: 0, policies: [] },
+    factBundle: agentTurn.factBundle ?? {
+      question: trimmedQuestion,
+      ...resolveActivePolicyCountFromUnified(null),
+      policies: [],
+    },
     tomGapVoiceHandled: agentTurn.tomGapVoiceHandled === true,
     tomInternalRoute: agentTurn.tomInternalRoute,
     responseSource: agentTurn.responseSource ?? null,

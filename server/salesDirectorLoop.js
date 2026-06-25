@@ -294,6 +294,7 @@ export async function runSalesDirectorLoopTurn({
         userSupabase,
         customerId,
         customerContextBundle,
+        unified,
         env,
         fetchImpl,
         startedAt: loopStartedAt,
