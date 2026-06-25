@@ -4,6 +4,15 @@
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
+import {
+  matchToolBrainSliceQuestion,
+  SALES_DIRECTOR_TOOL_BRAIN_SLICES,
+  SALES_DIRECTOR_TOOL_FORBIDDEN,
+} from "./salesDirectorToolBrain.js";
+
+/** Mirrors resolveSalesDirectorJudgmentIntent COVERAGE_JUDGMENT rules — no formatter import (cycle). */
+const COVERAGE_JUDGMENT_QUESTION_RE =
+  /내\s*보험\s*괜찮|보험\s*괜찮|내\s*보장\s*괜찮|암\s*보험\s*부족|암보험\s*부족|암\s*부족/;
 
 export const KEY_TOOLS = {
   SNAPSHOT: "snapshot",
@@ -90,36 +99,105 @@ function dedupeTools(tools = []) {
   return ordered;
 }
 
+function shouldAddCoverageGapTool(classification = {}, question = "") {
+  const intent = classification.intent ?? "";
+  const subIntent = classification.lookup_sub_intent ?? null;
+
+  if (intent === "coverage_gap_check" || intent === "coverage_review_request") {
+    return true;
+  }
+
+  if (intent === "factual_lookup" && subIntent === "coverage_presence") {
+    if (matchToolBrainSliceQuestion(question) === SALES_DIRECTOR_TOOL_BRAIN_SLICES.INSURANCE_PRESENCE) {
+      return false;
+    }
+    return true;
+  }
+
+  if (COVERAGE_JUDGMENT_QUESTION_RE.test(String(question ?? ""))) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
- * Intent-aware tool plan (stored gap / premium_stats only in P10-1 skeleton).
+ * Intent-aware tool plan — P11-2D Tool Brain slice parity via matchToolBrainSliceQuestion.
  */
-export function planKeyTools(classification = {}, loadedContext = null) {
+export function planKeyTools(classification = {}, loadedContext = null, question = "") {
   const intent = classification.intent ?? "general_consultation";
   const subIntent = classification.lookup_sub_intent ?? null;
+  const legacySlice = matchToolBrainSliceQuestion(question);
   const tools = [KEY_TOOLS.SNAPSHOT];
+  let coverage_gap_suppressed = false;
+  let coverage_gap_suppress_reason = null;
 
   if (loadedContext?.memory === "present") {
     tools.push(KEY_TOOLS.MEMORY);
   }
 
-  if (intent === "factual_lookup") {
-    if (subIntent === "premium_lookup") {
-      tools.push(KEY_TOOLS.PREMIUM_STATS);
-    } else if (subIntent === "coverage_presence") {
-      tools.push(KEY_TOOLS.COVERAGE_GAP);
-    }
-  } else if (
-    intent === "coverage_gap_check" ||
-    intent === "coverage_review_request" ||
-    intent === "general_consultation"
-  ) {
+  if (legacySlice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.PREMIUM_BURDEN) {
+    tools.push(KEY_TOOLS.PREMIUM_STATS);
+    coverage_gap_suppressed = true;
+    coverage_gap_suppress_reason = "tool_brain_slice_parity_p11_2c";
+    return {
+      intent,
+      subIntent,
+      legacy_slice: legacySlice,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed,
+      coverage_gap_suppress_reason,
+    };
+  }
+
+  if (legacySlice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.INSURANCE_PRESENCE) {
+    coverage_gap_suppressed = true;
+    coverage_gap_suppress_reason = "tool_brain_slice_parity_p11_2c";
+    return {
+      intent,
+      subIntent,
+      legacy_slice: legacySlice,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed,
+      coverage_gap_suppress_reason,
+    };
+  }
+
+  if (shouldAddCoverageGapTool(classification, question)) {
     tools.push(KEY_TOOLS.COVERAGE_GAP);
+  }
+
+  if (intent === "factual_lookup" && subIntent === "premium_lookup") {
+    tools.push(KEY_TOOLS.PREMIUM_STATS);
   }
 
   return {
     intent,
     subIntent,
+    legacy_slice: legacySlice,
     tools: dedupeTools(tools),
+    coverage_gap_suppressed,
+    coverage_gap_suppress_reason,
+  };
+}
+
+export function buildToolBrainAbsorbedTrace({ plan = null, toolRun = null, customerContextBundle = null } = {}) {
+  if (!plan?.legacy_slice) return null;
+
+  const policies = customerContextBundle?.policies ?? [];
+  return {
+    status: "p11_2c_absorbed",
+    legacy_slice: plan.legacy_slice,
+    legacy_matcher: "matchToolBrainSliceQuestion",
+    tools_called: toolRun?.tools_called ?? [],
+    forbidden_skipped: SALES_DIRECTOR_TOOL_FORBIDDEN,
+    snapshot_used: toolRun?.snapshot_used === true,
+    memory_used: toolRun?.memory_used === true,
+    policy_count_from_snapshot: policies.length,
+    premium_stats_used: (toolRun?.tools_called ?? []).includes(KEY_TOOLS.PREMIUM_STATS),
+    coverage_gap_suppressed: plan.coverage_gap_suppressed === true,
+    coverage_gap_suppress_reason: plan.coverage_gap_suppress_reason ?? null,
+    compose_mode: "tool_brain_fixed_slots",
   };
 }
 
@@ -286,6 +364,8 @@ export async function runKeyTools({
       memory_used,
       premium_used,
       coverage_gap_used,
+      coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
+      coverage_gap_suppress_reason: plan?.coverage_gap_suppress_reason ?? null,
     },
   };
 }

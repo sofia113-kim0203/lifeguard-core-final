@@ -46,7 +46,7 @@ export function matchToolBrainSliceQuestion(question = "") {
     return SALES_DIRECTOR_TOOL_BRAIN_SLICES.INSURANCE_PRESENCE;
   }
 
-  if (/보험료.*(부담|비싼|높)/.test(q)) {
+  if (/보험료.*(부담|비싼|비싸|높)/.test(q)) {
     return SALES_DIRECTOR_TOOL_BRAIN_SLICES.PREMIUM_BURDEN;
   }
 
@@ -88,6 +88,22 @@ export function planSalesDirectorToolBrain({
     slice,
     tools,
     forbidden_skipped: SALES_DIRECTOR_TOOL_FORBIDDEN,
+  };
+}
+
+export function buildToolBrainFactSnapshot(customerContextBundle = null, loadedContext = null) {
+  const policies = customerContextBundle?.policies ?? [];
+  const hasSnapshotPolicies =
+    loadedContext?.policies === "present" && policies.length > 0;
+  const memoryUsed =
+    loadedContext?.memory === "present" && (customerContextBundle?.memoryFactCount ?? 0) > 0;
+
+  return {
+    policies: hasSnapshotPolicies ? policies : [],
+    policy_count: hasSnapshotPolicies ? policies.length : 0,
+    snapshot_used: loadedContext?.policies === "present",
+    memory_used: memoryUsed,
+    memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
   };
 }
 

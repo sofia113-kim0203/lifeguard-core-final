@@ -20,6 +20,10 @@ import {
   selectMostSurprisingInsight,
 } from "./salesDirectorFormatter.js";
 
+/** Tool Brain slice ids — mirrored from salesDirectorToolBrain (no import — cycle). */
+const TOOL_BRAIN_SLICE_INSURANCE_PRESENCE = "insurance_presence";
+const TOOL_BRAIN_SLICE_PREMIUM_BURDEN = "premium_burden";
+
 export const HUMAN_CUSTOMER_STATES = [
   "exploring",
   "confirming",
@@ -111,6 +115,99 @@ const KEY_DECLARATIVE_NEXT_ACTIONS = {
 
 function shouldUseKeyOrchestratorCompose(guardrails = {}, factBundle = {}) {
   return guardrails.generation_mode === "key_orchestrator" || factBundle.key_orchestrator === true;
+}
+
+function toolBrainSliceHasPolicies(factBundle = {}) {
+  const policyCount = factBundle.policy_count ?? factBundle.policies?.length ?? 0;
+  if (policyCount <= 0) return false;
+  if (factBundle.snapshot_tool_used === false) return false;
+  return true;
+}
+
+/**
+ * P11-2D — Tool Brain deterministic templates absorbed into KEY slots (this migration only).
+ */
+function buildKeyToolBrainFixedResponse(slice = null, factBundle = {}, humanFrame = {}) {
+  const memoryUsed =
+    factBundle.memory_tool_used === true && (factBundle.memory_fact_count ?? 0) > 0;
+  const mainBlocker = humanFrame.main_blocker ?? "default";
+  let judgment = "";
+  let evidence = "";
+  let limitation = "";
+  let nextAction = "";
+
+  if (slice === TOOL_BRAIN_SLICE_INSURANCE_PRESENCE) {
+    if (!toolBrainSliceHasPolicies(factBundle)) {
+      judgment = "지금은 등록된 가입 보험 정보를 찾지 못했어요.";
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    } else {
+      judgment = "가입된 보험이 있는 것은 확인돼요.";
+      if (memoryUsed) {
+        evidence = "기억해 둔 상담 내용도 있어요.";
+      }
+      limitation = "담보 구조와 한도까지는 이 정보만으로는 확인 전입니다.";
+      nextAction = buildKeyNextActionBlock(memoryUsed ? "default" : "information_gap");
+    }
+  } else if (slice === TOOL_BRAIN_SLICE_PREMIUM_BURDEN) {
+    if (!toolBrainSliceHasPolicies(factBundle)) {
+      judgment = "현재 확인되는 가입 보험이 없어요.";
+      limitation = "보험 정보를 저장해 주시면 보험료 부담을 같이 보면 됩니다.";
+      nextAction = buildKeyNextActionBlock("premium_burden");
+    } else {
+      const stats = factBundle.premium_stats;
+      const premiumKnown = stats?.premiumKnownCount > 0 && stats?.premiumTotal > 0;
+      if (premiumKnown) {
+        judgment = "보험료 부담이 실제로 큰지는, 총액과 항목별 비중을 나눠 봐야 합니다.";
+        evidence = `현재 확인 가능한 월 보험료는 ${stats.premiumTotal.toLocaleString("ko-KR")}원입니다.`;
+        limitation = "일부 보험료는 아직 숫자로 확인 전입니다.";
+        nextAction = buildKeyNextActionBlock("premium_burden");
+      } else {
+        judgment = "가입된 보험이 있는 것은 확인돼요.";
+        evidence = "다만 총 보험료는 현재 검증이 필요합니다.";
+        limitation = "월 납입액이 모든 계약에서 확인되지는 않았습니다.";
+        nextAction = buildKeyNextActionBlock("premium_burden");
+      }
+    }
+  }
+
+  const parts = [
+    enforceKeyJudgmentFirst(judgment),
+    evidence,
+    limitation,
+    nextAction,
+  ].filter(Boolean);
+  return enforceKeyDeclarativeEnding(normalizeText(parts.join(" ")), mainBlocker);
+}
+
+function buildKeyToolBrainFixedResponseSafe(slice = null, factBundle = {}, humanFrame = {}) {
+  const mainBlocker = humanFrame.main_blocker ?? "default";
+  const policyCount = factBundle.policy_count ?? factBundle.policies?.length ?? 0;
+  const judgment =
+    policyCount === 0
+      ? "등록된 가입 보험이 아직 없습니다."
+      : "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다.";
+  const limitation = "지금 알 수 있는 범위와 모르는 범위를 나눠 두는 편이 낫습니다.";
+  const nextAction = buildKeyNextActionBlock(mainBlocker);
+  return enforceKeyDeclarativeEnding(
+    normalizeText([judgment, limitation, nextAction].join(" ")),
+    mainBlocker,
+  );
+}
+
+function resolveToolBrainFixedSlice(factBundle = {}) {
+  const slice = factBundle.tool_brain_slice ?? null;
+  if (
+    slice === TOOL_BRAIN_SLICE_INSURANCE_PRESENCE ||
+    slice === TOOL_BRAIN_SLICE_PREMIUM_BURDEN
+  ) {
+    return slice;
+  }
+  return null;
+}
+
+function shouldUseToolBrainFixedSlots(factBundle = {}) {
+  return Boolean(resolveToolBrainFixedSlice(factBundle));
 }
 
 function buildKeyNextActionBlock(mainBlocker = "", _resolvedIntent = null) {
@@ -232,6 +329,11 @@ export function buildKeyStructuredResponse(
   { resolvedIntent = null } = {},
   options = {},
 ) {
+  const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+  if (fixedSlice) {
+    return buildKeyToolBrainFixedResponse(fixedSlice, factBundle, humanFrame);
+  }
+
   const intent = resolvedIntent ?? humanFrame.resolved_intent;
   const judgment = enforceKeyJudgmentFirst(
     buildKeyJudgmentBlock(intent, humanFrame, factBundle),
@@ -250,6 +352,11 @@ function buildKeyStructuredResponseSafe(
   factBundle,
   { resolvedIntent = null } = {},
 ) {
+  const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+  if (fixedSlice) {
+    return buildKeyToolBrainFixedResponseSafe(fixedSlice, factBundle, humanFrame);
+  }
+
   const reducedFacts = {
     ...basisTaggedFacts,
     surprising_insight:
@@ -719,6 +826,8 @@ export function generateHumanSalesDirectorResponse({
     skip_reason: useKeyOrchestrator ? null : "key_orchestrator_compose_not_selected",
     text_preview: "",
     used_safe_fallback: false,
+    compose_mode: null,
+    absorbed_slice: null,
   };
 
   let text = useKeyOrchestrator
@@ -728,11 +837,14 @@ export function generateHumanSalesDirectorResponse({
       : buildInsuranceNaturalResponse(humanFrame, basisTaggedFacts, factBundle);
 
   if (useKeyOrchestrator) {
+    const fixedSlice = resolveToolBrainFixedSlice(factBundle);
     keyComposeTrace = {
       called: true,
       skip_reason: null,
       text_preview: String(text ?? "").slice(0, 300),
       used_safe_fallback: false,
+      compose_mode: fixedSlice ? "tool_brain_fixed_slots" : "key_structured",
+      absorbed_slice: fixedSlice,
     };
   }
 
@@ -754,9 +866,15 @@ export function generateHumanSalesDirectorResponse({
   if (detectFalseAssertions(text, assertionBundle)) {
     if (useKeyOrchestrator) {
       text = polishHumanOutput(
-        buildKeyStructuredResponseSafe(humanFrame, basisTaggedFacts, factBundle, {
-          resolvedIntent,
-        }),
+        shouldUseToolBrainFixedSlots(factBundle)
+          ? buildKeyToolBrainFixedResponseSafe(
+              resolveToolBrainFixedSlice(factBundle),
+              factBundle,
+              humanFrame,
+            )
+          : buildKeyStructuredResponseSafe(humanFrame, basisTaggedFacts, factBundle, {
+              resolvedIntent,
+            }),
       );
       keyComposeTrace.used_safe_fallback = true;
       keyComposeTrace.text_preview = String(text ?? "").slice(0, 300);
