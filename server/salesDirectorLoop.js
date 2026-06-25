@@ -264,6 +264,7 @@ export async function runSalesDirectorLoopTurn({
     customerContextBundle,
     loadedContext,
     consultationIntent: modeDecision.consultationIntent,
+    unified,
   });
   latency.tool_brain_ms = markLatencyMs(toolBrainStart);
 
@@ -325,7 +326,7 @@ export async function runSalesDirectorLoopTurn({
 
   const snapshotToolTrace =
     toolPlan.snapshot_trace_only === true
-      ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle })
+      ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle, unified })
       : toolBrainResult?.agentTurn?.toolBrainTrace ?? null;
 
   const truthGate = createTruthGatePlaceholder({

@@ -6,6 +6,7 @@
 import { composeP5BrainStateAwareAnswer } from "./p5BrainStateAwareAnswer.js";
 import { P5_BRAIN_PILOT_KEYS } from "./p5BrainPilotQuestions.js";
 import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
+import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 
 export const SALES_DIRECTOR_TOOL_SLICES = {
   SNAPSHOT: "snapshot",
@@ -91,32 +92,38 @@ export function planSalesDirectorToolBrain({
   };
 }
 
-export function buildToolBrainFactSnapshot(customerContextBundle = null, loadedContext = null) {
+export function buildToolBrainFactSnapshot(
+  customerContextBundle = null,
+  loadedContext = null,
+  unified = null,
+) {
   const policies = customerContextBundle?.policies ?? [];
   const hasSnapshotPolicies =
     loadedContext?.policies === "present" && policies.length > 0;
   const memoryUsed =
     loadedContext?.memory === "present" && (customerContextBundle?.memoryFactCount ?? 0) > 0;
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
 
   return {
     policies: hasSnapshotPolicies ? policies : [],
-    policy_count: hasSnapshotPolicies ? policies.length : 0,
+    ...policyFields,
     snapshot_used: loadedContext?.policies === "present",
     memory_used: memoryUsed,
     memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
   };
 }
 
-function composeInsurancePresenceAnswer(customerContextBundle, loadedContext) {
+function composeInsurancePresenceAnswer(customerContextBundle, loadedContext, unified = null) {
   const policies = customerContextBundle?.policies ?? [];
   const hasSnapshotPolicies =
     loadedContext?.policies === "present" && policies.length > 0;
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
 
   if (!hasSnapshotPolicies) {
     return {
       text: "지금은 등록된 가입 보험 정보를 찾지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.",
       policies: [],
-      policy_count: 0,
+      ...policyFields,
       snapshot_used: true,
       memory_used: false,
     };
@@ -134,16 +141,17 @@ function composeInsurancePresenceAnswer(customerContextBundle, loadedContext) {
   return {
     text: lines.join("\n"),
     policies,
-    policy_count: policies.length,
+    ...policyFields,
     snapshot_used: true,
     memory_used: memoryUsed,
   };
 }
 
-function composePremiumBurdenToolAnswer(customerContextBundle, loadedContext) {
+function composePremiumBurdenToolAnswer(customerContextBundle, loadedContext, unified = null) {
   const policies = customerContextBundle?.policies ?? [];
   const hasSnapshotPolicies =
     loadedContext?.policies === "present" && policies.length > 0;
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
 
   if (!hasSnapshotPolicies) {
     return {
@@ -152,7 +160,7 @@ function composePremiumBurdenToolAnswer(customerContextBundle, loadedContext) {
         "보험 정보를 저장해 주시면 보험료 부담을 같이 보면 됩니다.",
       ].join("\n"),
       policies: [],
-      policy_count: 0,
+      ...policyFields,
       snapshot_used: true,
       memory_used: false,
       guarded: true,
@@ -170,7 +178,7 @@ function composePremiumBurdenToolAnswer(customerContextBundle, loadedContext) {
   return {
     text: composed.ok ? composed.text : "가입된 보험이 있는 것은 확인돼요.",
     policies,
-    policy_count: policies.length,
+    ...policyFields,
     snapshot_used: true,
     memory_used: memoryUsed,
     guarded: composed.ok !== true,
@@ -186,17 +194,20 @@ export function runSalesDirectorToolBrainSlice({
   customerContextBundle = null,
   loadedContext = null,
   consultationIntent = null,
+  unified = null,
 } = {}) {
   if (!plan?.run || !plan.slice) return null;
 
   let composed;
   if (plan.slice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.INSURANCE_PRESENCE) {
-    composed = composeInsurancePresenceAnswer(customerContextBundle, loadedContext);
+    composed = composeInsurancePresenceAnswer(customerContextBundle, loadedContext, unified);
   } else if (plan.slice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.PREMIUM_BURDEN) {
-    composed = composePremiumBurdenToolAnswer(customerContextBundle, loadedContext);
+    composed = composePremiumBurdenToolAnswer(customerContextBundle, loadedContext, unified);
   } else {
     return null;
   }
+
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
 
   const toolBrainTrace = {
     status: "p6_2b_1",
@@ -205,7 +216,8 @@ export function runSalesDirectorToolBrainSlice({
     forbidden_skipped: plan.forbidden_skipped ?? SALES_DIRECTOR_TOOL_FORBIDDEN,
     snapshot_insurance_used: composed.snapshot_used === true,
     memory_used: composed.memory_used === true,
-    policy_count_from_snapshot: composed.policy_count ?? 0,
+    policy_count_from_snapshot: policyFields.active_policy_count,
+    active_policy_count_from_snapshot: policyFields.active_policy_count,
   };
 
   return {
@@ -218,7 +230,7 @@ export function runSalesDirectorToolBrainSlice({
       responseSource: "sales_director_tool_brain",
       factBundle: {
         question,
-        policy_count: composed.policy_count ?? 0,
+        ...policyFields,
         policies: composed.policies ?? [],
         memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
         customer_context_used: true,
@@ -238,8 +250,14 @@ export function runSalesDirectorToolBrainSlice({
   };
 }
 
-export function buildSnapshotToolTraceOnly({ plan, loadedContext, customerContextBundle }) {
+export function buildSnapshotToolTraceOnly({
+  plan,
+  loadedContext,
+  customerContextBundle,
+  unified = null,
+}) {
   if (!plan?.snapshot_trace_only) return null;
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
   return {
     status: "p6_2b_1",
     slice: plan.slice,
@@ -248,7 +266,8 @@ export function buildSnapshotToolTraceOnly({ plan, loadedContext, customerContex
     snapshot_insurance_used: loadedContext?.policies === "present",
     memory_used:
       loadedContext?.memory === "present" && (customerContextBundle?.memoryFactCount ?? 0) > 0,
-    policy_count_from_snapshot: customerContextBundle?.policies?.length ?? 0,
+    policy_count_from_snapshot: policyFields.active_policy_count,
+    active_policy_count_from_snapshot: policyFields.active_policy_count,
     delegated_to: "pilot_handler",
   };
 }

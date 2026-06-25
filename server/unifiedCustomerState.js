@@ -66,6 +66,34 @@ export function extractPolicyIds(policies = []) {
   return (policies ?? []).map((policy) => String(policy.id)).sort();
 }
 
+/** P11-5 — Read-only active policy count contract from Unified State (no recalculation). */
+export function resolveActivePolicyCountFromUnified(unified = null) {
+  if (unified?.active_policy_count != null) {
+    const activePolicyCount = Number(unified.active_policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  if (unified?.policy_count != null) {
+    const activePolicyCount = Number(unified.policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  return {
+    active_policy_count: null,
+    active_policy_count_source: null,
+    active_policy_ids: unified?.active_policy_ids ?? unified?.policy_ids ?? [],
+    policy_count: null,
+  };
+}
+
 export function getInsurancePolicyCountFact(snapshot) {
   const facts = snapshot?.facts ?? [];
   const countFact = facts.find((fact) => fact.fact_key === "insurance.policy.count");
