@@ -46,6 +46,16 @@ export function detectDirectAnswerIntent(question = "") {
 }
 
 /** Align with UnifiedCustomerState / dashboard: all non-deleted maintained policies. */
+function resolvePolicyCountFromSummary(sourceSummary = {}) {
+  if (sourceSummary.active_policy_count != null) {
+    return Number(sourceSummary.active_policy_count);
+  }
+  if (sourceSummary.policy_count != null) {
+    return Number(sourceSummary.policy_count);
+  }
+  return null;
+}
+
 export function resolveUnifiedPolicyView(workingContext = {}) {
   const sourceSummary = workingContext.sourceSummary ?? {};
   const sourceContext = workingContext.sourceContext ?? {};
@@ -53,8 +63,7 @@ export function resolveUnifiedPolicyView(workingContext = {}) {
     ? sourceSummary.insurance
     : sourceContext.policies ?? [];
 
-  const policyCount =
-    sourceSummary.policy_count != null ? Number(sourceSummary.policy_count) : policies.length;
+  const policyCount = resolvePolicyCountFromSummary(sourceSummary);
 
   const policyDescriptions = policies
     .map((policy) => {
@@ -104,7 +113,7 @@ export function extractCustomerSituation(workingContext = {}) {
   return {
     customerLabel,
     medication,
-    policyCount: policyCount || policyDescriptions.length,
+    policyCount,
     policyDescriptions,
     keepLabels: keepLabels.length ? keepLabels : maintainedLabels,
     gapLabels,

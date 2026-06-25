@@ -76,6 +76,7 @@
     "test:advisor-brain-p1-step2": "node scripts/advisor-brain-p1-step2-coverage-gap-test.mjs",
     "test:advisor-brain-p1-step3": "node scripts/advisor-brain-p1-step3-factual-test.mjs",
     "test:advisor-brain-policy-count-sanitize": "node scripts/advisor-brain-policy-count-sanitize-unit-test.mjs",
+    "test:p11-3-active-policy-count-ssot": "node scripts/p11-3-active-policy-count-ssot-unit-test.mjs",
     "test:advisor-brain-p1-step4": "node scripts/advisor-brain-p1-step4-recommendation-reason-test.mjs",
     "test:advisor-brain-p1-step5": "node scripts/advisor-brain-p1-step5-conversation-test.mjs",
     "test:central-brain-p2-step1": "node scripts/central-brain-p2-step1-test.mjs",
