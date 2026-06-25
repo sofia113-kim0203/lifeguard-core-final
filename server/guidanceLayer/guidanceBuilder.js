@@ -4,6 +4,7 @@
  */
 import { computePremiumLookupStats, LOOKUP_CATEGORIES, matchPolicyToCategory } from "../intentGateLayer.js";
 import { isRecommendationReasonClassification } from "../advisorBrain/advisorRecommendationReasonResponder.js";
+import { resolveActivePolicyCountFromUnified } from "../unifiedCustomerState.js";
 
 export const GUIDANCE_INTENTS = {
   GAP: "gap",
@@ -22,14 +23,59 @@ function normalizeQuestion(question = "") {
   return String(question ?? "").replace(/\s+/g, " ").trim();
 }
 
+/** P11-8 — Read-only policy count from explicit SSOT fields (no policies.length). */
+function resolveFactBundlePolicyFields(source = {}) {
+  if (source.active_policy_count != null) {
+    const activePolicyCount = Number(source.active_policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: source.active_policy_count_source ?? "unified_state",
+      active_policy_ids: source.active_policy_ids ?? source.policy_ids ?? [],
+      policy_count: source.policy_count != null ? Number(source.policy_count) : activePolicyCount,
+    };
+  }
+  if (source.policy_count != null) {
+    const activePolicyCount = Number(source.policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: source.active_policy_count_source ?? "unified_state",
+      active_policy_ids: source.active_policy_ids ?? source.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  return {
+    active_policy_count: null,
+    active_policy_count_source: null,
+    active_policy_ids: source.active_policy_ids ?? source.policy_ids ?? [],
+    policy_count: null,
+  };
+}
+
+function resolveFactBundlePolicyCount(factBundle = {}) {
+  if (factBundle.active_policy_count != null) {
+    return Number(factBundle.active_policy_count);
+  }
+  if (factBundle.policy_count != null) {
+    return Number(factBundle.policy_count);
+  }
+  return null;
+}
+
 export function buildFactBundleFromCentralBrainBundle(bundle, question = "") {
   const data = bundle?.data ?? {};
   const unified = data.unified ?? {};
   const policies = unified.policies ?? [];
+  const policyFields = resolveActivePolicyCountFromUnified({
+    ...unified,
+    active_policy_count: unified.active_policy_count ?? data.active_policy_count,
+    policy_count: unified.policy_count ?? data.policy_count,
+    active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? data.policy_ids,
+    policy_ids: unified.policy_ids ?? data.policy_ids,
+  });
 
   return buildFactBundle({
     policies,
-    policy_count: data.policy_count ?? unified.policy_count ?? policies.length,
+    ...policyFields,
     document_count: unified.document_count ?? 0,
     premium_stats: data.premium_stats ?? computePremiumLookupStats(policies),
     memory_fact_count: unified.memory_fact_count ?? data.memory?.fact_count ?? 0,
@@ -54,9 +100,16 @@ export function buildFactBundleFromLegacyContext({
   analysisContext = null,
 } = {}) {
   const policies = sourceContext?.policies ?? [];
+  const policyFields = resolveFactBundlePolicyFields({
+    active_policy_count: sourceContext?.active_policy_count ?? snapshot?.active_policy_count,
+    active_policy_count_source:
+      sourceContext?.active_policy_count_source ?? snapshot?.active_policy_count_source,
+    active_policy_ids: sourceContext?.active_policy_ids ?? sourceContext?.policy_ids ?? snapshot?.policy_ids,
+    policy_count: sourceContext?.policy_count ?? snapshot?.policy_count,
+  });
   return buildFactBundle({
     policies,
-    policy_count: policies.length,
+    ...policyFields,
     document_count: sourceContext?.has_documents ? (sourceContext?.documents?.length ?? 1) : 0,
     premium_stats: computePremiumLookupStats(policies),
     memory_fact_count: snapshot?.fact_count ?? 0,
@@ -72,9 +125,10 @@ export function buildFactBundleFromLegacyContext({
 
 export function buildFactBundleFromUnified(unified, question = "") {
   const policies = unified?.policies ?? [];
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
   return buildFactBundle({
     policies,
-    policy_count: unified?.policy_count ?? policies.length,
+    ...policyFields,
     document_count: unified?.document_count ?? 0,
     premium_stats: computePremiumLookupStats(policies),
     memory_fact_count: unified?.memory_fact_count ?? 0,
@@ -87,7 +141,10 @@ export function buildFactBundleFromUnified(unified, question = "") {
 
 function buildFactBundle({
   policies = [],
-  policy_count = 0,
+  active_policy_count = null,
+  active_policy_count_source = null,
+  active_policy_ids = null,
+  policy_count = null,
   document_count = 0,
   premium_stats = null,
   memory_fact_count = 0,
@@ -97,8 +154,14 @@ function buildFactBundle({
   has_stored_recommendation_analysis = false,
   cache_status = null,
 } = {}) {
+  const policyFields = resolveFactBundlePolicyFields({
+    active_policy_count,
+    active_policy_count_source,
+    active_policy_ids,
+    policy_count,
+  });
   return {
-    policy_count: Number(policy_count ?? policies.length ?? 0),
+    ...policyFields,
     document_count: Number(document_count ?? 0),
     premium_stats,
     memory_fact_count: Number(memory_fact_count ?? 0),
@@ -142,9 +205,9 @@ function detectGapTopicCategory(question = "") {
 
 function buildConfirmedFactsSlot(factBundle, topic = null) {
   const lines = [];
-  const policyCount = factBundle.policy_count ?? 0;
+  const policyCount = resolveFactBundlePolicyCount(factBundle);
 
-  if (policyCount > 0) {
+  if (typeof policyCount === "number" && policyCount > 0) {
     lines.push(`현재 ${policyCount}건의 보험은 확인됩니다.`);
   }
 
