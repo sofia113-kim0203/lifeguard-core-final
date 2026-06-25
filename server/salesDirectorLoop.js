@@ -308,6 +308,7 @@ export async function runSalesDirectorLoopTurn({
     history,
     customerContextBundle,
     loadedContext,
+    unified,
     consultationIntent: modeDecision.consultationIntent,
     contextSnapshotId: snapshot.context_snapshot_id ?? "",
     fetchImpl,

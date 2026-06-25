@@ -3,6 +3,7 @@
  */
 import { TOM_INTERNAL_ROUTES, INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE } from "./homeAgentTom.js";
 import { composeSalesDirectorFreeThinkingAnswer } from "./salesDirectorFreeThinking.js";
+import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { markLatencyMs, mergeFreeThinkingLatency } from "./salesDirectorLatencyAudit.js";
 import {
   SALES_DIRECTOR_PERSONA_ID,
@@ -92,11 +93,30 @@ function memoryObservation(loadedContext, customerContextBundle) {
   );
 }
 
+/** P11-6 — Preserve upstream SSOT; never recalculate from policies.length. */
+export function buildConversationBrainFactBundlePolicyFields({
+  unified = null,
+  upstreamFactBundle = null,
+} = {}) {
+  if (upstreamFactBundle?.active_policy_count != null) {
+    const activePolicyCount = Number(upstreamFactBundle.active_policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: upstreamFactBundle.active_policy_count_source ?? "unified_state",
+      active_policy_ids:
+        upstreamFactBundle.active_policy_ids ?? upstreamFactBundle.policy_ids ?? [],
+      policy_count: upstreamFactBundle.policy_count ?? activePolicyCount,
+    };
+  }
+  return resolveActivePolicyCountFromUnified(unified);
+}
+
 export function composeConversationBrainAnswer({
   topic,
   question: _question = "",
   customerContextBundle = null,
   loadedContext = null,
+  unified = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
   const memoryFacts = customerContextBundle?.memoryFacts ?? [];
@@ -125,10 +145,12 @@ export function composeConversationBrainAnswer({
     composed.text = fallbackParts.join("\n");
   }
 
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
+
   return {
     text: composed.text,
     policies,
-    policy_count: policies.length,
+    ...policyFields,
     memory_used: memoryUsed,
     coverage_gap_used: Boolean(gapCtx?.loaded && gapCtx?.signals?.length > 0),
     persona: SALES_DIRECTOR_PERSONA_ID,
@@ -172,6 +194,7 @@ export async function refineWithConversationBrain({
   history = [],
   customerContextBundle = null,
   loadedContext = null,
+  unified = null,
   consultationIntent = null,
   contextSnapshotId = "",
   fetchImpl = fetch,
@@ -200,6 +223,7 @@ export async function refineWithConversationBrain({
     topic: decision.topic,
     customerContextBundle,
     loadedContext,
+    unified,
     contextSnapshotId,
     fetchImpl,
     env,
@@ -216,6 +240,7 @@ export async function refineWithConversationBrain({
       question,
       customerContextBundle,
       loadedContext,
+      unified,
     });
     if (latencyBucket) {
       latencyBucket.free_thinking_prepare_ms += markLatencyMs(fallbackStart);
@@ -235,6 +260,11 @@ export async function refineWithConversationBrain({
     return { agentTurn, applied: false, freeThinkingApplied: false };
   }
 
+  const policyFields = buildConversationBrainFactBundlePolicyFields({
+    unified,
+    upstreamFactBundle: agentTurn?.factBundle ?? null,
+  });
+
   const conversationTrace = {
     status: "p7_persona",
     persona: SALES_DIRECTOR_PERSONA_ID,
@@ -243,7 +273,7 @@ export async function refineWithConversationBrain({
     memory_used: composed.memory_used === true,
     snapshot_insurance_used: true,
     coverage_gap_used: composed.coverage_gap_used === true,
-    policy_count_from_snapshot: composed.policy_count ?? 0,
+    policy_count_from_snapshot: policyFields.active_policy_count,
     free_thinking: freeThinking?.text
       ? {
           status: "p6_2b_3",
@@ -268,8 +298,8 @@ export async function refineWithConversationBrain({
       factBundle: {
         ...(agentTurn?.factBundle ?? {}),
         question,
-        policy_count: composed.policy_count ?? 0,
-        policies: composed.policies ?? [],
+        ...policyFields,
+        policies: composed.policies ?? agentTurn?.factBundle?.policies ?? [],
         memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
         customer_context_used: true,
         coverage_gap_used: composed.coverage_gap_used === true,
