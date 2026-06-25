@@ -2,6 +2,7 @@
  * P10-4 READ ONLY — KEY path runtime trace (no answer logic change).
  */
 import { classifyConsultationIntent } from "./intentGateLayer.js";
+import { buildKeyEligibilityDebug } from "./keyEligibilityTraceDebug.js";
 import { matchConversationBrainTopic } from "./salesDirectorConversationBrain.js";
 import {
   isKeyBlockedIntent,
@@ -32,6 +33,7 @@ export function diagnoseKeyEligibility({
 
   const allowlist = parseKeyCustomerAllowlist(env);
   const allowlistActive = Boolean(allowlist);
+  const allowlistProfileIds = allowlist ? [...allowlist] : null;
   const customerInAllowlist = allowlist ? allowlist.has(customerId) : null;
   if (allowlist && (!customerId || !allowlist.has(customerId))) {
     skipReasons.push("customer_not_in_key_allowlist");
@@ -50,6 +52,12 @@ export function diagnoseKeyEligibility({
     key_env_enabled: isKeyOrchestratorEnabled(env),
     allowlist_active: allowlistActive,
     customer_in_allowlist: customerInAllowlist,
+    key_eligibility_debug: buildKeyEligibilityDebug({
+      customerId,
+      allowlistProfileIds,
+      match: customerInAllowlist,
+      env,
+    }),
     classificationIntent: classification.intent ?? null,
     lookup_sub_intent: classification.lookup_sub_intent ?? null,
     lookup_category: classification.lookup_category ?? null,
