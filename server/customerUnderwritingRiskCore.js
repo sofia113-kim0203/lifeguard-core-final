@@ -255,6 +255,7 @@ export function buildUnderwritingExplanationPrompt(
   coverageGapResult,
   underwritingResult,
   policies = [],
+  countContract = null,
 ) {
   const user = [
     "Explain underwriting risk analysis to the customer using only the blocks below.",
@@ -263,7 +264,7 @@ export function buildUnderwritingExplanationPrompt(
     JSON.stringify(structuredMemory, null, 2),
     "",
     "B.",
-    buildPoliciesPromptBlock(policies),
+    buildPoliciesPromptBlock(policies, countContract),
     "",
     "C. coverage_gap_reference:",
     JSON.stringify(underwritingResult.coverage_gap_reference, null, 2),
@@ -366,6 +367,10 @@ export async function loadUnderwritingAnalysisContext(supabase, customerId) {
     structuredMemory: coverageContext.structuredMemory ?? buildStructuredMemoryProfile(coverageContext.snapshot),
     coverageGapResult: coverageContext.coverageGapResult,
     policies: coverageContext.policies ?? [],
+    active_policy_count: coverageContext.active_policy_count ?? null,
+    active_policy_count_source: coverageContext.active_policy_count_source ?? null,
+    active_policy_ids: coverageContext.active_policy_ids ?? null,
+    policy_count: coverageContext.policy_count ?? null,
     input,
     healthAnalysis,
     underwritingResult,
@@ -398,6 +403,12 @@ export async function handleCustomerUnderwritingRiskRequest({
   }
 
   const context = await loadUnderwritingAnalysisContext(supabase, customerId);
+  const countContract = {
+    active_policy_count: context.active_policy_count ?? null,
+    active_policy_count_source: context.active_policy_count_source ?? null,
+    active_policy_ids: context.active_policy_ids ?? null,
+    policy_count: context.policy_count ?? null,
+  };
 
   let claudeExplanation = null;
   let claudeMeta = { skipped: true, reason: "skipClaude" };
@@ -408,6 +419,7 @@ export async function handleCustomerUnderwritingRiskRequest({
       claudeMeta = attachPolicyMeta(
         { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" },
         context.policies ?? [],
+        countContract,
       );
     } else {
       const prompt = buildUnderwritingExplanationPrompt(
@@ -415,6 +427,7 @@ export async function handleCustomerUnderwritingRiskRequest({
         context.coverageGapResult,
         context.underwritingResult,
         context.policies ?? [],
+        countContract,
       );
       const claudeResult = await callAnthropic({
         apiKey: anthropicApiKey,
@@ -432,6 +445,7 @@ export async function handleCustomerUnderwritingRiskRequest({
             provider: claudeResult.provider,
           },
           context.policies ?? [],
+          countContract,
         );
       } else {
         claudeMeta = attachPolicyMeta(
@@ -441,6 +455,7 @@ export async function handleCustomerUnderwritingRiskRequest({
             error_message: claudeResult.errorMessage,
           },
           context.policies ?? [],
+          countContract,
         );
       }
     }

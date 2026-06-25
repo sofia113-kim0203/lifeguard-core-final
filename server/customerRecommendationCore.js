@@ -37,6 +37,7 @@ export function buildRecommendationExplanationPrompt(
   coverageGapResult,
   underwritingResult,
   policies = [],
+  countContract = null,
 ) {
   const user = [
     "Explain insurance recommendations to the customer using only the blocks below.",
@@ -45,7 +46,7 @@ export function buildRecommendationExplanationPrompt(
     JSON.stringify(structuredMemory, null, 2),
     "",
     "B.",
-    buildPoliciesPromptBlock(policies),
+    buildPoliciesPromptBlock(policies, countContract),
     "",
     "C. coverage_gap_summary:",
     JSON.stringify(
@@ -276,6 +277,10 @@ export async function loadRecommendationAnalysisContext(supabase, customerId) {
     recommendationResult,
     policies: coverageContext.policies ?? [],
     health: coverageContext.health ?? null,
+    active_policy_count: coverageContext.active_policy_count ?? null,
+    active_policy_count_source: coverageContext.active_policy_count_source ?? null,
+    active_policy_ids: coverageContext.active_policy_ids ?? null,
+    policy_count: coverageContext.policy_count ?? null,
   };
 }
 
@@ -305,6 +310,12 @@ export async function handleCustomerRecommendationRequest({
   }
 
   const context = await loadRecommendationAnalysisContext(supabase, customerId);
+  const countContract = {
+    active_policy_count: context.active_policy_count ?? null,
+    active_policy_count_source: context.active_policy_count_source ?? null,
+    active_policy_ids: context.active_policy_ids ?? null,
+    policy_count: context.policy_count ?? null,
+  };
 
   const requiredDocuments = Array.from(
     new Set(context.recommendationResult.recommendations.flatMap((item) => item.required_documents ?? [])),
@@ -335,6 +346,7 @@ export async function handleCustomerRecommendationRequest({
           explanation_mode: "fallback",
         },
         context.policies ?? [],
+        countContract,
       );
     } else {
       const prompt = buildRecommendationExplanationPrompt(
@@ -343,6 +355,7 @@ export async function handleCustomerRecommendationRequest({
         context.coverageGapResult,
         context.underwritingResult,
         context.policies ?? [],
+        countContract,
       );
       let claudeResult;
       try {
@@ -373,12 +386,14 @@ export async function handleCustomerRecommendationRequest({
             explanation_mode: "claude",
           },
           context.policies ?? [],
+          countContract,
         );
       } else {
         claudeExplanation = fallbackExplanation();
         claudeMeta = attachPolicyMeta(
           buildRecommendationClaudeMetaFromFailure(claudeResult),
           context.policies ?? [],
+          countContract,
         );
       }
     }
