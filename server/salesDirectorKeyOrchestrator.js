@@ -11,6 +11,7 @@ import {
 } from "./salesDirectorLatencyAudit.js";
 import {
   KEY_SKIPPED_LAYERS,
+  buildKeyFactBundlePolicyFields,
   buildToolBrainAbsorbedTrace,
   isKeyLegacyFallbackEnabled,
   planKeyTools,
@@ -38,7 +39,8 @@ function createKeyTruthGatePlaceholder({ draftText = "", factBundle = {}, loaded
           memory: loadedContext.memory ?? null,
         }
       : null,
-    fact_bundle_policy_count: factBundle?.policy_count ?? 0,
+    fact_bundle_policy_count:
+      factBundle?.active_policy_count ?? factBundle?.policy_count ?? null,
   };
 }
 
@@ -56,11 +58,13 @@ function buildKeyAgentTurn({
   question = "",
   consultationIntent = null,
   customerContextBundle = null,
+  unified = null,
   toolRun = null,
   plan = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
   const legacySlice = plan?.legacy_slice ?? null;
+  const policyFields = buildKeyFactBundlePolicyFields({ unified, customerContextBundle });
   return {
     text: "",
     tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
@@ -69,7 +73,7 @@ function buildKeyAgentTurn({
     responseSource: "sales_director_key",
     factBundle: {
       question,
-      policy_count: policies.length,
+      ...policyFields,
       policies,
       memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
       customer_context_used: true,
@@ -133,6 +137,7 @@ export async function runSalesDirectorKeyTurn({
     customerContextBundle,
     loadedContext,
     existingGapContext: customerContextBundle?.coverageGapContext ?? null,
+    unified,
   });
   keyLatency.key_tools_ms = markLatencyMs(toolsStart);
 
@@ -152,6 +157,7 @@ export async function runSalesDirectorKeyTurn({
     question,
     consultationIntent,
     customerContextBundle,
+    unified,
     toolRun,
     plan,
   });
@@ -160,6 +166,7 @@ export async function runSalesDirectorKeyTurn({
     plan,
     toolRun,
     customerContextBundle,
+    unified,
   });
 
   const truthGate = createKeyTruthGatePlaceholder({

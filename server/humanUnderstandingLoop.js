@@ -117,11 +117,27 @@ function shouldUseKeyOrchestratorCompose(guardrails = {}, factBundle = {}) {
   return guardrails.generation_mode === "key_orchestrator" || factBundle.key_orchestrator === true;
 }
 
-function toolBrainSliceHasPolicies(factBundle = {}) {
-  const policyCount = factBundle.policy_count ?? factBundle.policies?.length ?? 0;
-  if (policyCount <= 0) return false;
+export function resolveKeyFactBundlePolicyCount(factBundle = {}) {
+  if (factBundle.active_policy_count != null) {
+    return Number(factBundle.active_policy_count);
+  }
+  if (factBundle.policy_count != null) {
+    return Number(factBundle.policy_count);
+  }
+  return null;
+}
+
+export function keyToolBrainSliceHasPolicies(factBundle = {}) {
   if (factBundle.snapshot_tool_used === false) return false;
-  return true;
+  const policyCount = resolveKeyFactBundlePolicyCount(factBundle);
+  if (typeof policyCount === "number") {
+    return policyCount > 0;
+  }
+  return factBundle.snapshot_tool_used === true;
+}
+
+function toolBrainSliceHasPolicies(factBundle = {}) {
+  return keyToolBrainSliceHasPolicies(factBundle);
 }
 
 /**
@@ -182,7 +198,7 @@ function buildKeyToolBrainFixedResponse(slice = null, factBundle = {}, humanFram
 
 function buildKeyToolBrainFixedResponseSafe(slice = null, factBundle = {}, humanFrame = {}) {
   const mainBlocker = humanFrame.main_blocker ?? "default";
-  const policyCount = factBundle.policy_count ?? factBundle.policies?.length ?? 0;
+  const policyCount = resolveKeyFactBundlePolicyCount(factBundle);
   const judgment =
     policyCount === 0
       ? "등록된 가입 보험이 아직 없습니다."
@@ -266,7 +282,7 @@ function buildKeyLimitationBlock(resolvedIntent = null, factBundle = {}, basisTa
 function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundle = {}) {
   const question = humanFrame.surface_question ?? factBundle.question ?? "";
   const evidence = extractFactBundleEvidence(factBundle);
-  const policyCount = factBundle.policy_count ?? factBundle.policies?.length ?? 0;
+  const policyCount = resolveKeyFactBundlePolicyCount(factBundle);
 
   if (policyCount === 0 && !evidence.has_policies) {
     return "등록된 가입 보험이 아직 없습니다.";
