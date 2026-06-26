@@ -105,7 +105,7 @@ const KEY_DECLARATIVE_NEXT_ACTIONS = {
   premium_burden:
     "가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
   claim_uncertainty: "어떤 사고·치료였는지 정리해 두면, 열려 있는 축부터 같이 볼 수 있습니다.",
-  information_gap: "불안한 축부터 하나씩 정리해 두면, 다음 확인 순서가 바로 잡힙니다.",
+  information_gap: "확인해 보고 다시 말씀드리겠습니다.",
   trust_gap: "지금은 확인부터 차근차근 맞춰 보면 됩니다.",
   complexity: "한 번에 다 보기보다, 지금 걸리는 축 하나부터 짚어 보면 됩니다.",
   decision_fatigue: "가볍게 볼 부분과 꼭 볼 부분만 나눠 두면 됩니다.",
@@ -279,6 +279,18 @@ function buildKeyLimitationBlock(resolvedIntent = null, factBundle = {}, basisTa
   return "지금 알 수 있는 범위와 모르는 범위를 나눠 두는 편이 낫습니다.";
 }
 
+function isKeyCoveragePresenceOnlyQuestion(question = "", factBundle = {}) {
+  const q = normalizeText(question);
+  if (/부족|충분|괜찮|모자|공백|갭/.test(q)) return false;
+
+  const classification = classifyConsultationIntent(q);
+  if (classification.lookup_sub_intent === "coverage_presence") return true;
+
+  return /(?:암|실손|운전자|뇌|심)[^\n]{0,12}(?:보장|담보|보험)?[^\n]{0,10}(?:있(?:어|나|음|습)?|가입|들어|보유|돼|되어)/.test(
+    q,
+  );
+}
+
 function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundle = {}) {
   const question = humanFrame.surface_question ?? factBundle.question ?? "";
   const evidence = extractFactBundleEvidence(factBundle);
@@ -298,6 +310,13 @@ function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundl
 
   if (/실손/.test(question) && evidence.gap_maintained?.includes("실손")) {
     return "실손 관련 가입은 보이고, 저장된 분석에서도 유지 축으로 보입니다.";
+  }
+
+  if (isKeyCoveragePresenceOnlyQuestion(question, factBundle)) {
+    if (policyCount === 0 || !evidence.has_policies) {
+      return "지금은 등록된 가입 보험 정보를 찾지 못했어요.";
+    }
+    return "가입된 보험이 있는 것은 확인돼요.";
   }
 
   if (/암/.test(question) || evidence.policy_absent_categories?.includes("암")) {
