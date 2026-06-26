@@ -11,6 +11,8 @@ import {
 } from "./salesDirectorLatencyAudit.js";
 import {
   KEY_SKIPPED_LAYERS,
+  buildKeyFactBundlePolicyFields,
+  buildToolBrainAbsorbedTrace,
   isKeyLegacyFallbackEnabled,
   planKeyTools,
   runKeyTools,
@@ -37,7 +39,8 @@ function createKeyTruthGatePlaceholder({ draftText = "", factBundle = {}, loaded
           memory: loadedContext.memory ?? null,
         }
       : null,
-    fact_bundle_policy_count: factBundle?.policy_count ?? 0,
+    fact_bundle_policy_count:
+      factBundle?.active_policy_count ?? factBundle?.policy_count ?? null,
   };
 }
 
@@ -55,9 +58,13 @@ function buildKeyAgentTurn({
   question = "",
   consultationIntent = null,
   customerContextBundle = null,
+  unified = null,
   toolRun = null,
+  plan = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
+  const legacySlice = plan?.legacy_slice ?? null;
+  const policyFields = buildKeyFactBundlePolicyFields({ unified, customerContextBundle });
   return {
     text: "",
     tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
@@ -66,7 +73,7 @@ function buildKeyAgentTurn({
     responseSource: "sales_director_key",
     factBundle: {
       question,
-      policy_count: policies.length,
+      ...policyFields,
       policies,
       memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
       customer_context_used: true,
@@ -77,6 +84,9 @@ function buildKeyAgentTurn({
       memory_tool_used: toolRun?.memory_used === true,
       coverage_gap_used: toolRun?.coverage_gap_used === true,
       has_stored_coverage_analysis: toolRun?.coverage_gap_used === true,
+      tool_brain_slice: legacySlice,
+      tool_brain_absorbed: Boolean(legacySlice),
+      coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
     },
     tomGapVoiceHandled: false,
     trace: {
@@ -116,7 +126,7 @@ export async function runSalesDirectorKeyTurn({
   const keyModeDecision = buildKeyModeDecision(consultationIntent);
 
   const planStart = Date.now();
-  const plan = planKeyTools(consultationIntent, loadedContext);
+  const plan = planKeyTools(consultationIntent, loadedContext, question);
   keyLatency.key_plan_ms = markLatencyMs(planStart);
 
   const toolsStart = Date.now();
@@ -127,6 +137,7 @@ export async function runSalesDirectorKeyTurn({
     customerContextBundle,
     loadedContext,
     existingGapContext: customerContextBundle?.coverageGapContext ?? null,
+    unified,
   });
   keyLatency.key_tools_ms = markLatencyMs(toolsStart);
 
@@ -146,7 +157,16 @@ export async function runSalesDirectorKeyTurn({
     question,
     consultationIntent,
     customerContextBundle,
+    unified,
     toolRun,
+    plan,
+  });
+
+  const toolBrainAbsorbed = buildToolBrainAbsorbedTrace({
+    plan,
+    toolRun,
+    customerContextBundle,
+    unified,
   });
 
   const truthGate = createKeyTruthGatePlaceholder({
@@ -168,7 +188,8 @@ export async function runSalesDirectorKeyTurn({
       skipped_layers: KEY_SKIPPED_LAYERS,
       tool_results: toolRun.tool_results ?? [],
     },
-    tool_brain: null,
+    tool_brain: toolBrainAbsorbed,
+    tool_brain_absorbed: toolBrainAbsorbed,
     conversation_brain: null,
     truth_gate: truthGate,
     snapshot_cache_hit: keyLatency.snapshot_cache_hit === true,

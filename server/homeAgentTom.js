@@ -5,7 +5,7 @@ import { classifyConsultationIntent, hasInsuranceTopicSignal } from "./intentGat
 import { buildCustomerContextBundle } from "./buildCustomerContextBundle.js";
 import { matchP5BrainPilotQuestion } from "./p5BrainPilotQuestions.js";
 import { resolveP5BrainPilotAnswer } from "./p5BrainStateAwareAnswer.js";
-import { loadRawCustomerRecords } from "./unifiedCustomerState.js";
+import { loadRawCustomerRecords, resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import { runTomGapLightVoiceTurn, shouldUseTomGapLightPath } from "./tomGapLightPath.js";
 import { generateLifeguardChatResponse, LIFEGUARD_CHAT_FALLBACK } from "./lifeguardChatCore.js";
@@ -123,6 +123,7 @@ export async function runHomeAgentTomTurn({
   userSupabase,
   customerId,
   customerContextBundle = null,
+  unified = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -143,6 +144,7 @@ export async function runHomeAgentTomTurn({
     const responseSource = stateAnswer.guarded
       ? "p5_brain_state_guarded"
       : "p5_brain_customer_state";
+    const policyFields = resolveActivePolicyCountFromUnified(unified);
     return {
       text: stateAnswer.text,
       tomInternalRoute,
@@ -151,7 +153,7 @@ export async function runHomeAgentTomTurn({
       responseSource,
       factBundle: {
         question: trimmedQuestion,
-        policy_count: customerContext.policies?.length ?? 0,
+        ...policyFields,
         policies: customerContext.policies ?? [],
         document_count: customerContext.documentCount ?? 0,
         memory_fact_count: customerContext.memoryFactCount ?? 0,
@@ -211,13 +213,14 @@ export async function runHomeAgentTomTurn({
   }
 
   if (tomInternalRoute === TOM_INTERNAL_ROUTES.DEFER) {
+    const policyFields = resolveActivePolicyCountFromUnified(unified);
     return {
       text: composeTomDeferMessage(trimmedQuestion, tomInternalRoute),
       tomInternalRoute,
       consultationIntent,
       toolUsed: null,
       responseSource: "tom_internal_defer",
-      factBundle: { question: trimmedQuestion, policy_count: 0, policies: [] },
+      factBundle: { question: trimmedQuestion, ...policyFields, policies: [] },
       tomGapVoiceHandled: false,
       trace: { ...baseTrace, tool_used: null, tom_ran: false },
     };
@@ -229,13 +232,14 @@ export async function runHomeAgentTomTurn({
     fetchImpl,
     env,
   });
+  const chatPolicyFields = resolveActivePolicyCountFromUnified(unified);
   return {
     text: chatTurn.text,
     tomInternalRoute,
     consultationIntent,
     toolUsed: null,
     responseSource: chatTurn.response_source,
-    factBundle: { question: trimmedQuestion, policy_count: 0, policies: [] },
+    factBundle: { question: trimmedQuestion, ...chatPolicyFields, policies: [] },
     tomGapVoiceHandled: false,
     trace: { ...baseTrace, tool_used: null, tom_ran: true, llm_ok: chatTurn.llm_ok },
   };

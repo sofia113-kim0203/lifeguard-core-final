@@ -10,6 +10,7 @@ import {
 import { LIFEGUARD_CHAT_FALLBACK } from "./lifeguardChatCore.js";
 import {
   finalizeSalesDirectorResponse,
+  resolveFactBundlePolicyCount,
   resolveSalesDirectorJudgmentIntent,
   shouldApplySalesDirectorFormatter,
 } from "./salesDirectorFormatter.js";
@@ -65,11 +66,15 @@ function hasPremiumEvidence(factBundle = {}) {
 }
 
 function hasCoverageEvidence(factBundle = {}) {
-  return Boolean(
-    factBundle?.has_stored_coverage_analysis ||
-      (factBundle?.policy_count ?? 0) > 0 ||
-      (factBundle?.policies?.length ?? 0) > 0,
-  );
+  if (factBundle?.has_stored_coverage_analysis) {
+    return true;
+  }
+  const policyCount = resolveFactBundlePolicyCount(factBundle);
+  return typeof policyCount === "number" && policyCount > 0;
+}
+
+export function hasOneBrainCoverageEvidence(factBundle = {}) {
+  return hasCoverageEvidence(factBundle);
 }
 
 export function sanitizeOneBrainCustomerText(text, factBundle = {}) {

@@ -125,8 +125,20 @@ function statement(text = "", basis = STATEMENT_BASIS.INSIGHT, evidenceKey = nul
   };
 }
 
+/** P11-8 — Read-only policy count from factBundle SSOT fields (no policies.length). */
+export function resolveFactBundlePolicyCount(factBundle = {}) {
+  if (factBundle?.active_policy_count != null) {
+    return Number(factBundle.active_policy_count);
+  }
+  if (factBundle?.policy_count != null) {
+    return Number(factBundle.policy_count);
+  }
+  return null;
+}
+
 function hasPolicyEvidence(factBundle = {}) {
-  return (factBundle.policy_count ?? 0) > 0 || (factBundle.policies?.length ?? 0) > 0;
+  const policyCount = resolveFactBundlePolicyCount(factBundle);
+  return typeof policyCount === "number" && policyCount > 0;
 }
 
 function hasPremiumEvidence(factBundle = {}) {
@@ -611,11 +623,11 @@ function buildAcknowledgment(factBundle = {}) {
   return "보험을 완전히 방치하신 분은 아닐 수 있습니다.";
 }
 
-function buildConfirmedFactsSummary(factBundle = {}) {
+export function buildConfirmedFactsSummary(factBundle = {}) {
   const lines = [];
-  const policyCount = factBundle.policy_count ?? factBundle.policies?.length ?? 0;
+  const policyCount = resolveFactBundlePolicyCount(factBundle);
 
-  if (policyCount > 0) {
+  if (typeof policyCount === "number" && policyCount > 0) {
     lines.push(`현재 확인된 가입은 ${policyCount}건입니다.`);
   } else {
     lines.push("현재 확인된 가입 정보는 아직 많지 않습니다.");

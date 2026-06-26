@@ -35,6 +35,7 @@ export function buildInsuranceDesignExplanationPrompt(
   designBundle,
   context,
   policies = [],
+  countContract = null,
 ) {
   const user = [
     "Explain the insurance design plan to the customer using only the blocks below.",
@@ -43,7 +44,7 @@ export function buildInsuranceDesignExplanationPrompt(
     JSON.stringify(structuredMemory, null, 2),
     "",
     "B.",
-    buildPoliciesPromptBlock(policies),
+    buildPoliciesPromptBlock(policies, countContract),
     "",
     "C. coverage_gap_summary:",
     JSON.stringify(
@@ -182,6 +183,10 @@ export async function loadInsuranceDesignAnalysisContext(supabase, customerId) {
     recommendationResult: recContext.recommendationResult,
     designBundle,
     policies: recContext.policies ?? [],
+    active_policy_count: recContext.active_policy_count ?? null,
+    active_policy_count_source: recContext.active_policy_count_source ?? null,
+    active_policy_ids: recContext.active_policy_ids ?? null,
+    policy_count: recContext.policy_count ?? null,
   };
 }
 
@@ -252,6 +257,12 @@ export async function handleCustomerInsuranceDesignRequest({
   }
 
   const context = await loadInsuranceDesignAnalysisContext(supabase, customerId);
+  const countContract = {
+    active_policy_count: context.active_policy_count ?? null,
+    active_policy_count_source: context.active_policy_count_source ?? null,
+    active_policy_ids: context.active_policy_ids ?? null,
+    policy_count: context.policy_count ?? null,
+  };
 
   let claudeExplanation = null;
   let claudeMeta = { skipped: true, reason: "skipClaude" };
@@ -262,6 +273,7 @@ export async function handleCustomerInsuranceDesignRequest({
       claudeMeta = attachPolicyMeta(
         { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" },
         context.policies ?? [],
+        countContract,
       );
     } else {
       const prompt = buildInsuranceDesignExplanationPrompt(
@@ -269,6 +281,7 @@ export async function handleCustomerInsuranceDesignRequest({
         context.designBundle,
         context,
         context.policies ?? [],
+        countContract,
       );
       const claudeResult = await callAnthropic({
         apiKey: anthropicApiKey,
@@ -286,6 +299,7 @@ export async function handleCustomerInsuranceDesignRequest({
             provider: claudeResult.provider,
           },
           context.policies ?? [],
+          countContract,
         );
       } else {
         claudeMeta = attachPolicyMeta(
@@ -295,6 +309,7 @@ export async function handleCustomerInsuranceDesignRequest({
             error_message: claudeResult.errorMessage,
           },
           context.policies ?? [],
+          countContract,
         );
       }
     }

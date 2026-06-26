@@ -4,6 +4,15 @@
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
+import {
+  matchToolBrainSliceQuestion,
+  SALES_DIRECTOR_TOOL_BRAIN_SLICES,
+  SALES_DIRECTOR_TOOL_FORBIDDEN,
+} from "./salesDirectorToolBrain.js";
+
+/** Mirrors resolveSalesDirectorJudgmentIntent COVERAGE_JUDGMENT rules — no formatter import (cycle). */
+const COVERAGE_JUDGMENT_QUESTION_RE =
+  /내\s*보험\s*괜찮|보험\s*괜찮|내\s*보장\s*괜찮|암\s*보험\s*부족|암보험\s*부족|암\s*부족/;
 
 export const KEY_TOOLS = {
   SNAPSHOT: "snapshot",
@@ -90,45 +99,182 @@ function dedupeTools(tools = []) {
   return ordered;
 }
 
+function shouldAddCoverageGapTool(classification = {}, question = "") {
+  const intent = classification.intent ?? "";
+  const subIntent = classification.lookup_sub_intent ?? null;
+
+  if (intent === "coverage_gap_check" || intent === "coverage_review_request") {
+    return true;
+  }
+
+  if (intent === "factual_lookup" && subIntent === "coverage_presence") {
+    if (matchToolBrainSliceQuestion(question) === SALES_DIRECTOR_TOOL_BRAIN_SLICES.INSURANCE_PRESENCE) {
+      return false;
+    }
+    return true;
+  }
+
+  if (COVERAGE_JUDGMENT_QUESTION_RE.test(String(question ?? ""))) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
- * Intent-aware tool plan (stored gap / premium_stats only in P10-1 skeleton).
+ * Intent-aware tool plan — P11-2D Tool Brain slice parity via matchToolBrainSliceQuestion.
  */
-export function planKeyTools(classification = {}, loadedContext = null) {
+export function planKeyTools(classification = {}, loadedContext = null, question = "") {
   const intent = classification.intent ?? "general_consultation";
   const subIntent = classification.lookup_sub_intent ?? null;
+  const legacySlice = matchToolBrainSliceQuestion(question);
   const tools = [KEY_TOOLS.SNAPSHOT];
+  let coverage_gap_suppressed = false;
+  let coverage_gap_suppress_reason = null;
 
   if (loadedContext?.memory === "present") {
     tools.push(KEY_TOOLS.MEMORY);
   }
 
-  if (intent === "factual_lookup") {
-    if (subIntent === "premium_lookup") {
-      tools.push(KEY_TOOLS.PREMIUM_STATS);
-    } else if (subIntent === "coverage_presence") {
-      tools.push(KEY_TOOLS.COVERAGE_GAP);
-    }
-  } else if (
-    intent === "coverage_gap_check" ||
-    intent === "coverage_review_request" ||
-    intent === "general_consultation"
-  ) {
+  if (legacySlice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.PREMIUM_BURDEN) {
+    tools.push(KEY_TOOLS.PREMIUM_STATS);
+    coverage_gap_suppressed = true;
+    coverage_gap_suppress_reason = "tool_brain_slice_parity_p11_2c";
+    return {
+      intent,
+      subIntent,
+      legacy_slice: legacySlice,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed,
+      coverage_gap_suppress_reason,
+    };
+  }
+
+  if (legacySlice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.INSURANCE_PRESENCE) {
+    coverage_gap_suppressed = true;
+    coverage_gap_suppress_reason = "tool_brain_slice_parity_p11_2c";
+    return {
+      intent,
+      subIntent,
+      legacy_slice: legacySlice,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed,
+      coverage_gap_suppress_reason,
+    };
+  }
+
+  if (shouldAddCoverageGapTool(classification, question)) {
     tools.push(KEY_TOOLS.COVERAGE_GAP);
+  }
+
+  if (intent === "factual_lookup" && subIntent === "premium_lookup") {
+    tools.push(KEY_TOOLS.PREMIUM_STATS);
   }
 
   return {
     intent,
     subIntent,
+    legacy_slice: legacySlice,
     tools: dedupeTools(tools),
+    coverage_gap_suppressed,
+    coverage_gap_suppress_reason,
   };
 }
 
-function runSnapshotTool(customerContextBundle = null, loadedContext = null) {
+function extractPolicyIdsFromPolicies(policies = []) {
+  return (policies ?? []).map((policy) => policy?.id).filter(Boolean);
+}
+
+export function resolveKeyActivePolicyCount({ unified = null, customerContextBundle = null } = {}) {
+  if (unified?.active_policy_count != null) {
+    return {
+      active_policy_count: Number(unified.active_policy_count),
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified?.policy_ids ?? extractPolicyIdsFromPolicies(unified?.policies),
+    };
+  }
+  if (unified?.policy_count != null) {
+    return {
+      active_policy_count: Number(unified.policy_count),
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified?.policy_ids ?? extractPolicyIdsFromPolicies(unified?.policies),
+    };
+  }
+  if (customerContextBundle?.active_policy_count != null) {
+    return {
+      active_policy_count: Number(customerContextBundle.active_policy_count),
+      active_policy_count_source: "unified_state",
+      active_policy_ids:
+        customerContextBundle?.active_policy_ids ??
+        extractPolicyIdsFromPolicies(customerContextBundle?.policies),
+    };
+  }
+  if (customerContextBundle?.policy_count != null) {
+    return {
+      active_policy_count: Number(customerContextBundle.policy_count),
+      active_policy_count_source: "unified_state",
+      active_policy_ids:
+        customerContextBundle?.active_policy_ids ??
+        extractPolicyIdsFromPolicies(customerContextBundle?.policies),
+    };
+  }
+  return {
+    active_policy_count: null,
+    active_policy_count_source: null,
+    active_policy_ids: unified?.policy_ids ?? extractPolicyIdsFromPolicies(unified?.policies),
+  };
+}
+
+export function buildKeyFactBundlePolicyFields({ unified = null, customerContextBundle = null } = {}) {
+  const resolved = resolveKeyActivePolicyCount({ unified, customerContextBundle });
+  return {
+    active_policy_count: resolved.active_policy_count,
+    active_policy_count_source: resolved.active_policy_count_source,
+    active_policy_ids: resolved.active_policy_ids,
+    policy_count: resolved.active_policy_count,
+  };
+}
+
+export function buildToolBrainAbsorbedTrace({
+  plan = null,
+  toolRun = null,
+  customerContextBundle = null,
+  unified = null,
+} = {}) {
+  if (!plan?.legacy_slice) return null;
+
+  const snapshotResult = (toolRun?.tool_results ?? []).find((result) => result.tool === KEY_TOOLS.SNAPSHOT);
+  const countContract = resolveKeyActivePolicyCount({ unified, customerContextBundle });
+  const activePolicyCount =
+    snapshotResult?.active_policy_count ?? countContract.active_policy_count ?? null;
+
+  return {
+    status: "p11_2c_absorbed",
+    legacy_slice: plan.legacy_slice,
+    legacy_matcher: "matchToolBrainSliceQuestion",
+    tools_called: toolRun?.tools_called ?? [],
+    forbidden_skipped: SALES_DIRECTOR_TOOL_FORBIDDEN,
+    snapshot_used: toolRun?.snapshot_used === true,
+    memory_used: toolRun?.memory_used === true,
+    policy_count_from_snapshot: activePolicyCount,
+    active_policy_count_from_snapshot: activePolicyCount,
+    premium_stats_used: (toolRun?.tools_called ?? []).includes(KEY_TOOLS.PREMIUM_STATS),
+    coverage_gap_suppressed: plan.coverage_gap_suppressed === true,
+    coverage_gap_suppress_reason: plan.coverage_gap_suppress_reason ?? null,
+    compose_mode: "tool_brain_fixed_slots",
+  };
+}
+
+function runSnapshotTool(customerContextBundle = null, loadedContext = null, unified = null) {
   const policies = customerContextBundle?.policies ?? [];
+  const countContract = resolveKeyActivePolicyCount({ unified, customerContextBundle });
   return {
     ok: true,
     tool: KEY_TOOLS.SNAPSHOT,
-    policy_count: policies.length,
+    active_policy_count: countContract.active_policy_count,
+    active_policy_count_source: countContract.active_policy_count_source,
+    active_policy_ids: countContract.active_policy_ids,
+    policy_count: countContract.active_policy_count,
     snapshot_used: loadedContext?.policies === "present" && policies.length > 0,
   };
 }
@@ -197,6 +343,7 @@ export async function runKeyTools({
   customerContextBundle = null,
   loadedContext = null,
   existingGapContext = null,
+  unified = null,
 } = {}) {
   if (!plan?.tools?.length) {
     return {
@@ -229,7 +376,7 @@ export async function runKeyTools({
 
   for (const tool of plan.tools) {
     if (tool === KEY_TOOLS.SNAPSHOT) {
-      const result = runSnapshotTool(customerContextBundle, loadedContext);
+      const result = runSnapshotTool(customerContextBundle, loadedContext, unified);
       tool_results.push(result);
       tools_called.push(tool);
       snapshot_used = result.snapshot_used === true;
@@ -286,6 +433,8 @@ export async function runKeyTools({
       memory_used,
       premium_used,
       coverage_gap_used,
+      coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
+      coverage_gap_suppress_reason: plan?.coverage_gap_suppress_reason ?? null,
     },
   };
 }

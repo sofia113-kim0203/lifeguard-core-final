@@ -66,6 +66,34 @@ export function extractPolicyIds(policies = []) {
   return (policies ?? []).map((policy) => String(policy.id)).sort();
 }
 
+/** P11-5 — Read-only active policy count contract from Unified State (no recalculation). */
+export function resolveActivePolicyCountFromUnified(unified = null) {
+  if (unified?.active_policy_count != null) {
+    const activePolicyCount = Number(unified.active_policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  if (unified?.policy_count != null) {
+    const activePolicyCount = Number(unified.policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  return {
+    active_policy_count: null,
+    active_policy_count_source: null,
+    active_policy_ids: unified?.active_policy_ids ?? unified?.policy_ids ?? [],
+    policy_count: null,
+  };
+}
+
 export function getInsurancePolicyCountFact(snapshot) {
   const facts = snapshot?.facts ?? [];
   const countFact = facts.find((fact) => fact.fact_key === "insurance.policy.count");
@@ -95,15 +123,19 @@ export function buildUnifiedStateHash({
 
 export function buildUnifiedProvenance({
   policies = [],
+  activePolicyCount = null,
   documents = [],
   documentCount = 0,
   documentsPreviewCount = 0,
   snapshot = null,
 } = {}) {
+  const resolvedPolicyCount =
+    activePolicyCount ?? null;
+
   return {
     policies: {
       source_table: "profile_insurance_policies",
-      count: policies.length,
+      count: resolvedPolicyCount,
       ids: extractPolicyIds(policies),
       coverage_sheet_bridge_policy_count: countCoverageSheetBridgePolicies(policies),
       coverage_sheet_bridge_policy_ids: extractCoverageSheetBridgePolicyIds(policies),
@@ -276,6 +308,7 @@ export function buildUnifiedCustomerStateFromRecords(
     memorySnapshot,
   );
   const memoryStatus = resolveMemoryDisplayStatus({ syncAssessment: memorySyncAssessment });
+  const activePolicyCount = raw.policies.length;
 
   return {
     contract_version: UNIFIED_STATE_VERSION,
@@ -296,7 +329,8 @@ export function buildUnifiedCustomerStateFromRecords(
     health: raw.health,
     health_details: raw.health_details,
     policies: raw.policies,
-    policy_count: raw.policies.length,
+    active_policy_count: activePolicyCount,
+    policy_count: activePolicyCount,
     policy_ids: policyIds,
     documents: raw.documents,
     document_count: raw.document_count,
@@ -309,6 +343,7 @@ export function buildUnifiedCustomerStateFromRecords(
     memory_sync_assessment: memorySyncAssessment,
     provenance: buildUnifiedProvenance({
       policies: raw.policies,
+      activePolicyCount,
       documents: raw.documents,
       documentCount: raw.document_count,
       documentsPreviewCount: raw.documents_preview_count,
@@ -348,6 +383,8 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
   const profile = unifiedState?.profile ?? {};
   const health = unifiedState?.health_details ?? {};
   const policies = unifiedState?.policies ?? [];
+  const activePolicyCount =
+    unifiedState?.active_policy_count ?? unifiedState?.policy_count ?? null;
 
   return {
     profile: {
@@ -386,7 +423,8 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
       status: doc.ingest_status,
       filename: doc.original_filename,
     })),
-    policy_count: policies.length,
+    policy_count: activePolicyCount,
+    active_policy_count: activePolicyCount,
     memory_version: unifiedState?.memory_version ?? 0,
     state_hash: unifiedState?.state_hash ?? null,
   };
@@ -394,9 +432,11 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
 
 export function buildDashboardPolicyView(unifiedState) {
   const policies = unifiedState?.policies ?? [];
+  const activePolicyCount =
+    unifiedState?.active_policy_count ?? unifiedState?.policy_count ?? null;
   return {
     insurancePolicies: policies,
-    insurancePolicyCount: policies.length,
+    insurancePolicyCount: activePolicyCount,
     insurancePolicyIds: extractPolicyIds(policies),
     insurancePolicy: policies[0] ?? null,
     memoryVersion: unifiedState?.memory_version ?? 0,

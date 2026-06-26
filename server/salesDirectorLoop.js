@@ -264,6 +264,7 @@ export async function runSalesDirectorLoopTurn({
     customerContextBundle,
     loadedContext,
     consultationIntent: modeDecision.consultationIntent,
+    unified,
   });
   latency.tool_brain_ms = markLatencyMs(toolBrainStart);
 
@@ -293,6 +294,7 @@ export async function runSalesDirectorLoopTurn({
         userSupabase,
         customerId,
         customerContextBundle,
+        unified,
         env,
         fetchImpl,
         startedAt: loopStartedAt,
@@ -307,6 +309,7 @@ export async function runSalesDirectorLoopTurn({
     history,
     customerContextBundle,
     loadedContext,
+    unified,
     consultationIntent: modeDecision.consultationIntent,
     contextSnapshotId: snapshot.context_snapshot_id ?? "",
     fetchImpl,
@@ -325,7 +328,7 @@ export async function runSalesDirectorLoopTurn({
 
   const snapshotToolTrace =
     toolPlan.snapshot_trace_only === true
-      ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle })
+      ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle, unified })
       : toolBrainResult?.agentTurn?.toolBrainTrace ?? null;
 
   const truthGate = createTruthGatePlaceholder({
@@ -407,6 +410,17 @@ export function buildSalesDirectorLoopObservability({
   };
 }
 
+function resolveFactsUsedActivePolicyCount(agentTurn = {}) {
+  const factBundle = agentTurn?.factBundle ?? {};
+  if (factBundle.active_policy_count != null) {
+    return Number(factBundle.active_policy_count);
+  }
+  if (factBundle.policy_count != null) {
+    return Number(factBundle.policy_count);
+  }
+  return null;
+}
+
 export function buildSalesDirectorFactsUsed({
   agentTurn,
   customerContextBundle,
@@ -424,10 +438,12 @@ export function buildSalesDirectorFactsUsed({
         : fromFactBundle ?? snapshotPolicies ?? [];
   const memoryFactCount =
     agentTurn?.factBundle?.memory_fact_count ?? customerContextBundle?.memoryFactCount ?? 0;
+  const activePolicyCount = resolveFactsUsedActivePolicyCount(agentTurn);
   const factsUsed = buildFactsUsed(
     {
       policies,
-      policy_count: policies.length || agentTurn?.factBundle?.policy_count || 0,
+      active_policy_count: activePolicyCount,
+      policy_count: activePolicyCount,
       memory_fact_count: memoryFactCount,
       memory_status: memoryFactCount > 0 ? "ready" : "empty",
     },

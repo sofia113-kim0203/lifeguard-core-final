@@ -2,6 +2,7 @@
  * P10-4 READ ONLY — KEY path runtime trace (no answer logic change).
  */
 import { classifyConsultationIntent } from "./intentGateLayer.js";
+import { buildKeyEligibilityDebug } from "./keyEligibilityTraceDebug.js";
 import { matchConversationBrainTopic } from "./salesDirectorConversationBrain.js";
 import {
   isKeyBlockedIntent,
@@ -32,6 +33,7 @@ export function diagnoseKeyEligibility({
 
   const allowlist = parseKeyCustomerAllowlist(env);
   const allowlistActive = Boolean(allowlist);
+  const allowlistProfileIds = allowlist ? [...allowlist] : null;
   const customerInAllowlist = allowlist ? allowlist.has(customerId) : null;
   if (allowlist && (!customerId || !allowlist.has(customerId))) {
     skipReasons.push("customer_not_in_key_allowlist");
@@ -50,6 +52,12 @@ export function diagnoseKeyEligibility({
     key_env_enabled: isKeyOrchestratorEnabled(env),
     allowlist_active: allowlistActive,
     customer_in_allowlist: customerInAllowlist,
+    key_eligibility_debug: buildKeyEligibilityDebug({
+      customerId,
+      allowlistProfileIds,
+      match: customerInAllowlist,
+      env,
+    }),
     classificationIntent: classification.intent ?? null,
     lookup_sub_intent: classification.lookup_sub_intent ?? null,
     lookup_category: classification.lookup_category ?? null,
@@ -89,6 +97,8 @@ export function buildKeyPathRuntimeTrace({
     Boolean(finalizeTrace?.generation_mode || finalizeTrace?.humanFrame || finalizeTrace?.applied != null);
 
   const keyCompose = finalizeTrace?.key_compose_trace ?? null;
+  const toolBrainAbsorbed =
+    salesDirectorTrace?.tool_brain_absorbed ?? salesDirectorTrace?.tool_brain ?? null;
 
   return {
     audit: "p10_4_key_path_trace",
@@ -113,7 +123,21 @@ export function buildKeyPathRuntimeTrace({
       skip_reason: keyCompose?.skip_reason ?? (keyCompose?.called ? null : "not_invoked"),
       text_preview: preview(keyCompose?.text_preview ?? ""),
       used_safe_fallback: keyCompose?.used_safe_fallback === true,
+      compose_mode: keyCompose?.compose_mode ?? toolBrainAbsorbed?.compose_mode ?? null,
+      absorbed_slice: keyCompose?.absorbed_slice ?? toolBrainAbsorbed?.legacy_slice ?? null,
     },
+    tool_brain_absorbed: toolBrainAbsorbed
+      ? {
+          legacy_slice: toolBrainAbsorbed.legacy_slice ?? null,
+          compose_mode: toolBrainAbsorbed.compose_mode ?? keyCompose?.compose_mode ?? null,
+          tools_called: toolBrainAbsorbed.tools_called ?? null,
+          coverage_gap_suppressed: toolBrainAbsorbed.coverage_gap_suppressed === true,
+          coverage_gap_suppress_reason: toolBrainAbsorbed.coverage_gap_suppress_reason ?? null,
+          premium_stats_used: toolBrainAbsorbed.premium_stats_used === true,
+          snapshot_used: toolBrainAbsorbed.snapshot_used === true,
+          memory_used: toolBrainAbsorbed.memory_used === true,
+        }
+      : null,
     free_thinking: {
       created: Boolean(freeThinking?.status || conversationBrain?.free_thinking_applied),
       source: freeThinking?.source ?? null,

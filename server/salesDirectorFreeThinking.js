@@ -5,6 +5,7 @@ import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { hasCoveragePresenceFactualAnswer } from "./coveragePresencePreserveGate.js";
 import { classifyConsultationIntent } from "./intentGateLayer.js";
 import { generateLifeguardChatResponse } from "./lifeguardChatCore.js";
+import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { CONVERSATION_BRAIN_TOPICS } from "./salesDirectorPersona.js";
 import { buildCoverageGapDirectorContextLines } from "./salesDirectorCoverageGapContext.js";
 import { markLatencyMs } from "./salesDirectorLatencyAudit.js";
@@ -159,6 +160,7 @@ export function composeDeterministicFreeThinking({
   customerContextBundle = null,
   loadedContext = null,
   contextSnapshotId = "",
+  unified = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
   const memoryFacts = customerContextBundle?.memoryFacts ?? [];
@@ -199,12 +201,14 @@ export function composeDeterministicFreeThinking({
 
   if (violatesManualTemplate(composed.text, memoryFacts)) return null;
 
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
+
   return {
     text: composed.text,
     opening_variant: composed.opening_variant,
     source: "deterministic",
     policies,
-    policy_count: policies.length,
+    ...policyFields,
     memory_used: composed.memory_used,
     coverage_gap_used: coverageGapUsedInThinking(customerContextBundle),
     persona: SALES_DIRECTOR_PERSONA_ID,
@@ -218,6 +222,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
   customerContextBundle = null,
   loadedContext = null,
   contextSnapshotId = "",
+  unified = null,
   fetchImpl = fetch,
   env = process.env,
   streamHandlers = null,
@@ -285,12 +290,13 @@ export async function composeSalesDirectorFreeThinkingAnswer({
     ) {
       latency.parse_ms += markLatencyMs(validateStart);
       const policies = customerContextBundle?.policies ?? [];
+      const policyFields = resolveActivePolicyCountFromUnified(unified);
       return {
         text: llm.text,
         source: "claude",
         opening_variant: llm.text.trim().split("\n")[0] ?? null,
         policies,
-        policy_count: policies.length,
+        ...policyFields,
         memory_used: memoryFacts.length > 0,
         coverage_gap_used: coverageGapUsedInThinking(customerContextBundle),
         persona: SALES_DIRECTOR_PERSONA_ID,
@@ -307,6 +313,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
         customerContextBundle,
         loadedContext,
         contextSnapshotId,
+        unified,
       });
       if (deterministic?.text && !violatesManualTemplate(deterministic.text, memoryFacts)) {
         return { ...deterministic, source: deterministic.source ?? "deterministic", latency };
@@ -321,6 +328,7 @@ export async function composeSalesDirectorFreeThinkingAnswer({
     customerContextBundle,
     loadedContext,
     contextSnapshotId,
+    unified,
   });
   latency.free_thinking_prepare_ms += markLatencyMs(deterministicStart);
   if (!deterministic?.text || violatesManualTemplate(deterministic.text, memoryFacts)) {
