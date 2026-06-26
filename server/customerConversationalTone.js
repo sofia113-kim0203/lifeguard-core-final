@@ -46,7 +46,7 @@ export function detectDirectAnswerIntent(question = "") {
 }
 
 /** Align with UnifiedCustomerState / dashboard: all non-deleted maintained policies. */
-function resolvePolicyCountFromSummary(sourceSummary = {}) {
+export function resolvePolicyCountFromSummary(sourceSummary = {}) {
   if (sourceSummary.active_policy_count != null) {
     return Number(sourceSummary.active_policy_count);
   }
@@ -54,6 +54,10 @@ function resolvePolicyCountFromSummary(sourceSummary = {}) {
     return Number(sourceSummary.policy_count);
   }
   return null;
+}
+
+function hasSsotPolicyCount(policyCount) {
+  return typeof policyCount === "number" && policyCount > 0;
 }
 
 export function resolveUnifiedPolicyView(workingContext = {}) {
@@ -128,12 +132,16 @@ export function buildCustomerFacingContext(workingContext = {}) {
   const situation = extractCustomerSituation(workingContext);
   const lines = [];
 
-  if (situation.policyDescriptions.length) {
-    lines.push(
-      `현재 ${situation.customerLabel}께서는 ${situation.policyDescriptions.join(", ")} ${situation.policyCount}건을 보유하고 계십니다.`,
-    );
-  } else if (situation.policyCount > 0) {
-    lines.push(`현재 ${situation.customerLabel}께서는 등록된 보험이 ${situation.policyCount}건 확인됩니다.`);
+  if (hasSsotPolicyCount(situation.policyCount)) {
+    if (situation.policyDescriptions.length) {
+      lines.push(
+        `현재 ${situation.customerLabel}께서는 ${situation.policyDescriptions.join(", ")} ${situation.policyCount}건을 보유하고 계십니다.`,
+      );
+    } else {
+      lines.push(
+        `현재 ${situation.customerLabel}께서는 등록된 보험이 ${situation.policyCount}건 확인됩니다.`,
+      );
+    }
   }
 
   if (situation.medication) {
@@ -182,9 +190,12 @@ export function buildDirectFactualAnswer(question, workingContext = {}) {
   const { customerLabel } = situation;
 
   if (intent === "policy_count") {
-    if (situation.policyCount > 0 && situation.policyDescriptions.length) {
+    if (hasSsotPolicyCount(situation.policyCount)) {
+      const countLine = situation.policyDescriptions.length
+        ? `${customerLabel}, 현재 등록된 가입 보험은 ${situation.policyDescriptions.join(", ")} 포함 총 ${situation.policyCount}건입니다.`
+        : `${customerLabel}, 현재 등록된 가입 보험은 총 ${situation.policyCount}건 확인됩니다.`;
       return [
-        `${customerLabel}, 현재 등록된 가입 보험은 ${situation.policyDescriptions.join(", ")} 포함 총 ${situation.policyCount}건입니다.`,
+        countLine,
         situation.keepLabels.length
           ? `특히 ${joinLabels(situation.keepLabels)} 보장은 유지하시면서 다른 부족한 보장을 점검해 보시는 것이 좋습니다.`
           : "보유 보험을 기준으로 부족한 보장이 있는지 함께 살펴보겠습니다.",

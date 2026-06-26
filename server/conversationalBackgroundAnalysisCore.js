@@ -333,7 +333,14 @@ async function handleCasualChatQuestionRequest({
     question,
     intent: "casual_chat",
     surface: ONE_BRAIN_SURFACES.CONSULTATION,
-    factBundle: { question, policy_count: 0, policies: [] },
+    factBundle: {
+      question,
+      active_policy_count: null,
+      active_policy_count_source: null,
+      active_policy_ids: [],
+      policy_count: null,
+      policies: [],
+    },
   });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {

@@ -876,7 +876,14 @@ export function generateHumanSalesDirectorResponse({
 
   const assertionBundle =
     humanFrame.is_trust_human_question && !humanFrame.needs_insurance_tools && !useKeyOrchestrator
-      ? { question: factBundle.question ?? humanFrame.surface_question, policy_count: 0, policies: [] }
+      ? {
+          question: factBundle.question ?? humanFrame.surface_question,
+          active_policy_count: factBundle.active_policy_count ?? null,
+          active_policy_count_source: factBundle.active_policy_count_source ?? null,
+          active_policy_ids: factBundle.active_policy_ids ?? null,
+          policy_count: resolveKeyFactBundlePolicyCount(factBundle),
+          policies: [],
+        }
       : factBundle;
 
   if (detectFalseAssertions(text, assertionBundle)) {

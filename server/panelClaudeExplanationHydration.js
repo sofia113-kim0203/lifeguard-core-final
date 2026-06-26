@@ -1,7 +1,7 @@
 /**
  * Phase 28 Step 1C — Generate and persist panel-level Claude explanations for analysis jobs.
  */
-import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
+import { loadUnifiedCustomerState, resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { resolveClaudeModel } from "./policyTermsQaCore.js";
 import { buildUnderwritingExplanationPrompt } from "./customerUnderwritingRiskCore.js";
@@ -53,10 +53,34 @@ async function callAnthropic({ apiKey, modelName, system, user, maxTokens = 1500
   };
 }
 
-export function buildClaudeExplanationEntry({ explanation = null, meta = {}, policies = [] } = {}) {
+export function buildClaudeExplanationEntry({
+  explanation = null,
+  meta = {},
+  policies = [],
+  countContract = null,
+} = {}) {
   return {
     explanation,
-    meta: attachPolicyMeta(meta, policies),
+    meta: attachPolicyMeta(meta, policies, countContract),
+  };
+}
+
+function resolvePanelHydrationPolicyIds(unified = null, policies = []) {
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
+  if (Array.isArray(policyFields.active_policy_ids) && policyFields.active_policy_ids.length > 0) {
+    return policyFields.active_policy_ids.map(String);
+  }
+  return policies.map((policy) => String(policy.id));
+}
+
+export function resolvePanelHydrationPolicySummary(unified = null) {
+  const policies = unified?.policies ?? [];
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
+  return {
+    active_policy_count: policyFields.active_policy_count,
+    active_policy_count_source: policyFields.active_policy_count_source,
+    policy_count: policyFields.policy_count,
+    policy_ids: resolvePanelHydrationPolicyIds(unified, policies),
   };
 }
 
@@ -64,6 +88,7 @@ async function generatePanelExplanation({
   panelKey,
   prompt,
   policies,
+  countContract = null,
   anthropicApiKey,
   modelName,
   fetchImpl,
@@ -74,6 +99,7 @@ async function generatePanelExplanation({
       explanation: null,
       meta: { skipped: true, reason: "PANEL_CONTEXT_MISSING", panel: panelKey },
       policies,
+      countContract,
     });
   }
 
@@ -82,6 +108,7 @@ async function generatePanelExplanation({
       explanation: null,
       meta: { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED", panel: panelKey },
       policies,
+      countContract,
     });
   }
 
@@ -110,6 +137,7 @@ async function generatePanelExplanation({
         estimated_output_tokens: outputMetrics.estimated_output_tokens,
       },
       policies,
+      countContract,
     });
   }
 
@@ -122,6 +150,7 @@ async function generatePanelExplanation({
       panel: panelKey,
     },
     policies,
+    countContract,
   });
 }
 
@@ -135,6 +164,7 @@ export async function generatePanelClaudeExplanations({
   const startedAt = Date.now();
   const unified = await loadUnifiedCustomerState(supabase, customerId);
   const policies = unified.policies ?? [];
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
 
   const structuredMemory =
     workingContext.structuredMemory ??
@@ -156,11 +186,13 @@ export async function generatePanelClaudeExplanations({
       coverageGapResult,
       underwritingResult,
       policies,
+      policyFields,
     );
     explanations.underwriting = await generatePanelExplanation({
       panelKey: "underwriting",
       prompt,
       policies,
+      countContract: policyFields,
       anthropicApiKey,
       modelName,
       fetchImpl,
@@ -174,11 +206,13 @@ export async function generatePanelClaudeExplanations({
       coverageGapResult,
       underwritingResult,
       policies,
+      policyFields,
     );
     explanations.recommendation = await generatePanelExplanation({
       panelKey: "recommendation",
       prompt,
       policies,
+      countContract: policyFields,
       anthropicApiKey,
       modelName,
       fetchImpl,
@@ -195,11 +229,13 @@ export async function generatePanelClaudeExplanations({
         recommendationResult,
       },
       policies,
+      policyFields,
     );
     explanations.insurance_design = await generatePanelExplanation({
       panelKey: "insurance_design",
       prompt,
       policies,
+      countContract: policyFields,
       anthropicApiKey,
       modelName,
       fetchImpl,
@@ -207,10 +243,14 @@ export async function generatePanelClaudeExplanations({
     });
   }
 
+  const policySummary = resolvePanelHydrationPolicySummary(unified);
+
   return {
     explanations,
-    policy_count: policies.length,
-    policy_ids: policies.map((policy) => String(policy.id)),
+    active_policy_count: policySummary.active_policy_count,
+    active_policy_count_source: policySummary.active_policy_count_source,
+    policy_count: policySummary.policy_count,
+    policy_ids: policySummary.policy_ids,
     duration_ms: Date.now() - startedAt,
   };
 }
