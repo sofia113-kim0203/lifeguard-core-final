@@ -95,8 +95,13 @@ export const KEY_JUDGMENT_RULES = [
       if (lookupSub === "premium_lookup") return true;
       return /(?:보험료|납입).{0,8}(?:얼마|몇)|(?:얼마|몇).{0,8}(?:보험료|납입)/.test(q);
     },
-    buildJudgment() {
-      return "보험료는 계약마다 달라서, 확인된 납입액부터 차례로 짚어보겠습니다.";
+    buildJudgment({ factBundle = {} } = {}) {
+      const stats = factBundle.premium_stats ?? {};
+      const premiumKnown = (stats.premiumKnownCount ?? 0) > 0 && (stats.premiumTotal ?? 0) > 0;
+      if (premiumKnown) {
+        return `현재 확인 가능한 월 보험료는 ${Number(stats.premiumTotal).toLocaleString("ko-KR")}원입니다.`;
+      }
+      return "지금은 월 납입액이 모두 확인되지 않았어요.";
     },
   },
   {

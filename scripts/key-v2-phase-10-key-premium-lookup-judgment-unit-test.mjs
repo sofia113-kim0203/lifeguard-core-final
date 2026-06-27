@@ -1,5 +1,5 @@
 /**
- * KEY v2 phase 10 — premium lookup judgment (factual how-much).
+ * KEY v2 phase 10 — premium lookup judgment (Tom #159 conditional 3-case).
  */
 import assert from "node:assert/strict";
 
@@ -10,6 +10,7 @@ import {
 import { ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
 
 const GENERIC_FILLER_RE = /확인된 범위 안에서만 조심스럽게/;
+const FABRICATED_AMOUNT_RE = /\d{1,3}(?:,\d{3})+\s*원/;
 
 function buildKeyBundle(question, overrides = {}) {
   return {
@@ -41,40 +42,82 @@ async function record(ok) {
   else failed += 1;
 }
 
+/** Tom #159-1 — premium data present → amount leads */
 await record(
-  await runCase("V2-P1 premium lookup — judgment not generic filler", async () => {
+  await runCase("V2-P1 Tom — 보험료 얼마야 + premium data → amount first", async () => {
     const question = "보험료 얼마야?";
-    assert.equal(resolveKeyJudgmentRule({ question, resolvedIntent: null })?.id, "premium_lookup_judgment");
     const finalized = finalizeHumanSalesDirectorResponse({
       question,
       classificationIntent: "factual_lookup",
       surface: ONE_BRAIN_SURFACES.HOME,
-      factBundle: buildKeyBundle(question),
+      factBundle: buildKeyBundle(question, {
+        premium_stats: {
+          totalCount: 2,
+          premiumKnownCount: 2,
+          premiumUnknownCount: 0,
+          premiumTotal: 125000,
+        },
+      }),
       customerState: { question, keyOrchestrator: true },
     });
-    assert.equal(finalized.key_compose_trace?.compose_mode, "key_structured");
-    assert.match(finalized.text, /납입액|보험료/);
+    assert.equal(resolveKeyJudgmentRule({ question, resolvedIntent: null })?.id, "premium_lookup_judgment");
+    assert.match(finalized.text, /^현재 확인 가능한 월 보험료는 125,000원입니다/);
     assert.doesNotMatch(finalized.text, GENERIC_FILLER_RE);
   }),
 );
 
+/** Tom #159-2 — no premium data → no fabrication, defer */
 await record(
-  await runCase("V2-P2 premium burden regression — interpretation not lookup", async () => {
-    const question = "보험료 너무 부담돼";
+  await runCase("V2-P2 Tom — 보험료 얼마야 + no premium → defer, no invented amount", async () => {
+    const question = "보험료 얼마야?";
     const finalized = finalizeHumanSalesDirectorResponse({
       question,
       classificationIntent: "factual_lookup",
       surface: ONE_BRAIN_SURFACES.HOME,
-      factBundle: buildKeyBundle(question),
+      factBundle: buildKeyBundle(question, {
+        policies: [{ product_name: "실손" }, { product_name: "암" }],
+        premium_stats: {
+          totalCount: 2,
+          premiumKnownCount: 0,
+          premiumUnknownCount: 2,
+          premiumTotal: 0,
+        },
+      }),
       customerState: { question, keyOrchestrator: true },
     });
-    assert.match(finalized.text, /보험료 부담/);
+    assert.match(finalized.text, /확인되지 않/);
+    assert.match(finalized.text, /확인해 보고 다시 말씀드리겠습니다/);
+    assert.doesNotMatch(finalized.text, FABRICATED_AMOUNT_RE);
+    assert.doesNotMatch(finalized.text, GENERIC_FILLER_RE);
+  }),
+);
+
+/** Tom #159-3 — burden path unchanged */
+await record(
+  await runCase("V2-P3 Tom — 보험료 부담돼 → premium burden judgment", async () => {
+    const question = "보험료 부담돼";
+    const finalized = finalizeHumanSalesDirectorResponse({
+      question,
+      classificationIntent: "factual_lookup",
+      surface: ONE_BRAIN_SURFACES.HOME,
+      factBundle: buildKeyBundle(question, {
+        premium_stats: {
+          totalCount: 2,
+          premiumKnownCount: 1,
+          premiumUnknownCount: 1,
+          premiumTotal: 45000,
+        },
+      }),
+      customerState: { question, keyOrchestrator: true },
+    });
+    assert.match(finalized.text, /보험료 부담이 실제로 큰지는/);
     assert.doesNotMatch(finalized.text, /계약마다 달라서/);
+    assert.doesNotMatch(finalized.text, /모두 확인되지 않/);
   }),
 );
 
 await record(
-  await runCase("V2-P3 closing situational regression", async () => {
+  await runCase("V2-P4 closing situational regression", async () => {
     const question = "보험 확인하고 잘 자요";
     const finalized = finalizeHumanSalesDirectorResponse({
       question,
@@ -88,7 +131,7 @@ await record(
 );
 
 await record(
-  await runCase("V2-P4 mixed premium regression", async () => {
+  await runCase("V2-P5 mixed premium regression", async () => {
     const question = "고마워요. 보험료가 부담돼요.";
     const finalized = finalizeHumanSalesDirectorResponse({
       question,
