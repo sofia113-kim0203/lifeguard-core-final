@@ -30,10 +30,12 @@ const EXAMPLE_QUESTIONS = [
 
 const DESKTOP_SIDEBAR_BREAKPOINT = 768;
 
+const KEY_WAIT_ACK_FALLBACK = "말씀 주신 내용 잘 받았어요. 함께 확인해 볼게요.";
+
 const THINKING_PROGRESS_MESSAGES = [
-  "영업부장이 확인 중이에요...",
-  "가입 정보와 상담 내용을 살펴보고 있어요...",
-  "답변을 정리하고 있어요...",
+  KEY_WAIT_ACK_FALLBACK,
+  "가입 정보와 상담 내용을 살펴보고 있어요.",
+  "확인한 내용을 정리해서 이어 말씀드릴게요.",
 ];
 
 function useMediaQuery(query) {
@@ -454,6 +456,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
       let streamedText = "";
       const result = await fetchHomeBrainFactStream(trimmed, history, {
+        onAck: (ackText) => {
+          const text = String(ackText ?? "").trim() || KEY_WAIT_ACK_FALLBACK;
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role !== "assistant") return prev;
+            copy[copy.length - 1] = { role: "assistant", content: text, thinking: true };
+            return copy;
+          });
+        },
         onDelta: (chunk) => {
           streamedText += chunk;
           setStreaming(true);

@@ -31,6 +31,7 @@ import {
   isSalesDirectorPilotResponseSource,
 } from "./customerObservability.js";
 import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
+import { buildKeyWaitAck } from "./keyWaitAck.js";
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
@@ -389,6 +390,8 @@ export async function handleHomeBrainFactRequest({
     replace_count: 0,
     first_delta_preview: "",
     replace_preview: "",
+    key_wait_ack_text: "",
+    key_wait_ack_ms: null,
   };
   let activeStreamHandlers = streamHandlers;
   if (streamHandlers) {
@@ -414,6 +417,13 @@ export async function handleHomeBrainFactRequest({
         streamHandlers._emitted = value;
       },
     };
+  }
+
+  if (activeStreamHandlers?.onKeyWaitAck) {
+    const ackText = buildKeyWaitAck(trimmedQuestion);
+    sseTrace.key_wait_ack_text = ackText;
+    sseTrace.key_wait_ack_ms = Math.max(0, Date.now() - startedAt);
+    activeStreamHandlers.onKeyWaitAck(ackText);
   }
 
   const [loopResult, storedFactoryProbe] = await Promise.all([

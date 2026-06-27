@@ -69,6 +69,9 @@ export default async function handler(req, res) {
       const requestStartedAt = Date.now();
       const streamHandlers = {
         _emitted: false,
+        onKeyWaitAck(text) {
+          writeHomeBrainFactSseEvent(res, "ack", { text: String(text ?? "") });
+        },
         onDelta(text) {
           streamHandlers._emitted = true;
           writeHomeBrainFactSseEvent(res, "delta", { text: String(text ?? "") });
