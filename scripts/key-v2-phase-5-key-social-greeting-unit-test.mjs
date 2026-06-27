@@ -127,6 +127,48 @@ await record(
   }),
 );
 
+/** Tom PR #154 preview — mixed turns must not be hijacked by social patterns */
+await record(
+  await runCase("V2-S6 Tom preview — greeting + insurance stays structured", async () => {
+    const question = "안녕하세요. 보험 하나만 물어볼게요.";
+    assert.equal(matchKeyConversationPattern(question), null);
+    const finalized = finalizeHumanSalesDirectorResponse({
+      question,
+      classificationIntent: "general_consultation",
+      surface: ONE_BRAIN_SURFACES.HOME,
+      factBundle: buildKeyBundle(question),
+      customerState: { question, keyOrchestrator: true },
+    });
+    assert.notEqual(finalized.key_compose_trace?.compose_mode, "key_social");
+    assert.equal(finalized.key_compose_trace?.conversation_pattern_id, null);
+  }),
+);
+
+await record(
+  await runCase("V2-S7 Tom preview — thanks + premium not social", async () => {
+    const question = "고마워요. 그런데 보험료가 부담돼요.";
+    assert.equal(matchKeyConversationPattern(question), null);
+    const finalized = finalizeHumanSalesDirectorResponse({
+      question,
+      classificationIntent: "factual_lookup",
+      surface: ONE_BRAIN_SURFACES.HOME,
+      factBundle: {
+        ...buildKeyBundle(question),
+        premium_stats: {
+          totalCount: 2,
+          premiumKnownCount: 0,
+          premiumUnknownCount: 2,
+          premiumTotal: 0,
+        },
+      },
+      customerState: { question, keyOrchestrator: true },
+    });
+    assert.equal(finalized.key_compose_trace?.compose_mode, "key_structured");
+    assert.equal(finalized.key_compose_trace?.conversation_pattern_id, null);
+    assert.match(finalized.text, /보험료|무거운 계약|부담/);
+  }),
+);
+
 console.log(
   `\nKEY v2 phase 5 social: ${failed > 0 ? "FAILED" : "ALL PASSED"} (${passed}/${passed + failed})`,
 );
