@@ -1,6 +1,6 @@
 /**
  * KEY wait ack — first customer-facing line while final answer is prepared.
- * Not a new engine; deterministic KEY voice before heavy compose completes.
+ * ACK only: heard + will check together. Never insurance judgment (KEY Compose owns that).
  */
 
 export const KEY_WAIT_ACK_DEFAULT =
