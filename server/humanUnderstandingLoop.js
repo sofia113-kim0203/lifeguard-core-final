@@ -557,6 +557,17 @@ export function buildKeyStructuredResponse(
       limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
       nextAction = buildKeyNextActionBlock("information_gap");
     }
+  } else if (activeJudgmentRule?.id === "insurer_lookup_judgment") {
+    const insurers = Array.from(
+      new Set((factBundle.policies ?? []).map((policy) => policy.insurer_name).filter(Boolean)),
+    );
+    if (insurers.length > 0) {
+      evidence = "";
+      limitation = "상품별 세부 담보까지는 이 정보 밖입니다.";
+    } else {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
   }
 
   const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);

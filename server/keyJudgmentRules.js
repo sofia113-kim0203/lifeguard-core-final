@@ -26,6 +26,20 @@ function resolvePolicyCountFromBundle(factBundle = {}) {
   return 0;
 }
 
+function joinInsurerLabels(labels = []) {
+  const list = labels.filter(Boolean);
+  if (list.length === 0) return "";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]}과 ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")}과 ${list[list.length - 1]}`;
+}
+
+function resolveInsurerNamesFromBundle(factBundle = {}) {
+  return Array.from(
+    new Set((factBundle.policies ?? []).map((policy) => policy.insurer_name).filter(Boolean)),
+  );
+}
+
 /** @type {Array<{ id: string, kind: "judgment_rule", scene: string, reason: string, match: (ctx: object) => boolean, buildJudgment: (ctx?: object) => string }>} */
 export const KEY_JUDGMENT_RULES = [
   {
@@ -131,6 +145,29 @@ export const KEY_JUDGMENT_RULES = [
       const count = resolvePolicyCountFromBundle(factBundle);
       if (count > 0) return `지금 확인된 가입 보험은 ${count}개예요.`;
       return "지금은 등록된 가입 보험 정보를 찾지 못했어요.";
+    },
+  },
+  {
+    id: "insurer_lookup_judgment",
+    kind: "judgment_rule",
+    scene: "F",
+    reason:
+      "Customer asks which insurers — KEY leads with confirmed insurer names, not system filler.",
+    match({ question = "" } = {}) {
+      const q = normalizeQuestion(question);
+      if (!q) return false;
+      if (/(?:몇\s*(?:개|건)|개수|몇개|얼마|부담|보험료)/.test(q)) return false;
+      if (!/(?:보험사|회사)/.test(q) && !/(?:어디|어느).{0,6}(?:보험|가입)/.test(q)) {
+        return false;
+      }
+      return /(?:가입|보험|계약)/.test(q);
+    },
+    buildJudgment({ factBundle = {} } = {}) {
+      const insurers = resolveInsurerNamesFromBundle(factBundle);
+      if (insurers.length > 0) {
+        return `가입하신 보험사는 ${joinInsurerLabels(insurers)}이에요.`;
+      }
+      return "지금은 가입 보험사 정보를 확인하지 못했어요.";
     },
   },
   {
