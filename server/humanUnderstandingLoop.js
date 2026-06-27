@@ -527,20 +527,34 @@ export function buildKeyStructuredResponse(
   let limitation = buildKeyLimitationBlock(intent, factBundle, basisTaggedFacts);
   let nextAction = buildKeyNextActionBlock(humanFrame.main_blocker, intent);
 
-  const premiumLookupRule = resolveKeyJudgmentRule({
+  const activeJudgmentRule = resolveKeyJudgmentRule({
     question,
     resolvedIntent: intent,
     classificationIntent,
     factBundle,
     humanFrame,
   });
-  if (premiumLookupRule?.id === "premium_lookup_judgment") {
+  if (activeJudgmentRule?.id === "premium_lookup_judgment") {
     const stats = factBundle.premium_stats ?? {};
     const premiumKnown = (stats.premiumKnownCount ?? 0) > 0 && (stats.premiumTotal ?? 0) > 0;
     if (premiumKnown) {
       evidence = "";
     } else {
       limitation = "월 납입액이 모든 계약에서 확인되지는 않았습니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "policy_count_lookup_judgment") {
+    const count =
+      typeof factBundle.policy_count === "number"
+        ? factBundle.policy_count
+        : Array.isArray(factBundle.policies)
+          ? factBundle.policies.length
+          : 0;
+    if (count > 0) {
+      evidence = "";
+      limitation = "세부 담보·한도까지는 이 정보 밖입니다.";
+    } else {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
       nextAction = buildKeyNextActionBlock("information_gap");
     }
   }
