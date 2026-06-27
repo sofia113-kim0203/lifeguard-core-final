@@ -133,6 +133,10 @@ export function keyToolBrainSliceHasPolicies(factBundle = {}) {
   if (typeof policyCount === "number") {
     return policyCount > 0;
   }
+  const policies = factBundle.policies;
+  if (Array.isArray(policies)) {
+    return policies.length > 0;
+  }
   return factBundle.snapshot_tool_used === true;
 }
 

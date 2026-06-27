@@ -89,9 +89,17 @@ const eightPolicies = Array.from({ length: 8 }, (_, index) => ({
   const nullCountJudgmentFactBundle = {
     policies: [],
     snapshot_tool_used: true,
+    tool_brain_slice: "insurance_presence",
+    key_orchestrator: true,
   };
-  assert.notEqual(resolveKeyFactBundlePolicyCount(nullCountJudgmentFactBundle), 0);
-  console.log("5 PASS — null count avoids absence/zero judgment copy");
+  assert.equal(resolveKeyFactBundlePolicyCount(nullCountJudgmentFactBundle), null);
+  assert.equal(keyToolBrainSliceHasPolicies(nullCountJudgmentFactBundle), false);
+  const emptyPresenceText = buildKeyStructuredResponse({}, {}, nullCountJudgmentFactBundle, {
+    resolvedIntent: null,
+  });
+  assert.match(emptyPresenceText, /등록된 가입 보험 정보를 찾지 못했어요/);
+  assert.doesNotMatch(emptyPresenceText, /가입된 보험이 있는 것은 확인돼요/);
+  console.log("5 PASS — empty policies never affirm insurance_presence");
 }
 
 console.log("\nAll P11-4 KEY factBundle contract unit tests passed.");
