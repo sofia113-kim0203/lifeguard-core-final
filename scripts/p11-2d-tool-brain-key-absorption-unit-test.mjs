@@ -287,6 +287,8 @@ await record(
     });
     assert.equal(generated.key_compose_trace.compose_mode, "key_structured");
     assert.notEqual(generated.key_compose_trace.compose_mode, "tool_brain_fixed_slots");
+    assert.match(generated.text, /가입된 보험이 있는 것은 확인돼요/);
+    assert.doesNotMatch(generated.text, /충분 여부/);
   }),
 );
 

@@ -93,9 +93,10 @@ async function record(ok) {
 }
 
 await record(
-  await runCase("K1 KEY compose order — judgment first, not limitation", async () => {
+  await runCase("K1 KEY compose order — presence question not adequacy", async () => {
     const { text } = composeKey("암보장 있어?");
-    assert.match(text, /^지금 자료만으로는 암 담보/);
+    assert.match(text, /가입된 보험이 있는 것은 확인돼요/);
+    assert.doesNotMatch(text, /충분 여부|부족/);
     assert.doesNotMatch(text, /^월 납입|^상품명·가입/);
     assert.doesNotMatch(text, KEY_QUESTION_ENDING_RE);
   }),
@@ -215,7 +216,7 @@ await record(
   await runCase("K6 enforceKeyDeclarativeEnding replaces question ending", async () => {
     const cleaned = enforceKeyDeclarativeEnding("테스트입니다. 말씀해 주실까요?", "information_gap");
     assert.doesNotMatch(cleaned, KEY_QUESTION_ENDING_RE);
-    assert.match(cleaned, /정리해 두면/);
+    assert.match(cleaned, /확인해 보고 다시 말씀드리겠습니다/);
   }),
 );
 

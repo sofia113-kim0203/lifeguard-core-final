@@ -165,6 +165,60 @@ export function composeHomeBrainFactAnswer(unified, question) {
   };
 }
 
+function resolveHomeBrainRoute(tomInternalRoute = null) {
+  if (tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL) return "gap_grounded";
+  if (tomInternalRoute === TOM_INTERNAL_ROUTES.CHAT) return "casual_chat";
+  return "high_stakes_defer";
+}
+
+function isHomeKeyOrchestratorFinalize({
+  factBundle = {},
+  customerState = null,
+  responseSource = null,
+  salesDirectorResponseSource = null,
+} = {}) {
+  if (factBundle?.key_orchestrator === true) return true;
+  if (customerState?.keyOrchestrator === true) return true;
+  const source = salesDirectorResponseSource ?? responseSource;
+  return source === "sales_director_key";
+}
+
+function finalizeHomeKeyOrchestratorResponse({
+  text,
+  question,
+  intent,
+  factBundle = {},
+  customerState = null,
+  tomInternalRoute = null,
+  responseSource = null,
+  freeThinking = null,
+}) {
+  const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
+  const keyFactBundle = {
+    ...factBundle,
+    key_orchestrator: true,
+    question: factBundle.question ?? question,
+  };
+  return finalizeSalesDirectorResponse({
+    rawText: text,
+    intent: resolveSalesDirectorJudgmentIntent(intent, question),
+    classificationIntent: intent,
+    surface: ONE_BRAIN_SURFACES.HOME,
+    factBundle: keyFactBundle,
+    customerState: {
+      ...(customerState ?? {}),
+      question: customerState?.question ?? question,
+      keyOrchestrator: true,
+    },
+    homeBrainIntent: "unsupported",
+    homeRoute,
+    conversationContext: {
+      freeThinking,
+      responseSource,
+    },
+  });
+}
+
 function applyHomeSalesDirectorFormatter({
   text,
   question,
@@ -175,12 +229,7 @@ function applyHomeSalesDirectorFormatter({
   responseSource = null,
   freeThinking = null,
 }) {
-  const homeRoute =
-    tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL
-      ? "gap_grounded"
-      : tomInternalRoute === TOM_INTERNAL_ROUTES.CHAT
-        ? "casual_chat"
-        : "high_stakes_defer";
+  const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
 
   if (
     !shouldApplySalesDirectorFormatter(intent, question, {
@@ -221,6 +270,38 @@ function finalizeHomeAgentResponse({
   const originalText = text;
   const pilotSource = salesDirectorResponseSource ?? responseSource;
 
+  if (
+    isHomeKeyOrchestratorFinalize({
+      factBundle,
+      customerState,
+      responseSource,
+      salesDirectorResponseSource: pilotSource,
+    })
+  ) {
+    const finalized = finalizeHomeKeyOrchestratorResponse({
+      text,
+      question,
+      intent,
+      factBundle,
+      customerState,
+      tomInternalRoute,
+      responseSource,
+      freeThinking: customerState?.freeThinking ?? null,
+    });
+    const finalText = applyP5BrainCustomerTextGuard(finalized.text);
+    return {
+      text: finalText,
+      preserveGateTrace: finalized.preserve_gate_trace ?? null,
+      finalizeTrace: finalized,
+      guardResult: buildGuardResult({
+        responseSource: pilotSource ?? "sales_director_key",
+        originalText,
+        afterFinalizeText: finalized.text,
+        finalText,
+      }),
+    };
+  }
+
   if (isP5BrainResponseSource(responseSource) || isSalesDirectorPilotResponseSource(pilotSource)) {
     const finalized = applyHomeSalesDirectorFormatter({
       text,
@@ -250,12 +331,7 @@ function finalizeHomeAgentResponse({
     };
   }
 
-  const homeRoute =
-    tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL
-      ? "gap_grounded"
-      : tomInternalRoute === TOM_INTERNAL_ROUTES.CHAT
-        ? "casual_chat"
-        : "high_stakes_defer";
+  const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
 
   const afterFinalize = finalizeOneBrainResponse({
     text,
