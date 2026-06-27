@@ -16,6 +16,14 @@ const CLOSING_TURN_RE =
 const CLOSING_INSURANCE_ACTION_RE =
   /(?:확인|있(?:어|나|음|습)?|부족|괜찮|청구|받을|가입|설계|점검|분석(?:해|해줘))/;
 
+const GREETING_TURN_RE =
+  /^(?:하이|안녕(?:하세요|하십니까)?|헬로|hello|hi|ㅎㅇ|반가워요?|반갑습니다)(?:[!.?\s~♡♥]*)?$/i;
+
+const THANKS_TURN_RE =
+  /^(?:고마워(?:요)?|감사(?:합니다|해요)?|thank(?:\s*you|s)?)(?:[!.?\s~♡♥]*)?$/i;
+
+const SOCIAL_INSURANCE_MENTION_RE = /보험|보험료|보장|암|실손|담보|청구|보험금/;
+
 function normalizeQuestion(question = "") {
   return String(question ?? "")
     .replace(/\s+/g, " ")
@@ -43,6 +51,44 @@ function hasClosingSignal(q = "") {
 
 /** @type {Array<{ id: string, kind: "conversation_pattern", scene: string, reason: string, compose_mode: string, match: (q: string) => boolean, buildResponse: (q: string) => string }>} */
 export const KEY_CONVERSATION_PATTERNS = [
+  {
+    id: "greeting_welcome",
+    kind: "conversation_pattern",
+    scene: "A",
+    reason: "Customer opens the day — KEY welcomes without insurance.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return GREETING_TURN_RE.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "안녕하세요. 편하실 때 이어가도 됩니다.",
+          "반갑습니다. 천천히 맞춰가면 됩니다.",
+        ]),
+      );
+    },
+  },
+  {
+    id: "thanks_acknowledgment",
+    kind: "conversation_pattern",
+    scene: "A",
+    reason: "Customer says thanks — KEY acknowledges, no insurance push.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return THANKS_TURN_RE.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "천만에요. 편하실 때 이어가면 됩니다.",
+          "네, 천천히 같이 보면 됩니다.",
+        ]),
+      );
+    },
+  },
   {
     id: "closing_defer_insurance_to_later",
     kind: "conversation_pattern",
@@ -114,6 +160,10 @@ export function isKeyClosingTurn(question = "") {
   return Boolean(matchKeyConversationPattern(question, { composeMode: "key_closing" }));
 }
 
+export function isKeySocialTurn(question = "") {
+  return Boolean(matchKeyConversationPattern(question, { composeMode: "key_social" }));
+}
+
 export function buildKeyClosingResponse(question = "") {
   const pattern = matchKeyConversationPattern(question, { composeMode: "key_closing" });
   if (!pattern) return normalizeText("편안한 밤 보내세요.");
@@ -122,6 +172,20 @@ export function buildKeyClosingResponse(question = "") {
 
 export function resolveKeyClosingConversationPattern(question = "") {
   const pattern = matchKeyConversationPattern(question, { composeMode: "key_closing" });
+  if (!pattern) return null;
+  const q = normalizeQuestion(question);
+  return {
+    pattern_id: pattern.id,
+    kind: pattern.kind,
+    scene: pattern.scene,
+    reason: pattern.reason,
+    compose_mode: pattern.compose_mode,
+    text: pattern.buildResponse(q),
+  };
+}
+
+export function resolveKeySocialConversationPattern(question = "") {
+  const pattern = matchKeyConversationPattern(question, { composeMode: "key_social" });
   if (!pattern) return null;
   const q = normalizeQuestion(question);
   return {

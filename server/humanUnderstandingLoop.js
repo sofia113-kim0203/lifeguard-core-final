@@ -11,7 +11,9 @@ import {
 import {
   buildKeyClosingResponse,
   isKeyClosingTurn,
+  isKeySocialTurn,
   resolveKeyClosingConversationPattern,
+  resolveKeySocialConversationPattern,
 } from "./keyConversationPatterns.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
@@ -414,6 +416,7 @@ export function buildKeyAnalysisStatusResponse(factBundle = {}, question = "") {
 
 export {
   isKeyClosingTurn,
+  isKeySocialTurn,
   buildKeyClosingResponse,
   KEY_CONVERSATION_PATTERNS,
   matchKeyConversationPattern,
@@ -431,6 +434,7 @@ export function shouldUseKeyRelationalCompose({
   if (!q) return false;
   if (humanFrame.needs_insurance_tools) return false;
   if (INSURANCE_TOPIC.test(q)) return false;
+  if (isKeySocialTurn(q)) return false;
 
   if (humanFrame.is_trust_human_question) return true;
   if (classificationIntent === "casual_chat") return true;
@@ -997,14 +1001,25 @@ export function generateHumanSalesDirectorResponse({
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
     const useAnalysisStatus =
       !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
+    const useSocial =
+      !fixedSlice &&
+      !useAnalysisStatus &&
+      isKeySocialTurn(question || factBundle.question || "");
+    const socialPattern = useSocial
+      ? resolveKeySocialConversationPattern(question || factBundle.question || "")
+      : null;
     const useClosing =
-      !fixedSlice && !useAnalysisStatus && isKeyClosingTurn(question || factBundle.question || "");
+      !fixedSlice &&
+      !useAnalysisStatus &&
+      !useSocial &&
+      isKeyClosingTurn(question || factBundle.question || "");
     const closingPattern = useClosing
       ? resolveKeyClosingConversationPattern(question || factBundle.question || "")
       : null;
     const useRelational =
       !fixedSlice &&
       !useAnalysisStatus &&
+      !useSocial &&
       !useClosing &&
       shouldUseKeyRelationalCompose({
         question,
@@ -1014,11 +1029,13 @@ export function generateHumanSalesDirectorResponse({
       });
     text = useAnalysisStatus
       ? buildKeyAnalysisStatusResponse(factBundle, question)
-      : useClosing
-        ? (closingPattern?.text ?? buildKeyClosingResponse(question))
-        : useRelational
-          ? buildKeyRelationalResponse(humanFrame, question)
-          : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+      : useSocial
+        ? (socialPattern?.text ?? normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
+        : useClosing
+          ? (closingPattern?.text ?? buildKeyClosingResponse(question))
+          : useRelational
+            ? buildKeyRelationalResponse(humanFrame, question)
+            : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
@@ -1026,16 +1043,18 @@ export function generateHumanSalesDirectorResponse({
       used_safe_fallback: false,
       compose_mode: useAnalysisStatus
         ? "key_analysis_status"
-        : useClosing
-          ? "key_closing"
-          : useRelational
-            ? "key_relational"
-            : fixedSlice
-              ? "tool_brain_fixed_slots"
-              : "key_structured",
+        : useSocial
+          ? "key_social"
+          : useClosing
+            ? "key_closing"
+            : useRelational
+              ? "key_relational"
+              : fixedSlice
+                ? "tool_brain_fixed_slots"
+                : "key_structured",
       absorbed_slice: fixedSlice,
-      conversation_pattern_id: closingPattern?.pattern_id ?? null,
-      conversation_pattern_kind: closingPattern?.kind ?? null,
+      conversation_pattern_id: socialPattern?.pattern_id ?? closingPattern?.pattern_id ?? null,
+      conversation_pattern_kind: socialPattern?.kind ?? closingPattern?.kind ?? null,
     };
   } else {
     text =
@@ -1077,9 +1096,12 @@ export function generateHumanSalesDirectorResponse({
             )
           : isKeyAnalysisStatusQuestion(question || factBundle.question || "")
             ? buildKeyAnalysisStatusResponse(factBundle, question)
-            : isKeyClosingTurn(question || factBundle.question || "")
-              ? buildKeyClosingResponse(question)
-              : shouldUseKeyRelationalCompose({
+            : isKeySocialTurn(question || factBundle.question || "")
+              ? (resolveKeySocialConversationPattern(question || factBundle.question || "")?.text ??
+                  normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
+              : isKeyClosingTurn(question || factBundle.question || "")
+                ? buildKeyClosingResponse(question)
+                : shouldUseKeyRelationalCompose({
               question,
               classificationIntent: resolvedClassificationIntent,
               factBundle,
