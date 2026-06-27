@@ -118,7 +118,8 @@
     "test:p9-2": "node scripts/p9-2-human-understanding-loop-unit-test.mjs",
     "test:p10-3f": "node scripts/p10-3f-preserve-gate-unit-test.mjs",
     "test:key-v2-phase-1": "node scripts/key-v2-phase-1-home-key-finalize-unit-test.mjs",
-    "test:key-v2-phase-2": "node scripts/key-v2-phase-2-key-relational-unit-test.mjs"
+    "test:key-v2-phase-2": "node scripts/key-v2-phase-2-key-relational-unit-test.mjs",
+    "test:key-v2-phase-2-tom-block": "node scripts/key-v2-phase-2-tom-relational-block-audit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
