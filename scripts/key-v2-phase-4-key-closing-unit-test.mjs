@@ -10,6 +10,7 @@ import {
   generateHumanSalesDirectorResponse,
   isKeyClosingTurn,
   buildKeyClosingResponse,
+  matchKeyConversationPattern,
 } from "../server/humanUnderstandingLoop.js";
 import { resolveSalesDirectorJudgmentIntent } from "../server/salesDirectorFormatter.js";
 import { ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
@@ -165,9 +166,28 @@ for (const tomCase of TOM_CLOSING_PREVIEW_CASES) {
       if (mode === "key_closing") {
         assert.doesNotMatch(finalized.text, INSURANCE_FILLER_RE);
       }
+      if (question === "보험은 내일 이야기하고 잘게요") {
+        assert.equal(
+          finalized.key_compose_trace?.conversation_pattern_id,
+          "closing_defer_insurance_to_later",
+        );
+      }
+      if (question === "잘 자요") {
+        assert.equal(finalized.key_compose_trace?.conversation_pattern_id, "closing_goodnight");
+      }
     }),
   );
 }
+
+await record(
+  await runCase("V2-C9 conversation pattern library — defer vs action", async () => {
+    assert.equal(
+      matchKeyConversationPattern("보험은 내일 이야기하고 잘게요")?.id,
+      "closing_defer_insurance_to_later",
+    );
+    assert.equal(matchKeyConversationPattern("보험 확인하고 잘 자요"), null);
+  }),
+);
 
 console.log(
   `\nKEY v2 phase 4 closing: ${failed > 0 ? "FAILED" : "ALL PASSED"} (${passed}/${passed + failed})`,

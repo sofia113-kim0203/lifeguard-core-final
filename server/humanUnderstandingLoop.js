@@ -9,6 +9,11 @@ import {
   violatesManualTemplate,
 } from "./salesDirectorFreeThinking.js";
 import {
+  buildKeyClosingResponse,
+  isKeyClosingTurn,
+  resolveKeyClosingConversationPattern,
+} from "./keyConversationPatterns.js";
+import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
   STATEMENT_BASIS,
@@ -106,28 +111,6 @@ const KEY_ANALYSIS_STATUS_QUESTION_RE =
 
 const KEY_ANALYSIS_REQUEST_RE =
   /(?:분석(?:해|해줘|해주|좀|하)|(?:해줘|해주).{0,8}분석|분석\s*(?:해|요청|부탁))/;
-
-/** Scene J — day closing; KEY stays a person, not insurance filler. */
-const KEY_CLOSING_TURN_RE =
-  /(?:잘\s*자(?:요|세|라|)|좋은\s*밤|굿나잇|good\s*night|내일\s*(?:봐|뵐|만나)|푹\s*쉬(?:어|세요|시))/i;
-
-const KEY_CLOSING_INSURANCE_FILLER_RE =
-  /확인된 범위|담보|보장|걱정되는 축|보험(?:을|이)?\s*(?:가입|추천)/;
-
-const KEY_CLOSING_INSURANCE_ACTION_RE =
-  /(?:확인|있(?:어|나|음|습)?|부족|괜찮|청구|받을|가입|설계|점검|분석(?:해|해줘))/;
-
-function isKeyClosingDeferTurn(question = "") {
-  const q = normalizeQuestion(question);
-  const hasClosing =
-    KEY_CLOSING_TURN_RE.test(q) || /잘\s*게(?:요)?|잘게요|잘\s*쉬(?:어|세요|시)/.test(q);
-  if (!hasClosing) return false;
-  if (!/(?:내일|나중|다음에|오늘은\s*그만).{0,16}(?:보험|이야기)|(?:보험|이야기).{0,16}(?:내일|나중|다음에|이어)/.test(q)) {
-    return false;
-  }
-  if (KEY_CLOSING_INSURANCE_ACTION_RE.test(q)) return false;
-  return true;
-}
 
 /** KEY compose — declarative ending only. */
 export const KEY_QUESTION_ENDING_RE =
@@ -429,43 +412,12 @@ export function buildKeyAnalysisStatusResponse(factBundle = {}, question = "") {
   );
 }
 
-export function isKeyClosingTurn(question = "") {
-  const q = normalizeQuestion(question);
-  if (!q) return false;
-  if (isKeyClosingDeferTurn(q)) return true;
-  if (INSURANCE_TOPIC.test(q)) return false;
-  return KEY_CLOSING_TURN_RE.test(q);
-}
-
-export function buildKeyClosingResponse(question = "") {
-  const q = normalizeQuestion(question);
-
-  if (isKeyClosingDeferTurn(q)) {
-    return normalizeText(
-      pickVariant(q, [
-        "네, 보험 얘기는 내일 이어가요. 편히 쉬세요.",
-        "네, 내일 이어가도 됩니다. 오늘은 편히 쉬세요.",
-      ]),
-    );
-  }
-
-  if (/잘\s*자|좋은\s*밤|굿나잇|good\s*night|푹\s*쉬/.test(q)) {
-    return normalizeText(
-      pickVariant(q, [
-        "편히 쉬세요. 내일 이어가도 됩니다.",
-        "오늘은 여기까지 해도 됩니다. 편안한 밤 보내세요.",
-      ]),
-    );
-  }
-
-  if (/내일\s*(?:봐|뵐|만나)/.test(q)) {
-    return normalizeText(
-      pickVariant(q, ["네, 내일 이어가요.", "네, 내일 뵙겠습니다."]),
-    );
-  }
-
-  return normalizeText("편안한 밤 보내세요.");
-}
+export {
+  isKeyClosingTurn,
+  buildKeyClosingResponse,
+  KEY_CONVERSATION_PATTERNS,
+  matchKeyConversationPattern,
+} from "./keyConversationPatterns.js";
 
 export function shouldUseKeyRelationalCompose({
   question = "",
@@ -1047,6 +999,9 @@ export function generateHumanSalesDirectorResponse({
       !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
     const useClosing =
       !fixedSlice && !useAnalysisStatus && isKeyClosingTurn(question || factBundle.question || "");
+    const closingPattern = useClosing
+      ? resolveKeyClosingConversationPattern(question || factBundle.question || "")
+      : null;
     const useRelational =
       !fixedSlice &&
       !useAnalysisStatus &&
@@ -1060,7 +1015,7 @@ export function generateHumanSalesDirectorResponse({
     text = useAnalysisStatus
       ? buildKeyAnalysisStatusResponse(factBundle, question)
       : useClosing
-        ? buildKeyClosingResponse(question)
+        ? (closingPattern?.text ?? buildKeyClosingResponse(question))
         : useRelational
           ? buildKeyRelationalResponse(humanFrame, question)
           : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
@@ -1079,6 +1034,8 @@ export function generateHumanSalesDirectorResponse({
               ? "tool_brain_fixed_slots"
               : "key_structured",
       absorbed_slice: fixedSlice,
+      conversation_pattern_id: closingPattern?.pattern_id ?? null,
+      conversation_pattern_kind: closingPattern?.kind ?? null,
     };
   } else {
     text =
