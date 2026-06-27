@@ -1,0 +1,53 @@
+{
+  "audit": "tom_cycle_gate_01_02",
+  "authority": "Tom GO — cycle ①②. Judgment Validation remains frozen until Tom step ③.",
+  "observed_at": "2026-06-27T12:29:37.693Z",
+  "staging_ref": "inwswsruvvzaeioqkelq",
+  "audit_anchor": "analysis_job_lifecycle_and_factory_chain",
+  "customer_id_is_context_only": true,
+  "gate_01": {
+    "gate": "01_completed_analysis_job",
+    "pass": true,
+    "job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+    "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+    "status": "completed",
+    "completed_at": "2026-06-27T12:14:20.184+00:00",
+    "note": "Job-centric — latest completed on staging unless --job= specified."
+  },
+  "gate_02": {
+    "gate": "02_factory_payload_quality",
+    "pass": true,
+    "panels": {
+      "coverage_gap": {
+        "ok": true,
+        "reason": "gap_items_with_categories",
+        "item_count": 13,
+        "categorized_count": 13,
+        "overall_risk": "low",
+        "gap_score": 80
+      },
+      "underwriting": {
+        "ok": true,
+        "reason": "underwriting_structure_present",
+        "item_count": 9,
+        "populated_buckets": [],
+        "risk_score": 0
+      },
+      "recommendation": {
+        "ok": true,
+        "reason": "recommendations_present",
+        "item_count": 13,
+        "has_top2": true
+      }
+    }
+  },
+  "cycle_position": {
+    "01_completed_job": true,
+    "02_payload_quality": true,
+    "03_judgment_unfreeze": "pending_tom",
+    "04_judgment_bank": "blocked_until_03"
+  },
+  "judgment_validation_status": "frozen",
+  "next_tom_action": "Tom may GO step ③ unfreeze → ④ Judgment Bank",
+  "note": "Jerry does not unfreeze Judgment Validation."
+}

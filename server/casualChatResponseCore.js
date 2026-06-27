@@ -6,7 +6,7 @@
 import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
 import { resolveClaudeModel } from "./policyTermsQaCore.js";
 export const CASUAL_CHAT_FALLBACK =
-  "네, 편하게 말씀해 주세요. 필요하시면 보험 상담도 도와드릴게요.";
+  "음, 그건 제가 여기서는 딱 잘라 말하기 어렵네요. 다른 얘기도 편하게 이어가도 돼요.";
 const CASUAL_MAX_TOKENS = 256;
 const CASUAL_MAX_CHARS = 400;
 const HISTORY_TURN_LIMIT = 10;
@@ -17,8 +17,9 @@ const CASUAL_SYSTEM_PROMPT = [
   "This is a continuing chat: do NOT greet again (no '안녕하세요') when earlier messages already exist; just respond and follow the flow.",
   "Keep replies short and conversational (1-4 sentences).",
   "Do NOT launch into insurance analysis, coverage gap review, underwriting, or recommendations unless asked.",
+  "Do NOT deflect with \"필요하시면 보험 상담도 도와드릴게요\" or push insurance on everyday small talk.",
+  "Never use emojis, emoticons, or \"LIFEGUARD:\" prefixes. Write like a consultation transcript.",
   "Do NOT invent customer policies, health data, or premiums.",
-  "You may briefly offer insurance help when it fits naturally.",
 ].join(" ");
 const GROUNDED_MAX_TOKENS = 700;
 const GROUNDED_MAX_CHARS = 1500;
@@ -170,6 +171,103 @@ export async function generateCasualChatResponse({
     };
   }
 }
+const TOM_REGULATED_MAX_TOKENS = 512;
+const TOM_REGULATED_MAX_CHARS = 800;
+const TOM_REGULATED_SYSTEM_PROMPT = [
+  "You are Tom (보험 주치의) speaking directly to the customer in warm, natural Korean.",
+  "You translate ONLY the pre-computed [Tom decision] — do not add facts, won amounts, policy counts, premiums, or sufficiency judgments.",
+  "If the decision says HOLD or lists unknown fields, you must NOT fill them in or assert 부족/충분.",
+  "Follow voice_order in the decision. For hold turns, start with a brief friendly opener like \"잠깐 볼게요.\"",
+  "Never use stiff 상담사 phrases such as \"말씀드리기 어렵습니다\" or inventory dumps (건수, 보험료 합계, 문서 수).",
+  "Use ONLY [Tom decision] and [Evidence audit]. 2-4 warm sentences. No menu redirects.",
+].join(" ");
+
+export async function generateTomRegulatedChatResponse({
+  question,
+  regulatedEvidence = "",
+  thinkingDecision = "",
+  holdJudgment = true,
+  topicLabel = "해당 보장",
+  history = [],
+  fetchImpl = fetch,
+  env = process.env,
+} = {}) {
+  const trimmedQuestion = String(question ?? "").trim();
+  const apiKey = resolveAnthropicApiKey(env);
+  const modelName = resolveClaudeModel(env);
+  if (!apiKey || !trimmedQuestion) {
+    return {
+      ok: false,
+      text: "",
+      response_source: "tom_regulated_fallback",
+      reason: !apiKey ? "ANTHROPIC_API_KEY_MISSING" : "EMPTY_QUESTION",
+      model: null,
+      request_id: null,
+    };
+  }
+  const evidence =
+    regulatedEvidence && String(regulatedEvidence).trim()
+      ? String(regulatedEvidence).trim()
+      : "(no regulated evidence provided)";
+  const decision =
+    thinkingDecision && String(thinkingDecision).trim()
+      ? String(thinkingDecision).trim()
+      : "(no Tom decision provided)";
+  const userContent = [
+    "[Evidence audit — read-only context; do not add fields]",
+    evidence,
+    "",
+    "[Tom decision — translate this; do not change judgment]",
+    decision,
+    "",
+    `judgment_hold_required: ${holdJudgment === true}`,
+    `topic: ${topicLabel}`,
+    "",
+    "[Customer question]",
+    trimmedQuestion,
+  ].join("\n");
+  try {
+    const claudeResult = await callChatAnthropic({
+      apiKey,
+      modelName,
+      system: TOM_REGULATED_SYSTEM_PROMPT,
+      messages: buildMessagesFromHistory(history, userContent),
+      maxTokens: TOM_REGULATED_MAX_TOKENS,
+      maxChars: TOM_REGULATED_MAX_CHARS,
+      fetchImpl,
+    });
+    if (claudeResult.ok) {
+      return {
+        ok: true,
+        text: claudeResult.text,
+        response_source: "tom_regulated_claude",
+        reason: null,
+        model: claudeResult.model,
+        request_id: claudeResult.request_id,
+        response_id: claudeResult.response_id,
+      };
+    }
+    return {
+      ok: false,
+      text: "",
+      response_source: "tom_regulated_fallback",
+      reason: claudeResult.error_type ?? "CLAUDE_API_ERROR",
+      model: modelName,
+      request_id: claudeResult.request_id ?? null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      text: "",
+      response_source: "tom_regulated_fallback",
+      reason: "network_error",
+      model: modelName,
+      request_id: null,
+      error_message: error instanceof Error ? error.message : "tom_regulated_chat_failed",
+    };
+  }
+}
+
 export async function generateGroundedChatResponse({
   question,
   groundingText = "",

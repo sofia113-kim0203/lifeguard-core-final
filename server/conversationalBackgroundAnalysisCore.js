@@ -33,6 +33,71 @@ import {
   mergeConversationMetadata,
   runCentralBrainTurn,
 } from "./centralBrain/index.js";
+import {
+  finalizeOneBrainResponse,
+  ONE_BRAIN_SURFACES,
+} from "./oneBrainResponseLayer.js";
+import { buildFactBundleFromLegacyContext } from "./guidanceLayer/guidanceBuilder.js";
+import { applyTom2AGapVoiceIfEligible } from "./tomThinkingLoop.js";
+import {
+  runTomGapLightVoiceTurn,
+  shouldUseTomGapLightPath,
+} from "./tomGapLightPath.js";
+
+async function applyOneBrainFinalResponse(
+  fastResponse,
+  {
+    question,
+    intentClassification,
+    memoryContext,
+    cachePayload,
+    analysisContext,
+    history = [],
+    fetchImpl = fetch,
+    env = process.env,
+  },
+) {
+  const factBundle = buildFactBundleFromLegacyContext({
+    sourceContext: memoryContext?.sourceContext,
+    snapshot: memoryContext?.snapshot,
+    question,
+    cachePayload,
+    analysisContext,
+  });
+  const tomApply = await applyTom2AGapVoiceIfEligible({
+    question,
+    intentClassification,
+    surface: ONE_BRAIN_SURFACES.CONSULTATION,
+    factBundle,
+    history,
+    fetchImpl,
+    env,
+    handler: "handleConversationalQuestionRequest.applyOneBrainFinalResponse",
+  });
+  if (tomApply.ran) {
+    return {
+      text: finalizeOneBrainResponse({
+        text: tomApply.text,
+        question,
+        intent: intentClassification.intent,
+        surface: ONE_BRAIN_SURFACES.CONSULTATION,
+        factBundle,
+        tomGapVoiceHandled: true,
+      }),
+      tom_voice_trace: tomApply.trace,
+    };
+  }
+  return {
+    text: finalizeOneBrainResponse({
+      text: fastResponse,
+      question,
+      intent: intentClassification.intent,
+      surface: ONE_BRAIN_SURFACES.CONSULTATION,
+      factBundle,
+    }),
+    tom_voice_trace: tomApply.trace,
+  };
+}
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -263,6 +328,20 @@ async function handleCasualChatQuestionRequest({
   const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
   const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
   const casualResult = await buildCasualChatResponse({ question, history, fetchImpl, env });
+  const finalizedText = finalizeOneBrainResponse({
+    text: casualResult.text,
+    question,
+    intent: "casual_chat",
+    surface: ONE_BRAIN_SURFACES.CONSULTATION,
+    factBundle: {
+      question,
+      active_policy_count: null,
+      active_policy_count_source: null,
+      active_policy_ids: [],
+      policy_count: null,
+      policies: [],
+    },
+  });
 
   const userMessage = await insertConversationMessage(adminClient, customerId, {
     role: "user",
@@ -278,7 +357,7 @@ async function handleCasualChatQuestionRequest({
 
   const assistantMessage = await insertConversationMessage(adminClient, customerId, {
     role: "assistant",
-    message: casualResult.text,
+    message: finalizedText,
     metadata: {
       source: "casual_claude",
       intent: "casual_chat",
@@ -294,7 +373,7 @@ async function handleCasualChatQuestionRequest({
     ok: true,
     customer_id: customerId,
     question,
-    fast_response: casualResult.text,
+    fast_response: finalizedText,
     source: "casual_claude",
     initial_response_time_ms: initialResponseTimeMs,
     analysis_job_id: null,
@@ -352,6 +431,76 @@ export async function handleConversationalQuestionRequest({
   );
 
   const intentClassification = classifyConsultationIntent(trimmedQuestion);
+
+  if (shouldUseTomGapLightPath(intentClassification, env)) {
+    const memoryContext = await ensureCustomerMemoryContext({
+      supabase: adminClient,
+      customerId,
+      supabaseUrl: String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim() || null,
+      serviceRoleKey: String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim() || null,
+    });
+    const policies = memoryContext.sourceContext?.policies ?? [];
+    const lightTurnStartedAt = Date.now();
+    const lightTurn = await runTomGapLightVoiceTurn({
+      question: trimmedQuestion,
+      intentClassification,
+      surface: ONE_BRAIN_SURFACES.CONSULTATION,
+      policies,
+      history: conversationHistory,
+      fetchImpl,
+      env,
+      handler: "handleConversationalQuestionRequest.tom_gap_light",
+      startedAt: lightTurnStartedAt,
+    });
+    const factBundle = lightTurn.factBundle;
+    const fastResponse = finalizeOneBrainResponse({
+      text: lightTurn.tomApply.text,
+      question: trimmedQuestion,
+      intent: intentClassification.intent,
+      surface: ONE_BRAIN_SURFACES.CONSULTATION,
+      factBundle,
+      tomGapVoiceHandled: true,
+    });
+    const initialResponseTimeMs = Date.now() - startedAt;
+    const userMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "user",
+      message: trimmedQuestion,
+      metadata: { source: "customer_dashboard", phase: "p2a-tom-gap-light" },
+    });
+    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
+      role: "assistant",
+      message: fastResponse,
+      metadata: {
+        source: "conversational_background_analysis",
+        phase: "p2a-tom-gap-light",
+        analysis_job_skipped: true,
+        tom_gap_light_path: true,
+        tom_turn_ms: lightTurn.elapsed_ms,
+        initial_response_time_ms: initialResponseTimeMs,
+      },
+    });
+    return {
+      ok: true,
+      customer_id: customerId,
+      question: trimmedQuestion,
+      fast_response: fastResponse,
+      tom_voice_trace: lightTurn.tomApply.trace,
+      tom_gap_light_path: true,
+      tom_turn_ms: lightTurn.elapsed_ms,
+      initial_response_time_ms: initialResponseTimeMs,
+      skipped_stages: lightTurn.skipped_stages,
+      analysis_job_id: null,
+      analysis_job: null,
+      job_skipped: true,
+      user_message_id: userMessage.id,
+      assistant_message_id: assistantMessage.id,
+      memory_context: {
+        synced: memoryContext.memory_synced,
+        status: memoryContext.memory_sync_status ?? "ready",
+        data_available: memoryContext.data_available,
+      },
+    };
+  }
 
   if (intentClassification.intent === "casual_chat") {
     return handleCasualChatQuestionRequest({
@@ -468,6 +617,19 @@ export async function handleConversationalQuestionRequest({
     });
   }
 
+  const finalized = await applyOneBrainFinalResponse(fastResponse, {
+    question: trimmedQuestion,
+    intentClassification,
+    memoryContext,
+    cachePayload,
+    analysisContext,
+    history: conversationHistory,
+    fetchImpl,
+    env,
+  });
+  fastResponse = finalized.text;
+  const tomVoiceTrace = finalized.tom_voice_trace ?? null;
+
   if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {
     const initialResponseTimeMs = Date.now() - startedAt;
     const userMessage = await insertConversationMessage(adminClient, customerId, {
@@ -504,6 +666,7 @@ export async function handleConversationalQuestionRequest({
       customer_id: customerId,
       question: trimmedQuestion,
       fast_response: fastResponse,
+      tom_voice_trace: tomVoiceTrace,
       initial_response_time_ms: initialResponseTimeMs,
       analysis_job_id: null,
       analysis_job: null,
@@ -572,6 +735,7 @@ export async function handleConversationalQuestionRequest({
         customer_id: customerId,
         question: trimmedQuestion,
         fast_response: fastResponse,
+      tom_voice_trace: tomVoiceTrace,
         initial_response_time_ms: initialResponseTimeMs,
         analysis_job_id: reusedJob.id,
         analysis_job: mapAnalysisJobForClient(reusedJob),
@@ -682,6 +846,7 @@ export async function handleConversationalQuestionRequest({
     customer_id: customerId,
     question: trimmedQuestion,
     fast_response: fastResponse,
+    tom_voice_trace: tomVoiceTrace,
     initial_response_time_ms: initialResponseTimeMs,
     analysis_job_id: jobRow.id,
     analysis_job: mapAnalysisJobForClient(latestJob),

@@ -162,6 +162,45 @@ function detectLookupSubIntent(text) {
   return { subIntent: null, lookupCategory: null };
 }
 
+function isRecommendationPriorityCheck(text) {
+  if (/추천|추천해|보완|보완해야|뭐가\s*부족|가입해야|들어야|어떤\s*보험|필요한\s*보험|필요한\s*보장/.test(text)) {
+    return false;
+  }
+  if (/청구|보험금|클레임/.test(text)) return false;
+  if (/뭐부터\s*해야\s*할지\s*모르/.test(text)) return false;
+  if (/지금.{0,12}뭐부터.{0,12}추가/.test(text)) return true;
+  if (/무엇부터.{0,12}추가/.test(text)) return true;
+  if (/뭐부터.{0,12}(?:추가|손)/.test(text) && /(?:보험|보장|추가)/.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function isUnderwritingBoundCheck(text) {
+  if (RECOMMEND_SIGNAL.test(text) && !/(?:고혈압|당뇨|건강|질병|거절|인수)/.test(text)) {
+    return false;
+  }
+  if (isCoverageGapCheck(text)) return false;
+  if (isClaimEligibilityCheck(text)) return false;
+
+  const enrollmentBound =
+    /(?:가입\s*(?:가능|돼|되)|들\s*수\s*(?:있|을)?|거절(?:될|되)|인수(?:심사|확인)?)/.test(text);
+  const healthSignal =
+    /(?:고혈압|당뇨|질병|건강(?:\s*상태)?|수술|입원|진단|혈압|투약|복용|약\s*먹)/.test(text);
+
+  if (healthSignal && enrollmentBound) return true;
+  if (/건강\s*상태/.test(text) && /거절/.test(text)) return true;
+
+  if (
+    /(?:암|실손|운전자|뇌|심장).{0,20}(?:들\s*수|지금\s*가입|새로\s*가입|가입\s*(?:가능|돼))/.test(text) &&
+    !/(?:있(?:어|나|음|습)?|보유|가입(?:된|한|중)|들어\s*있)/.test(text)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function isCoverageGapCheck(text) {
   if (GAP_SIGNAL.test(text) && RECOMMEND_SIGNAL.test(text)) return false;
   if (
@@ -173,6 +212,8 @@ function isCoverageGapCheck(text) {
   }
   if (/보장.{0,8}(부족|충분|괜찮|어때|어떤가|상태)/.test(text)) return true;
   if (/어디가\s*부족|공백|갭/i.test(text)) return true;
+  if (/내\s*보험\s*부족|보험\s*부족한(?:\s*부분)?|부족한\s*부분\s*있/i.test(text)) return true;
+  if (/뭐가\s*빠져|빠져\s*있|빠진\s*(?:게|것|부분)/i.test(text)) return true;
   return false;
 }
 
@@ -270,11 +311,33 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
+  if (isRecommendationPriorityCheck(text)) {
+    return {
+      intent: "recommendation_priority_check",
+      confidence: "high",
+      matched_rule: "recommendation_priority_check",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
   if (RECOMMEND_SIGNAL.test(text)) {
     return {
       intent: "recommendation_request",
       confidence: "high",
       matched_rule: "recommendation_request",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  if (isUnderwritingBoundCheck(text)) {
+    return {
+      intent: "underwriting_bound_check",
+      confidence: "high",
+      matched_rule: "underwriting_bound_check",
       lookup_sub_intent: null,
       lookup_category: null,
       question_focus: text,

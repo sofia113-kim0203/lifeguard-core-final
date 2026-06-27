@@ -1,0 +1,260 @@
+{
+  "audit": "blood_flow_audit_v2",
+  "authority": "Tom — Blood Flow Audit v2 GO. KEY Judgment Validation FROZEN.",
+  "observed_at": "2026-06-27T09:45:56.718Z",
+  "supabase_ref": "inwswsruvvzaeioqkelq",
+  "auth_mode": "service_role",
+  "customer_ids": [
+    "a247a66f-a597-4ccf-9530-761b82518002",
+    "b421626e-2dda-49e0-93ed-da34c658a3d3",
+    "d845f1a1-54d4-41e4-a3f1-c77dedc7ee81"
+  ],
+  "discovery": {
+    "unique_customers_with_jobs": 0,
+    "ranked_top": [],
+    "profile_count": 4
+  },
+  "customers": [
+    {
+      "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+      "label": "A",
+      "chain": {
+        "document": {
+          "state": "exists",
+          "reason": "customer_documents_present",
+          "document_count": 1,
+          "policy_count": 1
+        },
+        "memory": {
+          "state": "exists",
+          "reason": "customer_memory_facts_present",
+          "memory_fact_count": 1
+        },
+        "analysis_job": {
+          "state": "missing",
+          "reason": "no_analysis_job_ever_created",
+          "job_total": 0,
+          "by_status": {}
+        },
+        "coverage_gap": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        },
+        "underwriting": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        },
+        "recommendation": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        }
+      },
+      "breakpoint": {
+        "step": "analysis_job",
+        "state": "missing",
+        "reason": "no_analysis_job_ever_created"
+      },
+      "blood_flow": {
+        "flows_to_key": false,
+        "breakpoint": {
+          "step": "analysis_job",
+          "state": "missing",
+          "reason": "no_analysis_job_ever_created"
+        },
+        "interpretation": "Blood flow stops at analysis_job (missing: no_analysis_job_ever_created)"
+      },
+      "supplementary": {
+        "document_count": 1,
+        "policy_count": 1,
+        "memory_fact_count": 1,
+        "analysis_jobs_total": 0,
+        "analysis_jobs_completed": 0,
+        "analysis_cache_types": []
+      },
+      "errors": []
+    },
+    {
+      "customer_id": "b421626e-2dda-49e0-93ed-da34c658a3d3",
+      "label": "B",
+      "chain": {
+        "document": {
+          "state": "exists",
+          "reason": "policies_without_documents",
+          "document_count": 0,
+          "policy_count": 1,
+          "note": "Policy snapshot exists; documents not required for chain start."
+        },
+        "memory": {
+          "state": "missing",
+          "reason": "no_memory_facts",
+          "memory_fact_count": 0
+        },
+        "analysis_job": {
+          "state": "missing",
+          "reason": "no_analysis_job_ever_created",
+          "job_total": 0,
+          "by_status": {}
+        },
+        "coverage_gap": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        },
+        "underwriting": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        },
+        "recommendation": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        }
+      },
+      "breakpoint": {
+        "step": "memory",
+        "state": "missing",
+        "reason": "no_memory_facts"
+      },
+      "blood_flow": {
+        "flows_to_key": false,
+        "breakpoint": {
+          "step": "memory",
+          "state": "missing",
+          "reason": "no_memory_facts"
+        },
+        "interpretation": "Blood flow stops at memory (missing: no_memory_facts)"
+      },
+      "supplementary": {
+        "document_count": 0,
+        "policy_count": 1,
+        "memory_fact_count": 0,
+        "analysis_jobs_total": 0,
+        "analysis_jobs_completed": 0,
+        "analysis_cache_types": []
+      },
+      "errors": []
+    },
+    {
+      "customer_id": "d845f1a1-54d4-41e4-a3f1-c77dedc7ee81",
+      "label": "C",
+      "chain": {
+        "document": {
+          "state": "missing",
+          "reason": "no_documents_and_no_policies",
+          "document_count": 0,
+          "policy_count": 0
+        },
+        "memory": {
+          "state": "missing",
+          "reason": "no_memory_facts",
+          "memory_fact_count": 0
+        },
+        "analysis_job": {
+          "state": "missing",
+          "reason": "no_analysis_job_ever_created",
+          "job_total": 0,
+          "by_status": {}
+        },
+        "coverage_gap": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        },
+        "underwriting": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        },
+        "recommendation": {
+          "state": "skip",
+          "reason": "analysis_job_never_created",
+          "upstream": "analysis_job"
+        }
+      },
+      "breakpoint": {
+        "step": "document",
+        "state": "missing",
+        "reason": "no_documents_and_no_policies"
+      },
+      "blood_flow": {
+        "flows_to_key": false,
+        "breakpoint": {
+          "step": "document",
+          "state": "missing",
+          "reason": "no_documents_and_no_policies"
+        },
+        "interpretation": "Blood flow stops at document (missing: no_documents_and_no_policies)"
+      },
+      "supplementary": {
+        "document_count": 0,
+        "policy_count": 0,
+        "memory_fact_count": 0,
+        "analysis_jobs_total": 0,
+        "analysis_jobs_completed": 0,
+        "analysis_cache_types": []
+      },
+      "errors": []
+    }
+  ],
+  "comparison_table": {
+    "headers": [
+      "customer",
+      "document",
+      "memory",
+      "analysis_job",
+      "coverage_gap",
+      "underwriting",
+      "recommendation",
+      "breakpoint"
+    ],
+    "rows": [
+      {
+        "customer": "A",
+        "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+        "document": "exists",
+        "memory": "exists",
+        "analysis_job": "missing",
+        "coverage_gap": "skip",
+        "underwriting": "skip",
+        "recommendation": "skip",
+        "breakpoint": "analysis_job:missing"
+      },
+      {
+        "customer": "B",
+        "customer_id": "b421626e-2dda-49e0-93ed-da34c658a3d3",
+        "document": "exists",
+        "memory": "missing",
+        "analysis_job": "missing",
+        "coverage_gap": "skip",
+        "underwriting": "skip",
+        "recommendation": "skip",
+        "breakpoint": "memory:missing"
+      },
+      {
+        "customer": "C",
+        "customer_id": "d845f1a1-54d4-41e4-a3f1-c77dedc7ee81",
+        "document": "missing",
+        "memory": "missing",
+        "analysis_job": "missing",
+        "coverage_gap": "skip",
+        "underwriting": "skip",
+        "recommendation": "skip",
+        "breakpoint": "document:missing"
+      }
+    ]
+  },
+  "failure_mode": {
+    "mode": "systemic",
+    "label": "All audited customers have zero analysis_jobs — likely system/trigger path issue.",
+    "all_same_breakpoint": false,
+    "breakpoint": "analysis_job"
+  },
+  "comparison_status": "full",
+  "comparison_blocker": null,
+  "judgment_validation_status": "frozen_pending_blood_flow",
+  "note": "Observation only — Jerry does not declare PASS."
+}

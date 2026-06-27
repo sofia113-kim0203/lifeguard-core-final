@@ -1,0 +1,61 @@
+{
+  "audit": "j10_compose_wiring_fix_preview_evidence_v1",
+  "note": "Observation only — Tom Audit. Jerry does not declare PASS.",
+  "tom_go": "narrow wiring fix — homeBrainFactCore recommendationContext + orchestrator factBundle recommendation_priority_labels",
+  "preview_base": "https://lifeguard-core-final-5c39p1d8n-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_9cdEpC4jHaXiZeAkAgB1the81w7C",
+  "observed_at": "2026-06-27T14:11:00.339Z",
+  "wiring_changes": [
+    "server/homeBrainFactCore.js — customerState.recommendationContext from customerContextBundle",
+    "server/salesDirectorKeyOrchestrator.js — factBundle.recommendation_priority_labels from toolRun/customerContextBundle"
+  ],
+  "forbidden_touched": [],
+  "j10": {
+    "question": "지금 뭐부터 추가하면 좋을까?",
+    "responseSource": "sales_director_key",
+    "recommendation_factory": {
+      "available": true,
+      "loaded": true,
+      "used": true,
+      "record_count": 2,
+      "source": "analysis_jobs"
+    },
+    "answer_evidence": [
+      "snapshot",
+      "memory",
+      "recommendation"
+    ],
+    "answerText": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 뇌혈관과 암입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "stored_priority_labels_observed": [
+      "뇌혈관",
+      "암"
+    ],
+    "compose_disconnect_checks": {
+      "says_analysis_absent": false,
+      "absent_phrase": "저장된 우선순위 분석이 아직 없어",
+      "cites_stored_top2_direction": true,
+      "sales_push_forbidden_scan": [],
+      "utilization_disconnect": null
+    },
+    "before_after": {
+      "hold_answer_preview": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+      "post_fix_answer_preview": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 뇌혈관과 암입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다."
+    }
+  },
+  "j11_j12_guarded_hold_regression": {
+    "J11": {
+      "responseSource": "sales_director_guarded_hold",
+      "utilization": "loaded_not_used",
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요."
+    },
+    "J12": {
+      "responseSource": "sales_director_guarded_hold",
+      "utilization": "loaded_not_used",
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요."
+    }
+  },
+  "unit_tests": {
+    "p10_1_key_orchestrator": "ALL PASSED"
+  },
+  "tom_status": "GO wiring fix deployed — await Tom re-audit for PASS (Jerry does not declare PASS)"
+}

@@ -1,0 +1,397 @@
+{
+  "audit": "j07_underwriting_slice_preview_evidence_v1",
+  "note": "Observation only — Tom Audit. Jerry does not declare PASS.",
+  "preview_base": "https://lifeguard-core-final-1p06ung5d-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_J9YDCbTLEXp3Hjh1bfFnmcjMuUfG",
+  "observed_at": "2026-06-27T13:34:52.474Z",
+  "sequence": [
+    "full_wip_deploy",
+    "J07_only",
+    "J07-J09",
+    "J04-J06",
+    "12Q",
+    "30Q"
+  ],
+  "deploy": {
+    "type": "full_wip",
+    "url": "https://lifeguard-core-final-1p06ung5d-70sofia113-1918s-projects.vercel.app",
+    "deployment_id": "dpl_J9YDCbTLEXp3Hjh1bfFnmcjMuUfG"
+  },
+  "j07": {
+    "id": "J07",
+    "axis": "underwriting",
+    "level": "J1",
+    "question": "고혈압 있는데 가입 가능해?",
+    "utilization_expectation": "Underwriting bounds — no false approval.",
+    "probe_ok": true,
+    "answerText": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 고혈압 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.",
+    "factoryAudit": {
+      "snapshot": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 1,
+        "source": "sales_director_turn_cache"
+      },
+      "memory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 1,
+        "source": "customer_memory_facts"
+      },
+      "coverage_gap": {
+        "available": true,
+        "loaded": true,
+        "used": false,
+        "record_count": 13,
+        "source": "analysis_jobs"
+      },
+      "underwriting": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 9,
+        "source": "analysis_jobs"
+      },
+      "recommendation": {
+        "available": true,
+        "loaded": false,
+        "used": false,
+        "record_count": 13,
+        "source": "analysis_jobs"
+      },
+      "design": {
+        "available": true,
+        "loaded": false,
+        "used": false,
+        "record_count": 0,
+        "source": "analysis_jobs"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "underwriting"
+      ],
+      "primary_disconnect": {
+        "factory": "coverage_gap",
+        "disconnect": "loaded_not_used",
+        "available": true,
+        "loaded": true,
+        "used": false,
+        "record_count": 13,
+        "source": "analysis_jobs"
+      },
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+      "probe": {
+        "ok": true,
+        "jobs_scanned": 1,
+        "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+        "error": null
+      }
+    },
+    "judgmentAudit": {
+      "audit": "p8_0_judgment",
+      "read_only": true,
+      "sentences_analyzed": 2,
+      "fact_count": {
+        "total": 1,
+        "snapshot_fact_count": 0,
+        "memory_fact_count": 0,
+        "coverage_gap_fact_count": 1,
+        "premium_fact_count": 0
+      },
+      "judgment_count": 2,
+      "limitation_count": 0,
+      "empathy_count": 0,
+      "question_count": 0,
+      "structure": {
+        "fact": true,
+        "judgment": true,
+        "limitation": false,
+        "empathy": false,
+        "question": false
+      },
+      "ratios": {
+        "fact_ratio": 0.3333,
+        "judgment_ratio": 0.6667,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 3
+      },
+      "disposition": {
+        "primary_type": "judgment",
+        "primary_label": "판단형",
+        "composition": [
+          {
+            "type": "judgment",
+            "label": "판단형",
+            "ratio": 0.6667
+          },
+          {
+            "type": "fact",
+            "label": "사실활용형",
+            "ratio": 0.3333
+          },
+          {
+            "type": "empathy",
+            "label": "공감형",
+            "ratio": 0
+          },
+          {
+            "type": "question",
+            "label": "질문형",
+            "ratio": 0
+          },
+          {
+            "type": "limitation",
+            "label": "보류형",
+            "ratio": 0
+          }
+        ],
+        "profile_summary": {
+          "dominant_styles": [
+            "판단형",
+            "사실활용형"
+          ],
+          "judgment_vs_limitation": "판단 표현이 보류보다 많음",
+          "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+        },
+        "hypothesis_signals": {
+          "empathy_over_judgment": false,
+          "question_over_judgment": false,
+          "judgment_below_limitation": false,
+          "factory_evidence_without_answer_facts": true,
+          "factory_loaded_but_answer_underuses": {
+            "snapshot": true,
+            "memory": true,
+            "coverage_gap": false
+          }
+        }
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "underwriting"
+      ]
+    },
+    "answerEvidence": [
+      "snapshot",
+      "memory",
+      "underwriting"
+    ],
+    "responseSource": "sales_director_key",
+    "composeMode": null,
+    "answer_preview": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 고혈압 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.",
+    "utilization": {
+      "axis": "underwriting",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 9,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": false,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    },
+    "answer_evidence": [
+      "snapshot",
+      "memory",
+      "underwriting"
+    ],
+    "judgment_ratios": {
+      "fact_ratio": 0.3333,
+      "judgment_ratio": 0.6667,
+      "limitation_ratio": 0,
+      "empathy_ratio": 0,
+      "question_ratio": 0,
+      "total_units": 3
+    },
+    "disposition_primary": "판단형",
+    "notes": [
+      "factory_evidence_without_answer_facts"
+    ]
+  },
+  "underwriting_axis": {
+    "J07": {
+      "axis": "underwriting",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 9,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": false,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    },
+    "J08": {
+      "axis": "underwriting",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 9,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": false,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    },
+    "J09": {
+      "axis": "underwriting",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 9,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": true,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    }
+  },
+  "coverage_gap_regression": {
+    "J04": {
+      "axis": "coverage_gap",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 13,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": true,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    },
+    "J05": {
+      "axis": "coverage_gap",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 13,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": true,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    },
+    "J06": {
+      "axis": "coverage_gap",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 13,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": true,
+      "limitation_present": true,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    }
+  },
+  "judgment_bank_12q": {
+    "questions_probed": 12,
+    "probe_ok": "12/12",
+    "disconnect_count": 3,
+    "misuse_count": 0,
+    "by_axis": {
+      "memory": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "coverage_gap": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "underwriting": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "recommendation": {
+        "total": 3,
+        "used": 0,
+        "honest_absence": 0,
+        "disconnect": 3,
+        "misuse": 0,
+        "unavailable": 0
+      }
+    },
+    "factory_hypothesis_summary": {
+      "A": 6,
+      "A_partial": 6
+    }
+  },
+  "customer_30q": {
+    "tom_score": {
+      "same_key": "5/5",
+      "trust": "5/5",
+      "continuity": "5/5",
+      "role_split": "0/5",
+      "friction": "0건"
+    },
+    "manual_role_split": "30/30"
+  },
+  "binding_phrase_scan_j07_j09": {
+    "J07": {
+      "matches": [],
+      "answer": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 고혈압 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다."
+    },
+    "J08": {
+      "matches": [],
+      "answer": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 건강 상태 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다."
+    },
+    "J09": {
+      "matches": [],
+      "answer": "가입된 보험이 있는 것은 확인돼요. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다."
+    }
+  }
+}

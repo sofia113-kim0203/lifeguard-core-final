@@ -1,0 +1,163 @@
+{
+  "audit": "utilization_gap_hop_trace_v1",
+  "status": "observation_only",
+  "tom_mission": "underwriting_utilization_gap_j07_representative",
+  "terminology": "Utilization Gap (not Disconnect)",
+  "axis_completion_note": {
+    "coverage_gap": "3/3 complete — see coverage-gap-axis-complete.json",
+    "next_axis": "underwriting"
+  },
+  "target": {
+    "id": "J07",
+    "axis": "underwriting",
+    "level": "J1",
+    "question": "고혈압 있는데 가입 가능해?",
+    "selection_reason": "First J1 underwriting question; clearest enrollment-eligibility ask; same disconnect class as J08/J09",
+    "baseline_utilization": "available_not_loaded",
+    "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e"
+  },
+  "underwriting_axis_summary": {
+    "j07": "available_not_loaded",
+    "j08": "available_not_loaded",
+    "j09": "available_not_loaded",
+    "pattern": "All 3 underwriting questions: available_not_loaded (not loaded_not_used)"
+  },
+  "contrast_coverage_gap_slices": {
+    "coverage_gap_pattern": "Factory pass → Resolver preload pass → Manifest tool omitted → used=false",
+    "underwriting_pattern": "Factory pass → Resolver absent → Manifest no tool → used=false",
+    "disconnect_type_delta": "coverage_gap was loaded_not_used after Resolver; underwriting never reaches loaded=true in KEY path"
+  },
+  "hop_trace": {
+    "factory": {
+      "hop": "Factory",
+      "status": "pass",
+      "code_path": [
+        "analysis_jobs.result_json.underwriting_risk",
+        "server/salesDirectorFactoryAudit.js → probeStoredFactoryRecords"
+      ],
+      "evidence": {
+        "available": true,
+        "lifecycle_item_count": 9,
+        "audit_record_count": 0,
+        "measurement_note": "countStoredFactoryRecords expects risk_factors/flags/risks; payload uses items[] — available=true but record_count=0 in audit"
+      }
+    },
+    "resolver": {
+      "hop": "Resolver",
+      "status": "first_utilization_gap",
+      "code_path": [
+        "server/salesDirectorLoop.js — loadSalesDirectorCoverageGapContext only",
+        "No loadSalesDirectorUnderwritingContext on KEY path"
+      ],
+      "evidence": {
+        "resolver_exists_for_coverage_gap": true,
+        "resolver_exists_for_underwriting": false
+      }
+    },
+    "manifest": {
+      "hop": "Manifest (KEY tool plan)",
+      "status": "structural_gap",
+      "code_path": [
+        "server/salesDirectorKeyToolRegistry.js — no UNDERWRITING in KEY_TOOLS",
+        "server/salesDirectorFactoryAudit.js — engineLoaded/engineUsed coverage_gap only"
+      ],
+      "j07_analysis": {
+        "label": "J07",
+        "question": "고혈압 있는데 가입 가능해?",
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": true,
+        "resolved_judgment_intent": null,
+        "hul_eligible": false,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory"
+          ],
+          "has_underwriting_tool": false,
+          "has_coverage_gap_tool": false,
+          "note": "KEY_TOOLS has no underwriting entry — P10-1 registry: Snapshot/Memory/Coverage Gap/Premium only"
+        }
+      },
+      "j08_sibling": {
+        "label": "J08",
+        "question": "건강 상태 때문에 거절될까?",
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": false,
+        "resolved_judgment_intent": null,
+        "hul_eligible": false,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory"
+          ],
+          "has_underwriting_tool": false,
+          "has_coverage_gap_tool": false,
+          "note": "KEY_TOOLS has no underwriting entry — P10-1 registry: Snapshot/Memory/Coverage Gap/Premium only"
+        }
+      },
+      "j09_sibling": {
+        "label": "J09",
+        "question": "암 보험 지금 들 수 있을까?",
+        "classification": {
+          "intent": "factual_lookup",
+          "matched_rule": "coverage_presence",
+          "lookup_sub_intent": "coverage_presence"
+        },
+        "insurance_topic_signal": true,
+        "resolved_judgment_intent": "coverage_judgment",
+        "hul_eligible": true,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory",
+            "coverage_gap"
+          ],
+          "has_underwriting_tool": false,
+          "has_coverage_gap_tool": true,
+          "note": "KEY_TOOLS has no underwriting entry — P10-1 registry: Snapshot/Memory/Coverage Gap/Premium only"
+        }
+      }
+    },
+    "compose": {
+      "hop": "Compose",
+      "status": "fail_no_underwriting_inputs",
+      "evidence": {
+        "resolved_judgment_intent": null,
+        "hul_eligible": false,
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "answer_signal": false
+      }
+    },
+    "final_answer": {
+      "hop": "Final Answer",
+      "status": "no_underwriting_utilization",
+      "evidence": {
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "underwriting_loaded": false,
+        "underwriting_used": false
+      }
+    }
+  },
+  "first_hop": {
+    "name": "Resolver (missing on KEY path)",
+    "layer": "손발",
+    "same_as_j04_j06": false
+  },
+  "secondary_hop": {
+    "name": "Manifest (no UNDERWRITING tool + general_consultation intent)",
+    "layer": "손발"
+  },
+  "observed_at": "2026-06-27T13:09:33.189Z",
+  "note": "Observation only — Jerry does not declare PASS or Slice GO."
+}

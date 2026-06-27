@@ -20,6 +20,29 @@ import {
   buildCentralBrainAssistantMetadata,
   normalizeCentralBrainResponse,
 } from "./centralBrainResponseNormalizer.js";
+import {
+  buildFactBundleFromCentralBrainBundle,
+  buildGuidanceResponse,
+  buildInterimPartialGuidanceMessage,
+  GUIDANCE_INTENTS,
+} from "../guidanceLayer/guidanceBuilder.js";
+
+const PHASE_A_PARTIAL_EVIDENCE_MODES = new Set([
+  "coverage_gap_reason",
+  "coverage_review_request",
+  "recommendation_reason",
+]);
+
+function buildPartialEvidenceMessage({ mode, bundle, question }) {
+  if (mode === "coverage_gap_reason") {
+    return buildGuidanceResponse(
+      GUIDANCE_INTENTS.GAP,
+      buildFactBundleFromCentralBrainBundle(bundle, question),
+      { question },
+    );
+  }
+  return buildInterimPartialGuidanceMessage(bundle);
+}
 
 export async function runCentralBrainTurn({
   question,
@@ -68,7 +91,7 @@ export async function runCentralBrainTurn({
 
   const mode = route.central_mode;
 
-  if (mode === "coverage_review_request" && bundle.sufficiency !== "sufficient") {
+  if (mode === "coverage_review_request" && bundle.sufficiency === "insufficient") {
     const inFlightJob = await findInFlightAnalysisJob(supabase, customerId);
     return {
       activated: true,
@@ -106,6 +129,27 @@ export async function runCentralBrainTurn({
       engine_executed: false,
       live_engines_executed: false,
       reason: "INSUFFICIENT_STORED_EVIDENCE",
+    };
+  }
+
+  if (bundle.sufficiency === "partial" && PHASE_A_PARTIAL_EVIDENCE_MODES.has(mode)) {
+    return {
+      activated: true,
+      ok: true,
+      message: buildPartialEvidenceMessage({ mode, bundle, question }),
+      route,
+      plan,
+      bundle,
+      skip_analysis_job: plan.skip_analysis_job === true,
+      central_brain_mode: mode,
+      engine_executed: false,
+      live_engines_executed: false,
+      reason: "PARTIAL_EVIDENCE_GUIDANCE",
+      metadata: buildCentralBrainAssistantMetadata({
+        centralMode: mode,
+        plan,
+        bundle,
+      }),
     };
   }
 

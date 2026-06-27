@@ -56,6 +56,27 @@ export function normalizeSignupPhone(value = "") {
   return String(value).trim();
 }
 
+export function validateSignupBasicProfile({ displayName = "", phone = "" } = {}) {
+  const fieldErrors = {};
+
+  if (!displayName?.trim()) {
+    fieldErrors.displayName = SIGNUP_VALIDATION_MESSAGES.displayNameRequired;
+  }
+
+  const normalizedPhone = normalizeSignupPhone(phone);
+  if (!normalizedPhone) {
+    fieldErrors.phone = SIGNUP_VALIDATION_MESSAGES.phoneRequired;
+  } else if (!PHONE_PATTERN.test(normalizedPhone)) {
+    fieldErrors.phone = SIGNUP_VALIDATION_MESSAGES.phoneInvalid;
+  }
+
+  return {
+    valid: Object.keys(fieldErrors).length === 0,
+    fieldErrors,
+    normalizedPhone,
+  };
+}
+
 export function validateSignupProfile({
   displayName = "",
   phone = "",

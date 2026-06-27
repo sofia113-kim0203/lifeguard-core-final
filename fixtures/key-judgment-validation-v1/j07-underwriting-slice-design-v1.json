@@ -1,0 +1,161 @@
+{
+  "design": "j07_underwriting_utilization_gap_slice_v1",
+  "status": "tom_hold_implementation",
+  "authority": "Tom — design only, no implementation GO",
+  "target": {
+    "id": "J07",
+    "question": "고혈압 있는데 가입 가능해?",
+    "axis": "underwriting",
+    "current_utilization": "available_not_loaded"
+  },
+  "goal": {
+    "primary": "When underwriting_risk exists in Factory, KEY references it honestly without binding enrollment approval/decline",
+    "example_tone": "가입 가능 여부는 단정할 수 없고, 고혈압 관련 인수심사 확인이 필요합니다",
+    "not_goal": "가입 가능/불가 확정, 상품 추천, 인수 승인"
+  },
+  "contrast_coverage_gap_slices": {
+    "coverage_gap": "Factory → Resolver ✅ → Manifest ❌ (pattern fix only)",
+    "underwriting_j07": "Factory → Resolver ❌ → Manifest ❌ (new KEY limb required)"
+  },
+  "sections": {
+    "1_resolver_preload": {
+      "decision": "Add salesDirectorUnderwritingRiskContext.js — mirror coverage gap resolver pattern",
+      "code_path": [
+        "server/salesDirectorUnderwritingRiskContext.js (new)",
+        "server/salesDirectorLoop.js — parallel load with loadSalesDirectorCoverageGapContext",
+        "customerContextBundle.underwritingRiskContext"
+      ],
+      "data_source": "analysis_jobs.result_json.underwriting_risk (latest completed job)",
+      "normalize_for_key": {
+        "signals": "health_risk_items → compact labels (e.g. hypertension:review_needed)",
+        "review_flags": "likely_additional_review, likely_surcharge, likely_exclusion item labels (no binding verdict text)",
+        "overall": "overall_underwriting_risk as internal severity only — not spoken as approval",
+        "record_count": "items.length or health_risk_items.length"
+      },
+      "explicitly_not": "Re-run analyzeUnderwritingRisk engine on KEY path — read stored panel only",
+      "factory_touch": "none — read-only from existing job payload"
+    },
+    "2_manifest_tool_vs_context": {
+      "decision": "Resolver preload + UNDERWRITING_RISK tool in KEY plan (same rhythm as COVERAGE_GAP)",
+      "rationale": {
+        "why_not_context_only": "factoryAudit runs on agentTurn before HUL finalize; context-only side-channel cannot set used=true reliably (J04 pre-slice lesson)",
+        "why_tool": "runUnderwritingRiskTool sets factBundle.underwriting_used for engineUsed + answer_evidence"
+      },
+      "key_tools_addition": "UNDERWRITING_RISK (read stored panel; no engine recompute)",
+      "plan_gate": "shouldAddUnderwritingRiskTool(classification, question) — J07-shaped enrollment-bound questions only",
+      "blocked": "Do not add recommendation/design tools in this slice"
+    },
+    "3_intent_classification": {
+      "decision": "New classification intent: underwriting_bound_check (or enrollment_bound_check)",
+      "trigger_patterns_j07": [
+        "health/disease lexicon + 가입 가능|들 수|가입돼|가입되",
+        "고혈압|당뇨|질병|건강.{0,8}때문 + (가입|거절|인수)"
+      ],
+      "j07_expected": {
+        "intent": "underwriting_bound_check",
+        "matched_rule": "underwriting_bound_check",
+        "resolved_judgment_intent": "underwriting_bound_judgment (new SALES_DIRECTOR_JUDGMENT_INTENT)"
+      },
+      "guard": {
+        "뭐가 부족해?": "recommendation_request — unchanged",
+        "coverage_gap_questions": "coverage_gap_check — unchanged"
+      },
+      "file": "server/intentGateLayer.js — isUnderwritingBoundCheck() before general_consultation fallback"
+    },
+    "4_factory_audit_loaded_used": {
+      "loaded_true_when": [
+        "customerContextBundle.underwritingRiskContext.loaded === true",
+        "OR UNDERWRITING_RISK tool executed successfully"
+      ],
+      "used_true_when": [
+        "agentTurn.factBundle.underwriting_used === true (from toolRun, pre-finalize)",
+        "OR trace.conversation_brain.underwriting_used === true (if CB path ever added)"
+      ],
+      "engineLoaded_engineUsed": "Extend salesDirectorFactoryAudit.js engineLoaded/engineUsed for factoryKey === underwriting",
+      "record_count_fix": "countStoredFactoryRecords('underwriting') — count payload.items[] and health_risk_items[] (measurement-only, aligns probe with lifecycle item_count=9)",
+      "utilization_level_target_j07": "used (not available_not_loaded)"
+    },
+    "5_answer_evidence": {
+      "mechanism": "buildAnswerEvidence(audit) — underwriting entry when audit.underwriting.used === true",
+      "expected_j07": ["snapshot", "memory", "underwriting"],
+      "compose_merge": "HUL finalizeHumanSalesDirectorResponse merges customerState.underwritingRiskContext into factBundle (mirror coverage_gap ~1597-1610)",
+      "spoken_evidence": "limitation + review-needed language tied to health_risk_items / stored panel — not raw JSON dump"
+    },
+    "6_false_approval_guard": {
+      "forbidden_output_patterns": [
+        "가입 가능합니다",
+        "가입 안 됩니다",
+        "가입 불가",
+        "인수 가능",
+        "인수 승인",
+        "이 상품 됩니다",
+        "거절됩니다 (확정)"
+      ],
+      "guard_layers": [
+        "Compose templates: limitation-first statements only",
+        "FALSE_ASSERTION_PATTERNS extension — block binding enrollment without uw_evidence flag",
+        "Unit test: J07 answer must NOT match forbidden patterns; MUST match limitation/review markers",
+        "Judgment rubric misuse check: factory available + binding approval language → misuse"
+      ],
+      "allowed": [
+        "단정할 수 없",
+        "확인이 필요",
+        "인수심사",
+        "추가 확인",
+        "고혈압.*확인"
+      ],
+      "factory_constitution": "Reuse customerUnderwritingRiskCore rule: no final binding approval/decline"
+    },
+    "7_j08_j09_impact": {
+      "j08": {
+        "question": "건강 상태 때문에 거절될까?",
+        "expected": "Same intent underwriting_bound_check — likely fixed by same slice if pattern includes 거절 + health",
+        "scope": "Inherit from J07 intent/plan — observe in Preview, not separate slice"
+      },
+      "j09": {
+        "question": "암 보험 지금 들 수 있을까?",
+        "expected": "May plan coverage_gap + underwriting_risk tools together",
+        "scope": "Dual-axis utilization — verify both used; do not scope-creep product recommendation"
+      },
+      "underwriting_axis_after_slice": "Target 1/3 → 3/3 if all three match intent (Tom verify on Preview subset J07,J08,J09)"
+    },
+    "8_regression_30q": {
+      "direct_overlap": "none — 30Q bank has no 고혈압/가입 가능/거절/인수 questions",
+      "risk": "low if patterns are narrow (health + enrollment bound only)",
+      "required_gate": "Full WIP + slice deploy; npm run regression:key-customer-validation-v1 — Friction 0",
+      "misuse_gate": "12Q Judgment Bank misuse=0 maintained",
+      "deploy_baseline": "Same as J04/J06 — never slice-only deploy without branch WIP"
+    }
+  },
+  "proposed_file_touch_list": {
+    "new": ["server/salesDirectorUnderwritingRiskContext.js"],
+    "modify": [
+      "server/salesDirectorLoop.js",
+      "server/salesDirectorKeyToolRegistry.js",
+      "server/salesDirectorKeyOrchestrator.js",
+      "server/salesDirectorFactoryAudit.js",
+      "server/intentGateLayer.js",
+      "server/salesDirectorFormatter.js",
+      "server/humanUnderstandingLoop.js",
+      "scripts/p10-1-key-orchestrator-unit-test.mjs"
+    ],
+    "forbidden_this_slice": [
+      "Factory engine recompute",
+      "Companion-only patch",
+      "Final answer string-only patch",
+      "New Brain/Persona structure"
+    ]
+  },
+  "success_criteria_preview": {
+    "j07_intent": "underwriting_bound_check",
+    "j07_tools_include": "underwriting_risk",
+    "factoryAudit_underwriting_used": true,
+    "answer_evidence_includes": "underwriting",
+    "misuse": 0,
+    "forbidden_phrases_absent": true,
+    "j04_j05_j06_regression": "coverage_gap 3/3 used",
+    "30q_friction": 0
+  },
+  "observed_at": "2026-06-27T13:30:00.000Z",
+  "note": "Design only — Jerry does not implement until Tom Slice GO."
+}

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import {
-  HOME_BRAIN_UNSUPPORTED_MESSAGE,
+  HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
   composeHomeBrainFactAnswer,
 } from "../server/homeBrainFactCore.js";
@@ -65,23 +65,19 @@ test("unsupported intents return unsupported classification", () => {
   assert.equal(classifyHomeBrainIntent("보험 설계해줘"), "unsupported");
 });
 
-test("premium_lookup uses copy B and P1-A case-c stats", () => {
+test("premium_lookup uses Tom-safe copy without inventory dump patterns", () => {
   const result = composeHomeBrainFactAnswer(unifiedFixture, "내 보험료 얼마야?");
   assert.equal(result.ok, true);
   assert.equal(result.intent, "premium_lookup");
   assert.equal(result.factsUsed.premiumTotal, caseCExpected.premiumTotal);
-  assert.equal(result.factsUsed.premiumKnownCount, caseCExpected.premiumKnownCount);
-  assert.equal(result.factsUsed.premiumUnknownCount, caseCExpected.premiumUnknownCount);
-  assert.equal(result.factsUsed.totalCount, caseCExpected.totalCount);
-  assert.equal(result.factsUsed.portfolioSource, "unified_state.policies");
-  assert.match(result.answerText, /현재 확인 가능한 월 보험료는 318,683원입니다/);
-  assert.match(result.answerText, /3건이 합산되었고, 보험료 미확인 1건이 있습니다/);
+  assert.match(result.answerText, /318683원/);
+  assert.doesNotMatch(result.answerText, /318,683|월\s*보험료|현재\s*\d+\s*건의\s*보험/);
 });
 
-test("unsupported question returns AI 상담실 redirect copy", () => {
+test("unsupported question returns honest defer copy", () => {
   const result = composeHomeBrainFactAnswer(unifiedFixture, "보험 추천해줘");
   assert.equal(result.intent, "unsupported");
-  assert.equal(result.answerText, HOME_BRAIN_UNSUPPORTED_MESSAGE);
+  assert.equal(result.answerText, HOME_HIGH_STAKES_DEFER_MESSAGE);
 });
 
 test("G7-1 own customer data lookup succeeds (deterministic compose)", () => {
@@ -103,9 +99,9 @@ test("G7-2 API ignores request body customerId (static)", () => {
 
 test("G7-3 foreign customerId cannot override auth customerId (static + handler contract)", () => {
   const apiSource = readFileSync(join(ROOT, "api/customer-home-brain-fact.js"), "utf8");
-  const coreSource = readFileSync(join(ROOT, "server/homeBrainFactCore.js"), "utf8");
+  const agentSource = readFileSync(join(ROOT, "server/homeAgentTom.js"), "utf8");
   assert.match(apiSource, /requireCustomerAuth\(userSupabase\)/);
-  assert.match(coreSource, /loadUnifiedCustomerState\(userSupabase,\s*customerId\)/);
+  assert.match(agentSource, /loadRawCustomerRecords\(userSupabase,\s*customerId\)/);
   assert.doesNotMatch(apiSource, /createServiceRoleSupabaseClient|SERVICE_ROLE|adminSupabase/);
 });
 
@@ -113,8 +109,9 @@ test("forbidden service-role / write / LLM imports absent", () => {
   const files = [
     "api/customer-home-brain-fact.js",
     "server/homeBrainFactCore.js",
+    "server/homeAgentTom.js",
     "src/lib/customerHomeBrainFact.js",
-    "src/components/AdvisorBrainEntry.jsx",
+    "src/components/LifeguardHomeChat.jsx",
   ];
   const banned = [
     "createServiceRoleSupabaseClient",

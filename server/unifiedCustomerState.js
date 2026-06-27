@@ -66,6 +66,34 @@ export function extractPolicyIds(policies = []) {
   return (policies ?? []).map((policy) => String(policy.id)).sort();
 }
 
+/** P11-5 — Read-only active policy count contract from Unified State (no recalculation). */
+export function resolveActivePolicyCountFromUnified(unified = null) {
+  if (unified?.active_policy_count != null) {
+    const activePolicyCount = Number(unified.active_policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  if (unified?.policy_count != null) {
+    const activePolicyCount = Number(unified.policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: "unified_state",
+      active_policy_ids: unified.active_policy_ids ?? unified.policy_ids ?? [],
+      policy_count: activePolicyCount,
+    };
+  }
+  return {
+    active_policy_count: null,
+    active_policy_count_source: null,
+    active_policy_ids: unified?.active_policy_ids ?? unified?.policy_ids ?? [],
+    policy_count: null,
+  };
+}
+
 export function getInsurancePolicyCountFact(snapshot) {
   const facts = snapshot?.facts ?? [];
   const countFact = facts.find((fact) => fact.fact_key === "insurance.policy.count");
@@ -95,15 +123,19 @@ export function buildUnifiedStateHash({
 
 export function buildUnifiedProvenance({
   policies = [],
+  activePolicyCount = null,
   documents = [],
   documentCount = 0,
   documentsPreviewCount = 0,
   snapshot = null,
 } = {}) {
+  const resolvedPolicyCount =
+    activePolicyCount ?? null;
+
   return {
     policies: {
       source_table: "profile_insurance_policies",
-      count: policies.length,
+      count: resolvedPolicyCount,
       ids: extractPolicyIds(policies),
       coverage_sheet_bridge_policy_count: countCoverageSheetBridgePolicies(policies),
       coverage_sheet_bridge_policy_ids: extractCoverageSheetBridgePolicyIds(policies),
@@ -120,6 +152,53 @@ export function buildUnifiedProvenance({
       fact_count: snapshot?.fact_count ?? 0,
       snapshot_facts_count: snapshot?.snapshot_facts_count ?? snapshot?.facts?.length ?? 0,
       insurance_policy_count_fact: getInsurancePolicyCountFact(snapshot),
+    },
+  };
+}
+
+export async function loadSalesDirectorMinimalRawRecords(supabase, customerId) {
+  if (!supabase) throw new Error("supabase_required");
+  if (!customerId) throw new Error("customer_id_required");
+
+  const [profileResult, policiesResult] = await Promise.all([
+    supabase
+      .from("customer_profiles")
+      .select(PROFILE_SELECT)
+      .eq("id", customerId)
+      .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("active_profile_insurance_policies")
+      .select(POLICY_LIST_SELECT)
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (profileResult.error) {
+    throw new Error(`profile_lookup_failed: ${profileResult.error.message}`);
+  }
+  if (policiesResult.error) {
+    throw new Error(`policy_lookup_failed: ${policiesResult.error.message}`);
+  }
+
+  const profile = profileResult.data ?? null;
+  const policies = policiesResult.data ?? [];
+
+  return {
+    profile,
+    health: null,
+    health_details: {},
+    policies,
+    documents: [],
+    document_count: 0,
+    documents_preview_count: 0,
+    flags: {
+      has_profile: Boolean(
+        profile?.display_name || profile?.birth_date || profile?.gender || profile?.job_category,
+      ),
+      has_health: false,
+      has_policies: policies.length > 0,
+      has_documents: false,
     },
   };
 }
@@ -209,15 +288,16 @@ export async function loadRawCustomerRecords(supabase, customerId) {
   };
 }
 
-export async function loadUnifiedCustomerState(
-  supabase,
-  customerId,
-  { includeSnapshot = true, lastEvent = null } = {},
+export function buildUnifiedCustomerStateFromRecords(
+  raw,
+  memorySnapshot = null,
+  { customerId, lastEvent = null } = {},
 ) {
-  const raw = await loadRawCustomerRecords(supabase, customerId);
-  const snapshot = includeSnapshot ? await loadCustomerMemorySnapshot(supabase, customerId) : null;
-  const structuredMemory = snapshot ? buildStructuredMemoryProfile(snapshot) : null;
-  const memoryVersion = snapshot?.memory_version ?? raw.profile?.memory_version ?? 0;
+  if (!raw) throw new Error("raw_records_required");
+  if (!customerId) throw new Error("customer_id_required");
+
+  const structuredMemory = memorySnapshot ? buildStructuredMemoryProfile(memorySnapshot) : null;
+  const memoryVersion = memorySnapshot?.memory_version ?? raw.profile?.memory_version ?? 0;
   const policyIds = extractPolicyIds(raw.policies);
   const memorySyncAssessment = assessMemorySyncNeed(
     {
@@ -225,11 +305,12 @@ export async function loadUnifiedCustomerState(
       has_health: raw.flags.has_health,
       has_policies: raw.flags.has_policies,
     },
-    snapshot,
+    memorySnapshot,
   );
   const memoryStatus = resolveMemoryDisplayStatus({ syncAssessment: memorySyncAssessment });
+  const activePolicyCount = raw.policies.length;
 
-  const state = {
+  return {
     contract_version: UNIFIED_STATE_VERSION,
     customer_id: customerId,
     memory_version: memoryVersion,
@@ -248,28 +329,38 @@ export async function loadUnifiedCustomerState(
     health: raw.health,
     health_details: raw.health_details,
     policies: raw.policies,
-    policy_count: raw.policies.length,
+    active_policy_count: activePolicyCount,
+    policy_count: activePolicyCount,
     policy_ids: policyIds,
     documents: raw.documents,
     document_count: raw.document_count,
     documents_preview_count: raw.documents_preview_count,
-    snapshot,
+    snapshot: memorySnapshot,
     structured_memory: structuredMemory,
-    memory_fact_count: snapshot?.fact_count ?? 0,
-    insurance_policy_count_fact: getInsurancePolicyCountFact(snapshot),
+    memory_fact_count: memorySnapshot?.fact_count ?? 0,
+    insurance_policy_count_fact: getInsurancePolicyCountFact(memorySnapshot),
     memory_status: memoryStatus,
     memory_sync_assessment: memorySyncAssessment,
     provenance: buildUnifiedProvenance({
       policies: raw.policies,
+      activePolicyCount,
       documents: raw.documents,
       documentCount: raw.document_count,
       documentsPreviewCount: raw.documents_preview_count,
-      snapshot,
+      snapshot: memorySnapshot,
     }),
     flags: raw.flags,
   };
+}
 
-  return state;
+export async function loadUnifiedCustomerState(
+  supabase,
+  customerId,
+  { includeSnapshot = true, lastEvent = null } = {},
+) {
+  const raw = await loadRawCustomerRecords(supabase, customerId);
+  const snapshot = includeSnapshot ? await loadCustomerMemorySnapshot(supabase, customerId) : null;
+  return buildUnifiedCustomerStateFromRecords(raw, snapshot, { customerId, lastEvent });
 }
 
 export function toSourceContext(unifiedState) {
@@ -292,6 +383,8 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
   const profile = unifiedState?.profile ?? {};
   const health = unifiedState?.health_details ?? {};
   const policies = unifiedState?.policies ?? [];
+  const activePolicyCount =
+    unifiedState?.active_policy_count ?? unifiedState?.policy_count ?? null;
 
   return {
     profile: {
@@ -330,7 +423,8 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
       status: doc.ingest_status,
       filename: doc.original_filename,
     })),
-    policy_count: policies.length,
+    policy_count: activePolicyCount,
+    active_policy_count: activePolicyCount,
     memory_version: unifiedState?.memory_version ?? 0,
     state_hash: unifiedState?.state_hash ?? null,
   };
@@ -338,9 +432,11 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
 
 export function buildDashboardPolicyView(unifiedState) {
   const policies = unifiedState?.policies ?? [];
+  const activePolicyCount =
+    unifiedState?.active_policy_count ?? unifiedState?.policy_count ?? null;
   return {
     insurancePolicies: policies,
-    insurancePolicyCount: policies.length,
+    insurancePolicyCount: activePolicyCount,
     insurancePolicyIds: extractPolicyIds(policies),
     insurancePolicy: policies[0] ?? null,
     memoryVersion: unifiedState?.memory_version ?? 0,

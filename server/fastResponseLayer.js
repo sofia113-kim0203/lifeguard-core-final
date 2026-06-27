@@ -22,7 +22,30 @@ import {
   generateCasualChatResponse,
   generateGroundedChatResponse,
 } from "./casualChatResponseCore.js";
+import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
+import { shouldDeferLegacyLlmForOneBrain } from "./oneBrainResponseLayer.js";
 export { generateCasualChatResponse, CASUAL_CHAT_FALLBACK } from "./casualChatResponseCore.js";
+
+export const PHASE_A_LEGACY_JUDGMENT_STOPGAP =
+  "현재 확인된 근거만으로는 단정할 수 없습니다. 보험증권/보장내역서 분석이 완료되면 정확히 안내드릴게요.";
+
+export function isPhaseAJudgmentLegacyIntent(intentGate = null, question = "") {
+  const intent = intentGate?.intent ?? null;
+  const text = String(question ?? "").trim();
+  if (!intent || !text) return false;
+  if (intent === "design_request") return true;
+  if (intent === "recommendation_request") {
+    return !isRecommendationReasonClassification({ intent }, text);
+  }
+  if (intent === "general_consultation") {
+    return shouldDeferLegacyLlmForOneBrain(intentGate, text);
+  }
+  return false;
+}
+
+function deferToOneBrainResponseLayer({ intentGate, question }) {
+  return shouldDeferLegacyLlmForOneBrain(intentGate, question);
+}
 const STAGE_LABELS = {
   coverage_gap: "보장 공백",
   underwriting_risk: "인수 위험",
@@ -76,7 +99,10 @@ function resolveTargetedFastAnswer({ trimmedQuestion, workingContext, cachePaylo
   }
   return null;
 }
-function buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData }) {
+function buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData, intentGate = null }) {
+  if (deferToOneBrainResponseLayer({ intentGate, question: trimmedQuestion })) {
+    return "";
+  }
   const pending = pendingStageLabels(cachePayload);
   const allFresh = cachePayload?.cache_status === "fresh";
   const lines = [];
@@ -196,13 +222,22 @@ export function buildFastConversationalResponse({
   if (intentGate?.intent === "casual_chat") {
     throw new Error("casual_chat_must_use_buildCasualChatResponse");
   }
+  if (deferToOneBrainResponseLayer({ intentGate, question: trimmedQuestion })) {
+    return "";
+  }
   const targeted = resolveTargetedFastAnswer({ trimmedQuestion, workingContext, cachePayload, intentGate });
   if (targeted) {
     return targeted;
   }
   const situation = extractCustomerSituation(workingContext);
   const hasAnyCustomerData = hasAnyCustomerDataFromInput(memorySnapshot, sourceContext);
-  return buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData });
+  return buildFallbackTemplate({
+    trimmedQuestion,
+    situation,
+    cachePayload,
+    hasAnyCustomerData,
+    intentGate,
+  });
 }
 export async function buildConversationalAnswer({
   question,
@@ -230,6 +265,9 @@ export async function buildConversationalAnswer({
   }
   if (intentGate?.intent === "casual_chat") {
     throw new Error("casual_chat_must_use_buildCasualChatResponse");
+  }
+  if (deferToOneBrainResponseLayer({ intentGate, question: trimmedQuestion })) {
+    return "";
   }
   // Compute the deterministic targeted answer (claim / coverage review / policy detail /
   // factual count) but DEMOTE it from a hijacking shortcut to a grounding reference. The
@@ -261,7 +299,13 @@ export async function buildConversationalAnswer({
     return targeted;
   }
   const hasAnyCustomerData = hasAnyCustomerDataFromInput(memorySnapshot, sourceContext);
-  return buildFallbackTemplate({ trimmedQuestion, situation, cachePayload, hasAnyCustomerData });
+  return buildFallbackTemplate({
+    trimmedQuestion,
+    situation,
+    cachePayload,
+    hasAnyCustomerData,
+    intentGate,
+  });
 }
 export async function buildCasualChatResponse({ question, history = [], fetchImpl = fetch, env = process.env } = {}) {
   return generateCasualChatResponse({ question, history, fetchImpl, env });

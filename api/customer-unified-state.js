@@ -105,16 +105,9 @@ export default async function handler(req, res) {
       return;
     }
 
-    const adminSupabase = createServiceRoleSupabaseClient();
-    if (!adminSupabase) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: false, reason: "SERVICE_ROLE_NOT_CONFIGURED" }));
-      return;
-    }
-
     const { loadUnifiedCustomerState } = await import("../server/unifiedCustomerState.js");
-    const unified = await loadUnifiedCustomerState(adminSupabase, resolved.customerId, {
+    // P5-BRAIN FIX — sidebar and home brain share the same JWT/RLS read path (no service-role load).
+    const unified = await loadUnifiedCustomerState(userSupabase, resolved.customerId, {
       lastEvent,
     });
 
@@ -134,37 +127,44 @@ export default async function handler(req, res) {
         (unified?.document_count ?? 0) > 0;
 
       if (factCount === 0 && hasSource) {
-        const { loadCustomerMemoryOnLogin } = await import(
-          "../server/customerMemoryFoundation.js"
-        );
-        const memoryBuildPromise = loadCustomerMemoryOnLogin({
-          supabase: adminSupabase,
-          customerId: resolved.customerId,
-          rebuild: true,
-        })
-          .then((result) => {
-            if (result?.memory_status === "failed") {
-              console.error("[M2] login memory rebuild failed", {
-                customer_id: resolved.customerId,
-                rebuild_error: result.rebuild_error ?? null,
-              });
-            }
-            return result;
+        const adminSupabase = createServiceRoleSupabaseClient();
+        if (!adminSupabase) {
+          console.warn("[M2] service role unavailable; login memory rebuild skipped", {
+            customer_id: resolved.customerId,
+          });
+        } else {
+          const { loadCustomerMemoryOnLogin } = await import(
+            "../server/customerMemoryFoundation.js"
+          );
+          const memoryBuildPromise = loadCustomerMemoryOnLogin({
+            supabase: adminSupabase,
+            customerId: resolved.customerId,
+            rebuild: true,
           })
-          .catch((error) => {
-            console.error("[M2] login memory rebuild threw", {
-              customer_id: resolved.customerId,
+            .then((result) => {
+              if (result?.memory_status === "failed") {
+                console.error("[M2] login memory rebuild failed", {
+                  customer_id: resolved.customerId,
+                  rebuild_error: result.rebuild_error ?? null,
+                });
+              }
+              return result;
+            })
+            .catch((error) => {
+              console.error("[M2] login memory rebuild threw", {
+                customer_id: resolved.customerId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+
+          try {
+            const { waitUntil } = await import("@vercel/functions");
+            waitUntil(memoryBuildPromise);
+          } catch (error) {
+            console.warn("[M2] waitUntil unavailable; background build not scheduled", {
               error: error instanceof Error ? error.message : String(error),
             });
-          });
-
-        try {
-          const { waitUntil } = await import("@vercel/functions");
-          waitUntil(memoryBuildPromise);
-        } catch (error) {
-          console.warn("[M2] waitUntil unavailable; background build not scheduled", {
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }
         }
       }
     } catch (error) {

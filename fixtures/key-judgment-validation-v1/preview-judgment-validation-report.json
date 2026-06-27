@@ -1,0 +1,2455 @@
+{
+  "audit": "key_judgment_validation_v1_preview",
+  "only_filter": null,
+  "bank_id": "key_judgment_validation_v1",
+  "bank_version": "1.0.0",
+  "bank_status": "unfrozen",
+  "rubric_id": "key_judgment_validation_rubric_v1",
+  "preview_base": "https://lifeguard-core-final-byg4b5scx-70sofia113-1918s-projects.vercel.app",
+  "observed_at": "2026-06-27T13:54:24.397Z",
+  "note": "Observation only — Tom Audit. Jerry does not declare COMPLETE.",
+  "parallel_gate": {
+    "rule": "KEY PRs still require 30Q Customer Validation regression Friction 0",
+    "command": "npm run regression:key-customer-validation-v1"
+  },
+  "aggregate": {
+    "questions_probed": 12,
+    "probe_ok": "12/12",
+    "disconnect_count": 2,
+    "misuse_count": 0,
+    "by_axis": {
+      "memory": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "coverage_gap": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "underwriting": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "recommendation": {
+        "total": 3,
+        "used": 1,
+        "honest_absence": 0,
+        "disconnect": 2,
+        "misuse": 0,
+        "unavailable": 0
+      }
+    },
+    "factory_hypothesis_summary": {
+      "A": 5,
+      "A_partial": 7
+    }
+  },
+  "steps": [
+    {
+      "id": "J01",
+      "axis": "memory",
+      "level": "J1",
+      "question": "전에 보험료 부담 얘기했던 거 기억나?",
+      "utilization_expectation": "Stored memory themes reflected, or honest absence if none.",
+      "probe_ok": true,
+      "answerText": "가입된 보험이 있는 것은 확인돼요. 다만 총 보험료는 현재 검증이 필요합니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 4,
+        "fact_count": {
+          "total": 3,
+          "snapshot_fact_count": 1,
+          "memory_fact_count": 1,
+          "coverage_gap_fact_count": 1,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 2,
+        "limitation_count": 0,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": false,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.6,
+          "judgment_ratio": 0.4,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 5
+        },
+        "disposition": {
+          "primary_type": "fact",
+          "primary_label": "사실활용형",
+          "composition": [
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.6
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.4
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "사실활용형",
+              "판단형"
+            ],
+            "judgment_vs_limitation": "판단 표현이 보류보다 많음",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": false,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": false,
+              "memory": false,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "가입된 보험이 있는 것은 확인돼요. 다만 총 보험료는 현재 검증이 필요합니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "utilization": {
+        "axis": "memory",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.6,
+        "judgment_ratio": 0.4,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 5
+      },
+      "disposition_primary": "사실활용형",
+      "notes": []
+    },
+    {
+      "id": "J02",
+      "axis": "memory",
+      "level": "J1",
+      "question": "지난번 상담 기억해?",
+      "utilization_expectation": "Memory recall judgment — no invented history.",
+      "probe_ok": true,
+      "answerText": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_context_snapshot"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 4,
+        "fact_count": {
+          "total": 0,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 0,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 1,
+        "limitation_count": 1,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": false,
+          "judgment": true,
+          "limitation": true,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0,
+          "judgment_ratio": 0.5,
+          "limitation_ratio": 0.5,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 2
+        },
+        "disposition": {
+          "primary_type": "judgment",
+          "primary_label": "판단형",
+          "composition": [
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.5
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0.5
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "판단형",
+              "보류형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "utilization": {
+        "axis": "memory",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": true,
+        "disconnect": null,
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0,
+        "judgment_ratio": 0.5,
+        "limitation_ratio": 0.5,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 2
+      },
+      "disposition_primary": "판단형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J03",
+      "axis": "memory",
+      "level": "J2",
+      "question": "예전에 말한 걱정 아직 유효한지 봐줘.",
+      "utilization_expectation": "Prior concern continuity from memory facts or honest gap.",
+      "probe_ok": true,
+      "answerText": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 3,
+        "fact_count": {
+          "total": 0,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 0,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 1,
+        "limitation_count": 0,
+        "empathy_count": 1,
+        "question_count": 0,
+        "structure": {
+          "fact": false,
+          "judgment": true,
+          "limitation": false,
+          "empathy": true,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0,
+          "judgment_ratio": 0.5,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0.5,
+          "question_ratio": 0,
+          "total_units": 2
+        },
+        "disposition": {
+          "primary_type": "empathy",
+          "primary_label": "공감형",
+          "composition": [
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0.5
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.5
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "공감형",
+              "판단형"
+            ],
+            "judgment_vs_limitation": "판단 표현이 보류보다 많음",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "utilization": {
+        "axis": "memory",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0,
+        "judgment_ratio": 0.5,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0.5,
+        "question_ratio": 0,
+        "total_units": 2
+      },
+      "disposition_primary": "공감형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J04",
+      "axis": "coverage_gap",
+      "level": "J1",
+      "question": "내 보험 부족한 부분 있어?",
+      "utilization_expectation": "Gap analysis used when available; limitation if not.",
+      "probe_ok": true,
+      "answerText": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap"
+        ],
+        "primary_disconnect": {
+          "factory": "underwriting",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 4,
+        "fact_count": {
+          "total": 4,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 4,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 1,
+        "limitation_count": 1,
+        "empathy_count": 2,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": true,
+          "empathy": true,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.5,
+          "judgment_ratio": 0.125,
+          "limitation_ratio": 0.125,
+          "empathy_ratio": 0.25,
+          "question_ratio": 0,
+          "total_units": 8
+        },
+        "disposition": {
+          "primary_type": "fact",
+          "primary_label": "사실활용형",
+          "composition": [
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.5
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0.25
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.125
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0.125
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "사실활용형",
+              "공감형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": true,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "utilization": {
+        "axis": "coverage_gap",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": true,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.5,
+        "judgment_ratio": 0.125,
+        "limitation_ratio": 0.125,
+        "empathy_ratio": 0.25,
+        "question_ratio": 0,
+        "total_units": 8
+      },
+      "disposition_primary": "사실활용형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J05",
+      "axis": "coverage_gap",
+      "level": "J1",
+      "question": "암 보장 괜찮아?",
+      "utilization_expectation": "Coverage gap or confirmed policy facts — not generic filler.",
+      "probe_ok": true,
+      "answerText": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap"
+        ],
+        "primary_disconnect": {
+          "factory": "underwriting",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 4,
+        "fact_count": {
+          "total": 5,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 5,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 1,
+        "limitation_count": 2,
+        "empathy_count": 2,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": true,
+          "empathy": true,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.5,
+          "judgment_ratio": 0.1,
+          "limitation_ratio": 0.2,
+          "empathy_ratio": 0.2,
+          "question_ratio": 0,
+          "total_units": 10
+        },
+        "disposition": {
+          "primary_type": "fact",
+          "primary_label": "사실활용형",
+          "composition": [
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.5
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0.2
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0.2
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.1
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "사실활용형",
+              "공감형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": true,
+            "question_over_judgment": false,
+            "judgment_below_limitation": true,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "utilization": {
+        "axis": "coverage_gap",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": true,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.5,
+        "judgment_ratio": 0.1,
+        "limitation_ratio": 0.2,
+        "empathy_ratio": 0.2,
+        "question_ratio": 0,
+        "total_units": 10
+      },
+      "disposition_primary": "사실활용형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J06",
+      "axis": "coverage_gap",
+      "level": "J2",
+      "question": "뭐가 빠져 있는지 알려줘.",
+      "utilization_expectation": "Gap signals in answer when factory loaded.",
+      "probe_ok": true,
+      "answerText": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap"
+        ],
+        "primary_disconnect": {
+          "factory": "underwriting",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 4,
+        "fact_count": {
+          "total": 4,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 4,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 1,
+        "limitation_count": 1,
+        "empathy_count": 2,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": true,
+          "empathy": true,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.5,
+          "judgment_ratio": 0.125,
+          "limitation_ratio": 0.125,
+          "empathy_ratio": 0.25,
+          "question_ratio": 0,
+          "total_units": 8
+        },
+        "disposition": {
+          "primary_type": "fact",
+          "primary_label": "사실활용형",
+          "composition": [
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.5
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0.25
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.125
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0.125
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "사실활용형",
+              "공감형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": true,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "utilization": {
+        "axis": "coverage_gap",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": true,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.5,
+        "judgment_ratio": 0.125,
+        "limitation_ratio": 0.125,
+        "empathy_ratio": 0.25,
+        "question_ratio": 0,
+        "total_units": 8
+      },
+      "disposition_primary": "사실활용형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J07",
+      "axis": "underwriting",
+      "level": "J1",
+      "question": "고혈압 있는데 가입 가능해?",
+      "utilization_expectation": "Underwriting bounds — no false approval.",
+      "probe_ok": true,
+      "answerText": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 고혈압 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "underwriting"
+        ],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 2,
+        "fact_count": {
+          "total": 1,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 1,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 2,
+        "limitation_count": 0,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": false,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.3333,
+          "judgment_ratio": 0.6667,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 3
+        },
+        "disposition": {
+          "primary_type": "judgment",
+          "primary_label": "판단형",
+          "composition": [
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.6667
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.3333
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "판단형",
+              "사실활용형"
+            ],
+            "judgment_vs_limitation": "판단 표현이 보류보다 많음",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "underwriting"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "underwriting"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 고혈압 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.",
+      "utilization": {
+        "axis": "underwriting",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "underwriting"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.3333,
+        "judgment_ratio": 0.6667,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 3
+      },
+      "disposition_primary": "판단형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J08",
+      "axis": "underwriting",
+      "level": "J1",
+      "question": "건강 상태 때문에 거절될까?",
+      "utilization_expectation": "Risk/limitation language grounded in available health memory.",
+      "probe_ok": true,
+      "answerText": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 건강 상태 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "underwriting"
+        ],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 2,
+        "fact_count": {
+          "total": 1,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 1,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 2,
+        "limitation_count": 0,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": false,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.3333,
+          "judgment_ratio": 0.6667,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 3
+        },
+        "disposition": {
+          "primary_type": "judgment",
+          "primary_label": "판단형",
+          "composition": [
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.6667
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.3333
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "판단형",
+              "사실활용형"
+            ],
+            "judgment_vs_limitation": "판단 표현이 보류보다 많음",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "underwriting"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "underwriting"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 건강 상태 관련 인수심사 확인이 필요합니다. 최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.",
+      "utilization": {
+        "axis": "underwriting",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "underwriting"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.3333,
+        "judgment_ratio": 0.6667,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 3
+      },
+      "disposition_primary": "판단형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J09",
+      "axis": "underwriting",
+      "level": "J2",
+      "question": "암 보험 지금 들 수 있을까?",
+      "utilization_expectation": "Underwriting + gap combined when both available.",
+      "probe_ok": true,
+      "answerText": "가입된 보험이 있는 것은 확인돼요. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap",
+          "underwriting"
+        ],
+        "primary_disconnect": {
+          "factory": "recommendation",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 4,
+        "fact_count": {
+          "total": 5,
+          "snapshot_fact_count": 1,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 4,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 1,
+        "limitation_count": 1,
+        "empathy_count": 2,
+        "question_count": 0,
+        "structure": {
+          "fact": true,
+          "judgment": true,
+          "limitation": true,
+          "empathy": true,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0.5556,
+          "judgment_ratio": 0.1111,
+          "limitation_ratio": 0.1111,
+          "empathy_ratio": 0.2222,
+          "question_ratio": 0,
+          "total_units": 9
+        },
+        "disposition": {
+          "primary_type": "fact",
+          "primary_label": "사실활용형",
+          "composition": [
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0.5556
+            },
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0.2222
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0.1111
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0.1111
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "사실활용형",
+              "공감형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": true,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": false,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "coverage_gap",
+          "underwriting"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap",
+        "underwriting"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "가입된 보험이 있는 것은 확인돼요. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "utilization": {
+        "axis": "underwriting",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": true,
+        "limitation_present": true,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "coverage_gap",
+        "underwriting"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0.5556,
+        "judgment_ratio": 0.1111,
+        "limitation_ratio": 0.1111,
+        "empathy_ratio": 0.2222,
+        "question_ratio": 0,
+        "total_units": 9
+      },
+      "disposition_primary": "사실활용형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J10",
+      "axis": "recommendation",
+      "level": "J1",
+      "question": "지금 뭐부터 추가하면 좋을까?",
+      "utilization_expectation": "Recommendation priority from gap/uw when available.",
+      "probe_ok": true,
+      "answerText": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "recommendation"
+        ],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 2,
+        "fact_count": {
+          "total": 0,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 0,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 0,
+        "limitation_count": 0,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": false,
+          "judgment": false,
+          "limitation": false,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0,
+          "judgment_ratio": 0,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 0
+        },
+        "disposition": {
+          "primary_type": "empathy",
+          "primary_label": "공감형",
+          "composition": [
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "공감형",
+              "질문형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": true,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": true,
+              "memory": true,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": [
+          "snapshot",
+          "memory",
+          "recommendation"
+        ]
+      },
+      "answerEvidence": [
+        "snapshot",
+        "memory",
+        "recommendation"
+      ],
+      "responseSource": "sales_director_key",
+      "composeMode": null,
+      "answer_preview": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+      "utilization": {
+        "axis": "recommendation",
+        "level": "used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": true,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": true,
+        "judgment_present": false,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A_partial",
+        "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+      },
+      "answer_evidence": [
+        "snapshot",
+        "memory",
+        "recommendation"
+      ],
+      "judgment_ratios": {
+        "fact_ratio": 0,
+        "judgment_ratio": 0,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 0
+      },
+      "disposition_primary": "공감형",
+      "notes": [
+        "factory_evidence_without_answer_facts"
+      ]
+    },
+    {
+      "id": "J11",
+      "axis": "recommendation",
+      "level": "J1",
+      "question": "나한테 필요한 보험 추천해줘.",
+      "utilization_expectation": "Grounded recommendation — no invented products.",
+      "probe_ok": true,
+      "answerText": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 2,
+        "fact_count": {
+          "total": 0,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 0,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 0,
+        "limitation_count": 0,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": false,
+          "judgment": false,
+          "limitation": false,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0,
+          "judgment_ratio": 0,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 0
+        },
+        "disposition": {
+          "primary_type": "empathy",
+          "primary_label": "공감형",
+          "composition": [
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "공감형",
+              "질문형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": false,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": false,
+              "memory": false,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": []
+      },
+      "answerEvidence": [],
+      "responseSource": "sales_director_guarded_hold",
+      "composeMode": null,
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "utilization": {
+        "axis": "recommendation",
+        "level": "loaded_not_used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": false,
+        "judgment_present": false,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용"
+      },
+      "answer_evidence": [],
+      "judgment_ratios": {
+        "fact_ratio": 0,
+        "judgment_ratio": 0,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 0
+      },
+      "disposition_primary": "공감형",
+      "notes": [
+        "factory_loaded_answer_underuses"
+      ]
+    },
+    {
+      "id": "J12",
+      "axis": "recommendation",
+      "level": "J2",
+      "question": "보장 보완 어디부터 하면 돼?",
+      "utilization_expectation": "Gap-linked priority order when factory data exists.",
+      "probe_ok": true,
+      "answerText": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "factoryAudit": {
+        "snapshot": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 1,
+          "source": "sales_director_turn_cache"
+        },
+        "memory": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 1,
+          "source": "customer_memory_facts"
+        },
+        "coverage_gap": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "underwriting": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 9,
+          "source": "analysis_jobs"
+        },
+        "recommendation": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "design": {
+          "available": true,
+          "loaded": false,
+          "used": false,
+          "record_count": 0,
+          "source": "analysis_jobs"
+        },
+        "answer_evidence": [],
+        "primary_disconnect": {
+          "factory": "coverage_gap",
+          "disconnect": "loaded_not_used",
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 13,
+          "source": "analysis_jobs"
+        },
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용",
+        "probe": {
+          "ok": true,
+          "jobs_scanned": 1,
+          "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+          "error": null
+        }
+      },
+      "judgmentAudit": {
+        "audit": "p8_0_judgment",
+        "read_only": true,
+        "sentences_analyzed": 2,
+        "fact_count": {
+          "total": 0,
+          "snapshot_fact_count": 0,
+          "memory_fact_count": 0,
+          "coverage_gap_fact_count": 0,
+          "premium_fact_count": 0
+        },
+        "judgment_count": 0,
+        "limitation_count": 0,
+        "empathy_count": 0,
+        "question_count": 0,
+        "structure": {
+          "fact": false,
+          "judgment": false,
+          "limitation": false,
+          "empathy": false,
+          "question": false
+        },
+        "ratios": {
+          "fact_ratio": 0,
+          "judgment_ratio": 0,
+          "limitation_ratio": 0,
+          "empathy_ratio": 0,
+          "question_ratio": 0,
+          "total_units": 0
+        },
+        "disposition": {
+          "primary_type": "empathy",
+          "primary_label": "공감형",
+          "composition": [
+            {
+              "type": "empathy",
+              "label": "공감형",
+              "ratio": 0
+            },
+            {
+              "type": "question",
+              "label": "질문형",
+              "ratio": 0
+            },
+            {
+              "type": "judgment",
+              "label": "판단형",
+              "ratio": 0
+            },
+            {
+              "type": "limitation",
+              "label": "보류형",
+              "ratio": 0
+            },
+            {
+              "type": "fact",
+              "label": "사실활용형",
+              "ratio": 0
+            }
+          ],
+          "profile_summary": {
+            "dominant_styles": [
+              "공감형",
+              "질문형"
+            ],
+            "judgment_vs_limitation": "판단·보류가 비슷하거나 보류 우세",
+            "empathy_question_stack": "판단+사실 비중이 공감+질문보다 큼"
+          },
+          "hypothesis_signals": {
+            "empathy_over_judgment": false,
+            "question_over_judgment": false,
+            "judgment_below_limitation": false,
+            "factory_evidence_without_answer_facts": false,
+            "factory_loaded_but_answer_underuses": {
+              "snapshot": false,
+              "memory": false,
+              "coverage_gap": false
+            }
+          }
+        },
+        "answer_evidence": []
+      },
+      "answerEvidence": [],
+      "responseSource": "sales_director_guarded_hold",
+      "composeMode": null,
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "utilization": {
+        "axis": "recommendation",
+        "level": "loaded_not_used",
+        "factory": {
+          "available": true,
+          "loaded": true,
+          "used": false,
+          "record_count": 2,
+          "source": "analysis_jobs"
+        },
+        "answer_signal": false,
+        "judgment_present": false,
+        "limitation_present": false,
+        "disconnect": null,
+        "hypothesis": "A",
+        "hypothesis_label": "공장 데이터 로드됐으나 답변에 미사용"
+      },
+      "answer_evidence": [],
+      "judgment_ratios": {
+        "fact_ratio": 0,
+        "judgment_ratio": 0,
+        "limitation_ratio": 0,
+        "empathy_ratio": 0,
+        "question_ratio": 0,
+        "total_units": 0
+      },
+      "disposition_primary": "공감형",
+      "notes": [
+        "factory_loaded_answer_underuses"
+      ]
+    }
+  ]
+}

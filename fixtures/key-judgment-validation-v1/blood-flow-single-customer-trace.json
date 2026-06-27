@@ -1,0 +1,178 @@
+{
+  "audit": "blood_flow_single_customer_trace",
+  "authority": "Tom GO — single QA customer end-to-end trace. Observation only.",
+  "observed_at": "2026-06-27T12:24:08.726Z",
+  "staging_ref": "inwswsruvvzaeioqkelq",
+  "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+  "customer_label": "A (QA 8002)",
+  "upstream_chain": {
+    "document": "exists",
+    "memory": "exists",
+    "analysis_job": "exists"
+  },
+  "job_lifecycle": {
+    "job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+    "status": "completed",
+    "current_step": null,
+    "error_message": null,
+    "trigger_source": "document_policy_extraction",
+    "timeline": [
+      {
+        "phase": "queued",
+        "at": "2026-06-27T12:12:41.218832+00:00",
+        "duration_from_prev": null,
+        "duration_label": null
+      },
+      {
+        "phase": "processing",
+        "at": "2026-06-27T12:12:43.26+00:00",
+        "duration_from_prev": 2042,
+        "duration_label": "2s"
+      },
+      {
+        "phase": "completed",
+        "at": "2026-06-27T12:14:20.184+00:00",
+        "duration_from_prev": 96924,
+        "duration_label": "97s"
+      }
+    ],
+    "total_elapsed_ms": 98966,
+    "total_elapsed_label": "99s",
+    "factory_stages": [
+      {
+        "step": "coverage_gap",
+        "generated": true,
+        "item_count": 13,
+        "stage_duration_ms": 2873,
+        "stage_duration_label": "3s",
+        "in_stages_completed": true
+      },
+      {
+        "step": "underwriting",
+        "generated": true,
+        "item_count": 9,
+        "stage_duration_ms": 1978,
+        "stage_duration_label": "2s",
+        "in_stages_completed": true
+      },
+      {
+        "step": "recommendation",
+        "generated": true,
+        "item_count": 13,
+        "stage_duration_ms": 2890,
+        "stage_duration_label": "3s",
+        "in_stages_completed": true
+      }
+    ],
+    "timing_metrics": {
+      "design_time_ms": 1643,
+      "trigger_source": "document_policy_extraction",
+      "coverage_time_ms": 2873,
+      "underwriting_time_ms": 1978,
+      "result_claude_time_ms": 9685,
+      "recommendation_time_ms": 2890,
+      "total_analysis_time_ms": 91983,
+      "coverage_gap_from_cache": false,
+      "result_claude_cache_hit": false,
+      "result_claude_from_cache": false,
+      "panel_claude_hydration_ms": 72914,
+      "panel_claude_policy_count": 1,
+      "recommendation_from_cache": false,
+      "result_claude_input_tokens": 835,
+      "result_claude_output_chars": 460,
+      "result_claude_prompt_chars": 2086,
+      "insurance_design_from_cache": false,
+      "result_claude_output_tokens": 184,
+      "underwriting_risk_from_cache": false
+    },
+    "stages_completed": [
+      "coverage_gap",
+      "underwriting_risk",
+      "recommendation",
+      "insurance_design",
+      "result_claude"
+    ]
+  },
+  "factory_downstream": [
+    {
+      "step": "coverage_gap",
+      "generated": true,
+      "item_count": 13,
+      "stage_duration_ms": 2873,
+      "stage_duration_label": "3s",
+      "in_stages_completed": true
+    },
+    {
+      "step": "underwriting",
+      "generated": true,
+      "item_count": 9,
+      "stage_duration_ms": 1978,
+      "stage_duration_label": "2s",
+      "in_stages_completed": true
+    },
+    {
+      "step": "recommendation",
+      "generated": true,
+      "item_count": 13,
+      "stage_duration_ms": 2890,
+      "stage_duration_label": "3s",
+      "in_stages_completed": true
+    }
+  ],
+  "blood_flow_chain": {
+    "document": {
+      "state": "exists",
+      "reason": "customer_documents_present",
+      "document_count": 1,
+      "policy_count": 1
+    },
+    "memory": {
+      "state": "exists",
+      "reason": "customer_memory_facts_present",
+      "memory_fact_count": 1
+    },
+    "analysis_job": {
+      "state": "exists",
+      "reason": "completed_analysis_job_present",
+      "job_total": 1,
+      "by_status": {
+        "completed": 1
+      },
+      "latest_completed_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+      "latest_completed_at": "2026-06-27T12:14:20.184+00:00",
+      "stages_completed": [
+        "coverage_gap",
+        "underwriting_risk",
+        "recommendation",
+        "insurance_design",
+        "result_claude"
+      ]
+    },
+    "coverage_gap": {
+      "state": "exists",
+      "reason": "customer_analysis_cache_present",
+      "source": "customer_analysis_cache",
+      "cache_updated_at": "2026-06-27T12:12:46.126+00:00"
+    },
+    "underwriting": {
+      "state": "exists",
+      "reason": "customer_analysis_cache_present",
+      "source": "customer_analysis_cache",
+      "cache_updated_at": "2026-06-27T12:12:48.841+00:00"
+    },
+    "recommendation": {
+      "state": "exists",
+      "reason": "customer_analysis_cache_present",
+      "source": "customer_analysis_cache",
+      "cache_updated_at": "2026-06-27T12:12:52.905+00:00"
+    }
+  },
+  "breakpoint": {
+    "step": "none",
+    "state": "flows",
+    "reason": "blood_reaches_factory_panels"
+  },
+  "flows_through_recommendation": true,
+  "judgment_validation_status": "frozen",
+  "note": "Jerry observes only — does not declare Judgment Validation unfrozen."
+}

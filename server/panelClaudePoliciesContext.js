@@ -19,13 +19,44 @@ export function formatPoliciesForClaudePrompt(policies = []) {
   }));
 }
 
-export function buildPoliciesPromptBlock(policies = []) {
+/** P11-9 — Read-only policy count for panel prompts (no formatted.length). */
+export function resolvePanelPolicyCountFields(countContract = null) {
+  if (countContract?.active_policy_count != null) {
+    const activePolicyCount = Number(countContract.active_policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: countContract.active_policy_count_source ?? "unified_state",
+      active_policy_ids: countContract.active_policy_ids ?? countContract.policy_ids ?? null,
+      policy_count:
+        countContract.policy_count != null ? Number(countContract.policy_count) : activePolicyCount,
+    };
+  }
+  if (countContract?.policy_count != null) {
+    const activePolicyCount = Number(countContract.policy_count);
+    return {
+      active_policy_count: activePolicyCount,
+      active_policy_count_source: countContract.active_policy_count_source ?? "unified_state",
+      active_policy_ids: countContract.active_policy_ids ?? countContract.policy_ids ?? null,
+      policy_count: activePolicyCount,
+    };
+  }
+  return {
+    active_policy_count: null,
+    active_policy_count_source: null,
+    active_policy_ids: null,
+    policy_count: null,
+  };
+}
+
+export function buildPoliciesPromptBlock(policies = [], countContract = null) {
   const formatted = formatPoliciesForClaudePrompt(policies);
+  const policyFields = resolvePanelPolicyCountFields(countContract);
   return [
     "customer_insurance_policies (full list — include every policy, do not truncate):",
     JSON.stringify(
       {
-        policy_count: formatted.length,
+        active_policy_count: policyFields.active_policy_count,
+        policy_count: policyFields.policy_count,
         policies: formatted,
       },
       null,
@@ -34,11 +65,16 @@ export function buildPoliciesPromptBlock(policies = []) {
   ].join("\n");
 }
 
-export function attachPolicyMeta(meta = {}, policies = []) {
+export function attachPolicyMeta(meta = {}, policies = [], countContract = null) {
   const formatted = formatPoliciesForClaudePrompt(policies);
+  const policyFields = resolvePanelPolicyCountFields(countContract);
   return {
     ...meta,
-    policy_count: formatted.length,
+    active_policy_count: policyFields.active_policy_count,
+    active_policy_count_source: policyFields.active_policy_count_source,
+    active_policy_ids:
+      policyFields.active_policy_ids ?? formatted.map((policy) => String(policy.id)),
+    policy_count: policyFields.policy_count,
     policy_ids: formatted.map((policy) => String(policy.id)),
   };
 }

@@ -84,10 +84,7 @@ function classifyItem(item, facts) {
   let status = "unknown";
   let reason = `${item.label} 보장 관련 memory가 부족합니다.`;
 
-  if (count === 0 && item.highPriority) {
-    status = "missing";
-    reason = `${item.label} 보장 보유 memory가 없습니다.`;
-  } else if (/없|미보유|없음|부족|공백|필요/.test(text)) {
+  if (/없|미보유|없음|부족|공백|필요/.test(text)) {
     status = text.includes("부족") ? "insufficient" : "missing";
     reason = `${item.label} 보장이 없거나 부족하다는 memory가 있습니다.`;
   } else if (/보유|유지|가입|충분|adequate|held/.test(text)) {

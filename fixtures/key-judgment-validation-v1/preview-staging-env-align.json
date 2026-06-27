@@ -1,0 +1,50 @@
+{
+  "observed_at": "2026-06-27T12:11:07.904Z",
+  "staging_ref": "inwswsruvvzaeioqkelq",
+  "source": "vercel_development_env_pull",
+  "service_role_pairing": {
+    "pair_status": "paired",
+    "jwt_ref": "inwswsruvvzaeioqkelq",
+    "fingerprint": {
+      "prefix12": "eyJhbGciOiJI",
+      "suffix8": "289zpt4k",
+      "len": 219
+    }
+  },
+  "keys_to_align": [
+    "SERVICE_ROLE_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "VITE_SUPABASE_URL",
+    "VITE_SUPABASE_ANON_KEY"
+  ],
+  "dry_run": false,
+  "registered": [
+    "SERVICE_ROLE_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "VITE_SUPABASE_URL",
+    "VITE_SUPABASE_ANON_KEY"
+  ],
+  "deploy_url": "https://lifeguard-core-final-jrdb683ln-70sofia113-1918s-projects.vercel.app",
+  "fingerprints": {
+    "SERVICE_ROLE_KEY": {
+      "prefix12": "eyJhbGciOiJI",
+      "suffix8": "289zpt4k",
+      "len": 219
+    },
+    "SUPABASE_SERVICE_ROLE_KEY": {
+      "prefix12": "eyJhbGciOiJI",
+      "suffix8": "289zpt4k",
+      "len": 219
+    },
+    "VITE_SUPABASE_URL": {
+      "prefix12": "https://inws",
+      "suffix8": "abase.co",
+      "len": 40
+    },
+    "VITE_SUPABASE_ANON_KEY": {
+      "prefix12": "eyJhbGciOiJI",
+      "suffix8": "u9dFHOJ4",
+      "len": 208
+    }
+  }
+}

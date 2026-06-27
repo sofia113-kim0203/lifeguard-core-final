@@ -1,0 +1,55 @@
+{
+  "audit": "utilization_gap_slice_j04_v1",
+  "status": "preview_verified",
+  "tom_go": true,
+  "slice": "coverage_gap_manifest_alignment_j04",
+  "question": "내 보험 부족한 부분 있어?",
+  "changes": [
+    {
+      "file": "server/intentGateLayer.js",
+      "hop": "intent classification",
+      "change": "isCoverageGapCheck — general insurance deficiency pattern (내 보험 부족 / 보험 부족한 부분 / 부족한 부분 있)"
+    },
+    {
+      "file": "server/salesDirectorKeyToolRegistry.js",
+      "hop": "manifest",
+      "change": "COVERAGE_JUDGMENT_QUESTION_RE extended (mirrors intent + planKeyTools fallback)"
+    },
+    {
+      "file": "server/salesDirectorFormatter.js",
+      "hop": "judgment intent",
+      "change": "QUESTION_INTENT_RULES — coverage_judgment for same pattern"
+    }
+  ],
+  "local_verification": {
+    "j04_intent": "coverage_gap_check",
+    "j04_tools": ["snapshot", "memory", "coverage_gap"],
+    "j05_regression_tools": ["snapshot", "memory", "coverage_gap"],
+    "recommendation_guard": "뭐가 부족해? → recommendation_request (unchanged)",
+    "tests_passed": [
+      "scripts/p10-1-key-orchestrator-unit-test.mjs",
+      "scripts/key-judgment-validation-v1-checks-unit-test.mjs",
+      "scripts/phase29-intent-gate-routing-test.mjs (routing)",
+      "scripts/p11-2d-tool-brain-key-absorption-unit-test.mjs"
+    ]
+  },
+  "preview_verification": {
+    "status": "pending_deploy",
+    "commands": [
+      "npm run verify:key-judgment-validation-v1-preview [preview-url] --only J04",
+      "npm run verify:key-judgment-validation-v1-preview [preview-url] --only J04,J05",
+      "npm run regression:key-customer-validation-v1 [preview-url]"
+    ],
+    "success_criteria": {
+      "coverage_gap_used": true,
+      "has_stored_coverage_analysis": true,
+      "factoryAudit_coverage_gap_used": true,
+      "answer_evidence_includes_coverage_gap": true,
+      "misuse": 0,
+      "j05_regression": true,
+      "customer_validation_friction": 0
+    }
+  },
+  "observed_at": "2026-06-27T12:45:00.000Z",
+  "note": "Slice code complete — Preview/30Q gates require deploy before Jerry can observe PASS."
+}

@@ -1,0 +1,68 @@
+{
+  "audit": "factory_availability_audit",
+  "authority": "Tom — Factory Availability Audit GO. Judgment Validation v1 FROZEN until factory exists.",
+  "observed_at": "2026-06-27T12:22:02.088Z",
+  "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+  "supabase_ref": "inwswsruvvzaeioqkelq",
+  "qa_email": "e2***@staging-qa.example.com",
+  "supplementary": {
+    "active_policy_count": 1,
+    "analysis_jobs_completed_scanned": 1,
+    "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e"
+  },
+  "axes": {
+    "memory": {
+      "state": "exists",
+      "reason": "records_present",
+      "age_days": 3,
+      "source": "customer_memory_facts",
+      "record_count": 1,
+      "snapshot_facts_count": 1,
+      "sample_fact_keys": [
+        "qa.preference.premium.burden_stated"
+      ]
+    },
+    "coverage_gap": {
+      "state": "exists",
+      "reason": "records_present",
+      "age_days": 0,
+      "source": "analysis_jobs",
+      "result_json_key": "coverage_gap",
+      "record_count": 1,
+      "latest_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+      "latest_job_at": "2026-06-27T12:12:41.218832+00:00"
+    },
+    "underwriting": {
+      "state": "exists",
+      "reason": "payload_present",
+      "age_days": 0,
+      "source": "analysis_jobs",
+      "result_json_key": "underwriting_risk",
+      "record_count": 0,
+      "latest_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+      "latest_job_at": "2026-06-27T12:12:41.218832+00:00"
+    },
+    "recommendation": {
+      "state": "exists",
+      "reason": "records_present",
+      "age_days": 0,
+      "source": "analysis_jobs",
+      "result_json_key": "recommendation",
+      "record_count": 13,
+      "latest_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+      "latest_job_at": "2026-06-27T12:12:41.218832+00:00"
+    }
+  },
+  "summary": {
+    "exists": 4,
+    "missing": 0,
+    "stale": 0,
+    "unavailable": 0,
+    "axes_total": 4,
+    "judgment_validation_ready": true,
+    "blocker": null
+  },
+  "errors": [],
+  "judgment_validation_status": "frozen_pending_factory_exists",
+  "note": "Observation only — Jerry does not declare PASS. Separates factory missing vs KEY judgment gap."
+}

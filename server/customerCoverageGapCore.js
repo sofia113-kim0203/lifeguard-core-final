@@ -4,7 +4,7 @@
 
 import { analyzeCoverageGaps } from "./coverageGapAnalysisEngine.js";
 import { buildCoverageGapInputFromMemory } from "./coverageGapInputBuilder.js";
-import { loadUnifiedCustomerState } from "./unifiedCustomerState.js";
+import { loadUnifiedCustomerState, resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import {
   buildStructuredMemoryProfile,
   loadCustomerMemorySnapshot,
@@ -255,6 +255,7 @@ export async function loadCoverageAnalysisContext(supabase, customerId) {
     input,
     snapshot.facts ?? [],
   );
+  const policyFields = resolveActivePolicyCountFromUnified(unified);
 
   return {
     snapshot,
@@ -264,6 +265,10 @@ export async function loadCoverageAnalysisContext(supabase, customerId) {
     coverageGapResult,
     policies,
     health,
+    active_policy_count: policyFields.active_policy_count,
+    active_policy_count_source: policyFields.active_policy_count_source,
+    active_policy_ids: policyFields.active_policy_ids,
+    policy_count: policyFields.policy_count,
   };
 }
 

@@ -1,0 +1,62 @@
+{
+  "audit": "utilization_gap_slice_j06_preview_verification",
+  "status": "observation_for_tom_audit",
+  "tom_go": true,
+  "slice": "coverage_gap_manifest_alignment_j06",
+  "preview_base": "https://lifeguard-core-final-ak5m1scb1-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_CjG1PnuKt2auCeQb6PdrP4wqcuan",
+  "deploy_note": "Full WIP + J04/J06 slices — same baseline as J04 slice verification",
+  "observed_at": "2026-06-27T13:15:00.000Z",
+  "note": "Jerry observation only — Tom declares PASS.",
+  "verification_sequence": [
+    { "step": 1, "name": "Preview deploy", "result": "pass" },
+    {
+      "step": 2,
+      "name": "J06 only",
+      "result": "pass",
+      "utilization": "used",
+      "misuse": 0,
+      "disconnect": 0
+    },
+    {
+      "step": 3,
+      "name": "J04 + J05 + J06",
+      "result": "pass",
+      "coverage_gap_used": "3/3",
+      "misuse": 0,
+      "disconnect": 0
+    },
+    {
+      "step": 4,
+      "name": "Judgment Bank 12Q",
+      "result": "pass_slice_delta",
+      "misuse": "0/12",
+      "disconnect": "6/12",
+      "coverage_gap_axis": "3/3 used",
+      "disconnect_delta_from_baseline_8": -2
+    },
+    {
+      "step": 5,
+      "name": "30Q Customer Validation",
+      "result": "pass",
+      "friction": "0건",
+      "probe_ok": "30/30"
+    }
+  ],
+  "j06_success_criteria": {
+    "intent": "coverage_gap_check",
+    "tools_include_coverage_gap": true,
+    "coverage_gap_used": true,
+    "factoryAudit_coverage_gap_used": true,
+    "answer_evidence_includes_coverage_gap": true,
+    "misuse_zero": true,
+    "j04_j05_regression": true,
+    "customer_validation_friction_zero": true,
+    "guard_recommendation_request": "뭐가 부족해? → recommendation_request (local unit test)"
+  },
+  "judgment_bank_progression": {
+    "original_baseline": { "disconnect": "8/12", "coverage_gap_used": "1/3" },
+    "after_j04_slice": { "disconnect": "7/12", "coverage_gap_used": "2/3" },
+    "after_j06_slice": { "disconnect": "6/12", "coverage_gap_used": "3/3" }
+  }
+}
