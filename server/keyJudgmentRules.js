@@ -19,6 +19,13 @@ function normalizeText(text = "") {
     .trim();
 }
 
+function resolvePolicyCountFromBundle(factBundle = {}) {
+  if (typeof factBundle.policy_count === "number") return factBundle.policy_count;
+  if (typeof factBundle.active_policy_count === "number") return factBundle.active_policy_count;
+  if (Array.isArray(factBundle.policies)) return factBundle.policies.length;
+  return 0;
+}
+
 /** @type {Array<{ id: string, kind: "judgment_rule", scene: string, reason: string, match: (ctx: object) => boolean, buildJudgment: (ctx?: object) => string }>} */
 export const KEY_JUDGMENT_RULES = [
   {
@@ -102,6 +109,28 @@ export const KEY_JUDGMENT_RULES = [
         return `현재 확인 가능한 월 보험료는 ${Number(stats.premiumTotal).toLocaleString("ko-KR")}원입니다.`;
       }
       return "지금은 월 납입액이 모두 확인되지 않았어요.";
+    },
+  },
+  {
+    id: "policy_count_lookup_judgment",
+    kind: "judgment_rule",
+    scene: "F",
+    reason:
+      "Customer asks how many policies — KEY leads with confirmed count, not system filler.",
+    match({ question = "" } = {}) {
+      const q = normalizeQuestion(question);
+      if (!q) return false;
+      if (/부족|충분|괜찮|얼마|부담|보험료|받을|청구/.test(q)) return false;
+      if (!/(?:보험|가입|계약)/.test(q)) return false;
+      return (
+        /(?:몇\s*(?:개|건)|개수|몇개)/.test(q) ||
+        /(?:보험|가입|계약).{0,10}(?:몇|개수)/.test(q)
+      );
+    },
+    buildJudgment({ factBundle = {} } = {}) {
+      const count = resolvePolicyCountFromBundle(factBundle);
+      if (count > 0) return `지금 확인된 가입 보험은 ${count}개예요.`;
+      return "지금은 등록된 가입 보험 정보를 찾지 못했어요.";
     },
   },
   {
