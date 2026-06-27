@@ -5,6 +5,7 @@
  * kind: judgment_rule — customer intent needs insurance judgment (not relational turn-taking).
  */
 import { SALES_DIRECTOR_JUDGMENT_INTENTS } from "./salesDirectorFormatter.js";
+import { classifyConsultationIntent } from "./intentGateLayer.js";
 
 function normalizeQuestion(question = "") {
   return String(question ?? "")
@@ -72,6 +73,35 @@ export const KEY_JUDGMENT_RULES = [
     },
     buildJudgment() {
       return "보험료 부담이 실제로 큰지는, 총액과 항목별 비중을 나눠 봐야 합니다.";
+    },
+  },
+  {
+    id: "premium_lookup_judgment",
+    kind: "judgment_rule",
+    scene: "F",
+    reason:
+      "Customer asks how much premium — KEY opens with lookup scope, not generic system filler.",
+    match({ question = "", resolvedIntent = null, factBundle = {} } = {}) {
+      const q = normalizeQuestion(question);
+      if (!q) return false;
+      if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION) {
+        return false;
+      }
+      if (/부담|비싸|무거/.test(q) && !/(?:얼마|몇)/.test(q)) {
+        return false;
+      }
+      const lookupSub =
+        factBundle.lookup_sub_intent ?? classifyConsultationIntent(q).lookup_sub_intent ?? "";
+      if (lookupSub === "premium_lookup") return true;
+      return /(?:보험료|납입).{0,8}(?:얼마|몇)|(?:얼마|몇).{0,8}(?:보험료|납입)/.test(q);
+    },
+    buildJudgment({ factBundle = {} } = {}) {
+      const stats = factBundle.premium_stats ?? {};
+      const premiumKnown = (stats.premiumKnownCount ?? 0) > 0 && (stats.premiumTotal ?? 0) > 0;
+      if (premiumKnown) {
+        return `현재 확인 가능한 월 보험료는 ${Number(stats.premiumTotal).toLocaleString("ko-KR")}원입니다.`;
+      }
+      return "지금은 월 납입액이 모두 확인되지 않았어요.";
     },
   },
   {

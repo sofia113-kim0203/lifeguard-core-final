@@ -126,7 +126,8 @@
     "test:key-v2-phase-6": "node scripts/key-v2-phase-6-key-claim-judgment-unit-test.mjs",
     "test:key-v2-phase-7": "node scripts/key-v2-phase-7-key-wait-ack-unit-test.mjs",
     "test:key-v2-phase-8": "node scripts/key-v2-phase-8-key-mixed-turn-judgment-unit-test.mjs",
-    "test:key-v2-phase-9": "node scripts/key-v2-phase-9-key-closing-insurance-check-unit-test.mjs"
+    "test:key-v2-phase-9": "node scripts/key-v2-phase-9-key-closing-insurance-check-unit-test.mjs",
+    "test:key-v2-phase-10": "node scripts/key-v2-phase-10-key-premium-lookup-judgment-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

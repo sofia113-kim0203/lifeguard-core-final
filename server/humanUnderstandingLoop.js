@@ -517,12 +517,33 @@ export function buildKeyStructuredResponse(
   }
 
   const intent = resolvedIntent ?? humanFrame.resolved_intent;
+  const question = humanFrame.surface_question ?? factBundle.question ?? "";
+  const classificationIntent =
+    factBundle.classification_intent ?? classifyConsultationIntent(question).intent ?? "";
   const judgment = enforceKeyJudgmentFirst(
     buildKeyJudgmentBlock(intent, humanFrame, factBundle),
   );
-  const evidence = buildKeyEvidenceBlock(basisTaggedFacts, options);
-  const limitation = buildKeyLimitationBlock(intent, factBundle, basisTaggedFacts);
-  const nextAction = buildKeyNextActionBlock(humanFrame.main_blocker, intent);
+  let evidence = buildKeyEvidenceBlock(basisTaggedFacts, options);
+  let limitation = buildKeyLimitationBlock(intent, factBundle, basisTaggedFacts);
+  let nextAction = buildKeyNextActionBlock(humanFrame.main_blocker, intent);
+
+  const premiumLookupRule = resolveKeyJudgmentRule({
+    question,
+    resolvedIntent: intent,
+    classificationIntent,
+    factBundle,
+    humanFrame,
+  });
+  if (premiumLookupRule?.id === "premium_lookup_judgment") {
+    const stats = factBundle.premium_stats ?? {};
+    const premiumKnown = (stats.premiumKnownCount ?? 0) > 0 && (stats.premiumTotal ?? 0) > 0;
+    if (premiumKnown) {
+      evidence = "";
+    } else {
+      limitation = "월 납입액이 모든 계약에서 확인되지는 않았습니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  }
 
   const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);
   return enforceKeyDeclarativeEnding(normalizeText(parts.join(" ")), humanFrame.main_blocker);
