@@ -53,7 +53,7 @@ await record(
     assert.equal(isKeyClosingTurn("좋은 밤 되세요"), true);
     assert.equal(isKeyClosingTurn("내일 봐요"), true);
     assert.equal(isKeyClosingTurn("암보험 있어?"), false);
-    assert.equal(isKeyClosingTurn("보험 확인하고 잘 자요"), false);
+    assert.equal(isKeyClosingTurn("보험 확인하고 잘 자요"), true);
   }),
 );
 
@@ -147,7 +147,7 @@ await record(
 
 /** Tom PR #153 preview checklist */
 const TOM_CLOSING_PREVIEW_CASES = [
-  { id: "V2-C7", question: "보험 확인하고 잘 자요", mode: "key_structured" },
+  { id: "V2-C7", question: "보험 확인하고 잘 자요", mode: "key_closing" },
   { id: "V2-C8", question: "보험은 내일 이야기하고 잘게요", mode: "key_closing" },
 ];
 
@@ -165,6 +165,12 @@ for (const tomCase of TOM_CLOSING_PREVIEW_CASES) {
       assert.equal(finalized.key_compose_trace?.compose_mode, mode);
       if (mode === "key_closing") {
         assert.doesNotMatch(finalized.text, INSURANCE_FILLER_RE);
+      }
+      if (question === "보험 확인하고 잘 자요") {
+        assert.equal(
+          finalized.key_compose_trace?.conversation_pattern_id,
+          "closing_insurance_check_goodnight",
+        );
       }
       if (question === "보험은 내일 이야기하고 잘게요") {
         assert.equal(
@@ -185,7 +191,10 @@ await record(
       matchKeyConversationPattern("보험은 내일 이야기하고 잘게요")?.id,
       "closing_defer_insurance_to_later",
     );
-    assert.equal(matchKeyConversationPattern("보험 확인하고 잘 자요"), null);
+    assert.equal(
+      matchKeyConversationPattern("보험 확인하고 잘 자요")?.id,
+      "closing_insurance_check_goodnight",
+    );
   }),
 );
 
