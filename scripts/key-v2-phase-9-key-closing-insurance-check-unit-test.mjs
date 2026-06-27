@@ -133,6 +133,42 @@ await record(
   }),
 );
 
+await record(
+  await runCase("V2-K7 situational family — wrap insurance for tomorrow", async () => {
+    for (const question of ["보험 확인하고 잘 자요", "보험 보고 잘게요", "보험 생각하면서 잘 자"]) {
+      assert.equal(
+        matchKeyConversationPattern(question)?.id,
+        "closing_insurance_check_goodnight",
+        question,
+      );
+      const finalized = finalizeHumanSalesDirectorResponse({
+        question,
+        classificationIntent: "general_consultation",
+        surface: ONE_BRAIN_SURFACES.HOME,
+        factBundle: buildKeyBundle(question),
+        customerState: { question, keyOrchestrator: true },
+      });
+      assert.equal(finalized.key_compose_trace?.compose_mode, "key_closing", question);
+      assert.doesNotMatch(finalized.text, GENERIC_FILLER_RE, question);
+    }
+  }),
+);
+
+await record(
+  await runCase("V2-K8 bedtime judgment ask — stays structured, not closing", async () => {
+    const question = "암보장 충분한지 보고 잘 자요";
+    assert.equal(matchKeyConversationPattern(question), null);
+    const finalized = finalizeHumanSalesDirectorResponse({
+      question,
+      classificationIntent: "coverage_gap_check",
+      surface: ONE_BRAIN_SURFACES.HOME,
+      factBundle: buildKeyBundle(question),
+      customerState: { question, keyOrchestrator: true },
+    });
+    assert.equal(finalized.key_compose_trace?.compose_mode, "key_structured");
+  }),
+);
+
 console.log(
   `\nKEY v2 phase 9 closing insurance check: ${failed > 0 ? "FAILED" : "ALL PASSED"} (${passed}/${passed + failed})`,
 );

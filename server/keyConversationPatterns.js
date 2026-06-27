@@ -2,6 +2,7 @@
  * KEY Conversation Pattern Library
  *
  * Each entry is a habit KEY learns — not an ad-hoc if branch.
+ * Patterns name situations KEY recognizes, not sentence collections.
  * kind:
  *   - conversation_pattern — customer intent is relational / turn-taking
  *   - judgment_rule        — customer intent needs insurance judgment (see keyJudgmentRules later)
@@ -47,6 +48,33 @@ function pickVariant(question, variants = []) {
 
 function hasClosingSignal(q = "") {
   return CLOSING_TURN_RE.test(q) || /잘\s*게(?:요)?|잘게요|잘\s*쉬(?:어|세요|시)/.test(q);
+}
+
+/** Scene J — customer wraps up the day; insurance waits for next time, not tonight's judgment. */
+function isClosingDeferInsuranceAtGoodnightSituation(q = "") {
+  if (!hasClosingSignal(q)) return false;
+  if (!/보험/.test(q)) return false;
+
+  if (
+    /(?:부족|충분|괜찮|얼마|받을|청구|비싸|부담)/.test(q) &&
+    /(?:보험|암|실손|보장|담보)/.test(q)
+  ) {
+    return false;
+  }
+
+  if (
+    /(?:내일|나중|다음에|오늘은\s*그만).{0,16}(?:보험|이야기)|(?:보험|이야기).{0,16}(?:내일|나중|다음에|이어)/.test(
+      q,
+    ) &&
+    !/(?:확인|볼|보고|점검|체크|생각)/.test(q)
+  ) {
+    return false;
+  }
+
+  return (
+    /(?:확인|볼|보고|점검|체크|생각|이야기|보자)/.test(q) ||
+    /보험.{0,16}(?:하고|부터|쪽|은).{0,12}(?:잘|쉬|자|게)/.test(q)
+  );
 }
 
 /** @type {Array<{ id: string, kind: "conversation_pattern", scene: string, reason: string, compose_mode: string, match: (q: string) => boolean, buildResponse: (q: string) => string }>} */
@@ -121,19 +149,10 @@ export const KEY_CONVERSATION_PATTERNS = [
     kind: "conversation_pattern",
     scene: "J",
     reason:
-      "Customer closes the day mentioning insurance check — KEY stays warm and defers depth, not generic filler.",
+      "Customer wraps up the day — insurance stays for next time, not tonight's judgment.",
     compose_mode: "key_closing",
     match(q) {
-      if (!hasClosingSignal(q)) return false;
-      if (!/보험/.test(q)) return false;
-      if (
-        /(?:내일|나중|다음에|오늘은\s*그만).{0,16}(?:보험|이야기)|(?:보험|이야기).{0,16}(?:내일|나중|다음에|이어)/.test(
-          q,
-        )
-      ) {
-        return false;
-      }
-      return /(?:확인|볼|점검|체크)/.test(q);
+      return isClosingDeferInsuranceAtGoodnightSituation(q);
     },
     buildResponse(q) {
       return normalizeText(
