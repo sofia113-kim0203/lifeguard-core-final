@@ -9,6 +9,11 @@ import {
   violatesManualTemplate,
 } from "./salesDirectorFreeThinking.js";
 import {
+  buildKeyJudgmentFromRules,
+  KEY_JUDGMENT_RULES,
+  resolveKeyJudgmentRule,
+} from "./keyJudgmentRules.js";
+import {
   buildKeyClosingResponse,
   isKeyClosingTurn,
   isKeySocialTurn,
@@ -329,6 +334,19 @@ function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundl
     return "보험료 부담이 실제로 큰지는, 총액과 항목별 비중을 나눠 봐야 합니다.";
   }
 
+  const classificationIntent =
+    factBundle.classification_intent ?? classifyConsultationIntent(question).intent ?? "";
+  const claimJudgment = buildKeyJudgmentFromRules({
+    question,
+    resolvedIntent,
+    classificationIntent,
+    factBundle,
+    humanFrame,
+  });
+  if (claimJudgment) {
+    return claimJudgment;
+  }
+
   if (/내\s*보험.*괜찮|보험.*괜찮|내\s*보장.*괜찮/.test(question)) {
     return "전체를 한 번에 괜찮다고 보기보다, 걱정 축부터 짚는 편이 맞습니다.";
   }
@@ -421,6 +439,8 @@ export {
   KEY_CONVERSATION_PATTERNS,
   matchKeyConversationPattern,
 } from "./keyConversationPatterns.js";
+
+export { KEY_JUDGMENT_RULES, resolveKeyJudgmentRule, buildKeyJudgmentFromRules } from "./keyJudgmentRules.js";
 
 export function shouldUseKeyRelationalCompose({
   question = "",
