@@ -100,6 +100,13 @@ const KEY_RELATIONAL_LIFE_SIGNAL =
 const KEY_RELATIONAL_INSURANCE_PUSH_RE =
   /보험(?:을|이)?\s*(?:가입|들|추천|설계|정리|볼)|보장(?:을|이)?\s*(?:추천|설계)|가입(?:을|하)/;
 
+/** Scene I — analysis progress / completion status (not analysis requests). */
+const KEY_ANALYSIS_STATUS_QUESTION_RE =
+  /(?:분석.{0,12}(?:끝|완료|됐|나|되|중|진행|상태|결과|언제|아직)|(?:끝|완료|다\s*됐).{0,12}분석|분석\s*끝)/;
+
+const KEY_ANALYSIS_REQUEST_RE =
+  /(?:분석(?:해|해줘|해주|좀|하)|(?:해줘|해주).{0,8}분석|분석\s*(?:해|요청|부탁))/;
+
 /** KEY compose — declarative ending only. */
 export const KEY_QUESTION_ENDING_RE =
   /[?？]$|할까요|볼까요|알려주(?:실|시)|말씀해\s*주(?:실|시)|여쭤|궁금하(?:신|세요)/;
@@ -363,6 +370,41 @@ export function enforceKeyDeclarativeEnding(text = "", mainBlocker = "") {
 
   const trimmed = sentences.slice(0, -1).join(" ");
   return normalizeText(`${trimmed} ${nextAction}`);
+}
+
+export function isKeyAnalysisStatusQuestion(question = "") {
+  const q = normalizeQuestion(question);
+  if (!q || !/분석/.test(q)) return false;
+  if (KEY_ANALYSIS_REQUEST_RE.test(q)) return false;
+  return KEY_ANALYSIS_STATUS_QUESTION_RE.test(q);
+}
+
+export function buildKeyAnalysisStatusResponse(factBundle = {}, question = "") {
+  const evidence = extractFactBundleEvidence(factBundle);
+  const hasAnalysis =
+    factBundle.has_stored_coverage_analysis === true ||
+    factBundle.coverage_gap_used === true ||
+    evidence.has_coverage_analysis;
+
+  if (hasAnalysis) {
+    return normalizeText(
+      pickVariant(question || factBundle.question || "", [
+        "저장된 보장 분석 결과는 확인됐어요. 이어서 궁금한 축부터 같이 보면 됩니다.",
+        "보장 분석 자료는 저장돼 있어요. 지금 걸리는 부분부터 짚어도 됩니다.",
+      ]),
+    );
+  }
+
+  const policyCount = resolveKeyFactBundlePolicyCount(factBundle);
+  if (policyCount === 0 || !evidence.has_policies) {
+    return normalizeText(
+      `아직 등록된 가입 보험이 없어서, 분석을 시작하기 어렵습니다. ${KEY_DECLARATIVE_NEXT_ACTIONS.information_gap}`,
+    );
+  }
+
+  return normalizeText(
+    `가입 보험은 보이는데, 보장 분석 결과는 아직 같이 볼 단계예요. ${KEY_DECLARATIVE_NEXT_ACTIONS.information_gap}`,
+  );
 }
 
 export function shouldUseKeyRelationalCompose({
@@ -941,27 +983,34 @@ export function generateHumanSalesDirectorResponse({
   let text;
   if (useKeyOrchestrator) {
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+    const useAnalysisStatus =
+      !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
     const useRelational =
       !fixedSlice &&
+      !useAnalysisStatus &&
       shouldUseKeyRelationalCompose({
         question,
         classificationIntent: resolvedClassificationIntent,
         factBundle,
         humanFrame,
       });
-    text = useRelational
-      ? buildKeyRelationalResponse(humanFrame, question)
-      : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+    text = useAnalysisStatus
+      ? buildKeyAnalysisStatusResponse(factBundle, question)
+      : useRelational
+        ? buildKeyRelationalResponse(humanFrame, question)
+        : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
       text_preview: String(text ?? "").slice(0, 300),
       used_safe_fallback: false,
-      compose_mode: useRelational
-        ? "key_relational"
-        : fixedSlice
-          ? "tool_brain_fixed_slots"
-          : "key_structured",
+      compose_mode: useAnalysisStatus
+        ? "key_analysis_status"
+        : useRelational
+          ? "key_relational"
+          : fixedSlice
+            ? "tool_brain_fixed_slots"
+            : "key_structured",
       absorbed_slice: fixedSlice,
     };
   } else {
@@ -1002,7 +1051,9 @@ export function generateHumanSalesDirectorResponse({
               factBundle,
               humanFrame,
             )
-          : shouldUseKeyRelationalCompose({
+          : isKeyAnalysisStatusQuestion(question || factBundle.question || "")
+            ? buildKeyAnalysisStatusResponse(factBundle, question)
+            : shouldUseKeyRelationalCompose({
               question,
               classificationIntent: resolvedClassificationIntent,
               factBundle,

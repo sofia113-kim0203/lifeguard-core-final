@@ -119,7 +119,8 @@
     "test:p10-3f": "node scripts/p10-3f-preserve-gate-unit-test.mjs",
     "test:key-v2-phase-1": "node scripts/key-v2-phase-1-home-key-finalize-unit-test.mjs",
     "test:key-v2-phase-2": "node scripts/key-v2-phase-2-key-relational-unit-test.mjs",
-    "test:key-v2-phase-2-tom-block": "node scripts/key-v2-phase-2-tom-relational-block-audit.mjs"
+    "test:key-v2-phase-2-tom-block": "node scripts/key-v2-phase-2-tom-relational-block-audit.mjs",
+    "test:key-v2-phase-3": "node scripts/key-v2-phase-3-key-analysis-status-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
