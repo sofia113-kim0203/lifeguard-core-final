@@ -123,7 +123,8 @@
     "test:key-v2-phase-3": "node scripts/key-v2-phase-3-key-analysis-status-unit-test.mjs",
     "test:key-v2-phase-4": "node scripts/key-v2-phase-4-key-closing-unit-test.mjs",
     "test:key-v2-phase-5": "node scripts/key-v2-phase-5-key-social-greeting-unit-test.mjs",
-    "test:key-v2-phase-6": "node scripts/key-v2-phase-6-key-claim-judgment-unit-test.mjs"
+    "test:key-v2-phase-6": "node scripts/key-v2-phase-6-key-claim-judgment-unit-test.mjs",
+    "test:key-v2-phase-7": "node scripts/key-v2-phase-7-key-wait-ack-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

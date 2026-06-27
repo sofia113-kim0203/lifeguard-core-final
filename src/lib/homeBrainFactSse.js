@@ -34,6 +34,7 @@ export async function consumeHomeBrainFactSse(response, handlers = {}) {
       const parsed = parseHomeBrainFactSseBlock(block);
       if (!parsed) continue;
 
+      if (parsed.event === "ack") handlers.onAck?.(parsed.data?.text ?? "");
       if (parsed.event === "delta") handlers.onDelta?.(parsed.data?.text ?? "");
       if (parsed.event === "ttft") handlers.onTTFT?.(parsed.data?.ttft_ms ?? null);
       if (parsed.event === "replace") handlers.onReplace?.(parsed.data?.text ?? "");
