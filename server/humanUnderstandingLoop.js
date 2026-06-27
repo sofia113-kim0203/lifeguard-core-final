@@ -107,6 +107,13 @@ const KEY_ANALYSIS_STATUS_QUESTION_RE =
 const KEY_ANALYSIS_REQUEST_RE =
   /(?:분석(?:해|해줘|해주|좀|하)|(?:해줘|해주).{0,8}분석|분석\s*(?:해|요청|부탁))/;
 
+/** Scene J — day closing; KEY stays a person, not insurance filler. */
+const KEY_CLOSING_TURN_RE =
+  /(?:잘\s*자(?:요|세|라|)|좋은\s*밤|굿나잇|good\s*night|내일\s*(?:봐|뵐|만나)|푹\s*쉬(?:어|세요|시))/i;
+
+const KEY_CLOSING_INSURANCE_FILLER_RE =
+  /확인된 범위|담보|보장|걱정되는 축|보험(?:을|이)?\s*(?:가입|추천)/;
+
 /** KEY compose — declarative ending only. */
 export const KEY_QUESTION_ENDING_RE =
   /[?？]$|할까요|볼까요|알려주(?:실|시)|말씀해\s*주(?:실|시)|여쭤|궁금하(?:신|세요)/;
@@ -405,6 +412,34 @@ export function buildKeyAnalysisStatusResponse(factBundle = {}, question = "") {
   return normalizeText(
     `가입 보험은 보이는데, 보장 분석 결과는 아직 같이 볼 단계예요. ${KEY_DECLARATIVE_NEXT_ACTIONS.information_gap}`,
   );
+}
+
+export function isKeyClosingTurn(question = "") {
+  const q = normalizeQuestion(question);
+  if (!q) return false;
+  if (INSURANCE_TOPIC.test(q)) return false;
+  return KEY_CLOSING_TURN_RE.test(q);
+}
+
+export function buildKeyClosingResponse(question = "") {
+  const q = normalizeQuestion(question);
+
+  if (/잘\s*자|좋은\s*밤|굿나잇|good\s*night|푹\s*쉬/.test(q)) {
+    return normalizeText(
+      pickVariant(q, [
+        "편히 쉬세요. 내일 이어가도 됩니다.",
+        "오늘은 여기까지 해도 됩니다. 편안한 밤 보내세요.",
+      ]),
+    );
+  }
+
+  if (/내일\s*(?:봐|뵐|만나)/.test(q)) {
+    return normalizeText(
+      pickVariant(q, ["네, 내일 이어가요.", "네, 내일 뵙겠습니다."]),
+    );
+  }
+
+  return normalizeText("편안한 밤 보내세요.");
 }
 
 export function shouldUseKeyRelationalCompose({
@@ -985,9 +1020,12 @@ export function generateHumanSalesDirectorResponse({
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
     const useAnalysisStatus =
       !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
+    const useClosing =
+      !fixedSlice && !useAnalysisStatus && isKeyClosingTurn(question || factBundle.question || "");
     const useRelational =
       !fixedSlice &&
       !useAnalysisStatus &&
+      !useClosing &&
       shouldUseKeyRelationalCompose({
         question,
         classificationIntent: resolvedClassificationIntent,
@@ -996,9 +1034,11 @@ export function generateHumanSalesDirectorResponse({
       });
     text = useAnalysisStatus
       ? buildKeyAnalysisStatusResponse(factBundle, question)
-      : useRelational
-        ? buildKeyRelationalResponse(humanFrame, question)
-        : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+      : useClosing
+        ? buildKeyClosingResponse(question)
+        : useRelational
+          ? buildKeyRelationalResponse(humanFrame, question)
+          : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
@@ -1006,11 +1046,13 @@ export function generateHumanSalesDirectorResponse({
       used_safe_fallback: false,
       compose_mode: useAnalysisStatus
         ? "key_analysis_status"
-        : useRelational
-          ? "key_relational"
-          : fixedSlice
-            ? "tool_brain_fixed_slots"
-            : "key_structured",
+        : useClosing
+          ? "key_closing"
+          : useRelational
+            ? "key_relational"
+            : fixedSlice
+              ? "tool_brain_fixed_slots"
+              : "key_structured",
       absorbed_slice: fixedSlice,
     };
   } else {
@@ -1053,7 +1095,9 @@ export function generateHumanSalesDirectorResponse({
             )
           : isKeyAnalysisStatusQuestion(question || factBundle.question || "")
             ? buildKeyAnalysisStatusResponse(factBundle, question)
-            : shouldUseKeyRelationalCompose({
+            : isKeyClosingTurn(question || factBundle.question || "")
+              ? buildKeyClosingResponse(question)
+              : shouldUseKeyRelationalCompose({
               question,
               classificationIntent: resolvedClassificationIntent,
               factBundle,
