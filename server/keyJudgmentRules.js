@@ -54,6 +54,48 @@ export const KEY_JUDGMENT_RULES = [
       return "지금은 어떤 사고·치료였는지에 따라 열리는 축이 달라집니다.";
     },
   },
+  {
+    id: "mixed_turn_premium_judgment",
+    kind: "judgment_rule",
+    scene: "B",
+    reason:
+      "Thanks or greeting plus premium worry — insurance judgment leads, not social pattern.",
+    match({ question = "", resolvedIntent = null } = {}) {
+      const q = normalizeQuestion(question);
+      if (!q) return false;
+      if (!/(?:고마워|감사|안녕|하이|반가)/.test(q)) return false;
+      if (!/(?:보험료|부담|비싸|무거(?:운|워)?)/.test(q)) return false;
+      if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION) {
+        return true;
+      }
+      return /(?:보험료|부담|비싸)/.test(q);
+    },
+    buildJudgment() {
+      return "보험료 부담이 실제로 큰지는, 총액과 항목별 비중을 나눠 봐야 합니다.";
+    },
+  },
+  {
+    id: "mixed_turn_greeting_insurance_open",
+    kind: "judgment_rule",
+    scene: "A",
+    reason:
+      "Greeting plus insurance mention without a specific topic — KEY opens consultation, not system filler.",
+    match({ question = "" } = {}) {
+      const q = normalizeQuestion(question);
+      if (!q) return false;
+      if (!/(?:안녕|하이|반가|헬로|hello)/i.test(q)) return false;
+      if (!/보험/.test(q)) return false;
+      if (
+        /(?:보험료|부담|비싸|암|실손|있(?:어|나|음)?|받을|청구|부족|괜찮|사고|보험금)/.test(q)
+      ) {
+        return false;
+      }
+      return true;
+    },
+    buildJudgment() {
+      return "네, 말씀 주신 보험 이야기부터 같이 확인해 보겠습니다.";
+    },
+  },
 ];
 
 export function resolveKeyJudgmentRule(ctx = {}) {
