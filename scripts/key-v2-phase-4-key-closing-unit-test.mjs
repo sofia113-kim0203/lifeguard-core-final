@@ -144,6 +144,31 @@ await record(
   }),
 );
 
+/** Tom PR #153 preview checklist */
+const TOM_CLOSING_PREVIEW_CASES = [
+  { id: "V2-C7", question: "보험 확인하고 잘 자요", mode: "key_structured" },
+  { id: "V2-C8", question: "보험은 내일 이야기하고 잘게요", mode: "key_closing" },
+];
+
+for (const tomCase of TOM_CLOSING_PREVIEW_CASES) {
+  await record(
+    await runCase(`${tomCase.id} Tom preview — ${tomCase.question}`, async () => {
+      const { question, mode } = tomCase;
+      const finalized = finalizeHumanSalesDirectorResponse({
+        question,
+        classificationIntent: "general_consultation",
+        surface: ONE_BRAIN_SURFACES.HOME,
+        factBundle: buildKeyBundle(question),
+        customerState: { question, keyOrchestrator: true },
+      });
+      assert.equal(finalized.key_compose_trace?.compose_mode, mode);
+      if (mode === "key_closing") {
+        assert.doesNotMatch(finalized.text, INSURANCE_FILLER_RE);
+      }
+    }),
+  );
+}
+
 console.log(
   `\nKEY v2 phase 4 closing: ${failed > 0 ? "FAILED" : "ALL PASSED"} (${passed}/${passed + failed})`,
 );

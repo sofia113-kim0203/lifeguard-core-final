@@ -114,6 +114,21 @@ const KEY_CLOSING_TURN_RE =
 const KEY_CLOSING_INSURANCE_FILLER_RE =
   /확인된 범위|담보|보장|걱정되는 축|보험(?:을|이)?\s*(?:가입|추천)/;
 
+const KEY_CLOSING_INSURANCE_ACTION_RE =
+  /(?:확인|있(?:어|나|음|습)?|부족|괜찮|청구|받을|가입|설계|점검|분석(?:해|해줘))/;
+
+function isKeyClosingDeferTurn(question = "") {
+  const q = normalizeQuestion(question);
+  const hasClosing =
+    KEY_CLOSING_TURN_RE.test(q) || /잘\s*게(?:요)?|잘게요|잘\s*쉬(?:어|세요|시)/.test(q);
+  if (!hasClosing) return false;
+  if (!/(?:내일|나중|다음에|오늘은\s*그만).{0,16}(?:보험|이야기)|(?:보험|이야기).{0,16}(?:내일|나중|다음에|이어)/.test(q)) {
+    return false;
+  }
+  if (KEY_CLOSING_INSURANCE_ACTION_RE.test(q)) return false;
+  return true;
+}
+
 /** KEY compose — declarative ending only. */
 export const KEY_QUESTION_ENDING_RE =
   /[?？]$|할까요|볼까요|알려주(?:실|시)|말씀해\s*주(?:실|시)|여쭤|궁금하(?:신|세요)/;
@@ -417,12 +432,22 @@ export function buildKeyAnalysisStatusResponse(factBundle = {}, question = "") {
 export function isKeyClosingTurn(question = "") {
   const q = normalizeQuestion(question);
   if (!q) return false;
+  if (isKeyClosingDeferTurn(q)) return true;
   if (INSURANCE_TOPIC.test(q)) return false;
   return KEY_CLOSING_TURN_RE.test(q);
 }
 
 export function buildKeyClosingResponse(question = "") {
   const q = normalizeQuestion(question);
+
+  if (isKeyClosingDeferTurn(q)) {
+    return normalizeText(
+      pickVariant(q, [
+        "네, 보험 얘기는 내일 이어가요. 편히 쉬세요.",
+        "네, 내일 이어가도 됩니다. 오늘은 편히 쉬세요.",
+      ]),
+    );
+  }
 
   if (/잘\s*자|좋은\s*밤|굿나잇|good\s*night|푹\s*쉬/.test(q)) {
     return normalizeText(
