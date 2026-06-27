@@ -99,6 +99,84 @@ export const KEY_CONVERSATION_PATTERNS = [
     },
   },
   {
+    id: "relationship_thanks_past",
+    kind: "conversation_pattern",
+    scene: "Relationship",
+    reason: "Customer thanks for what already happened — KEY stays alongside, no insurance turn.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return /^(?:고마웠(?:어(?:요)?)?)(?:[!.?\s~♡♥]*)?$/i.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "도움이 됐다니 다행이에요. 편하실 때 이어가면 됩니다.",
+          "네, 언제든 이어가도 됩니다.",
+        ]),
+      );
+    },
+  },
+  {
+    id: "relationship_credit_shared",
+    kind: "conversation_pattern",
+    scene: "Relationship",
+    reason:
+      "Customer credits shared outcome — KEY receives warmly without claiming credit or pushing insurance.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return /^덕분(?:이(?:었|)?(?:어(?:요)?|에요|입니다|야)?)?(?:[!.?\s~♡♥]*)?$/i.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "조금이라도 도움이 됐다면 다행이에요. 필요하실 때 계속 같이 볼게요.",
+          "다행이에요. 필요하실 때 이어가면 됩니다.",
+        ]),
+      );
+    },
+  },
+  {
+    id: "relationship_worry_eased",
+    kind: "conversation_pattern",
+    scene: "Relationship",
+    reason:
+      "Customer signals eased worry — KEY receives stability first, no insurance turn or credit claim.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return /^걱정(?:이)?(?:\s*좀)?\s*줄(?:어(?:요)?|었(?:어(?:요)?)?)(?:[!.?\s~♡♥]*)?$/i.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "조금이라도 마음이 가벼워지셨다면 다행이에요. 필요하실 때 천천히 이어가도 됩니다.",
+          "마음이 조금 가벼워지셨다면 다행이에요. 편하실 때 이어가도 됩니다.",
+        ]),
+      );
+    },
+  },
+  {
+    id: "relationship_reunion",
+    kind: "conversation_pattern",
+    scene: "Relationship",
+    reason: "Customer returns after time apart — KEY welcomes reunion, no insurance or memory claim.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return /^오랜만(?:이(?:에|)?(?:요|야|)?|(?:이야|입니다)?)(?:[!.?\s~♡♥]*)?$/i.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+          "반갑습니다. 필요하실 때 이어가면 됩니다.",
+        ]),
+      );
+    },
+  },
+  {
     id: "thanks_acknowledgment",
     kind: "conversation_pattern",
     scene: "A",

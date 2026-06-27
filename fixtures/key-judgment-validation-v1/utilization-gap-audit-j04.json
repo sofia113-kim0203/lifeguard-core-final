@@ -1,0 +1,166 @@
+{
+  "audit": "utilization_gap_hop_trace_v1",
+  "status": "observation_only",
+  "tom_slice": "coverage_gap_utilization_gap_j04",
+  "terminology": "Utilization Gap (not Disconnect)",
+  "target": {
+    "id": "J04",
+    "axis": "coverage_gap",
+    "question": "내 보험 부족한 부분 있어?",
+    "baseline_utilization": "loaded_not_used",
+    "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+    "record_count": 13
+  },
+  "control": {
+    "id": "J05",
+    "question": "암 보장 괜찮아?",
+    "note": "Same factory job; coverage_gap used=true in baseline"
+  },
+  "hop_trace": {
+    "factory": {
+      "hop": "Factory",
+      "status": "pass",
+      "code_path": [
+        "analysis_jobs.result_json.coverage_gap",
+        "server/salesDirectorFactoryAudit.js → probeStoredFactoryRecords"
+      ],
+      "evidence": {
+        "available": true,
+        "record_count": 13,
+        "source": "analysis_jobs",
+        "job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e"
+      }
+    },
+    "resolver": {
+      "hop": "Resolver",
+      "status": "pass",
+      "code_path": [
+        "server/salesDirectorLoop.js → loadSalesDirectorCoverageGapContext (parallel with snapshot load)",
+        "server/salesDirectorCoverageGapContext.js → buildCoverageGapContextFromPayload"
+      ],
+      "evidence": {
+        "customerContextBundle_coverageGapContext_loaded": true,
+        "note": "Loaded before KEY orchestrator; independent of KEY tool plan"
+      }
+    },
+    "manifest": {
+      "hop": "Manifest (KEY tool plan)",
+      "status": "first_utilization_gap_for_audit_flag",
+      "code_path": [
+        "server/salesDirectorKeyOrchestrator.js → planKeyTools",
+        "server/salesDirectorKeyToolRegistry.js → shouldAddCoverageGapTool",
+        "server/salesDirectorKeyOrchestrator.js → buildKeyAgentTurn → factBundle.coverage_gap_used",
+        "server/salesDirectorFactoryAudit.js → engineUsed → factBundle.coverage_gap_used only"
+      ],
+      "j04_analysis": {
+        "label": "J04",
+        "question": "내 보험 부족한 부분 있어?",
+        "classification": {
+          "intent": "coverage_gap_check",
+          "matched_rule": "coverage_gap_check",
+          "lookup_sub_intent": null
+        },
+        "resolved_judgment_intent": "coverage_judgment",
+        "legacy_tool_brain_slice": null,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory",
+            "coverage_gap"
+          ],
+          "coverage_gap_in_plan": true,
+          "coverage_gap_suppressed": false,
+          "coverage_gap_suppress_reason": null
+        },
+        "expected_orchestrator_flags": {
+          "factBundle_coverage_gap_used": true,
+          "note": "factBundle.coverage_gap_used set only when COVERAGE_GAP tool runs in runKeyTools"
+        }
+      },
+      "j05_control_analysis": {
+        "label": "J05_control",
+        "question": "암 보장 괜찮아?",
+        "classification": {
+          "intent": "coverage_gap_check",
+          "matched_rule": "coverage_gap_check",
+          "lookup_sub_intent": null
+        },
+        "resolved_judgment_intent": "coverage_judgment",
+        "legacy_tool_brain_slice": null,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory",
+            "coverage_gap"
+          ],
+          "coverage_gap_in_plan": true,
+          "coverage_gap_suppressed": false,
+          "coverage_gap_suppress_reason": null
+        },
+        "expected_orchestrator_flags": {
+          "factBundle_coverage_gap_used": true,
+          "note": "factBundle.coverage_gap_used set only when COVERAGE_GAP tool runs in runKeyTools"
+        }
+      },
+      "root_cause": {
+        "summary": "J04 intent classification misses coverage_gap_check; COVERAGE_GAP tool omitted from plan → factBundle.coverage_gap_used stays false even though Resolver preloaded gap context.",
+        "intent_gap": "isCoverageGapCheck('내 보험 부족한 부분 있어?') is false — no disease+gap pattern, no '보장…부족' pattern; '보험 부족한' does not match intent rules.",
+        "plan_gap": "shouldAddCoverageGapTool false for general_consultation without COVERAGE_JUDGMENT_QUESTION_RE match ('내 보험 괜찮' / '암 부족' patterns only).",
+        "flag_gap": "engineLoaded reads customerContextBundle.coverageGapContext.loaded (true); engineUsed reads agentTurn.factBundle.coverage_gap_used (false when tool not planned)."
+      }
+    },
+    "compose": {
+      "hop": "Compose (HUL finalize)",
+      "status": "partial_pass_side_channel",
+      "code_path": [
+        "server/homeBrainFactCore.js → finalizeHomeKeyOrchestratorResponse",
+        "server/humanUnderstandingLoop.js → finalizeHumanSalesDirectorResponse (lines ~1597-1610)",
+        "Enriches factBundle from customerState.coverageGapContext regardless of KEY tool plan",
+        "server/humanUnderstandingLoop.js → buildKeyStructuredResponse / generateHumanSalesDirectorResponse"
+      ],
+      "evidence": {
+        "answer_mentions_gap": true,
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "judgmentAudit_coverage_gap_fact_count": 4,
+        "note": "Gap signals reach compose via customerState bypass; audit runs before this enrichment on raw agentTurn"
+      }
+    },
+    "final_answer": {
+      "hop": "Final Answer",
+      "status": "semantic_partial_utilization",
+      "code_path": [
+        "server/homeBrainFactCore.js → buildSalesDirectorFactoryAudit (before finalize)",
+        "server/salesDirectorFactoryAudit.js → buildAnswerEvidence"
+      ],
+      "evidence": {
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "factory_audit_used": false,
+        "paradox": "Answer text references stored gap analysis ('암 쪽은 함께 점검할 여지') but answer_evidence omits coverage_gap because audit uses pre-compose agentTurn flags."
+      }
+    }
+  },
+  "first_hop": {
+    "name": "Manifest (KEY tool plan)",
+    "layer": "손발",
+    "why_used_false": "COVERAGE_GAP omitted from planKeyTools → runKeyTools never sets coverage_gap_used → buildKeyAgentTurn writes factBundle.coverage_gap_used=false → engineUsed returns false while engineLoaded reads preloaded bundle.",
+    "not_the_first_hop": [
+      "Factory (data exists)",
+      "Resolver (context loaded into bundle)",
+      "Compose sanitizer/companion (gap text partially present in final answer)"
+    ]
+  },
+  "slice_hint": {
+    "direction": "Align intent/plan manifest with Resolver preload for gap-shaped questions like J04",
+    "do_not": [
+      "KEY answer rewrite only",
+      "Factory engine change",
+      "Companion-only patch without manifest fix"
+    ],
+    "proof_gate": "J04 factoryAudit.coverage_gap.used=true AND answer_evidence includes coverage_gap"
+  },
+  "observed_at": "2026-06-27T12:42:00.766Z",
+  "note": "Observation only — Jerry does not declare PASS or request Slice GO."
+}

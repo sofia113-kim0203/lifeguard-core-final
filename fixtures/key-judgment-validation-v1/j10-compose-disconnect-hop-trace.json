@@ -1,0 +1,249 @@
+{
+  "audit": "j10_compose_final_answer_disconnect_hop_trace_v1",
+  "status": "observation_only",
+  "tom_hold": "J10 Recommendation Slice — used=true vs final answer '분석이 아직 없어'",
+  "question": "지금 뭐부터 추가하면 좋을까?",
+  "observed_at": "2026-06-27T14:02:34.014Z",
+  "preview_evidence_ref": {
+    "answerText": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "factory": {
+      "available": true,
+      "loaded": true,
+      "used": true,
+      "record_count": 2,
+      "source": "analysis_jobs"
+    },
+    "answer_evidence": [
+      "snapshot",
+      "memory",
+      "recommendation"
+    ]
+  },
+  "checkpoints": {
+    "1_customer_visible_top2_exists": {
+      "lifecycle_audit": {
+        "state": "exists",
+        "item_count": 13,
+        "keys": [
+          "customer_id",
+          "generated_at",
+          "keep_existing",
+          "recommendations",
+          "customer_visible_top2"
+        ]
+      },
+      "sample_normalize": {
+        "top2_item_count": 2,
+        "top2_items": [
+          {
+            "label": "암",
+            "priority_type": "우선검토",
+            "signal": "암:우선검토"
+          },
+          {
+            "label": "실손",
+            "priority_type": "우선검토",
+            "signal": "실손:우선검토"
+          }
+        ],
+        "has_customer_visible_top2_key": true
+      },
+      "verdict": "PASS at Factory — customer_visible_top2 present in completed analysis_jobs payload"
+    },
+    "2_priority_labels_generation": {
+      "resolver_code": "server/salesDirectorRecommendationContext.js → normalizeRecommendationForDirector / extractRecommendationTop2Items",
+      "normalized": {
+        "priority_labels": [
+          "암",
+          "실손"
+        ],
+        "priority_signals": [
+          "암:우선검토",
+          "실손:우선검토"
+        ],
+        "priority_types": [
+          "우선검토",
+          "우선검토"
+        ],
+        "record_count": 2
+      },
+      "recContext_from_sample": {
+        "loaded": true,
+        "record_count": 2,
+        "priority_labels": [
+          "암",
+          "실손"
+        ],
+        "priority_signals": [
+          "암:우선검토",
+          "실손:우선검토"
+        ]
+      },
+      "record_count_fallback_note": "record_count uses items.length || countStoredFactoryRecords — audit record_count=2 can come from top2.length even when priority_labels=[] if coverage_label missing on items",
+      "countStoredFactoryRecords_top2_only": 2,
+      "verdict": "PASS — priority_labels generated when customer_visible_top2 items have coverage_label"
+    },
+    "3_hul_compose_priority_labels_transfer": {
+      "merge_gate": "humanUnderstandingLoop.js finalizeHumanSalesDirectorResponse L1659-1677",
+      "condition": "input.customerState?.recommendationContext must be truthy to merge recommendation_priority_labels into enrichedBundle",
+      "orchestrator_factBundle": {
+        "code": "salesDirectorKeyOrchestrator.js buildKeyAgentTurn L90-92",
+        "sets": [
+          "recommendation_used",
+          "recommendation_loaded",
+          "has_stored_recommendation_analysis"
+        ],
+        "omits": [
+          "recommendation_priority_labels"
+        ]
+      },
+      "homeBrain_wiring": {
+        "code": "homeBrainFactCore.js finalizeHomeAgentResponse L494-499",
+        "passes": [
+          "coverageGapContext",
+          "keyOrchestrator",
+          "freeThinking"
+        ],
+        "omits": [
+          "recommendationContext",
+          "underwritingRiskContext"
+        ]
+      },
+      "verdict": "FIRST DISCONNECT — recommendationContext exists on customerContextBundle after Resolver/Tool but is not passed into finalize customerState"
+    },
+    "4_judgment_rule_empty_branch": {
+      "rule_id": "recommendation_priority_judgment",
+      "code": "keyJudgmentRules.js buildRecommendationPriorityJudgment L430-441",
+      "branches": {
+        "stored_top2": "hasStored && labels.length >= 2 → line 435",
+        "stored_top1": "hasStored && labels.length === 1 → line 438",
+        "absence": "else → line 441 '저장된 우선순위 분석이 아직 없어...'"
+      },
+      "production_scenario_branch": "hasStored_but_labels_empty_line_441",
+      "production_scenario_judgment": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다.",
+      "verdict": "Judgment treats stored=true + labels=[] as ABSENCE (unlike underwriting which speaks generically when hasStored)"
+    },
+    "5_final_answer_absence_condition": {
+      "judgment_sentence_source": "buildRecommendationPriorityJudgment line 441 (first slot in buildKeyStructuredResponse)",
+      "limitation_split": {
+        "when_recommendation_used_true": "buildKeyStructuredResponse L692-699 — limitation = '특정 상품 가입을 단정...' (stored-aware)",
+        "when_recommendation_used_false": "limitation repeats '아직 없어' (information_gap)"
+      },
+      "production_final_text": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+      "matches_preview_evidence": true,
+      "exact_condition": "classificationIntent=recommendation_priority_check AND factBundle.recommendation_used=true AND (factBundle.recommendation_priority_labels ?? []).length===0 → judgment line 441 + limitation line 698"
+    }
+  },
+  "hop_chain_post_implementation": {
+    "factory": "PASS — analysis_jobs.result_json.recommendation + customer_visible_top2",
+    "resolver": "PASS — salesDirectorLoop.js preloads recommendationContext onto customerContextBundle",
+    "manifest": "PASS — KEY_TOOLS.RECOMMENDATION + recommendation_priority_check intent; used=true record_count=2",
+    "compose": "FAIL — priority_labels never reach enrichedBundle at finalize",
+    "final_answer": "FAIL — speaks absence while manifest says used"
+  },
+  "first_disconnect": {
+    "hop": "Compose ingress (homeBrainFactCore → finalizeHumanSalesDirectorResponse)",
+    "layer": "손발",
+    "mechanism": "customerContextBundle.recommendationContext.priority_labels not forwarded in customerState; orchestrator factBundle sets recommendation_used without labels; HUL merge skipped",
+    "contrast_j07_underwriting": "underwriting_bound_judgment returns stored-generic text when hasStored=true even without signals in bundle; recommendation_priority_judgment requires labels.length>=1"
+  },
+  "counterfactual": {
+    "scenario": "if_recommendationContext_wired_like_coverageGap",
+    "classificationIntent": "recommendation_priority_check",
+    "active_judgment_rule": "recommendation_priority_judgment",
+    "factBundle_in": {
+      "recommendation_used": true,
+      "recommendation_priority_labels": [],
+      "has_stored_recommendation_analysis": true
+    },
+    "customerState_in": {
+      "has_recommendationContext": true,
+      "priority_labels": [
+        "암",
+        "실손"
+      ],
+      "loaded": true,
+      "record_count": 2,
+      "passes_homeBrainFactCore_wiring": null
+    },
+    "judgment_pre_hul_merge": {
+      "labels": [],
+      "hasStored": true,
+      "branch": "hasStored_but_labels_empty_line_441",
+      "judgment": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다."
+    },
+    "judgment_if_merge_applied": {
+      "labels": [
+        "암",
+        "실손"
+      ],
+      "hasStored": true,
+      "branch": "stored_top2_line_435",
+      "judgment": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 암과 실손입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다."
+    },
+    "compose": {
+      "generation_mode": "key_orchestrator",
+      "key_compose_trace": {
+        "called": true,
+        "skip_reason": null,
+        "text_preview": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 암과 실손입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+        "used_safe_fallback": false,
+        "compose_mode": "key_structured",
+        "absorbed_slice": null,
+        "conversation_pattern_id": null,
+        "conversation_pattern_kind": null
+      },
+      "text_preview": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 암과 실손입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다."
+    },
+    "enriched_labels_observed": null
+  },
+  "production_replay": {
+    "scenario": "production_homeBrainFactCore_shape",
+    "classificationIntent": "recommendation_priority_check",
+    "active_judgment_rule": "recommendation_priority_judgment",
+    "factBundle_in": {
+      "recommendation_used": true,
+      "recommendation_priority_labels": [],
+      "has_stored_recommendation_analysis": true
+    },
+    "customerState_in": {
+      "has_recommendationContext": false,
+      "priority_labels": [],
+      "loaded": false,
+      "record_count": 0,
+      "passes_homeBrainFactCore_wiring": true
+    },
+    "judgment_pre_hul_merge": {
+      "labels": [],
+      "hasStored": true,
+      "branch": "hasStored_but_labels_empty_line_441",
+      "judgment": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다."
+    },
+    "judgment_if_merge_applied": {
+      "labels": [],
+      "hasStored": true,
+      "branch": "hasStored_but_labels_empty_line_441",
+      "judgment": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다."
+    },
+    "compose": {
+      "generation_mode": "key_orchestrator",
+      "key_compose_trace": {
+        "called": true,
+        "skip_reason": null,
+        "text_preview": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+        "used_safe_fallback": false,
+        "compose_mode": "key_structured",
+        "absorbed_slice": null,
+        "conversation_pattern_id": null,
+        "conversation_pattern_kind": null
+      },
+      "text_preview": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다."
+    },
+    "enriched_labels_observed": null
+  },
+  "classification": {
+    "intent": "recommendation_priority_check",
+    "matched_rule": "recommendation_priority_check"
+  },
+  "note": "Observation only — Jerry does not declare PASS or implement fixes."
+}

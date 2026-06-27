@@ -1,0 +1,185 @@
+{
+  "audit": "analysis_job_lifecycle_audit",
+  "authority": "Tom Audit — post Preview pump PASS. Observation only.",
+  "observed_at": "2026-06-27T12:20:58.001Z",
+  "staging_ref": "inwswsruvvzaeioqkelq",
+  "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+  "customer_analysis_jobs_total": 1,
+  "job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+  "lifecycle": {
+    "status": "completed",
+    "current_step": null,
+    "stages_completed": [
+      "coverage_gap",
+      "underwriting_risk",
+      "recommendation",
+      "insurance_design",
+      "result_claude"
+    ],
+    "attempts": 0,
+    "error_message": null,
+    "created_at": "2026-06-27T12:12:41.218832+00:00",
+    "started_at": "2026-06-27T12:12:43.26+00:00",
+    "completed_at": "2026-06-27T12:14:20.184+00:00",
+    "timing_metrics": {
+      "design_time_ms": 1643,
+      "trigger_source": "document_policy_extraction",
+      "coverage_time_ms": 2873,
+      "underwriting_time_ms": 1978,
+      "result_claude_time_ms": 9685,
+      "recommendation_time_ms": 2890,
+      "total_analysis_time_ms": 91983,
+      "coverage_gap_from_cache": false,
+      "result_claude_cache_hit": false,
+      "result_claude_from_cache": false,
+      "panel_claude_hydration_ms": 72914,
+      "panel_claude_policy_count": 1,
+      "recommendation_from_cache": false,
+      "result_claude_input_tokens": 835,
+      "result_claude_output_chars": 460,
+      "result_claude_prompt_chars": 2086,
+      "insurance_design_from_cache": false,
+      "result_claude_output_tokens": 184,
+      "underwriting_risk_from_cache": false
+    }
+  },
+  "factory_payload": {
+    "coverage_gap": {
+      "state": "exists",
+      "item_count": 13,
+      "keys": [
+        "items",
+        "top_gaps",
+        "gap_score",
+        "customer_id",
+        "generated_at",
+        "overall_risk",
+        "input_summary",
+        "unknown_items",
+        "priority_actions",
+        "memory_facts_used",
+        "agent_review_items",
+        "duplicate_warnings"
+      ]
+    },
+    "underwriting_risk": {
+      "state": "exists",
+      "item_count": 9,
+      "keys": [
+        "items",
+        "risk_score",
+        "customer_id",
+        "generated_at",
+        "unknown_items",
+        "likely_decline",
+        "likely_standard",
+        "likely_exclusion",
+        "likely_surcharge",
+        "health_risk_items",
+        "memory_facts_used",
+        "agent_review_items"
+      ]
+    },
+    "recommendation": {
+      "state": "exists",
+      "item_count": 13,
+      "keys": [
+        "customer_id",
+        "generated_at",
+        "keep_existing",
+        "recommendations",
+        "customer_visible_top2"
+      ]
+    },
+    "insurance_design": {
+      "state": "exists",
+      "item_count": 0,
+      "keys": [
+        "insurance_design",
+        "customer_visible_design"
+      ]
+    },
+    "all_three_core_panels_present": true
+  },
+  "trigger_source": "document_policy_extraction",
+  "preview_pump_pass_ref": "preview-staging-env-verify.json",
+  "production_env_scope": {
+    "ok": true,
+    "rows": [
+      {
+        "key": "VITE_SUPABASE_ANON_KEY",
+        "line_redacted": "VITE_SUPABASE_ANON_KEY                     Encrypted Preview                                                            ",
+        "mentions_production": false,
+        "mentions_preview": true,
+        "mentions_development": false
+      },
+      {
+        "key": "VITE_SUPABASE_URL",
+        "line_redacted": "VITE_SUPABASE_URL                          Encrypted Preview                                                            ",
+        "mentions_production": false,
+        "mentions_preview": true,
+        "mentions_development": false
+      },
+      {
+        "key": "SERVICE_ROLE_KEY",
+        "line_redacted": "SUPABASE_SERVICE_ROLE_KEY                  Encrypted Preview                                                            ",
+        "mentions_production": false,
+        "mentions_preview": true,
+        "mentions_development": false
+      },
+      {
+        "key": "SERVICE_ROLE_KEY",
+        "line_redacted": "SERVICE_ROLE_KEY                           Encrypted Preview                                                            ",
+        "mentions_production": false,
+        "mentions_preview": true,
+        "mentions_development": false
+      },
+      {
+        "key": "SUPABASE_ANON_KEY",
+        "line_redacted": "SUPABASE_ANON_KEY                          Encrypted Preview                                                            ",
+        "mentions_production": false,
+        "mentions_preview": true,
+        "mentions_development": false
+      },
+      {
+        "key": "SUPABASE_URL",
+        "line_redacted": "SUPABASE_URL                               Encrypted Preview                                                            ",
+        "mentions_production": false,
+        "mentions_preview": true,
+        "mentions_development": false
+      },
+      {
+        "key": "SERVICE_ROLE_KEY",
+        "line_redacted": "SUPABASE_SERVICE_ROLE_KEY                  Encrypted Development                                                        ",
+        "mentions_production": false,
+        "mentions_preview": false,
+        "mentions_development": true
+      },
+      {
+        "key": "SERVICE_ROLE_KEY",
+        "line_redacted": "SERVICE_ROLE_KEY                           Encrypted Development                                                        ",
+        "mentions_production": false,
+        "mentions_preview": false,
+        "mentions_development": true
+      },
+      {
+        "key": "VITE_SUPABASE_ANON_KEY",
+        "line_redacted": "VITE_SUPABASE_ANON_KEY                     Encrypted Development                                                        ",
+        "mentions_production": false,
+        "mentions_preview": false,
+        "mentions_development": true
+      },
+      {
+        "key": "VITE_SUPABASE_URL",
+        "line_redacted": "VITE_SUPABASE_URL                          Encrypted Development                                                        ",
+        "mentions_production": false,
+        "mentions_preview": false,
+        "mentions_development": true
+      }
+    ],
+    "note": "Name/scope only — no secret values. Tom/Jinwoo dashboard confirm recommended."
+  },
+  "judgment_validation_status": "frozen",
+  "next_gate": "Tom decides KEY Judgment Validation resume after lifecycle + factory payload confirmed.",
+  "note": "Jerry does not declare Judgment Validation unfrozen."
+}

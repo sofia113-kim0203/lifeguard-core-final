@@ -1,0 +1,211 @@
+{
+  "audit": "utilization_gap_hop_trace_v1",
+  "status": "observation_only",
+  "tom_mission": "recommendation_utilization_gap_j10_representative",
+  "terminology": "Utilization Gap (not Disconnect)",
+  "axis_completion_note": {
+    "coverage_gap": "3/3 PASS — Tom J04/J06 slices",
+    "underwriting": "3/3 PASS — Tom J07 slice",
+    "next_axis": "recommendation"
+  },
+  "target": {
+    "id": "J10",
+    "axis": "recommendation",
+    "level": "J1",
+    "question": "지금 뭐부터 추가하면 좋을까?",
+    "selection_reason": "First J1 recommendation-bank question on KEY path (sales_director_key); clearest priority-add ask without explicit 추천 keyword",
+    "baseline_utilization": "available_not_loaded",
+    "response_source": "sales_director_key",
+    "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e"
+  },
+  "recommendation_axis_summary": {
+    "j10": {
+      "utilization": "available_not_loaded",
+      "response_source": "sales_director_key",
+      "key_orchestrator": true
+    },
+    "j11": {
+      "utilization": "available_not_loaded",
+      "response_source": "sales_director_guarded_hold",
+      "key_orchestrator": false,
+      "note": "recommendation_request — KEY orchestrator blocked by default"
+    },
+    "j12": {
+      "utilization": "available_not_loaded",
+      "response_source": "sales_director_guarded_hold",
+      "key_orchestrator": false,
+      "note": "recommendation_request — KEY orchestrator blocked by default"
+    },
+    "pattern": "All 3 recommendation bank questions: available_not_loaded; J10 on KEY path, J11/J12 on sales_director_guarded_hold"
+  },
+  "contrast_prior_slices": {
+    "coverage_gap": "Resolver preload + Manifest tool + intent patterns",
+    "underwriting_j07": "Resolver preload + Manifest stored-read tool + underwriting_bound_check intent",
+    "recommendation_j10": "Factory pass → Resolver absent → Manifest no tool + J10 falls general_consultation (not recommendation_request)"
+  },
+  "hop_trace": {
+    "factory": {
+      "hop": "Factory",
+      "status": "pass",
+      "code_path": [
+        "analysis_jobs.result_json.recommendation",
+        "server/customerRecommendationCore.js → buildCoverageCategoryRecommendations",
+        "server/salesDirectorFactoryAudit.js → probeStoredFactoryRecords"
+      ],
+      "evidence": {
+        "available": true,
+        "lifecycle_item_count": 13,
+        "payload_keys": [
+          "customer_id",
+          "generated_at",
+          "keep_existing",
+          "recommendations",
+          "customer_visible_top2"
+        ],
+        "has_customer_visible_top2": true,
+        "audit_record_count": 13
+      }
+    },
+    "resolver": {
+      "hop": "Resolver",
+      "status": "first_utilization_gap",
+      "code_path": [
+        "server/salesDirectorLoop.js — coverageGapContext + underwritingRiskContext preload only",
+        "No loadSalesDirectorRecommendationContext (no salesDirectorRecommendationContext.js)"
+      ],
+      "evidence": {
+        "resolver_exists_for_coverage_gap": true,
+        "resolver_exists_for_underwriting": true,
+        "resolver_exists_for_recommendation": false
+      }
+    },
+    "manifest": {
+      "hop": "Manifest (KEY tool plan)",
+      "status": "structural_gap",
+      "code_path": [
+        "server/salesDirectorKeyToolRegistry.js — no RECOMMENDATION in KEY_TOOLS",
+        "DEFAULT_BLOCKED_INTENTS includes recommendation_request (J11/J12 never enter KEY)",
+        "server/salesDirectorFactoryAudit.js — engineLoaded/engineUsed: recommendation not implemented"
+      ],
+      "j10_analysis": {
+        "label": "J10",
+        "question": "지금 뭐부터 추가하면 좋을까?",
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": false,
+        "resolved_judgment_intent": null,
+        "hul_eligible": false,
+        "key_blocked_intent": false,
+        "key_orchestrator_gate": true,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory"
+          ],
+          "has_recommendation_tool": false,
+          "has_coverage_gap_tool": false,
+          "has_underwriting_tool": false,
+          "note": "KEY_TOOLS has no recommendation entry — Snapshot/Memory/Coverage Gap/Underwriting/Premium only"
+        }
+      },
+      "j11_sibling": {
+        "label": "J11",
+        "question": "나한테 필요한 보험 추천해줘.",
+        "classification": {
+          "intent": "recommendation_request",
+          "matched_rule": "recommendation_request",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": true,
+        "resolved_judgment_intent": "recommendation_reason",
+        "hul_eligible": true,
+        "key_blocked_intent": true,
+        "key_orchestrator_gate": false,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory"
+          ],
+          "has_recommendation_tool": false,
+          "has_coverage_gap_tool": false,
+          "has_underwriting_tool": false,
+          "note": "KEY_TOOLS has no recommendation entry — Snapshot/Memory/Coverage Gap/Underwriting/Premium only"
+        }
+      },
+      "j12_sibling": {
+        "label": "J12",
+        "question": "보장 보완 어디부터 하면 돼?",
+        "classification": {
+          "intent": "recommendation_request",
+          "matched_rule": "recommendation_request",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": true,
+        "resolved_judgment_intent": "recommendation_reason",
+        "hul_eligible": true,
+        "key_blocked_intent": true,
+        "key_orchestrator_gate": false,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory"
+          ],
+          "has_recommendation_tool": false,
+          "has_coverage_gap_tool": false,
+          "has_underwriting_tool": false,
+          "note": "KEY_TOOLS has no recommendation entry — Snapshot/Memory/Coverage Gap/Underwriting/Premium only"
+        }
+      }
+    },
+    "compose": {
+      "hop": "Compose",
+      "status": "fail_no_recommendation_inputs",
+      "evidence": {
+        "resolved_judgment_intent": null,
+        "hul_eligible": false,
+        "compose_mode": null,
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "answer_signal": true,
+        "note": "Generic KEY filler — no gap/uw/rec priority lines from stored recommendation panel"
+      }
+    },
+    "final_answer": {
+      "hop": "Final Answer",
+      "status": "no_recommendation_utilization",
+      "evidence": {
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "recommendation_loaded": false,
+        "recommendation_used": false,
+        "primary_disconnect_factory": "coverage_gap"
+      }
+    }
+  },
+  "parallel_paths_observed": {
+    "advisor_brain_stored_read": {
+      "exists": true,
+      "code_path": "server/advisorBrain/advisorRecommendationReasonResponder.js",
+      "gate": "recommendation_request intent only — not wired to J10 general_consultation KEY path"
+    },
+    "j11_j12_path": {
+      "response_source": "sales_director_guarded_hold",
+      "note": "Separate from J10 KEY utilization gap — Tom may split slice scope"
+    }
+  },
+  "first_hop": {
+    "name": "Resolver (missing on KEY path)",
+    "layer": "손발",
+    "same_class_as_j07_pre_slice": true
+  },
+  "secondary_hop": {
+    "name": "Manifest (no recommendation tool + J10 intent general_consultation)",
+    "layer": "손발"
+  },
+  "observed_at": "2026-06-27T13:39:15.119Z",
+  "note": "Observation only — Jerry does not declare PASS, Slice GO, or implement fixes."
+}

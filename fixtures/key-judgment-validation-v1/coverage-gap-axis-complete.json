@@ -1,0 +1,32 @@
+{
+  "audit": "coverage_gap_axis_completion",
+  "status": "tom_approved",
+  "approved_at": "2026-06-27",
+  "axis": "coverage_gap",
+  "judgment_bank": {
+    "used": "3/3",
+    "questions": ["J04", "J05", "J06"],
+    "slices": [
+      {
+        "id": "j04_utilization_gap_slice",
+        "question": "내 보험 부족한 부분 있어?",
+        "result": "loaded_not_used → used"
+      },
+      {
+        "id": "j06_utilization_gap_slice",
+        "question": "뭐가 빠져 있는지 알려줘.",
+        "result": "loaded_not_used → used"
+      }
+    ]
+  },
+  "judgment_bank_delta": {
+    "utilization_gap_before": "8/12",
+    "utilization_gap_after": "6/12",
+    "coverage_gap_disconnect_before": "2/3",
+    "coverage_gap_disconnect_after": "0/3"
+  },
+  "misuse": "0/12 maintained",
+  "customer_validation": "30Q Friction 0",
+  "next_axis": "underwriting",
+  "note": "Coverage Gap utilization axis complete for this cycle. Underwriting 3 + Recommendation 3 remain."
+}

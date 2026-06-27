@@ -18,6 +18,8 @@ export const SALES_DIRECTOR_JUDGMENT_INTENTS = {
   DESIGN_QUESTION: "design_question",
   POLICY_REVIEW: "policy_review",
   GENERAL_INSURANCE_JUDGMENT: "general_insurance_judgment",
+  UNDERWRITING_BOUND_JUDGMENT: "underwriting_bound_judgment",
+  RECOMMENDATION_PRIORITY_JUDGMENT: "recommendation_priority_judgment",
 };
 
 export const STATEMENT_BASIS = {
@@ -27,6 +29,8 @@ export const STATEMENT_BASIS = {
 
 const APPLICABLE_CLASSIFICATION_INTENTS = new Set([
   "coverage_gap_check",
+  "underwriting_bound_check",
+  "recommendation_priority_check",
   "general_consultation",
   "claim_eligibility_check",
   "coverage_review_request",
@@ -64,6 +68,23 @@ export const FACTUAL_LOOKUP_JUDGMENT_INTENTS = new Set([
 const QUESTION_INTENT_RULES = [
   { pattern: /내\s*보험\s*괜찮|보험\s*괜찮|내\s*보장\s*괜찮/, intent: SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT },
   { pattern: /암\s*보험\s*부족|암보험\s*부족|암\s*부족/, intent: SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT },
+  {
+    pattern: /내\s*보험\s*부족|보험\s*부족한(?:\s*부분)?|부족한\s*부분\s*있/,
+    intent: SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT,
+  },
+  {
+    pattern: /뭐가\s*빠져|빠져\s*있|빠진\s*(?:게|것|부분)/,
+    intent: SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT,
+  },
+  {
+    pattern:
+      /(?:고혈압|당뇨|질병|건강(?:\s*상태)?).{0,24}(?:가입\s*(?:가능|돼|되)|들\s*수|거절|인수)|건강\s*상태.{0,12}거절/,
+    intent: SALES_DIRECTOR_JUDGMENT_INTENTS.UNDERWRITING_BOUND_JUDGMENT,
+  },
+  {
+    pattern: /지금.{0,12}뭐부터.{0,12}추가|무엇부터.{0,12}추가/,
+    intent: SALES_DIRECTOR_JUDGMENT_INTENTS.RECOMMENDATION_PRIORITY_JUDGMENT,
+  },
   { pattern: /보험료\s*(?:너무\s*)?(?:비싸|부담|많)/, intent: SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION },
   { pattern: /사고(?:났|났는데|났어).{0,12}(?:받을|청구|보험금)/, intent: SALES_DIRECTOR_JUDGMENT_INTENTS.ACCIDENT_CLAIM },
   { pattern: /운전자\s*보험.{0,16}(?:받을|청구|보험금|나올)/, intent: SALES_DIRECTOR_JUDGMENT_INTENTS.CLAIM_OPPORTUNITY },
@@ -107,6 +128,16 @@ const FALSE_ASSERTION_PATTERNS = [
   { pattern: /(?:암|실손|운전자)[^\n]{0,6}(?:이|은)\s*부족/, requires: "gap_shortage_labeled" },
   { pattern: /중복\s*(?:담보|보험)?(?:이|가)\s*있(?:습니다|어요)/, requires: "gap_duplicate" },
   { pattern: /받을\s*수\s*있(?:습니다|어요)(?![^\n]{0,12}(?:가능성|여지|볼|확인))/, requires: "claim_evidence" },
+  { pattern: /가입\s*가능(?:합니다|해요|하세요|한\s*것)/, requires: "uw_binding_evidence" },
+  { pattern: /가입\s*(?:어렵|안\s*됩|불가)/, requires: "uw_binding_evidence" },
+  { pattern: /(?:인수\s*)?(?:승인|확정)/, requires: "uw_binding_evidence" },
+  { pattern: /이\s*상품(?:은|이)\s*(?:됩니다|가능|좋)/, requires: "rec_product_evidence" },
+  { pattern: /(?:추천|권유)드립니다/, requires: "rec_product_evidence" },
+  { pattern: /가입하세요/, requires: "rec_product_evidence" },
+  { pattern: /(?:이|그)\s*걸\s*선택하세요/, requires: "rec_product_evidence" },
+  { pattern: /가장\s*좋은\s*보험/, requires: "rec_product_evidence" },
+  { pattern: /정답(?:입니다|이에요)/, requires: "rec_product_evidence" },
+  { pattern: /필수(?:입니다|예요)/, requires: "rec_product_evidence" },
 ];
 
 function normalizeQuestion(question = "") {
@@ -143,6 +174,42 @@ function hasPolicyEvidence(factBundle = {}) {
 
 function hasPremiumEvidence(factBundle = {}) {
   return Boolean(factBundle?.premium_stats?.premiumKnownCount > 0);
+}
+
+function hasUnderwritingAnalysis(factBundle = {}) {
+  return Boolean(factBundle.has_stored_underwriting_analysis || factBundle.underwriting_used);
+}
+
+function parseUnderwritingSignals(factBundle = {}) {
+  const raw = factBundle.underwriting_signals ?? [];
+  return raw
+    .map((signal) => {
+      const [label, status] = String(signal).split(":");
+      return { label: (label ?? "").trim(), status: (status ?? "").trim() };
+    })
+    .filter((item) => item.label);
+}
+
+function resolveUnderwritingTopicFromQuestion(question = "", factBundle = {}) {
+  const q = normalizeQuestion(question);
+  const topicPatterns = [
+    { pattern: /고혈압|혈압/, label: "고혈압" },
+    { pattern: /당뇨/, label: "당뇨" },
+    { pattern: /건강\s*상태/, label: "건강 상태" },
+    { pattern: /암/, label: "암" },
+    { pattern: /실손/, label: "실손" },
+    { pattern: /운전자/, label: "운전자" },
+  ];
+  for (const { pattern, label } of topicPatterns) {
+    if (pattern.test(q)) return label;
+  }
+  const flags = factBundle.underwriting_review_flags ?? [];
+  if (flags.length) return flags[0];
+  const topics = factBundle.underwriting_health_topics ?? [];
+  if (topics.length) return topics[0];
+  const signals = parseUnderwritingSignals(factBundle);
+  if (signals.length) return signals[0].label;
+  return null;
 }
 
 function hasCoverageAnalysis(factBundle = {}) {
@@ -204,6 +271,7 @@ export function extractFactBundleEvidence(factBundle = {}) {
     gap_maintained: gapMaintained(factBundle),
     gap_concerns: gapConcerns(factBundle),
     has_coverage_analysis: hasCoverageAnalysis(factBundle),
+    has_underwriting_analysis: hasUnderwritingAnalysis(factBundle),
     has_policies: hasPolicyEvidence(factBundle),
     has_premium: hasPremiumEvidence(factBundle),
     policy_absent_categories: [],
@@ -241,6 +309,10 @@ export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", qu
   switch (classificationIntent) {
     case "coverage_gap_check":
       return SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT;
+    case "underwriting_bound_check":
+      return SALES_DIRECTOR_JUDGMENT_INTENTS.UNDERWRITING_BOUND_JUDGMENT;
+    case "recommendation_priority_check":
+      return SALES_DIRECTOR_JUDGMENT_INTENTS.RECOMMENDATION_PRIORITY_JUDGMENT;
     case "claim_eligibility_check":
       return SALES_DIRECTOR_JUDGMENT_INTENTS.CLAIM_OPPORTUNITY;
     case "coverage_review_request":
@@ -722,6 +794,10 @@ function hasEvidenceForAssertion(factBundle = {}, requirement = "") {
       return evidence.gap_duplicates.length > 0;
     case "claim_evidence":
       return evidence.has_coverage_analysis;
+    case "uw_binding_evidence":
+      return false;
+    case "rec_product_evidence":
+      return false;
     default:
       return false;
   }

@@ -35,13 +35,21 @@ export function countStoredFactoryRecords(factoryKey, payload) {
     return payload.gap_score != null || payload.overall_severity ? 1 : 0;
   }
   if (factoryKey === "underwriting") {
+    const healthItems = payload.health_risk_items ?? [];
+    if (Array.isArray(healthItems) && healthItems.length > 0) {
+      return healthItems.filter((item) => item?.status !== "none").length || healthItems.length;
+    }
+    const items = payload.items ?? [];
+    if (Array.isArray(items) && items.length > 0) return items.length;
     const risks = payload.risk_factors ?? payload.flags ?? payload.risks ?? [];
-    if (Array.isArray(risks)) return risks.length;
+    if (Array.isArray(risks) && risks.length > 0) return risks.length;
     return Object.keys(payload).length > 0 ? 1 : 0;
   }
   if (factoryKey === "recommendation") {
     const items = payload.recommendations ?? payload.items ?? payload.products ?? [];
-    if (Array.isArray(items)) return items.length;
+    const top2 = payload.customer_visible_top2 ?? [];
+    if (Array.isArray(top2) && top2.length > 0) return top2.length;
+    if (Array.isArray(items) && items.length > 0) return items.length;
     return Object.keys(payload).length > 0 ? 1 : 0;
   }
   if (factoryKey === "design") {
@@ -150,6 +158,18 @@ function engineLoaded(agentTurn = {}, factoryKey, customerContextBundle = null) 
       agentTurn?.tomGapLightPath === true
     );
   }
+  if (factoryKey === "underwriting") {
+    return (
+      customerContextBundle?.underwritingRiskContext?.loaded === true ||
+      agentTurn?.factBundle?.underwriting_loaded === true
+    );
+  }
+  if (factoryKey === "recommendation") {
+    return (
+      customerContextBundle?.recommendationContext?.loaded === true ||
+      agentTurn?.factBundle?.recommendation_loaded === true
+    );
+  }
   return false;
 }
 
@@ -160,6 +180,18 @@ function engineUsed(agentTurn = {}, factoryKey, customerContextBundle = null) {
       agentTurn?.factBundle?.coverage_gap_used === true ||
       agentTurn?.toolUsed === "gap_audit" ||
       agentTurn?.tomGapLightPath === true
+    );
+  }
+  if (factoryKey === "underwriting") {
+    return (
+      agentTurn?.trace?.conversation_brain?.underwriting_used === true ||
+      agentTurn?.factBundle?.underwriting_used === true
+    );
+  }
+  if (factoryKey === "recommendation") {
+    return (
+      agentTurn?.trace?.conversation_brain?.recommendation_used === true ||
+      agentTurn?.factBundle?.recommendation_used === true
     );
   }
   return false;
@@ -280,18 +312,32 @@ export function buildSalesDirectorFactoryAudit({
   for (const factoryKey of Object.keys(STORED_FACTORY_KEYS)) {
     const stored = storedProbe?.availability?.[factoryKey] ?? factoryEntry();
     const bundleGap = customerContextBundle?.coverageGapContext;
+    const bundleUw = customerContextBundle?.underwritingRiskContext;
+    const bundleRec = customerContextBundle?.recommendationContext;
     audit[factoryKey] = factoryEntry({
-      available: stored.available === true || bundleGap?.available === true,
+      available:
+        stored.available === true ||
+        (factoryKey === "coverage_gap" && bundleGap?.available === true) ||
+        (factoryKey === "underwriting" && bundleUw?.available === true) ||
+        (factoryKey === "recommendation" && bundleRec?.available === true),
       loaded: engineLoaded(agentTurn, factoryKey, customerContextBundle),
       used: engineUsed(agentTurn, factoryKey, customerContextBundle),
       record_count:
         factoryKey === "coverage_gap" && bundleGap?.record_count
           ? bundleGap.record_count
-          : stored.record_count ?? 0,
+          : factoryKey === "underwriting" && bundleUw?.record_count
+            ? bundleUw.record_count
+            : factoryKey === "recommendation" && bundleRec?.record_count
+              ? bundleRec.record_count
+              : stored.record_count ?? 0,
       source:
         factoryKey === "coverage_gap" && bundleGap?.source
           ? bundleGap.source
-          : stored.source ?? null,
+          : factoryKey === "underwriting" && bundleUw?.source
+            ? bundleUw.source
+            : factoryKey === "recommendation" && bundleRec?.source
+              ? bundleRec.source
+              : stored.source ?? null,
     });
   }
 

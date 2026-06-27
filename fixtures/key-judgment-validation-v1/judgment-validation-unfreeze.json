@@ -1,0 +1,13 @@
+{
+  "event": "judgment_validation_unfreeze",
+  "approved_by": "Tom",
+  "approved_at": "2026-06-27",
+  "prior_freeze_reason": "no_factory_payloads — analysis_jobs / Gap / UW / Rec absent",
+  "unfreeze_reason": "Factory payloads confirmed on completed analysis_job (Gate 01-02 PASS)",
+  "purpose": "KEY utilization only — not Gap engine accuracy or Recommendation algorithm quality",
+  "measures": ["used", "honest_absence", "disconnect", "misuse"],
+  "bank_status": "unfrozen",
+  "rubric_status": "unfrozen",
+  "next_step": "④ Judgment Bank Preview baseline (12Q)",
+  "note": "Jerry executes observation — Tom Audit decides opportunities and slices."
+}

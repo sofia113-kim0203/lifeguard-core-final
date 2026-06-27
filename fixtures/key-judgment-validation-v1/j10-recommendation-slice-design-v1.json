@@ -1,0 +1,201 @@
+{
+  "design": "j10_recommendation_utilization_gap_slice_v1",
+  "status": "jerry_design_awaiting_tom_audit",
+  "authority": "Jerry proposes — Tom audits — no implementation GO",
+  "tom_hold_reason": "Recommendation highest sales-misread risk; J11/J12 guarded_hold must not open with J10 fix",
+  "target": {
+    "id": "J10",
+    "question": "지금 뭐부터 추가하면 좋을까?",
+    "axis": "recommendation",
+    "current_utilization": "available_not_loaded",
+    "response_source": "sales_director_key"
+  },
+  "goal": {
+    "primary": "When stored recommendation exists, KEY cites customer_visible_top2 priority axes honestly — not as product sales",
+    "example_tone": "저장된 분석 기준으로, 지금 우선 같이 볼 여지가 있는 축은 ○○과 △△입니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "not_goal": "상품 가입 권유 · Top2 밖 노출 · 새 추천 엔진 · J11/J12 guarded_hold 해제"
+  },
+  "sibling_scope": {
+    "j10": "in_scope",
+    "j11": {
+      "question": "나한테 필요한 보험 추천해줘.",
+      "intent": "recommendation_request",
+      "key_orchestrator": false,
+      "response_source": "sales_director_guarded_hold",
+      "slice_v1": "out_of_scope"
+    },
+    "j12": {
+      "question": "보장 보완 어디부터 하면 돼?",
+      "intent": "recommendation_request",
+      "key_orchestrator": false,
+      "response_source": "sales_director_guarded_hold",
+      "slice_v1": "out_of_scope"
+    }
+  },
+  "sections": {
+    "1_resolver_preload": {
+      "decision": "Add salesDirectorRecommendationContext.js — read-only preload",
+      "code_path": [
+        "server/salesDirectorRecommendationContext.js (new)",
+        "server/salesDirectorLoop.js — parallel load with gap/uw",
+        "customerContextBundle.recommendationContext"
+      ],
+      "data_source": "analysis_jobs.result_json.recommendation (latest completed job)",
+      "read_scope": "customer_visible_top2 ONLY for KEY normalize",
+      "normalize_for_key": {
+        "priority_labels": "coverage_label from top2 (max 2)",
+        "priority_signals": "label:compact_type e.g. 암:우선검토",
+        "priority_types": "add_coverage | prepare_documents | review_existing (compact)",
+        "record_count": "customer_visible_top2.length (0-2), not recommendations.length"
+      },
+      "explicitly_not": [
+        "Full recommendations[] ranking in compose",
+        "Re-run buildCoverageCategoryRecommendations on KEY path",
+        "recommendation_score in customer text"
+      ],
+      "factory_touch": "none — read-only"
+    },
+    "2_manifest_tool": {
+      "decision": "Resolver preload + KEY_TOOLS.RECOMMENDATION stored-read tool (J07 rhythm)",
+      "tool_name": "recommendation",
+      "avoid_naming": ["recommendation_engine", "RECOMMENDATION_RISK"],
+      "plan_gate": "shouldAddRecommendationTool — recommendation_priority_check intent only",
+      "co_tools_v1": "Do not auto-add coverage_gap on J10 (Tom confirm — avoid double factory voice)",
+      "fact_bundle_flags": ["recommendation_used", "recommendation_loaded", "has_stored_recommendation_analysis"]
+    },
+    "3_scope_j10_only": {
+      "decision": "J10 KEY path only; keep DEFAULT_BLOCKED_INTENTS recommendation_request",
+      "new_intent": "recommendation_priority_check",
+      "trigger_patterns_j10": [
+        "지금.{0,12}뭐부터.{0,12}추가",
+        "뭐부터.{0,12}(추가|손) + insurance topic",
+        "무엇부터.{0,12}추가"
+      ],
+      "must_not_match": [
+        "추천|추천해",
+        "보완|보완해야",
+        "뭐가 부족|가입해야|들어야",
+        "청구|보험금",
+        "뭐부터 해야 할지 모르 (30Q Q25)"
+      ],
+      "new_judgment_intent": "recommendation_priority_judgment",
+      "j11_j12": "guarded_hold unchanged — separate future Tom decision"
+    },
+    "4_customer_visible_top2_only": {
+      "decision": "Hard ceiling — spoken and factBundle fields from top2 only",
+      "allowed_fields": ["coverage_label", "recommendation_type", "reason (trimmed, no product names)"],
+      "forbidden": [
+        "Rank 3+ items",
+        "recommendation_rank/score in speech",
+        "Insurer/product names",
+        "Full recommendations[] dump"
+      ],
+      "empty_top2": "Honest absence — no invented priorities"
+    },
+    "5_sales_guard": {
+      "forbidden_output_patterns": [
+        "가입하세요",
+        "들으세요",
+        "추천드립니다",
+        "제가 추천",
+        "이 상품",
+        "먼저 ○○보험에 가입"
+      ],
+      "required_framing": [
+        "저장된 분석 기준으로",
+        "우선 볼 여지 / 같이 짚을 축",
+        "특정 상품 가입 단정·권유 어렵"
+      ],
+      "guard_layers": [
+        "Compose limitation-first templates",
+        "FALSE_ASSERTION_PATTERNS — rec_product_evidence never true",
+        "Unit test forbidden + priority markers",
+        "Judgment rubric misuse on product-push with factory present"
+      ],
+      "align_with": "advisorRecommendationReasonResponder — 예비 검토, not guaranteed advice"
+    },
+    "6_answer_tone_j10": {
+      "target": "저장된 분석 기준으로, 지금 우선 같이 볼 여지가 있는 축은 {label1}과 {label2}입니다. 어느 쪽부터 짚을지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+      "anti_patterns": [
+        "○○보험부터 추가하세요",
+        "1순위는 △△입니다, 가입하시면 됩니다"
+      ]
+    },
+    "7_answer_evidence": {
+      "loaded_true_when": [
+        "recommendationContext.loaded === true",
+        "OR recommendation tool executed successfully"
+      ],
+      "used_true_when": [
+        "factBundle.recommendation_used === true from toolRun",
+        "AND compose referenced top2 with limitation framing"
+      ],
+      "expected_j10": ["snapshot", "memory", "recommendation"],
+      "factory_audit": "Extend engineLoaded/engineUsed for factoryKey === recommendation"
+    },
+    "8_misuse_criteria": {
+      "misuse_when": [
+        "Factory rec available + product-push or binding enroll language",
+        "Factory rec available + spoken content beyond top2"
+      ],
+      "not_misuse": [
+        "available_not_loaded with honest limitation",
+        "honest_absence when no stored top2"
+      ],
+      "gate": "misuse=0/12 on Preview"
+    },
+    "9_regression_30q": {
+      "false_positive_risks": [
+        { "id": "Q25", "question": "뭐부터 해야 할지 모르겠어.", "mitigation": "Require 추가/보험/보장 — exclude bare confusion" },
+        { "id": "Q07", "question": "보험금 청구…뭐부터", "mitigation": "Exclude 청구|보험금 from priority intent" }
+      ],
+      "direct_overlap": "low — 30Q has no J10 clone",
+      "required_gate": "Full WIP deploy; 30Q Friction 0; J04-J09 regression"
+    }
+  },
+  "tom_audit_questions": [
+    "Is top2-only sufficient or should keep_existing be spoken as 유지 축?",
+    "Is recommendation_priority_check narrow enough vs Q25?",
+    "Confirm J11/J12 stay blocked in v1?",
+    "Confirm no coverage_gap co-tool on J10 v1?",
+    "Is example tone partner-not-seller?"
+  ],
+  "forbidden_this_slice": [
+    "New recommendation engine",
+    "Factory recompute",
+    "Top2+ exposure",
+    "Product enrollment push",
+    "Unguard guarded_hold J11/J12"
+  ],
+  "proposed_file_touch_list": {
+    "new": ["server/salesDirectorRecommendationContext.js"],
+    "modify": [
+      "server/salesDirectorLoop.js",
+      "server/salesDirectorKeyToolRegistry.js",
+      "server/salesDirectorKeyOrchestrator.js",
+      "server/salesDirectorFactoryAudit.js",
+      "server/intentGateLayer.js",
+      "server/salesDirectorFormatter.js",
+      "server/humanUnderstandingLoop.js",
+      "server/keyJudgmentRules.js",
+      "scripts/p10-1-key-orchestrator-unit-test.mjs"
+    ]
+  },
+  "success_criteria_preview": {
+    "j10_intent": "recommendation_priority_check",
+    "j10_tools_include": "recommendation",
+    "factoryAudit_recommendation_used": true,
+    "answer_evidence_includes": "recommendation",
+    "misuse": 0,
+    "forbidden_phrases_absent": true,
+    "j04_j09_regression": "unchanged",
+    "j11_j12": "still guarded_hold",
+    "30q_friction": 0
+  },
+  "references": {
+    "hop_trace": "fixtures/key-judgment-validation-v1/utilization-gap-audit-j10.json",
+    "prior_slice_pattern": "fixtures/key-judgment-validation-v1/j07-underwriting-slice-design-v1.md"
+  },
+  "observed_at": "2026-06-27T14:00:00.000Z",
+  "note": "Jerry design proposal — Tom Audit next. No code changes until Slice GO."
+}

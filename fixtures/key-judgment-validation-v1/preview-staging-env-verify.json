@@ -1,0 +1,39 @@
+{
+  "audit": "preview_staging_env_verify",
+  "observed_at": "2026-06-27T12:14:21.659Z",
+  "preview_base": "https://lifeguard-core-final-jrdb683ln-70sofia113-1918s-projects.vercel.app",
+  "probe": {
+    "http_status": 200,
+    "service_role_pairing": {
+      "pair_status": "paired",
+      "supabase_url_ref": "inwswsruvvzaeioqkelq",
+      "jwt_ref": "inwswsruvvzaeioqkelq",
+      "staging_target_ref": "inwswsruvvzaeioqkelq",
+      "paired_with_staging": true
+    },
+    "vite_supabase_mismatch": false,
+    "bindings_refs": {
+      "SUPABASE_URL": "inwswsruvvzaeioqkelq",
+      "VITE_SUPABASE_URL": "inwswsruvvzaeioqkelq"
+    }
+  },
+  "document_analysis_refresh": {
+    "status": 200,
+    "ok": true,
+    "analysis_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+    "reason": null,
+    "error_message": null
+  },
+  "analysis_jobs_qa_customer": {
+    "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+    "before": 0,
+    "after": 1,
+    "delta": 1,
+    "job_created": true
+  },
+  "gates": {
+    "probe_paired_with_staging": true,
+    "analysis_job_created": true
+  },
+  "note": "Observation only — KEY Judgment Validation remains frozen."
+}

@@ -65,6 +65,10 @@ function buildKeyAgentTurn({
   const policies = customerContextBundle?.policies ?? [];
   const legacySlice = plan?.legacy_slice ?? null;
   const policyFields = buildKeyFactBundlePolicyFields({ unified, customerContextBundle });
+  const recommendationPriorityLabels =
+    toolRun?.recommendationContext?.priority_labels ??
+    customerContextBundle?.recommendationContext?.priority_labels ??
+    [];
   return {
     text: "",
     tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
@@ -84,6 +88,13 @@ function buildKeyAgentTurn({
       memory_tool_used: toolRun?.memory_used === true,
       coverage_gap_used: toolRun?.coverage_gap_used === true,
       has_stored_coverage_analysis: toolRun?.coverage_gap_used === true,
+      underwriting_used: toolRun?.underwriting_used === true,
+      underwriting_loaded: toolRun?.underwriting_loaded === true,
+      has_stored_underwriting_analysis: toolRun?.underwriting_used === true,
+      recommendation_used: toolRun?.recommendation_used === true,
+      recommendation_loaded: toolRun?.recommendation_loaded === true,
+      has_stored_recommendation_analysis: toolRun?.recommendation_used === true,
+      recommendation_priority_labels: recommendationPriorityLabels,
       tool_brain_slice: legacySlice,
       tool_brain_absorbed: Boolean(legacySlice),
       coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
@@ -137,6 +148,8 @@ export async function runSalesDirectorKeyTurn({
     customerContextBundle,
     loadedContext,
     existingGapContext: customerContextBundle?.coverageGapContext ?? null,
+    existingUnderwritingContext: customerContextBundle?.underwritingRiskContext ?? null,
+    existingRecommendationContext: customerContextBundle?.recommendationContext ?? null,
     unified,
   });
   keyLatency.key_tools_ms = markLatencyMs(toolsStart);
@@ -151,6 +164,12 @@ export async function runSalesDirectorKeyTurn({
 
   if (toolRun.coverageGapContext) {
     customerContextBundle.coverageGapContext = toolRun.coverageGapContext;
+  }
+  if (toolRun.underwritingContext) {
+    customerContextBundle.underwritingRiskContext = toolRun.underwritingContext;
+  }
+  if (toolRun.recommendationContext) {
+    customerContextBundle.recommendationContext = toolRun.recommendationContext;
   }
 
   const agentTurn = buildKeyAgentTurn({

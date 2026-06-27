@@ -3,6 +3,7 @@
  * People first, insurance as tool. Frame + basisTaggedFacts are thinking material, not slot templates.
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { hasCoveragePresenceFactualAnswer, isGenericHulCounselingIntro } from "./coveragePresencePreserveGate.js";
 import {
   hasFreeThinkingQualities,
@@ -12,6 +13,8 @@ import {
   buildKeyJudgmentFromRules,
   KEY_JUDGMENT_RULES,
   resolveKeyJudgmentRule,
+  resolveMemoryConfidenceLevel,
+  resolveMemoryFactsFromBundle,
 } from "./keyJudgmentRules.js";
 import {
   buildKeyClosingResponse,
@@ -20,6 +23,11 @@ import {
   resolveKeyClosingConversationPattern,
   resolveKeySocialConversationPattern,
 } from "./keyConversationPatterns.js";
+import {
+  buildKeyCompanionGuidanceResponse,
+  KEY_GENERIC_FILLER_JUDGMENT,
+  shouldUseKeyCompanionGuidanceCompose,
+} from "./keyCompanionGuidance.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
@@ -232,7 +240,7 @@ function buildKeyToolBrainFixedResponseSafe(slice = null, factBundle = {}, human
   const judgment =
     policyCount === 0
       ? "등록된 가입 보험이 아직 없습니다."
-      : "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다.";
+      : "지금 확인된 범위부터 같이 보면 됩니다.";
   const limitation = "지금 알 수 있는 범위와 모르는 범위를 나눠 두는 편이 낫습니다.";
   const nextAction = buildKeyNextActionBlock(mainBlocker);
   return enforceKeyDeclarativeEnding(
@@ -287,6 +295,14 @@ function buildKeyLimitationBlock(resolvedIntent = null, factBundle = {}, basisTa
   const evidence = basisTaggedFacts.evidence_summary ?? extractFactBundleEvidence(factBundle);
   const question = factBundle.question ?? "";
 
+  if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.UNDERWRITING_BOUND_JUDGMENT) {
+    return "최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.";
+  }
+
+  if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.RECOMMENDATION_PRIORITY_JUDGMENT) {
+    return "특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.";
+  }
+
   if (
     resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION &&
     !(factBundle.premium_stats?.premiumKnownCount > 0 && factBundle.premium_stats?.premiumTotal > 0)
@@ -325,6 +341,19 @@ function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundl
   const question = humanFrame.surface_question ?? factBundle.question ?? "";
   const evidence = extractFactBundleEvidence(factBundle);
   const policyCount = resolveKeyFactBundlePolicyCount(factBundle);
+  const classificationIntent =
+    factBundle.classification_intent ?? classifyConsultationIntent(question).intent ?? "";
+
+  const ruleJudgment = buildKeyJudgmentFromRules({
+    question,
+    resolvedIntent,
+    classificationIntent,
+    factBundle,
+    humanFrame,
+  });
+  if (ruleJudgment) {
+    return ruleJudgment;
+  }
 
   if (policyCount === 0 && !evidence.has_policies) {
     return "등록된 가입 보험이 아직 없습니다.";
@@ -332,19 +361,6 @@ function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundl
 
   if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION) {
     return "보험료 부담이 실제로 큰지는, 총액과 항목별 비중을 나눠 봐야 합니다.";
-  }
-
-  const classificationIntent =
-    factBundle.classification_intent ?? classifyConsultationIntent(question).intent ?? "";
-  const claimJudgment = buildKeyJudgmentFromRules({
-    question,
-    resolvedIntent,
-    classificationIntent,
-    factBundle,
-    humanFrame,
-  });
-  if (claimJudgment) {
-    return claimJudgment;
   }
 
   if (/내\s*보험.*괜찮|보험.*괜찮|내\s*보장.*괜찮/.test(question)) {
@@ -370,7 +386,7 @@ function buildKeyJudgmentBlock(resolvedIntent = null, humanFrame = {}, factBundl
     return "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다.";
   }
 
-  return "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다.";
+  return KEY_GENERIC_FILLER_JUDGMENT;
 }
 
 function enforceKeyJudgmentFirst(judgment = "") {
@@ -378,7 +394,7 @@ function enforceKeyJudgmentFirst(judgment = "") {
   if (!trimmed || !KEY_LIMITATION_OPENING_RE.test(trimmed)) {
     return trimmed;
   }
-  return "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다.";
+  return "지금 확인된 범위부터 같이 보면 됩니다.";
 }
 
 export function enforceKeyDeclarativeEnding(text = "", mainBlocker = "") {
@@ -534,7 +550,158 @@ export function buildKeyStructuredResponse(
     factBundle,
     humanFrame,
   });
-  if (activeJudgmentRule?.id === "premium_lookup_judgment") {
+  if (activeJudgmentRule?.id === "memory_recall_judgment") {
+    const facts = resolveMemoryFactsFromBundle(factBundle);
+    const confidence = resolveMemoryConfidenceLevel(facts);
+
+    evidence = "";
+    if (confidence === "confirmed") {
+      limitation = "세부 표현까지는 대화마다 달라질 수 있어요.";
+      nextAction = "그 맥락으로 이어가 주시면, 같이 볼게요.";
+    } else if (confidence === "theme_only") {
+      limitation = "구체적 표현까지는 단정하지 않을게요.";
+      nextAction = "지금 걸리는 부분부터 말씀해 주시면, 그 흐름으로 같이 볼게요.";
+    } else {
+      limitation = "대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요.";
+      nextAction = "지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.";
+    }
+  } else if (activeJudgmentRule?.id === "claim_documents_judgment") {
+    const policies = factBundle.policies ?? [];
+    const count =
+      typeof factBundle.policy_count === "number"
+        ? factBundle.policy_count
+        : policies.length;
+    const topic = detectClaimTopic(question);
+
+    if (count === 0 && policies.length === 0) {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    } else {
+      evidence = "";
+      limitation = "상품별로 추가 서류가 더 필요할 수 있습니다.";
+      if (topic.topicKey) {
+        nextAction = "서류 준비되시면 알려 주세요. 그걸 기준으로 다음 단계를 같이 볼게요.";
+      } else {
+        nextAction =
+          "어떤 사고·치료인지 먼저 알려 주시면, 필요 서류를 맞춰서 정리해 드릴게요.";
+      }
+    }
+  } else if (activeJudgmentRule?.id === "claim_amount_lookup_judgment") {
+    const policies = factBundle.policies ?? [];
+    const count =
+      typeof factBundle.policy_count === "number"
+        ? factBundle.policy_count
+        : policies.length;
+    const amounts = [];
+    for (const policy of policies) {
+      for (const item of policy.coverage_summary?.riders ?? []) {
+        if (!item || typeof item !== "object") continue;
+        const raw = item.amount ?? item.coverage_amount ?? item.coverageAmount;
+        if (raw != null && raw !== "") amounts.push(raw);
+      }
+    }
+    const hasConfirmedAmount = amounts.length > 0;
+
+    if (count === 0 && policies.length === 0) {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    } else if (hasConfirmedAmount) {
+      evidence = "";
+      limitation = "가입금액과 실제 지급액은 다를 수 있습니다.";
+      nextAction =
+        "서류와 진단 내용을 함께 보면, 지급 범위를 더 정리해 드릴게요.";
+    } else {
+      evidence = "";
+      limitation = "약관·심사 결과에 따라 달라질 수 있습니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "claim_timing_lookup_judgment") {
+    const policies = factBundle.policies ?? [];
+    const count =
+      typeof factBundle.policy_count === "number"
+        ? factBundle.policy_count
+        : policies.length;
+
+    if (count === 0 && policies.length === 0) {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    } else {
+      evidence = "";
+      limitation = "보험사·상품별로 심사 기간이 다를 수 있습니다.";
+      nextAction =
+        "서류 준비되시면 알려 주세요. 심사 전후 일정을 같이 확인해 볼게요.";
+    }
+  } else if (activeJudgmentRule?.id === "claim_eligibility_judgment") {
+    const policies = factBundle.policies ?? [];
+    const count =
+      typeof factBundle.policy_count === "number"
+        ? factBundle.policy_count
+        : policies.length;
+    const topic = detectClaimTopic(question);
+    const policyMatch = findRelevantPolicies(policies, topic);
+
+    if (count === 0 && policies.length === 0) {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    } else {
+      evidence = "";
+      limitation = "최종 지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다.";
+      if (topic.topicKey && !policyMatch.found) {
+        nextAction = buildKeyNextActionBlock("information_gap");
+      } else if (!topic.topicKey) {
+        nextAction = buildKeyNextActionBlock("claim_uncertainty");
+      } else {
+        nextAction = "";
+      }
+    }
+  } else if (activeJudgmentRule?.id === "claim_filing_judgment") {
+    const policies = factBundle.policies ?? [];
+    const count =
+      typeof factBundle.policy_count === "number"
+        ? factBundle.policy_count
+        : policies.length;
+    const topic = detectClaimTopic(question);
+    const policyMatch = findRelevantPolicies(policies, topic);
+
+    if (count === 0 && policies.length === 0) {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    } else {
+      evidence = "";
+      limitation = "최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다.";
+      if (topic.topicKey && !policyMatch.found) {
+        nextAction = buildKeyNextActionBlock("information_gap");
+      } else if (!topic.topicKey) {
+        nextAction = buildKeyNextActionBlock("claim_uncertainty");
+      } else {
+        nextAction = "";
+      }
+    }
+  } else if (activeJudgmentRule?.id === "underwriting_bound_judgment") {
+    evidence = "";
+    if (
+      factBundle.underwriting_used === true ||
+      factBundle.has_stored_underwriting_analysis === true
+    ) {
+      limitation = "최종 인수 결과는 보험사·상품별 심사에 따라 달라질 수 있습니다.";
+      nextAction = "";
+    } else {
+      limitation = "저장된 인수심사 분석이 아직 없어, 건강 관련 확인부터 필요합니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "recommendation_priority_judgment") {
+    evidence = "";
+    if (
+      factBundle.recommendation_used === true ||
+      factBundle.has_stored_recommendation_analysis === true
+    ) {
+      limitation = "특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.";
+      nextAction = "";
+    } else {
+      limitation = "저장된 우선순위 분석이 아직 없어, 보장 구조부터 같이 보면 됩니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "premium_lookup_judgment") {
     const stats = factBundle.premium_stats ?? {};
     const premiumKnown = (stats.premiumKnownCount ?? 0) > 0 && (stats.premiumTotal ?? 0) > 0;
     if (premiumKnown) {
@@ -568,10 +735,78 @@ export function buildKeyStructuredResponse(
       limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
       nextAction = buildKeyNextActionBlock("information_gap");
     }
+  } else if (activeJudgmentRule?.id === "product_lookup_judgment") {
+    const products = Array.from(
+      new Set(
+        (factBundle.policies ?? [])
+          .map((policy) => policy.product_name ?? policy.product ?? "")
+          .filter(Boolean),
+      ),
+    );
+    if (products.length > 0) {
+      evidence = "";
+      limitation = "세부 담보·한도까지는 이 정보 밖입니다.";
+    } else {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "join_date_lookup_judgment") {
+    const entries = (factBundle.policies ?? [])
+      .map((policy) => {
+        const raw = policy.effective_from ?? policy.contract_date ?? policy.start_date ?? null;
+        if (raw == null || raw === "") return null;
+        return raw;
+      })
+      .filter(Boolean);
+    if (entries.length > 0) {
+      evidence = "";
+      limitation = "갱신·특약 변경일까지는 이 정보 밖입니다.";
+    } else {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "coverage_list_lookup_judgment") {
+    const labels = [];
+    for (const policy of factBundle.policies ?? []) {
+      const riders = policy.coverage_summary?.riders;
+      if (Array.isArray(riders)) {
+        for (const item of riders) {
+          const label =
+            typeof item === "string"
+              ? item.trim()
+              : String(
+                  item?.normalized_name ??
+                    item?.name ??
+                    item?.rider_name ??
+                    item?.label ??
+                    item?.coverage_line ??
+                    "",
+                ).trim();
+          if (label) labels.push(label);
+        }
+      }
+    }
+    const hasCoverageFacts =
+      labels.length > 0 ||
+      (factBundle.policies ?? []).some((policy) =>
+        Boolean(policy.product_name ?? policy.product),
+      );
+    if (hasCoverageFacts) {
+      evidence = "";
+      limitation = "한도·면책·세부 특약까지는 이 정보 밖입니다.";
+      nextAction = "";
+    } else {
+      limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
   }
 
   const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);
-  return enforceKeyDeclarativeEnding(normalizeText(parts.join(" ")), humanFrame.main_blocker);
+  const joined = normalizeText(parts.join(" "));
+  if (activeJudgmentRule?.id === "memory_recall_judgment") {
+    return joined;
+  }
+  return enforceKeyDeclarativeEnding(joined, humanFrame.main_blocker);
 }
 
 function buildKeyStructuredResponseSafe(
@@ -1093,6 +1328,17 @@ export function generateHumanSalesDirectorResponse({
         factBundle,
         humanFrame,
       });
+    const useCompanionGuidance =
+      !useAnalysisStatus &&
+      !useSocial &&
+      !useClosing &&
+      !useRelational &&
+      shouldUseKeyCompanionGuidanceCompose({
+        question,
+        factBundle,
+        humanFrame,
+        fixedSlice,
+      });
     text = useAnalysisStatus
       ? buildKeyAnalysisStatusResponse(factBundle, question)
       : useSocial
@@ -1101,7 +1347,9 @@ export function generateHumanSalesDirectorResponse({
           ? (closingPattern?.text ?? buildKeyClosingResponse(question))
           : useRelational
             ? buildKeyRelationalResponse(humanFrame, question)
-            : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+            : useCompanionGuidance
+              ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
+              : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
@@ -1115,9 +1363,11 @@ export function generateHumanSalesDirectorResponse({
             ? "key_closing"
             : useRelational
               ? "key_relational"
-              : fixedSlice
-                ? "tool_brain_fixed_slots"
-                : "key_structured",
+              : useCompanionGuidance
+                ? "key_companion_guidance"
+                : fixedSlice
+                  ? "tool_brain_fixed_slots"
+                  : "key_structured",
       absorbed_slice: fixedSlice,
       conversation_pattern_id: socialPattern?.pattern_id ?? closingPattern?.pattern_id ?? null,
       conversation_pattern_kind: socialPattern?.kind ?? closingPattern?.kind ?? null,
@@ -1168,15 +1418,22 @@ export function generateHumanSalesDirectorResponse({
               : isKeyClosingTurn(question || factBundle.question || "")
                 ? buildKeyClosingResponse(question)
                 : shouldUseKeyRelationalCompose({
-              question,
-              classificationIntent: resolvedClassificationIntent,
-              factBundle,
-              humanFrame,
-            })
-            ? buildKeyRelationalResponse(humanFrame, question)
-            : buildKeyStructuredResponseSafe(humanFrame, basisTaggedFacts, factBundle, {
-                resolvedIntent,
-              }),
+                      question,
+                      classificationIntent: resolvedClassificationIntent,
+                      factBundle,
+                      humanFrame,
+                    })
+                  ? buildKeyRelationalResponse(humanFrame, question)
+                  : shouldUseKeyCompanionGuidanceCompose({
+                        question,
+                        factBundle,
+                        humanFrame,
+                        fixedSlice: resolveToolBrainFixedSlice(factBundle),
+                      })
+                    ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
+                    : buildKeyStructuredResponseSafe(humanFrame, basisTaggedFacts, factBundle, {
+                        resolvedIntent,
+                      }),
       );
       keyComposeTrace.used_safe_fallback = true;
       keyComposeTrace.text_preview = String(text ?? "").slice(0, 300);
@@ -1381,6 +1638,41 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
           has_stored_coverage_analysis:
             input.factBundle?.has_stored_coverage_analysis === true ||
             input.customerState.coverageGapContext.loaded === true,
+        }
+      : {}),
+    ...(input.customerState?.underwritingRiskContext
+      ? {
+          underwriting_signals: input.customerState.underwritingRiskContext.signals ?? [],
+          underwriting_review_flags: input.customerState.underwritingRiskContext.review_flags ?? [],
+          underwriting_health_topics: input.customerState.underwritingRiskContext.health_topics ?? [],
+          underwriting_used:
+            input.factBundle?.underwriting_used === true ||
+            input.customerState.underwritingRiskContext.loaded === true,
+          underwriting_loaded:
+            input.factBundle?.underwriting_loaded === true ||
+            input.customerState.underwritingRiskContext.loaded === true,
+          has_stored_underwriting_analysis:
+            input.factBundle?.has_stored_underwriting_analysis === true ||
+            input.customerState.underwritingRiskContext.loaded === true,
+        }
+      : {}),
+    ...(input.customerState?.recommendationContext
+      ? {
+          recommendation_priority_labels:
+            input.customerState.recommendationContext.priority_labels ?? [],
+          recommendation_priority_signals:
+            input.customerState.recommendationContext.priority_signals ?? [],
+          recommendation_priority_types:
+            input.customerState.recommendationContext.priority_types ?? [],
+          recommendation_used:
+            input.factBundle?.recommendation_used === true ||
+            input.customerState.recommendationContext.loaded === true,
+          recommendation_loaded:
+            input.factBundle?.recommendation_loaded === true ||
+            input.customerState.recommendationContext.loaded === true,
+          has_stored_recommendation_analysis:
+            input.factBundle?.has_stored_recommendation_analysis === true ||
+            input.customerState.recommendationContext.loaded === true,
         }
       : {}),
   };

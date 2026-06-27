@@ -494,6 +494,7 @@ export async function handleHomeBrainFactRequest({
     customerState: {
       question: trimmedQuestion,
       coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
+      recommendationContext: loopResult.customerContextBundle?.recommendationContext ?? null,
       keyOrchestrator: loopResult.modeDecision?.key_orchestrator === true,
       freeThinking: salesDirectorTrace?.conversation_brain?.free_thinking ?? null,
     },

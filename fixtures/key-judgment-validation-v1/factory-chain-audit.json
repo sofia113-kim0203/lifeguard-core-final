@@ -1,0 +1,75 @@
+{
+  "audit": "factory_chain_audit",
+  "authority": "Tom — Factory Chain Audit GO. KEY Judgment Validation remains FROZEN.",
+  "observed_at": "2026-06-27T09:31:52.730Z",
+  "customer_id": "a247a66f-a597-4ccf-9530-761b82518002",
+  "supabase_ref": "inwswsruvvzaeioqkelq",
+  "prior_audit": "factory_availability_audit",
+  "blood_flow_model": [
+    "document",
+    "memory",
+    "analysis_job",
+    "coverage_gap",
+    "underwriting",
+    "recommendation",
+    "KEY"
+  ],
+  "chain": {
+    "document": {
+      "state": "exists",
+      "reason": "customer_documents_present",
+      "document_count": 1,
+      "policy_count": 1
+    },
+    "memory": {
+      "state": "exists",
+      "reason": "customer_memory_facts_present",
+      "memory_fact_count": 1
+    },
+    "analysis_job": {
+      "state": "missing",
+      "reason": "no_analysis_job_ever_created",
+      "job_total": 0,
+      "by_status": {}
+    },
+    "coverage_gap": {
+      "state": "skip",
+      "reason": "analysis_job_never_created",
+      "upstream": "analysis_job"
+    },
+    "underwriting": {
+      "state": "skip",
+      "reason": "analysis_job_never_created",
+      "upstream": "analysis_job"
+    },
+    "recommendation": {
+      "state": "skip",
+      "reason": "analysis_job_never_created",
+      "upstream": "analysis_job"
+    }
+  },
+  "blood_flow": {
+    "flows_to_key": false,
+    "breakpoint": {
+      "step": "analysis_job",
+      "state": "missing",
+      "reason": "no_analysis_job_ever_created"
+    },
+    "interpretation": "Blood flow stops at analysis_job (missing: no_analysis_job_ever_created)"
+  },
+  "breakpoint": {
+    "step": "analysis_job",
+    "state": "missing",
+    "reason": "no_analysis_job_ever_created"
+  },
+  "supplementary": {
+    "document_samples": [],
+    "analysis_jobs_total": 0,
+    "analysis_jobs_by_status": {},
+    "analysis_cache_types": [],
+    "latest_job_preview": null
+  },
+  "errors": [],
+  "judgment_validation_status": "frozen_pending_factory_chain",
+  "note": "Observation only — Jerry does not declare PASS. Separates factory chain break vs KEY judgment."
+}

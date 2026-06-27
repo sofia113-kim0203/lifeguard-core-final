@@ -1,0 +1,201 @@
+{
+  "audit": "utilization_gap_hop_trace_v1",
+  "status": "observation_only",
+  "tom_mission": "j06_coverage_gap_utilization_gap_audit",
+  "terminology": "Utilization Gap (not Disconnect)",
+  "target": {
+    "id": "J06",
+    "axis": "coverage_gap",
+    "level": "J2",
+    "question": "뭐가 빠져 있는지 알려줘.",
+    "baseline_utilization": "loaded_not_used",
+    "display_job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e",
+    "record_count": 13
+  },
+  "controls": {
+    "j04_post_slice": {
+      "id": "J04",
+      "question": "내 보험 부족한 부분 있어?",
+      "note": "Fixed in Slice 1 — coverage_gap_check + tool in plan",
+      "utilization": "used"
+    },
+    "recommendation_guard": {
+      "question": "뭐가 부족해?",
+      "intent": "recommendation_request",
+      "note": "Must stay recommendation_request — not coverage_gap_check"
+    }
+  },
+  "hop_trace": {
+    "factory": {
+      "hop": "Factory",
+      "status": "pass",
+      "code_path": [
+        "analysis_jobs.result_json.coverage_gap",
+        "server/salesDirectorFactoryAudit.js → probeStoredFactoryRecords"
+      ],
+      "evidence": {
+        "available": true,
+        "record_count": 13,
+        "source": "analysis_jobs",
+        "job_id": "fcd4a340-d603-46a6-9919-d5a6793bf49e"
+      }
+    },
+    "resolver": {
+      "hop": "Resolver",
+      "status": "pass",
+      "code_path": [
+        "server/salesDirectorLoop.js → loadSalesDirectorCoverageGapContext",
+        "server/salesDirectorCoverageGapContext.js → buildCoverageGapContextFromPayload"
+      ],
+      "evidence": {
+        "customerContextBundle_coverageGapContext_loaded": true,
+        "note": "Same as J04/J05 — Resolver preload independent of tool plan"
+      }
+    },
+    "manifest": {
+      "hop": "Manifest (KEY tool plan)",
+      "status": "first_utilization_gap_for_audit_flag",
+      "code_path": [
+        "server/intentGateLayer.js → classifyConsultationIntent",
+        "server/salesDirectorKeyToolRegistry.js → shouldAddCoverageGapTool / planKeyTools",
+        "server/salesDirectorKeyOrchestrator.js → factBundle.coverage_gap_used",
+        "server/salesDirectorFactoryAudit.js → engineUsed"
+      ],
+      "j06_analysis": {
+        "label": "J06",
+        "question": "뭐가 빠져 있는지 알려줘.",
+        "classification": {
+          "intent": "coverage_gap_check",
+          "matched_rule": "coverage_gap_check",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": false,
+        "resolved_judgment_intent": "coverage_judgment",
+        "hul_eligible": true,
+        "formatter_eligible": true,
+        "legacy_tool_brain_slice": null,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory",
+            "coverage_gap"
+          ],
+          "coverage_gap_in_plan": true,
+          "coverage_gap_suppressed": false,
+          "coverage_gap_suppress_reason": null
+        },
+        "expected_orchestrator_flags": {
+          "factBundle_coverage_gap_used": true
+        }
+      },
+      "j04_control": {
+        "label": "J04_post_slice_control",
+        "question": "내 보험 부족한 부분 있어?",
+        "classification": {
+          "intent": "coverage_gap_check",
+          "matched_rule": "coverage_gap_check",
+          "lookup_sub_intent": null
+        },
+        "insurance_topic_signal": true,
+        "resolved_judgment_intent": "coverage_judgment",
+        "hul_eligible": true,
+        "formatter_eligible": true,
+        "legacy_tool_brain_slice": null,
+        "key_tool_plan": {
+          "tools": [
+            "snapshot",
+            "memory",
+            "coverage_gap"
+          ],
+          "coverage_gap_in_plan": true,
+          "coverage_gap_suppressed": false,
+          "coverage_gap_suppress_reason": null
+        },
+        "expected_orchestrator_flags": {
+          "factBundle_coverage_gap_used": true
+        }
+      },
+      "root_cause": {
+        "summary": "Same class as pre-slice J04: general_consultation → COVERAGE_GAP omitted → factBundle.coverage_gap_used=false while bundle.loaded=true.",
+        "intent_gap": "isCoverageGapCheck('뭐가 빠져 있는지 알려줘.') is false — GAP_SIGNAL has no '빠져'; question lacks disease/보장/보험 deficiency patterns.",
+        "not_recommendation_request": "RECOMMEND_SIGNAL matches '뭐가\\s*부족' only — '뭐가 빠져' stays general_consultation (guard preserved vs '뭐가 부족해?').",
+        "plan_gap": "shouldAddCoverageGapTool false — no coverage_gap_check intent, no COVERAGE_JUDGMENT_QUESTION_RE match."
+      }
+    },
+    "compose": {
+      "hop": "Compose (HUL / judgment intent)",
+      "status": "secondary_utilization_gap_unique_to_j06",
+      "code_path": [
+        "server/salesDirectorFormatter.js → resolveSalesDirectorJudgmentIntent",
+        "server/humanUnderstandingLoop.js → shouldApplyHumanUnderstandingLoop",
+        "server/homeBrainFactCore.js → finalizeHomeKeyOrchestratorResponse"
+      ],
+      "evidence": {
+        "resolved_judgment_intent": null,
+        "insurance_topic_signal": false,
+        "hul_eligible": false,
+        "answer_mentions_gap": false,
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "judgmentAudit_coverage_gap_fact_count": 0,
+        "answer_signal": false
+      },
+      "contrast_with_j04_pre_slice": {
+        "note": "Pre-slice J04 had '부족' → GENERAL_JUDGMENT_SIGNAL → partial gap phrasing in answer despite manifest gap. J06 has no such lexicon → generic safe answer, zero gap facts."
+      }
+    },
+    "final_answer": {
+      "hop": "Final Answer",
+      "status": "no_semantic_utilization",
+      "code_path": [
+        "server/homeBrainFactCore.js → buildSalesDirectorFactoryAudit (pre-finalize agentTurn)",
+        "server/salesDirectorFactoryAudit.js → buildAnswerEvidence"
+      ],
+      "evidence": {
+        "answer_evidence": [
+          "snapshot",
+          "memory"
+        ],
+        "factory_audit_coverage_gap_used": false,
+        "response_source": "sales_director_key"
+      }
+    }
+  },
+  "comparison_to_j04_slice": {
+    "same": [
+      "Factory available (13 records)",
+      "Resolver preload loaded=true",
+      "Manifest: general_consultation → tools snapshot+memory only",
+      "engineLoaded true / engineUsed false split"
+    ],
+    "different": [
+      "J04 (post-slice): coverage_gap_check → gap tool → used=true",
+      "J06: no insurance topic lexicon → judgment intent null",
+      "J06: no partial gap phrasing in answer (J04 pre-slice had side-channel gap text)",
+      "J06: answer_signal=false, coverage_gap_fact_count=0"
+    ],
+    "verdict": "Primary hop = Manifest (same problem class as pre-slice J04). Secondary hop = Compose/judgment resolution (J06-specific — gap context never shapes answer)."
+  },
+  "first_hop": {
+    "name": "Manifest (KEY tool plan)",
+    "layer": "손발",
+    "same_as_j04_pre_slice": true
+  },
+  "secondary_hop": {
+    "name": "Compose (judgment intent / HUL eligibility)",
+    "layer": "손발+영업부장",
+    "j06_specific": true,
+    "why": "'뭐가 빠져' lacks INSURANCE_TOPIC_SIGNAL and GENERAL_JUDGMENT_SIGNAL → resolveSalesDirectorJudgmentIntent null → no coverage_judgment compose path."
+  },
+  "slice_hint_for_tom": {
+    "primary": "Align gap-shaped 'missing coverage' questions to coverage_gap_check + COVERAGE_GAP tool (Manifest — mirror J04 slice pattern)",
+    "guard": "Do NOT route '뭐가 부족해?' to coverage_gap — keep recommendation_request",
+    "candidate_pattern": "뭐가\\s*빠져|빠져\\s*있 (observation only — Tom decides scope)",
+    "do_not": [
+      "Answer template patch only",
+      "Factory change",
+      "Companion-only fix"
+    ]
+  },
+  "observed_at": "2026-06-27T13:00:59.710Z",
+  "note": "Observation only — Jerry does not declare PASS or Slice GO."
+}

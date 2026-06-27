@@ -1,0 +1,63 @@
+{
+  "id": "key_judgment_validation_rubric_v1",
+  "version": "1.0.0",
+  "status": "unfrozen",
+  "authority": "Tom — ③ Unfreeze GO. KEY utilization only.",
+  "note": "Observation rubric for KEY utilization. Not factory engine evaluation.",
+  "purpose": {
+    "measures": ["used", "honest_absence", "disconnect", "misuse"],
+    "connection": "Factory evidence → KEY answer linkage per question",
+    "does_not_measure": ["coverage_gap_engine_accuracy", "recommendation_algorithm_quality"]
+  },
+  "unfreeze": {
+    "approved_at": "2026-06-27",
+    "approved_by": "Tom",
+    "prior_status": "frozen_pending_factory_audit"
+  },
+  "prior_cycle_closed": "key_customer_validation_v1",
+  "parallel_gate": {
+    "rule": "KEY PRs still require 30Q Customer Validation regression Friction 0",
+    "command": "npm run regression:key-customer-validation-v1"
+  },
+  "judgment_axes": {
+    "memory": {
+      "label": "Memory",
+      "factory_key": "memory",
+      "answer_signals": ["memory_fact_count", "memory_themes_in_answer"],
+      "honest_absence_ok": true
+    },
+    "coverage_gap": {
+      "label": "Coverage Gap",
+      "factory_key": "coverage_gap",
+      "answer_signals": ["coverage_gap_fact_count", "gap_language"],
+      "honest_absence_ok": true
+    },
+    "underwriting": {
+      "label": "Underwriting",
+      "factory_key": "underwriting",
+      "answer_signals": ["limitation_count", "underwriting_language"],
+      "honest_absence_ok": true
+    },
+    "recommendation": {
+      "label": "Recommendation",
+      "factory_key": "recommendation",
+      "answer_signals": ["judgment_count", "recommendation_language"],
+      "honest_absence_ok": true
+    }
+  },
+  "utilization_levels": {
+    "used": "Factory available and used in answer path",
+    "honest_absence": "No stored factory context — KEY states absence without inventing",
+    "disconnect": "Factory loaded/available but answer underuses — linkage gap",
+    "misuse": "Factory available but answer overclaims or ignores boundary without honest absence",
+    "loaded_not_used": "Factory loaded but answer underuses — disconnect",
+    "available_not_loaded": "Factory data exists but not loaded — disconnect",
+    "unavailable": "No factory data for customer — honest limitation acceptable"
+  },
+  "tom_audit_dimensions": [
+    "factory_utilization",
+    "answer_expression",
+    "judgment_vs_limitation",
+    "disconnect_hypothesis"
+  ]
+}

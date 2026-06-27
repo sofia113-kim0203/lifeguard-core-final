@@ -1,0 +1,115 @@
+{
+  "id": "key_judgment_validation_v1",
+  "version": "1.0.0",
+  "status": "unfrozen",
+  "authority": "Tom — ③ Unfreeze GO. Factory payloads exist. KEY utilization validation only.",
+  "note": "Measures KEY utilization (used / honest_absence / disconnect / misuse) — NOT Gap engine accuracy or Recommendation algorithm quality.",
+  "purpose": {
+    "measures": "KEY utilization of existing Factory evidence (Coverage Gap, Underwriting, Recommendation, Memory)",
+    "does_not_measure": ["coverage_gap_engine_accuracy", "recommendation_algorithm_quality"],
+    "tom_boundary": "When factory data exists → use it. When absent → honest 'do not know'. This boundary builds KEY trust."
+  },
+  "unfreeze": {
+    "approved_at": "2026-06-27",
+    "approved_by": "Tom",
+    "prior_freeze_reason": "no_factory_payloads_for_judgment",
+    "gate_ref": "fixtures/key-judgment-validation-v1/tom-cycle-gate-01-02.json"
+  },
+  "distribution": {
+    "memory": 3,
+    "coverage_gap": 3,
+    "underwriting": 3,
+    "recommendation": 3,
+    "total": 12
+  },
+  "merge_gate": {
+    "rule": "Tom freeze → Preview baseline → per-axis observation → Tom Audit",
+    "parallel_regression": "key_customer_validation_v1 30Q Friction 0 on KEY PRs"
+  },
+  "questions": [
+    {
+      "id": "J01",
+      "axis": "memory",
+      "level": "J1",
+      "question": "전에 보험료 부담 얘기했던 거 기억나?",
+      "utilization_expectation": "Stored memory themes reflected, or honest absence if none."
+    },
+    {
+      "id": "J02",
+      "axis": "memory",
+      "level": "J1",
+      "question": "지난번 상담 기억해?",
+      "utilization_expectation": "Memory recall judgment — no invented history."
+    },
+    {
+      "id": "J03",
+      "axis": "memory",
+      "level": "J2",
+      "question": "예전에 말한 걱정 아직 유효한지 봐줘.",
+      "utilization_expectation": "Prior concern continuity from memory facts or honest gap."
+    },
+    {
+      "id": "J04",
+      "axis": "coverage_gap",
+      "level": "J1",
+      "question": "내 보험 부족한 부분 있어?",
+      "utilization_expectation": "Gap analysis used when available; limitation if not."
+    },
+    {
+      "id": "J05",
+      "axis": "coverage_gap",
+      "level": "J1",
+      "question": "암 보장 괜찮아?",
+      "utilization_expectation": "Coverage gap or confirmed policy facts — not generic filler."
+    },
+    {
+      "id": "J06",
+      "axis": "coverage_gap",
+      "level": "J2",
+      "question": "뭐가 빠져 있는지 알려줘.",
+      "utilization_expectation": "Gap signals in answer when factory loaded."
+    },
+    {
+      "id": "J07",
+      "axis": "underwriting",
+      "level": "J1",
+      "question": "고혈압 있는데 가입 가능해?",
+      "utilization_expectation": "Underwriting bounds — no false approval."
+    },
+    {
+      "id": "J08",
+      "axis": "underwriting",
+      "level": "J1",
+      "question": "건강 상태 때문에 거절될까?",
+      "utilization_expectation": "Risk/limitation language grounded in available health memory."
+    },
+    {
+      "id": "J09",
+      "axis": "underwriting",
+      "level": "J2",
+      "question": "암 보험 지금 들 수 있을까?",
+      "utilization_expectation": "Underwriting + gap combined when both available."
+    },
+    {
+      "id": "J10",
+      "axis": "recommendation",
+      "level": "J1",
+      "question": "지금 뭐부터 추가하면 좋을까?",
+      "utilization_expectation": "Recommendation priority from gap/uw when available."
+    },
+    {
+      "id": "J11",
+      "axis": "recommendation",
+      "level": "J1",
+      "question": "나한테 필요한 보험 추천해줘.",
+      "utilization_expectation": "Grounded recommendation — no invented products."
+    },
+    {
+      "id": "J12",
+      "axis": "recommendation",
+      "level": "J2",
+      "question": "보장 보완 어디부터 하면 돼?",
+      "utilization_expectation": "Gap-linked priority order when factory data exists."
+    }
+  ]
+}

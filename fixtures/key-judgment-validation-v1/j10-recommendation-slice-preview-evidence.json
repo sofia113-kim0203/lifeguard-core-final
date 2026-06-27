@@ -1,0 +1,127 @@
+{
+  "audit": "j10_recommendation_slice_preview_evidence_v1",
+  "note": "Observation only — Tom Audit. Jerry does not declare PASS.",
+  "preview_base": "https://lifeguard-core-final-byg4b5scx-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_BPJumSH1x2wHrj1yJwRWQmpBXmoj",
+  "observed_at": "2026-06-27T13:55:30.747Z",
+  "sequence": [
+    "deploy",
+    "J10",
+    "J11-J12",
+    "J04-J09",
+    "12Q",
+    "30Q"
+  ],
+  "j10": {
+    "utilization": {
+      "axis": "recommendation",
+      "level": "used",
+      "factory": {
+        "available": true,
+        "loaded": true,
+        "used": true,
+        "record_count": 2,
+        "source": "analysis_jobs"
+      },
+      "answer_signal": true,
+      "judgment_present": false,
+      "limitation_present": false,
+      "disconnect": null,
+      "hypothesis": "A_partial",
+      "hypothesis_label": "일부 공장만 연결됨 — 추가 실측 필요"
+    },
+    "recommendation_factory": {
+      "available": true,
+      "loaded": true,
+      "used": true,
+      "record_count": 2,
+      "source": "analysis_jobs"
+    },
+    "answer_evidence": [
+      "snapshot",
+      "memory",
+      "recommendation"
+    ],
+    "answerText": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "responseSource": "sales_director_key",
+    "scan": {
+      "forbidden": [],
+      "top3_plus": false
+    }
+  },
+  "j11_j12_guarded_hold": {
+    "J11": {
+      "responseSource": "sales_director_guarded_hold",
+      "utilization": "loaded_not_used",
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요."
+    },
+    "J12": {
+      "responseSource": "sales_director_guarded_hold",
+      "utilization": "loaded_not_used",
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요."
+    }
+  },
+  "regression_j04_j09": {
+    "J04": "used",
+    "J05": "used",
+    "J06": "used",
+    "J07": "used",
+    "J08": "used",
+    "J09": "used"
+  },
+  "judgment_bank_12q": {
+    "questions_probed": 12,
+    "probe_ok": "12/12",
+    "disconnect_count": 2,
+    "misuse_count": 0,
+    "by_axis": {
+      "memory": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "coverage_gap": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "underwriting": {
+        "total": 3,
+        "used": 3,
+        "honest_absence": 0,
+        "disconnect": 0,
+        "misuse": 0,
+        "unavailable": 0
+      },
+      "recommendation": {
+        "total": 3,
+        "used": 1,
+        "honest_absence": 0,
+        "disconnect": 2,
+        "misuse": 0,
+        "unavailable": 0
+      }
+    },
+    "factory_hypothesis_summary": {
+      "A": 5,
+      "A_partial": 7
+    }
+  },
+  "customer_30q": {
+    "same_key": "5/5",
+    "trust": "5/5",
+    "continuity": "5/5",
+    "role_split": "0/5",
+    "friction": "0건"
+  },
+  "tom_watch": {
+    "j10_answer_vs_used_flag": true,
+    "note": "used=true but answer uses honest-absence branch — Tom verify compose/label merge"
+  }
+}

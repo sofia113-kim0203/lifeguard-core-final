@@ -1,0 +1,151 @@
+{
+  "audit": "analysis_job_trigger_audit",
+  "authority": "Tom GO — Analysis Job Trigger Audit. KEY Judgment Validation FROZEN.",
+  "observed_at": "2026-06-27T11:56:29.822Z",
+  "staging_ref": "inwswsruvvzaeioqkelq",
+  "preview_base": "https://lifeguard-core-final-f2dr3qccw-70sofia113-1918s-projects.vercel.app",
+  "trigger_map": [
+    {
+      "trigger": "document_upload_pipeline",
+      "event": "After OCR + policy extraction succeeds",
+      "client": "src/hooks/useCustomerDocumentUpload.js → runPostDocumentPipelineRefresh()",
+      "api": "POST /api/customer-document-analysis-refresh",
+      "server": "server/documentPolicyAnalysisRefresh.js → handleDocumentPolicyAnalysisRefreshRequest()",
+      "inserts_analysis_job": true,
+      "insert_condition": "Always when handler runs (requires SERVICE_ROLE_KEY on server)",
+      "also_runs": "runAnalysisJobToCompletion() inline after insert",
+      "notes": "Extract-only (/api/customer-document-policy-extract) does NOT insert jobs."
+    },
+    {
+      "trigger": "customer_analysis_request",
+      "event": "Legacy dashboard chat sends a question",
+      "client": "src/lib/customerConversations.js → sendConversationalQuestion()",
+      "api": "POST /api/customer-conversational-qa",
+      "server": "server/conversationalBackgroundAnalysisCore.js → handleConversationalQuestionRequest()",
+      "inserts_analysis_job": "conditional",
+      "insert_condition": "Inserts unless skipped: tom_gap_light (coverage_gap_check), casual_chat, advisorStoredOnlyMode, centralBrain skip_analysis_job, or SERVICE_ROLE missing",
+      "also_runs": "Client may poll POST /api/customer-analysis-job (process) — no insert",
+      "notes": "Primary KEY UI (LifeguardHomeChat) does NOT use this route."
+    },
+    {
+      "trigger": "key_home_chat",
+      "event": "Customer asks LIFEGUARD on home screen",
+      "client": "src/components/LifeguardHomeChat.jsx → fetchHomeBrainFactStream()",
+      "api": "POST /api/customer-home-brain-fact",
+      "server": "server/homeBrainFactCore.js → handleHomeBrainFactRequest()",
+      "inserts_analysis_job": false,
+      "insert_condition": "Read-only JWT path by design — no analysis_jobs writes",
+      "also_runs": "Sales Director KEY orchestrator reads stored factory data",
+      "notes": "This is the current customer-facing KEY path on Preview."
+    },
+    {
+      "trigger": "recommendation_request",
+      "event": "Recommendation / UW / design panel hydration",
+      "client": "src/lib/customerRecommendations.js, customerUnderwritingRisk.js, customerInsuranceDesign.js",
+      "api": "POST /api/customer-recommendations (+ underwriting-risk, insurance-design)",
+      "server": "server/customerRecommendationCore.js (and siblings)",
+      "inserts_analysis_job": false,
+      "insert_condition": "Reads coverage_gap / UW from stored analysis_jobs or cache — does not create jobs",
+      "also_runs": null,
+      "notes": "Panel APIs consume factory output; they are not job triggers."
+    },
+    {
+      "trigger": "background_worker",
+      "event": "Vercel cron every 2 minutes",
+      "client": null,
+      "api": "GET/POST /api/analysis-jobs-runner (CRON_SECRET)",
+      "server": "api/analysis-jobs-runner.js → lifeguard_claim_analysis_jobs RPC + runAnalysisJobToCompletion()",
+      "inserts_analysis_job": false,
+      "insert_condition": "Claims existing queued/processing jobs only — cannot create from zero",
+      "also_runs": "vercel.json crons — requires existing rows in analysis_jobs",
+      "notes": "Autopilot processes stale jobs; not a creation trigger."
+    }
+  ],
+  "staging_db": {
+    "auth": "service_role",
+    "analysis_jobs_total": 0,
+    "qa_customer_jobs": 0
+  },
+  "preview_probes": [
+    {
+      "probe": "preview_access",
+      "bypass_secret_set": true
+    },
+    {
+      "probe": "preview_serverless_env",
+      "status": 200,
+      "bindings": {
+        "SUPABASE_URL": {
+          "set": true,
+          "ref": "inwswsruvvzaeioqkelq"
+        },
+        "SUPABASE_ANON_KEY": {
+          "set": true,
+          "len": 208
+        },
+        "VITE_SUPABASE_URL": {
+          "set": true,
+          "ref": "fhvlxcguvjvtftttfrix"
+        },
+        "VITE_SUPABASE_ANON_KEY": {
+          "set": true,
+          "len": 46
+        }
+      },
+      "staging_ref_match": true
+    },
+    {
+      "probe": "key_home_brain_fact",
+      "route": "/api/customer-home-brain-fact",
+      "status": 200,
+      "ok": true,
+      "sales_director_loop": true,
+      "creates_job_by_design": false,
+      "reason": null
+    },
+    {
+      "probe": "legacy_conversational_qa",
+      "route": "/api/customer-conversational-qa",
+      "status": 500,
+      "ok": false,
+      "job_skipped": null,
+      "analysis_job_id": null,
+      "reason": "SERVER_ERROR",
+      "error_message": "profile_lookup_failed: Invalid API key",
+      "tom_gap_light_path": null
+    },
+    {
+      "probe": "document_analysis_refresh",
+      "route": "/api/customer-document-analysis-refresh",
+      "status": 500,
+      "ok": false,
+      "analysis_job_id": null,
+      "reason": "analysis_refresh_failed",
+      "error_message": "analysis_cache_load_failed: Invalid API key"
+    },
+    {
+      "probe": "recommendation_panel",
+      "route": "/api/customer-recommendations",
+      "status": 200,
+      "ok": true,
+      "creates_job_by_design": false,
+      "reason": null
+    }
+  ],
+  "synthesis": [
+    "KEY home chat (/api/customer-home-brain-fact) returned 200 — current Preview KEY path does not create analysis_jobs by design.",
+    "Preview env mismatch: SUPABASE_URL=inwswsruvvzaeioqkelq but VITE_SUPABASE_URL=fhvlxcguvjvtftttfrix.",
+    "Job-insert APIs reached Preview but failed with Invalid API key — likely SERVICE_ROLE_KEY / Supabase project mismatch on serverless (not a KEY bug).",
+    "Background cron (/api/analysis-jobs-runner) only processes existing queued jobs — cannot explain zero rows alone.",
+    "Document upload pipeline would call /api/customer-document-analysis-refresh after extract — same insert path as direct refresh probe."
+  ],
+  "judgment_validation_status": "frozen_pending_blood_flow",
+  "note": "Observation only — Jerry does not declare PASS.",
+  "job_count_deltas": {
+    "qa_customer": "a247a66f-a597-4ccf-9530-761b82518002",
+    "before": 0,
+    "after_home_brain": 0,
+    "after_conversational_qa": 0,
+    "after_document_refresh": 0
+  }
+}
