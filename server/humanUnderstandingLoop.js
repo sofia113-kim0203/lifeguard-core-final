@@ -9,6 +9,11 @@ import {
   violatesManualTemplate,
 } from "./salesDirectorFreeThinking.js";
 import {
+  buildKeyClosingResponse,
+  isKeyClosingTurn,
+  resolveKeyClosingConversationPattern,
+} from "./keyConversationPatterns.js";
+import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
   STATEMENT_BASIS,
@@ -406,6 +411,13 @@ export function buildKeyAnalysisStatusResponse(factBundle = {}, question = "") {
     `가입 보험은 보이는데, 보장 분석 결과는 아직 같이 볼 단계예요. ${KEY_DECLARATIVE_NEXT_ACTIONS.information_gap}`,
   );
 }
+
+export {
+  isKeyClosingTurn,
+  buildKeyClosingResponse,
+  KEY_CONVERSATION_PATTERNS,
+  matchKeyConversationPattern,
+} from "./keyConversationPatterns.js";
 
 export function shouldUseKeyRelationalCompose({
   question = "",
@@ -985,9 +997,15 @@ export function generateHumanSalesDirectorResponse({
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
     const useAnalysisStatus =
       !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
+    const useClosing =
+      !fixedSlice && !useAnalysisStatus && isKeyClosingTurn(question || factBundle.question || "");
+    const closingPattern = useClosing
+      ? resolveKeyClosingConversationPattern(question || factBundle.question || "")
+      : null;
     const useRelational =
       !fixedSlice &&
       !useAnalysisStatus &&
+      !useClosing &&
       shouldUseKeyRelationalCompose({
         question,
         classificationIntent: resolvedClassificationIntent,
@@ -996,9 +1014,11 @@ export function generateHumanSalesDirectorResponse({
       });
     text = useAnalysisStatus
       ? buildKeyAnalysisStatusResponse(factBundle, question)
-      : useRelational
-        ? buildKeyRelationalResponse(humanFrame, question)
-        : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+      : useClosing
+        ? (closingPattern?.text ?? buildKeyClosingResponse(question))
+        : useRelational
+          ? buildKeyRelationalResponse(humanFrame, question)
+          : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
@@ -1006,12 +1026,16 @@ export function generateHumanSalesDirectorResponse({
       used_safe_fallback: false,
       compose_mode: useAnalysisStatus
         ? "key_analysis_status"
-        : useRelational
-          ? "key_relational"
-          : fixedSlice
-            ? "tool_brain_fixed_slots"
-            : "key_structured",
+        : useClosing
+          ? "key_closing"
+          : useRelational
+            ? "key_relational"
+            : fixedSlice
+              ? "tool_brain_fixed_slots"
+              : "key_structured",
       absorbed_slice: fixedSlice,
+      conversation_pattern_id: closingPattern?.pattern_id ?? null,
+      conversation_pattern_kind: closingPattern?.kind ?? null,
     };
   } else {
     text =
@@ -1053,7 +1077,9 @@ export function generateHumanSalesDirectorResponse({
             )
           : isKeyAnalysisStatusQuestion(question || factBundle.question || "")
             ? buildKeyAnalysisStatusResponse(factBundle, question)
-            : shouldUseKeyRelationalCompose({
+            : isKeyClosingTurn(question || factBundle.question || "")
+              ? buildKeyClosingResponse(question)
+              : shouldUseKeyRelationalCompose({
               question,
               classificationIntent: resolvedClassificationIntent,
               factBundle,
