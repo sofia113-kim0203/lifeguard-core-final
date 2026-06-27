@@ -117,6 +117,34 @@ export const KEY_CONVERSATION_PATTERNS = [
     },
   },
   {
+    id: "closing_insurance_check_goodnight",
+    kind: "conversation_pattern",
+    scene: "J",
+    reason:
+      "Customer closes the day mentioning insurance check — KEY stays warm and defers depth, not generic filler.",
+    compose_mode: "key_closing",
+    match(q) {
+      if (!hasClosingSignal(q)) return false;
+      if (!/보험/.test(q)) return false;
+      if (
+        /(?:내일|나중|다음에|오늘은\s*그만).{0,16}(?:보험|이야기)|(?:보험|이야기).{0,16}(?:내일|나중|다음에|이어)/.test(
+          q,
+        )
+      ) {
+        return false;
+      }
+      return /(?:확인|볼|점검|체크)/.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "네, 보험 쪽은 편할 때 이어가도 됩니다. 오늘은 편히 쉬세요.",
+          "네, 보험 이야기는 내일 이어가도 됩니다. 편안한 밤 보내세요.",
+        ]),
+      );
+    },
+  },
+  {
     id: "closing_goodnight",
     kind: "conversation_pattern",
     scene: "J",
