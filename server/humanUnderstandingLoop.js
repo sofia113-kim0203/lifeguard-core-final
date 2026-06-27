@@ -93,6 +93,13 @@ export const P9_2_FORBIDDEN_OUTPUT_PATTERNS = [
 const INSURANCE_TOPIC =
   /보험|보험료|보장|암|실손|담보|청구|보험금|해지|중복|유지|사고|운전자|부족|괜찮|비싸|부담|놓친/i;
 
+/** Life / emotion turns — KEY listens first (Order 0.5 Scene B/C). */
+const KEY_RELATIONAL_LIFE_SIGNAL =
+  /피곤|지쳤|힘들(?:어|다)|수면|잠\s*못|우울|스트레스|아버지|어머니|배우자|가족|(?:아이|자녀).{0,8}(?:아프|아퍼|편찮)/;
+
+const KEY_RELATIONAL_INSURANCE_PUSH_RE =
+  /보험(?:을|이)?\s*(?:가입|들|추천|설계|정리|볼)|보장(?:을|이)?\s*(?:추천|설계)|가입(?:을|하)/;
+
 /** KEY compose — declarative ending only. */
 export const KEY_QUESTION_ENDING_RE =
   /[?？]$|할까요|볼까요|알려주(?:실|시)|말씀해\s*주(?:실|시)|여쭤|궁금하(?:신|세요)/;
@@ -356,6 +363,64 @@ export function enforceKeyDeclarativeEnding(text = "", mainBlocker = "") {
 
   const trimmed = sentences.slice(0, -1).join(" ");
   return normalizeText(`${trimmed} ${nextAction}`);
+}
+
+export function shouldUseKeyRelationalCompose({
+  question = "",
+  classificationIntent = "",
+  factBundle = {},
+  humanFrame = {},
+} = {}) {
+  if (resolveToolBrainFixedSlice(factBundle)) return false;
+
+  const q = normalizeQuestion(question || humanFrame.surface_question || factBundle.question || "");
+  if (!q) return false;
+  if (humanFrame.needs_insurance_tools) return false;
+  if (INSURANCE_TOPIC.test(q)) return false;
+
+  if (humanFrame.is_trust_human_question) return true;
+  if (classificationIntent === "casual_chat") return true;
+  if (KEY_RELATIONAL_LIFE_SIGNAL.test(q)) return true;
+
+  return false;
+}
+
+export function buildKeyRelationalResponse(humanFrame = {}, question = "") {
+  if (humanFrame.is_trust_human_question) {
+    return buildTrustResponse(humanFrame);
+  }
+
+  const q = normalizeQuestion(question || humanFrame.surface_question || "");
+
+  if (/피곤|지쳤|힘들/.test(q)) {
+    return normalizeText(
+      pickVariant(q, [
+        "요즘 많이 피곤하시겠어요. 무리하고 계신 건 아닌지 먼저 짚어보면 좋겠어요.",
+        "많이 지치신 것 같아요. 편하실 때 이어가도 됩니다.",
+      ]),
+    );
+  }
+
+  if (/아버지|어머니|배우자|가족|아이|자녀/.test(q) && /편찮|아프|수술|입원|병원/.test(q)) {
+    return normalizeText(
+      pickVariant(q, [
+        "가족 걱정이 크시겠어요. 지금 상황부터 천천히 같이 정리해도 됩니다.",
+        "힘드신 상황이시겠어요. 지금은 상황부터 같이 짚어도 됩니다.",
+      ]),
+    );
+  }
+
+  return normalizeText(
+    [
+      humanFrame.recommended_first_sentence,
+      pickVariant(q, [
+        "지금은 판단보다 이야기부터 같이 해도 됩니다.",
+        "천천히 맞춰가면 됩니다.",
+      ]),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 }
 
 /**
@@ -856,6 +921,7 @@ export function generateHumanSalesDirectorResponse({
   question = "",
   intent = null,
   factBundle = {},
+  classificationIntent = "",
 } = {}) {
   const useKeyOrchestrator = shouldUseKeyOrchestratorCompose(guardrails, factBundle);
   const resolvedIntent = intent ?? humanFrame.resolved_intent;
@@ -869,22 +935,40 @@ export function generateHumanSalesDirectorResponse({
     absorbed_slice: null,
   };
 
-  let text = useKeyOrchestrator
-    ? buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent })
-    : humanFrame.is_trust_human_question && !humanFrame.needs_insurance_tools
-      ? buildTrustResponse(humanFrame)
-      : buildInsuranceNaturalResponse(humanFrame, basisTaggedFacts, factBundle);
+  const resolvedClassificationIntent =
+    classificationIntent || factBundle.classification_intent || "";
 
+  let text;
   if (useKeyOrchestrator) {
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+    const useRelational =
+      !fixedSlice &&
+      shouldUseKeyRelationalCompose({
+        question,
+        classificationIntent: resolvedClassificationIntent,
+        factBundle,
+        humanFrame,
+      });
+    text = useRelational
+      ? buildKeyRelationalResponse(humanFrame, question)
+      : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
       text_preview: String(text ?? "").slice(0, 300),
       used_safe_fallback: false,
-      compose_mode: fixedSlice ? "tool_brain_fixed_slots" : "key_structured",
+      compose_mode: useRelational
+        ? "key_relational"
+        : fixedSlice
+          ? "tool_brain_fixed_slots"
+          : "key_structured",
       absorbed_slice: fixedSlice,
     };
+  } else {
+    text =
+      humanFrame.is_trust_human_question && !humanFrame.needs_insurance_tools
+        ? buildTrustResponse(humanFrame)
+        : buildInsuranceNaturalResponse(humanFrame, basisTaggedFacts, factBundle);
   }
 
   if (
@@ -918,9 +1002,16 @@ export function generateHumanSalesDirectorResponse({
               factBundle,
               humanFrame,
             )
-          : buildKeyStructuredResponseSafe(humanFrame, basisTaggedFacts, factBundle, {
-              resolvedIntent,
-            }),
+          : shouldUseKeyRelationalCompose({
+              question,
+              classificationIntent: resolvedClassificationIntent,
+              factBundle,
+              humanFrame,
+            })
+            ? buildKeyRelationalResponse(humanFrame, question)
+            : buildKeyStructuredResponseSafe(humanFrame, basisTaggedFacts, factBundle, {
+                resolvedIntent,
+              }),
       );
       keyComposeTrace.used_safe_fallback = true;
       keyComposeTrace.text_preview = String(text ?? "").slice(0, 300);
@@ -1162,6 +1253,7 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     question,
     intent: resolvedIntent,
     factBundle: enrichedBundle,
+    classificationIntent,
   });
 
   return {
