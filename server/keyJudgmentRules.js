@@ -427,18 +427,78 @@ function buildUnderwritingBoundJudgment({ question = "", factBundle = {} } = {})
   return "가입 가능 여부는 단정할 수 없습니다. 건강 관련 정보와 인수 기준 확인이 먼저 필요합니다.";
 }
 
+function hasRecommendationBurdenSignal(factBundle = {}) {
+  if (factBundle.recommendation_premium_burden_stated === true) return true;
+  return (factBundle.recommendation_budget_considerations ?? []).some((text) =>
+    /부담/.test(String(text ?? "")),
+  );
+}
+
+function buildRecommendationBurdenAckPrefix() {
+  return "보험료 부담을 말씀해 주신 것은 기억하고 있어요. 그래서 새로운 보장 추가보다, 지금 가지고 계신 보장부터 같이 살펴보는 편이 맞습니다.";
+}
+
 function buildRecommendationPriorityJudgment({ question = "", factBundle = {} } = {}) {
   const labels = factBundle.recommendation_priority_labels ?? [];
   const hasStored =
     factBundle.recommendation_used === true || factBundle.has_stored_recommendation_analysis === true;
+  const burdenPrefix = hasRecommendationBurdenSignal(factBundle)
+    ? `${buildRecommendationBurdenAckPrefix()} `
+    : "";
 
   if (hasStored && labels.length >= 2) {
-    return `저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]}과 ${labels[1]}입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
+    return `${burdenPrefix}저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]}과 ${labels[1]}입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
   }
   if (hasStored && labels.length === 1) {
-    return `저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]} 쪽입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
+    return `${burdenPrefix}저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]} 쪽입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
   }
   return "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다.";
+}
+
+function buildDesignPriorityJudgment({ factBundle = {} } = {}) {
+  const labels = (factBundle.design_priority_coverages ?? []).filter(Boolean);
+  const hasStored =
+    factBundle.design_used === true || factBundle.has_stored_design_analysis === true;
+
+  if (hasStored && labels.length >= 2) {
+    return `저장된 설계 기준으로, 지금 우선 같이 짚을 축은 ${joinCoverageLabels(labels.slice(0, 2))}입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
+  }
+  if (hasStored && labels.length === 1) {
+    return `저장된 설계 기준으로, 지금 우선 같이 짚을 축은 ${labels[0]} 쪽입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
+  }
+  if (hasStored) {
+    return "저장된 설계 자료는 확인됐어요. 우선순위 축부터 같이 보면 됩니다.";
+  }
+  return "저장된 설계 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다.";
+}
+
+function buildDesignReviewJudgment({ factBundle = {} } = {}) {
+  const hasStored =
+    factBundle.design_used === true || factBundle.has_stored_design_analysis === true;
+  const title = factBundle.design_title ?? null;
+  const summary = factBundle.design_summary ?? null;
+  const keep = (factBundle.design_keep_coverages ?? []).filter(Boolean).slice(0, 2);
+
+  if (!hasStored) {
+    return "저장된 설계안이 아직 없어, 지금은 현재 보유 계약부터 같이 정리하면 됩니다.";
+  }
+
+  const parts = [];
+  if (title && summary) {
+    parts.push(`저장된 설계(${title}) 요약은 "${summary}"입니다.`);
+  } else if (summary) {
+    parts.push(`저장된 설계 요약은 "${summary}"입니다.`);
+  } else if (title) {
+    parts.push(`저장된 설계(${title}) 자료는 확인됐어요. 세부 구조는 같이 봐야 합니다.`);
+  } else {
+    parts.push("저장된 설계 자료는 확인됐어요. 요약부터 같이 보면 됩니다.");
+  }
+
+  if (keep.length > 0) {
+    parts.push(`유지 축으로는 ${joinCoverageLabels(keep)} 쪽이 보입니다.`);
+  }
+
+  return parts.join(" ");
 }
 
 /** @type {Array<{ id: string, kind: "judgment_rule", scene: string, reason: string, match: (ctx: object) => boolean, buildJudgment: (ctx?: object) => string }>} */
@@ -779,6 +839,32 @@ export const KEY_JUDGMENT_RULES = [
       return buildRecommendationPriorityJudgment(ctx);
     },
   },
+  {
+    id: "design_priority_judgment",
+    kind: "judgment_rule",
+    scene: "D",
+    reason:
+      "Customer asks stored design priority — KEY cites design_priority_coverages only, never product enrollment.",
+    match({ classificationIntent = "" } = {}) {
+      return classificationIntent === "design_priority_check";
+    },
+    buildJudgment(ctx = {}) {
+      return buildDesignPriorityJudgment(ctx);
+    },
+  },
+  {
+    id: "design_review_judgment",
+    kind: "judgment_rule",
+    scene: "D",
+    reason:
+      "Customer asks to review stored design — KEY readbacks title/summary/keep only, never binding plan approval.",
+    match({ classificationIntent = "" } = {}) {
+      return classificationIntent === "design_review_check";
+    },
+    buildJudgment(ctx = {}) {
+      return buildDesignReviewJudgment(ctx);
+    },
+  },
 ];
 
 export function resolveKeyJudgmentRule(ctx = {}) {
@@ -799,4 +885,5 @@ export {
   resolveMemoryFactsFromBundle,
   buildMemoryRecallJudgment,
   buildClaimReceiveEligibilityJudgment,
+  buildRecommendationPriorityJudgment,
 };

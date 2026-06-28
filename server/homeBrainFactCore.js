@@ -495,6 +495,8 @@ export async function handleHomeBrainFactRequest({
       question: trimmedQuestion,
       coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
       recommendationContext: loopResult.customerContextBundle?.recommendationContext ?? null,
+      underwritingRiskContext: loopResult.customerContextBundle?.underwritingRiskContext ?? null,
+      designContext: loopResult.customerContextBundle?.designContext ?? null,
       keyOrchestrator: loopResult.modeDecision?.key_orchestrator === true,
       freeThinking: salesDirectorTrace?.conversation_brain?.free_thinking ?? null,
     },

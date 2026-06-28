@@ -38,6 +38,8 @@ export const CONSULTATION_INTENTS = [
   "coverage_review_request",
   "recommendation_request",
   "design_request",
+  "design_review_check",
+  "design_priority_check",
   "general_consultation",
 ];
 
@@ -176,6 +178,53 @@ function isRecommendationPriorityCheck(text) {
   return false;
 }
 
+/** J-DESIGN-SUBINTENT — stored design anchor required before sub-intent classification. */
+export function hasStoredDesignAnchor(text = "") {
+  const normalized = normalizeQuestion(text);
+  if (/설계\s*해|설계해|보험\s*설계\s*해/.test(normalized)) return false;
+  return /(?:저장된\s*)?설계(?:안)?|내\s*설계(?:안)?/.test(normalized);
+}
+
+function isRebalancingSignal(text = "") {
+  const normalized = normalizeQuestion(text);
+  return /리밸런싱|재구성|갈아\s*타|갈아타|포트폴리오\s*(?:재|바|줄)|해지.{0,8}(?:다시|재|후).{0,8}(?:짜|가입|구성)/.test(
+    normalized,
+  );
+}
+
+function isDesignGenerativeRequest(text = "") {
+  const normalized = normalizeQuestion(text);
+  if (/설계\s*해|설계해|보험\s*설계(?:\s*해)?/.test(normalized)) return true;
+  if (/플랜\s*짜|새로\s*짜|만들어(?:\s*줘)?|구성해/.test(normalized)) return true;
+  if (/월\s*보험료|예산.{0,6}(?:맞|기준|으로)/.test(normalized)) return true;
+  if (/가입\s*설계|상품\s*조합/.test(normalized)) return true;
+  if (!hasStoredDesignAnchor(normalized) && DESIGN_SIGNAL.test(normalized)) return true;
+  if (!hasStoredDesignAnchor(normalized) && DESIGN_REVIEW_SIGNAL.test(normalized)) return true;
+  return false;
+}
+
+/** J-DESIGN-SUBINTENT — J10 analog for stored design priority read. */
+export function isDesignPriorityCheck(text = "") {
+  const normalized = normalizeQuestion(text);
+  if (!hasStoredDesignAnchor(normalized)) return false;
+  if (/설계\s*해|짜|만들|새로/.test(normalized)) return false;
+  if (/재구성|리밸런싱|포트폴리오/.test(normalized)) return false;
+  if (/가입|추천|추천해/.test(normalized)) return false;
+  if (/예산.{0,6}(?:맞|으로|기준)/.test(normalized)) return false;
+  return /(?:우선순위|뭐부터|먼저\s*준비|준비할|준비하면)/.test(normalized);
+}
+
+/** J-DESIGN-SUBINTENT — stored design summary / keep review. */
+export function isDesignReviewCheck(text = "") {
+  const normalized = normalizeQuestion(text);
+  if (!hasStoredDesignAnchor(normalized)) return false;
+  if (/설계\s*해|짜|만들|새로/.test(normalized)) return false;
+  if (/재구성|리밸런싱|포트폴리오/.test(normalized)) return false;
+  if (/가입|추천/.test(normalized)) return false;
+  if (/우선순위|뭐부터|먼저\s*준비/.test(normalized)) return false;
+  return /(?:다시\s*)?봐(?:줘)?|(?:요약|정리|유지)|(?:알려|말해).{0,6}(?:줘|주)/.test(normalized);
+}
+
 function isUnderwritingBoundCheck(text) {
   if (RECOMMEND_SIGNAL.test(text) && !/(?:고혈압|당뇨|건강|질병|거절|인수)/.test(text)) {
     return false;
@@ -193,6 +242,15 @@ function isUnderwritingBoundCheck(text) {
 
   if (
     /(?:암|실손|운전자|뇌|심장).{0,20}(?:들\s*수|지금\s*가입|새로\s*가입|가입\s*(?:가능|돼))/.test(text) &&
+    !/(?:있(?:어|나|음|습)?|보유|가입(?:된|한|중)|들어\s*있)/.test(text)
+  ) {
+    return true;
+  }
+
+  if (/가입할\s*생각\s*없/.test(text)) return false;
+
+  if (
+    enrollmentBound &&
     !/(?:있(?:어|나|음|습)?|보유|가입(?:된|한|중)|들어\s*있)/.test(text)
   ) {
     return true;
@@ -300,11 +358,44 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
-  if (DESIGN_SIGNAL.test(text) || DESIGN_REVIEW_SIGNAL.test(text)) {
+  if (isRebalancingSignal(text)) {
     return {
       intent: "design_request",
       confidence: "high",
-      matched_rule: "design_request",
+      matched_rule: "rebalancing_signal",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  if (isDesignGenerativeRequest(text)) {
+    return {
+      intent: "design_request",
+      confidence: "high",
+      matched_rule: "design_request_generative",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  if (isDesignPriorityCheck(text)) {
+    return {
+      intent: "design_priority_check",
+      confidence: "high",
+      matched_rule: "design_priority_check",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  if (isDesignReviewCheck(text)) {
+    return {
+      intent: "design_review_check",
+      confidence: "high",
+      matched_rule: "design_review_check",
       lookup_sub_intent: null,
       lookup_category: null,
       question_focus: text,
