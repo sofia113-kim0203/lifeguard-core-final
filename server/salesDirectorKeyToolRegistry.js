@@ -1,11 +1,12 @@
 /**
  * P10-1 — Sales Director KEY tool registry (Factories = tools).
- * Snapshot / Memory / Coverage Gap / Underwriting / Recommendation (stored read) / Premium only.
+ * Snapshot / Memory / Coverage Gap / Underwriting / Recommendation / Design (stored read) / Premium.
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
+import { buildEmptyDesignContext } from "./salesDirectorInsuranceDesignContext.js";
 import {
   matchToolBrainSliceQuestion,
   SALES_DIRECTOR_TOOL_BRAIN_SLICES,
@@ -26,6 +27,7 @@ export const KEY_TOOLS = {
   COVERAGE_GAP: "coverage_gap",
   UNDERWRITING: "underwriting",
   RECOMMENDATION: "recommendation",
+  DESIGN: "design",
   PREMIUM_STATS: "premium_stats",
 };
 
@@ -143,6 +145,40 @@ function shouldAddRecommendationTool(classification = {}, question = "") {
   return true;
 }
 
+/** J-DESIGN-KEY-TOOL — stored-read design sub-intents only (preloaded context). */
+function shouldAddDesignTool(classification = {}) {
+  const intent = classification.intent ?? "";
+  if (intent === "design_priority_check" || intent === "design_review_check") return true;
+  if (intent === "design_request") return false;
+  return false;
+}
+
+function runDesignTool({ existingDesignContext = null } = {}) {
+  if (existingDesignContext?.loaded) {
+    const hasPriority = (existingDesignContext.priority_coverages ?? []).length > 0;
+    const hasReview =
+      Boolean(existingDesignContext.design_summary) ||
+      (existingDesignContext.keep_existing_coverages ?? []).length > 0;
+    return {
+      ok: true,
+      tool: KEY_TOOLS.DESIGN,
+      design_context: existingDesignContext,
+      design_used: hasPriority || hasReview || existingDesignContext.record_count > 0,
+      design_loaded: true,
+      source: "preloaded",
+    };
+  }
+
+  return {
+    ok: true,
+    tool: KEY_TOOLS.DESIGN,
+    design_context: existingDesignContext ?? buildEmptyDesignContext(),
+    design_used: false,
+    design_loaded: false,
+    source: "preloaded_absent",
+  };
+}
+
 /**
  * Intent-aware tool plan — P11-2D Tool Brain slice parity via matchToolBrainSliceQuestion.
  */
@@ -195,6 +231,10 @@ export function planKeyTools(classification = {}, loadedContext = null, question
 
   if (shouldAddRecommendationTool(classification, question)) {
     tools.push(KEY_TOOLS.RECOMMENDATION);
+  }
+
+  if (shouldAddDesignTool(classification)) {
+    tools.push(KEY_TOOLS.DESIGN);
   }
 
   if (
@@ -463,6 +503,7 @@ export async function runKeyTools({
   existingGapContext = null,
   existingUnderwritingContext = null,
   existingRecommendationContext = null,
+  existingDesignContext = null,
   unified = null,
 } = {}) {
   if (!plan?.tools?.length) {
@@ -483,6 +524,7 @@ export async function runKeyTools({
     existingUnderwritingContext ?? customerContextBundle?.underwritingRiskContext ?? null;
   let recommendationContext =
     existingRecommendationContext ?? customerContextBundle?.recommendationContext ?? null;
+  let designContext = existingDesignContext ?? customerContextBundle?.designContext ?? null;
   let snapshot_used = false;
   let memory_used = false;
   let premium_used = false;
@@ -491,6 +533,8 @@ export async function runKeyTools({
   let underwriting_loaded = false;
   let recommendation_used = false;
   let recommendation_loaded = false;
+  let design_used = false;
+  let design_loaded = false;
 
   const needsGap = plan.tools.includes(KEY_TOOLS.COVERAGE_GAP);
   const needsUnderwriting = plan.tools.includes(KEY_TOOLS.UNDERWRITING);
@@ -541,6 +585,15 @@ export async function runKeyTools({
       tools_called.push(tool);
       premium_stats = result.premium_stats;
       premium_used = result.premium_used === true;
+      continue;
+    }
+    if (tool === KEY_TOOLS.DESIGN) {
+      const result = runDesignTool({ existingDesignContext: designContext });
+      tool_results.push(result);
+      tools_called.push(tool);
+      designContext = result.design_context ?? designContext;
+      design_used = result.design_used === true;
+      design_loaded = result.design_loaded === true;
     }
   }
 
@@ -605,6 +658,7 @@ export async function runKeyTools({
     coverageGapContext,
     underwritingContext,
     recommendationContext,
+    designContext,
     snapshot_used,
     memory_used,
     premium_used,
@@ -613,6 +667,8 @@ export async function runKeyTools({
     underwriting_loaded,
     recommendation_used,
     recommendation_loaded,
+    design_used,
+    design_loaded,
     trace: {
       status: "p10_1_key_skeleton",
       plan,
@@ -625,6 +681,8 @@ export async function runKeyTools({
       underwriting_loaded,
       recommendation_used,
       recommendation_loaded,
+      design_used,
+      design_loaded,
       coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
       coverage_gap_suppress_reason: plan?.coverage_gap_suppress_reason ?? null,
     },

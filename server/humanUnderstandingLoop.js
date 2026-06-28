@@ -701,6 +701,26 @@ export function buildKeyStructuredResponse(
       limitation = "저장된 우선순위 분석이 아직 없어, 보장 구조부터 같이 보면 됩니다.";
       nextAction = buildKeyNextActionBlock("information_gap");
     }
+  } else if (activeJudgmentRule?.id === "design_priority_judgment") {
+    evidence = "";
+    if (factBundle.design_used === true || factBundle.has_stored_design_analysis === true) {
+      limitation =
+        "본 설계안은 초안이며, 특정 상품 가입이나 최종 보험료·인수 결과를 확정하지 않습니다.";
+      nextAction = "";
+    } else {
+      limitation = "저장된 설계 분석이 아직 없어, 보장 구조부터 같이 보면 됩니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
+  } else if (activeJudgmentRule?.id === "design_review_judgment") {
+    evidence = "";
+    if (factBundle.design_used === true || factBundle.has_stored_design_analysis === true) {
+      limitation =
+        "본 설계안은 초안이며, 담보·한도·인수 결과까지는 같이 확인해야 합니다.";
+      nextAction = "";
+    } else {
+      limitation = "저장된 설계안이 아직 없어, 현재 보유 계약부터 같이 정리하면 됩니다.";
+      nextAction = buildKeyNextActionBlock("information_gap");
+    }
   } else if (activeJudgmentRule?.id === "premium_lookup_judgment") {
     const stats = factBundle.premium_stats ?? {};
     const premiumKnown = (stats.premiumKnownCount ?? 0) > 0 && (stats.premiumTotal ?? 0) > 0;
@@ -1673,6 +1693,26 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
           has_stored_recommendation_analysis:
             input.factBundle?.has_stored_recommendation_analysis === true ||
             input.customerState.recommendationContext.loaded === true,
+        }
+      : {}),
+    ...(input.customerState?.designContext
+      ? {
+          design_priority_coverages:
+            input.customerState.designContext.priority_coverages ?? [],
+          design_keep_coverages:
+            input.customerState.designContext.keep_existing_coverages ?? [],
+          design_next_actions: input.customerState.designContext.next_actions ?? [],
+          design_title: input.customerState.designContext.design_title ?? null,
+          design_summary: input.customerState.designContext.design_summary ?? null,
+          design_used:
+            input.factBundle?.design_used === true ||
+            input.customerState.designContext.loaded === true,
+          design_loaded:
+            input.factBundle?.design_loaded === true ||
+            input.customerState.designContext.loaded === true,
+          has_stored_design_analysis:
+            input.factBundle?.has_stored_design_analysis === true ||
+            input.customerState.designContext.loaded === true,
         }
       : {}),
   };
