@@ -198,6 +198,15 @@ function isUnderwritingBoundCheck(text) {
     return true;
   }
 
+  if (/가입할\s*생각\s*없/.test(text)) return false;
+
+  if (
+    enrollmentBound &&
+    !/(?:있(?:어|나|음|습)?|보유|가입(?:된|한|중)|들어\s*있)/.test(text)
+  ) {
+    return true;
+  }
+
   return false;
 }
 

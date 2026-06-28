@@ -468,6 +468,7 @@ export function shouldUseKeyRelationalCompose({
 
   const q = normalizeQuestion(question || humanFrame.surface_question || factBundle.question || "");
   if (!q) return false;
+  if (classificationIntent === "underwriting_bound_check") return false;
   if (humanFrame.needs_insurance_tools) return false;
   if (INSURANCE_TOPIC.test(q)) return false;
   if (isKeySocialTurn(q)) return false;
