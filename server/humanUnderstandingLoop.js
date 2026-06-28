@@ -1664,6 +1664,12 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
             input.customerState.recommendationContext.priority_signals ?? [],
           recommendation_priority_types:
             input.customerState.recommendationContext.priority_types ?? [],
+          recommendation_budget_considerations:
+            input.customerState.recommendationContext.budget_considerations ?? [],
+          recommendation_memory_sources_used:
+            input.customerState.recommendationContext.memory_sources_used ?? [],
+          recommendation_premium_burden_stated:
+            input.customerState.recommendationContext.premium_burden_stated === true,
           recommendation_used:
             input.factBundle?.recommendation_used === true ||
             input.customerState.recommendationContext.loaded === true,

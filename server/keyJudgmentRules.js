@@ -427,16 +427,30 @@ function buildUnderwritingBoundJudgment({ question = "", factBundle = {} } = {})
   return "가입 가능 여부는 단정할 수 없습니다. 건강 관련 정보와 인수 기준 확인이 먼저 필요합니다.";
 }
 
+function hasRecommendationBurdenSignal(factBundle = {}) {
+  if (factBundle.recommendation_premium_burden_stated === true) return true;
+  return (factBundle.recommendation_budget_considerations ?? []).some((text) =>
+    /부담/.test(String(text ?? "")),
+  );
+}
+
+function buildRecommendationBurdenAckPrefix() {
+  return "보험료 부담을 말씀해 주신 것은 기억하고 있어요. 그래서 새로운 보장 추가보다, 지금 가지고 계신 보장부터 같이 살펴보는 편이 맞습니다.";
+}
+
 function buildRecommendationPriorityJudgment({ question = "", factBundle = {} } = {}) {
   const labels = factBundle.recommendation_priority_labels ?? [];
   const hasStored =
     factBundle.recommendation_used === true || factBundle.has_stored_recommendation_analysis === true;
+  const burdenPrefix = hasRecommendationBurdenSignal(factBundle)
+    ? `${buildRecommendationBurdenAckPrefix()} `
+    : "";
 
   if (hasStored && labels.length >= 2) {
-    return `저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]}과 ${labels[1]}입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
+    return `${burdenPrefix}저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]}과 ${labels[1]}입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
   }
   if (hasStored && labels.length === 1) {
-    return `저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]} 쪽입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
+    return `${burdenPrefix}저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 ${labels[0]} 쪽입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.`;
   }
   return "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다.";
 }
@@ -799,4 +813,5 @@ export {
   resolveMemoryFactsFromBundle,
   buildMemoryRecallJudgment,
   buildClaimReceiveEligibilityJudgment,
+  buildRecommendationPriorityJudgment,
 };
