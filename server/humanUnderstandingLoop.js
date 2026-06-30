@@ -1685,6 +1685,13 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     };
   }
 
+  const timeGateUsedSnapshot = {
+    design_used: input.factBundle?.design_used === true,
+    recommendation_used: input.factBundle?.recommendation_used === true,
+    underwriting_used: input.factBundle?.underwriting_used === true,
+    coverage_gap_used: input.factBundle?.coverage_gap_used === true,
+  };
+
   const bundle = {
     ...input.factBundle,
     question,
@@ -1760,6 +1767,7 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
   const enrichedBundle = {
     ...bundle,
     premium_stats: bundle.premium_stats ?? computePremiumLookupStats(policies),
+    time_gate_used_snapshot: timeGateUsedSnapshot,
   };
 
   const basisTaggedFacts = buildBasisTaggedFacts(enrichedBundle, resolvedIntent);

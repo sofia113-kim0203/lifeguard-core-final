@@ -130,6 +130,25 @@ export function isPersonalKeyGrowthReflectionTurn(question = "", { classificatio
   );
 }
 
+/** Agent-turn used flags only — ignores finalize loaded→used merge inflation (LV-5.5.1). */
+export function resolveTimeContinuityGateUsedFlags(factBundle = {}) {
+  const snap = factBundle?.time_gate_used_snapshot;
+  if (snap) {
+    return {
+      design_used: snap.design_used === true,
+      recommendation_used: snap.recommendation_used === true,
+      underwriting_used: snap.underwriting_used === true,
+      coverage_gap_used: snap.coverage_gap_used === true,
+    };
+  }
+  return {
+    design_used: factBundle?.design_used === true,
+    recommendation_used: factBundle?.recommendation_used === true,
+    underwriting_used: factBundle?.underwriting_used === true,
+    coverage_gap_used: factBundle?.coverage_gap_used === true,
+  };
+}
+
 export function isTimeContinuityExcluded({
   question = "",
   classificationIntent = "",
@@ -137,6 +156,7 @@ export function isTimeContinuityExcluded({
 } = {}) {
   const q = normalizeQuestion(question);
   const intent = String(classificationIntent ?? "").trim();
+  const gateUsed = resolveTimeContinuityGateUsedFlags(factBundle);
 
   if (intent && TIME_CONTINUITY_INTENT_BLOCKLIST.has(intent)) return true;
   if (intent === "memory_recall_lookup") {
@@ -147,11 +167,11 @@ export function isTimeContinuityExcluded({
     return true;
   }
 
-  if (factBundle?.design_used === true) return true;
+  if (gateUsed.design_used === true) return true;
   if (factBundle?.design_loaded === true && /^design_/.test(intent)) return true;
-  if (factBundle?.coverage_gap_used === true && /(?:부족|gap|공백)/.test(q)) return true;
-  if (factBundle?.recommendation_used === true) return true;
-  if (factBundle?.underwriting_used === true) return true;
+  if (gateUsed.coverage_gap_used === true && /(?:부족|gap|공백)/.test(q)) return true;
+  if (gateUsed.recommendation_used === true) return true;
+  if (gateUsed.underwriting_used === true) return true;
 
   if (TIME_CONTINUITY_QUESTION_BLOCKLIST.some((shape) => q.includes(shape))) return true;
 
