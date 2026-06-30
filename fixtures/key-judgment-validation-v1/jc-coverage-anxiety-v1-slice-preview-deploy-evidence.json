@@ -1,0 +1,12 @@
+{
+  "document": "jc_coverage_anxiety_v1_slice_preview_deploy_evidence",
+  "slice": "SLICE-2-JC-COVERAGE-ANXIETY-v1",
+  "mode": "Preview deploy only",
+  "pass_declaration": "none",
+  "observed_at": "2026-06-30T18:55:38.167Z",
+  "git_short_sha": "2542407",
+  "preview_url": "https://lifeguard-core-final-blnzav762-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_48n9LPdjPSDMMzphKGbGeb7ziwRt",
+  "production_alias_unchanged": true,
+  "production_deploy": "HOLD — Tom"
+}

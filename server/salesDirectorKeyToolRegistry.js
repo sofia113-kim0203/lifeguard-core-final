@@ -6,6 +6,7 @@ import {
   classifyConsultationIntent,
   computePremiumLookupStats,
   PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+  COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
@@ -208,6 +209,19 @@ export function planKeyTools(classification = {}, loadedContext = null, question
       tools: dedupeTools(tools),
       coverage_gap_suppressed: true,
       coverage_gap_suppress_reason: "companion_cluster_jc_premium_burden_v1",
+    };
+  }
+
+  if (classification.companion_cluster === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID) {
+    tools.push(KEY_TOOLS.COVERAGE_GAP);
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: false,
+      coverage_gap_suppress_reason: null,
     };
   }
 

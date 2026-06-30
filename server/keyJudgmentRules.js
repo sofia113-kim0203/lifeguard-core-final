@@ -5,7 +5,11 @@
  * kind: judgment_rule — customer intent needs insurance judgment (not relational turn-taking).
  */
 import { SALES_DIRECTOR_JUDGMENT_INTENTS } from "./salesDirectorFormatter.js";
-import { classifyConsultationIntent, PREMIUM_BURDEN_COMPANION_CLUSTER_ID } from "./intentGateLayer.js";
+import {
+  classifyConsultationIntent,
+  PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+  COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+} from "./intentGateLayer.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { abstractMemoryThemes } from "./salesDirectorPersona.js";
 
@@ -500,6 +504,19 @@ export const KEY_JUDGMENT_RULES = [
     },
     buildJudgment() {
       return "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다.";
+    },
+  },
+  {
+    id: "coverage_anxiety_companion_judgment",
+    kind: "judgment_rule",
+    scene: "B",
+    reason:
+      "JC-COVERAGE-ANXIETY-v1 — insecurity paraphrases share companion judgment; gap tool loads but no inventory dump opener.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment() {
+      return "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다.";
     },
   },
   {

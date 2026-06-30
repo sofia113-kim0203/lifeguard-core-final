@@ -10,7 +10,9 @@ import {
   LOOKUP_CATEGORIES,
   matchPolicyToCategory,
   detectPremiumBurdenCompanionCluster,
+  detectCoverageAnxietyCompanionCluster,
   PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+  COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
 
 export const SALES_DIRECTOR_JUDGMENT_INTENTS = {
@@ -300,9 +302,14 @@ export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", qu
   const q = normalizeQuestion(question);
   if (!q) return null;
 
-  const companionCluster = detectPremiumBurdenCompanionCluster(q);
-  if (companionCluster?.cluster_id === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+  const premiumBurdenCluster = detectPremiumBurdenCompanionCluster(q);
+  if (premiumBurdenCluster?.cluster_id === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
     return SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION;
+  }
+
+  const coverageAnxietyCluster = detectCoverageAnxietyCompanionCluster(q);
+  if (coverageAnxietyCluster?.cluster_id === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID) {
+    return SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT;
   }
 
   for (const rule of QUESTION_INTENT_RULES) {

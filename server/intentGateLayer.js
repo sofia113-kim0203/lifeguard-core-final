@@ -175,6 +175,55 @@ export function detectPremiumBurdenCompanionCluster(question = "") {
   };
 }
 
+/** Slice 2 — JC-COVERAGE-ANXIETY-v1 companion cluster (additive; intent stays general_consultation). */
+export const COVERAGE_ANXIETY_COMPANION_CLUSTER_ID = "JC-COVERAGE-ANXIETY-v1";
+
+/** Tom: J04 structured probe — must not enter coverage anxiety cluster. */
+function isJ04StructuredGapProbe(text = "") {
+  return (
+    /내\s*보험\s*부족한\s*부분\s*있/.test(text) || /부족한\s*부분\s*있어/.test(text)
+  );
+}
+
+/**
+ * Coverage insecurity companion — same judgment direction across paraphrases.
+ * Excludes formal review, recommendation, broad problem, J04 structured probe, presence lookup.
+ */
+export function detectCoverageAnxietyCompanionCluster(question = "") {
+  const text = normalizeQuestion(question);
+  if (!text) return null;
+
+  const missingPieceSignal = /뭐가\s*빠졌|뭐가\s*빠져|빠져\s*있|빠진\s*(?:게|것|부분)/.test(text);
+  if (!hasInsuranceTopicSignal(text) && !missingPieceSignal) return null;
+
+  if (isCoverageReviewRequest(text)) return null;
+  if (RECOMMEND_SIGNAL.test(text)) return null;
+  if (/내\s*보험\s*문제\s*있/.test(text)) return null;
+  if (/어떤\s*보장\s*있/.test(text)) return null;
+  if (isJ04StructuredGapProbe(text)) return null;
+
+  const signals = [];
+  if (/내\s*보험\s*괜찮|보험\s*괜찮|내\s*보장\s*괜찮/.test(text)) {
+    signals.push("adequacy_ok");
+  }
+  if (/보장.{0,12}(?:부족|모자라).{0,8}(?:같|느낌|느껴)/.test(text)) {
+    signals.push("inadequacy_feel");
+  }
+  if (/뭐가\s*빠졌|뭐가\s*빠져|빠져\s*있|빠진\s*(?:게|것|부분)/.test(text)) {
+    signals.push("missing_piece");
+  }
+  if (/암\s*보장\s*부족|암보장\s*부족|암\s*부족/.test(text)) {
+    signals.push("cancer_gap");
+  }
+
+  if (!signals.length) return null;
+
+  return {
+    cluster_id: COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+    signals,
+  };
+}
+
 function detectLookupSubIntent(text) {
   if (isPremiumLookupQuestion(text)) {
     return { subIntent: "premium_lookup", lookupCategory: null };
@@ -379,16 +428,30 @@ export function classifyConsultationIntent(question = "") {
     };
   }
 
-  const companionCluster = detectPremiumBurdenCompanionCluster(text);
-  if (companionCluster) {
+  const premiumBurdenCluster = detectPremiumBurdenCompanionCluster(text);
+  if (premiumBurdenCluster) {
     return {
       intent: "general_consultation",
       confidence: "high",
       matched_rule: "premium_burden_companion_cluster",
       lookup_sub_intent: null,
       lookup_category: null,
-      companion_cluster: companionCluster.cluster_id,
-      companion_cluster_signals: companionCluster.signals,
+      companion_cluster: premiumBurdenCluster.cluster_id,
+      companion_cluster_signals: premiumBurdenCluster.signals,
+      question_focus: text,
+    };
+  }
+
+  const coverageAnxietyCluster = detectCoverageAnxietyCompanionCluster(text);
+  if (coverageAnxietyCluster) {
+    return {
+      intent: "general_consultation",
+      confidence: "high",
+      matched_rule: "coverage_anxiety_companion_cluster",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      companion_cluster: coverageAnxietyCluster.cluster_id,
+      companion_cluster_signals: coverageAnxietyCluster.signals,
       question_focus: text,
     };
   }
