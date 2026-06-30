@@ -27,6 +27,25 @@ function isNonEmptyPayload(value) {
   return Boolean(value);
 }
 
+function countDesignStoredRecords(payload = {}) {
+  const visible = isNonEmptyPayload(payload.customer_visible_design)
+    ? payload.customer_visible_design
+    : payload.design_title || payload.priority_coverages || payload.design_summary
+      ? payload
+      : null;
+
+  if (isNonEmptyPayload(visible)) {
+    const priorities = (visible.priority_coverages ?? []).filter(Boolean);
+    if (priorities.length > 0) return priorities.length;
+    if (visible.design_summary) return 1;
+    if (visible.design_title) return 1;
+  }
+
+  const plans = payload.plans ?? payload.designs ?? payload.items ?? [];
+  if (Array.isArray(plans) && plans.length > 0) return plans.length;
+  return 0;
+}
+
 export function countStoredFactoryRecords(factoryKey, payload) {
   if (!isNonEmptyPayload(payload)) return 0;
   if (factoryKey === "coverage_gap") {
@@ -53,9 +72,7 @@ export function countStoredFactoryRecords(factoryKey, payload) {
     return Object.keys(payload).length > 0 ? 1 : 0;
   }
   if (factoryKey === "design") {
-    const plans = payload.plans ?? payload.designs ?? payload.items ?? [];
-    if (Array.isArray(plans)) return plans.length;
-    return Object.keys(payload).length > 0 ? 1 : 0;
+    return countDesignStoredRecords(payload);
   }
   return 0;
 }
@@ -170,6 +187,12 @@ function engineLoaded(agentTurn = {}, factoryKey, customerContextBundle = null) 
       agentTurn?.factBundle?.recommendation_loaded === true
     );
   }
+  if (factoryKey === "design") {
+    return (
+      customerContextBundle?.designContext?.loaded === true ||
+      agentTurn?.factBundle?.design_loaded === true
+    );
+  }
   return false;
 }
 
@@ -192,6 +215,13 @@ function engineUsed(agentTurn = {}, factoryKey, customerContextBundle = null) {
     return (
       agentTurn?.trace?.conversation_brain?.recommendation_used === true ||
       agentTurn?.factBundle?.recommendation_used === true
+    );
+  }
+  if (factoryKey === "design") {
+    return (
+      agentTurn?.trace?.conversation_brain?.design_used === true ||
+      agentTurn?.factBundle?.design_used === true ||
+      agentTurn?.factBundle?.has_stored_design_analysis === true
     );
   }
   return false;
@@ -314,12 +344,14 @@ export function buildSalesDirectorFactoryAudit({
     const bundleGap = customerContextBundle?.coverageGapContext;
     const bundleUw = customerContextBundle?.underwritingRiskContext;
     const bundleRec = customerContextBundle?.recommendationContext;
+    const bundleDesign = customerContextBundle?.designContext;
     audit[factoryKey] = factoryEntry({
       available:
         stored.available === true ||
         (factoryKey === "coverage_gap" && bundleGap?.available === true) ||
         (factoryKey === "underwriting" && bundleUw?.available === true) ||
-        (factoryKey === "recommendation" && bundleRec?.available === true),
+        (factoryKey === "recommendation" && bundleRec?.available === true) ||
+        (factoryKey === "design" && bundleDesign?.available === true),
       loaded: engineLoaded(agentTurn, factoryKey, customerContextBundle),
       used: engineUsed(agentTurn, factoryKey, customerContextBundle),
       record_count:
@@ -329,7 +361,9 @@ export function buildSalesDirectorFactoryAudit({
             ? bundleUw.record_count
             : factoryKey === "recommendation" && bundleRec?.record_count
               ? bundleRec.record_count
-              : stored.record_count ?? 0,
+              : factoryKey === "design" && bundleDesign?.record_count
+                ? bundleDesign.record_count
+                : stored.record_count ?? 0,
       source:
         factoryKey === "coverage_gap" && bundleGap?.source
           ? bundleGap.source
@@ -337,7 +371,9 @@ export function buildSalesDirectorFactoryAudit({
             ? bundleUw.source
             : factoryKey === "recommendation" && bundleRec?.source
               ? bundleRec.source
-              : stored.source ?? null,
+              : factoryKey === "design" && bundleDesign?.source
+                ? bundleDesign.source
+                : stored.source ?? null,
     });
   }
 

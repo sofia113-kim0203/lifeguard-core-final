@@ -69,6 +69,10 @@ function buildKeyAgentTurn({
     toolRun?.recommendationContext?.priority_labels ??
     customerContextBundle?.recommendationContext?.priority_labels ??
     [];
+  const designCtx = toolRun?.designContext ?? customerContextBundle?.designContext ?? null;
+  const designPriorityCoverages = designCtx?.priority_coverages ?? [];
+  const designKeepCoverages = designCtx?.keep_existing_coverages ?? [];
+  const designNextActions = (designCtx?.next_actions ?? []).slice(0, 2);
   return {
     text: "",
     tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
@@ -95,6 +99,14 @@ function buildKeyAgentTurn({
       recommendation_loaded: toolRun?.recommendation_loaded === true,
       has_stored_recommendation_analysis: toolRun?.recommendation_used === true,
       recommendation_priority_labels: recommendationPriorityLabels,
+      design_used: toolRun?.design_used === true,
+      design_loaded: toolRun?.design_loaded === true,
+      has_stored_design_analysis: toolRun?.design_used === true,
+      design_priority_coverages: designPriorityCoverages,
+      design_keep_coverages: designKeepCoverages,
+      design_next_actions: designNextActions,
+      design_title: designCtx?.design_title ?? null,
+      design_summary: designCtx?.design_summary ?? null,
       tool_brain_slice: legacySlice,
       tool_brain_absorbed: Boolean(legacySlice),
       coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
@@ -150,6 +162,7 @@ export async function runSalesDirectorKeyTurn({
     existingGapContext: customerContextBundle?.coverageGapContext ?? null,
     existingUnderwritingContext: customerContextBundle?.underwritingRiskContext ?? null,
     existingRecommendationContext: customerContextBundle?.recommendationContext ?? null,
+    existingDesignContext: customerContextBundle?.designContext ?? null,
     unified,
   });
   keyLatency.key_tools_ms = markLatencyMs(toolsStart);
@@ -170,6 +183,9 @@ export async function runSalesDirectorKeyTurn({
   }
   if (toolRun.recommendationContext) {
     customerContextBundle.recommendationContext = toolRun.recommendationContext;
+  }
+  if (toolRun.designContext) {
+    customerContextBundle.designContext = toolRun.designContext;
   }
 
   const agentTurn = buildKeyAgentTurn({

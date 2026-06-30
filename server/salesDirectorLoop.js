@@ -35,6 +35,7 @@ import {
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
+import { loadSalesDirectorInsuranceDesignContext } from "./salesDirectorInsuranceDesignContext.js";
 import {
   isKeyLegacyFallbackEnabled,
   runSalesDirectorKeyTurn,
@@ -184,31 +185,36 @@ export async function runSalesDirectorLoopTurn({
   let coverageGapContext = null;
   let underwritingRiskContext = null;
   let recommendationContext = null;
+  let designContext = null;
   if (!snapshot || !unified) {
     const snapshotLoadStart = Date.now();
-    const [turnContext, gapContext, uwContext, recContext] = await Promise.all([
+    const [turnContext, gapContext, uwContext, recContext, desContext] = await Promise.all([
       loadSalesDirectorTurnContext(userSupabase, customerId, {
         requestHistory: history,
       }),
       loadSalesDirectorCoverageGapContext(userSupabase, customerId),
       loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
       loadSalesDirectorRecommendationContext(userSupabase, customerId),
+      loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
     ]);
     snapshot = snapshot ?? turnContext.snapshot;
     unified = unified ?? turnContext.unifiedState;
     coverageGapContext = gapContext;
     underwritingRiskContext = uwContext;
     recommendationContext = recContext;
+    designContext = desContext;
     latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
     if (turnContext.from_cache) {
       latency.snapshot_cache_hit = true;
     }
   } else {
-    [coverageGapContext, underwritingRiskContext, recommendationContext] = await Promise.all([
-      loadSalesDirectorCoverageGapContext(userSupabase, customerId),
-      loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
-      loadSalesDirectorRecommendationContext(userSupabase, customerId),
-    ]);
+    [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
+      await Promise.all([
+        loadSalesDirectorCoverageGapContext(userSupabase, customerId),
+        loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
+        loadSalesDirectorRecommendationContext(userSupabase, customerId),
+        loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
+      ]);
   }
 
   const memoryHydrateStart = Date.now();
@@ -221,6 +227,7 @@ export async function runSalesDirectorLoopTurn({
     underwritingRiskContext ?? customerContextBundle.underwritingRiskContext;
   customerContextBundle.recommendationContext =
     recommendationContext ?? customerContextBundle.recommendationContext;
+  customerContextBundle.designContext = designContext ?? customerContextBundle.designContext;
   const reconciliationWarning = buildReconciliationWarning(unified, snapshot);
 
   const modeDecision = decideSalesDirectorMode({
