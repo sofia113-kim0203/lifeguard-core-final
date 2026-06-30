@@ -9,7 +9,9 @@ import {
   classifyConsultationIntent,
   PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
   COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+  RC_CONTINUITY_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
+import { buildContinuityCompanionJudgment } from "./conversationContinuityBridge.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { abstractMemoryThemes } from "./salesDirectorPersona.js";
 
@@ -517,6 +519,19 @@ export const KEY_JUDGMENT_RULES = [
     },
     buildJudgment() {
       return "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다.";
+    },
+  },
+  {
+    id: "continuity_companion_judgment",
+    kind: "judgment_rule",
+    scene: "R",
+    reason:
+      "RC-CONTINUITY-COMPANION-v1 — continuity paraphrases bridge to Companion; memory present/absent shapes only.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === RC_CONTINUITY_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment(ctx = {}) {
+      return buildContinuityCompanionJudgment(ctx);
     },
   },
   {

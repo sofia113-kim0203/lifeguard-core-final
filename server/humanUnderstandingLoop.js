@@ -34,6 +34,10 @@ import {
   shouldUsePersonalTimeContinuityCompose,
 } from "./personalKeyTimeContinuity.js";
 import {
+  buildContinuityCompanionResponse,
+  shouldUseContinuityCompanionCompose,
+} from "./conversationContinuityBridge.js";
+import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
   STATEMENT_BASIS,
@@ -1329,8 +1333,16 @@ export function generateHumanSalesDirectorResponse({
   let text;
   if (useKeyOrchestrator) {
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+    const useContinuityCompanion =
+      !fixedSlice &&
+      shouldUseContinuityCompanionCompose({
+        question,
+        factBundle,
+        humanFrame,
+      });
     const timeContinuityCandidate =
       !fixedSlice &&
+      !useContinuityCompanion &&
       shouldUsePersonalTimeContinuityCompose({
         question: question || factBundle.question || "",
         humanFrame,
@@ -1350,10 +1362,12 @@ export function generateHumanSalesDirectorResponse({
     const useTimeContinuity = Boolean(timeContinuityText);
     const useAnalysisStatus =
       !fixedSlice &&
+      !useContinuityCompanion &&
       !useTimeContinuity &&
       isKeyAnalysisStatusQuestion(question || factBundle.question || "");
     const useSocial =
       !fixedSlice &&
+      !useContinuityCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       isKeySocialTurn(question || factBundle.question || "");
@@ -1362,6 +1376,7 @@ export function generateHumanSalesDirectorResponse({
       : null;
     const useClosing =
       !fixedSlice &&
+      !useContinuityCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
@@ -1371,6 +1386,7 @@ export function generateHumanSalesDirectorResponse({
       : null;
     const useRelational =
       !fixedSlice &&
+      !useContinuityCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
@@ -1382,6 +1398,7 @@ export function generateHumanSalesDirectorResponse({
         humanFrame,
       });
     const useCompanionGuidance =
+      !useContinuityCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
@@ -1393,7 +1410,9 @@ export function generateHumanSalesDirectorResponse({
         humanFrame,
         fixedSlice,
       });
-    text = useTimeContinuity
+    text = useContinuityCompanion
+      ? buildContinuityCompanionResponse({ question, factBundle, humanFrame })
+      : useTimeContinuity
       ? timeContinuityText
       : useAnalysisStatus
         ? buildKeyAnalysisStatusResponse(factBundle, question)
@@ -1411,7 +1430,9 @@ export function generateHumanSalesDirectorResponse({
       skip_reason: null,
       text_preview: String(text ?? "").slice(0, 300),
       used_safe_fallback: false,
-      compose_mode: useTimeContinuity
+      compose_mode: useContinuityCompanion
+        ? "continuity_companion_bridge"
+        : useTimeContinuity
         ? "time_continuity"
         : useAnalysisStatus
           ? "key_analysis_status"
@@ -1476,7 +1497,13 @@ export function generateHumanSalesDirectorResponse({
                   normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
               : isKeyClosingTurn(question || factBundle.question || "")
                 ? buildKeyClosingResponse(question)
-                : shouldUseKeyRelationalCompose({
+                : shouldUseContinuityCompanionCompose({
+                      question,
+                      factBundle,
+                      humanFrame,
+                    })
+                  ? buildContinuityCompanionResponse({ question, factBundle, humanFrame })
+                  : shouldUseKeyRelationalCompose({
                       question,
                       classificationIntent: resolvedClassificationIntent,
                       factBundle,

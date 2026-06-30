@@ -97,6 +97,28 @@ export async function mintPreviewProbeJwt(resolved) {
   return auth.session.access_token;
 }
 
+/** SSOT — compose trace: finalize_trace primary, p10_4 fallback. */
+export function resolveJudgmentComposeMode(done = {}) {
+  const trace = done.sales_director_trace ?? done.salesDirectorTrace ?? {};
+  const keyPath = trace.p10_4_key_path_trace ?? {};
+  return (
+    trace.finalize_trace?.key_compose_trace?.compose_mode ??
+    keyPath.build_key_structured_response?.compose_mode ??
+    trace.tool_brain_absorbed?.compose_mode ??
+    null
+  );
+}
+
+export function resolveKeyComposeConversationPatternId(done = {}) {
+  const trace = done.sales_director_trace ?? done.salesDirectorTrace ?? {};
+  const keyPath = trace.p10_4_key_path_trace ?? {};
+  return (
+    trace.finalize_trace?.key_compose_trace?.conversation_pattern_id ??
+    keyPath.build_key_structured_response?.conversation_pattern_id ??
+    null
+  );
+}
+
 export async function probePreviewSse({
   previewBase,
   question,

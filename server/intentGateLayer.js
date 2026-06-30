@@ -178,6 +178,9 @@ export function detectPremiumBurdenCompanionCluster(question = "") {
 /** Slice 2 — JC-COVERAGE-ANXIETY-v1 companion cluster (additive; intent stays general_consultation). */
 export const COVERAGE_ANXIETY_COMPANION_CLUSTER_ID = "JC-COVERAGE-ANXIETY-v1";
 
+/** Relationship Arc Slice 1 — RC-CONTINUITY-COMPANION-v1 (Conversation Continuity Bridge). */
+export const RC_CONTINUITY_COMPANION_CLUSTER_ID = "RC-CONTINUITY-COMPANION-v1";
+
 /** Tom: J04 structured probe — must not enter coverage anxiety cluster. */
 function isJ04StructuredGapProbe(text = "") {
   return (
@@ -220,6 +223,43 @@ export function detectCoverageAnxietyCompanionCluster(question = "") {
 
   return {
     cluster_id: COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+    signals,
+  };
+}
+
+/**
+ * Conversation continuity companion — same Relationship axis across paraphrases.
+ * Excludes memory-recall quiz (기억해?), insurance topics, judgment clusters.
+ */
+export function detectContinuityCompanionCluster(question = "") {
+  const text = normalizeQuestion(question);
+  if (!text) return null;
+
+  if (/기억(?:해|나|하)/.test(text)) return null;
+  if (hasInsuranceTopicSignal(text)) return null;
+  if (detectPremiumBurdenCompanionCluster(text)) return null;
+  if (detectCoverageAnxietyCompanionCluster(text)) return null;
+  if (isCoverageReviewRequest(text)) return null;
+  if (RECOMMEND_SIGNAL.test(text)) return null;
+
+  const signals = [];
+  if (
+    /그\s*이야기\s*이어(?:서|가)?|이어(?:서|가)?\s*말|계속\s*(?:말|얘기|이야기)/.test(text)
+  ) {
+    signals.push("continue_explicit");
+  }
+  if (
+    /아까\s*말(?:한\s*거|했)|전에\s*말(?:한\s*거|했)|그때\s*(?:이야기|얘기|말)|지난번\s*(?:이야기|얘기)|방금\s*(?:이야기|얘기|말)/.test(
+      text,
+    )
+  ) {
+    signals.push("time_speech_reference");
+  }
+
+  if (!signals.length) return null;
+
+  return {
+    cluster_id: RC_CONTINUITY_COMPANION_CLUSTER_ID,
     signals,
   };
 }
@@ -452,6 +492,20 @@ export function classifyConsultationIntent(question = "") {
       lookup_category: null,
       companion_cluster: coverageAnxietyCluster.cluster_id,
       companion_cluster_signals: coverageAnxietyCluster.signals,
+      question_focus: text,
+    };
+  }
+
+  const continuityCluster = detectContinuityCompanionCluster(text);
+  if (continuityCluster) {
+    return {
+      intent: "general_consultation",
+      confidence: "high",
+      matched_rule: "continuity_companion_cluster",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      companion_cluster: continuityCluster.cluster_id,
+      companion_cluster_signals: continuityCluster.signals,
       question_focus: text,
     };
   }

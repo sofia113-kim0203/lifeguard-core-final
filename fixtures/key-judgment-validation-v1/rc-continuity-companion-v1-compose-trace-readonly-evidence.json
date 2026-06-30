@@ -1,0 +1,49 @@
+{
+  "document": "rc_continuity_companion_v1_compose_trace_readonly_evidence",
+  "mode": "READ ONLY · trace hop audit · no product change",
+  "pass_declaration": "none",
+  "observed_at": "2026-06-30T19:47:35.374Z",
+  "root_cause_hypothesis": "finalize_trace never attached to sales_director_trace; p10_4_key_path_trace carries compose_mode",
+  "probes": [
+    {
+      "question": "그 이야기 이어서.",
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "response_source": "sales_director_key",
+      "paths": {
+        "finalize_trace_present": true,
+        "finalize_trace_compose_mode": "continuity_companion_bridge",
+        "p10_build_key_compose_mode": "continuity_companion_bridge",
+        "p10_build_key_called": true,
+        "hul_generation_mode": "key_orchestrator"
+      },
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1"
+    },
+    {
+      "question": "그 이야기 이어서.",
+      "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?",
+      "response_source": "sales_director_key",
+      "paths": {
+        "finalize_trace_present": true,
+        "finalize_trace_compose_mode": "continuity_companion_bridge",
+        "p10_build_key_compose_mode": "continuity_companion_bridge",
+        "p10_build_key_called": true,
+        "hul_generation_mode": "key_orchestrator"
+      },
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1"
+    },
+    {
+      "question": "지난번 우리가 이야기했던 부담 줄이기, 어떻게 됐어?",
+      "answer_preview": "지난번 이야기했던 부담 줄이기, 부담 줄이는 방향부터 같이 보면 됩니다.… 그 흐름부터 이어갈게요.",
+      "response_source": "sales_director_key",
+      "paths": {
+        "finalize_trace_present": true,
+        "finalize_trace_compose_mode": "time_continuity",
+        "p10_build_key_compose_mode": "time_continuity",
+        "p10_build_key_called": true,
+        "hul_generation_mode": "key_orchestrator"
+      },
+      "companion_cluster": null
+    }
+  ],
+  "jerry": "STOP — audit only"
+}

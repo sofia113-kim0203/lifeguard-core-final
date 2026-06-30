@@ -1,0 +1,871 @@
+{
+  "document": "rc_continuity_companion_v1_slice_preview_trace_instrumentation_evidence",
+  "slice": "RELATIONSHIP-ARC-SLICE-1-RC-CONTINUITY-COMPANION-v1",
+  "gate": "TRACE-INSTRUMENTATION-REVERIFY",
+  "contract_subtitle": "Conversation Continuity Bridge",
+  "mode": "Preview re-verify · trace instrumentation · no Production · no PASS",
+  "pass_declaration": "none — await Tom audit",
+  "observed_at": "2026-06-30T19:51:39.765Z",
+  "upstream_ref": "rc-continuity-companion-v1-compose-trace-readonly-evidence.json",
+  "instrumentation_fix": {
+    "homeBrainFactCore": "finalize_trace wired to sales_director_trace",
+    "verify_ssot": "resolveJudgmentComposeMode in preview-auth-probe-path.mjs"
+  },
+  "git_short_sha": "7b0dcf1",
+  "preview_url": "https://lifeguard-core-final-es1bnm9wu-70sofia113-1918s-projects.vercel.app",
+  "auth_path_fingerprint": {
+    "ssot": "key-customer-validation-v1-preview-verify.mjs",
+    "method": "fetch + x-vercel-protection-bypass + QA JWT",
+    "supabase_url_ref": "inwswsruvvzaeioqkelq",
+    "supabase_url_source": "VITE_SUPABASE_URL",
+    "anon_key_len": 208,
+    "bypass_set": true,
+    "qa_email_domain": "staging-qa.example.com",
+    "forbidden_paths": {
+      "production_probe_creds": false,
+      "management_api_anon": false,
+      "plain_fetch_no_bypass": false
+    }
+  },
+  "staging_pairing": {
+    "probe_paired_with_staging": true,
+    "analysis_job_created": true
+  },
+  "tom_note": "personalKeyTimeContinuity exclusion on RC cluster — time_continuity_spot must not regress",
+  "summary": {
+    "compose_mode_5_5": "5/5",
+    "paraphrase": "5/5",
+    "customer_seat_present": "aligned",
+    "customer_seat_absent": "aligned",
+    "negative": "8/8",
+    "memory_anchor": "3/3",
+    "r0_role_split": "2/2",
+    "slice1_regression": "spot_ok",
+    "slice2_regression": "spot_ok",
+    "time_continuity_spot": "2/2",
+    "regression_30q": "30/30 probe_ok"
+  },
+  "paraphrase": [
+    {
+      "question": "그 이야기 이어서.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "answer_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "memory_only": true,
+          "absent_shape": true,
+          "no_memory_leak": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "아까 말한 거.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "answer_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "memory_only": true,
+          "absent_shape": true,
+          "no_memory_leak": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "전에 말한 거.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "answer_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "memory_only": true,
+          "absent_shape": true,
+          "no_memory_leak": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "그때 이야기.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "answer_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "memory_only": true,
+          "absent_shape": true,
+          "no_memory_leak": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "지난번 이야기.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "answer_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "memory_only": true,
+          "absent_shape": true,
+          "no_memory_leak": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    }
+  ],
+  "customer_seat": {
+    "memory_present": {
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?",
+      "answer_full": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "present_shape": true,
+          "no_memory_leak": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    "memory_absent": {
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "answer_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "continuity_companion_bridge",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "compose": true,
+          "absent_shape": true,
+          "no_fabrication": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    }
+  },
+  "negative": [
+    {
+      "question": "암보장 부족해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": true,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "보험료 부담돼.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "answer_full": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": true,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "뭐 가입해야 해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "answer_full": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "classification_intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": null,
+      "compose_mode_source": null,
+      "key_tools_called": [],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_guarded_hold",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "내 보험 부족한 부분 있어?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "coverage_gap_check",
+      "matched_rule": "coverage_gap_check",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": true,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "지난번 이야기 기억해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "answer_full": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "아까 보험료 얘기했잖아.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "answer_full": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": true,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "오늘 너무 힘들어.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "요즘 많이 피곤하시겠어요. 무리하고 계신 건 아닌지 먼저 짚어보면 좋겠어요.",
+      "answer_full": "요즘 많이 피곤하시겠어요. 무리하고 계신 건 아닌지 먼저 짚어보면 좋겠어요.",
+      "classification_intent": "casual_chat",
+      "matched_rule": "casual_emotion_check",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_relational",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "그냥 이야기하자.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    }
+  ],
+  "memory_anchor": [
+    {
+      "question": "지난번 이야기 기억해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "answer_full": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "전에 말했던 거 기억해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "answer_full": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "기억나?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "r0_role_split": [
+    {
+      "question": "힘들어요.",
+      "expected": "Companion",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "요즘 많이 피곤하시겠어요. 무리하고 계신 건 아닌지 먼저 짚어보면 좋겠어요.",
+      "answer_full": "요즘 많이 피곤하시겠어요. 무리하고 계신 건 아닌지 먼저 짚어보면 좋겠어요.",
+      "classification_intent": "casual_chat",
+      "matched_rule": "casual_emotion_check",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_relational",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "암보험이 부족한가요?",
+      "expected": "Insurance",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "coverage_gap_check",
+      "matched_rule": "coverage_gap_check",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": true,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "slice1_regression": [
+    {
+      "question": "보험료가 부담돼.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "answer_full": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "has_coverage_gap": false,
+      "has_premium_stats": true,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료 얼마야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "answer_full": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": true,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "slice2_regression": [
+    {
+      "question": "내 보험 괜찮아?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": true,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "내 보험 부족한 부분 있어?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "answer_full": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "coverage_gap_check",
+      "matched_rule": "coverage_gap_check",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "key_structured",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": true,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "time_continuity_spot": [
+    {
+      "id": "TC3-prior-promise",
+      "question": "지난번 우리가 이야기했던 부담 줄이기, 어떻게 됐어?",
+      "history": [
+        {
+          "role": "user",
+          "content": "보험료 부담이 너무 커요."
+        },
+        {
+          "role": "assistant",
+          "content": "부담 줄이는 방향부터 같이 보면 됩니다. 무거운 계약부터 순서를 정해 봐요."
+        }
+      ],
+      "expect_compose": "time_continuity",
+      "must_not_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지난번 이야기했던 부담 줄이기, 부담 줄이는 방향부터 같이 보면 됩니다. 무거운 계약부터 순서를 정해 봐요.… 그 흐름부터 이어갈게요.",
+      "answer_full": "지난번 이야기했던 부담 줄이기, 부담 줄이는 방향부터 같이 보면 됩니다. 무거운 계약부터 순서를 정해 봐요.… 그 흐름부터 이어갈게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "time_continuity",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "probe": true,
+          "not_rc_cluster": true,
+          "time_compose": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "id": "TC4-prior-judgment",
+      "question": "지난번 당신이 말했던 그 판단, 아직 맞는 것 같아?",
+      "history": [
+        {
+          "role": "user",
+          "content": "어떤 보험부터 보면 될까?"
+        },
+        {
+          "role": "assistant",
+          "content": "가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다."
+        }
+      ],
+      "expect_compose": "time_continuity",
+      "must_not_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지난번 말씀드린 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.… 그 판단 기준으로 아직 맞는지 같이 짚어볼게요.",
+      "answer_full": "지난번 말씀드린 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.… 그 판단 기준으로 아직 맞는지 같이 짚어볼게요.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": null,
+      "judgment_compose_mode": "time_continuity",
+      "compose_mode_source": "finalize_trace",
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "has_coverage_gap": false,
+      "has_premium_stats": false,
+      "has_recommendation": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "probe": true,
+          "not_rc_cluster": true,
+          "time_compose": true
+        },
+        "preserved": true
+      }
+    }
+  ],
+  "regression_30q_preview": {
+    "exit_code": 0,
+    "summary": "30/30 probe_ok",
+    "probe_ok_count": 30,
+    "friction": null,
+    "report_path": "fixtures/key-customer-validation-v1/preview-validation-report.json"
+  },
+  "production_deploy": "HOLD — Tom GO required",
+  "alias_promote": "HOLD — forbidden in this gate",
+  "jerry": "STOP — evidence only"
+}

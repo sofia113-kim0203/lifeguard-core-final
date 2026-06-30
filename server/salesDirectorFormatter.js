@@ -13,6 +13,8 @@ import {
   detectCoverageAnxietyCompanionCluster,
   PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
   COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+  detectContinuityCompanionCluster,
+  RC_CONTINUITY_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
 
 export const SALES_DIRECTOR_JUDGMENT_INTENTS = {
@@ -310,6 +312,11 @@ export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", qu
   const coverageAnxietyCluster = detectCoverageAnxietyCompanionCluster(q);
   if (coverageAnxietyCluster?.cluster_id === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID) {
     return SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT;
+  }
+
+  const continuityCluster = detectContinuityCompanionCluster(q);
+  if (continuityCluster?.cluster_id === RC_CONTINUITY_COMPANION_CLUSTER_ID) {
+    return null;
   }
 
   for (const rule of QUESTION_INTENT_RULES) {

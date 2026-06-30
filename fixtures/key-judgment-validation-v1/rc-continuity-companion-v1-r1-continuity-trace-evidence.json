@@ -1,0 +1,342 @@
+{
+  "document": "rc_continuity_companion_v1_r1_continuity_trace_evidence",
+  "arc": "RELATIONSHIP-COMPANION-R0-R1",
+  "contract_candidate": "RC-CONTINUITY-COMPANION-v1",
+  "gate": "R1-CONVERSATION-CONTINUITY",
+  "mode": "READ ONLY · no implementation · no PASS",
+  "tom_go": "R1 — measure Memory/Relationship/Companion split on continuity paraphrases",
+  "pass_declaration": "none",
+  "observed_at": "2026-06-30T19:23:42.286Z",
+  "upstream_ref": "relationship-role-split-r0-audit-evidence.json",
+  "slice_goal": "고객은 같은 대화를 이어간다고 느끼는가? — not insurance explanation · not memory storage",
+  "tom_framing": {
+    "problem": "Relationship Split — same Relationship axis, intent splits (casual_chat vs general_consultation)",
+    "slice1_theme": "지난번 이야기 ↔ 이어서 말하기 is one human flow — today Memory vs Companion code split"
+  },
+  "continuity_paraphrase": {
+    "questions": [
+      "그 이야기 이어서.",
+      "아까 말한 거.",
+      "방금 이야기.",
+      "전에 말한 거.",
+      "지난번 이야기.",
+      "그때 말한 거."
+    ],
+    "traces": [
+      {
+        "question": "그 이야기 이어서.",
+        "continuity_signals": [
+          "continue_explicit",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "아까 말한 거.",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "방금 이야기.",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "전에 말한 거.",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "지난번 이야기.",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "그때 말한 거.",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      }
+    ],
+    "flow": {
+      "unified": true,
+      "axis_set": [
+        "Companion"
+      ],
+      "split": false
+    }
+  },
+  "memory_anchor_comparison": {
+    "purpose": "Same human flow — memory-recall shaped vs continuity paraphrase",
+    "questions": [
+      "지난번 이야기 기억해?",
+      "그 이야기 이어서 말해줘.",
+      "전에 말했던 거 기억해?"
+    ],
+    "traces": [
+      {
+        "question": "지난번 이야기 기억해?",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference",
+          "memory_lexeme"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "memory_recall_lookup",
+        "home_route": "factual_grounded",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": true,
+        "continuity_axis": "Memory",
+        "continuity_axis_reason": "memory_recall_lookup_or_heuristic",
+        "compose_gate_inferred": "home_brain_factual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "그 이야기 이어서 말해줘.",
+        "continuity_signals": [
+          "continue_explicit",
+          "speech_reference"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": false,
+        "continuity_axis": "Companion",
+        "continuity_axis_reason": "continuity_landed_casual_not_memory",
+        "compose_gate_inferred": "casual_light_or_home_casual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      },
+      {
+        "question": "전에 말했던 거 기억해?",
+        "continuity_signals": [
+          "time_reference",
+          "speech_reference",
+          "memory_lexeme"
+        ],
+        "classification": {
+          "intent": "general_consultation",
+          "matched_rule": "general_consultation_fallback",
+          "companion_cluster": null
+        },
+        "casual_detect": null,
+        "home_brain_intent": "memory_recall_lookup",
+        "home_route": "factual_grounded",
+        "insurance_topic_signal": false,
+        "memory_recall_heuristic": true,
+        "continuity_axis": "Memory",
+        "continuity_axis_reason": "memory_recall_lookup_or_heuristic",
+        "compose_gate_inferred": "home_brain_factual",
+        "companion_cluster_detect": {
+          "premium": null,
+          "coverage_anxiety": null
+        }
+      }
+    ]
+  },
+  "summary_table": [
+    {
+      "question": "그 이야기 이어서.",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "home_brain_intent": "unsupported",
+      "continuity_axis": "Companion",
+      "compose_gate": "casual_light_or_home_casual"
+    },
+    {
+      "question": "아까 말한 거.",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "home_brain_intent": "unsupported",
+      "continuity_axis": "Companion",
+      "compose_gate": "casual_light_or_home_casual"
+    },
+    {
+      "question": "방금 이야기.",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "home_brain_intent": "unsupported",
+      "continuity_axis": "Companion",
+      "compose_gate": "casual_light_or_home_casual"
+    },
+    {
+      "question": "전에 말한 거.",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "home_brain_intent": "unsupported",
+      "continuity_axis": "Companion",
+      "compose_gate": "casual_light_or_home_casual"
+    },
+    {
+      "question": "지난번 이야기.",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "home_brain_intent": "unsupported",
+      "continuity_axis": "Companion",
+      "compose_gate": "casual_light_or_home_casual"
+    },
+    {
+      "question": "그때 말한 거.",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "home_brain_intent": "unsupported",
+      "continuity_axis": "Companion",
+      "compose_gate": "casual_light_or_home_casual"
+    }
+  ],
+  "audit_findings": {
+    "paraphrase_axis_split": false,
+    "paraphrase_axes": [
+      "Companion"
+    ],
+    "all_continuity_including_anchors_split": true,
+    "all_axes": [
+      "Companion",
+      "Memory"
+    ],
+    "tom_r1_conclusion": "Conversation Continuity NOT unified at human-flow level — 6 paraphrases skip Memory; anchor pair splits Memory vs Companion — RC-CONTINUITY-COMPANION-v1 warranted",
+    "memory_bridge_absent_on_6": true,
+    "relationship_axis_absent_on_6": true,
+    "human_flow_split": "기억해? lexeme → Memory/factual_grounded · 이어서/말한 거 (no 기억) → Companion/casual_chat"
+  },
+  "cross_cutting_observations": [
+    "R0 anchor confirmed in R1: \"지난번 이야기 기억해?\" → Memory · \"그 이야기 이어서 말해줘.\" → Companion",
+    "R1 GAP: all 6 continuity paraphrases route casual_chat — none invoke memory_recall_lookup",
+    "R1 GAP: Relationship axis never appears — jump is Memory (with 기억해?) vs Companion (without)",
+    "Lexeme gate: adding \"기억해?\" flips home_route factual_grounded; omitting it keeps casual_chat"
+  ],
+  "next_step": "Tom audit → RC-CONTINUITY-COMPANION-v1 slice design (not EXEC)",
+  "jerry": "STOP — R1 evidence only",
+  "conversation_continuity_flow": {
+    "tom_expected": "Memory → Relationship → Companion (one human flow)",
+    "observed_6_paraphrase": "Companion only — no Memory bridge · no Relationship axis",
+    "memory_bridge_on_6": false,
+    "relationship_axis_on_6": false
+  }
+}

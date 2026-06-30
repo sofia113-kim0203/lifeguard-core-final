@@ -578,6 +578,7 @@ export async function handleHomeBrainFactRequest({
       sales_director_judgment_audit: judgmentAudit,
       answer_evidence: factoryAudit.answer_evidence,
       p10_3e_preserve_gate: finalized.preserveGateTrace ?? null,
+      finalize_trace: finalized.finalizeTrace ?? null,
       p10_4_key_path_trace: keyPathTrace,
       latency: {
         ...(loopLatency ?? {}),
