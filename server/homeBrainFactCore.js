@@ -193,6 +193,7 @@ function finalizeHomeKeyOrchestratorResponse({
   tomInternalRoute = null,
   responseSource = null,
   freeThinking = null,
+  history = [],
 }) {
   const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
   const keyFactBundle = {
@@ -216,6 +217,7 @@ function finalizeHomeKeyOrchestratorResponse({
     conversationContext: {
       freeThinking,
       responseSource,
+      history,
     },
   });
 }
@@ -229,6 +231,7 @@ function applyHomeSalesDirectorFormatter({
   tomInternalRoute = null,
   responseSource = null,
   freeThinking = null,
+  history = [],
 }) {
   const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
 
@@ -253,6 +256,7 @@ function applyHomeSalesDirectorFormatter({
     conversationContext: {
       freeThinking,
       responseSource,
+      history,
     },
   });
 }
@@ -267,6 +271,7 @@ function finalizeHomeAgentResponse({
   responseSource = null,
   salesDirectorResponseSource = null,
   customerState = null,
+  history = [],
 }) {
   const originalText = text;
   const pilotSource = salesDirectorResponseSource ?? responseSource;
@@ -288,6 +293,7 @@ function finalizeHomeAgentResponse({
       tomInternalRoute,
       responseSource,
       freeThinking: customerState?.freeThinking ?? null,
+      history,
     });
     const finalText = applyP5BrainCustomerTextGuard(finalized.text);
     return {
@@ -313,6 +319,7 @@ function finalizeHomeAgentResponse({
       tomInternalRoute,
       responseSource,
       freeThinking: customerState?.freeThinking ?? null,
+      history,
     });
     const formatted = finalized.text;
     const finalText = applyP5BrainCustomerTextGuard(formatted);
@@ -458,7 +465,7 @@ export async function handleHomeBrainFactRequest({
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
 
   const composeStart = Date.now();
-  const factoryAudit = buildSalesDirectorFactoryAudit({
+  let factoryAudit = buildSalesDirectorFactoryAudit({
     customerContextBundle: loopResult.customerContextBundle,
     loadedContext,
     agentTurn,
@@ -491,6 +498,7 @@ export async function handleHomeBrainFactRequest({
     tomInternalRoute: agentTurn.tomInternalRoute,
     responseSource: agentTurn.responseSource ?? null,
     salesDirectorResponseSource: observabilityPreview.response_source,
+    history,
     customerState: {
       question: trimmedQuestion,
       coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
@@ -502,6 +510,15 @@ export async function handleHomeBrainFactRequest({
     },
   });
   const answerText = finalized.text;
+
+  factoryAudit = buildSalesDirectorFactoryAudit({
+    customerContextBundle: loopResult.customerContextBundle,
+    loadedContext,
+    agentTurn,
+    salesDirectorTrace,
+    storedProbe: storedFactoryProbe,
+    keyComposeTrace: finalized.finalizeTrace?.key_compose_trace ?? null,
+  });
 
   if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
     activeStreamHandlers.onDelta(answerText);

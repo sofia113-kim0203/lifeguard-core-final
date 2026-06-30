@@ -29,6 +29,11 @@ import {
   shouldUseKeyCompanionGuidanceCompose,
 } from "./keyCompanionGuidance.js";
 import {
+  buildPersonalTimeContinuityResponse,
+  hasTimeContinuityUsedSignal,
+  shouldUsePersonalTimeContinuityCompose,
+} from "./personalKeyTimeContinuity.js";
+import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
   STATEMENT_BASIS,
@@ -1125,6 +1130,10 @@ export function buildHumanUnderstandingFrame({
     resolved_intent: resolvedIntent,
     surface,
     is_trust_human_question: isHumanTrustQuestion(q),
+    conversation_history: Array.isArray(conversationContext.history)
+      ? conversationContext.history
+      : [],
+    classification_intent: conversationContext.classificationIntent ?? "",
   };
 }
 
@@ -1320,10 +1329,32 @@ export function generateHumanSalesDirectorResponse({
   let text;
   if (useKeyOrchestrator) {
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+    const timeContinuityCandidate =
+      !fixedSlice &&
+      shouldUsePersonalTimeContinuityCompose({
+        question: question || factBundle.question || "",
+        humanFrame,
+        classificationIntent: resolvedClassificationIntent,
+        factBundle,
+      });
+    let timeContinuityText = null;
+    if (timeContinuityCandidate) {
+      const candidate = buildPersonalTimeContinuityResponse({
+        question: question || factBundle.question || "",
+        humanFrame,
+      });
+      if (hasTimeContinuityUsedSignal(candidate)) {
+        timeContinuityText = candidate;
+      }
+    }
+    const useTimeContinuity = Boolean(timeContinuityText);
     const useAnalysisStatus =
-      !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
+      !fixedSlice &&
+      !useTimeContinuity &&
+      isKeyAnalysisStatusQuestion(question || factBundle.question || "");
     const useSocial =
       !fixedSlice &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       isKeySocialTurn(question || factBundle.question || "");
     const socialPattern = useSocial
@@ -1331,6 +1362,7 @@ export function generateHumanSalesDirectorResponse({
       : null;
     const useClosing =
       !fixedSlice &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
       isKeyClosingTurn(question || factBundle.question || "");
@@ -1339,6 +1371,7 @@ export function generateHumanSalesDirectorResponse({
       : null;
     const useRelational =
       !fixedSlice &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
       !useClosing &&
@@ -1349,6 +1382,7 @@ export function generateHumanSalesDirectorResponse({
         humanFrame,
       });
     const useCompanionGuidance =
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
       !useClosing &&
@@ -1359,35 +1393,40 @@ export function generateHumanSalesDirectorResponse({
         humanFrame,
         fixedSlice,
       });
-    text = useAnalysisStatus
-      ? buildKeyAnalysisStatusResponse(factBundle, question)
-      : useSocial
-        ? (socialPattern?.text ?? normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
-        : useClosing
-          ? (closingPattern?.text ?? buildKeyClosingResponse(question))
-          : useRelational
-            ? buildKeyRelationalResponse(humanFrame, question)
-            : useCompanionGuidance
-              ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
-              : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+    text = useTimeContinuity
+      ? timeContinuityText
+      : useAnalysisStatus
+        ? buildKeyAnalysisStatusResponse(factBundle, question)
+        : useSocial
+          ? (socialPattern?.text ?? normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
+          : useClosing
+            ? (closingPattern?.text ?? buildKeyClosingResponse(question))
+            : useRelational
+              ? buildKeyRelationalResponse(humanFrame, question)
+              : useCompanionGuidance
+                ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
+                : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
       text_preview: String(text ?? "").slice(0, 300),
       used_safe_fallback: false,
-      compose_mode: useAnalysisStatus
-        ? "key_analysis_status"
-        : useSocial
-          ? "key_social"
-          : useClosing
-            ? "key_closing"
-            : useRelational
-              ? "key_relational"
-              : useCompanionGuidance
-                ? "key_companion_guidance"
-                : fixedSlice
-                  ? "tool_brain_fixed_slots"
-                  : "key_structured",
+      compose_mode: useTimeContinuity
+        ? "time_continuity"
+        : useAnalysisStatus
+          ? "key_analysis_status"
+          : useSocial
+            ? "key_social"
+            : useClosing
+              ? "key_closing"
+              : useRelational
+                ? "key_relational"
+                : useCompanionGuidance
+                  ? "key_companion_guidance"
+                  : fixedSlice
+                    ? "tool_brain_fixed_slots"
+                    : "key_structured",
+      time_continuity_used: useTimeContinuity,
       absorbed_slice: fixedSlice,
       conversation_pattern_id: socialPattern?.pattern_id ?? closingPattern?.pattern_id ?? null,
       conversation_pattern_kind: socialPattern?.kind ?? closingPattern?.kind ?? null,

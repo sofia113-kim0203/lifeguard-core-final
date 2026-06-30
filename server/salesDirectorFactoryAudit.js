@@ -315,6 +315,7 @@ export function buildSalesDirectorFactoryAudit({
   agentTurn = null,
   salesDirectorTrace = null,
   storedProbe = null,
+  keyComposeTrace = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
   const memoryFacts = customerContextBundle?.memoryFacts ?? [];
@@ -378,11 +379,16 @@ export function buildSalesDirectorFactoryAudit({
   }
 
   const answer_evidence = buildAnswerEvidence(audit);
+  const timeContinuityUsed = keyComposeTrace?.time_continuity_used === true;
+  if (timeContinuityUsed && !answer_evidence.includes("time_continuity")) {
+    answer_evidence.push("time_continuity");
+  }
   const primary_disconnect = findPrimaryFactoryDisconnect(audit);
   const hypothesis = classifyFactoryHypothesis(audit);
 
   return {
     ...audit,
+    time_continuity_used: timeContinuityUsed,
     answer_evidence,
     primary_disconnect,
     hypothesis: hypothesis.hypothesis,
