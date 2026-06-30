@@ -1,0 +1,79 @@
+{
+  "document": "jc_premium_burden_v1_slice_local_trace_evidence",
+  "slice": "SLICE-1-JC-PREMIUM-BURDEN-v1",
+  "mode": "local module trace · no PASS declaration · not Production-deployed",
+  "observed_at": "2026-06-30T20:00:00.000Z",
+  "pass_declaration": "none",
+  "baseline_ref": "lifeguard-personal-customer-baseline-v1.json",
+  "note": "Paraphrase alignment verified on local code. Production 30Q run is pre-deploy baseline check only.",
+  "results": {
+    "paraphrase": [
+      {
+        "question": "보험료가 부담돼.",
+        "intent": "general_consultation",
+        "matched_rule": "premium_burden_companion_cluster",
+        "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+        "lookup_sub_intent": null,
+        "judgment_intent": "premium_interpretation",
+        "judgment_rule_id": "premium_burden_companion_judgment",
+        "tools": ["snapshot", "memory", "premium_stats"],
+        "coverage_gap_suppressed": true,
+        "pilot_key": "premium_burden",
+        "pilot_bypassed": true
+      },
+      {
+        "question": "보험을 줄이고 싶어.",
+        "intent": "general_consultation",
+        "matched_rule": "premium_burden_companion_cluster",
+        "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+        "lookup_sub_intent": null,
+        "judgment_intent": "premium_interpretation",
+        "judgment_rule_id": "premium_burden_companion_judgment",
+        "tools": ["snapshot", "memory", "premium_stats"],
+        "coverage_gap_suppressed": true,
+        "pilot_key": null,
+        "pilot_bypassed": false
+      },
+      {
+        "question": "월 보험료를 낮추고 싶어.",
+        "intent": "general_consultation",
+        "matched_rule": "premium_burden_companion_cluster",
+        "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+        "lookup_sub_intent": null,
+        "judgment_intent": "premium_interpretation",
+        "judgment_rule_id": "premium_burden_companion_judgment",
+        "tools": ["snapshot", "memory", "premium_stats"],
+        "coverage_gap_suppressed": true,
+        "pilot_key": null,
+        "pilot_bypassed": false
+      }
+    ],
+    "negative_control": [
+      {
+        "question": "월 보험료 얼마야?",
+        "intent": "factual_lookup",
+        "matched_rule": "premium_lookup",
+        "companion_cluster": null,
+        "lookup_sub_intent": "premium_lookup",
+        "tools": ["snapshot", "memory", "premium_stats"],
+        "coverage_gap_suppressed": false
+      },
+      {
+        "question": "내 보험료 총액 얼마야?",
+        "intent": "factual_lookup",
+        "lookup_sub_intent": "premium_lookup",
+        "companion_cluster": null
+      },
+      {
+        "question": "보험료 몇 원이야?",
+        "intent": "factual_lookup",
+        "lookup_sub_intent": "premium_lookup",
+        "companion_cluster": null
+      }
+    ]
+  },
+  "regression": {
+    "persona_local": "npm run test:key-v2-key-persona — ALL PASSED (local code)",
+    "production_30q": "34/34 · friction 0 · pre-deploy Production (slice not yet deployed)"
+  }
+}

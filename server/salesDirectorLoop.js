@@ -83,7 +83,7 @@ export function decideSalesDirectorMode({
   const classification = consultationIntent ?? classifyConsultationIntent(trimmedQuestion);
   const pilotKey = matchP5BrainPilotQuestion(trimmedQuestion);
 
-  if (pilotKey) {
+  if (pilotKey && !classification.companion_cluster) {
     return {
       mode: SALES_DIRECTOR_MODES.PILOT,
       pilotKey,

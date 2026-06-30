@@ -1,0 +1,141 @@
+{
+  "document": "jc_premium_burden_v1_slice_production_deploy_tree_audit_evidence",
+  "slice": "SLICE-1-JC-PREMIUM-BURDEN-v1",
+  "mode": "READ ONLY deploy tree audit · Tom Step 1–2",
+  "pass_declaration": "none",
+  "observed_at": "2026-06-30T17:20:00.000Z",
+  "tom_step": "Confirm deploy target tree before Commit → Redeploy → Verify",
+  "step1_deploy_target": {
+    "question": "Slice 1 7 files — are they Production serverless deploy deps?",
+    "answer": "yes",
+    "entrypoint": "api/customer-home-brain-fact.js",
+    "import_chain": [
+      "api/customer-home-brain-fact.js → server/homeBrainFactCore.js",
+      "homeBrainFactCore.js → server/salesDirectorLoop.js",
+      "homeBrainFactCore.js → server/keyPathRuntimeTrace.js",
+      "salesDirectorLoop.js → classifyConsultationIntent (server/intentGateLayer.js)",
+      "keyPathRuntimeTrace.js → companion_cluster / matched_rule trace fields",
+      "salesDirectorKeyToolRegistry.js → planKeyTools cluster branch",
+      "salesDirectorKeyOrchestrator.js → companion_cluster in factBundle",
+      "keyJudgmentRules.js → premium_burden_companion_judgment",
+      "salesDirectorLoop.js → pilot skip when companion_cluster set"
+    ],
+    "slice1_files": [
+      "server/intentGateLayer.js",
+      "server/keyJudgmentRules.js",
+      "server/keyPathRuntimeTrace.js",
+      "server/salesDirectorFormatter.js",
+      "server/salesDirectorKeyOrchestrator.js",
+      "server/salesDirectorKeyToolRegistry.js",
+      "server/salesDirectorLoop.js"
+    ],
+    "gitignore_excludes_server": false
+  },
+  "step2_git_tree": {
+    "head_commit": "1a7c9f98805cc21b968a807f43411621387e17ac",
+    "head_short_sha": "1a7c9f9",
+    "head_subject": "LV-5.5.1: gate time continuity on agent-turn used flags only (2 files).",
+    "commits_in_deploy_window_2026-06-30T16_17Z": "none — no new commits between Preview deploy and Production deploy",
+    "slice1_uncommitted_at_audit_time": {
+      "git_status": "all 7 files Modified (M) vs HEAD",
+      "diff_stat": "7 files changed, 107 insertions(+), 4 deletions(-)",
+      "key_hunk_intentGateLayer": "adds detectPremiumBurdenCompanionCluster + classifyConsultationIntent branch before isPremiumLookupQuestion"
+    },
+    "head_markers_absent": {
+      "detectPremiumBurdenCompanionCluster": false,
+      "JC_PREMIUM_BURDEN_v1": false,
+      "keyPathRuntimeTrace_companion_cluster": false,
+      "keyPathRuntimeTrace_matched_rule": false,
+      "planKeyTools_cluster_branch": false
+    },
+    "working_tree_markers_present": {
+      "detectPremiumBurdenCompanionCluster": true,
+      "JC_PREMIUM_BURDEN_v1": true,
+      "keyPathRuntimeTrace_companion_cluster": true
+    },
+    "production_deploy_evidence_ref": {
+      "file": "fixtures/key-judgment-validation-v1/jc-premium-burden-v1-slice-production-deploy-evidence.json",
+      "observed_at": "2026-06-30T17:05:10.737Z",
+      "git_short_sha_recorded": "1a7c9f9",
+      "deployment_id": "dpl_HgU7jVgBTpV5cPu9krGAKTY67SBf",
+      "deployment_url": "https://lifeguard-core-final-fi1a7va48-70sofia113-1918s-projects.vercel.app",
+      "build_cache_snippet": "Restored build cache from previous deployment (DmHAG3xseyczHJyDHeeBHybqaMnv)",
+      "caveat": "git_short_sha records HEAD commit only — does not record working-tree delta"
+    },
+    "preview_deploy_evidence_ref": {
+      "file": "fixtures/key-judgment-validation-v1/jc-premium-burden-v1-slice-preview-deploy-evidence.json",
+      "observed_at": "2026-06-30T16:29:37.557Z",
+      "git_short_sha_recorded": "1a7c9f9",
+      "deployment_id": "dpl_9yqC2kaPdvMW8omLinLeDFVHzNUa",
+      "deployment_url": "https://lifeguard-core-final-j414bjpef-70sofia113-1918s-projects.vercel.app",
+      "build_cache_snippet": "Restored build cache from previous deployment (2vqLYABDDW4KAofKZXZQtEPJ6RtQ)"
+    },
+    "deploy_window_inference": "Preview (~16:29Z) and Production (~17:05Z) share git_short_sha 1a7c9f9 but different Vercel build caches. Slice 1 files remain uncommitted at audit time — same delta was present at both deploy times (no intervening commit)."
+  },
+  "artifact_level_bundle_diff": {
+    "method": "vercel inspect --json (READ ONLY)",
+    "lambda_path": "api/customer-home-brain-fact",
+    "production": {
+      "deployment_id": "dpl_HgU7jVgBTpV5cPu9krGAKTY67SBf",
+      "target": "production",
+      "size_bytes": 582374,
+      "digest": "prj_1TzEFOqbjFt3S6asgf0f7ChAjx4y/a0c0e482dd1891dc599230f4868b4af68ed5d25b42e0810611fcfec8d8f17759"
+    },
+    "preview": {
+      "deployment_id": "dpl_9yqC2kaPdvMW8omLinLeDFVHzNUa",
+      "target": "preview",
+      "size_bytes": 582326,
+      "digest": "prj_1TzEFOqbjFt3S6asgf0f7ChAjx4y/9c650a99f7e004f9490de5923c8d3bdba6c2463de73068c8f9bab888415f59f3"
+    },
+    "digests_match": false,
+    "note": "Different lambda digest confirms Production and Preview bundles are not identical artifacts. Source disassembly not performed."
+  },
+  "behavioral_fingerprint": {
+    "method": "live SSE trace via verify evidence + local classifyConsultationIntent on working tree",
+    "paraphrase_questions": [
+      "보험료가 부담돼.",
+      "보험을 줄이고 싶어.",
+      "월 보험료를 낮추고 싶어."
+    ],
+    "working_tree_local": [
+      { "intent": "general_consultation", "companion_cluster": "JC-PREMIUM-BURDEN-v1", "lookup_sub_intent": null },
+      { "intent": "general_consultation", "companion_cluster": "JC-PREMIUM-BURDEN-v1", "lookup_sub_intent": null },
+      { "intent": "general_consultation", "companion_cluster": "JC-PREMIUM-BURDEN-v1", "lookup_sub_intent": null }
+    ],
+    "preview_deployment_j414bjpef": [
+      { "intent": "general_consultation", "companion_cluster": "JC-PREMIUM-BURDEN-v1", "tools": ["snapshot", "memory", "premium_stats"] },
+      { "intent": "general_consultation", "companion_cluster": "JC-PREMIUM-BURDEN-v1", "tools": ["snapshot", "memory", "premium_stats"] },
+      { "intent": "general_consultation", "companion_cluster": "JC-PREMIUM-BURDEN-v1", "tools": ["snapshot", "memory", "premium_stats"] }
+    ],
+    "production_alias": [
+      { "intent": "factual_lookup", "companion_cluster": null, "lookup_sub_intent": "premium_lookup", "tools": ["snapshot", "premium_stats"] },
+      { "intent": "general_consultation", "companion_cluster": null, "lookup_sub_intent": null, "tools": ["snapshot"] },
+      { "intent": "factual_lookup", "companion_cluster": null, "lookup_sub_intent": "premium_lookup", "tools": ["snapshot", "premium_stats"] }
+    ],
+    "head_committed_classifier_order": "isPremiumLookupQuestion before companion cluster branch — absent in HEAD",
+    "alignment": {
+      "preview_matches_working_tree": true,
+      "production_matches_working_tree": false,
+      "production_matches_head_committed_order": true
+    }
+  },
+  "tom_conclusion": {
+    "slice1_design": "Validated on Preview — not a design failure",
+    "production_paraphrase": "Not complete — paraphrase 0/3 on Production alias",
+    "root_cause_status": "Strong evidence — not absolute source disassembly proof",
+    "primary_hypothesis": "Production bundle and Preview bundle differ; Production behavior matches committed HEAD (1a7c9f9) without Slice 1 uncommitted delta; Preview includes Slice 1 working tree",
+    "supporting_evidence": [
+      "HEAD lacks Slice 1 markers; working tree has all markers",
+      "7 files uncommitted (+107 lines) at audit time; no commit in deploy window",
+      "Production == HEAD fingerprint; Preview == working tree fingerprint",
+      "api/customer-home-brain-fact lambda digest differs between Production and Preview deployments"
+    ],
+    "not_confirmed_by": "Direct disassembly of Production serverless bundle source",
+    "rollback": "HOLD — not required (30Q pass, negative pass, no operational breakage)",
+    "next_steps_after_tom_go": [
+      "Step 3: Commit Slice 1 7 server files",
+      "Step 4: Production redeploy --tom-go",
+      "Step 5: Production paraphrase verify"
+    ]
+  }
+}

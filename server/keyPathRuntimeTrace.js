@@ -107,6 +107,8 @@ export function buildKeyPathRuntimeTrace({
     classificationIntent: classification.intent ?? null,
     lookup_sub_intent: classification.lookup_sub_intent ?? null,
     lookup_category: classification.lookup_category ?? null,
+    companion_cluster: classification.companion_cluster ?? null,
+    matched_rule: classification.matched_rule ?? null,
     conversation_brain_topic: matchConversationBrainTopic(question),
     key_eligibility: keyEligibility,
     key_loop: {

@@ -6,7 +6,12 @@
  * P9-2: basisTagged facts remain as thinking material; final speech via Human Understanding Loop.
  */
 import { finalizeHumanSalesDirectorResponse, shouldApplyHumanUnderstandingLoop } from "./humanUnderstandingLoop.js";
-import { LOOKUP_CATEGORIES, matchPolicyToCategory } from "./intentGateLayer.js";
+import {
+  LOOKUP_CATEGORIES,
+  matchPolicyToCategory,
+  detectPremiumBurdenCompanionCluster,
+  PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+} from "./intentGateLayer.js";
 
 export const SALES_DIRECTOR_JUDGMENT_INTENTS = {
   COVERAGE_JUDGMENT: "coverage_judgment",
@@ -294,6 +299,11 @@ export function extractFactBundleEvidence(factBundle = {}) {
 export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", question = "") {
   const q = normalizeQuestion(question);
   if (!q) return null;
+
+  const companionCluster = detectPremiumBurdenCompanionCluster(q);
+  if (companionCluster?.cluster_id === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+    return SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION;
+  }
 
   for (const rule of QUESTION_INTENT_RULES) {
     if (rule.pattern.test(q)) return rule.intent;

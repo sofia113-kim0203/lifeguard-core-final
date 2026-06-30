@@ -130,8 +130,49 @@ function joinLabels(labels) {
 const PREMIUM_LOOKUP_SIGNAL =
   /보험료|월\s*납입?|월납|월\s*보험료|납입\s*보험료|보험료\s*합계/;
 
+/** Slice 1 — JC-PREMIUM-BURDEN-v1 companion cluster (additive; intent stays general_consultation). */
+export const PREMIUM_BURDEN_COMPANION_CLUSTER_ID = "JC-PREMIUM-BURDEN-v1";
+
+const PURE_PREMIUM_AMOUNT_LOOKUP_RE = /(?:얼마|몇\s*(?:원)?|합계|총액)/;
+
 function isPremiumLookupQuestion(text = "") {
   return PREMIUM_LOOKUP_SIGNAL.test(normalizeQuestion(text));
+}
+
+function isPurePremiumAmountLookup(text = "") {
+  const normalized = normalizeQuestion(text);
+  if (!isPremiumLookupQuestion(normalized)) return false;
+  return PURE_PREMIUM_AMOUNT_LOOKUP_RE.test(normalized);
+}
+
+/**
+ * Premium burden / reduction companion — same judgment direction across paraphrases.
+ * Excludes pure amount lookup (얼마/몇/합계/총액) → stays premium_lookup.
+ */
+export function detectPremiumBurdenCompanionCluster(question = "") {
+  const text = normalizeQuestion(question);
+  if (!text) return null;
+  if (!hasInsuranceTopicSignal(text)) return null;
+  if (isPurePremiumAmountLookup(text)) return null;
+
+  const signals = [];
+  const burden =
+    /(?:보험료|월\s*보험료|납입(?:료)?).{0,16}(?:부담|비싸|무거|높)/.test(text) ||
+    /(?:부담|비싸|무거|높).{0,16}(?:보험료|보험)/.test(text) ||
+    (/부담/.test(text) && /(?:보험|보험료)/.test(text));
+  const reduction =
+    /(?:보험|보험료|월\s*보험료).{0,20}(?:줄이|낮추|절감|줄일|줄여)/.test(text) ||
+    /(?:줄이|낮추|절감|줄여).{0,20}(?:보험|보험료)/.test(text) ||
+    /보험을?\s*줄이/.test(text);
+
+  if (burden) signals.push("burden");
+  if (reduction) signals.push("reduction");
+  if (!signals.length) return null;
+
+  return {
+    cluster_id: PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+    signals,
+  };
 }
 
 function detectLookupSubIntent(text) {
@@ -334,6 +375,20 @@ export function classifyConsultationIntent(question = "") {
       matched_rule: "empty_question",
       lookup_sub_intent: null,
       lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  const companionCluster = detectPremiumBurdenCompanionCluster(text);
+  if (companionCluster) {
+    return {
+      intent: "general_consultation",
+      confidence: "high",
+      matched_rule: "premium_burden_companion_cluster",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      companion_cluster: companionCluster.cluster_id,
+      companion_cluster_signals: companionCluster.signals,
       question_focus: text,
     };
   }

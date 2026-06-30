@@ -2,7 +2,11 @@
  * P10-1 — Sales Director KEY tool registry (Factories = tools).
  * Snapshot / Memory / Coverage Gap / Underwriting / Recommendation / Design (stored read) / Premium.
  */
-import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import {
+  classifyConsultationIntent,
+  computePremiumLookupStats,
+  PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+} from "./intentGateLayer.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
@@ -192,6 +196,19 @@ export function planKeyTools(classification = {}, loadedContext = null, question
 
   if (loadedContext?.memory === "present") {
     tools.push(KEY_TOOLS.MEMORY);
+  }
+
+  if (classification.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+    tools.push(KEY_TOOLS.PREMIUM_STATS);
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "companion_cluster_jc_premium_burden_v1",
+    };
   }
 
   if (legacySlice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.PREMIUM_BURDEN) {

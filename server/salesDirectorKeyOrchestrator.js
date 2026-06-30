@@ -81,6 +81,9 @@ function buildKeyAgentTurn({
     responseSource: "sales_director_key",
     factBundle: {
       question,
+      classification_intent: consultationIntent?.intent ?? null,
+      lookup_sub_intent: consultationIntent?.lookup_sub_intent ?? null,
+      companion_cluster: consultationIntent?.companion_cluster ?? null,
       ...policyFields,
       policies,
       memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,

@@ -5,7 +5,7 @@
  * kind: judgment_rule — customer intent needs insurance judgment (not relational turn-taking).
  */
 import { SALES_DIRECTOR_JUDGMENT_INTENTS } from "./salesDirectorFormatter.js";
-import { classifyConsultationIntent } from "./intentGateLayer.js";
+import { classifyConsultationIntent, PREMIUM_BURDEN_COMPANION_CLUSTER_ID } from "./intentGateLayer.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { abstractMemoryThemes } from "./salesDirectorPersona.js";
 
@@ -490,6 +490,19 @@ function buildDesignReviewJudgment({ factBundle = {} } = {}) {
 /** @type {Array<{ id: string, kind: "judgment_rule", scene: string, reason: string, match: (ctx: object) => boolean, buildJudgment: (ctx?: object) => string }>} */
 export const KEY_JUDGMENT_RULES = [
   {
+    id: "premium_burden_companion_judgment",
+    kind: "judgment_rule",
+    scene: "B",
+    reason:
+      "JC-PREMIUM-BURDEN-v1 — burden/reduction paraphrases share companion judgment, not lookup or generic consult.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment() {
+      return "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다.";
+    },
+  },
+  {
     id: "memory_recall_judgment",
     kind: "judgment_rule",
     scene: "M",
@@ -625,6 +638,9 @@ export const KEY_JUDGMENT_RULES = [
     match({ question = "", resolvedIntent = null, factBundle = {} } = {}) {
       const q = normalizeQuestion(question);
       if (!q) return false;
+      if (factBundle.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+        return false;
+      }
       if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION) {
         return false;
       }
