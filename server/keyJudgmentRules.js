@@ -250,6 +250,7 @@ function buildClaimDocumentsJudgment({ factBundle = {}, question = "" } = {}) {
 }
 
 function isMemoryRecallQuestion(q = "") {
+  if (/^기억(?:해|나)\??$/.test(q)) return true;
   if (/뭐라고\s*(?:했|말)/.test(q)) return true;
   if (/걱정.{0,12}(?:했|하|한|던).{0,12}기억/.test(q)) return true;
   if (!/기억/.test(q)) return false;
