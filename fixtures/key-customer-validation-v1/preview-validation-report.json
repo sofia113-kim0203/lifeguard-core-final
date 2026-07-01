@@ -1,0 +1,896 @@
+{
+  "audit": "key_customer_validation_v1_preview",
+  "only_filter": null,
+  "bank_id": "key_customer_validation_v1",
+  "bank_version": "1.0.0",
+  "preview_base": "https://lifeguard-core-final-53p1sr9s1-70sofia113-1918s-projects.vercel.app",
+  "observed_at": "2026-07-01T03:48:16.489Z",
+  "note": "Observation only — Tom Audit. Jerry does not declare COMPLETE.",
+  "tom_score_automated": {
+    "same_key": "5/5",
+    "trust": "5/5",
+    "continuity": "5/5",
+    "role_split": "0/5",
+    "friction": "0건"
+  },
+  "manual_role_split": "30/30",
+  "level_distribution": {
+    "L1": 12,
+    "L2": 8,
+    "L3": 6,
+    "L4": 4
+  },
+  "steps": [
+    {
+      "id": "Q01",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "보험 몇 개야?",
+      "probe_ok": true,
+      "answerText": "지금 확인된 가입 보험은 1개예요. 세부 담보·한도까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금 확인된 가입 보험은 1개예요. 세부 담보·한도까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q02",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "보험사는 어디야?",
+      "probe_ok": true,
+      "answerText": "가입하신 보험사는 QA테스트손보이에요. 상품별 세부 담보까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "가입하신 보험사는 QA테스트손보이에요. 상품별 세부 담보까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q03",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "가입한 상품이 뭐야?",
+      "probe_ok": true,
+      "answerText": "지금 확인된 가입 상품은 QA종합보장A입니다. 세부 담보·한도까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금 확인된 가입 상품은 QA종합보장A입니다. 세부 담보·한도까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q04",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "언제 가입했어?",
+      "probe_ok": true,
+      "answerText": "지금은 가입일 정보를 확인하지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요. 확인해 보고 다시 말씀드리겠습니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금은 가입일 정보를 확인하지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요. 확인해 보고 다시 말씀드리겠습니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q05",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "어떤 보장이 있어?",
+      "probe_ok": true,
+      "answerText": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "composeMode": null,
+      "patternId": null,
+      "responseSource": "sales_director_guarded_hold",
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q06",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "보험료 얼마야?",
+      "probe_ok": true,
+      "answerText": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q07",
+      "level": "L1",
+      "domain": "Claim",
+      "families": [
+        "Claim"
+      ],
+      "question": "보험금 받을 수 있어?",
+      "probe_ok": true,
+      "answerText": "가입된 보험은 1개 확인돼요. 어떤 사고·치료였는지에 따라 열려 있는 축이 달라집니다. 최종 지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 어떤 사고·치료였는지 정리해 두면, 열려 있는 축부터 같이 볼 수 있습니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "가입된 보험은 1개 확인돼요. 어떤 사고·치료였는지에 따라 열려 있는 축이 달라집니다. 최종 지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 어떤 사고·치료였는지 정리해 두면, 열려 있는 축부터 같이 볼 수 있습니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q08",
+      "level": "L1",
+      "domain": "Claim",
+      "families": [
+        "Claim"
+      ],
+      "question": "청구할 수 있어?",
+      "probe_ok": true,
+      "answerText": "가입된 보험은 1개 확인돼요. 어떤 사고·치료인지 알려주시면 청구 가능 축부터 함께 확인할 수 있습니다. 최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "가입된 보험은 1개 확인돼요. 어떤 사고·치료인지 알려주시면 청구 가능 축부터 함께 확인할 수 있습니다. 최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q09",
+      "level": "L1",
+      "domain": "Claim",
+      "families": [
+        "Claim"
+      ],
+      "question": "무슨 서류가 필요해?",
+      "probe_ok": true,
+      "answerText": "청구 검토에는 보통 진단서과 의료비 영수증 등이 필요해요. 상품별로 추가 서류가 더 필요할 수 있습니다. 어떤 사고·치료인지 먼저 알려 주시면, 필요 서류를 맞춰서 정리해 드릴게요.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "청구 검토에는 보통 진단서과 의료비 영수증 등이 필요해요. 상품별로 추가 서류가 더 필요할 수 있습니다. 어떤 사고·치료인지 먼저 알려 주시면, 필요 서류를 맞춰서 정리해 드릴게요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q10",
+      "level": "L1",
+      "domain": "Memory",
+      "families": [
+        "Memory"
+      ],
+      "question": "지난번 이야기 기억해?",
+      "probe_ok": true,
+      "answerText": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q11",
+      "level": "L1",
+      "domain": "Memory",
+      "families": [
+        "Memory"
+      ],
+      "question": "전에 말했던 거 기억해?",
+      "probe_ok": true,
+      "answerText": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q12",
+      "level": "L1",
+      "domain": "Relationship",
+      "families": [
+        "Relationship"
+      ],
+      "question": "오랜만이에요.",
+      "probe_ok": true,
+      "answerText": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+      "composeMode": "recognition_companion_bridge",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+      "persona": {
+        "pass": true,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": true,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q13",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy"
+      ],
+      "question": "지난번 이야기 기억해? 보험 몇 개였지?",
+      "probe_ok": true,
+      "answerText": "지금은 확인된 기억이 없어요. 지금 확인된 가입 보험은 1개예요.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금은 확인된 기억이 없어요. 지금 확인된 가입 보험은 1개예요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": false,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": [
+          "continuity_weak"
+        ]
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q14",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험료 부담돼. 어떻게 생각해?",
+      "probe_ok": true,
+      "answerText": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q15",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Claim",
+        "Memory"
+      ],
+      "question": "보험금 받을 수 있을까? 지난번에도 비슷한 얘기 했잖아.",
+      "probe_ok": true,
+      "answerText": "구체적인 지난번 표현까지는 확인되지 않았지만, 비슷한 이야기로 이어서 보면 됩니다. 가입된 보험은 1개 확인돼요. 어떤 사고·치료였는지에 따라 열려 있는 축이 달라집니다.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "구체적인 지난번 표현까지는 확인되지 않았지만, 비슷한 이야기로 이어서 보면 됩니다. 가입된 보험은 1개 확인돼요. 어떤 사고·치료였는지에 따라 열려 있는 축이 달라집니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q16",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Policy"
+      ],
+      "question": "고마웠어요. 보험 하나만 더 물어볼게.",
+      "probe_ok": true,
+      "answerText": "도움이 됐다니 다행이에요. 편하게 물어보셔도 됩니다. 말씀 주신 보험부터 같이 확인해 보겠습니다.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "도움이 됐다니 다행이에요. 편하게 물어보셔도 됩니다. 말씀 주신 보험부터 같이 확인해 보겠습니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q17",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Policy"
+      ],
+      "question": "오랜만이에요. 보험료부터 볼까요?",
+      "probe_ok": true,
+      "answerText": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q18",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy"
+      ],
+      "question": "보험사는 어디였지? 기억나?",
+      "probe_ok": true,
+      "answerText": "가입하신 보험사는 QA테스트손보이에요. 상품별 세부 담보까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "가입하신 보험사는 QA테스트손보이에요. 상품별 세부 담보까지는 이 정보 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q19",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Claim",
+        "Policy"
+      ],
+      "question": "보험금 청구하려면 뭐부터 하면 돼?",
+      "probe_ok": true,
+      "answerText": "가입된 보험은 1개 확인돼요. 어떤 사고·치료인지 알려주시면 청구 가능 축부터 함께 확인할 수 있습니다. 최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "가입된 보험은 1개 확인돼요. 어떤 사고·치료인지 알려주시면 청구 가능 축부터 함께 확인할 수 있습니다. 최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q20",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험료가 부담인데 유지하는 게 좋을까?",
+      "probe_ok": true,
+      "answerText": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q21",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험료 부담된다고 했던 거 기억해? 하나 해지해도 될까?",
+      "probe_ok": true,
+      "answerText": "저장된 기억은 아직 확인되지 않았어요. 보험료 부담 걱정은 지금 흐름으로 이해하고 있어요. 가입된 보험이 있는 것은 확인돼요. 다만 총 보험료는 현재 검증이 필요합니다. 해지 여부는 지금 단정하기보다, 무거운 계약부터 같이 짚어 보면 됩니다.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "저장된 기억은 아직 확인되지 않았어요. 보험료 부담 걱정은 지금 흐름으로 이해하고 있어요. 가입된 보험이 있는 것은 확인돼요. 다만 총 보험료는 현재 검증이 필요합니다. 해지 여부는 지금 단정하기보다, 무거운 계약부터 같이 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q22",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy"
+      ],
+      "question": "지난번에 암보험 얘기했는데 지금도 부족해?",
+      "probe_ok": true,
+      "answerText": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q23",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Claim",
+        "Policy"
+      ],
+      "question": "보험금 받을 수 있으면 청구까지 같이 봐줄래?",
+      "probe_ok": true,
+      "answerText": "가입된 보험은 1개 확인돼요. 어떤 사고·치료인지 알려주시면 청구 가능 축부터 함께 확인할 수 있습니다. 최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 어떤 사고·치료였는지 정리해 두면, 열려 있는 축부터 같이 볼 수 있습니다.",
+      "composeMode": "key_structured",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "가입된 보험은 1개 확인돼요. 어떤 사고·치료인지 알려주시면 청구 가능 축부터 함께 확인할 수 있습니다. 최종 접수·지급 여부는 약관·서류·보험사 심사에 따라 달라질 수 있습니다. 어떤 사고·치료였는지 정리해 두면, 열려 있는 축부터 같이 볼 수 있습니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q24",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Memory",
+        "Policy"
+      ],
+      "question": "오랜만이에요. 지난번 이어서 보험 점검해줘.",
+      "probe_ok": true,
+      "answerText": "오랜만이에요. 지금 확인된 가입 보험 1개부터 차례로 점검해 보면 됩니다.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "오랜만이에요. 지금 확인된 가입 보험 1개부터 차례로 점검해 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q25",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험이 너무 많은 것 같은데 기억하는 기준으로 같이 정리해줘.",
+      "probe_ok": true,
+      "answerText": "지금 확인된 가입 보험은 1개예요. 기억하신 것과 맞춰 하나씩 정리해 드릴게요.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금 확인된 가입 보험은 1개예요. 기억하신 것과 맞춰 하나씩 정리해 드릴게요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q26",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Claim"
+      ],
+      "question": "고마웠어요. 다음엔 청구도 같이 부탁해.",
+      "probe_ok": true,
+      "answerText": "네, 편히 이어가셔도 됩니다. 청구하실 때는 그때 상황부터 같이 짚어도 됩니다. 미리 걸리는 부분만 적어 두셔도 돼요.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "네, 편히 이어가셔도 됩니다. 청구하실 때는 그때 상황부터 같이 짚어도 됩니다. 미리 걸리는 부분만 적어 두셔도 돼요.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q27",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "나도 잘 모르겠는데 그냥 알아서 봐줘.",
+      "probe_ok": true,
+      "answerText": "뭐부터 해야 할지 모르겠다는 말, 제일 많이 듣습니다. 한 번에 다 정리하려 해서 더 어려워집니다. 지금 제일 걸리는 것 하나만 잡아도 됩니다. 한 가지만 여쭤볼게요. 오늘은 확인이 목적인가요, 결정이 목적인가요?",
+      "composeMode": "key_relational",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "뭐부터 해야 할지 모르겠다는 말, 제일 많이 듣습니다. 한 번에 다 정리하려 해서 더 어려워집니다. 지금 제일 걸리는 것 하나만 잡아도 됩니다. 한 가지만 여쭤볼게요. 오늘은 확인이 목적인가요, 결정이 목적인가요?",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q28",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "뭐부터 해야 할지 모르겠어.",
+      "probe_ok": true,
+      "answerText": "어렵게 느껴지는 게 정상이에요. 한 번에 다 보려 해서 그래요. 한 번에 다 정리하려 해서 더 어려워집니다. 지금 제일 걸리는 것 하나만 잡아도 됩니다. 제가 먼저 확인하고 싶은 게 하나 있습니다. 지금 제일 불편한 게 뭐예요?",
+      "composeMode": "key_relational",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "어렵게 느껴지는 게 정상이에요. 한 번에 다 보려 해서 그래요. 한 번에 다 정리하려 해서 더 어려워집니다. 지금 제일 걸리는 것 하나만 잡아도 됩니다. 제가 먼저 확인하고 싶은 게 하나 있습니다. 지금 제일 불편한 게 뭐예요?",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q29",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "보험은 어려워. 쉽게 말해줘.",
+      "probe_ok": true,
+      "answerText": "보험 용어가 많아서 헷갈리는 게 당연해요. 지금 확인된 가입 보험부터 쉬운 말로 짚어 보면 됩니다.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "보험 용어가 많아서 헷갈리는 게 당연해요. 지금 확인된 가입 보험부터 쉬운 말로 짚어 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    },
+    {
+      "id": "Q30",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "그냥 나한테 제일 필요한 것부터 같이 보자.",
+      "probe_ok": true,
+      "answerText": "지금 확인된 가입 보험 1개부터, 제일 걸리는 축부터 같이 보면 됩니다.",
+      "composeMode": "key_companion_guidance",
+      "patternId": null,
+      "responseSource": "sales_director_key",
+      "answer_preview": "지금 확인된 가입 보험 1개부터, 제일 걸리는 축부터 같이 보면 됩니다.",
+      "persona": {
+        "pass": false,
+        "checks": {
+          "identity": true,
+          "trust": true,
+          "continuity": true,
+          "role_split": false,
+          "no_friction": true
+        },
+        "frictions": [],
+        "notes": []
+      },
+      "manual_role_split_pass": true
+    }
+  ]
+}

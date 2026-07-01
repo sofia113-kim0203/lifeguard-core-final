@@ -1,0 +1,62 @@
+{
+  "document": "rc_recognition_companion_v1_b1_correct_preflight_evidence",
+  "slice": "RELATIONSHIP-ARC-SLICE-2-RC-RECOGNITION-COMPANION-v1",
+  "gate": "B1-CORRECT-PREFLIGHT",
+  "mode": "Vercel link verification only · no deploy · no PASS",
+  "team_agreement": "Team Agreement v1 — mechanism before deploy",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-01T12:00:00.000Z",
+  "baseline_sha": "1016529",
+  "baseline_note": "RC-CONTINUITY Production Close — Relationship Arc operational baseline",
+  "preview_target_sha": "10006e8",
+  "preview_target_note": "RC-RECOGNITION implementation + local evidence — not Slice Close SHA",
+  "bundle_source": {
+    "method": "git worktree",
+    "path": "lg-rc-recognition-10006e8",
+    "head": "10006e8c9ed52e870e753421a6d6c78a08f10db5",
+    "git_status": "clean except .gitignore (vercel link side effect)",
+    "api_pollution": false,
+    "rc_bridge_present": true
+  },
+  "primary_cwd": {
+    "role": "development only — not deploy source",
+    "modified_tracked": 8,
+    "untracked": 989,
+    "deploy_forbidden": true
+  },
+  "vercel_link_verification": {
+    "cwd": "worktree lg-rc-recognition-10006e8",
+    "command": "npx vercel link --project lifeguard-core-final --yes",
+    "linked_line": "✓ Linked          70sofia113-1918s-projects/lifeguard-core-final",
+    "projectName": "lifeguard-core-final",
+    "projectId": "prj_1TzEFOqbjFt3S6asgf0f7ChAjx4y",
+    "orgId": "team_LICcIVWRaJx3UzyA9X6uLdQg",
+    "ssot_match": true,
+    "ssot_ref": "fixtures/key-judgment-validation-v1/lifeguard-deployment-standard-v1.json",
+    "wrong_project_removed": {
+      "projectName": "lg-rc-recognition-10006e8",
+      "projectId": "prj_71KebqNbMk1oeY0TIKlVjuO25rd5",
+      "note": "Accidental first deploy — not RC Close evidence"
+    },
+    "repo_json": {
+      "remoteName": "origin",
+      "projects": [
+        {
+          "id": "prj_1TzEFOqbjFt3S6asgf0f7ChAjx4y",
+          "name": "lifeguard-core-final",
+          "directory": ".",
+          "orgId": "team_LICcIVWRaJx3UzyA9X6uLdQg"
+        }
+      ]
+    }
+  },
+  "preflight_checks": {
+    "bundle_source_10006e8": true,
+    "primary_pollution_separated": true,
+    "vercel_target_lifeguard_core_final": true,
+    "project_id_ssot_match": true,
+    "deploy_executed": false
+  },
+  "next_step": "Tom Preview Deploy GO → worktree vercel deploy → inspect → RC verify → 30Q → preview evidence",
+  "jerry": "STOP — await Tom Preview Deploy GO"
+}
