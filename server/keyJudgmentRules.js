@@ -10,8 +10,10 @@ import {
   PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
   COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
   RC_CONTINUITY_COMPANION_CLUSTER_ID,
+  RC_RECOGNITION_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
 import { buildContinuityCompanionJudgment } from "./conversationContinuityBridge.js";
+import { buildRecognitionCompanionJudgment } from "./conversationRecognitionBridge.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { abstractMemoryThemes } from "./salesDirectorPersona.js";
 
@@ -533,6 +535,19 @@ export const KEY_JUDGMENT_RULES = [
     },
     buildJudgment(ctx = {}) {
       return buildContinuityCompanionJudgment(ctx);
+    },
+  },
+  {
+    id: "recognition_companion_judgment",
+    kind: "judgment_rule",
+    scene: "R",
+    reason:
+      "RC-RECOGNITION-COMPANION-v1 — return visit paraphrases welcome customer; no Memory read · no insurance turn.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment(ctx = {}) {
+      return buildRecognitionCompanionJudgment(ctx);
     },
   },
   {

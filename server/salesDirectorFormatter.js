@@ -15,6 +15,8 @@ import {
   COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
   detectContinuityCompanionCluster,
   RC_CONTINUITY_COMPANION_CLUSTER_ID,
+  detectRecognitionCompanionCluster,
+  RC_RECOGNITION_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
 
 export const SALES_DIRECTOR_JUDGMENT_INTENTS = {
@@ -316,6 +318,11 @@ export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", qu
 
   const continuityCluster = detectContinuityCompanionCluster(q);
   if (continuityCluster?.cluster_id === RC_CONTINUITY_COMPANION_CLUSTER_ID) {
+    return null;
+  }
+
+  const recognitionCluster = detectRecognitionCompanionCluster(q);
+  if (recognitionCluster?.cluster_id === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
     return null;
   }
 

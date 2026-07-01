@@ -38,6 +38,10 @@ import {
   shouldUseContinuityCompanionCompose,
 } from "./conversationContinuityBridge.js";
 import {
+  buildRecognitionCompanionResponse,
+  shouldUseRecognitionCompanionCompose,
+} from "./conversationRecognitionBridge.js";
+import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
   STATEMENT_BASIS,
@@ -1340,9 +1344,18 @@ export function generateHumanSalesDirectorResponse({
         factBundle,
         humanFrame,
       });
+    const useRecognitionCompanion =
+      !fixedSlice &&
+      !useContinuityCompanion &&
+      shouldUseRecognitionCompanionCompose({
+        question,
+        factBundle,
+        humanFrame,
+      });
     const timeContinuityCandidate =
       !fixedSlice &&
       !useContinuityCompanion &&
+      !useRecognitionCompanion &&
       shouldUsePersonalTimeContinuityCompose({
         question: question || factBundle.question || "",
         humanFrame,
@@ -1363,11 +1376,13 @@ export function generateHumanSalesDirectorResponse({
     const useAnalysisStatus =
       !fixedSlice &&
       !useContinuityCompanion &&
+      !useRecognitionCompanion &&
       !useTimeContinuity &&
       isKeyAnalysisStatusQuestion(question || factBundle.question || "");
     const useSocial =
       !fixedSlice &&
       !useContinuityCompanion &&
+      !useRecognitionCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       isKeySocialTurn(question || factBundle.question || "");
@@ -1377,6 +1392,7 @@ export function generateHumanSalesDirectorResponse({
     const useClosing =
       !fixedSlice &&
       !useContinuityCompanion &&
+      !useRecognitionCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
@@ -1387,6 +1403,7 @@ export function generateHumanSalesDirectorResponse({
     const useRelational =
       !fixedSlice &&
       !useContinuityCompanion &&
+      !useRecognitionCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
@@ -1399,6 +1416,7 @@ export function generateHumanSalesDirectorResponse({
       });
     const useCompanionGuidance =
       !useContinuityCompanion &&
+      !useRecognitionCompanion &&
       !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
@@ -1412,7 +1430,9 @@ export function generateHumanSalesDirectorResponse({
       });
     text = useContinuityCompanion
       ? buildContinuityCompanionResponse({ question, factBundle, humanFrame })
-      : useTimeContinuity
+      : useRecognitionCompanion
+        ? buildRecognitionCompanionResponse({ question, factBundle, humanFrame })
+        : useTimeContinuity
       ? timeContinuityText
       : useAnalysisStatus
         ? buildKeyAnalysisStatusResponse(factBundle, question)
@@ -1432,6 +1452,8 @@ export function generateHumanSalesDirectorResponse({
       used_safe_fallback: false,
       compose_mode: useContinuityCompanion
         ? "continuity_companion_bridge"
+        : useRecognitionCompanion
+          ? "recognition_companion_bridge"
         : useTimeContinuity
         ? "time_continuity"
         : useAnalysisStatus
@@ -1503,6 +1525,12 @@ export function generateHumanSalesDirectorResponse({
                       humanFrame,
                     })
                   ? buildContinuityCompanionResponse({ question, factBundle, humanFrame })
+                  : shouldUseRecognitionCompanionCompose({
+                        question,
+                        factBundle,
+                        humanFrame,
+                      })
+                    ? buildRecognitionCompanionResponse({ question, factBundle, humanFrame })
                   : shouldUseKeyRelationalCompose({
                       question,
                       classificationIntent: resolvedClassificationIntent,

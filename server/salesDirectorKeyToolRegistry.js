@@ -8,6 +8,7 @@ import {
   PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
   COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
   RC_CONTINUITY_COMPANION_CLUSTER_ID,
+  RC_RECOGNITION_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
@@ -235,6 +236,18 @@ export function planKeyTools(classification = {}, loadedContext = null, question
       tools: dedupeTools([KEY_TOOLS.MEMORY]),
       coverage_gap_suppressed: true,
       coverage_gap_suppress_reason: "companion_cluster_rc_continuity_companion_v1",
+    };
+  }
+
+  if (classification.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: [],
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "companion_cluster_rc_recognition_companion_v1",
     };
   }
 
@@ -551,6 +564,29 @@ export async function runKeyTools({
   unified = null,
 } = {}) {
   if (!plan?.tools?.length) {
+    if (plan?.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
+      return {
+        ok: true,
+        reason: "recognition_companion_no_tools",
+        tools_called: [],
+        tool_results: [],
+        snapshot_used: false,
+        memory_used: false,
+        premium_used: false,
+        coverage_gap_used: false,
+        trace: {
+          status: "rc_recognition_companion_v1_no_tools",
+          plan,
+          tools_called: [],
+          snapshot_used: false,
+          memory_used: false,
+          premium_used: false,
+          coverage_gap_used: false,
+          coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
+          coverage_gap_suppress_reason: plan?.coverage_gap_suppress_reason ?? null,
+        },
+      };
+    }
     return {
       ok: false,
       reason: "empty_tool_plan",

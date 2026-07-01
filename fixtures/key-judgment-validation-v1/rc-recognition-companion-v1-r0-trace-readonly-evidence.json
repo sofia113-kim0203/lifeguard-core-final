@@ -1,0 +1,347 @@
+{
+  "document": "rc_recognition_companion_v1_r0_trace_readonly_evidence",
+  "slice_candidate": "RC-RECOGNITION-COMPANION-v1",
+  "mode": "READ ONLY · R0 trace · no product change · no PASS",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-01T01:58:18.557Z",
+  "target_identity": "KEY가 고객을 다시 알아보는 사람",
+  "probes": [
+    {
+      "question": "오랜만이야",
+      "recognition_signals": [
+        "reunion_time_gap"
+      ],
+      "classification": {
+        "intent": "casual_chat",
+        "matched_rule": "casual_small_talk",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "unsupported",
+      "home_brain_route": "casual_chat",
+      "is_casual_home": true,
+      "casual_chat": {
+        "matched_rule": "casual_small_talk"
+      },
+      "conversation_pattern": {
+        "id": "relationship_reunion",
+        "scene": "Relationship",
+        "compose_mode": "key_social",
+        "preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다."
+      },
+      "judgment_rule": null,
+      "memory_recall_heuristic": false,
+      "runtime_with_memory": {
+        "answer_preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_social",
+        "conversation_pattern_id": null,
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "runtime_no_memory": null,
+      "recognition_axis": {
+        "axis": "Recognition",
+        "reason": "relationship_reunion_pattern"
+      }
+    },
+    {
+      "question": "다시 왔어",
+      "recognition_signals": [
+        "return_explicit"
+      ],
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "unsupported",
+      "home_brain_route": "casual_chat",
+      "is_casual_home": true,
+      "casual_chat": null,
+      "conversation_pattern": null,
+      "judgment_rule": null,
+      "memory_recall_heuristic": false,
+      "runtime_with_memory": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "runtime_no_memory": null,
+      "recognition_axis": {
+        "axis": "Other",
+        "reason": "unclassified_path"
+      }
+    },
+    {
+      "question": "오늘도 왔어",
+      "recognition_signals": [
+        "repeat_visit"
+      ],
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "unsupported",
+      "home_brain_route": "casual_chat",
+      "is_casual_home": true,
+      "casual_chat": null,
+      "conversation_pattern": null,
+      "judgment_rule": null,
+      "memory_recall_heuristic": false,
+      "runtime_with_memory": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "runtime_no_memory": null,
+      "recognition_axis": {
+        "axis": "Other",
+        "reason": "unclassified_path"
+      }
+    },
+    {
+      "question": "또 왔어",
+      "recognition_signals": [
+        "repeat_visit"
+      ],
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "unsupported",
+      "home_brain_route": "casual_chat",
+      "is_casual_home": true,
+      "casual_chat": null,
+      "conversation_pattern": null,
+      "judgment_rule": null,
+      "memory_recall_heuristic": false,
+      "runtime_with_memory": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "runtime_no_memory": null,
+      "recognition_axis": {
+        "axis": "Other",
+        "reason": "unclassified_path"
+      }
+    },
+    {
+      "question": "나 기억해?",
+      "recognition_signals": [
+        "memory_lexeme",
+        "self_recognition_probe"
+      ],
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "memory_recall_lookup",
+      "home_brain_route": "factual_grounded",
+      "is_casual_home": true,
+      "casual_chat": null,
+      "conversation_pattern": null,
+      "judgment_rule": null,
+      "memory_recall_heuristic": false,
+      "runtime_with_memory": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "runtime_no_memory": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "recognition_axis": {
+        "axis": "Memory",
+        "reason": "memory_recall_route_or_heuristic"
+      }
+    }
+  ],
+  "memory_anchors": [
+    {
+      "question": "지난번 이야기 기억해?",
+      "recognition_signals": [
+        "memory_lexeme"
+      ],
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "memory_recall_lookup",
+      "home_brain_route": "factual_grounded",
+      "is_casual_home": true,
+      "casual_chat": null,
+      "conversation_pattern": null,
+      "judgment_rule": {
+        "id": "memory_recall_judgment"
+      },
+      "memory_recall_heuristic": true,
+      "runtime_with_memory": {
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": true
+      },
+      "runtime_no_memory": {
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": true
+      },
+      "recognition_axis": {
+        "axis": "Memory",
+        "reason": "memory_recall_route_or_heuristic"
+      }
+    },
+    {
+      "question": "기억나?",
+      "recognition_signals": [
+        "memory_lexeme"
+      ],
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null
+      },
+      "home_brain_intent": "memory_recall_lookup",
+      "home_brain_route": "factual_grounded",
+      "is_casual_home": true,
+      "casual_chat": null,
+      "conversation_pattern": null,
+      "judgment_rule": {
+        "id": "memory_recall_judgment"
+      },
+      "memory_recall_heuristic": true,
+      "runtime_with_memory": {
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": true
+      },
+      "runtime_no_memory": {
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "conversation_pattern_id": null,
+        "insurance_pivot": true,
+        "memory_used_in_answer": true
+      },
+      "recognition_axis": {
+        "axis": "Memory",
+        "reason": "memory_recall_route_or_heuristic"
+      }
+    }
+  ],
+  "summary_table": [
+    {
+      "question": "오랜만이야",
+      "intent": "casual_chat",
+      "home_route": "casual_chat",
+      "axis": "Recognition",
+      "compose_mode": "key_social",
+      "pattern_id": "relationship_reunion",
+      "insurance_pivot": false
+    },
+    {
+      "question": "다시 왔어",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "axis": "Other",
+      "compose_mode": "key_structured",
+      "pattern_id": null,
+      "insurance_pivot": true
+    },
+    {
+      "question": "오늘도 왔어",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "axis": "Other",
+      "compose_mode": "key_structured",
+      "pattern_id": null,
+      "insurance_pivot": true
+    },
+    {
+      "question": "또 왔어",
+      "intent": "general_consultation",
+      "home_route": "casual_chat",
+      "axis": "Other",
+      "compose_mode": "key_structured",
+      "pattern_id": null,
+      "insurance_pivot": true
+    },
+    {
+      "question": "나 기억해?",
+      "intent": "general_consultation",
+      "home_route": "factual_grounded",
+      "axis": "Memory",
+      "compose_mode": "key_structured",
+      "pattern_id": null,
+      "insurance_pivot": true
+    }
+  ],
+  "audit_findings": {
+    "same_path_already": false,
+    "axis_split": [
+      "Recognition",
+      "Other",
+      "Memory"
+    ],
+    "intent_split": [
+      "casual_chat",
+      "general_consultation"
+    ],
+    "compose_mode_split": [
+      "key_social",
+      "key_structured"
+    ],
+    "relationship_reunion_pattern_hits": [
+      "오랜만이야"
+    ],
+    "insurance_pivot_count": 4,
+    "memory_route_overlap": [
+      "나 기억해?"
+    ],
+    "divergence_points": [
+      "R0 SPLIT: 5 recognition candidates span Recognition + Other + Memory — not one unified Recognition flow",
+      "Only \"오랜만이야\" hits relationship_reunion — other return phrases use casual_chat + key_relational/generic",
+      "Memory overlap: 나 기억해? — same lexeme gate as RC R0 anchor",
+      "Return/repeat visit phrases without reunion pattern: 다시 왔어, 오늘도 왔어, 또 왔어"
+    ],
+    "memory_vs_recognition": "Memory = stored-fact recall (memory_recall_judgment). Recognition = return/reunion without fact lookup — target axis not unified today.",
+    "slice_candidate_viable": "YES — 5 probes split across Memory / Companion / Relational; only 1/5 hits relationship_reunion; no Recognition cluster — RC-RECOGNITION-COMPANION-v1 warranted"
+  },
+  "jerry": "STOP — R0 audit only · await Tom contract",
+  "cross_cutting_observations": [
+    "R0 SPLIT: 5 recognition candidates span Recognition + Other + Memory — not one unified Recognition flow",
+    "Only \"오랜만이야\" hits relationship_reunion — other return phrases use casual_chat + key_relational/generic",
+    "Memory overlap: 나 기억해? — same lexeme gate as RC R0 anchor",
+    "Return/repeat visit phrases without reunion pattern: 다시 왔어, 오늘도 왔어, 또 왔어"
+  ]
+}

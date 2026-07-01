@@ -181,6 +181,9 @@ export const COVERAGE_ANXIETY_COMPANION_CLUSTER_ID = "JC-COVERAGE-ANXIETY-v1";
 /** Relationship Arc Slice 1 — RC-CONTINUITY-COMPANION-v1 (Conversation Continuity Bridge). */
 export const RC_CONTINUITY_COMPANION_CLUSTER_ID = "RC-CONTINUITY-COMPANION-v1";
 
+/** Relationship Arc Slice 2 — RC-RECOGNITION-COMPANION-v1 (Return Visit Recognition Bridge). */
+export const RC_RECOGNITION_COMPANION_CLUSTER_ID = "RC-RECOGNITION-COMPANION-v1";
+
 /** Tom: J04 structured probe — must not enter coverage anxiety cluster. */
 function isJ04StructuredGapProbe(text = "") {
   return (
@@ -260,6 +263,53 @@ export function detectContinuityCompanionCluster(question = "") {
 
   return {
     cluster_id: RC_CONTINUITY_COMPANION_CLUSTER_ID,
+    signals,
+  };
+}
+
+/**
+ * Return visit recognition — welcome returning customer without Memory recall or insurance turn.
+ * Excludes memory lexeme, insurance topics, JC/RC clusters.
+ */
+export function detectRecognitionCompanionCluster(question = "") {
+  const text = normalizeQuestion(question);
+  if (!text) return null;
+
+  if (/기억/.test(text)) return null;
+  if (hasInsuranceTopicSignal(text)) return null;
+  if (detectPremiumBurdenCompanionCluster(text)) return null;
+  if (detectCoverageAnxietyCompanionCluster(text)) return null;
+  if (detectContinuityCompanionCluster(text)) return null;
+  if (isCoverageReviewRequest(text)) return null;
+  if (RECOMMEND_SIGNAL.test(text)) return null;
+
+  const signals = [];
+  if (/^오랜만(?:이(?:에|)?(?:요|야|)?|(?:이야|입니다)?)(?:[!.?\s~♡♥]*)?$/i.test(text)) {
+    signals.push("reunion_time_gap");
+  }
+  if (/^다시\s*왔(?:어|네)?(?:[!.?\s~]*)?$/i.test(text)) {
+    signals.push("return_explicit");
+  }
+  if (/^또\s*왔(?:어|네)?(?:[!.?\s~]*)?$/i.test(text)) {
+    signals.push("repeat_visit");
+  }
+  if (/^오늘도\s*왔(?:어|네)?(?:[!.?\s~]*)?$/i.test(text)) {
+    signals.push("same_day_return");
+  }
+  if (/^또\s*보네(?:[!.?\s~]*)?$/i.test(text)) {
+    signals.push("repeat_acknowledgment");
+  }
+  if (/^다시\s*왔네(?:[!.?\s~]*)?$/i.test(text)) {
+    signals.push("return_explicit");
+  }
+  if (/^왔(?:어|네)?(?:[!.?\s~]*)?$/i.test(text)) {
+    signals.push("bare_arrival");
+  }
+
+  if (!signals.length) return null;
+
+  return {
+    cluster_id: RC_RECOGNITION_COMPANION_CLUSTER_ID,
     signals,
   };
 }
@@ -506,6 +556,20 @@ export function classifyConsultationIntent(question = "") {
       lookup_category: null,
       companion_cluster: continuityCluster.cluster_id,
       companion_cluster_signals: continuityCluster.signals,
+      question_focus: text,
+    };
+  }
+
+  const recognitionCluster = detectRecognitionCompanionCluster(text);
+  if (recognitionCluster) {
+    return {
+      intent: "general_consultation",
+      confidence: "high",
+      matched_rule: "recognition_companion_cluster",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      companion_cluster: recognitionCluster.cluster_id,
+      companion_cluster_signals: recognitionCluster.signals,
       question_focus: text,
     };
   }

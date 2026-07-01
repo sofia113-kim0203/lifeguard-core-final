@@ -5,6 +5,7 @@
 import { KEY_GENERIC_FILLER_RE } from "./keyCompanionGuidance.js";
 
 const RC_CONTINUITY_COMPANION_CLUSTER_ID = "RC-CONTINUITY-COMPANION-v1";
+const RC_RECOGNITION_COMPANION_CLUSTER_ID = "RC-RECOGNITION-COMPANION-v1";
 
 const TIME_CONTINUITY_INTENT_BLOCKLIST = new Set([
   "design_priority_check",
@@ -161,6 +162,7 @@ export function isTimeContinuityExcluded({
   const gateUsed = resolveTimeContinuityGateUsedFlags(factBundle);
 
   if (factBundle?.companion_cluster === RC_CONTINUITY_COMPANION_CLUSTER_ID) return true;
+  if (factBundle?.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID) return true;
 
   if (intent && TIME_CONTINUITY_INTENT_BLOCKLIST.has(intent)) return true;
   if (intent === "memory_recall_lookup") {
