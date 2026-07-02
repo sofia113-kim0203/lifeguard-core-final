@@ -12,19 +12,21 @@ const GK_SCIENCE =
 const GK_ECONOMY =
   /경제|인플레|금리|GDP|환율|주식|채권|비트코인|CPI|경기침체|실업|전세|월세|부동산(?!\s*세)/;
 const GK_IT =
-  /와이파이|WiFi|Wi-Fi|VPN|클라우드|SSD|HDD|API|피싱|오픈소스|5G|LTE|컴퓨터|프로그래|스마트폰|배터리|ChatGPT|GPT/;
+  /와이파이|WiFi|Wi-Fi|VPN|클라우드|SSD|HDD|API|피싱|오픈소스|5G|LTE|컴퓨터|프로그래|코딩|프로그래밍|스마트폰|배터리|ChatGPT|GPT/;
 const GK_TRAVEL =
   /여행|관광|코스|휴가|캠핑|온천|제주|강원|부산|경주|속초|유럽|일본|해외|비행기|항공|당일치기|혼자\s*여행|jet\s*lag|이태원|강원도|분당/;
 const GK_FOOD = /맛집|식당|레스토랑|브런치|파스타|스테이크|김치찌개|와인|요리|음식|비건|pairing|저녁\s*맛/;
 const GK_HEALTH =
-  /건강|감기|혈압|당뇨|스트레|수면|물\s*마|손\s*씻|디스크|자세|예방|체중|살\s*(?:을\s*)?빼|다이어트|몸\s*무게|몸\s*관리|집에서\s*할|건강상식|jet\s*lag|빼(?:려|면|고)/;
+  /건강|감기|혈압|당뇨|스트레|수면|물\s*마|물\s*얼마|하루\s*물|얼마나\s*마셔|수분|갈증|손\s*씻|디스크|자세|예방|체중|살\s*(?:을\s*)?빼|다이어트|몸\s*무게|몸\s*관리|집에서\s*할|건강상식|jet\s*lag|빼(?:려|면|고)/;
 const GK_EDUCATION =
-  /공부|학습|교육|시험|숙제|영어|수학|독서|토익|전공|집중력|갈등|아이|자녀|초등|학생|습관|계획/;
+  /공부|학습|교육|시험|숙제|영어|수학|독서|토익|전공|집중력|갈등|아이|자녀|초등|학생|습관|계획|코딩|프로그래밍|배우려면|뭐부터|입문|처음\s*시작|배우(?:려|고)/;
 const GK_LIFE =
   /빨래|이사|에어컨|냉장고|분리수거|결로|곰팡이|세탁|전기요금|반려동물|장마|신발|얼룩|필터|보관|통세척/;
+const GK_PHILOSOPHY =
+  /철학|행복|자유의지|의미|존재|윤리|도덕|삶의\s*의미|인생|가치|정의|진리|양심|운명|선과\s*악|마음\s*철학|인식론|形而上/;
 
 const GK_EXPLAIN_INTENT =
-  /뭐야|뭔지|무엇|설명|쉽게|원리|이유|차이|어떻게|방법|법$|몇\s*개|언제|업적|요약|기본|확인\s*방법|알려|만들어|작용|뭐\s*하는/;
+  /뭐야|뭔지|무엇|설명|쉽게|원리|이유|차이|어떻게|방법|법$|몇\s*개|언제|업적|요약|기본|확인\s*방법|알려|만들어|작용|뭐\s*하는|뭐부터|생각해|볼\s*수\s*있|있을까|있을\s*수\s*있|란\s*뭐|이란\s*뭐|뭐라고\s*생각/;
 const GK_LIFE_RECOMMEND = /추천(?:해)?(?:줘)?|갈\s*만한|볼\s*만한|어디\s*갈|코스/;
 
 const INSURANCE_CLASSIFICATION_INTENTS = new Set([
@@ -66,7 +68,8 @@ function hasGeneralKnowledgeDomainSignal(text = "") {
     GK_FOOD.test(text) ||
     GK_HEALTH.test(text) ||
     GK_EDUCATION.test(text) ||
-    GK_LIFE.test(text)
+    GK_LIFE.test(text) ||
+    GK_PHILOSOPHY.test(text)
   );
 }
 
@@ -81,11 +84,15 @@ export function hasGeneralKnowledgeIntent(question = "") {
 
   if (GK_TRAVEL.test(text) || GK_FOOD.test(text)) return true;
 
-  if (GK_HEALTH.test(text) && /줄이|빼|예방|방법|습관|생활|스트레|jet/.test(text)) {
+  if (GK_HEALTH.test(text) && /줄이|빼|예방|방법|습관|생활|스트레|jet|물|마시|얼마나|하루|수분/.test(text)) {
     return true;
   }
 
-  if (GK_EDUCATION.test(text) && /줄이|습관|방법|계획|갈등|공부|숙제/.test(text)) {
+  if (GK_EDUCATION.test(text) && /줄이|습관|방법|계획|갈등|공부|숙제|코딩|배우|뭐부터|프로그래|입문|처음/.test(text)) {
+    return true;
+  }
+
+  if (GK_PHILOSOPHY.test(text)) {
     return true;
   }
 
@@ -94,7 +101,7 @@ export function hasGeneralKnowledgeIntent(question = "") {
   }
 
   if (hasGeneralKnowledgeDomainSignal(text)) {
-    if (GK_IT.test(text) || GK_SCIENCE.test(text) || GK_HISTORY.test(text) || GK_ECONOMY.test(text)) {
+    if (GK_IT.test(text) || GK_SCIENCE.test(text) || GK_HISTORY.test(text) || GK_ECONOMY.test(text) || GK_PHILOSOPHY.test(text)) {
       return true;
     }
     if (GK_LIFE.test(text) || GK_HEALTH.test(text) || GK_EDUCATION.test(text)) {

@@ -108,6 +108,21 @@ async function main() {
         assert.equal(isCasualHomeQuestion(q, c), false, q);
       }
     }],
+    ["T12 Tom Live QA coverage gap — 4 re-route to GK", () => {
+      const gaps = [
+        "하루 물 얼마나 마셔야 해",
+        "코딩 배우려면 뭐부터",
+        "행복이란 뭐라고 생각해?",
+        "자유의지가 있다고 볼 수 있을까?",
+      ];
+      for (const q of gaps) {
+        const c = classifyConsultationIntent(q);
+        assert.equal(c.matched_rule, "general_knowledge_eligible", q);
+        assert.equal(c.general_knowledge, true, q);
+        assert.equal(isGeneralKnowledgeEligible(q, c), true, q);
+        assert.equal(resolveHomeBrainRoute(q, c), "casual_chat", q);
+      }
+    }],
   ];
 
   for (const [name, fn] of cases) {
