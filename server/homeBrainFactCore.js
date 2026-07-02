@@ -8,7 +8,11 @@ import {
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
 } from "./homeBrainRouter.js";
-import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
+import {
+  delegateGeneralKnowledgeChatTurn,
+  shouldRunGeneralKnowledgeDelegation,
+  TOM_INTERNAL_ROUTES,
+} from "./homeAgentTom.js";
 import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import {
   finalizeSalesDirectorResponse,
@@ -463,6 +467,35 @@ export async function handleHomeBrainFactRequest({
   } = loopResult;
 
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
+  const consultationIntent = agentTurn.consultationIntent ?? modeDecision.consultationIntent;
+
+  const keyOrchestratorActive =
+    agentTurn.factBundle?.key_orchestrator === true ||
+    loopResult.modeDecision?.key_orchestrator === true;
+
+  if (
+    shouldRunGeneralKnowledgeDelegation({
+      question: trimmedQuestion,
+      consultationIntent,
+      keyOrchestrator: keyOrchestratorActive,
+    })
+  ) {
+    const delegated = await delegateGeneralKnowledgeChatTurn({
+      question: trimmedQuestion,
+      history,
+      fetchImpl,
+      env,
+    });
+    agentTurn.text = delegated.text;
+    agentTurn.responseSource = delegated.response_source;
+    agentTurn.factBundle = {
+      ...(agentTurn.factBundle ?? {}),
+      general_knowledge_delegation: true,
+      chat_profile: delegated.chat_profile ?? "gi1",
+      gi1_max_chars: delegated.max_chars_applied ?? null,
+      classification_intent: consultationIntent?.intent ?? intent,
+    };
+  }
 
   const composeStart = Date.now();
   let factoryAudit = buildSalesDirectorFactoryAudit({

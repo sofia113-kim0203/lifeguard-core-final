@@ -1,0 +1,71 @@
+{
+  "document": "key_gi_1_r2_v1_evidence",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-R2",
+  "label": "General Knowledge Eligibility SSOT — intent-first",
+  "status": "R1-ready — not R2 closed · await Tom GO Delegation (R1)",
+  "version": "1.1.0",
+  "observed_at": "2026-07-02T08:00:00.000Z",
+  "pass_declaration": "none",
+  "tom_judgment": "R2 good direction · ready for R1 Delegation · not implementation complete",
+  "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+  "baseline_bank_ref": "fixtures/key-judgment-validation-v1/key-gi-1-classification-baseline-v1-evidence.json",
+  "spot_check_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-spot-check-v1-evidence.json",
+  "intent_criteria_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-intent-criteria-v1.json",
+  "tom_r2_go": {
+    "goal_gk_to_insurance": "10% → ≤2%",
+    "goal_insurance_to_gk": "≤5% maintain",
+    "design": "intent-first · topic supports intent"
+  },
+  "implementation": {
+    "new_module": "server/generalKnowledgeEligibility.js",
+    "wired": [
+      "server/intentGateLayer.js",
+      "server/homeBrainRouter.js"
+    ],
+    "not_started": ["R1 Delegation", "Prompt", "Regression bank run"]
+  },
+  "remeasure_bank_100": {
+    "gk_to_insurance_percent": 0,
+    "gk_misrouted": 0,
+    "insurance_to_gk_leaks": 0,
+    "note": "100-bank baseline — necessary but not sufficient alone"
+  },
+  "remeasure_spot_fresh_25": {
+    "gk_samples": 15,
+    "insurance_samples": 10,
+    "gk_to_insurance_misroute": 0,
+    "gk_to_insurance_percent": 0,
+    "insurance_to_gk_leaks": 0,
+    "insurance_to_gk_percent": 0,
+    "tom_spot_gk_verified": [
+      "유럽 배낭여행 준비물 알려줘.",
+      "주식 ETF가 뭐야?",
+      "초등학생 공부 습관 알려줘.",
+      "감기랑 독감 차이가 뭐야?",
+      "양자컴퓨터가 뭐야?"
+    ],
+    "tom_insurance_health_guard_verified": [
+      "실손보험에서 다이어트 치료는 보장돼?",
+      "건강검진 결과가 보험 가입에 영향 있어?"
+    ],
+    "tom_targets_met": {
+      "gk_to_insurance_lte_2pct": true,
+      "insurance_to_gk_lte_5pct": true
+    }
+  },
+  "baseline_comparison": {
+    "before_r2": { "gk_to_insurance_percent": 9, "gk_misrouted": 10, "insurance_leaks": 1 },
+    "after_r2_bank": { "gk_to_insurance_percent": 0, "gk_misrouted": 0, "insurance_leaks": 0 },
+    "after_r2_spot": { "gk_to_insurance_percent": 0, "insurance_leaks": 0 }
+  },
+  "next_phase": {
+    "id": "GI1-R1",
+    "name": "General Knowledge Delegation",
+    "goal": "GK eligible → orchestrator 판단 → lifeguardChatCore 위임",
+    "await": "Tom GO Delegation"
+  },
+  "unit_test": "scripts/key-gi-1-r2-eligibility-unit-test.mjs",
+  "spot_script": "scripts/key-gi-1-r2-spot-check-readonly.mjs",
+  "jerry": "R2 R1-ready · Tom 3 checks done · no R1 code"
+}

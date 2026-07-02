@@ -1,0 +1,43 @@
+{
+  "document": "gi_1_qa_bank_v1",
+  "slice": "KEY-GI-1",
+  "label": "GI-1 Quality Audit — 20 representative questions (Tom human read)",
+  "status": "frozen for GI1-QA · not regression bank",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T09:00:00.000Z",
+  "total": 20,
+  "tom_spec": "10 domains × 2 · human quality read before regression",
+  "rubric_ref": "fixtures/key-judgment-validation-v1/gi-1-qa-rubric-v1.json",
+  "scorecard_template_ref": "fixtures/key-judgment-validation-v1/gi-1-qa-scorecard-template-v1.json",
+  "regression_bank_ref": "fixtures/key-judgment-validation-v1/gi-1-regression-bank-v1.json",
+  "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+  "tom_scoring": {
+    "scale": "1~5 per dimension",
+    "dimensions": ["naturalness", "factual_accuracy", "explanatory_power", "key_voice", "no_insurance_push"],
+    "pass_threshold": 4.5,
+    "pass_rule": "qa_average >= 4.5 → Regression GO · else L1 보완"
+  },
+  "questions": [
+    { "id": "QA-HIS-01", "domain": "역사", "q": "세종대왕이 한글을 만든 이유가 뭐야", "bank_ref": "HIS-01" },
+    { "id": "QA-HIS-02", "domain": "역사", "q": "조선시대 과거제가 뭐야", "bank_ref": "HIS-05" },
+    { "id": "QA-SCI-01", "domain": "과학", "q": "양자컴퓨터가 뭐야 쉽게", "bank_ref": "SCI-01" },
+    { "id": "QA-SCI-02", "domain": "과학", "q": "광합성이 뭐야", "bank_ref": "SCI-05" },
+    { "id": "QA-ECO-01", "domain": "경제", "q": "인플레이션이 뭐야", "bank_ref": "ECO-01" },
+    { "id": "QA-ECO-02", "domain": "경제", "q": "GDP가 뭐야", "bank_ref": "ECO-04" },
+    { "id": "QA-IT-01", "domain": "IT", "q": "VPN이 뭐야", "bank_ref": "IT-02" },
+    { "id": "QA-IT-02", "domain": "IT", "q": "ChatGPT가 어떻게 답을 만들어", "bank_ref": "IT-05" },
+    { "id": "QA-TRV-01", "domain": "여행", "q": "강원도 여행 추천해줘", "bank_ref": "TRV-01" },
+    { "id": "QA-TRV-02", "domain": "여행", "q": "일본 여행 준비물", "bank_ref": "TRV-04" },
+    { "id": "QA-FD-01", "domain": "맛집", "q": "분당 맛집 추천", "bank_ref": "FD-01" },
+    { "id": "QA-FD-02", "domain": "맛집", "q": "김치찌개 맛있게 끓이는 법", "bank_ref": "FD-06" },
+    { "id": "QA-HLT-01", "domain": "건강상식", "q": "하루 물 얼마나 마셔야 해", "bank_ref": "HLT-02" },
+    { "id": "QA-HLT-02", "domain": "건강상식", "q": "고혈압 줄이는 생활", "bank_ref": "HLT-06" },
+    { "id": "QA-EDU-01", "domain": "교육", "q": "영어 공부 처음 시작할 때", "bank_ref": "EDU-02" },
+    { "id": "QA-EDU-02", "domain": "교육", "q": "코딩 배우려면 뭐부터", "bank_ref": "EDU-06" },
+    { "id": "QA-LIF-01", "domain": "생활", "q": "이사할 때 체크리스트", "bank_ref": "LIF-02" },
+    { "id": "QA-LIF-02", "domain": "생활", "q": "전기요금 아끼는 방법", "bank_ref": "LIF-09" },
+    { "id": "QA-PHI-01", "domain": "철학", "q": "행복이란 뭐라고 생각해?", "bank_ref": null },
+    { "id": "QA-PHI-02", "domain": "철학", "q": "자유의지가 있다고 볼 수 있을까?", "bank_ref": null }
+  ],
+  "note": "철학 2문항은 regression bank 확장 전 QA 전용 · Tom human read gate before ~110 regression"
+}

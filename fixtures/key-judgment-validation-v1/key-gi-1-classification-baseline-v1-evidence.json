@@ -1,0 +1,2391 @@
+{
+  "document": "key_gi_1_classification_baseline_v1_evidence",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-MEASURE",
+  "mode": "READ ONLY · classification baseline",
+  "status": "measured — no PASS declaration",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T07:04:41.566Z",
+  "pass_declaration": "none",
+  "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+  "input_corpus": {
+    "gk_count": 100,
+    "gk_bank": 90,
+    "gk_supplement": 10,
+    "insurance_probe_count": 20,
+    "bank_ref": "fixtures/key-judgment-validation-v1/gi-1-regression-bank-v1.json"
+  },
+  "gk_tom_bucket_distribution": {
+    "counts": {
+      "general_consultation": 100
+    },
+    "percent": {
+      "general_consultation": 100
+    },
+    "total": 100
+  },
+  "gk_home_route_distribution": {
+    "counts": {
+      "casual_chat": 100
+    },
+    "percent": {
+      "casual_chat": 100
+    }
+  },
+  "gk_classification_intent_distribution": {
+    "counts": {
+      "general_consultation": 100
+    },
+    "percent": {
+      "general_consultation": 100
+    }
+  },
+  "gk_compose_preview_distribution": {
+    "counts": {
+      "casual_home_likely_relational_or_chatcore": 100
+    },
+    "percent": {
+      "casual_home_likely_relational_or_chatcore": 100
+    }
+  },
+  "gk_casual_home_rate": {
+    "count": 100,
+    "percent": 100,
+    "note": "isCasualHomeQuestion true — proxy for lifeguardChatCore easy path today"
+  },
+  "gk_likely_reachable_casual_chat_route": {
+    "count": 100,
+    "percent": 100
+  },
+  "gk_domain_bucket_matrix": {
+    "역사": {
+      "general_consultation": 11
+    },
+    "과학": {
+      "general_consultation": 11
+    },
+    "경제": {
+      "general_consultation": 11
+    },
+    "IT": {
+      "general_consultation": 11
+    },
+    "생활": {
+      "general_consultation": 12
+    },
+    "여행": {
+      "general_consultation": 11
+    },
+    "맛집": {
+      "general_consultation": 11
+    },
+    "건강상식": {
+      "general_consultation": 11
+    },
+    "교육": {
+      "general_consultation": 11
+    }
+  },
+  "gk_misroute_summary": {
+    "total_misrouted": 0,
+    "percent_misrouted": 0,
+    "by_domain": {}
+  },
+  "gk_misroute_list": [],
+  "insurance_gk_leak_summary": {
+    "total_leaks": 0,
+    "percent_leaks": 0,
+    "note": "insurance questions wrongly appearing GK-eligible (casual_home / casual_chat route)"
+  },
+  "insurance_gk_leak_list": [],
+  "gk_rows": [
+    {
+      "id": "HIS-01",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "세종대왕이 한글을 만든 이유가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-02",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "임진왜란 때 이순신 장군이 유명한 이유",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-03",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "고려청자가 특별한 이유",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-04",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "6·25 전쟁이 언제 시작됐어",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-05",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "조선시대 과거제가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-06",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "광복절이 8월 15일인 이유",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-07",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "삼국시대 고구려 백제 신라 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-08",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "한국전쟁 휴전협정은 언제",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-09",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "독립운동가 안중근 의사 업적",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HIS-10",
+      "domain": "역사",
+      "corpus": "gk_bank",
+      "question": "조선왕조 500년 역사 요약해줘",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-01",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "양자컴퓨터가 뭐야 쉽게",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-02",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "블랙홀이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-03",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "DNA가 뭐 하는 거야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-04",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "지진이 나는 이유",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-05",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "광합성이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-06",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "원자력 발전 원리",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-07",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "커피 마시면 왜 잠이 깨",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-08",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "빛의 속도가 얼마야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-09",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "백신이 어떻게 작용해",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SCI-10",
+      "domain": "과학",
+      "corpus": "gk_bank",
+      "question": "기후변화가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-01",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "인플레이션이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-02",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "금리가 오르면 뭐가 달라져",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-03",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "주식과 채권 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-04",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "GDP가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-05",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "환율이 오르면 해외여행",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-06",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "부동산 전세와 월세 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-07",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "연준 금리 인상이 세계에 미치는 영향",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-08",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "비트코인이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-09",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "실업률이 높으면 왜 문제야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "ECO-10",
+      "domain": "경제",
+      "corpus": "gk_bank",
+      "question": "경기침체가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-01",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "와이파이가 느릴 때 뭐부터 보면 돼",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-02",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "VPN이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-03",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "클라우드가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-04",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "2FA 이중인증이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-05",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "ChatGPT가 어떻게 답을 만들어",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-06",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "SSD와 HDD 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-07",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "피싱 메일 구별법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-08",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "API가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-09",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "스마트폰 배터리 오래 쓰는 법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "IT-10",
+      "domain": "IT",
+      "corpus": "gk_bank",
+      "question": "오픈소스가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-01",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "빨래 얼룩 지우는 방법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-02",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "이사할 때 체크리스트",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-03",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "에어컨 필터 언제 갈아",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-04",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "냉장고 음식 보관 기본",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-05",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "분리수거 플라스틱 라벨",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-06",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "겨울철 결로 방지",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-07",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "집에서 곰팡이 제거",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-08",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "세탁기 통세척 언제 해",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-09",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "전기요금 아끼는 방법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "LIF-10",
+      "domain": "생활",
+      "corpus": "gk_bank",
+      "question": "반려동물 키울 때 준비물",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-01",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "강원도 여행 추천해줘",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-02",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "제주도 2박3일 코스",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-03",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "부산 가볼 만한 곳",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-04",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "일본 여행 준비물",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-05",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "유럽 여행 첫 방문 국가 추천",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-06",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "비행기 jet lag 줄이는 법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-07",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "캠핑 처음 갈 때 준비",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-08",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "경주 역사 여행 코스",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-09",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "국내 온천 여행 추천",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "TRV-10",
+      "domain": "여행",
+      "corpus": "gk_bank",
+      "question": "혼자 여행 안전 팁",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-01",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "분당 맛집 추천",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-02",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "강남 데이트 맛집",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-03",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "홍대 혼밥 맛집",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-04",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "부산 해산물 맛집",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-05",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "집에서 파스타 만드는 법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-06",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "김치찌개 맛있게 끓이는 법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-07",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "스테이크 굽기 단계",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-08",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "비건 식당 고를 때",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-09",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "와인과 음식 pairing 기본",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "FD-10",
+      "domain": "맛집",
+      "corpus": "gk_bank",
+      "question": "아이랑 갈 만한 브런치 카페",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-01",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "감기 걸렸을 때 집에서 할 수 있는 것",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-02",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "하루 물 얼마나 마셔야 해",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-03",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "스트레칭 왜 해야 해",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-04",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "수면 7시간이 중요한 이유",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-05",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "당뇨 예방 생활습관",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-06",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "고혈압 줄이는 생활",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-07",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "햇볕 쬐면 비타민D",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-08",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "운동 전후 스트레칭 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-09",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "목 디스크 예방 자세",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "HLT-10",
+      "domain": "건강상식",
+      "corpus": "gk_bank",
+      "question": "손 씻기 20초가 왜 중요해",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-01",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "아이 공부 습관 어떻게 잡아",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-02",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "영어 공부 처음 시작할 때",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-03",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "수학 기초 다지는 방법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-04",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "독서 습관 만드는 법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-05",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "시험 전 공부 계획 세우기",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-06",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "코딩 배우려면 뭐부터",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-07",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "대학 전공 고를 때",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-08",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "집중력 높이는 방법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-09",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "온라인 강의 효과적으로 듣는 법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "EDU-10",
+      "domain": "교육",
+      "corpus": "gk_bank",
+      "question": "자녀와 숙제 갈등 줄이기",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-01",
+      "domain": "과학",
+      "corpus": "gk_supplement",
+      "question": "태양계 행성 몇 개야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-02",
+      "domain": "역사",
+      "corpus": "gk_supplement",
+      "question": "한국 독립운동 3·1운동이 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-03",
+      "domain": "경제",
+      "corpus": "gk_supplement",
+      "question": "CPI가 뭐야",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-04",
+      "domain": "IT",
+      "corpus": "gk_supplement",
+      "question": "5G와 LTE 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-05",
+      "domain": "생활",
+      "corpus": "gk_supplement",
+      "question": "신발 세탁 방법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-06",
+      "domain": "여행",
+      "corpus": "gk_supplement",
+      "question": "속초 당일치기 코스",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-07",
+      "domain": "맛집",
+      "corpus": "gk_supplement",
+      "question": "이태원 저녁 맛집",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-08",
+      "domain": "건강상식",
+      "corpus": "gk_supplement",
+      "question": "스트레스 줄이는 방법",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": true,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-09",
+      "domain": "교육",
+      "corpus": "gk_supplement",
+      "question": "토익 공부 3개월 계획",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    },
+    {
+      "id": "SUP-10",
+      "domain": "생활",
+      "corpus": "gk_supplement",
+      "question": "장마철 빨래 안 마를 때",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "insurance_topic_signal": false,
+      "compose_preview": "casual_home_likely_relational_or_chatcore"
+    }
+  ],
+  "insurance_probe_rows": [
+    {
+      "id": "INS-01",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "암보험 부족한가",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "coverage_gap_check",
+        "matched_rule": "coverage_gap_check",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "gap_grounded",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "gap_compose"
+    },
+    {
+      "id": "INS-02",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "보험료 너무 비싼가",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "premium_lookup",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "factual_lookup_compose"
+    },
+    {
+      "id": "INS-03",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "실손 청구 가능한가",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "claim_eligibility_check",
+        "matched_rule": "claim_eligibility_check",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-04",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "보장 공백 있어?",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "coverage_gap_check",
+        "matched_rule": "coverage_gap_check",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "gap_grounded",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "gap_compose"
+    },
+    {
+      "id": "INS-05",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "뭐 가입해야 해",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "recommendation_request",
+        "matched_rule": "recommendation_request",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-06",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "운전자보험 필요해?",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-07",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "암 진단비 얼마나 필요해",
+      "tom_bucket": "fallback",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": false,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-08",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "실비보험 중복 가입 괜찮아?",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-09",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "보험 해지하면 손해?",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-10",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "치아보험 가치 있어?",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-11",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "내 보험료가 왜 올랐어",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "premium_lookup",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "factual_lookup_compose"
+    },
+    {
+      "id": "INS-12",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "간병비 보장 부족한가",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "coverage_gap_check",
+        "matched_rule": "coverage_gap_check",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "gap_grounded",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "gap_compose"
+    },
+    {
+      "id": "INS-13",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "화재보험 필요해?",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-14",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "보험금 안 나온다고 하는데",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-15",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "종신보험 vs term 차이",
+      "tom_bucket": "general_consultation",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "confidence": "medium"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-16",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "애 보험 뭐 들어야 해",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "recommendation_request",
+        "matched_rule": "recommendation_request",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-17",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "노후 연금보험 괜찮아?",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "coverage_anxiety_companion_cluster",
+        "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-18",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "MRI 실손 청구",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "claim_eligibility_check",
+        "matched_rule": "claim_eligibility_check",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-19",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "보험 설계 다시 봐줘",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "design_request",
+        "matched_rule": "design_request_generative",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    },
+    {
+      "id": "INS-20",
+      "domain": "insurance",
+      "corpus": "insurance_regression",
+      "question": "암보험 갈아탈까",
+      "tom_bucket": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "companion_cluster": null,
+        "confidence": "high"
+      },
+      "casual_detect_rule": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "insurance_topic_signal": true,
+      "compose_preview": "defer"
+    }
+  ],
+  "tom_readout": {
+    "headline": "GK questions mostly general_consultation + CASUAL_CHAT route when regex matches; history/science/economy/IT/education often miss CASUAL_LIFE_TOPIC → defer",
+    "r2_implication": "Expand eligibility beyond CASUAL_LIFE_TOPIC regex — domain gaps visible in misroute list",
+    "delegation_implication": "Even CASUAL_CHAT route questions may hit relational template before lifeguardChatCore (compose preview)"
+  },
+  "jerry": "GI1-MEASURE complete · READ ONLY · no code change · no PASS"
+}

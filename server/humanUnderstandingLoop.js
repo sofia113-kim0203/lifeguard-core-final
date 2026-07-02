@@ -3,6 +3,7 @@
  * People first, insurance as tool. Frame + basisTaggedFacts are thinking material, not slot templates.
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import { isGeneralKnowledgeEligible } from "./generalKnowledgeEligibility.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { hasCoveragePresenceFactualAnswer, isGenericHulCounselingIntro } from "./coveragePresencePreserveGate.js";
 import {
@@ -481,6 +482,12 @@ export function shouldUseKeyRelationalCompose({
 
   const q = normalizeQuestion(question || humanFrame.surface_question || factBundle.question || "");
   if (!q) return false;
+  if (factBundle.general_knowledge === true || factBundle.general_knowledge_delegation === true) {
+    return false;
+  }
+  if (isGeneralKnowledgeEligible(q, { intent: classificationIntent })) {
+    return false;
+  }
   if (humanFrame.needs_insurance_tools) return false;
   if (INSURANCE_TOPIC.test(q)) return false;
   if (isKeySocialTurn(q)) return false;
@@ -1737,6 +1744,31 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
         finalText: preservedText,
         hulOverwriteEntered: false,
       }),
+    };
+  }
+
+  if (input.factBundle?.general_knowledge_delegation === true && rawText) {
+    const preservedText = normalizeText(rawText);
+    return {
+      text: preservedText,
+      intent: resolvedIntent,
+      applied: false,
+      humanFrame: null,
+      basisTaggedFacts: null,
+      forbidden_pattern_scan: detectForbiddenOutputPatterns(preservedText),
+      generation_mode: "general_knowledge_delegation",
+      p9_version: "p9-2",
+      key_compose_trace: {
+        called: true,
+        skip_reason: "lifeguard_chat_core_delegated_preserved",
+        text_preview: preservedText.slice(0, 300),
+        used_safe_fallback: false,
+        compose_mode: "general_knowledge_delegation",
+        response_source: responseSource ?? null,
+        chat_profile: input.factBundle?.chat_profile ?? "gi1",
+        gi1_max_chars: input.factBundle?.gi1_max_chars ?? null,
+      },
+      preserve_gate_trace: null,
     };
   }
 

@@ -7,12 +7,15 @@ import { resolveClaudeModel } from "./policyTermsQaCore.js";
 export const LIFEGUARD_CHAT_FALLBACK =
   "음, 그건 제가 여기서는 딱 잘라 말하기 어렵네요. 다른 얘기도 편하게 이어가도 돼요.";
 
-const LIFEGUARD_MAX_TOKENS = 512;
-const LIFEGUARD_MAX_CHARS = 600;
+export const LIFEGUARD_MAX_TOKENS = 512;
+export const LIFEGUARD_MAX_CHARS = 600;
+/** KEY-GI-1 L1 — general-knowledge delegation path only (800~1000 char answers). */
+export const LIFEGUARD_GI1_MAX_TOKENS = 700;
+export const LIFEGUARD_GI1_MAX_CHARS = 900;
 const HISTORY_TURN_LIMIT = 10;
 const HISTORY_CONTENT_MAX_CHARS = 1500;
 
-const LIFEGUARD_AGENT_SYSTEM_PROMPT = [
+export const LIFEGUARD_AGENT_SYSTEM_PROMPT = [
   "You are LIFEGUARD — one warm, natural Korean-speaking person the customer talks to.",
   "Answer like a thoughtful friend who remembers them: food, family outings, identity, hospitals, insurance — anything goes.",
   "This is an ongoing chat: do NOT re-greet every turn; follow the conversation flow.",
@@ -27,6 +30,38 @@ const LIFEGUARD_AGENT_SYSTEM_PROMPT = [
   "Write like a calm consultation transcript: plain Korean sentences, natural line breaks, trustworthy tone (not chatbot stickers).",
   "Keep replies conversational (1-5 sentences). Answer directly or ask a natural follow-up when helpful — never forced.",
 ].join(" ");
+
+/** KEY-GI-1 P1 — factual general knowledge · no insurance push · GI-1 delegation path only. */
+export const LIFEGUARD_GI1_SYSTEM_PROMPT = [
+  "You are LIFEGUARD — one warm, natural Korean-speaking person the customer talks to.",
+  "The customer asked a general knowledge or everyday-life question (history, science, travel, food, culture, basic health, education — not their insurance policy).",
+  "Give a factual, natural explanation in plain Korean. Answer directly; add useful context when it helps understanding.",
+  "Keep the tone calm and conversational — like a knowledgeable friend, not a textbook or chatbot.",
+  "Do NOT mention insurance, 보험, premiums, coverage, claims, or suggest checking their policy unless the user explicitly asked about insurance.",
+  "Never deflect with phrases like \"필요하시면 보험 상담도 도와드릴게요\", \"보험 상담도 가능합니다\", or \"보험 이야기 해볼까요\".",
+  "Do NOT invent customer-specific facts, policy counts, premiums, or personal data you were not given.",
+  "Do NOT mention internal engines, tools, Gap, orchestrator, Tom, pipeline, or system names.",
+  "If you truly cannot answer (legal/tax calculation, real-time data you lack): say honestly — do not fake certainty.",
+  "Never use emojis or exclamation-heavy cheerfulness. Never prefix replies with \"LIFEGUARD:\".",
+  "Write 2-6 sentences; explanations may run a bit longer when needed, but stay focused — no filler.",
+].join(" ");
+
+export function resolveLifeguardChatProfile({ gi1Profile = false } = {}) {
+  if (gi1Profile) {
+    return {
+      profile: "gi1",
+      systemPrompt: LIFEGUARD_GI1_SYSTEM_PROMPT,
+      maxTokens: LIFEGUARD_GI1_MAX_TOKENS,
+      maxChars: LIFEGUARD_GI1_MAX_CHARS,
+    };
+  }
+  return {
+    profile: "default",
+    systemPrompt: LIFEGUARD_AGENT_SYSTEM_PROMPT,
+    maxTokens: LIFEGUARD_MAX_TOKENS,
+    maxChars: LIFEGUARD_MAX_CHARS,
+  };
+}
 
 function buildMessagesFromHistory(history, finalUserContent, { turnLimit, contentMaxChars } = {}) {
   const seq = [];
@@ -236,16 +271,21 @@ export async function generateLifeguardChatResponse({
   question,
   history = [],
   customerContextBlock = "",
-  systemPrompt = LIFEGUARD_AGENT_SYSTEM_PROMPT,
+  systemPrompt = null,
+  gi1Profile = false,
   historyTurnLimit = HISTORY_TURN_LIMIT,
   historyContentMaxChars = HISTORY_CONTENT_MAX_CHARS,
-  maxTokens = LIFEGUARD_MAX_TOKENS,
-  maxChars = LIFEGUARD_MAX_CHARS,
+  maxTokens = null,
+  maxChars = null,
   modelName = null,
   streamHandlers = null,
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
+  const chatProfile = resolveLifeguardChatProfile({ gi1Profile });
+  const resolvedSystemPrompt = systemPrompt ?? chatProfile.systemPrompt;
+  const resolvedMaxTokens = maxTokens ?? chatProfile.maxTokens;
+  const resolvedMaxChars = maxChars ?? chatProfile.maxChars;
   const trimmedQuestion = String(question ?? "").trim();
   const contextBlock = String(customerContextBlock ?? "").trim();
   const userContent = contextBlock
@@ -269,10 +309,10 @@ export async function generateLifeguardChatResponse({
     const claudeArgs = {
       apiKey,
       modelName: resolvedModelName,
-      system: systemPrompt,
+      system: resolvedSystemPrompt,
       messages,
-      maxTokens,
-      maxChars,
+      maxTokens: resolvedMaxTokens,
+      maxChars: resolvedMaxChars,
       fetchImpl,
     };
     const claudeResult =
@@ -292,6 +332,8 @@ export async function generateLifeguardChatResponse({
         model: claudeResult.model,
         request_id: claudeResult.request_id,
         timing: claudeResult.timing ?? null,
+        chat_profile: chatProfile.profile,
+        max_chars_applied: resolvedMaxChars,
       };
     }
     return {

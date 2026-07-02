@@ -6,6 +6,10 @@ import {
   detectCasualChatIntent,
   hasInsuranceTopicSignal,
 } from "./intentGateLayer.js";
+import {
+  hasInsuranceConsultationIntent,
+  isGeneralKnowledgeEligible,
+} from "./generalKnowledgeEligibility.js";
 
 export const HOME_BRAIN_ROUTES = {
   GAP_GROUNDED: "gap_grounded",
@@ -78,6 +82,9 @@ export function classifyHomeBrainIntent(question = "") {
   if (PREMIUM_LOOKUP_SIGNAL.test(text)) {
     return "premium_lookup";
   }
+  if (isGeneralKnowledgeEligible(text, classification) && POLICY_COUNT_SIGNAL.test(text)) {
+    return "unsupported";
+  }
   if (POLICY_COUNT_SIGNAL.test(text)) {
     return "policy_count";
   }
@@ -91,6 +98,7 @@ export function classifyHomeBrainIntent(question = "") {
 export function hasHighStakesSignal(question = "", consultationIntent = null) {
   const text = normalizeQuestion(question);
   if (!text) return false;
+  if (isGeneralKnowledgeEligible(text, consultationIntent)) return false;
   if (consultationIntent?.intent === "claim_eligibility_check") return false;
   if (
     consultationIntent?.intent === "recommendation_request" &&
@@ -123,6 +131,10 @@ export function isConversationalInsuranceBridgeQuestion(question = "", consultat
 export function isCasualHomeQuestion(question = "", consultationIntent = null) {
   const text = normalizeQuestion(question);
   if (!text) return false;
+  if (isGeneralKnowledgeEligible(text, consultationIntent)) return true;
+  if (consultationIntent?.intent === "factual_lookup" && hasInsuranceConsultationIntent(text)) {
+    return false;
+  }
   if (IDENTITY_CHAT_SIGNAL.test(text)) return true;
   if (consultationIntent?.intent === "casual_chat") return true;
   if (detectCasualChatIntent(text)) return true;

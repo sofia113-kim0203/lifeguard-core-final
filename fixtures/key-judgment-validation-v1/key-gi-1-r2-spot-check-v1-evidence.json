@@ -1,0 +1,411 @@
+{
+  "document": "key_gi_1_r2_spot_check_v1_evidence",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-R2",
+  "mode": "READ ONLY · fresh spot re-measure",
+  "status": "measured — no PASS · R1-ready prep",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T07:07:33.548Z",
+  "pass_declaration": "none",
+  "r2_evidence_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-v1-evidence.json",
+  "intent_criteria_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-intent-criteria-v1.json",
+  "corpus": {
+    "gk_spot_total": 15,
+    "gk_tom_samples": 5,
+    "gk_extended": 10,
+    "ins_spot_total": 10,
+    "ins_tom_samples": 5,
+    "ins_extended": 5,
+    "note": "Not limited to 100-bank — fresh Tom + extended samples"
+  },
+  "gk_spot_summary": {
+    "gk_to_insurance_misroute": 0,
+    "gk_to_insurance_percent": 0,
+    "tom_target_lte_2pct": true
+  },
+  "insurance_spot_summary": {
+    "insurance_to_gk_leaks": 0,
+    "insurance_to_gk_percent": 0,
+    "tom_target_lte_5pct": true
+  },
+  "gk_spot_rows": [
+    {
+      "id": "SPOT-GK-01",
+      "q": "유럽 배낭여행 준비물 알려줘.",
+      "source": "tom",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-02",
+      "q": "주식 ETF가 뭐야?",
+      "source": "tom",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-03",
+      "q": "초등학생 공부 습관 알려줘.",
+      "source": "tom",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-04",
+      "q": "감기랑 독감 차이가 뭐야?",
+      "source": "tom",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-05",
+      "q": "양자컴퓨터가 뭐야?",
+      "source": "tom",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-06",
+      "q": "제주도 렌트카 필요해?",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-07",
+      "q": "파스타 면 삶는 시간",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-08",
+      "q": "인공지능과 머신러닝 차이",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-09",
+      "q": "조선시대 양반과 상민 차이",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-10",
+      "q": "금리 인상이 대출에 미치는 영향",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-11",
+      "q": "아이 스마트폰 사용 시간 줄이는 법",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-12",
+      "q": "홍대 브런치 카페 추천해줘",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-13",
+      "q": "목 통증 스트레칭 방법",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-14",
+      "q": "비트코인 halving이 뭐야",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    },
+    {
+      "id": "SPOT-GK-15",
+      "q": "장마철 빨래 냄새 없애는 법",
+      "source": "extended",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_knowledge_eligible",
+        "general_knowledge": true
+      },
+      "home_route": "casual_chat",
+      "is_casual_home": true,
+      "gk_ok": true,
+      "insurance_misroute": false
+    }
+  ],
+  "insurance_spot_rows": [
+    {
+      "id": "SPOT-INS-01",
+      "q": "실손보험에서 다이어트 치료는 보장돼?",
+      "source": "tom",
+      "expect": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-02",
+      "q": "건강검진 결과가 보험 가입에 영향 있어?",
+      "source": "tom",
+      "expect": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-03",
+      "q": "살을 빼면 보험료가 내려가?",
+      "source": "tom",
+      "expect": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "premium_lookup",
+        "general_knowledge": false
+      },
+      "home_route": "factual_grounded",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-04",
+      "q": "암 진단비 얼마나 필요해",
+      "source": "tom",
+      "expect": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-05",
+      "q": "뭐 가입해야 해",
+      "source": "tom",
+      "expect": "insurance",
+      "classification": {
+        "intent": "recommendation_request",
+        "matched_rule": "recommendation_request",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-06",
+      "q": "실손 MRI 청구 가능해?",
+      "source": "extended",
+      "expect": "insurance",
+      "classification": {
+        "intent": "claim_eligibility_check",
+        "matched_rule": "claim_eligibility_check",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-07",
+      "q": "보장 공백 있어?",
+      "source": "extended",
+      "expect": "insurance",
+      "classification": {
+        "intent": "coverage_gap_check",
+        "matched_rule": "coverage_gap_check",
+        "general_knowledge": false
+      },
+      "home_route": "gap_grounded",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-08",
+      "q": "당뇨 있으면 암보험 가입 돼?",
+      "source": "extended",
+      "expect": "insurance",
+      "classification": {
+        "intent": "underwriting_bound_check",
+        "matched_rule": "underwriting_bound_check",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-09",
+      "q": "보험료 너무 비싼가",
+      "source": "extended",
+      "expect": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "premium_lookup",
+        "general_knowledge": false
+      },
+      "home_route": "factual_grounded",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    },
+    {
+      "id": "SPOT-INS-10",
+      "q": "건강검진 이상 소견 있으면 실손 가입",
+      "source": "extended",
+      "expect": "insurance",
+      "classification": {
+        "intent": "factual_lookup",
+        "matched_rule": "coverage_presence",
+        "general_knowledge": false
+      },
+      "home_route": "high_stakes_defer",
+      "is_casual_home": false,
+      "gk_leak": false,
+      "casual_home_leak": false,
+      "insurance_ok": true
+    }
+  ],
+  "tom_readout": {
+    "fresh_gk": "Tom 5 + extended 10 — no GK→insurance misroute",
+    "insurance_health_words": "다이어트/건강검진 + 보험 linkage stays insurance — not GK",
+    "status": "R2 ready for R1 Delegation — not R2 closed"
+  },
+  "jerry": "Tom 3 checks · spot re-measure · no R1 code"
+}

@@ -4,6 +4,11 @@
  * Phase 31-C-P1 — policy_detail uses Policy Explorer helpers for per-contract chat answers.
  */
 import { resolveUnifiedPolicyView } from "./customerConversationalTone.js";
+import {
+  buildGeneralKnowledgeConsultationIntent,
+  isGeneralKnowledgeEligible,
+  shouldReclassifyInsuranceIntentAsGeneralKnowledge,
+} from "./generalKnowledgeEligibility.js";
 import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 import {
   computePolicyExplorerStats,
@@ -586,6 +591,9 @@ export function classifyConsultationIntent(question = "") {
   }
 
   if (isRebalancingSignal(text)) {
+    if (shouldReclassifyInsuranceIntentAsGeneralKnowledge(text, "design_request")) {
+      return buildGeneralKnowledgeConsultationIntent(text, "design_request");
+    }
     return {
       intent: "design_request",
       confidence: "high",
@@ -597,6 +605,9 @@ export function classifyConsultationIntent(question = "") {
   }
 
   if (isDesignGenerativeRequest(text)) {
+    if (shouldReclassifyInsuranceIntentAsGeneralKnowledge(text, "design_request")) {
+      return buildGeneralKnowledgeConsultationIntent(text, "design_request");
+    }
     return {
       intent: "design_request",
       confidence: "high",
@@ -641,6 +652,9 @@ export function classifyConsultationIntent(question = "") {
   }
 
   if (RECOMMEND_SIGNAL.test(text)) {
+    if (shouldReclassifyInsuranceIntentAsGeneralKnowledge(text, "recommendation_request")) {
+      return buildGeneralKnowledgeConsultationIntent(text, "recommendation_request");
+    }
     return {
       intent: "recommendation_request",
       confidence: "high",
@@ -728,6 +742,10 @@ export function classifyConsultationIntent(question = "") {
       lookup_category: null,
       question_focus: text,
     };
+  }
+
+  if (isGeneralKnowledgeEligible(text)) {
+    return buildGeneralKnowledgeConsultationIntent(text, null);
   }
 
   return {

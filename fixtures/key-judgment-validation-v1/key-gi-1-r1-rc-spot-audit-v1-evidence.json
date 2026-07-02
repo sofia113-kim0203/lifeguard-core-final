@@ -1,0 +1,273 @@
+{
+  "document": "key_gi_1_r1_rc_spot_audit_v1_evidence",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-R1",
+  "mode": "READ ONLY · RC spot audit · no code change",
+  "status": "audited — no PASS",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T07:23:19.602Z",
+  "pass_declaration": "none",
+  "r1_delegation_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r1-delegation-v1-evidence.json",
+  "rc_continuity_baseline_ref": "fixtures/key-judgment-validation-v1/rc-continuity-companion-v1-compose-trace-readonly-evidence.json",
+  "verdict_summary": {
+    "r1_regression_on_flagged": false,
+    "pre_existing_key_structured_on_flagged": true,
+    "gi_regression_bank_mismatch": true,
+    "rc_continuity_anchors_intact": true
+  },
+  "flagged_rc_spots": [
+    {
+      "id": "RC-R1-04",
+      "q": "다음에 또 올게",
+      "gi_bank_expect": "continuity (gi-1-regression-bank aspirational)",
+      "rc_contract": "not RC-CONTINUITY paraphrase — closing/exit semantics",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "general_knowledge": false,
+        "continuity_cluster_detect": null,
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": false
+      },
+      "runtime": {
+        "compose_mode": "key_structured",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": null,
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다."
+      }
+    },
+    {
+      "id": "RC-R1-05",
+      "q": "지난번 말한 거 기억해?",
+      "gi_bank_expect": "memory/continuity (gi-1-regression-bank aspirational)",
+      "rc_contract": "RC-CONTINUITY excludes 기억 — Memory recall / key_structured",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "general_consultation_fallback",
+        "companion_cluster": null,
+        "general_knowledge": false,
+        "continuity_cluster_detect": null,
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "memory_recall_lookup",
+        "home_route": "factual_grounded",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": false
+      },
+      "runtime": {
+        "compose_mode": "key_structured",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": null,
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요."
+      }
+    }
+  ],
+  "rc_continuity_anchors": [
+    {
+      "id": "RC-ANCHOR-01",
+      "q": "그 이야기 이어서.",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "continuity_companion_cluster",
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "general_knowledge": false,
+        "continuity_cluster_detect": "RC-CONTINUITY-COMPANION-v1",
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": true
+      },
+      "runtime": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요."
+      },
+      "runtime_with_history": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+      }
+    },
+    {
+      "id": "RC-ANCHOR-02",
+      "q": "아까 말한 거.",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "continuity_companion_cluster",
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "general_knowledge": false,
+        "continuity_cluster_detect": "RC-CONTINUITY-COMPANION-v1",
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": true
+      },
+      "runtime": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요."
+      },
+      "runtime_with_history": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+      }
+    },
+    {
+      "id": "RC-ANCHOR-03",
+      "q": "전에 말한 거.",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "continuity_companion_cluster",
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "general_knowledge": false,
+        "continuity_cluster_detect": "RC-CONTINUITY-COMPANION-v1",
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": true
+      },
+      "runtime": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요."
+      },
+      "runtime_with_history": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+      }
+    },
+    {
+      "id": "RC-ANCHOR-04",
+      "q": "그때 이야기.",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "continuity_companion_cluster",
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "general_knowledge": false,
+        "continuity_cluster_detect": "RC-CONTINUITY-COMPANION-v1",
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": true
+      },
+      "runtime": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요."
+      },
+      "runtime_with_history": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+      }
+    },
+    {
+      "id": "RC-ANCHOR-05",
+      "q": "지난번 이야기.",
+      "classification": {
+        "intent": "general_consultation",
+        "matched_rule": "continuity_companion_cluster",
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "general_knowledge": false,
+        "continuity_cluster_detect": "RC-CONTINUITY-COMPANION-v1",
+        "recognition_cluster_detect": null,
+        "home_brain_intent": "unsupported",
+        "home_route": "casual_chat",
+        "is_gk_eligible": false,
+        "would_gk_delegate": false,
+        "would_continuity_compose": true
+      },
+      "runtime": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요."
+      },
+      "runtime_with_history": {
+        "compose_mode": "continuity_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "gk_delegation": false,
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "answer_preview": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+      }
+    }
+  ],
+  "rc_recognition_anchor": {
+    "id": "RC-REC-01",
+    "q": "오랜만이야",
+    "classification": {
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "general_knowledge": false,
+      "continuity_cluster_detect": null,
+      "recognition_cluster_detect": "RC-RECOGNITION-COMPANION-v1",
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "is_gk_eligible": false,
+      "would_gk_delegate": false,
+      "would_continuity_compose": false
+    },
+    "runtime": {
+      "compose_mode": "recognition_companion_bridge",
+      "generation_mode": "key_orchestrator",
+      "gk_delegation": false,
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "answer_preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다."
+    }
+  },
+  "tom_readout": {
+    "RC-R1-04_다음에_또_올게": {
+      "runtime_compose": "key_structured",
+      "continuity_cluster": null,
+      "would_continuity_compose": false,
+      "would_gk_delegate": false,
+      "r1_caused": false,
+      "verdict": "pre-existing · not RC-CONTINUITY contract · GI bank expect mismatch"
+    },
+    "RC-R1-05_지난번_말한_거_기억해": {
+      "runtime_compose": "key_structured",
+      "continuity_cluster": null,
+      "would_continuity_compose": false,
+      "would_gk_delegate": false,
+      "r1_caused": false,
+      "verdict": "pre-existing Memory recall axis · RC-CONTINUITY explicitly excludes 기억 — not R1 regression"
+    },
+    "rc_continuity_anchors": "5/5 → continuity_companion_bridge (matches pre-R1 baseline)"
+  },
+  "jerry": "R1 RC audit only · no code · no L1 · no PASS"
+}
