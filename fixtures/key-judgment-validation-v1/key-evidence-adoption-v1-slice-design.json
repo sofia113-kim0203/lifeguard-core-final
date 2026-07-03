@@ -1,0 +1,378 @@
+{
+  "document": "key_evidence_adoption_v1_slice_design",
+  "gate": "KEY-EVIDENCE-ADOPTION-V1",
+  "label": "KEY Evidence Adoption — Factory submits Evidence · KEY adopts · KEY makes Fact · Memory",
+  "supersedes": "fixtures/key-judgment-validation-v1/key-memory-adoption-v1-slice-design.json",
+  "mode": "Design only · no implement · no UI · no deploy · Tom EXEC GO pending",
+  "status": "Tom design GO (direction) · Evidence amendment applied · EXEC pending",
+  "observed_at": "2026-07-03",
+  "tom_design_amendment": {
+    "amended_at": "2026-07-03",
+    "verdict": "🟢 방향 GO — one amendment required",
+    "rejected_framing": "Factory-centric candidate_fact — each factory sends Facts to KEY separately",
+    "approved_framing": "Evidence-centric — Factory submits Evidence · KEY judges Evidence · KEY creates Fact",
+    "one_line": "Factory는 Fact를 저장하는 존재가 아니라 Evidence를 제출하는 존재다. Fact는 KEY가 만든다.",
+    "why": "KEY는 공장을 믿지 않고 증거를 본다. Factory가 늘어나도 Evidence → KEY → Memory 구조는 불변.",
+    "terminology_delta": {
+      "candidate_fact": "candidate_evidence",
+      "factory_fact_reported": "factory_evidence_reported",
+      "key_memory_adoption": "key_fact_adoption",
+      "slice_name_was": "Memory Adoption",
+      "slice_name_now": "KEY Evidence Adoption"
+    },
+    "example_conflict": {
+      "ocr_evidence": "암 진단 (extracted span)",
+      "hospital_evidence": "양성 선종 (structured record)",
+      "policy_evidence": "암 해당 없음 (clause span)",
+      "factory_centric_failure": "세 공장이 서로 싸움 — KEY가 Factory를 상대함",
+      "evidence_centric_success": "KEY receives Evidence A/B/C → reconcile → KEY-authored Fact → Memory"
+    }
+  },
+  "tom_stop_ruling": {
+    "verdict": "Memory 채택권 미완 (unchanged until Preview)",
+    "memory_owner_is_key": false,
+    "reason": "Factory-derived interpreted rows still write customer_memory_facts without KEY",
+    "final_declaration": "FORBIDDEN until Preview proves evidence adoption chain"
+  },
+  "backbone_complete": {
+    "key_meets_first": true,
+    "key_only_moves_factory": true,
+    "key_thinks_first": true,
+    "key_speaks_first": true,
+    "same_customer_snapshot": true,
+    "same_key_runtime": "runSalesDirectorKeyTurn",
+    "same_persona_outlet": "finalizeSalesDirectorResponse",
+    "memory_read_shared": true,
+    "memory_write_key_owned": false,
+    "evidence_adoption_key_owned": false
+  },
+  "readonly_audit_ref": "fixtures/key-judgment-validation-v1/key-memory-adoption-v1-slice-design.json readonly_audit_ref (2026-07-03)",
+  "tom_charter_ref": "LIFEGUARD_CONSTITUTION.md §③ — Evidence 보고 → KEY 판단 → Memory 반영",
+  "classification": {
+    "primary": "LIFEGUARD(KEY) — core architecture: KEY Evidence Adoption (not Memory engine · not Factory growth)",
+    "tom_framing": "Memory는 결과. 핵심은 KEY가 Evidence를 채택하고 Fact를 만드는 과정.",
+    "scalability": "OCR · Policy · Gap · Rec · Claim · Hospital · MyData · Voice · Calendar · Risk Watcher — all submit Evidence to same KEY inbox",
+    "not": "Factory별 adoption channel · Factory-authored Memory facts · 새 KEY · 새 Runtime"
+  },
+  "problem_statement": {
+    "today": "Memory Builder extractors produce interpreted candidate facts and applyCandidateFacts writes customer_memory_facts — Factory ≈ Fact author",
+    "design_gap_in_v1_draft": "candidate_fact framing would scale to N factory-specific KEY negotiations",
+    "target": "Single KEY Evidence inbox — all factories submit candidate_evidence only"
+  },
+  "slice_goal": {
+    "one_line": "Factory는 candidate_evidence만 제출하고, KEY Runtime이 Evidence를 adopt/hold/reject한 뒤 KEY가 Fact를 만들어 Memory에 commit한다.",
+    "prove_at_preview": [
+      "trace order: factory_evidence_reported → key_fact_adoption → memory_committed",
+      "no customer_memory_facts upsert before key_fact_adoption",
+      "committed facts are KEY-authored (provenance: key_from_evidence) not factory-authored",
+      "multiple evidence items on same topic reconciled in KEY turn — not factory-vs-factory"
+    ],
+    "tom_final_declaration_unlock": "Preview PASS → 'LIFEGUARD에는 하나의 KEY만 존재한다' (Evidence authority included)"
+  },
+  "evidence_vs_fact": {
+    "evidence": {
+      "definition": "Factory-submitted substrate — spans, fields, scores, timestamps, source refs — not yet KEY memory",
+      "examples": [
+        "OCR text span + page + bbox",
+        "policy clause extract + document_id + field path",
+        "hospital record row + code system",
+        "gap analysis row + policy_id (observation not KEY judgment)",
+        "voice transcript segment + speaker + confidence"
+      ],
+      "factory_may_include": "provisional interpretation as evidence metadata — not authoritative fact_key/fact_value for Memory"
+    },
+    "fact": {
+      "definition": "KEY-authored normalized memory row — only after key_fact_adoption",
+      "author": "KEY only",
+      "store": "customer_memory_facts",
+      "provenance": "key_from_evidence + evidence_ids[] + source_factories[]"
+    },
+    "memory": {
+      "definition": "Durable store of KEY facts — result of adoption chain, not factory dump"
+    }
+  },
+  "adoption_model": {
+    "states_on_evidence": {
+      "candidate_evidence": "Factory report — in evidence inbox, not Memory",
+      "adopt": "KEY accepts evidence as basis for fact derivation",
+      "hold": "KEY defers — insufficient consent · conflict · review required",
+      "reject": "KEY declines evidence for Memory (may retain audit trace only)"
+    },
+    "key_derives_fact": "On adopt: KEY maps evidence → fact_key + fact_value + confidence + provenance — not factory preset fact row",
+    "owner": "KEY via runSalesDirectorKeyTurn — sole Evidence adoption and Fact authoring authority",
+    "factory_role": "Submit candidate_evidence[] only — never upsert customer_memory_facts",
+    "anti_pattern": "N factories each pushing interpreted facts to KEY in parallel channels"
+  },
+  "target_architecture": {
+    "core_chain": "Evidence → KEY → Memory",
+    "diagram": [
+      "Factories (OCR · Policy · Gap · Hospital · … — many over time)",
+      "        │  each submits independently",
+      "        ▼  candidate_evidence[]",
+      " factory_evidence_reported  (per batch — trace; no Memory write)",
+      "        │",
+      "        ▼  KEY sees unified evidence inbox (not factory hierarchy)",
+      " runSalesDirectorKeyTurn  ← keyEntry: evidence_adoption",
+      "        │",
+      "        ▼  per evidence: adopt | hold | reject",
+      "        ▼  on adopt: KEY derives Fact(s) from evidence",
+      " key_fact_adoption  (trace + adoption_record + key_derived_facts[])",
+      "        │",
+      "        ▼  KEY-derived facts only",
+      " memory_committed  (gated upsert → customer_memory_facts)",
+      "        │",
+      "        ▼",
+      " customer_memory_facts + memory_version++"
+    ],
+    "invariants": [
+      "Single Runtime: runSalesDirectorKeyTurn — evidence_adoption keyEntry",
+      "Single KEY inbox: all factories → same evidence report shape",
+      "Fact author = KEY always — factory never final Memory author",
+      "Conflicting evidence → KEY reconciliation turn — not factory arbitration",
+      "Persona / Hand P1–P3 unchanged — adoption internal unless KEY speaks"
+    ]
+  },
+  "candidate_evidence_schema_v1_sketch": {
+    "evidence_id": "uuid",
+    "source_factory": "policy_extract | document_ocr | hospital | …",
+    "source_ref": "document_id · chunk_id · external_record_id",
+    "evidence_kind": "text_span | structured_field | observation | score",
+    "payload": "factory-native raw — not normalized fact_key",
+    "provisional_label": "optional factory guess — KEY must not treat as Memory fact",
+    "confidence": "factory confidence on extraction only",
+    "consent_scope": "required consent types for this evidence",
+    "reported_at": "iso",
+    "work_order_id": "optional — when KEY_UPLOAD_ENTRY active"
+  },
+  "design_extension": {
+    "forbidden": [
+      "Factory writes customer_memory_facts",
+      "Factory-authored fact_key as Memory commit input",
+      "Per-factory KEY adoption endpoints",
+      "runKeyEvidenceAdoptionTurn (new Runtime)",
+      "invokeMemoryBuilder direct apply after factory success (v1 retire)"
+    ],
+    "key_entry_trigger": {
+      "param": "keyEntry",
+      "ssot_function": "runSalesDirectorKeyTurn",
+      "new_value_v1": "evidence_adoption",
+      "inputs": {
+        "candidate_evidence": "from factory_evidence_reported — unified batch",
+        "evidence_inbox_id": "correlates report batch",
+        "snapshot": "loadSalesDirectorTurnContext",
+        "existing_memory": "active facts for conflict reconciliation",
+        "work_order_id": "when upload path"
+      },
+      "outputs": {
+        "adoption_record": {
+          "adopted_evidence_ids": "uuid[]",
+          "held_evidence_ids": "uuid[] + hold_reason[]",
+          "rejected_evidence_ids": "uuid[] + reject_reason[]",
+          "key_derived_facts": "KEY-authored fact candidates for commit",
+          "subject": "KEY"
+        },
+        "trace_step": "key_fact_adoption"
+      }
+    },
+    "reconciliation_rules_v1_sketch": {
+      "note": "EXEC tuning after Tom GO — policy sketch",
+      "same_topic_multiple_evidence": "KEY turn receives all pending evidence — reconcile before fact derivation",
+      "hold_when": "conflicting evidence without resolution rule · consent gap · review flag",
+      "reject_when": "PII · invalid source · duplicate evidence id",
+      "derive_fact_when": "adopted evidence passes consent + review + reconciliation"
+    }
+  },
+  "wiring_contract": {
+    "v1_scope": "Upload policy_extract path — first factory to emit structured evidence instead of memory facts",
+    "v1_sequence": [
+      "Hand P1–P3 + KU Work Order — unchanged",
+      "policy extract completes → persistExtractedPolicies (profile tables — factory operational data, not Memory facts)",
+      "RETIRE: invokeMemoryBuilder → applyCandidateFacts",
+      "NEW: build candidate_evidence[] from extract output (clause fields · spans — not memory fact rows)",
+      "NEW: factory_evidence_reported on document metadata / evidence inbox",
+      "NEW: runSalesDirectorKeyTurn({ keyEntry: evidence_adoption, candidateEvidence, … })",
+      "NEW: keyFactCommit — only key_derived_facts from key_fact_adoption",
+      "NEW: memory_committed trace"
+    ],
+    "trace_contract": {
+      "required_order": [
+        "factory_evidence_reported",
+        "key_fact_adoption",
+        "memory_committed"
+      ],
+      "factory_evidence_reported": {
+        "actor": "FACTORY",
+        "before": "any customer_memory_facts insert for this batch",
+        "payload": {
+          "source_factory": "policy_extract",
+          "evidence_count": "number",
+          "evidence_ids": "uuid[]",
+          "document_id": "uuid",
+          "evidence_inbox_id": "uuid",
+          "reported_at": "iso"
+        }
+      },
+      "key_fact_adoption": {
+        "actor": "KEY",
+        "primitive": "runSalesDirectorKeyTurn",
+        "key_entry": "evidence_adoption",
+        "payload": {
+          "adopted_evidence_count": "number",
+          "held_evidence_count": "number",
+          "rejected_evidence_count": "number",
+          "key_derived_fact_keys": "string[]",
+          "generation_mode": "key_fact_adoption",
+          "subject": "KEY"
+        }
+      },
+      "memory_committed": {
+        "actor": "KEY",
+        "after": "key_fact_adoption",
+        "payload": {
+          "committed_fact_keys": "string[]",
+          "fact_author": "KEY",
+          "provenance": "key_from_evidence",
+          "memory_version": "number",
+          "write_gate": "key_fact_adoption_required",
+          "subject": "KEY"
+        }
+      }
+    },
+    "commit_gate": {
+      "name": "keyFactCommit",
+      "rule": "customer_memory_facts insert only from key_derived_facts[] with matching key_fact_adoption record",
+      "proposed_module": "server/keyBrain/keyFactCommit.js"
+    }
+  },
+  "factory_changes": {
+    "principle": "Every factory becomes evidence reporter — v1 implements policy_extract first",
+    "documentPolicyExtractionPipeline": {
+      "remove": "invokeMemoryBuilder direct memory apply",
+      "add": "reportFactoryEvidence({ candidate_evidence[], source_factory: policy_extract })",
+      "note": "profile_insurance_policies persist may remain factory operational — distinct from KEY Memory facts"
+    },
+    "future_factories_same_contract": [
+      "document_ocr",
+      "gap",
+      "recommendation",
+      "claim",
+      "hospital",
+      "mydata",
+      "voice",
+      "calendar",
+      "risk_watcher"
+    ],
+    "memory_builder_worker_v1": {
+      "retire_for_upload_path": "applyCandidateFacts on factory trigger",
+      "future_role": "optional evidence extract helper — never Memory author"
+    }
+  },
+  "execution_phases": {
+    "phase_ea1_evidence_report": {
+      "name": "MA-1 amended — Factory reports evidence only",
+      "was": "factory_fact_reported / candidate_fact",
+      "now": "factory_evidence_reported / candidate_evidence",
+      "tom_go": "pending",
+      "deliverables": [
+        "Retire policy extract → invokeMemoryBuilder memory apply",
+        "candidate_evidence schema v1",
+        "factory_evidence_reported trace",
+        "Unit: no memory write on evidence report alone"
+      ]
+    },
+    "phase_ea2_key_fact_adoption": {
+      "name": "KEY Runtime — evidence adopt/hold/reject + fact derivation",
+      "was": "key_memory_adoption / factory_memory_adoption",
+      "now": "key_fact_adoption / evidence_adoption keyEntry",
+      "depends_on": "phase_ea1_evidence_report",
+      "deliverables": [
+        "runSalesDirectorKeyTurn keyEntry evidence_adoption",
+        "KEY derives facts from adopted evidence — not factory fact passthrough",
+        "key_fact_adoption trace",
+        "Unit: conflict fixture — KEY reconciles Evidence A/B/C"
+      ]
+    },
+    "phase_ea3_gated_commit": {
+      "name": "KEY-gated Memory commit",
+      "depends_on": "phase_ea2_key_fact_adoption",
+      "deliverables": ["keyFactCommit", "memory_committed", "provenance key_from_evidence"]
+    },
+    "phase_ea4_preview_evidence": {
+      "name": "Preview evidence chain",
+      "depends_on": "phase_ea3_gated_commit",
+      "deliverables": [
+        "key-evidence-adoption-v1-preview-probe.mjs",
+        "fixtures/.../key-evidence-adoption-v1-preview-evidence.json",
+        "PASS: factory_evidence_reported → key_fact_adoption → memory_committed"
+      ]
+    },
+    "phase_ea5_deferred": {
+      "name": "Cron · login · other factories — same Evidence contract",
+      "status": "HOLD"
+    }
+  },
+  "files_touch_map": {
+    "proposed_new": [
+      "server/keyBrain/keyEvidenceInbox.js",
+      "server/keyBrain/keyFactAdoption.js",
+      "server/keyBrain/keyFactCommit.js",
+      "scripts/key-evidence-adoption-v1-unit-test.mjs",
+      "scripts/key-evidence-adoption-v1-preview-probe.mjs"
+    ],
+    "modify_v1": [
+      "server/documentPolicyExtractionPipeline.js",
+      "server/salesDirectorKeyOrchestrator.js",
+      "api/customer-document-policy-extract.js",
+      "server/memoryReviewLayer.js",
+      "server/keyBrain/index.js"
+    ],
+    "do_not_touch_v1": [
+      "src/hooks/useCustomerDocumentUpload.js",
+      "server/keyBrain/workOrder.js",
+      "server/keyBrain/documentFirstSpeak.js",
+      "fixtures/key-customer-validation-v1/question-bank-v1.json"
+    ]
+  },
+  "tom_audit_precheck": {
+    "0_evidence_not_factory_fact": {
+      "question": "Factory가 Fact author가 아닌 Evidence submitter인가?",
+      "design_answer": "YES after EXEC"
+    },
+    "1_key_makes_fact": {
+      "question": "Fact는 KEY가 Evidence에서 만드는가?",
+      "design_answer": "YES — key_derived_facts in key_fact_adoption"
+    },
+    "2_scales_many_factories": {
+      "question": "공장 N개여도 Evidence → KEY inbox 하나?",
+      "design_answer": "YES — unified candidate_evidence contract"
+    },
+    "3_no_second_key": {
+      "question": "새 Runtime?",
+      "design_answer": "NO — runSalesDirectorKeyTurn evidence_adoption"
+    },
+    "4_constitution_iii": {
+      "question": "§③ KEY 판단 후 Memory?",
+      "design_answer": "YES"
+    }
+  },
+  "merge_gate": {
+    "design_direction_go": true,
+    "design_amended_at": "2026-07-03",
+    "exec_go": false,
+    "preview_pass_criteria": {
+      "trace_order": ["factory_evidence_reported", "key_fact_adoption", "memory_committed"],
+      "fact_author_is_key": true,
+      "no_factory_direct_memory_write": true
+    },
+    "preview_evidence_proposed": "fixtures/key-judgment-validation-v1/key-evidence-adoption-v1-preview-evidence.json"
+  },
+  "declaration_lock": {
+    "forbidden_until_ea4_preview_pass": "LIFEGUARD에는 하나의 KEY만 존재한다 (full)",
+    "unlock_condition": "key-evidence-adoption-v1-preview-evidence.json tom_gate.result === PASS"
+  },
+  "jerry_command": {
+    "design_rule": "Factory → candidate_evidence · KEY → adopt/hold/reject · KEY → Fact · Memory",
+    "growth_rule": "공장마다 adoption channel 만들지 마라. Evidence inbox 하나에 runSalesDirectorKeyTurn을 성장시켜라.",
+    "stop": "EXEC 금지 until Tom EXEC GO on amended design"
+  }
+}
