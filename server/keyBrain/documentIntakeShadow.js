@@ -194,7 +194,7 @@ export function buildKeyDocumentIntakeShadowTrace({
   return {
     schema_version: KEY_DOCUMENT_INTAKE_SCHEMA_VERSION,
     brain_schema_version: KEY_BRAIN_SHADOW_SCHEMA_VERSION,
-    gate: includeFirstJudgment ? "KU-2b" : "KU-1",
+    gate: includeFirstJudgment ? "KEY_UPLOAD_ACTIVE" : "KU-1",
     mode: "shadow",
     subject: "KEY",
     document_id: document.id ?? null,

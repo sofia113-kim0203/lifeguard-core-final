@@ -1,16 +1,16 @@
 /**
  * KU-1 — POST /api/key-document-intake
- * KU-2a — active: mint KEY Work Order (execution gate only).
- * KU-2b — judgment flag: key_first_judgment trace before factory.
+ * KU-2a+2b — active: unified KEY upload authority (judgment trace + Work Order gate).
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
 import { buildKeyDocumentIntakeShadowTrace } from "../server/keyBrain/documentIntakeShadow.js";
 import {
   getKeyUploadEntryMode,
+  isKeyUploadEntryActiveEnabled,
+  KEY_UPLOAD_ACTIVE_GATE,
   KEY_UPLOAD_ENTRY_MODES,
 } from "../server/keyBrain/uploadEntryFlags.js";
-import { isKeyUploadJudgmentEnabled } from "../server/keyBrain/uploadJudgmentFlags.js";
 import {
   buildKeyWorkOrderRecord,
   mintKeyWorkOrderId,
@@ -114,13 +114,13 @@ export default async function handler(req, res) {
   }
 
   const hasAnalysisConsent = await hasDocumentAnalysisConsent(supabase, auth.customerId);
-  const judgmentEnabled = isKeyUploadJudgmentEnabled(process.env);
+  const activeAuthority = isKeyUploadEntryActiveEnabled(process.env);
   const intakeTrace = buildKeyDocumentIntakeShadowTrace({
     document,
     hasAnalysisConsent,
     uploadSource: String(body.upload_source ?? "web"),
     categoryKey: body.category_key ?? null,
-    includeFirstJudgment: judgmentEnabled,
+    includeFirstJudgment: activeAuthority,
   });
 
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
@@ -150,7 +150,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    intakeTrace.gate = judgmentEnabled ? "KU-2b" : "KU-2a";
+    intakeTrace.gate = KEY_UPLOAD_ACTIVE_GATE;
     intakeTrace.work_order = workOrderRecord;
     intakeTrace.trace_steps = [
       ...(intakeTrace.trace_steps ?? []),

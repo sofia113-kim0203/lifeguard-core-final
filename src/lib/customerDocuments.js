@@ -612,9 +612,10 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
 
   let keyIntakeTrace = keyIntakeResult?.intake_trace ?? null;
   const workOrderId = keyIntakeResult?.work_order_id ?? null;
-  const ku2bGate = keyIntakeTrace?.key_first_judgment
-    ? assertKu2bReadyForFactory(keyIntakeTrace)
-    : { ok: true };
+  const ku2bGate =
+    keyIntakeResult?.mode === "active"
+      ? assertKu2bReadyForFactory(keyIntakeTrace)
+      : { ok: true };
 
   let ingest = null;
   if (ku2bGate.ok) {

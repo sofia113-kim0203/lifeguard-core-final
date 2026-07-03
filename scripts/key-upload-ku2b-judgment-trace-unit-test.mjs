@@ -1,5 +1,6 @@
 /**
  * KU-2b — KEY first judgment trace unit tests (Tom merge gate).
+ * Tom A — judgment enabled via KEY_UPLOAD_ENTRY=active only (no separate env).
  */
 import assert from "node:assert/strict";
 import {
@@ -11,10 +12,12 @@ import {
   validateKu2bJudgmentBeforeLegacy,
 } from "../server/keyBrain/documentFirstJudgment.js";
 import {
-  getKeyUploadJudgmentMode,
-  isKeyUploadJudgmentEnabled,
-  KEY_UPLOAD_JUDGMENT_MODES,
-} from "../server/keyBrain/uploadJudgmentFlags.js";
+  getKeyUploadEntryMode,
+  isKeyUploadActiveAuthorityEnabled,
+  isKeyUploadEntryActiveEnabled,
+  KEY_UPLOAD_ACTIVE_GATE,
+  KEY_UPLOAD_ENTRY_MODES,
+} from "../server/keyBrain/uploadEntryFlags.js";
 
 const SAMPLE_DOC = {
   id: "doc-ku2b-1",
@@ -24,17 +27,19 @@ const SAMPLE_DOC = {
   customer_hint_type: "insurance_policy",
 };
 
-function testJudgmentFlag() {
-  assert.equal(getKeyUploadJudgmentMode({}), KEY_UPLOAD_JUDGMENT_MODES.OFF);
-  assert.equal(isKeyUploadJudgmentEnabled({ KEY_UPLOAD_JUDGMENT: "shadow" }), true);
-  assert.equal(isKeyUploadJudgmentEnabled({ KEY_UPLOAD_JUDGMENT: "active" }), true);
+function testUnifiedActiveAuthorityFlag() {
+  assert.equal(getKeyUploadEntryMode({}), KEY_UPLOAD_ENTRY_MODES.OFF);
+  assert.equal(isKeyUploadEntryActiveEnabled({ KEY_UPLOAD_ENTRY: "active" }), true);
+  assert.equal(isKeyUploadActiveAuthorityEnabled({ KEY_UPLOAD_ENTRY: "active" }), true);
+  assert.equal(isKeyUploadActiveAuthorityEnabled({ KEY_UPLOAD_ENTRY: "shadow" }), false);
 }
 
-function testFirstJudgmentTraceStep() {
+function testActiveAuthorityTraceStep() {
+  const active = isKeyUploadEntryActiveEnabled({ KEY_UPLOAD_ENTRY: "active" });
   const trace = buildKeyDocumentIntakeShadowTrace({
     document: SAMPLE_DOC,
     hasAnalysisConsent: true,
-    includeFirstJudgment: true,
+    includeFirstJudgment: active,
   });
   const steps = trace.trace_steps.map((row) => row.step);
   assert.deepEqual(steps, [
@@ -45,12 +50,12 @@ function testFirstJudgmentTraceStep() {
     "key_first_judgment",
     "dispatch_plan_created",
   ]);
-  assert.equal(trace.gate, "KU-2b");
+  assert.equal(trace.gate, KEY_UPLOAD_ACTIVE_GATE);
   assert.equal(trace.key_first_judgment?.actor, "KEY");
   assert.equal(trace.customer_speak_changed, false);
 }
 
-function testWithoutJudgmentUnchanged() {
+function testShadowWithoutJudgmentUnchanged() {
   const trace = buildKeyDocumentIntakeShadowTrace({
     document: SAMPLE_DOC,
     hasAnalysisConsent: true,
@@ -68,6 +73,7 @@ function testTomMergeGateJudgmentBeforeLegacy() {
     hasAnalysisConsent: true,
     includeFirstJudgment: true,
   });
+  base.gate = KEY_UPLOAD_ACTIVE_GATE;
   const withWorkOrder = {
     ...base,
     trace_steps: [
@@ -87,10 +93,11 @@ function testTomMergeGateJudgmentBeforeLegacy() {
 
   const steps = full.trace_steps.map((row) => row.step);
   const judgmentIdx = steps.indexOf("key_first_judgment");
+  const workOrderIdx = steps.indexOf("work_order_issued");
   const legacyIdx = steps.indexOf("legacy_pipeline_continued");
   assert.ok(judgmentIdx >= 0);
-  assert.ok(legacyIdx >= 0);
-  assert.ok(judgmentIdx < legacyIdx);
+  assert.ok(workOrderIdx > judgmentIdx);
+  assert.ok(legacyIdx > workOrderIdx);
 }
 
 function testJudgmentRecordShape() {
@@ -110,9 +117,9 @@ function testJudgmentRecordShape() {
 }
 
 const tests = [
-  testJudgmentFlag,
-  testFirstJudgmentTraceStep,
-  testWithoutJudgmentUnchanged,
+  testUnifiedActiveAuthorityFlag,
+  testActiveAuthorityTraceStep,
+  testShadowWithoutJudgmentUnchanged,
   testTomMergeGateJudgmentBeforeLegacy,
   testJudgmentRecordShape,
 ];

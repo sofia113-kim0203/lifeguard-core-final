@@ -14,17 +14,12 @@ export {
   KEY_FIRST_JUDGMENT_SCHEMA_VERSION,
 } from "./documentFirstJudgment.js";
 export {
-  getKeyUploadJudgmentMode,
-  isKeyUploadJudgmentEnabled,
-  isKeyUploadJudgmentShadowEnabled,
-  isKeyUploadJudgmentActiveEnabled,
-  KEY_UPLOAD_JUDGMENT_MODES,
-} from "./uploadJudgmentFlags.js";
-export {
   getKeyUploadEntryMode,
   isKeyUploadEntryShadowEnabled,
   isKeyUploadEntryActiveEnabled,
+  isKeyUploadActiveAuthorityEnabled,
   KEY_UPLOAD_ENTRY_MODES,
+  KEY_UPLOAD_ACTIVE_GATE,
 } from "./uploadEntryFlags.js";
 export {
   buildKeyWorkOrderRecord,

@@ -1,10 +1,24 @@
 {
   "document": "key_upload_ku2b_design_v1",
   "gate": "KU-2b",
-  "tom_go": "Design GO — local implementation complete; Preview evidence pending",
-  "mode": "Implement — judgment trace only · no customer visible",
-  "status": "Local implementation — Preview evidence pending",
+  "tom_go": "Tom A unified KEY Authority — design locked",
+  "mode": "KEY Authority first Entry (upload) · judgment trace · no customer visible",
+  "status": "Philosophy locked — Preview trace evidence pending",
   "observed_at": "2026-07-03",
+  "key_authority_philosophy": {
+    "tom_lock": "LIFEGUARD has KEY Authority — not Upload Authority. Upload is the first Entry where KEY Authority was applied.",
+    "one_line": "KEY_UPLOAD_ENTRY is not an upload-only feature flag; it is the first Entry of future KEY Authority.",
+    "universal_flow": [
+      "all inputs (upload · chat · photo · voice · hospital · mydata · insurer · schedule · life events)",
+      "KEY",
+      "judgment",
+      "Work Order",
+      "Factory",
+      "KEY",
+      "customer"
+    ],
+    "naming_guardrail": "Do not proliferate KEY_CHAT_ENTRY · KEY_IMAGE_ENTRY · KEY_VOICE_ENTRY — extend KEY Authority pattern, not slice env names."
+  },
   "revision": {
     "tom_ruling": "KU-2b는 KEY 선판단 trace만 증명. 고객 visible은 다음 Slice.",
     "removed_from_ku2b": [
@@ -60,7 +74,7 @@
       "api": "/api/key-document-intake — extend intake_trace + key_first_judgment; no new route",
       "new_fields": {
         "key_first_judgment": "object — posture · document_kind_guess · judgment_scope · recorded_at",
-        "intake_trace.gate": "KU-2b when judgment enabled"
+        "intake_trace.gate": "KEY_UPLOAD_ACTIVE when entry=active"
       },
       "forbidden_in_ku2b": [
         "customer_first_sentence in API response",
@@ -101,13 +115,26 @@
     "module_proposed": "server/keyBrain/documentFirstJudgment.js (design-only until EXEC GO)"
   },
   "feature_flag": {
-    "name": "KEY_UPLOAD_JUDGMENT",
+    "name": "KEY_UPLOAD_ENTRY",
+    "tom_a_unified": "2026-07-03 — KEY_UPLOAD_JUDGMENT removed; single KEY upload authority",
     "values": {
-      "unset_or_off": "KU-2a behavior only — no key_first_judgment step",
-      "shadow": "key_first_judgment in trace/log only; pipeline order unchanged visually to customer",
-      "active": "Phase A/B bisection enforced — judgment trace before enqueue; still no customer UI change"
+      "off": "intake skipped",
+      "shadow": "KU-1 intake trace only — no judgment · no Work Order",
+      "active": "unified KEY upload authority — intake + key_first_judgment (KU-2b) + Work Order (KU-2a) + factory gate"
     },
-    "coupling": "KEY_UPLOAD_ENTRY=active for factory WO path; judgment flag controls trace step only"
+    "forbidden": "KEY_UPLOAD_JUDGMENT · KEY_UPLOAD_* slice env proliferation"
+  },
+  "key_upload_active_sequence": [
+    "KEY intake",
+    "key_first_judgment",
+    "Work Order issued",
+    "factory gate (Phase B enqueue)",
+    "trace order: key_first_judgment → work_order_issued → legacy_pipeline_continued"
+  ],
+  "tom_audit_unified_authority": {
+    "question": "KEY upload authority가 하나인가?",
+    "answer": "YES — KEY_UPLOAD_ENTRY=active is the single switch for KU-2a + KU-2b",
+    "gate_label": "KEY_UPLOAD_ACTIVE"
   },
   "tom_audit_precheck": {
     "1_key_before_factory": {
@@ -134,9 +161,10 @@
   },
   "ku2b_merge_gate": {
     "items": [
-      "key_first_judgment present in intake_trace when KEY_UPLOAD_JUDGMENT=active",
+      "KEY_UPLOAD_ENTRY=active → key_first_judgment in intake_trace",
       "trace order: key_first_judgment → work_order_issued → legacy_pipeline_continued",
-      "KU-2a preview gate tom_preview_all_pass remains true"
+      "KU-2a preview gate tom_preview_all_pass remains true",
+      "no separate KEY_UPLOAD_JUDGMENT env"
     ],
     "excluded": "customer visible text change"
   },
