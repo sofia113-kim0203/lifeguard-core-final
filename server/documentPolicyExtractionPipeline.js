@@ -29,6 +29,11 @@ import {
   runShadowPolicyValidationSafe,
   updateDocumentMetadataWithShadow,
 } from "./policyExtractionShadow.js";
+import {
+  applyKeyEvidenceFoundationEa1,
+  buildCoverageSheetMultiExtractionForEa1,
+} from "./keyBrain/keyEvidenceFoundationEa1.js";
+import { buildEa1CustomerSummaryFromMultiExtraction } from "./keyBrain/du1DocumentUploadFirstSpeak.js";
 
 function createServiceClient(env = process.env) {
   const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
@@ -160,35 +165,6 @@ export async function persistExtractedPolicies(admin, customerId, documentId, mu
     policy_count: actions.length,
     policy_actions: actions,
     retired_policy_ids: retiredPolicyIds,
-  };
-}
-
-async function invokeMemoryBuilder(env, customerId) {
-  const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
-  const serviceRoleKey = String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
-  if (!url || !serviceRoleKey) {
-    return { invoked: false, reason: "service_role_not_configured" };
-  }
-
-  const response = await fetch(`${url}/functions/v1/memory-builder-worker`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      customer_id: customerId,
-      mode: "extract",
-      scope: "profile_health_policy",
-    }),
-  });
-
-  const body = await response.json().catch(() => ({}));
-  return {
-    invoked: true,
-    status: response.status,
-    body,
   };
 }
 
@@ -389,6 +365,20 @@ async function runCoverageSheetLiveGateExtraction({
     };
   }
 
+  const sheetMultiExtraction = buildCoverageSheetMultiExtractionForEa1({
+    passingRows,
+    persistResult,
+  });
+
+  const ea1Foundation = applyKeyEvidenceFoundationEa1({
+    documentId,
+    multiExtraction: sheetMultiExtraction,
+    persistResult,
+    ocrTextLength: ocrText.length,
+    chunkCount: chunks.length,
+    invokeMemory,
+  });
+
   const updatedMetadata = await updateDocumentMetadataWithShadow(
     admin,
     updateDocumentExtractionMetadata,
@@ -415,14 +405,18 @@ async function runCoverageSheetLiveGateExtraction({
         passing_row_count: passingRows.length,
         extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
       },
+      ...(ea1Foundation.key_evidence_foundation
+        ? {
+            key_evidence_foundation_ea1: ea1Foundation.key_evidence_foundation,
+            key_ea1_customer_summary: buildEa1CustomerSummaryFromMultiExtraction(multiExtraction),
+          }
+        : {}),
     },
     shadowState,
     persistResult,
   );
 
-  const memoryBuilder = invokeMemory
-    ? await invokeMemoryBuilder(env, customerId)
-    : { invoked: false, reason: "skipped" };
+  const memoryBuilder = ea1Foundation.memory_builder;
 
   const { count: policyCount } = await admin
     .from("profile_insurance_policies")
@@ -449,6 +443,7 @@ async function runCoverageSheetLiveGateExtraction({
     profile_insurance_policies_count: policyCount ?? 0,
     customer_memory_facts_count: memoryFactCount ?? 0,
     memory_builder: memoryBuilder,
+    key_evidence_foundation: ea1Foundation.key_evidence_foundation,
     metadata_json: updatedMetadata,
     coverage_sheet_live_gate: gate,
     sheet_persist_summary: updatedMetadata.sheet_persist_summary ?? null,
@@ -630,6 +625,15 @@ export async function runDocumentPolicyExtraction({
     };
   }
 
+  const ea1Foundation = applyKeyEvidenceFoundationEa1({
+    documentId,
+    multiExtraction,
+    persistResult,
+    ocrTextLength: ocrText.length,
+    chunkCount: chunks.length,
+    invokeMemory,
+  });
+
   const updatedMetadata = await updateDocumentMetadataWithShadow(
     admin,
     updateDocumentExtractionMetadata,
@@ -650,14 +654,18 @@ export async function runDocumentPolicyExtraction({
       profile_policy_id: persistResult.policy_ids[0] ?? null,
       policy_extraction_action: persistResult.policy_actions.map((entry) => entry.action).join(","),
       policy_extraction_retired_policy_ids: persistResult.retired_policy_ids,
+      ...(ea1Foundation.key_evidence_foundation
+        ? {
+            key_evidence_foundation_ea1: ea1Foundation.key_evidence_foundation,
+            key_ea1_customer_summary: buildEa1CustomerSummaryFromMultiExtraction(multiExtraction),
+          }
+        : {}),
     },
     shadowState,
     persistResult,
   );
 
-  const memoryBuilder = invokeMemory
-    ? await invokeMemoryBuilder(env, customerId)
-    : { invoked: false, reason: "skipped" };
+  const memoryBuilder = ea1Foundation.memory_builder;
 
   const { count: policyCount } = await admin
     .from("profile_insurance_policies")
@@ -684,6 +692,7 @@ export async function runDocumentPolicyExtraction({
     profile_insurance_policies_count: policyCount ?? 0,
     customer_memory_facts_count: memoryFactCount ?? 0,
     memory_builder: memoryBuilder,
+    key_evidence_foundation: ea1Foundation.key_evidence_foundation,
     metadata_json: updatedMetadata,
   };
 }

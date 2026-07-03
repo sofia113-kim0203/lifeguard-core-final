@@ -1,0 +1,187 @@
+{
+  "document": "jc_premium_burden_v1_slice_production_evidence",
+  "slice": "SLICE-1-JC-PREMIUM-BURDEN-v1",
+  "mode": "Production verification · Tom Production GO",
+  "pass_declaration": "none — await Tom audit",
+  "observed_at": "2026-06-30T17:12:02.417Z",
+  "git_short_sha": "1a7c9f9",
+  "production_url": "https://lifeguard-core-final.vercel.app",
+  "auth_path": "production_probe + management_api_anon (lv5)",
+  "deploy": {
+    "ok": true,
+    "exit_code": 0,
+    "production_url": "https://lifeguard-core-final-fi1a7va48-70sofia113-1918s-projects.vercel.app\",",
+    "log_tail": "ployment (DmHAG3xseyczHJyDHeeBHybqaMnv)\nRunning \"vercel build\"\nVercel CLI 54.18.4\nInstalling dependencies...\nup to date in 432ms\n16 packages are looking for funding\nrun `npm fund` for details\n> lifeguard-core@0.1.0 build\n> vite build\nvite v8.0.16 building client environment for production...\ntransforming...✓ 188 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.39 kB │ gzip:   0.27 kB\ndist/assets/index-ByqiJt-3.css    1.56 kB │ gzip:   0.72 kB\ndist/assets/index-BAtlBk7t.js   936.93 kB │ gzip: 210.54 kB\n✓ built in 425ms\n[plugin builtin:vite-reporter]\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.\nBuild Completed in /vercel/output [11s]\nDeploying outputs...\n\u001b[2K\u001b[1A\u001b[2K\u001b[G  Production      https://lifeguard-core-final-fi1a7va48-70sofia113-1918s-projects.vercel.app\nCompleting…\n▲ Aliased         https://lifeguard-core-final-70sofia113-1918s-projects.vercel.app\n"
+  },
+  "paraphrase": [
+    {
+      "question": "보험료가 부담돼.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "현재 확인되는 가입 보험이 없어요. 보험 정보를 저장해 주시면 보험료 부담을 같이 보면 됩니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": null,
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "key_tools_called": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": false,
+          "intent": false,
+          "tools": true,
+          "gap_suppressed": true,
+          "probe": true
+        },
+        "aligned": false
+      }
+    },
+    {
+      "question": "보험을 줄이고 싶어.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "등록된 가입 보험이 아직 없습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": null,
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "key_tools_called": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": false,
+          "intent": true,
+          "tools": false,
+          "gap_suppressed": false,
+          "probe": true
+        },
+        "aligned": false
+      }
+    },
+    {
+      "question": "월 보험료를 낮추고 싶어.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": null,
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "key_tools_called": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": false,
+          "intent": false,
+          "tools": true,
+          "gap_suppressed": false,
+          "probe": true
+        },
+        "aligned": false
+      }
+    }
+  ],
+  "negative_control": [
+    {
+      "question": "월 보험료 얼마야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": null,
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "key_tools_called": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "premium_lookup": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "내 보험료 총액 얼마야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": null,
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "key_tools_called": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "premium_lookup": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "보험료 몇 원이야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": null,
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "key_tools_called": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "premium_lookup": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    }
+  ],
+  "paraphrase_all_aligned": false,
+  "negative_control_preserved": true,
+  "regression_30q_production": {
+    "summary": {
+      "total": 34,
+      "question_bank_30": 30,
+      "supplementary_axis": 4,
+      "pass": 34,
+      "fail": 0,
+      "probe_fail": 0,
+      "friction_count": 0,
+      "probe_ok_rate": "34/34"
+    },
+    "pass_count": null,
+    "total": null,
+    "path": "fixtures/key-judgment-validation-v1/lifeguard-launch-validation-lv5-production-30q-regression-evidence.json"
+  },
+  "tom_note": "Slice 1 Production close evidence · Jerry observes only"
+}

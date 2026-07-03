@@ -1,0 +1,114 @@
+{
+  "document": "gi_1_qa_rubric_v1",
+  "slice": "KEY-GI-1",
+  "label": "GI-1 QA 채점표 — 평가 기준 SSOT",
+  "authority": "Tom",
+  "mode": "Rubric only · Live QA 전 고정 · no PASS until Tom scores",
+  "status": "frozen — Tom Rubric GO",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T10:00:00.000Z",
+  "tom_rubric_go_at": "2026-07-02T11:00:00.000Z",
+  "scorecard_template_ref": "fixtures/key-judgment-validation-v1/gi-1-qa-scorecard-template-v1.json",
+  "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+  "tom_framing": {
+    "regression_asks": "안 망가졌는가?",
+    "qa_asks": "정말 좋아졌는가?",
+    "note": "QA는 '좋다' 감이 아니라 1~5 채점 · 평균 4.5 gate"
+  },
+  "scale": {
+    "min": 1,
+    "max": 5,
+    "labels": {
+      "1": "실패 — 고객 좌석에서 쓸 수 없음",
+      "2": "미흡 — 읽히지만 GPT/KEY 기대 미달",
+      "3": "보통 — 무난하나 GI-1 baseline으로는 부족",
+      "4": "양호 — 자연스럽고 쓸 만함 · 소폭 개선 여지",
+      "5": "우수 — GPT 수준에 가깝고 KEY로 읽힘"
+    }
+  },
+  "dimensions": [
+    {
+      "id": "naturalness",
+      "label_ko": "자연스러움",
+      "question": "답변이 자연스러운가?",
+      "anchors": {
+        "1": "로봇/템플릿/어색한 접속어 · 대화가 끊김",
+        "2": "문법은 맞지만 딱딱하거나 번역체",
+        "3": "읽을 수는 있으나 KEY 대화처럼 느껴지지 않음",
+        "4": "친구/상담 톤으로 자연스럽게 이어짐",
+        "5": "고객이 그대로 이어 말할 수 있을 만큼 자연스러움"
+      }
+    },
+    {
+      "id": "factual_accuracy",
+      "label_ko": "사실 정확성",
+      "question": "사실 오류는 없는가?",
+      "anchors": {
+        "1": "명백한 사실 오류 · 환각 · 확신 없는 숫자/날짜 단정",
+        "2": "핵심 사실 1개 이상 틀리거나 과장",
+        "3": "대체로 맞으나 디테일 불확실/모호",
+        "4": "일반 상식 수준에서 정확 · 불확실하면 정직히 구분",
+        "5": "질문에 맞는 사실이 정확하고 과장 없음"
+      }
+    },
+    {
+      "id": "explanatory_power",
+      "label_ko": "설명력",
+      "question": "GPT 수준으로 설명되는가?",
+      "anchors": {
+        "1": "질문 회피 · 한 줄 · '확인해보겠습니다'만",
+        "2": "핵심을 거의 설명하지 못함",
+        "3": "요지만 있으나 깊이/맥락 부족",
+        "4": "질문에 직접 답 + 이해에 도움 되는 맥락",
+        "5": "GPT처럼 명확·간결·유용 — 고객이 '알겠다'고 느낄 설명"
+      }
+    },
+    {
+      "id": "key_voice",
+      "label_ko": "KEY 말투 유지",
+      "question": "KEY 말투가 유지되는가?",
+      "anchors": {
+        "1": "LIFEGUARD: 접두 · 이모지 · 챗봇 톤 · 엔진/내부 용어 노출",
+        "2": "과도한 존댓말/영업/교과서체 · KEY가 아닌 다른 존재",
+        "3": "무난하나 KEY Persona v1과 어색한 순간 있음",
+        "4": "차분한 KEY — 신뢰·책임감 톤 유지",
+        "5": "처음부터 끝까지 같은 KEY · Persona Integrity"
+      }
+    },
+    {
+      "id": "no_insurance_push",
+      "label_ko": "보험 억지 연결 없음",
+      "question": "보험을 억지로 끌어오지 않는가?",
+      "anchors": {
+        "1": "일반 질문인데 보험/가입/실손/담보를 끼워 넣음",
+        "2": "보험 언급은 없으나 '상담 도와드릴게요' 등 deflection",
+        "3": "대체로 깨끗하나 미묘한 보험 연결 뉘앙스",
+        "4": "일반 주제에 집중 · 보험 없음",
+        "5": "완전히 일반 지식/생활 답 — 보험 bridge 0"
+      }
+    }
+  ],
+  "scoring_method": {
+    "per_question": "각 문항마다 5개 dimension × 1~5 점",
+    "question_average": "5 dimension 평균 → 문항 점수",
+    "qa_average": "20문항 question_average의 산술 평균",
+    "pass_threshold": 4.5,
+    "pass_rule": "qa_average >= 4.5 → QA 통과 → Regression GO",
+    "fail_rule": "qa_average < 4.5 → L1(Prompt/Profile) 보완 Slice · Regression 보류",
+    "single_dimension_floor_note": "Tom discretion — 특정 dimension만 반복 3 이하면 L1 보완 후보로 표시"
+  },
+  "exec_sequence_after_rubric": [
+    "1. Tom rubric GO (this artifact)",
+    "2. API Key 설정 (Tom/ops — Jerry 결정 아님)",
+    "3. Live QA 20문항 실행",
+    "4. Tom 직접 읽고 채점 (scorecard template)",
+    "5. QA 통과 여부 결정",
+    "6. 통과 → Regression ~110 → Close"
+  ],
+  "forbidden": [
+    "Jerry가 API Key 넣고 실행 결정",
+    "Mechanical hint만으로 QA PASS",
+    "Regression을 QA 전에 실행"
+  ],
+  "jerry": "Rubric only · Live QA held · Tom scores"
+}

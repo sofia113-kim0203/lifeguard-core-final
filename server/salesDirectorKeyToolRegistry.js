@@ -2,7 +2,15 @@
  * P10-1 — Sales Director KEY tool registry (Factories = tools).
  * Snapshot / Memory / Coverage Gap / Underwriting / Recommendation / Design (stored read) / Premium.
  */
-import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import {
+  classifyConsultationIntent,
+  computePremiumLookupStats,
+  PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+  COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+  RC_CONTINUITY_COMPANION_CLUSTER_ID,
+  RC_RECOGNITION_COMPANION_CLUSTER_ID,
+} from "./intentGateLayer.js";
+import { isDelegationIntentQuestion } from "./keyBrain/phaseBSlice3DelegationJudgment.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
@@ -110,6 +118,8 @@ function dedupeTools(tools = []) {
 }
 
 function shouldAddCoverageGapTool(classification = {}, question = "") {
+  if (isDelegationIntentQuestion(question)) return true;
+
   const intent = classification.intent ?? "";
   const subIntent = classification.lookup_sub_intent ?? null;
 
@@ -184,6 +194,24 @@ function runDesignTool({ existingDesignContext = null } = {}) {
  */
 export function planKeyTools(classification = {}, loadedContext = null, question = "") {
   const intent = classification.intent ?? "general_consultation";
+
+  if (intent === "document_intake") {
+    const tools = [KEY_TOOLS.SNAPSHOT];
+    if (loadedContext?.memory === "present") {
+      tools.push(KEY_TOOLS.MEMORY);
+    }
+    return {
+      intent,
+      subIntent: null,
+      legacy_slice: null,
+      companion_cluster: null,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "document_intake_entry_hand_p2",
+      document_intake: true,
+    };
+  }
+
   const subIntent = classification.lookup_sub_intent ?? null;
   const legacySlice = matchToolBrainSliceQuestion(question);
   const tools = [KEY_TOOLS.SNAPSHOT];
@@ -192,6 +220,56 @@ export function planKeyTools(classification = {}, loadedContext = null, question
 
   if (loadedContext?.memory === "present") {
     tools.push(KEY_TOOLS.MEMORY);
+  }
+
+  if (classification.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+    tools.push(KEY_TOOLS.PREMIUM_STATS);
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "companion_cluster_jc_premium_burden_v1",
+    };
+  }
+
+  if (classification.companion_cluster === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID) {
+    tools.push(KEY_TOOLS.COVERAGE_GAP);
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: false,
+      coverage_gap_suppress_reason: null,
+    };
+  }
+
+  if (classification.companion_cluster === RC_CONTINUITY_COMPANION_CLUSTER_ID) {
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: dedupeTools([KEY_TOOLS.MEMORY]),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "companion_cluster_rc_continuity_companion_v1",
+    };
+  }
+
+  if (classification.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
+    return {
+      intent,
+      subIntent,
+      legacy_slice: null,
+      companion_cluster: classification.companion_cluster,
+      tools: [],
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "companion_cluster_rc_recognition_companion_v1",
+    };
   }
 
   if (legacySlice === SALES_DIRECTOR_TOOL_BRAIN_SLICES.PREMIUM_BURDEN) {
@@ -507,6 +585,29 @@ export async function runKeyTools({
   unified = null,
 } = {}) {
   if (!plan?.tools?.length) {
+    if (plan?.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
+      return {
+        ok: true,
+        reason: "recognition_companion_no_tools",
+        tools_called: [],
+        tool_results: [],
+        snapshot_used: false,
+        memory_used: false,
+        premium_used: false,
+        coverage_gap_used: false,
+        trace: {
+          status: "rc_recognition_companion_v1_no_tools",
+          plan,
+          tools_called: [],
+          snapshot_used: false,
+          memory_used: false,
+          premium_used: false,
+          coverage_gap_used: false,
+          coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
+          coverage_gap_suppress_reason: plan?.coverage_gap_suppress_reason ?? null,
+        },
+      };
+    }
     return {
       ok: false,
       reason: "empty_tool_plan",

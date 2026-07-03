@@ -1,0 +1,210 @@
+{
+  "schema_version": "phase-b-closure-evidence-v1.1",
+  "recorded_at": "2026-07-04T01:48:00+09:00",
+  "north_star": {
+    "sentence": "KEY는 보험을 판매하는 AI도, 단순히 보험을 관리하는 AI도 아니다. 고객의 삶을 이해하고, 전문가처럼 판단하며, 고객에게 맞는 실행 계획을 세우고, 그 계획을 함께 관리하며, 필요한 순간에는 손해사정 전문가가 되어 평생을 함께하는 보험 주치의다.",
+    "authority": "Tom",
+    "differentiator": "보험설계사는 상품을 설계한다. KEY는 삶을 설계한다."
+  },
+  "lifeguard_growth_arc": {
+    "sequence": [
+      {
+        "phase": "A",
+        "name": "Understand",
+        "korean": "이해",
+        "goal": "고객을 이해한다.",
+        "status": "closed"
+      },
+      {
+        "phase": "B",
+        "name": "Judge",
+        "korean": "판단",
+        "goal": "전문가처럼 판단한다.",
+        "status": "closed"
+      },
+      {
+        "phase": "C",
+        "name": "Care Plan",
+        "korean": "실행 계획",
+        "goal": "판단을 고객의 실행 계획으로 바꾼다.",
+        "status": "next",
+        "not_this": "상품 설계 · 가입 설계 · 리모델링 (보험업계 '설계' 오해 금지)",
+        "is_this": "Life Plan / Care Plan — 이번 달 → 다음 → 6개월 후 재점검 타임라인",
+        "example_judge": "실손은 유지하는 것이 맞습니다.",
+        "example_care_plan": "이번 달은 실손만 확인하면 됩니다. 암 보장은 올해 안에 점검하면 충분합니다. 자동차 보험은 갱신 시점에 같이 보겠습니다.",
+        "customer_feel": "아, 앞으로 뭘 하면 되는구나. — 편안함은 Plan(관리)이 아니라 Care Plan에서 온다."
+      },
+      {
+        "phase": "D",
+        "name": "Manage",
+        "korean": "관리",
+        "goal": "계획을 함께 관리한다. — 계획대로 되고 있는가 · 변화 감지 · 일정 · 재설계",
+        "status": "future",
+        "requires": "Phase C Care Plan 존재"
+      },
+      {
+        "phase": "E",
+        "name": "Claim",
+        "korean": "손해사정 · 청구",
+        "goal": "사고가 나면 손해사정 전문가 — 받을 수 있는 것 · 부족한 것 · 서류 · 청구 전략",
+        "status": "future"
+      },
+      {
+        "phase": "F",
+        "name": "Guardian",
+        "korean": "평생 보험 주치의",
+        "goal": "평생을 함께하는 보험 주치의",
+        "status": "future"
+      }
+    ],
+    "dependency_chain": "이해하지 못하면 판단할 수 없다 → 판단하지 못하면 Care Plan을 세울 수 없다 → 계획이 없으면 관리할 수 없다 → 관리가 있어야 평생 함께할 수 있다."
+  },
+  "phase": {
+    "id": "phase_b",
+    "name": "전문가처럼 판단하는 KEY",
+    "english": "Judge — Expert Judgment Layer",
+    "status": "closed",
+    "closed_by": "Tom",
+    "arc_position": "2/6 (Understand → Judge → Care Plan → Manage → Claim → Guardian)",
+    "closure_note": "Phase B(Judge) 핵심 완성. Phase B First Action은 Care Plan 문턱이지 Care Plan 자체가 아님. 다음 GO: Phase C Care Plan."
+  },
+  "design_frozen": {
+    "customer_intent_flow": "Customer Intent → Direction → Reason → Limitation → First Action",
+    "compose_pattern": "Phase B override in HUL before legacy rule/companion/relational paths",
+    "layer": "LIFEGUARD(KEY) — Judgment · Hand wiring",
+    "not_in_scope": [
+      "새 Family",
+      "새 Persona",
+      "Quality Opportunity Catalog Slice",
+      "Production deploy",
+      "30문항 전체를 전문가 판단으로 재작성"
+    ]
+  },
+  "slices": [
+    {
+      "id": "phase_b_slice_1",
+      "intent": "Coverage adequacy / anxiety",
+      "cluster": "JC-COVERAGE-ANXIETY-v1",
+      "primary_question": "내 보험 괜찮아?",
+      "compose_module": "server/keyBrain/phaseBSlice1CoverageJudgment.js",
+      "compose_mode": "phase_b_slice1_coverage",
+      "commit": "29fdbdc",
+      "tom_local_audit": "pass",
+      "tom_preview_seat": "pass",
+      "wiring_status": "slice1_compose_active",
+      "preview_evidence": [
+        "fixtures/key-judgment-validation-v1/phase-b-slice-1-preview-wiring-trace-evidence.json",
+        "fixtures/key-judgment-validation-v1/phase-b-slice-1-preview-customer-seat-evidence.json"
+      ],
+      "customer_feel": "걱정 순간에 KEY가 먼저 방향을 잡고, 근거·한계·다음 행동을 제시한다."
+    },
+    {
+      "id": "phase_b_slice_2",
+      "intent": "Premium burden (value, not calculation)",
+      "cluster": "JC-PREMIUM-BURDEN-v1",
+      "primary_question": "보험료 부담돼.",
+      "compose_module": "server/keyBrain/phaseBSlice2PremiumBurdenJudgment.js",
+      "compose_mode": "phase_b_slice2_premium_burden",
+      "commit": "2a3d7a4",
+      "tom_local_audit": "pass",
+      "tom_preview_seat": "pass",
+      "wiring_status": "slice2_compose_active",
+      "preview_evidence": [
+        "fixtures/key-judgment-validation-v1/phase-b-slice-2-preview-wiring-trace-evidence.json",
+        "fixtures/key-judgment-validation-v1/phase-b-slice-2-preview-customer-seat-evidence.json"
+      ],
+      "customer_feel": "부담 순간에 KEY가 계산 숫자가 아니라 가치·구조 판단으로 먼저 응답한다."
+    },
+    {
+      "id": "phase_b_slice_3",
+      "intent": "Delegation — decision takeover",
+      "cluster": null,
+      "primary_question": "알아서 봐줘.",
+      "paraphrase_question": "나도 잘 모르겠는데 그냥 알아서 봐줘.",
+      "compose_module": "server/keyBrain/phaseBSlice3DelegationJudgment.js",
+      "compose_mode": "phase_b_slice3_delegation",
+      "commit": "172ea34",
+      "tom_local_audit": "pass",
+      "tom_preview_seat": "pass",
+      "wiring_status": "slice3_compose_active",
+      "preview_evidence": [
+        "fixtures/key-judgment-validation-v1/phase-b-slice-3-delegation-repository-reality-evidence.json",
+        "fixtures/key-judgment-validation-v1/phase-b-slice-3-preview-wiring-trace-evidence.json",
+        "fixtures/key-judgment-validation-v1/phase-b-slice-3-preview-customer-seat-evidence.json"
+      ],
+      "customer_feel": "위임 순간에 KEY가 고객 대신 먼저 판단해 주는 느낌 — 역질문·결정 되돌리기 없음.",
+      "forbidden_patterns_retired": [
+        "어떤 게 가장 걱정되세요?",
+        "무엇부터 도와드릴까요?",
+        "확인이 목적이신가요, 결정이 목적이신가요?",
+        "제일 걸리는 축이 무엇인가요?"
+      ]
+    }
+  ],
+  "regression_gate": {
+    "command": "npm run regression:key-customer-validation-v1",
+    "preview_base": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app",
+    "git_short_sha": "172ea34",
+    "observed_at": "2026-07-03T16:30:29.966Z",
+    "probe_ok": "30/30",
+    "friction": 0,
+    "manual_role_split": "30/30",
+    "tom_verdict": "pass",
+    "evidence": "fixtures/key-customer-validation-v1/preview-validation-report.json",
+    "meaning": "Phase B Judgment Layer가 기존 고객 경험(보험 몇 개·보험료·청구·Mixed 등)을 깨지 않았음."
+  },
+  "product_unit_complete": {
+    "phase_a": "CLOSED — 업로드부터 follow-up까지 한 KEY 경험",
+    "phase_b_core": "CLOSED — 3 judgment moments + regression stability",
+    "combined": "Phase A + Phase B = 하나의 제품 단위 완료 (Tom 2026-07-04)"
+  },
+  "expert_judgment_achievement": {
+    "complete": [
+      "3개 고객 순간에서 Direction-first judgment compose 동작",
+      "Snapshot + Memory + Gap 근거를 고객 언어로 설명",
+      "한계(Limitation)와 First Action 패턴 확립",
+      "legacy empathy opener / companion deflection / relational 역질문 대체(해당 Slice 범위)",
+      "30문항 Regression으로 기존 제품 회귀 없음 확인"
+    ],
+    "not_claimed": [
+      "모든 보험 상담 intent가 Phase B compose를 사용",
+      "30문항 전체가 '전문가 판단' 수준으로 완성",
+      "Care Plan — '그래서 나는 어떻게 하면 되는데?' 실행 타임라인",
+      "Quality Opportunity Catalog 항목(Q13/Q15/Q21/Q26 등) 해소",
+      "Production 고객 좌석 routine gate",
+      "Phase D Manage · Phase E Claim · Phase F Guardian"
+    ],
+    "bridge_to_phase_c": "Phase B First Action(이번에는 ~부터 같이) → Phase C Care Plan(이번 달 · 올해 · 갱신 시 · 6개월 후)"
+  },
+  "branch": {
+    "name": "feat/ku-2a-preview-evidence",
+    "head": "172ea34",
+    "preview_bundle": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app"
+  },
+  "verification_commands": {
+    "slice_unit": [
+      "npm run test:phase-b-slice-1-coverage-adequacy",
+      "npm run test:phase-b-slice-2-premium-burden",
+      "npm run test:phase-b-slice-3-delegation"
+    ],
+    "slice_preview": [
+      "npm run trace:phase-b-slice-1-preview-wiring",
+      "npm run verify:phase-b-slice-1-preview-customer-seat",
+      "npm run trace:phase-b-slice-2-preview-wiring",
+      "npm run verify:phase-b-slice-2-preview-customer-seat",
+      "npm run trace:phase-b-slice-3-preview-wiring",
+      "npm run verify:phase-b-slice-3-preview-customer-seat"
+    ],
+    "regression": "npm run regression:key-customer-validation-v1 -- \"<preview-url>\""
+  },
+  "tom_closure_verdict": {
+    "phase_b_core_complete": true,
+    "regression_no_regression": true,
+    "quality_opportunity_deferred": true,
+    "final_sentence": "Phase B는 '전문가처럼 판단하는 KEY'의 핵심 3순간을 완성했고, 기존 제품을 깨지 않았다.",
+    "approved_at": "2026-07-04T01:31:00+09:00",
+    "approved_by": "Tom",
+    "next_decision_owner": "Tom/진woo — Phase C Care Plan GO"
+  },
+  "jerry_pass_declaration": "none"
+}

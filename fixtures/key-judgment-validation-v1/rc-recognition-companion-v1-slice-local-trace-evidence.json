@@ -1,0 +1,790 @@
+{
+  "document": "rc_recognition_companion_v1_slice_local_trace_evidence",
+  "slice": "RELATIONSHIP-ARC-SLICE-2-RC-RECOGNITION-COMPANION-v1",
+  "contract_subtitle": "Return Visit Recognition Bridge",
+  "mode": "local module + runtime trace · no PASS · no Production deploy",
+  "tom_go": "Design GO / Local EXEC GO",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-01T02:21:20.079Z",
+  "design_ref": "rc-recognition-companion-v1-slice-design.json",
+  "tom_conditions": [
+    "Memory lookup forbidden on recognition cluster",
+    "Insurance structured forbidden on 7 paraphrases",
+    "no coverage_gap / premium_stats / recommendation / memory tools",
+    "RC-CONTINUITY and JC clusters preserved",
+    "Memory exclude set not in recognition cluster"
+  ],
+  "summary": {
+    "paraphrase": "7/7",
+    "exclude": "5/5",
+    "rc_continuity_spot": "4/4",
+    "jc_premium": "2/2",
+    "jc_coverage": "2/2",
+    "insurance_topic_exclude": "2/2"
+  },
+  "paraphrase": [
+    {
+      "question": "오랜만이야",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "reunion_time_gap"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "다시 왔어",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "return_explicit"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "다시 오셨네요. 편하실 때 이어가도 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "다시 오셨네요. 편하실 때 이어가도 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "또 왔어",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "repeat_visit"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "네, 또 뵙네요. 편하실 때 이어가도 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "네, 또 뵙네요. 편하실 때 이어가도 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "오늘도 왔어",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "same_day_return"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "네, 오늘도 오셨네요. 편하실 때 이어가도 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "네, 오늘도 오셨네요. 편하실 때 이어가도 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "또 보네",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "repeat_acknowledgment"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "네, 또 뵙네요. 천천히 맞춰가면 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "네, 또 뵙네요. 천천히 맞춰가면 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "다시 왔네",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "return_explicit",
+        "return_explicit"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "다시 오셨네요. 편하실 때 이어가도 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "다시 오셨네요. 편하실 때 이어가도 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "왔어",
+      "intent": "general_consultation",
+      "matched_rule": "recognition_companion_cluster",
+      "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+      "companion_cluster_signals": [
+        "bare_arrival"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": "RC-RECOGNITION-COMPANION-v1",
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "recognition_companion_bridge",
+      "judgment_rule_id": "recognition_companion_judgment",
+      "tools": [],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": "반갑습니다. 편하실 때 이어가도 됩니다.",
+      "response_shape": "recognition_welcome",
+      "runtime": {
+        "answer_preview": "반갑습니다. 편하실 때 이어가도 됩니다.",
+        "compose_mode": "recognition_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "aligned": true
+      }
+    }
+  ],
+  "exclude": [
+    {
+      "question": "나 기억해?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true,
+        "no_recognition_cluster": true
+      }
+    },
+    {
+      "question": "기억하지?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true,
+        "no_recognition_cluster": true
+      }
+    },
+    {
+      "question": "기억해?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": "memory_recall_judgment",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": false,
+        "memory_used_in_answer": true
+      },
+      "assessment": {
+        "preserved": true,
+        "no_recognition_cluster": true
+      }
+    },
+    {
+      "question": "지난번 기억?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true,
+        "no_recognition_cluster": true
+      }
+    },
+    {
+      "question": "전에 말한 거 기억?",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": "RC-CONTINUITY-COMPANION-v1",
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+        "compose_mode": "continuity_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true,
+        "no_recognition_cluster": true
+      }
+    }
+  ],
+  "rc_continuity_regression": [
+    {
+      "question": "그 이야기 이어서.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "continue_explicit"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": null,
+        "continuity": "RC-CONTINUITY-COMPANION-v1",
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+        "compose_mode": "continuity_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "아까 말한 거.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": null,
+        "continuity": "RC-CONTINUITY-COMPANION-v1",
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+        "compose_mode": "continuity_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "전에 말한 거.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": null,
+        "continuity": "RC-CONTINUITY-COMPANION-v1",
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+        "compose_mode": "continuity_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "지난번 이야기.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "detector": {
+        "recognition": null,
+        "continuity": "RC-CONTINUITY-COMPANION-v1",
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+        "compose_mode": "continuity_companion_bridge",
+        "insurance_pivot": false,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "jc_premium_regression": [
+    {
+      "question": "보험료가 너무 부담돼요",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "burden"
+      ],
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": "JC-PREMIUM-BURDEN-v1",
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": "premium_burden_companion_judgment",
+      "tools": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 현재 확인 가능한 월 보험료는 45,000원입니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "보험을 줄이고 싶어.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "reduction"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": "JC-PREMIUM-BURDEN-v1",
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": "premium_burden_companion_judgment",
+      "tools": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 현재 확인 가능한 월 보험료는 45,000원입니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "jc_coverage_regression": [
+    {
+      "question": "내 보험 괜찮을까?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "adequacy_ok"
+      ],
+      "home_brain_intent": "policy_count",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": "JC-COVERAGE-ANXIETY-v1"
+      },
+      "compose_gate": null,
+      "judgment_rule_id": "coverage_anxiety_companion_judgment",
+      "tools": [
+        "snapshot",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "보장이 부족한 것 같아.",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "inadequacy_feel"
+      ],
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": "JC-COVERAGE-ANXIETY-v1"
+      },
+      "compose_gate": null,
+      "judgment_rule_id": "coverage_anxiety_companion_judgment",
+      "tools": [
+        "snapshot",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "insurance_topic_exclusion": [
+    {
+      "question": "오랜만이야. 보험료부터 볼까요?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": "premium_lookup_judgment",
+      "tools": [
+        "snapshot",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "현재 확인 가능한 월 보험료는 45,000원입니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "다시 왔어. 보험 점검해줘.",
+      "intent": "coverage_review_request",
+      "matched_rule": "coverage_review_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "detector": {
+        "recognition": null,
+        "continuity": null,
+        "premium": null,
+        "coverage": null
+      },
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "module_response_preview": null,
+      "response_shape": null,
+      "runtime": {
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다.",
+        "compose_mode": "key_structured",
+        "insurance_pivot": true,
+        "memory_used_in_answer": false
+      },
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "changed_files": [
+    "server/intentGateLayer.js",
+    "server/conversationRecognitionBridge.js",
+    "server/keyJudgmentRules.js",
+    "server/humanUnderstandingLoop.js",
+    "server/salesDirectorKeyToolRegistry.js",
+    "server/salesDirectorFormatter.js",
+    "server/personalKeyTimeContinuity.js",
+    "scripts/rc-recognition-companion-v1-paraphrase-trace-readonly.mjs"
+  ],
+    "diff_summary": {
+      "detector": "detectRecognitionCompanionCluster + RC_RECOGNITION_COMPANION_CLUSTER_ID in intentGateLayer",
+      "hand": "conversationRecognitionBridge.js — welcome voice, no memory read",
+      "judgment": "recognition_companion_judgment in keyJudgmentRules",
+      "compose": "recognition_companion_bridge gate in humanUnderstandingLoop after continuity",
+      "tools": "empty tool plan + coverage_gap suppressed on recognition cluster; runKeyTools ok:true for recognition no-tools path",
+      "regression": "RC/JC detector order unchanged; continuity runs before recognition"
+    },
+  "jerry": "STOP — local evidence only · no PASS · no Production"
+}

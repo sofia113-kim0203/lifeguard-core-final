@@ -11,9 +11,9 @@ import {
 } from "../lib/customerUnderwritingRisk.js";
 import {
   loadCustomerRecommendations,
-  PRIORITY_LABELS,
-  RECOMMENDATION_TYPE_LABELS,
 } from "../lib/customerRecommendations.js";
+import RecommendationPanelKeyView from "./RecommendationPanelKeyView.jsx";
+import { KEY_PANEL_PAGE_DESC, KEY_PANEL_PAGE_TITLE } from "../lib/recommendationPanelKeyVoice.js";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadAllCustomerAnalysis } from "../lib/customerAnalysisAll.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
@@ -1056,10 +1056,8 @@ export default function AiRecommendationPanel({
       style={{ fontFamily: FONT, display: "flex", flexDirection: "column", gap: "12px" }}
     >
       <div>
-        <h2 style={S.title}>AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천 · 보험설계안</h2>
-        <p style={S.desc}>
-          Customer Memory부터 Coverage Gap, Underwriting, Recommendation까지 연결해 고객별 보험설계안을 생성합니다.
-        </p>
+        <h2 style={S.title}>{KEY_PANEL_PAGE_TITLE}</h2>
+        <p style={S.desc}>{KEY_PANEL_PAGE_DESC}</p>
       </div>
 
       {error ? <div style={S.error}>{error}</div> : null}
@@ -1234,81 +1232,13 @@ export default function AiRecommendationPanel({
         )}
       </div>
 
-      <div style={S.card}>
-        <h3 style={S.sectionTitle}>AI 보험 추천 Top 2</h3>
-        {loading ? (
-          <div style={S.muted}>Coverage Gap과 인수 위험을 반영해 추천을 생성하는 중…</div>
-        ) : recTop2.length ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-            <ul style={S.list}>
-              {recTop2.map((item) => (
-                <li key={item.coverage_category} style={S.listItem}>
-                  <div style={{ marginBottom: "6px" }}>
-                    <span style={{ ...S.badge, background: "rgba(59, 130, 246, 0.15)", border: "1px solid rgba(59, 130, 246, 0.35)", color: "#93c5fd" }}>
-                      #{item.recommendation_rank}
-                    </span>
-                    <strong style={{ color: "#f1f5f9" }}>{item.coverage_label}</strong>
-                    <span style={{ marginLeft: "8px", fontSize: "12px", color: "#94a3b8" }}>
-                      {RECOMMENDATION_TYPE_LABELS[item.recommendation_type] ?? item.recommendation_type}
-                      · 우선순위 {PRIORITY_LABELS[item.priority] ?? item.priority}
-                    </span>
-                  </div>
-                  <div style={S.muted}>{item.reason}</div>
-                  <div style={{ marginTop: "6px", fontSize: "13px", color: "#cbd5e1" }}>
-                    인수 고려: {item.underwriting_consideration}
-                  </div>
-                  <div style={{ marginTop: "4px", fontSize: "13px", color: "#cbd5e1" }}>
-                    예산 고려: {item.budget_consideration}
-                  </div>
-                  {item.required_documents?.length ? (
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#64748b" }}>
-                      필요 서류: {item.required_documents.join(", ")}
-                    </div>
-                  ) : null}
-                  {item.memory_sources_used?.length ? (
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#64748b" }}>
-                      Memory 근거: {item.memory_sources_used.join(", ")}
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-
-            {recKeepExisting.length ? (
-              <div>
-                <h4 style={S.sectionTitle}>유지 보장</h4>
-                <div style={{ fontSize: "13px", color: "#cbd5e1" }}>
-                  {recKeepExisting.map((item) => item.coverage_label).join(", ")}
-                </div>
-              </div>
-            ) : null}
-
-            {recResult.requiredDocuments?.length ? (
-              <div>
-                <h4 style={S.sectionTitle}>필요 서류</h4>
-                <ul style={S.list}>
-                  {recResult.requiredDocuments.map((doc) => (
-                    <li key={doc} style={S.listItem}>{doc}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {recResult.claudeExplanation ? (
-              <div>
-                <h4 style={S.sectionTitle}>
-                  {recResult.claudeMeta?.explanation_mode === "fallback" ? "추천 설명" : "추천 Claude 설명"}
-                </h4>
-                <div style={S.explanation}>{recResult.claudeExplanation}</div>
-              </div>
-            ) : (
-              <div style={S.muted}>추천 설명을 불러오지 못했습니다.</div>
-            )}
-          </div>
-        ) : (
-          <div style={S.muted}>추천 결과가 없습니다.</div>
-        )}
-      </div>
+      <RecommendationPanelKeyView
+        loading={loading}
+        recTop2={recTop2}
+        recKeepExisting={recKeepExisting}
+        recResult={recResult}
+        styles={S}
+      />
 
       <div style={S.card}>
         <h3 style={S.sectionTitle}>보험설계안</h3>

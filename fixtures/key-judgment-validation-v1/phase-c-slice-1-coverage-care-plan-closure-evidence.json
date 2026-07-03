@@ -1,0 +1,51 @@
+{
+  "schema_version": "phase-c-slice-1-coverage-care-plan-closure-v1",
+  "recorded_at": "2026-07-04T01:57:00+09:00",
+  "slice": {
+    "id": "phase_c_slice_1",
+    "name": "Care Plan - Next Step",
+    "intent": "Coverage anxiety follow-on after Phase B Judge",
+    "primary_question": "내 보험 괜찮아?",
+    "cluster": "JC-COVERAGE-ANXIETY-v1",
+    "compose_module": "server/keyBrain/phaseCSlice1CoverageCarePlan.js",
+    "status": "closed",
+    "closed_by": "Tom"
+  },
+  "phase_c_design_principle": {
+    "contract_evolution": "Step → Why → When (Tom — future Care Plan slices)",
+    "current_slice_contract": "transition + numbered steps (timeframe + action)",
+    "north_star": "Care Plan은 '무엇을 할지'만이 아니라 '왜 그 순서인지'까지 설명하는 실행 계획",
+    "dimensions": {
+      "what": "각 Step의 행동",
+      "when": "이번 달 · 올해 안 · 갱신 시기",
+      "why": "현재 판단과 연결된 한 줄 이유 (다음 Slice 발전 방향)"
+    },
+    "voice": "KEY는 계획표를 주는 사람이 아니라 같이 실행하는 주치의 — '함께 확인합니다' (발전 방향)"
+  },
+  "judge_plan_separation": {
+    "phase_b": "판단 — Direction · Reason · Limitation (First Action omitted when Care Plan present)",
+    "transition": "그럼 앞으로는 이렇게 진행하면 됩니다.",
+    "phase_c": "번호·시간축 실행 계획 — ① 이번 달 … ② 올해 안 …"
+  },
+  "sample_answer_primary": "지금 확인되는 범위에서는 실손 보장은 유지하는 쪽이 맞아 보입니다. 현재 자료에서는 큰 공백 신호는 보이지 않습니다. 다만 특약까지는 아직 확인되지 않았기 때문에, 그 부분은 단정하지 않겠습니다. 그럼 앞으로는 이렇게 진행하면 됩니다. ① 이번 달 실손 구조 확인 ② 올해 안 암 보장 점검",
+  "tom_reaudit_verdict": {
+    "judge_plan_transition": "pass",
+    "timeline": "pass",
+    "phase_b_c_boundary": "pass",
+    "plan_feel": "pass",
+    "primary_care_physician_feel": "pass_with_future_why_voice",
+    "approved_at": "2026-07-04T01:57:00+09:00",
+    "approved_by": "Tom",
+    "final_sentence": "Care Plan은 성공적으로 Judge와 분리되었다."
+  },
+  "verification": {
+    "unit_test": "npm run test:phase-c-slice-1-coverage-care-plan",
+    "regression_slice_1": "npm run test:phase-b-slice-1-coverage-adequacy"
+  },
+  "not_in_this_slice": [
+    "Step-level Why sentences (Phase C design principle — next evolution)",
+    "함께 실행 voice on every step (발전 방향)",
+    "Premium / Delegation Care Plan (future slices)"
+  ],
+  "jerry_pass_declaration": "none"
+}

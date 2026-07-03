@@ -1,0 +1,44 @@
+{
+  "schema_version": "key-hand-wiring-p3-persona-outlet-preview-evidence-v1",
+  "gate": "HAND-P3-PERSONA-OUTLET",
+  "recorded_at": "2026-07-03T04:44:53.776Z",
+  "preview_base": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app",
+  "auth_fingerprint": {
+    "ssot": "key-customer-validation-v1-preview-verify.mjs",
+    "method": "fetch + x-vercel-protection-bypass + QA JWT",
+    "supabase_url_ref": "inwswsruvvzaeioqkelq",
+    "supabase_url_source": "VITE_SUPABASE_URL",
+    "anon_key_len": 208,
+    "bypass_set": true,
+    "qa_email_domain": "staging-qa.example.com",
+    "forbidden_paths": {
+      "production_probe_creds": false,
+      "management_api_anon": false,
+      "plain_fetch_no_bypass": false
+    }
+  },
+  "document_id": "c95d33c2-dcc9-4d6e-a311-35c1ee4b9ea9",
+  "intake_http_status": 200,
+  "intake_mode": "active",
+  "customer_first_sentence": "문서는 안전하게 받아 두었습니다. 내용 분석은 동의 후 KEY가 진행하겠습니다.",
+  "persona_outlet": "finalizeSalesDirectorResponse",
+  "generation_mode": "document_intake_persona_outlet",
+  "static_draft": "문서는 안전하게 받아 두었습니다. 내용 분석은 동의 후 KEY가 진행하겠습니다.",
+  "work_order_id": "kwo_6b24ab60-718b-4e35-8c46-20a6c68c6c79",
+  "tom_hand_p3_gate": {
+    "question": "Upload 첫 문장이 static template가 아니라 Persona 출구를 통과했는가?",
+    "checks": {
+      "intake_http_ok": true,
+      "intake_mode_active": true,
+      "customer_sentence_present": true,
+      "subject_is_key": true,
+      "persona_outlet_finalize": true,
+      "generation_mode_persona": true,
+      "static_draft_on_trace": true,
+      "speak_trace_order": true,
+      "work_order_unchanged": true
+    },
+    "result": "PASS"
+  },
+  "hand_p3_preview_pass": true
+}

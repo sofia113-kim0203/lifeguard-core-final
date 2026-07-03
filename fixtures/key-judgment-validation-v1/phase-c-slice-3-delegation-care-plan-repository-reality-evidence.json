@@ -1,0 +1,185 @@
+{
+  "schema_version": "phase-c-slice-3-delegation-care-plan-repository-reality-v1",
+  "audit_purpose": "Phase C Slice 3 착수 전 Delegation Care Plan Repository Reality — Tom 4-item product checklist + 경계 질문",
+  "primary_question": "알아서 봐줘.",
+  "paraphrase_questions": [
+    "나도 잘 모르겠는데 그냥 알아서 봐줘.",
+    "나한테 제일 필요한 거 봐줘."
+  ],
+  "core_question": "고객이 '알아서 봐줘'라고 했을 때, KEY는 어디까지 대신 판단하고, 어디까지는 고객과 함께 결정해야 하는가?",
+  "recorded_at": "2026-07-04T02:26:00+09:00",
+  "git_short_sha": "8e9159a",
+  "pass_declaration": "none — reality confirmation only",
+  "tom_four_questions": {
+    "q1_delegation_single_intent": {
+      "question": "위임이 정말 하나의 Intent인가? companion / trust / general guidance로 흩어져 있지 않은가?",
+      "answer": "Primary path는 하나로 수렴. isDelegationIntentQuestion → useDelegation (HUL 1464-1472) → compose_mode phase_b_slice3_delegation → buildPhaseBSlice3DelegationResponse. Q27 paraphrase도 동일 경로 (unit 6/6). 다만 JC-* Companion Cluster 없음 — Coverage/Premium과 아키텍처 상이. Legacy 병렬 경로는 코드에 잔존하나 useDelegation이 먼저 가로챔.",
+      "confirmed": true,
+      "single_intent_detector": "server/keyBrain/phaseBSlice3DelegationJudgment.js — isDelegationIntentQuestion",
+      "compose_mode": "phase_b_slice3_delegation",
+      "not_companion_cluster": true,
+      "legacy_parallel_paths_still_in_repo": [
+        {
+          "path": "key_companion_guidance",
+          "file": "server/keyCompanionGuidance.js:326-334",
+          "pattern": "제일 걸리는 축부터 같이 보면",
+          "status": "shadowed_when_useDelegation_true",
+          "tom_gap_if_reached": "결정 위임 → 축 선택 되돌림"
+        },
+        {
+          "path": "key_relational / buildTrustResponse",
+          "file": "server/humanUnderstandingLoop.js:1238-1240",
+          "pattern": "한 가지만 여쭤볼게요. 확인이 목적인가요, 결정이 목적인가요?",
+          "status": "shadowed_for_Q27_paraphrase",
+          "note": "모르겠+알아서 병합 문장은 delegation이 relational보다 우선"
+        },
+        {
+          "path": "general_knowledge_delegation",
+          "file": "server/humanUnderstandingLoop.js:1843+",
+          "trigger": "factBundle.general_knowledge_delegation === true",
+          "status": "orthogonal_GI1_path",
+          "note": "보험 위임 Intent와 별개 — Slice 3 negative control"
+        }
+      ],
+      "paraphrase_gaps_local_trace_8e9159a": [
+        {
+          "question": "뭐부터 해야 할지 모르겠어.",
+          "isDelegationIntentQuestion": false,
+          "compose_mode": "key_structured",
+          "note": "인접 uncertainty — delegation regex 미포함, Design paraphrase 후보"
+        },
+        {
+          "question": "보험 맡겨줘.",
+          "isDelegationIntentQuestion": false,
+          "compose_mode": "key_structured",
+          "note": "맡겨+봐/해 동시 필요 — Design paraphrase 후보"
+        },
+        {
+          "question": "전적으로 맡길게.",
+          "isDelegationIntentQuestion": false,
+          "compose_mode": "key_structured",
+          "note": "맡길+확인동사 없음 — Design paraphrase 후보"
+        }
+      ]
+    },
+    "q2_key_decision_boundary": {
+      "question": "KEY는 무엇을 대신 결정하는가? 가입·해지·청구 확정은 대신하면 안 된다.",
+      "answer": "Phase B Slice 3 module은 우선순위·순서·점검 축만 KEY가 lead. 가입/해지/청구 확정 문구 없음. limitation에 단정 금지 일관. DELEGATION_FORBIDDEN_RE로 되묻기·선택지 반환 차단.",
+      "confirmed": true,
+      "key_may_lead": [
+        "무엇부터 볼지 (실손·암·중대질병 순, gap shortage 축 우선)",
+        "무엇이 더 중요해 보이는지 (유지 vs 겹침 정리 우선)",
+        "어떤 순서가 좋은지 (구조 → 축 → 전체 점검)"
+      ],
+      "key_must_not_decide": [
+        "가입 결정",
+        "해지 결정",
+        "청구 확정",
+        "상품 추천",
+        "암보험 추가하세요 류 (근거 없는 확장)"
+      ],
+      "module_evidence": {
+        "file": "server/keyBrain/phaseBSlice3DelegationJudgment.js",
+        "opener": "제가 먼저 이렇게 판단하겠습니다.",
+        "gap_shortage_example": "암 보장 축부터 확인하는 것이 우선 (추가 권유 아님)",
+        "duplicate_example": "겹치는 보장부터 정리하는 것이 우선 (해지 확정 아님)",
+        "forbidden_regex": "DELEGATION_FORBIDDEN_RE"
+      },
+      "phase_c_must_preserve": "Care Plan Step도 순서·점검 제안만 — 결론·가입·해지 금지 (Contract v1.1 forbidden 상속)"
+    },
+    "q3_hold_under_delegation": {
+      "question": "Delegation에서도 HOLD가 유지되는가?",
+      "answer": "Yes. 근거 없으면 judgment에서 단정 금지 + P0 hold. gap shortage는 '확인 우선' not '추가하세요'. P0: 등록 정보 없으면 점검 순서 잡기 어렵다 + 저장 nextAction.",
+      "confirmed": true,
+      "hold_cases": [
+        {
+          "case": "P0 no policies",
+          "judgment": "등록된 가입 정보가 없어서, 점검 순서부터 잡기 어렵습니다",
+          "limitation": "어디가 비어 있는지는 가입 정보 확인 전에는 단정할 수 없습니다"
+        },
+        {
+          "case": "no coverage detail",
+          "judgment": "등록된 보험 구조부터 순서를 잡고 보는 것이 맞겠습니다",
+          "limitation": "어디가 우선인지 단정하기 어렵습니다"
+        },
+        {
+          "case": "gap shortage 암",
+          "judgment": "암 보장 축부터 확인하는 것이 우선",
+          "limitation": "다른 축까지는 한 번에 다 단정하지 않겠습니다",
+          "must_not": "암보험 추가하세요"
+        }
+      ],
+      "local_unit": "phase-b-slice-3-delegation 6/6 pass (2026-07-04 re-run)"
+    },
+    "q4_judge_to_plan_continuity": {
+      "question": "Phase B 판단에서 Phase C Care Plan까지 자연스럽게 이어지는가?",
+      "answer": "아직 No — Phase B Slice 3는 First Action(nextAction)에서 종료. Transition + numbered Care Plan 미연결. Slice 1/2 mirror 필요하나 hook 위치가 다름.",
+      "confirmed": true,
+      "current_end_state": "제가 먼저 이렇게 판단하겠습니다. … 이번에는 … 같이 확인해 보겠습니다.",
+      "missing": [
+        "CARE_PLAN_TRANSITION (그럼 앞으로는 이렇게 진행하면 됩니다.)",
+        "numbered When/What/Why steps",
+        "omit nextAction when Care Plan present"
+      ],
+      "phase_c_hook_point": {
+        "recommended": "generateHumanSalesDirectorResponse — useDelegation branch (1515-1516, 1598-1599) OR refactor buildPhaseBSlice3DelegationResponse to judgment block + buildPhaseCSlice3DelegationCarePlanText append",
+        "not_recommended": "buildKeyStructuredResponse only — delegation은 key_structured judgment rule 없음",
+        "precedent_difference": "Slice 1/2: companion_cluster + activeJudgmentRule + buildKeyStructuredResponse. Slice 3: isDelegationIntentQuestion + phase_b_slice3_delegation compose_mode."
+      },
+      "target_experience": "Phase B: 제가 먼저 이렇게 판단하겠습니다. → Phase C: 그럼 앞으로는 이 순서로 같이 진행하겠습니다."
+    }
+  },
+  "phase_b_baseline": {
+    "module": "server/keyBrain/phaseBSlice3DelegationJudgment.js",
+    "hul_wiring": "server/humanUnderstandingLoop.js — useDelegation + safe fallback 1598",
+    "compose_mode": "phase_b_slice3_delegation",
+    "preview_evidence_phase_b": "fixtures/key-judgment-validation-v1/phase-b-slice-3-preview-wiring-trace-evidence.json",
+    "local_unit": "scripts/phase-b-slice-3-delegation-unit-test.mjs — 6/6",
+    "question_bank_anchor": "fixtures/key-customer-validation-v1/question-bank-v1.json Q27"
+  },
+  "phase_c_slice3_not_yet": {
+    "compose_module": null,
+    "care_plan_wired": false,
+    "contract_version": "v1.1 baseline + v1.2 Ownership design review"
+  },
+  "contract_v1_2_proposal_tom": {
+    "status": "design_review_only_not_implement",
+    "sequence_addition": "Ownership — KEY가 먼저 책임지고 이끈다",
+    "example_weak": "이번 달 실손부터 같이 확인하겠습니다.",
+    "example_strong": "이번 달 제가 먼저 실손 구조를 확인하고, 같이 결과를 보겠습니다.",
+    "design_question": "Slice 3에서 Companion을 Ownership으로 강화할지 — Repository Reality 후 Design audit에서 판단",
+    "relationship_to_companion": "Companion(함께) 위에 Ownership(제가 먼저) — 보험 주치의 lead"
+  },
+  "negative_controls": [
+    {
+      "question": "안녕하세요.",
+      "compose_mode": "key_social",
+      "preserved": true
+    },
+    {
+      "question": "월 보험료 얼마야?",
+      "compose_mode": "key_structured",
+      "lookup_sub_intent": "premium_lookup",
+      "preserved": true
+    },
+    {
+      "question": "내 보험 괜찮아?",
+      "cluster": "JC-COVERAGE-ANXIETY-v1",
+      "note": "Coverage Phase C Slice 1 경로 유지 — delegation과 분리"
+    },
+    {
+      "question": "보험료 부담돼.",
+      "cluster": "JC-PREMIUM-BURDEN-v1",
+      "note": "Premium Phase C Slice 2 경로 유지"
+    }
+  ],
+  "reusable_assets": [
+    "phaseBSlice3DelegationJudgment — judgment branches + HOLD + DELEGATION_OPENER",
+    "isDelegationIntentQuestion — intent gate seed",
+    "Slice 1/2 Care Plan pattern — transition, steps, omit nextAction",
+    "phase-c-care-plan-contract-v1.json v1.1 + v1.2 Ownership proposal",
+    "phase-b-slice-3 preview probes (mirror for Slice 3 Phase C)"
+  ],
+  "recommended_next": "Tom Design audit → phase-c-slice-3-delegation-care-plan-design-v1.json → Ownership v1.2 채택 여부 결정 → implement",
+  "jerry_pass_declaration": "none"
+}

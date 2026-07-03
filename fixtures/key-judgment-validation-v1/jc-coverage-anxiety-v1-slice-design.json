@@ -1,0 +1,255 @@
+{
+  "document": "jc_coverage_anxiety_v1_slice_design",
+  "slice": "SLICE-2-JC-COVERAGE-ANXIETY-v1",
+  "arc": "판단 일관성 Arc — Slice 2",
+  "contract_id": "JC-COVERAGE-ANXIETY-v1",
+  "mode": "Design only · Tom GO · no implementation · no deploy · no PASS",
+  "status": "submitted — await Tom design audit before EXEC",
+  "observed_at": "2026-06-30T20:00:00.000Z",
+  "pass_declaration": "none",
+  "tom_go": "Slice 2 승격 A-modified — 4 paraphrase · 4 negative · exclude 내 보험 문제 있어?",
+  "upstream_refs": [
+    "slice2-candidate-set-readonly-trace-evidence.json",
+    "jc-premium-burden-v1-slice-local-trace-evidence.json",
+    "jc-premium-burden-v1-slice-production-evidence.json",
+    "lifeguard-personal-customer-baseline-v1.json",
+    "lifeguard-deployment-standard-v1.json"
+  ],
+  "constitution_classification": {
+    "primary": "LIFEGUARD(KEY) — judgment consistency · same customer insecurity, same KEY direction",
+    "secondary_hand": "Intent/Judgment/Tool/Compose path alignment without Factory change",
+    "secondary_factory": "none — existing coverage_gap tool read only",
+    "family_question_answer": "KEY를 더 같은 사람으로? — YES",
+    "family_question_not": "새 Factory · 새 Intent · Launch · Enable"
+  },
+  "contract": {
+    "paraphrase_set": {
+      "id": "JC-COVERAGE-ANXIETY-v1",
+      "theme": "보장 불안 · adequacy · missing-piece anxiety",
+      "customer_fear": "내 보험이/보장이 괜찮은지 모르겠다 · 뭐가 빠졌는지 모르겠다",
+      "questions": [
+        "내 보험 괜찮아?",
+        "보장이 부족한 것 같아.",
+        "뭐가 빠졌지?",
+        "암보장 부족해?"
+      ],
+      "expected_consistency": {
+        "same_intent_surface": "general_consultation + companion_cluster (additive — not new intent enum)",
+        "same_judgment_direction": "불안 인정 → 함께 짚기 → inventory dump 금지 → 거짓0 유지",
+        "same_tool_plan": "snapshot + memory + coverage_gap",
+        "same_compose_path": "key_structured + coverage_anxiety_companion_judgment rule",
+        "must_not": [
+          "한 문장은 J04 inventory · 다른 문장은 generic filler",
+          "한 문장은 coverage_gap_check · 다른 문장은 factual_lookup",
+          "한 문장은 pilot cancer · 다른 문장은 orchestrator gap dump"
+        ]
+      }
+    },
+    "negative_control": {
+      "purpose": "Pure lookup · formal review · recommendation · broad problem — must NOT enter cluster",
+      "questions": [
+        {
+          "question": "어떤 보장이 있어?",
+          "preserve_path": "factual_lookup / policy detail — Q04",
+          "exclude_reason": "presence lookup · not insecurity companion"
+        },
+        {
+          "question": "보장 분석해줘.",
+          "preserve_path": "coverage_review_request — formal checkup",
+          "exclude_reason": "structured review · not anxiety paraphrase"
+        },
+        {
+          "question": "뭐 가입해야 해?",
+          "preserve_path": "recommendation_request",
+          "exclude_reason": "Rec path · Slice 2 scope 밖"
+        },
+        {
+          "question": "내 보험 문제 있어?",
+          "preserve_path": "factual_lookup policy_count or general without cluster",
+          "exclude_reason": "Tom exclude — too broad (정비·계약·개수·보장 혼재)"
+        }
+      ]
+    },
+    "explicitly_out_of_slice": [
+      "내 보험 문제 있어? — negative only",
+      "Launch · LA-PASS · Enable",
+      "Corporate · Agent · Admin",
+      "30Q bank edit"
+    ]
+  },
+  "problem_definition": {
+    "source": "slice2-candidate-set-readonly-trace-evidence.json",
+    "before_slice2": {
+      "intent_split": true,
+      "intent_values": ["general_consultation", "coverage_gap_check", "factual_lookup"],
+      "judgment_split": true,
+      "judgment_values": ["coverage_judgment", null],
+      "tool_plan_split": true,
+      "tool_plan_values": ["coverage_gap,memory,snapshot", "memory,snapshot"],
+      "compose_split": true,
+      "root_cause_primary": [
+        {
+          "id": "intent_gate_split",
+          "detail": "isCoverageGapCheck vs general_consultation_fallback — same insecurity theme, different intent enum"
+        },
+        {
+          "id": "regex_gap_missing_piece",
+          "detail": "뭐가 빠졌지? — isCoverageGapCheck/QUESTION_INTENT_RULES match 빠져|빠진 but not 빠졌 어미"
+        },
+        {
+          "id": "broad_problem_misroute",
+          "detail": "내 보험 문제 있어? → policy_count factual_lookup — not paraphrase family (Tom excluded)"
+        }
+      ]
+    },
+    "slice1_pattern_reuse": "companion_cluster additive · general_consultation maintained · judgment rule · tool registry branch · pilot bypass"
+  },
+  "design_strategy": {
+    "one_line": "Slice 1 JC-PREMIUM-BURDEN-v1 패턴을 보장 불안 4문장에 적용 — early companion_cluster gate가 coverage_gap_check 분기보다 먼저",
+    "no_new_intent": true,
+    "no_new_factory": true,
+    "no_j04_body_change": "J04 structured path 본체 유지 — cluster hit 시 general_consultation + companion compose",
+    "premium_burden_interaction": "detectPremiumBurdenCompanionCluster remains first — no overlap with premium/reduction phrasing"
+  },
+  "alignment_design": {
+    "intent": {
+      "mechanism": "detectCoverageAnxietyCompanionCluster() in classifyConsultationIntent",
+      "insertion_point": "Immediately after detectPremiumBurdenCompanionCluster · before isPremiumLookupQuestion · before isCoverageGapCheck",
+      "on_hit": {
+        "intent": "general_consultation",
+        "matched_rule": "coverage_anxiety_companion_cluster",
+        "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+        "companion_cluster_signals": "array — e.g. adequacy_ok, inadequacy_feel, missing_piece, cancer_gap"
+      },
+      "why_not_new_intent": "Tom Slice 1 GO — 30Q regression risk lowest with additive field",
+      "why_before_coverage_gap_check": "Prevents 2/4 paraphrases from entering coverage_gap_check while 2/4 stay general_consultation"
+    },
+    "detector_signals": {
+      "include_patterns": [
+        { "id": "adequacy_ok", "pattern": "내\\s*보험\\s*괜찮|보험\\s*괜찮|내\\s*보장\\s*괜찮" },
+        { "id": "inadequacy_feel", "pattern": "보장.{0,12}(?:부족|모자라).{0,8}(?:같|느낌|느껴)" },
+        { "id": "missing_piece", "pattern": "뭐가\\s*빠졌|뭐가\\s*빠져|빠져\\s*있|빠진\\s*(?:게|것|부분)" },
+        { "id": "cancer_gap", "pattern": "암\\s*보장\\s*부족|암보장\\s*부족|암\\s*부족" }
+      ],
+      "hard_exclusions": [
+        { "id": "formal_review", "test": "isCoverageReviewRequest(text)" },
+        { "id": "recommendation", "test": "RECOMMEND_SIGNAL.test(text)" },
+        { "id": "design", "test": "DESIGN_SIGNAL or design_priority paths" },
+        { "id": "broad_problem", "pattern": "내\\s*보험\\s*문제\\s*있" },
+        { "id": "presence_lookup", "pattern": "어떤\\s*보장\\s*있" },
+        { "id": "pure_amount", "note": "premium lookup class — N/A for this set" }
+      ],
+      "j04_regression_preserve": "내 보험 부족한 부분 있어? — NOT in paraphrase set · no cluster match · remains coverage_gap_check for J04 spot"
+    },
+    "judgment": {
+      "mechanism": "KEY_JUDGMENT_RULES entry: coverage_anxiety_companion_judgment",
+      "match": "factBundle.companion_cluster === JC-COVERAGE-ANXIETY-v1",
+      "judgment_intent_surface": "coverage_judgment (via resolveSalesDirectorJudgmentIntent cluster branch — mirror premium)",
+      "buildJudgment_direction": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다.",
+      "must_not": "확신 없는 갭 inventory · 가장 큰 위험/기회 헤더 · 해지/가입 단정",
+      "formatter_mirror": "resolveSalesDirectorJudgmentIntent — detectCoverageAnxietyCompanionCluster or companion_cluster field → COVERAGE_JUDGMENT"
+    },
+    "tool_plan": {
+      "mechanism": "planKeyTools branch when companion_cluster === JC-COVERAGE-ANXIETY-v1",
+      "tools": ["snapshot", "memory", "coverage_gap"],
+      "coverage_gap_suppressed": false,
+      "rationale": "Unlike premium burden (gap suppress), insecurity family needs gap context — but compose must not become raw J04 dump",
+      "legacy_slice": null,
+      "pilot_interaction": "cancer_coverage pilot bypass when cluster set — mirror premium_burden pilot skip"
+    },
+    "compose": {
+      "primary_path": "key_structured",
+      "judgment_source": "coverage_anxiety_companion_judgment rule (enforceKeyJudgmentFirst)",
+      "gate_order_documented": [
+        "1. fixedSlice / tool_brain_fixed_slots",
+        "2. time_continuity (intent=general_consultation — NOT blocklisted; empty history → skip)",
+        "3. key_analysis_status",
+        "4. key_social / key_closing / key_relational",
+        "5. key_companion_guidance — MUST NOT absorb cluster paraphrases (detector excludes formal CV turns)",
+        "6. key_structured + coverage_anxiety_companion_judgment when companion_cluster set",
+        "7. default structured / legacy"
+      ],
+      "j04_inventory_guard": "When companion_cluster set, buildKeyStructuredResponse uses judgment rule first — gap signals inform evidence/limitation blocks only, not standalone gap pitch opener",
+      "compose_mode_trace_field": "compose_mode: key_structured · companion_cluster in factBundle/trace"
+    }
+  },
+  "implementation_scope": {
+    "expected_files": [
+      "server/intentGateLayer.js — detectCoverageAnxietyCompanionCluster + COVERAGE_ANXIETY_COMPANION_CLUSTER_ID + classify early gate",
+      "server/salesDirectorKeyToolRegistry.js — planKeyTools cluster branch",
+      "server/keyJudgmentRules.js — coverage_anxiety_companion_judgment rule",
+      "server/salesDirectorFormatter.js — resolveSalesDirectorJudgmentIntent cluster branch",
+      "server/salesDirectorLoop.js — pilot bypass when companion_cluster (extend existing pattern)",
+      "server/salesDirectorKeyOrchestrator.js — verify companion_cluster passthrough (likely no change)",
+      "server/keyPathRuntimeTrace.js — trace field (likely already generic)"
+    ],
+    "forbidden_touch": [
+      "D-PRI compose/finalize design branch",
+      "J04 coverage_gap factory engine",
+      "J07 · J10 factories",
+      "personalKeyTimeContinuity gate logic (unless Tom separate GO)",
+      "30Q question bank",
+      "Production Enable · env flags"
+    ],
+    "estimated_file_count": "4–5 primary · 1–2 trace scripts at EXEC"
+  },
+  "regression_plan": {
+    "contracts_independent": {
+      "30q": "기능 깨짐 검사 — FROZEN bank",
+      "judgment_consistency": "4 paraphrase aligned + 4 negative preserved",
+      "slice1": "JC-PREMIUM-BURDEN-v1 paraphrase 3/3 + negative 3/3"
+    },
+    "local_before_deploy": [
+      "npm run test:key-v2-key-persona",
+      "node scripts/jc-coverage-anxiety-v1-paraphrase-trace-readonly.mjs (EXEC phase)",
+      "node scripts/jc-premium-burden-v1-paraphrase-trace-readonly.mjs — Slice 1 unchanged"
+    ],
+    "production_close": {
+      "standard": "Deployment Standard v1 — 4-piece chain",
+      "sequence": [
+        "D0 preflight (alias split auto)",
+        "D1 deploy --tom-go",
+        "D3 promote --tom-go (canonical only)",
+        "D5 verify canonical URL",
+        "close evidence bundle"
+      ],
+      "paraphrase_gate": "4/4 aligned on lifeguard-core-final.vercel.app",
+      "negative_gate": "4/4 preserved paths",
+      "30q_gate": "npm run regression:lv5-production-30q — 34/34 · friction 0",
+      "slice1_spot": "3 paraphrase + 3 negative on canonical after deploy",
+      "j04_spot": "내 보험 부족한 부분 있어? — structured path preserved (not cluster paraphrase)",
+      "time_memory_spot": "TC3/TC4/TC5 not in slice scope — spot 1 axis if Hand files touched"
+    }
+  },
+  "customer_effect": {
+    "before": "같은 불안인데 어떤 표현은 gap 분석 · 어떤 표현은 generic · 어떤 표현은 lookup",
+    "after": "네 가지 표현 모두 같은 KEY가 불안을 먼저 받고, 확인된 범위에서 같이 짚는 companion",
+    "not": "완벽한 gap 분석 · Launch claim · new product feature"
+  },
+  "risk_analysis": {
+    "over_capture": {
+      "risk": "Cluster detector too broad captures J04 spot or Q04",
+      "mitigation": "Hard exclusions + explicit allowlist signals · J04 spot in regression"
+    },
+    "under_capture": {
+      "risk": "빠졌 어미 still missed",
+      "mitigation": "missing_piece pattern includes 빠졌"
+    },
+    "premium_interaction": {
+      "risk": "Premium cluster first — OK, no overlap",
+      "mitigation": "Premium detector runs before coverage anxiety"
+    },
+    "compose_inventory_dump": {
+      "risk": "coverage_gap tool + key_structured → J04 shape leak",
+      "mitigation": "Companion judgment rule first · gap in evidence not opener"
+    }
+  },
+  "exec_phases_after_tom_design_go": {
+    "phase_1": "Implement 4–5 files",
+    "phase_2": "Local paraphrase + negative trace evidence",
+    "phase_3": "Preview verify (optional Tom GO)",
+    "phase_4": "Production deploy + Deployment Standard v1 close",
+    "phase_5": "Tom audit — Jerry does not declare PASS"
+  },
+  "jerry": "STOP — design submitted · no code · await Tom design audit GO before EXEC"
+}

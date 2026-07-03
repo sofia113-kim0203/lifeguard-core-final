@@ -1,0 +1,58 @@
+{
+  "schema_version": "phase-c-slice-3-preview-customer-seat-evidence-v1",
+  "audit_purpose": "Phase B Delegation Judge + Phase C Care Leadership Contract v1.2 on Preview",
+  "slice": "Phase C Slice 3 — Delegation Care Plan",
+  "question": "알아서 봐줘.",
+  "recorded_at": "2026-07-03T17:35:59.740Z",
+  "git_short_sha": "ead70bb",
+  "preview_base": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app",
+  "auth_fingerprint": {
+    "ssot": "key-customer-validation-v1-preview-verify.mjs",
+    "method": "fetch + x-vercel-protection-bypass + QA JWT",
+    "supabase_url_ref": "inwswsruvvzaeioqkelq",
+    "supabase_url_source": "VITE_SUPABASE_URL",
+    "anon_key_len": 208,
+    "bypass_set": true,
+    "qa_email_domain": "staging-qa.example.com",
+    "forbidden_paths": {
+      "production_probe_creds": false,
+      "management_api_anon": false,
+      "plain_fetch_no_bypass": false
+    }
+  },
+  "probe_ok": true,
+  "probe_error": null,
+  "answer_text": "제가 먼저 이렇게 판단하겠습니다. 현재 자료에서는 등록된 보험 전체를 실손·암·중대질병 순으로 점검하는 것이 맞겠습니다. 등록된 가입 보험과 현재 확인된 보장 범위를 기준으로 보고 있습니다. 세부 특약·한도까지는 이 자료만으로는 단정하기 어렵습니다. 그럼 앞으로는 제가 이런 순서로 같이 진행하겠습니다. ① 이번 달 제가 먼저 실손 구조부터 확인하고, 같이 결과를 보겠습니다 (전체 점검은 실손부터 보는 순서가 자연스럽기 때문입니다) ② 다음 제가 먼저 암·중대질병 축을 순서대로 확인하고, 같이 점검하겠습니다 (한 번에 다 단정하지 않으려면 순서가 필요하기 때문입니다) ③ 그다음 확인한 내용을 바탕으로 함께 결정하겠습니다 (리드는 제가 하고, 최종 선택은 함께 하려는 것입니다)",
+  "compose_mode": "phase_b_slice3_delegation",
+  "expected_compose_mode": "phase_b_slice3_delegation",
+  "phase_b_seat_audit": {
+    "judgment_first": true,
+    "no_decision_deflection": true,
+    "customer_understandable_reason": true,
+    "honest_boundary": true,
+    "lead_not_decide_for_customer": true
+  },
+  "care_plan_contract": {
+    "judge_to_plan_transition": true,
+    "what_present": true,
+    "when_present": true,
+    "why_present": true,
+    "plan_reassurance": true,
+    "care_leadership": true,
+    "not_product_pitch": true
+  },
+  "delegation_care_plan_tom": {
+    "key_leads_first": true,
+    "no_decision_dump_to_customer": true,
+    "final_decision_together": true,
+    "no_over_delegation_promise": true,
+    "primary_care_physician_feel": true
+  },
+  "slice3_contract_pass": true,
+  "guardrails": {
+    "no_first_action_overlap": true,
+    "compose_mode_expected": "phase_b_slice3_delegation"
+  },
+  "jerry_pass_declaration": "none",
+  "tom_seat_audit_status": "observed_pass_pending_tom_ratify"
+}

@@ -1,0 +1,453 @@
+{
+  "document": "jc_coverage_anxiety_v1_slice_preview_evidence",
+  "slice": "SLICE-2-JC-COVERAGE-ANXIETY-v1",
+  "mode": "Preview verification · no Production · no alias promote · no PASS",
+  "pass_declaration": "none — await Tom audit",
+  "observed_at": "2026-06-30T18:58:23.139Z",
+  "design_ref": "jc-coverage-anxiety-v1-slice-design.json",
+  "local_evidence_ref": "jc-coverage-anxiety-v1-slice-local-trace-evidence.json",
+  "local_summary": {
+    "paraphrase": "4/4",
+    "negative": "4/4",
+    "slice1_regression": "aligned",
+    "j04_spot": {
+      "question": "내 보험 부족한 부분 있어?",
+      "intent": "coverage_gap_check",
+      "companion_cluster": null,
+      "preserved": true
+    }
+  },
+  "git_short_sha": "2542407",
+  "preview_url": "https://lifeguard-core-final-blnzav762-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_48n9LPdjPSDMMzphKGbGeb7ziwRt",
+  "auth_path_fingerprint": {
+    "ssot": "key-customer-validation-v1-preview-verify.mjs",
+    "method": "fetch + x-vercel-protection-bypass + QA JWT",
+    "supabase_url_ref": "inwswsruvvzaeioqkelq",
+    "supabase_url_source": "VITE_SUPABASE_URL",
+    "anon_key_len": 208,
+    "bypass_set": true,
+    "qa_email_domain": "staging-qa.example.com",
+    "forbidden_paths": {
+      "production_probe_creds": false,
+      "management_api_anon": false,
+      "plain_fetch_no_bypass": false
+    }
+  },
+  "staging_pairing": {
+    "probe_paired_with_staging": true,
+    "analysis_job_created": true
+  },
+  "summary": {
+    "paraphrase": "4/4",
+    "negative": "4/4",
+    "slice1_regression": "aligned",
+    "j04_spot": {
+      "question": "내 보험 부족한 부분 있어?",
+      "intent": "coverage_gap_check",
+      "companion_cluster": null,
+      "preserved": true
+    },
+    "regression_30q": "30/30 probe_ok · friction 0"
+  },
+  "paraphrase": [
+    {
+      "question": "내 보험 괜찮아?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "intent": true,
+          "tools": true,
+          "gap_not_suppressed": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "보장이 부족한 것 같아.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "intent": true,
+          "tools": true,
+          "gap_not_suppressed": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "뭐가 빠졌지?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "intent": true,
+          "tools": true,
+          "gap_not_suppressed": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    },
+    {
+      "question": "암보장 부족해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "cluster": true,
+          "intent": true,
+          "tools": true,
+          "gap_not_suppressed": true,
+          "probe": true
+        },
+        "aligned": true
+      }
+    }
+  ],
+  "negative_control": [
+    {
+      "question": "어떤 보장이 있어?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "classification_intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_guarded_hold_mode",
+      "response_source": "sales_director_guarded_hold",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "보장 분석해줘.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "coverage_review_request",
+      "matched_rule": "coverage_review_request",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "뭐 가입해야 해?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "classification_intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_guarded_hold_mode",
+      "response_source": "sales_director_guarded_hold",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    },
+    {
+      "question": "내 보험 문제 있어?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": "policy_count",
+      "companion_cluster": null,
+      "lookup_sub_intent": "policy_count",
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "checks": {
+          "no_cluster": true,
+          "probe": true
+        },
+        "preserved": true
+      }
+    }
+  ],
+  "slice1_regression": [
+    {
+      "question": "보험료가 부담돼.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "coverage_gap_suppress_reason": "companion_cluster_jc_premium_burden_v1",
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "보험을 줄이고 싶어.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "coverage_gap_suppress_reason": "companion_cluster_jc_premium_burden_v1",
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료를 낮추고 싶어.",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "lookup_sub_intent": null,
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "coverage_gap_suppress_reason": "companion_cluster_jc_premium_burden_v1",
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료 얼마야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "lookup_ok": true
+      }
+    },
+    {
+      "question": "내 보험료 총액 얼마야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "lookup_ok": true
+      }
+    },
+    {
+      "question": "보험료 몇 원이야?",
+      "http_status": 200,
+      "probe_ok": true,
+      "answer_preview": "지금은 월 납입액이 모두 확인되지 않았어요. 월 납입액이 모든 계약에서 확인되지는 않았습니다. 확인해 보고 다시 말씀드리겠습니다.",
+      "classification_intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "lookup_sub_intent": "premium_lookup",
+      "judgment_compose_mode": null,
+      "key_tools_called": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": false,
+      "coverage_gap_suppress_reason": null,
+      "sales_director_mode": "sales_director_key_mode",
+      "response_source": "sales_director_key",
+      "assessment": {
+        "lookup_ok": true
+      }
+    }
+  ],
+  "j04_spot": {
+    "http_status": 200,
+    "probe_ok": true,
+    "answer_preview": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 저장된 분석 기준으로 암 쪽은 함께 점검할 여지가 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+    "classification_intent": "coverage_gap_check",
+    "matched_rule": "coverage_gap_check",
+    "companion_cluster": null,
+    "lookup_sub_intent": null,
+    "judgment_compose_mode": null,
+    "key_tools_called": [
+      "snapshot",
+      "memory",
+      "coverage_gap"
+    ],
+    "coverage_gap_suppressed": false,
+    "coverage_gap_suppress_reason": null,
+    "sales_director_mode": "sales_director_key_mode",
+    "response_source": "sales_director_key"
+  },
+  "regression_30q_preview": {
+    "script": "key-customer-validation-v1-preview-verify.mjs",
+    "exit_code": 0,
+    "summary": "30/30 probe_ok · friction 0",
+    "probe_ok_count": 30,
+    "friction_count": 0,
+    "report_path": "fixtures/key-customer-validation-v1/preview-validation-report.json",
+    "log_tail": "KEY Customer Validation v1 — Preview 30Q\nPreview: https://lifeguard-core-final-blnzav762-70sofia113-1918s-projects.vercel.app\nOBSERVE Q01 L1 Policy\nOBSERVE Q02 L1 Policy\nOBSERVE Q03 L1 Policy\nOBSERVE Q04 L1 Policy\nOBSERVE Q05 L1 Policy\nOBSERVE Q06 L1 Policy\nOBSERVE Q07 L1 Claim\nOBSERVE Q08 L1 Claim\nOBSERVE Q09 L1 Claim\nOBSERVE Q10 L1 Memory\nOBSERVE Q11 L1 Memory\nOBSERVE Q12 L1 Relationship\nOBSERVE Q13 L2 Mixed\nOBSERVE Q14 L2 Mixed\nOBSERVE Q15 L2 Mixed\nOBSERVE Q16 L2 Mixed\nOBSERVE Q17 L2 Mixed\nOBSERVE Q18 L2 Mixed\nOBSERVE Q19 L2 Mixed\nOBSERVE Q20 L2 Mixed\nOBSERVE Q21 L3 Mixed\nOBSERVE Q22 L3 Mixed\nOBSERVE Q23 L3 Mixed\nOBSERVE Q24 L3 Mixed\nOBSERVE Q25 L3 Mixed\nOBSERVE Q26 L3 Mixed\nOBSERVE Q27 L4 Mixed\nOBSERVE Q28 L4 Mixed\nOBSERVE Q29 L4 Mixed\nOBSERVE Q30 L4 Mixed\n\n--- Tom Score ---\n{\n  \"same_key\": \"5/5\",\n  \"trust\": \"5/5\",\n  \"continuity\": \"5/5\",\n  \"role_split\": \"0/5\",\n  \"friction\": \"0건\"\n}\nManual Role Split: 30/30\nWrote C:\\Users\\sofia\\OneDrive\\바탕 화면\\lifeguard-core-final-github-export\\lifeguard-core-final\\fixtures\\key-customer-validation-v1\\preview-validation-report.json\n\n"
+  },
+  "persona_journey_local": {
+    "script": "test:key-persona-v1-customer-journey",
+    "exit_code": 0,
+    "ok": true,
+    "log_tail": "\n> lifeguard-core@0.1.0 test:key-persona-v1-customer-journey\n> node scripts/key-persona-v1-customer-journey-unit-test.mjs\n\nPASS CV1 nine-step customer journey — Tom 5-dimension score\nPASS CV2 role split — Relationship steps insurance-free across journey\nPASS CV3 Persona integrity — no generic filler in full journey\n\nKEY Persona v1 customer journey (local): ALL PASSED (3/3)\n\nnpm warn Unknown env config \"devdir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n"
+  },
+  "production_deploy": "HOLD — Tom GO required",
+  "alias_promote": "HOLD — forbidden this step",
+  "tom_note": "Preview verification only · Jerry STOP after evidence"
+}

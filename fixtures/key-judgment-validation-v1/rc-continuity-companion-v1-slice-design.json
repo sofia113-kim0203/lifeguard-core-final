@@ -1,0 +1,406 @@
+{
+  "document": "rc_continuity_companion_v1_slice_design",
+  "slice": "RELATIONSHIP-ARC-SLICE-1",
+  "arc": "Relationship / Companion Arc — Slice 1",
+  "contract_id": "RC-CONTINUITY-COMPANION-v1",
+  "contract_subtitle": "Conversation Continuity Bridge",
+  "mode": "Design only · Tom contract draft approved · no implementation · no deploy · no PASS",
+  "status": "submitted — await Tom design audit before EXEC",
+  "observed_at": "2026-06-30T21:00:00.000Z",
+  "pass_declaration": "none",
+  "tom_go": "R1 evidence accepted — READ ONLY design with 5 mandatory sections",
+  "upstream_refs": [
+    "relationship-role-split-r0-audit-evidence.json",
+    "rc-continuity-companion-v1-r1-continuity-trace-evidence.json",
+    "jc-premium-burden-v1-slice-production-close-evidence.json",
+    "jc-coverage-anxiety-v1-slice-production-close-evidence.json",
+    "lifeguard-personal-customer-baseline-v1.json",
+    "lifeguard-deployment-standard-v1.json"
+  ],
+  "constitution_classification": {
+    "primary": "LIFEGUARD(KEY) — Relationship / Conversation Continuity · Persona continuity",
+    "secondary_hand": "Memory Bridge wires factory read → Companion voice without exposing Memory mechanics",
+    "secondary_factory": "memory tool read-only — no new storage · no Time Memory wiring change",
+    "family_question_answer": "KEY를 더 같은 사람으로? — YES",
+    "family_question_not": "보험을 더 잘하게? · 새 Family · 새 Persona · Need Surface · Life Companion"
+  },
+  "problem_definition": {
+    "source": "rc-continuity-companion-v1-r1-continuity-trace-evidence.json",
+    "tom_correction": "Memory exists and works — 지난번 이야기 기억해? → Memory is normal. Problem is continuity paraphrases end at bare Companion without the human flow.",
+    "human_flow_expected": "이어서 → 무엇을? → 지난 대화 → 같은 관계 → 계속 이야기",
+    "code_flow_expected": "Memory → Relationship → Conversation Continuity → Companion",
+    "code_flow_today": "Memory OR Companion — binary split; Relationship axis absent on continuity paraphrases",
+    "r1_observed": {
+      "six_paraphrases": "All → general_consultation + casual_chat + casual_light — no Memory bridge",
+      "memory_anchor_ok": "지난번 이야기 기억해? → memory_recall_lookup + factual_grounded",
+      "human_flow_split": "Adding 기억해? flips Memory; omitting it drops to bare Companion",
+      "relationship_axis": "Never appears on continuity set"
+    },
+    "not_the_problem": [
+      "Memory module missing",
+      "Memory storage mechanics",
+      "Emotion empathy as primary slice"
+    ]
+  },
+  "slice_success_condition": {
+    "customer_facing": "고객이 이어지는 대화라고 느끼는가?",
+    "not_success": [
+      "Memory를 얼마나 읽었는지",
+      "memory_facts count",
+      "tool audit PASS alone",
+      "서버 route PASS alone"
+    ],
+    "tom_example": {
+      "day1": "오늘 힘들었어.",
+      "day2_customer": "어제 이야기 이어서 할까?",
+      "day2_key": "물론이죠. 어제 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+    }
+  },
+  "section_1_continuity_cluster": {
+    "id": "RC-CONTINUITY-COMPANION-v1",
+    "mechanism": "detectContinuityCompanionCluster() — additive companion_cluster (mirror JC-PREMIUM-BURDEN / JC-COVERAGE-ANXIETY pattern)",
+    "theme": "Conversation Continuity — customer wants to continue prior talk, not ask if KEY remembers",
+    "paraphrase_set": {
+      "tom_boundary_in": [
+        "그 이야기 이어서.",
+        "아까 말한 거.",
+        "전에 말한 거.",
+        "그때 이야기.",
+        "지난번 이야기."
+      ],
+      "r1_near_variant_note": "방금 이야기. — session-local continuity; include in detector as optional signal group session_local, not primary Tom 5",
+      "expected_consistency": {
+        "same_companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "same_intent_surface": "general_consultation + companion_cluster (no new intent enum)",
+        "same_compose_family": "Companion — key_companion / key_relational path",
+        "same_internal_pipeline": "Memory Bridge attempt → Relationship frame → Companion response",
+        "must_not": [
+          "한 문장은 memory_recall_lookup · 다른 문장은 casual_light",
+          "한 문장은 factual_grounded · 다른 문장은 unsupported",
+          "기억해? 유무로 axis 갈라짐"
+        ]
+      }
+    },
+    "detector_signals": {
+      "include_groups": [
+        {
+          "id": "continue_explicit",
+          "patterns": [
+            "그\\s*이야기\\s*이어(?:서|가)?",
+            "이어(?:서|가)?\\s*말",
+            "계속\\s*(?:말|얘기|이야기)"
+          ],
+          "examples": ["그 이야기 이어서."]
+        },
+        {
+          "id": "time_speech_reference",
+          "patterns": [
+            "아까\\s*말(?:한\\s*거|했)",
+            "전에\\s*말(?:한\\s*거|했)",
+            "그때\\s*(?:이야기|얘기|말)",
+            "지난번\\s*(?:이야기|얘기)(?!\\s*기억)",
+            "방금\\s*(?:이야기|얘기|말)"
+          ],
+          "examples": ["아까 말한 거.", "전에 말한 거.", "그때 이야기.", "지난번 이야기."]
+        }
+      ],
+      "hard_exclusions": [
+        {
+          "id": "memory_recall_lexeme",
+          "pattern": "기억(?:해|나|하)",
+          "preserve_path": "memory_recall_lookup — Tom: this path is correct and must not be absorbed",
+          "examples": ["지난번 이야기 기억해?", "전에 말했던 거 기억해?", "기억나?"]
+        },
+        {
+          "id": "insurance_topic",
+          "test": "hasInsuranceTopicSignal(text)",
+          "preserve_path": "insurance judgment / factual / gap — Role Split",
+          "examples": ["아까 보험료 얘기했잖아.", "전에 말한 보장 부분"]
+        },
+        {
+          "id": "coverage_gap",
+          "test": "isCoverageGapCheck or coverage_review_request",
+          "preserve_path": "J04 / structured review"
+        },
+        {
+          "id": "recommendation",
+          "test": "RECOMMEND_SIGNAL or recommendation_request",
+          "preserve_path": "Rec path — out of slice"
+        },
+        {
+          "id": "premium_burden_cluster",
+          "test": "detectPremiumBurdenCompanionCluster",
+          "preserve_path": "Slice 1 unchanged"
+        },
+        {
+          "id": "coverage_anxiety_cluster",
+          "test": "detectCoverageAnxietyCompanionCluster",
+          "preserve_path": "Slice 2 unchanged"
+        }
+      ],
+      "insertion_point": "classifyConsultationIntent — after judgment clusters (premium, coverage anxiety) · before general_consultation_fallback",
+      "on_hit": {
+        "intent": "general_consultation",
+        "matched_rule": "continuity_companion_cluster",
+        "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "companion_cluster_signals": "continue_explicit | time_speech_reference | session_local"
+      }
+    }
+  },
+  "section_2_memory_bridge_rules": {
+    "definition": "Conversation Continuity Bridge — internal Hand layer; customer never sees 'Memory Bridge'",
+    "not": "Memory를 읽는다 (customer-facing goal)",
+    "is": "Memory가 있으면 Relationship를 이어주고, 없으면 정직하게 이어갈 수 없음을 말한다",
+    "pipeline": [
+      {
+        "step": 1,
+        "name": "Continuity Cluster hit",
+        "action": "Route enters RC-CONTINUITY-COMPANION-v1 — NOT memory_recall_lookup · NOT bare casual_chat"
+      },
+      {
+        "step": 2,
+        "name": "Memory Bridge (internal)",
+        "action": "Attempt read: session conversation history + memory_facts (existing factory — no new storage)",
+        "success_criteria_internal": "Prior turn theme resolvable (emotional context, topic thread, prior customer statement)",
+        "failure_criteria_internal": "No resolvable prior context in available memory scope"
+      },
+      {
+        "step": 3,
+        "name": "Relationship frame",
+        "action": "Same KEY · same relationship · prior talk acknowledged — not factual recall quiz",
+        "must_not": "inventory dump · memory_fact theme list · engine names"
+      },
+      {
+        "step": 4,
+        "name": "Conversation Continuity",
+        "action": "Open the next turn naturally — invite continuation, reflect prior thread",
+        "must_not": "End at generic casual filler · End at '기억해요' only without continuing"
+      },
+      {
+        "step": 5,
+        "name": "Companion output",
+        "action": "Always Companion voice — both memory-present and memory-absent cases",
+        "compose_gate": "key_companion or key_relational — NOT key_structured insurance judgment"
+      }
+    ],
+    "route_alignment": {
+      "home_brain_route_on_cluster_hit": "Must NOT remain casual_chat-only without bridge",
+      "home_brain_intent_on_cluster_hit": "continuity_companion_bridge (proposed surface) or unsupported with compose override — design choice at EXEC; must not flip to memory_recall_lookup",
+      "relationship_to_existing_memory_recall": "Parallel path — memory_recall_lookup preserved for 기억해? questions; continuity cluster uses Bridge internally without exposing recall quiz shape"
+    },
+    "tool_plan": {
+      "tools": ["memory"],
+      "optional": ["snapshot — only if relationship thread was insurance-framed AND Tom spot approves; default off for pure companion continuity"],
+      "forbidden_tools": ["coverage_gap", "premium_stats", "recommendation", "gap analysis"],
+      "rationale": "Bridge reads memory; does not open insurance factory"
+    }
+  },
+  "section_3_companion_response_contract": {
+    "both_cases_companion": true,
+    "memory_present": {
+      "contract_id": "RC-CONTINUITY-MEMORY-PRESENT",
+      "customer_feel": "끊기지 않는 대화 — KEY remembers the thread and continues",
+      "shape": {
+        "opener": "지난번 이야기 이어서 해볼게요.",
+        "body": "Recall prior theme in natural Companion voice — emotional or relational context, not memory_fact inventory",
+        "invite": "Open next turn — question or invitation to continue",
+        "example": "어제 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?"
+      },
+      "must": [
+        "Reference resolvable prior thread",
+        "Same KEY persona",
+        "Continue — not stop at confirmation only"
+      ],
+      "must_not": [
+        "저장해 둔 상담 맥락이 확인돼요 (memory_recall_judgment shape leak)",
+        "Coverage/premium analysis opener",
+        "확인해보고 다시 말씀드리겠습니다 without prior thread"
+      ]
+    },
+    "memory_absent": {
+      "contract_id": "RC-CONTINUITY-MEMORY-ABSENT",
+      "customer_feel": "정직한 Companion — cannot pretend continuity; invites re-share without system blame",
+      "shape": {
+        "opener": "이전 대화를 확인할 수 없어요.",
+        "body": "No fabricated prior context",
+        "invite": "조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+        "example_full": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요."
+      },
+      "must": [
+        "Honest absence — 거짓0 compliant",
+        "Companion tone — not system error dump",
+        "Re-invite continuation"
+      ],
+      "must_not": [
+        "Fabricate prior conversation",
+        "모르겠습니다 alone",
+        "Redirect to insurance review",
+        "Blame system limits as final answer"
+      ]
+    },
+    "judgment_rule_sketch": {
+      "id": "continuity_companion_judgment",
+      "match": "factBundle.companion_cluster === RC-CONTINUITY-COMPANION-v1",
+      "branch": "buildJudgment reads bridge_result.memory_present boolean",
+      "compose_priority": "Before generic key_companion_guidance absorption"
+    }
+  },
+  "section_4_role_split_preservation": {
+    "principle": "Continuity slice must not absorb Insurance · Coverage · Recommendation paths",
+    "tom_boundary_out": [
+      "보험 판단",
+      "Coverage Gap",
+      "Recommendation",
+      "Need Surface",
+      "Life Companion",
+      "Proactive",
+      "KEY Mind"
+    ],
+    "negative_control": {
+      "purpose": "Insurance · formal paths · memory-recall quiz · emotion-only — must NOT enter RC-CONTINUITY cluster",
+      "questions": [
+        {
+          "question": "암보장 부족해?",
+          "preserve_path": "Insurance / JC-COVERAGE-ANXIETY-v1 or coverage_gap_check",
+          "exclude_reason": "Insurance judgment — Role Split"
+        },
+        {
+          "question": "보험료 부담돼.",
+          "preserve_path": "JC-PREMIUM-BURDEN-v1",
+          "exclude_reason": "Slice 1 unchanged"
+        },
+        {
+          "question": "뭐 가입해야 해?",
+          "preserve_path": "recommendation_request",
+          "exclude_reason": "Rec — out of slice"
+        },
+        {
+          "question": "내 보험 부족한 부분 있어?",
+          "preserve_path": "coverage_gap_check — J04",
+          "exclude_reason": "Structured gap — not companion continuity"
+        },
+        {
+          "question": "지난번 이야기 기억해?",
+          "preserve_path": "memory_recall_lookup + memory_recall_judgment",
+          "exclude_reason": "Memory quiz path — correct today · must not merge into continuity cluster"
+        },
+        {
+          "question": "아까 보험료 얘기했잖아.",
+          "preserve_path": "insurance topic — not pure continuity",
+          "exclude_reason": "Insurance-framed continuity — exclude via hasInsuranceTopicSignal"
+        },
+        {
+          "question": "오늘 너무 힘들어.",
+          "preserve_path": "Companion emotion — casual_chat",
+          "exclude_reason": "Emotion context — not continuity paraphrase"
+        },
+        {
+          "question": "그냥 이야기하자.",
+          "preserve_path": "Companion open chat",
+          "exclude_reason": "No prior-reference signal"
+        }
+      ]
+    },
+    "r0_role_split_spot": {
+      "source": "relationship-role-split-r0-audit-evidence.json",
+      "must_preserve": [
+        { "question": "힘들어요.", "axis": "Companion", "fail_if": "insurance_judgment_on_emotion" },
+        { "question": "암보험이 부족한가요?", "axis": "Insurance", "fail_if": "companion_only_on_insurance" }
+      ]
+    },
+    "relationship_split_note": "R0 emotion intent split (casual_chat vs general_consultation) is adjacent but OUT OF SLICE — do not fix in same PR unless Tom directs"
+  },
+  "section_5_r0_r1_regression": {
+    "contracts_independent": {
+      "r1_primary": "5 Tom paraphrases → same companion_cluster · same compose family · Memory Bridge attempted",
+      "r1_anchor_preserve": "지난번 이야기 기억해? → still memory_recall_lookup (NOT cluster)",
+      "r0_role_split": "6/6 spot table unchanged",
+      "judgment_slice1": "JC-PREMIUM-BURDEN-v1 paraphrase + negative",
+      "judgment_slice2": "JC-COVERAGE-ANXIETY-v1 paraphrase + negative",
+      "persona": "npm run test:key-v2-key-persona",
+      "30q": "FROZEN bank — 34/34 · friction 0 on any deploy"
+    },
+    "local_trace_script": {
+      "name": "rc-continuity-companion-v1-paraphrase-trace-readonly.mjs",
+      "status": "EXEC phase — not yet created",
+      "gates": {
+        "paraphrase": "5/5 cluster hit · same compose_gate · bridge branch present",
+        "negative": "8/8 preserved paths (section_4)",
+        "memory_anchor": "3/3 still memory_recall_lookup",
+        "human_flow": "그 이야기 이어서. and 지난번 이야기. same cluster — no Memory/Companion binary"
+      }
+    },
+    "preview_customer_seat": {
+      "note": "Tom Preview 5 dimensions — Identity · Trust · Continuity · Role Split · Friction",
+      "focus": "Continuity dimension — customer feels conversation continues, not memory quiz",
+      "script_candidate": "verify:rc-continuity-companion-v1-preview (EXEC phase)"
+    },
+    "production_close": {
+      "standard": "Deployment Standard v1",
+      "sequence": ["D0", "D1", "D3", "D4", "D5", "30Q fresh", "D6"],
+      "requires": "Tom EXEC GO after local trace + Preview audit"
+    }
+  },
+  "design_strategy": {
+    "one_line": "Additive continuity_companion_cluster + Memory Bridge Hand layer — Memory→Relationship→Continuity→Companion in one compose path; 기억해? path untouched",
+    "pattern_reuse": "JC-PREMIUM-BURDEN / JC-COVERAGE-ANXIETY companion_cluster additive gate",
+    "pattern_difference": "Output is Companion not Insurance judgment; Bridge is Hand wiring not factory change",
+    "no_new_intent": true,
+    "no_new_factory": true,
+    "no_30q_edit": true
+  },
+  "implementation_scope": {
+    "status": "BLOCKED until Tom design audit GO",
+    "expected_files": [
+      "server/intentGateLayer.js — detectContinuityCompanionCluster + RC_CONTINUITY_COMPANION_CLUSTER_ID",
+      "server/homeBrainRouter.js — continuity cluster route override (avoid bare casual_chat drop)",
+      "server/salesDirectorKeyToolRegistry.js — memory-only tool plan on cluster",
+      "server/keyJudgmentRules.js — continuity_companion_judgment (present/absent branches)",
+      "server/humanUnderstandingLoop.js or compose ingress — Memory Bridge read + Relationship frame",
+      "server/salesDirectorFormatter.js — companion_cluster passthrough if needed",
+      "scripts/rc-continuity-companion-v1-paraphrase-trace-readonly.mjs"
+    ],
+    "forbidden_touch": [
+      "memory storage schema",
+      "personalKeyTimeContinuity gate (unless Tom separate GO)",
+      "JC-PREMIUM-BURDEN-v1 detector body",
+      "JC-COVERAGE-ANXIETY-v1 detector body",
+      "J04 coverage_gap factory",
+      "30Q question bank",
+      "Need Surface · Life Companion · Proactive · KEY Mind",
+      "Production deploy without Tom EXEC GO"
+    ]
+  },
+  "customer_effect": {
+    "before": "이어서 → bare casual · 기억해? → Memory quiz — same human flow, split code paths",
+    "after": "이어서 / 아까 말한 거 / 지난번 이야기 — KEY continues the thread or honestly asks to re-share; always Companion",
+    "not": "기억하는 AI · insurance cross-sell · new Persona Family"
+  },
+  "risk_analysis": {
+    "over_capture_memory_recall": {
+      "risk": "Cluster absorbs 지난번 이야기 기억해?",
+      "mitigation": "Hard exclusion on 기억 lexeme · R1 anchor in regression"
+    },
+    "over_capture_insurance": {
+      "risk": "아까 보험료 얘기 enters continuity cluster",
+      "mitigation": "hasInsuranceTopicSignal exclusion"
+    },
+    "under_bridge": {
+      "risk": "Cluster hit but compose still casual_light without memory attempt",
+      "mitigation": "Bridge step mandatory in compose gate order · trace field bridge_attempted"
+    },
+    "memory_recall_shape_leak": {
+      "risk": "Present case sounds like memory_recall_judgment inventory",
+      "mitigation": "Separate judgment rule · Companion continuation shape in section_3"
+    }
+  },
+  "exec_phases_after_tom_design_go": {
+    "phase_0": "Tom design audit on this document",
+    "phase_1": "Implement cluster + Bridge + judgment rule",
+    "phase_2": "Local paraphrase + negative + anchor trace evidence",
+    "phase_3": "Preview customer-seat Continuity audit",
+    "phase_4": "Deployment Standard v1 production close",
+    "phase_5": "Tom audit — Jerry does not declare PASS"
+  },
+  "jerry": "STOP — READ ONLY design submitted · no code · await Tom design audit GO before EXEC"
+}

@@ -70,6 +70,7 @@ export function useCustomerDocumentUpload({
           documentId: lastResult.documentId,
           ingest: lastResult.ingest,
           policyExtraction: lastResult.ingest.policyExtraction,
+          workOrderId: lastResult.ingest?.workOrderId ?? null,
           refreshSession,
           setActiveAnalysisJob,
         });
@@ -114,7 +115,19 @@ export function useCustomerDocumentUpload({
         fileInputRef.current.value = "";
       }
       const ingest = uploadResult?.ingest;
-      if (ingest?.blocked) {
+      const keyFirstSentence =
+        uploadResult?.keyIntake?.customer_first_sentence ??
+        uploadResult?.keyIntakeTrace?.customer_first_sentence ??
+        null;
+      const keyFollowUpSentence = ingest?.policyExtraction?.keyFollowUpSentence ?? null;
+
+      if (keyFirstSentence && keyFollowUpSentence) {
+        setSuccess(`${keyFirstSentence}\n\n${keyFollowUpSentence}`);
+      } else if (keyFirstSentence) {
+        setSuccess(keyFirstSentence);
+      } else if (keyFollowUpSentence) {
+        setSuccess(keyFollowUpSentence);
+      } else if (ingest?.blocked) {
         setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.analysisBlockedNotice}`);
       } else if (ingest?.failed) {
         setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
@@ -139,6 +152,7 @@ export function useCustomerDocumentUpload({
         documentId,
         ingest,
         policyExtraction: ingest?.policyExtraction,
+        workOrderId: uploadResult?.workOrderId ?? ingest?.workOrderId ?? null,
         refreshSession,
         setActiveAnalysisJob,
       });
@@ -153,13 +167,19 @@ export function useCustomerDocumentUpload({
         insurancePolicyCount;
 
       if (pipeline.ok) {
-        setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`);
+        if (!keyFirstSentence && !keyFollowUpSentence) {
+          setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`);
+        }
         setError("");
       } else if (pipeline.steps?.policy_extraction?.ok && !pipeline.steps?.analysis_job?.ok) {
-        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        if (!keyFirstSentence && !keyFollowUpSentence) {
+          setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        }
         setError(pipeline.message ?? DOCUMENT_UI_MESSAGES.pipelineAnalysisFailedNotice);
       } else if (!pipeline.steps?.policy_extraction?.ok && ingest?.workerResult?.ingest_status === "ready") {
-        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        if (!keyFirstSentence && !keyFollowUpSentence) {
+          setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+        }
         setError(
           pipeline.steps?.policy_extraction?.error_message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice,
         );

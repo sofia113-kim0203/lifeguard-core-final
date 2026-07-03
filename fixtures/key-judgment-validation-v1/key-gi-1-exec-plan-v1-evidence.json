@@ -1,0 +1,265 @@
+{
+  "document": "key_gi_1_exec_plan_v1_evidence",
+  "slice": "KEY-GI-1",
+  "label": "KEY General Intelligence — GI-1 일반 상식",
+  "mode": "Execution plan · no code · no implement until Tom GO EXEC",
+  "status": "rev1 — Tom 3 amendments applied · await Tom GO EXEC",
+  "version": "1.1.0",
+  "observed_at": "2026-07-02T04:00:00.000Z",
+  "pass_declaration": "none",
+  "core_principle": "새 엔진이 아니라 기존 lifeguardChatCore를 성장시킨다",
+  "design_ref": "fixtures/key-judgment-validation-v1/key-gi-1-design-v1-evidence.json",
+  "start_gate_ref": "fixtures/key-judgment-validation-v1/key-gi-1-start-gate-v1-evidence.json",
+  "classification_baseline_ref": "fixtures/key-judgment-validation-v1/key-gi-1-classification-baseline-plan-v1.json",
+  "regression_bank_ref": "fixtures/key-judgment-validation-v1/gi-1-regression-bank-v1.json",
+  "tom_design_go_at": "2026-07-02T03:00:00.000Z",
+  "tom_exec_review_at": "2026-07-02T04:00:00.000Z",
+  "tom_exec_amendments": [
+    "① 분류 실측(Evidence)을 GI1-R2 전에 선행",
+    "② Bypass → General Knowledge Delegation 용어",
+    "③ 회귀 테스트 ~120문항(GI 자산)으로 확대"
+  ],
+  "tom_approvals": {
+    "GI1-R1": "GO — General Knowledge Delegation · insurance → existing KEY path",
+    "GI1-R2": "GO — after classification baseline · homeBrainRouter + intentGateLayer align",
+    "GI1-P1": "GO — factual · natural · no forced insurance",
+    "GI1-L1": "conditional GO — GI-1 path only · 800~1000 chars · no unlimited"
+  },
+  "terminology": {
+    "use": "General Knowledge Delegation · lifeguardChatCore 위임",
+    "forbidden": "orchestrator bypass · skip orchestrator · 건너뛰기",
+    "structure": "orchestrator → 판단 → lifeguardChatCore 위임 (orchestrator는 유지)"
+  },
+  "forbidden": [
+    "새 엔진",
+    "Spine B 연결",
+    "보험 유도",
+    "Opportunity Engine",
+    "Presence",
+    "orchestrator bypass (개념·코드·문서)",
+    "코드 (this artifact — implement phase only after Tom GO EXEC)"
+  ],
+  "topic_keywords_gi1": [
+    "역사",
+    "과학",
+    "경제",
+    "IT",
+    "여행",
+    "맛집",
+    "건강상식",
+    "교육",
+    "생활"
+  ],
+  "limits_gi1": {
+    "max_chars": "800~1000 (GI-1 path only)",
+    "max_tokens": "tune with chars — not unbounded",
+    "scope": "lifeguardChatCore when GI-1 eligible only"
+  },
+  "exec_phases": {
+    "phase_0": {
+      "label": "Pre-implement (complete)",
+      "items": ["Start Gate PASS", "Design GO", "Exec plan rev1 (this)"]
+    },
+    "phase_0b": {
+      "label": "GI1-MEASURE — 분류 실측",
+      "order": 1,
+      "status": "complete — evidence submitted · no PASS",
+      "evidence_ref": "fixtures/key-judgment-validation-v1/key-gi-1-classification-baseline-v1-evidence.json",
+      "script_ref": "scripts/key-gi-1-classification-baseline-readonly.mjs",
+      "goal": "현재 regex/분류 baseline · R2 전 data-driven gap 확인",
+      "tasks_complete": ["M-1", "M-2", "M-3", "M-4"],
+      "gate": "Tom review before R2 implement"
+    },
+    "phase_1": {
+      "label": "GI1-R2 — eligibility SSOT (after baseline)",
+      "order": 2,
+      "status": "R1-ready — not closed · key-gi-1-r2-v1-evidence.json",
+      "intent_criteria_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-intent-criteria-v1.json",
+      "spot_check_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-spot-check-v1-evidence.json",
+      "depends_on": "phase_0b classification baseline reviewed",
+      "goal": "Single general-knowledge eligibility · router + intent aligned · gap-driven not guess-driven",
+      "tasks": [
+        {
+          "id": "R2-1",
+          "action": "Add shared helper isGeneralKnowledgeEligible(question, consultationIntent) — informed by M-3 gap list",
+          "includes": "Tom topic keywords + CASUAL_LIFE_TOPIC + baseline miss patterns",
+          "excludes": "INSURANCE_TOPIC · companion_cluster · claim · gap · design intents"
+        },
+        {
+          "id": "R2-2",
+          "action": "Refactor detectCasualChatIntent narrow cases to call shared helper · remove duplicate regex drift",
+          "rule": "casual_chat = greeting/thanks/small-talk/emotion only · broader GK → shared eligibility"
+        },
+        {
+          "id": "R2-3",
+          "action": "Align isCasualHomeQuestion / resolveHomeBrainRoute to same helper",
+          "verify": "Re-run M-1 probe — GK bucket ↑ · insurance bucket unchanged"
+        }
+      ],
+      "files_touch": [
+        "server/homeBrainRouter.js",
+        "server/intentGateLayer.js",
+        "optional: server/generalKnowledgeEligibility.js"
+      ],
+      "tests_before_merge": ["classification baseline re-measure · gap list closed or documented"]
+    },
+    "phase_2": {
+      "label": "GI1-R1 — General Knowledge Delegation",
+      "order": 3,
+      "status": "implemented — key-gi-1-r1-delegation-v1-evidence.json · no PASS",
+      "evidence_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r1-delegation-v1-evidence.json",
+      "depends_on": "phase_1 R1-ready",
+      "goal": "orchestrator 판단 후 GK eligible → lifeguardChatCore 위임 (relational template 아님)",
+      "tasks": [
+        {
+          "id": "R1-1",
+          "action": "In orchestrator compose path: after judgment · when isGeneralKnowledgeEligible && !insurance → delegate to lifeguardChatCore",
+          "preserve": "Orchestrator remains entry · Insurance / companion_cluster / RC / judgment compose unchanged",
+          "not": "orchestrator bypass — orchestrator still runs judgment gate"
+        },
+        {
+          "id": "R1-2",
+          "action": "Ensure homeAgentTom CHAT path + legacy fallback still delegate consistently",
+          "hand_boundary": "Spine A only · no Spine B imports"
+        },
+        {
+          "id": "R1-3",
+          "action": "Observability: compose_mode trace general_knowledge_delegation · response_source lifeguard_claude",
+          "no_customer_exposure": "internal trace only"
+        }
+      ],
+      "files_touch": [
+        "server/humanUnderstandingLoop.js",
+        "server/salesDirectorKeyOrchestrator.js",
+        "server/homeAgentTom.js",
+        "server/salesDirectorLoop.js (verify fork only)"
+      ],
+      "tests_before_merge": ["integration: orchestrator ON + travel Q → general_knowledge_delegation → lifeguard_claude"]
+    },
+    "phase_3": {
+      "label": "GI1-P1 + GI1-L1 — prompt and limits",
+      "order": 4,
+      "status": "complete — key-gi-1-l1-prompt-profile-v1-evidence.json · no PASS",
+      "depends_on": "phase_2 delegation wired",
+      "goal": "Factual natural GK answers · 800~1000 char cap on GI-1 path only",
+      "tasks": [
+        {
+          "id": "P1-1",
+          "action": "LIFEGUARD_GI1_SYSTEM_PROMPT — factual · natural · no insurance push · no engine names",
+          "inherit": "anti-deflection from LIFEGUARD_AGENT_SYSTEM_PROMPT"
+        },
+        {
+          "id": "L1-1",
+          "action": "gi1Profile flag: max_chars 900 default (800~1000) · max_tokens ~700 · GI-1 path only",
+          "scope": "default 600 unchanged elsewhere"
+        },
+        {
+          "id": "P1-2",
+          "action": "Verify salesDirectorFormatter does not re-add insurance push on GK intents"
+        }
+      ],
+      "files_touch": [
+        "server/lifeguardChatCore.js",
+        "server/homeBrainFactCore.js (if surface flags pass-through)"
+      ],
+      "tests_before_merge": ["probe: answer within cap · no insurance filler"]
+    },
+    "phase_3b": {
+      "label": "GI1-QA — 20문항 품질 감사 (Tom human read)",
+      "order": 5,
+      "status": "rubric GO frozen — Live QA blocked (GI-1 Preview + API Key)",
+      "depends_on": "phase_3 L1 complete",
+      "rubric_go_at": "2026-07-02T11:00:00.000Z",
+      "goal": "Regression 전 GPT 수준 품질 확인 · QA=좋아졌는가 · Regression=안 망가졌는가",
+      "qa_bank_ref": "fixtures/key-judgment-validation-v1/gi-1-qa-bank-v1.json",
+      "rubric_ref": "fixtures/key-judgment-validation-v1/gi-1-qa-rubric-v1.json",
+      "scorecard_template_ref": "fixtures/key-judgment-validation-v1/gi-1-qa-scorecard-template-v1.json",
+      "evidence_ref": "fixtures/key-judgment-validation-v1/key-gi-1-qa-quality-audit-v1-evidence.json",
+      "script_ref": "scripts/key-gi-1-qa-quality-audit-exec.mjs",
+      "sub_phases": {
+        "3b-1_rubric": "GO frozen — gi-1-qa-rubric-v1.json · Tom Rubric GO",
+        "3b-2_live_qa": "blocked — GI-1 Preview SHA + API_KEY · key-gi-1-live-qa-blocker-v1-evidence.json",
+        "3b-3_tom_score": "pending — 1~5 × 5 dimensions · avg >= 4.5 pass",
+        "3b-4_verdict": "pending — pass → Regression · fail → L1 보완"
+      },
+      "pass_criteria": {
+        "qa_average_min": 4.5,
+        "dimensions": ["naturalness", "factual_accuracy", "explanatory_power", "key_voice", "no_insurance_push"],
+        "fail_action": "L1 Prompt/Profile 보완 Slice"
+      },
+      "gate": "Tom rubric score → then Regression ~110"
+    },
+    "phase_4": {
+      "label": "Regression + evidence",
+      "order": 6,
+      "depends_on": "phase_1~3 complete",
+      "tasks": [
+        {
+          "id": "REG-1",
+          "action": "npm run test:key-v2-key-persona — blocking",
+          "gate": "Persona First"
+        },
+        {
+          "id": "REG-2",
+          "action": "Run gi-1-regression-bank-v1.json full set (~110) — local home-brain-fact or harness",
+          "gate": "Tom audit · GI asset frozen after GO"
+        },
+        {
+          "id": "EV-1",
+          "action": "Submit key-gi-1-local-evidence.json · Birth Record · implementation_sha",
+          "gate": "Tom GO close"
+        }
+      ]
+    }
+  },
+  "implementation_order_summary": [
+    "0. GI1-MEASURE — 분류 실측 100+ · baseline evidence (R2 전)",
+    "1. GI1-R2 — eligibility SSOT (gap-driven)",
+    "2. GI1-R1 — General Knowledge Delegation (orchestrator → 판단 → lifeguardChatCore)",
+    "3. GI1-P1 + L1 — prompt + 800~1000 char limits",
+    "3b. GI1-QA — 20문항 Tom human read (before regression)",
+    "4. Regression ~120 + key-persona + evidence"
+  ],
+  "regression_probe_set": {
+    "total": 110,
+    "tom_spec": "9 domains × 10 + insurance 20 + RC 20 · ~120 GI asset",
+    "asset_ref": "fixtures/key-judgment-validation-v1/gi-1-regression-bank-v1.json",
+    "frozen_after": "Tom GO EXEC close",
+    "breakdown": {
+      "general_knowledge_90": {
+        "역사": 10,
+        "과학": 10,
+        "경제": 10,
+        "IT": 10,
+        "생활": 10,
+        "여행": 10,
+        "맛집": 10,
+        "건강상식": 10,
+        "교육": 10
+      },
+      "insurance_regression": 20,
+      "rc_regression": 20
+    },
+    "pass_criteria": {
+      "gi1_gk": "90/90 delegation to lifeguardChatCore · no insurance push",
+      "insurance": "20/20 existing KEY path · never GK-only hijack",
+      "rc": "20/20 Persona · Recognition/Continuity intact",
+      "persona_gate": "test:key-v2-key-persona PASS"
+    }
+  },
+  "rollback": {
+    "flag_option": "KEY_GI1_ENABLED env — optional kill switch",
+    "note": "Tom discretion · not required for exec plan"
+  },
+  "out_of_scope_exec": [
+    "GI-2 daily chat breadth",
+    "GI-3 long context",
+    "GI-4 insurance natural link",
+    "Opportunity Engine",
+    "Claim First",
+    "Presence",
+    "Spine B",
+    "New API"
+  ],
+  "jerry": "Exec plan rev1 · Tom 3 amendments applied · no implement code · await Tom GO EXEC"
+}

@@ -1,0 +1,125 @@
+{
+  "schema_version": "phase-b-slice-3-delegation-repository-reality-v1",
+  "audit_purpose": "Slice 3 착수 전 Delegation Intent Repository Reality — 구현 금지",
+  "primary_questions": ["알아서 봐줘.", "나도 잘 모르겠는데 그냥 알아서 봐줘."],
+  "recorded_at": "2026-07-03T16:14:00.000Z",
+  "git_short_sha": "2a3d7a4",
+  "pass_declaration": "none — reality confirmation only",
+  "tom_completion_criterion": "고객이 결정을 KEY에게 맡겼을 때, KEY가 정말 결정을 대신해 주는가?",
+  "cluster_and_rule": {
+    "companion_cluster": null,
+    "judgment_rule_id": null,
+    "note": "Slice 1/2와 달리 JC-* Companion Cluster · KEY_JUDGMENT_RULES entry 없음"
+  },
+  "current_response_paths": [
+    {
+      "question": "알아서 봐줘.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "compose_mode": "key_companion_guidance",
+      "detector": "keyCompanionGuidance.isKeyCompanionGuidanceSituation — /(?:알아서|제일\\s*필요|나한테\\s*제일)/ && /(?:같이|봐|보자|봐줘)/",
+      "compose_module": "server/keyCompanionGuidance.js — buildKeyCompanionGuidanceResponse (delegation branch lines 326-334)",
+      "tools_observed": ["snapshot", "memory"],
+      "coverage_gap_loaded": false,
+      "premium_stats_loaded": false,
+      "answer_preview": "지금 확인된 가입 보험 N개부터, 제일 걸리는 축부터 같이 보면 됩니다.",
+      "tom_gap": "결정 위임 → 고객에게 축 선택 되돌림 (제일 걸리는)"
+    },
+    {
+      "question": "나도 잘 모르겠는데 그냥 알아서 봐줘.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "compose_mode": "key_relational",
+      "detector": "humanUnderstandingLoop.isHumanTrustQuestion — /모르겠/ → is_trust_human_question → shouldUseKeyRelationalCompose",
+      "compose_module": "server/humanUnderstandingLoop.js — buildTrustResponse (lines 1210-1243)",
+      "tools_observed": ["snapshot", "memory"],
+      "answer_preview": "뭐부터 해야 할지 모르겠다는 말… 한 가지만 여쭤볼게요. 오늘은 확인이 목적인가요, 결정이 목적인가요?",
+      "tom_gap": "Tom 금지 패턴 그대로 — 되묻기·선택지·결정 반환"
+    },
+    {
+      "question": "뭐부터 해야 할지 모르겠어.",
+      "classification_intent": "general_consultation",
+      "matched_rule": "general_knowledge_eligible",
+      "compose_mode": "key_structured",
+      "answer_preview": "확인된 범위 안에서만 조심스럽게… 지금 걸리는 축 하나부터 짚어 보면 됩니다.",
+      "note": "인접 paraphrase — 별도 Slice 3 paraphrase 후보"
+    }
+  ],
+  "deflection_sources": [
+    {
+      "location": "server/keyCompanionGuidance.js:329",
+      "pattern": "제일 걸리는 축부터 같이 보면",
+      "compose_mode": "key_companion_guidance"
+    },
+    {
+      "location": "server/keyCompanionGuidance.js:333",
+      "pattern": "지금 제일 걸리는 것 하나만… 편히 말씀해 주시면",
+      "compose_mode": "key_companion_guidance"
+    },
+    {
+      "location": "server/humanUnderstandingLoop.js:1238-1240",
+      "pattern": "한 가지만 여쭤볼게요. 오늘은 확인이 목적인가요, 결정이 목적인가요?",
+      "compose_mode": "key_relational / buildTrustResponse"
+    },
+    {
+      "location": "server/humanUnderstandingLoop.js:162-163",
+      "pattern": "걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "compose_mode": "buildKeyNextActionBlock default"
+    }
+  ],
+  "factory_reads": {
+    "snapshot": true,
+    "memory": true,
+    "coverage_gap": "not loaded for short 알아서 봐줘. (no cluster tool plan)",
+    "premium_stats": false,
+    "note": "Delegation path는 Factory를 거의 읽지 않고 companion/relational template으로 종료"
+  },
+  "phase_b_contract_apply_point": {
+    "recommended": "generateHumanSalesDirectorResponse — delegation intent를 companion_guidance / key_relational보다 먼저 가로채 OR 신규 Delegation cluster + buildKeyStructuredResponse Phase B override (Slice 1/2 mirror)",
+    "not_recommended": "keyCompanionGuidance delegation branch만 문장 교체 — trust/relational 경로 병렬 존재",
+    "required_opener_pattern": "제가 먼저 이렇게 판단하겠습니다."
+  },
+  "negative_controls": [
+    {
+      "question": "안녕하세요.",
+      "compose_mode": "key_social",
+      "preserved": true
+    },
+    {
+      "question": "월 보험료 얼마야?",
+      "compose_mode": "key_structured",
+      "matched_rule": "premium_lookup",
+      "judgment_rule_id": "premium_lookup_judgment",
+      "preserved": true
+    }
+  ],
+  "preview_live_trace": {
+    "preview_base": "https://lifeguard-core-final-ezwz3mnf1-70sofia113-1918s-projects.vercel.app",
+    "cases": [
+      {
+        "question": "알아서 봐줘.",
+        "compose_mode": "key_companion_guidance",
+        "tools": ["snapshot", "memory"],
+        "deflection_present": true
+      },
+      {
+        "question": "나도 잘 모르겠는데 그냥 알아서 봐줘.",
+        "compose_mode": "key_relational",
+        "tools": ["snapshot", "memory"],
+        "deflection_present": true
+      }
+    ]
+  },
+  "reusable_assets": [
+    "isKeyCompanionGuidanceSituation delegation regex (intent detection seed)",
+    "isHumanTrustQuestion uncertainty detection (paraphrase routing)",
+    "Slice 1/2 pattern: phaseBSliceN module + HUL wiring + skip enforceKeyDeclarativeEnding",
+    "planKeyTools snapshot + memory baseline",
+    "question-bank Q27 paraphrase anchor"
+  ],
+  "phase_b_slice3_module": {
+    "present": false,
+    "hul_wiring_present": false
+  },
+  "implementation_status": "awaiting_tom_compose_go_after_reality"
+}

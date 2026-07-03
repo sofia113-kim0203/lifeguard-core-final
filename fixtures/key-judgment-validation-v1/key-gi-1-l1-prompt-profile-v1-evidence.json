@@ -1,0 +1,105 @@
+{
+  "document": "key_gi_1_l1_prompt_profile_v1_evidence",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-L1",
+  "mode": "READ ONLY trace · mock LLM · no PASS",
+  "status": "implemented — await Tom review",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T07:29:17.667Z",
+  "pass_declaration": "none",
+  "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+  "r1_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r1-delegation-v1-evidence.json",
+  "relationship_backlog_ref": "fixtures/key-judgment-validation-v1/relationship-arc-backlog-v1.json",
+  "profile": {
+    "prompt": "LIFEGUARD_GI1_SYSTEM_PROMPT",
+    "max_chars": 900,
+    "max_tokens": 700,
+    "scope": "general_knowledge_delegation path only · default 600 unchanged"
+  },
+  "gk_spots": [
+    {
+      "id": "GK-L1-01",
+      "q": "강원도 여행 추천해줘",
+      "trace": {
+        "compose_mode": "general_knowledge_delegation",
+        "chat_profile": "gi1",
+        "gi1_max_chars": 900,
+        "generation_mode": "general_knowledge_delegation",
+        "answer_preview": "강원도는 속초·양양·평창 등 해안과 산이 가까워 여행하기 좋아요. 계절마다 풍경이 달라서 먼저 바다·산·휴양 중 어디가 끌리는지 정하면 코스를 짜기 쉽습니다."
+      },
+      "anthropic": {
+        "system_is_gi1": true,
+        "max_tokens": 700,
+        "system_preview": "You are LIFEGUARD — one warm, natural Korean-speaking person the customer talks to. The customer asked a general knowled"
+      }
+    },
+    {
+      "id": "GK-L1-02",
+      "q": "양자역학이 뭐야",
+      "trace": {
+        "compose_mode": "general_knowledge_delegation",
+        "chat_profile": "gi1",
+        "gi1_max_chars": 900,
+        "generation_mode": "general_knowledge_delegation",
+        "answer_preview": "강원도는 속초·양양·평창 등 해안과 산이 가까워 여행하기 좋아요. 계절마다 풍경이 달라서 먼저 바다·산·휴양 중 어디가 끌리는지 정하면 코스를 짜기 쉽습니다."
+      },
+      "anthropic": {
+        "system_is_gi1": true,
+        "max_tokens": 700,
+        "system_preview": "You are LIFEGUARD — one warm, natural Korean-speaking person the customer talks to. The customer asked a general knowled"
+      }
+    },
+    {
+      "id": "GK-L1-03",
+      "q": "조선시대 왕 순서 알려줘",
+      "trace": {
+        "compose_mode": "general_knowledge_delegation",
+        "chat_profile": "gi1",
+        "gi1_max_chars": 900,
+        "generation_mode": "general_knowledge_delegation",
+        "answer_preview": "강원도는 속초·양양·평창 등 해안과 산이 가까워 여행하기 좋아요. 계절마다 풍경이 달라서 먼저 바다·산·휴양 중 어디가 끌리는지 정하면 코스를 짜기 쉽습니다."
+      },
+      "anthropic": {
+        "system_is_gi1": true,
+        "max_tokens": 700,
+        "system_preview": "You are LIFEGUARD — one warm, natural Korean-speaking person the customer talks to. The customer asked a general knowled"
+      }
+    }
+  ],
+  "insurance_spot": {
+    "id": "INS-L1-01",
+    "q": "내 실손 보장 괜찮아?",
+    "trace": {
+      "compose_mode": "key_structured",
+      "chat_profile": null,
+      "gi1_max_chars": null,
+      "generation_mode": "key_orchestrator",
+      "answer_preview": "지금 자료만으로는 이 축의 보장 충분 여부를 단정하기 어렵습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다."
+    },
+    "anthropic": {
+      "system_is_gi1": null,
+      "max_tokens": null,
+      "system_preview": null
+    }
+  },
+  "checks": {
+    "gk_delegation_with_gi1_profile": true,
+    "insurance_not_gi1_prompt": true,
+    "default_path_untouched": true
+  },
+  "tom_scope": {
+    "in": [
+      "factual",
+      "natural explanation",
+      "no forced insurance",
+      "800~1000 char cap GI-1 only"
+    ],
+    "out": [
+      "Opportunity Engine",
+      "Claim",
+      "Presence",
+      "Relationship Arc slice"
+    ]
+  },
+  "jerry": "GI1-L1 only · R1 closed · no regression · no PASS"
+}

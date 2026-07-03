@@ -1,0 +1,8 @@
+{
+  "document": "key_memory_adoption_v1_slice_design",
+  "status": "SUPERSEDED",
+  "superseded_by": "fixtures/key-judgment-validation-v1/key-evidence-adoption-v1-slice-design.json",
+  "superseded_at": "2026-07-03",
+  "tom_reason": "Factory-centric candidate_fact framing rejected — replaced by KEY Evidence Adoption (Evidence → KEY → Fact → Memory)",
+  "redirect": "Use key-evidence-adoption-v1-slice-design.json for all design · EXEC · audit references"
+}

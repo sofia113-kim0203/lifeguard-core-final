@@ -1,0 +1,209 @@
+{
+  "document": "key_gi_1_r1_delegation_v1_evidence",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-R1",
+  "label": "General Knowledge Delegation trace",
+  "mode": "READ ONLY · orchestrator ON · mock Claude",
+  "status": "measured — no PASS declaration",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T07:29:27.408Z",
+  "pass_declaration": "none",
+  "r2_ref": "fixtures/key-judgment-validation-v1/key-gi-1-r2-v1-evidence.json",
+  "flow": "orchestrator → GK eligible → lifeguardChatCore delegation",
+  "changed_files": [
+    "server/homeAgentTom.js",
+    "server/homeBrainFactCore.js",
+    "server/humanUnderstandingLoop.js"
+  ],
+  "gk_delegation_summary": {
+    "total": 4,
+    "delegated": 4,
+    "key_relational": 0,
+    "expect": "all GK → general_knowledge_delegation · not key_relational"
+  },
+  "insurance_preserve_summary": {
+    "total": 3,
+    "gk_leaks": 0,
+    "expect": "no general_knowledge_delegation"
+  },
+  "rc_spot_summary": {
+    "total": 5,
+    "gk_leaks": 0,
+    "expect": "RC not hijacked by GK delegation"
+  },
+  "gk_rows": [
+    {
+      "id": "GK-R1-01",
+      "question": "양자컴퓨터가 뭐야?",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "general_knowledge_delegation",
+        "generation_mode": "general_knowledge_delegation",
+        "skip_reason": "lifeguard_chat_core_delegated_preserved",
+        "gk_delegation": true,
+        "key_relational": false,
+        "answer_preview": "GI1 R1 mock lifeguardChatCore factual answer for trace."
+      }
+    },
+    {
+      "id": "GK-R1-02",
+      "question": "강원도 여행 추천해줘",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "general_knowledge_delegation",
+        "generation_mode": "general_knowledge_delegation",
+        "skip_reason": "lifeguard_chat_core_delegated_preserved",
+        "gk_delegation": true,
+        "key_relational": false,
+        "answer_preview": "GI1 R1 mock lifeguardChatCore factual answer for trace."
+      }
+    },
+    {
+      "id": "GK-R1-03",
+      "question": "유럽 배낭여행 준비물 알려줘.",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "general_knowledge_delegation",
+        "generation_mode": "general_knowledge_delegation",
+        "skip_reason": "lifeguard_chat_core_delegated_preserved",
+        "gk_delegation": true,
+        "key_relational": false,
+        "answer_preview": "GI1 R1 mock lifeguardChatCore factual answer for trace."
+      }
+    },
+    {
+      "id": "GK-R1-04",
+      "question": "고혈압 줄이는 생활",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "general_knowledge_delegation",
+        "generation_mode": "general_knowledge_delegation",
+        "skip_reason": "lifeguard_chat_core_delegated_preserved",
+        "gk_delegation": true,
+        "key_relational": false,
+        "answer_preview": "GI1 R1 mock lifeguardChatCore factual answer for trace."
+      }
+    }
+  ],
+  "insurance_rows": [
+    {
+      "id": "INS-R1-01",
+      "question": "암보험 부족한가",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다."
+      }
+    },
+    {
+      "id": "INS-R1-02",
+      "question": "뭐 가입해야 해",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_guarded_hold",
+        "compose_mode": null,
+        "generation_mode": null,
+        "skip_reason": "not_invoked",
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요."
+      }
+    },
+    {
+      "id": "INS-R1-03",
+      "question": "실손보험에서 다이어트 치료는 보장돼?",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "가입된 보험이 있는 것은 확인돼요. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 확인해 보고 다시 말씀드리겠습니다."
+      }
+    }
+  ],
+  "rc_rows": [
+    {
+      "id": "RC-R1-01",
+      "question": "안녕",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "key_social",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "반갑습니다. 천천히 맞춰가면 됩니다."
+      }
+    },
+    {
+      "id": "RC-R1-02",
+      "question": "오랜만이야",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "recognition_companion_bridge",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다."
+      }
+    },
+    {
+      "id": "RC-R1-03",
+      "question": "고마워",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "key_social",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "천만에요. 편하실 때 이어가면 됩니다."
+      }
+    },
+    {
+      "id": "RC-R1-04",
+      "question": "다음에 또 올게",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "확인된 범위 안에서만 조심스럽게 말씀드릴 수 있습니다. 담보 구조와 한도까지는 이 정보만으로는 확인 전입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다."
+      }
+    },
+    {
+      "id": "RC-R1-05",
+      "question": "지난번 말한 거 기억해?",
+      "ok": true,
+      "trace": {
+        "response_source": "sales_director_key",
+        "compose_mode": "key_structured",
+        "generation_mode": "key_orchestrator",
+        "skip_reason": null,
+        "gk_delegation": false,
+        "key_relational": false,
+        "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요."
+      }
+    }
+  ],
+  "jerry": "R1 Delegation trace · no PASS"
+}

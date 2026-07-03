@@ -1,0 +1,163 @@
+{
+  "document": "key_gi_1_start_gate_v1_evidence",
+  "gate": "START-GATE",
+  "slice": "KEY-GI-1",
+  "label": "KEY General Intelligence — GI-1 일반 상식",
+  "mode": "Start Gate READ ONLY · no design body · no code · no implement",
+  "status": "PASS — ready for Tom GO design phase",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T01:00:00.000Z",
+  "pass_declaration": "none",
+  "authority_refs": {
+    "roadmap_vnext": "fixtures/key-judgment-validation-v1/lifeguard-roadmap-vnext-tom.json",
+    "hand_boundary": "fixtures/key-judgment-validation-v1/dual-chat-hand-boundary-readonly-v1-evidence.json",
+    "asset_review": "fixtures/key-judgment-validation-v1/lifeguard-asset-discovery-readonly-evidence.json"
+  },
+  "slice_scope": {
+    "goal": "일반 상식 질문에 자연스럽게 답한다",
+    "principle": "보험 질문이 아니면 보험으로 억지 연결하지 않는다",
+    "surface": "HOME-KEY-SSOT — Spine A only (CustomerLifeguardShell → home-brain-fact)",
+    "exclude": [
+      "청구 (Claim First)",
+      "보험 자연 연결 (GI-4 / Opportunity Engine)",
+      "장기 대화 (GI-3)",
+      "Presence",
+      "Insurance Opportunity Engine",
+      "Spine B merge/wire",
+      "코드 수정 (this gate)"
+    ]
+  },
+  "start_gate_steps": {
+    "environment": {
+      "status": "pass",
+      "head_sha": "172517d8e77c8b0aa1279088e1c66af3567e26c4",
+      "head_short": "172517d",
+      "node_version": "v24.15.0",
+      "branch": "fix/lv4-unified-to1-dpri",
+      "runtime_paths": "server/ · api/customer-home-brain-fact.js — no modified diff vs HEAD at gate",
+      "deploy_dirty_cwd": "forbidden per Ops Standard",
+      "p2_ref": "lifeguard-asset-discovery-readonly-evidence.json · environment_usability"
+    },
+    "repository": {
+      "status": "pass",
+      "customer_ssot_ingress": "api/customer-home-brain-fact.js → server/homeBrainFactCore.js → server/salesDirectorLoop.js",
+      "method": "static import chain @ HEAD · READ ONLY"
+    },
+    "bundle": {
+      "status": "pass",
+      "label": "KEY-GI-1 Start Gate bundle",
+      "artifacts": [
+        "lifeguard-roadmap-vnext-tom.json",
+        "key-gi-1-start-gate-v1-evidence.json (this)",
+        "lifeguard-asset-discovery-readonly-evidence.json",
+        "dual-chat-hand-boundary-readonly-v1-evidence.json"
+      ],
+      "design_contract": "not in Start Gate — Tom GO after this gate"
+    },
+    "asset_review": {
+      "status": "pass — P2 complete · reconfirmed for GI-1",
+      "ref": "lifeguard-asset-discovery-readonly-evidence.json",
+      "relevant_spine": "A_customer_key_ssot",
+      "hold": "Spine B BACKOFFICE-AI-CHAT — not GI-1 target"
+    },
+    "general_knowledge_path_audit": {
+      "status": "complete — READ ONLY",
+      "primary_customer_path": [
+        "LifeguardHomeChat.jsx → fetchHomeBrainFactStream",
+        "homeBrainFactCore.handleHomeBrainFactRequest",
+        "salesDirectorLoop.runSalesDirectorLoopTurn",
+        "branch A: salesDirectorKeyOrchestrator (when enabled) → humanUnderstandingLoop",
+        "branch B: homeAgentTom.runHomeAgentTomTurn → resolveTomInternalRoute"
+      ],
+      "casual_general_routing": {
+        "intent_classify": "intentGateLayer.classifyConsultationIntent · detectCasualChatIntent (greeting/small-talk/emotion ≤40 chars)",
+        "home_casual_gate": "homeBrainRouter.isCasualHomeQuestion — IDENTITY_CHAT · casual_chat · CASUAL_LIFE_TOPIC_SIGNAL (맛집·여행·가족·분당·날씨·취미 등) · non-insurance general_consultation ≤120 chars",
+        "tom_internal_chat": "homeAgentTom TOM_INTERNAL_ROUTES.CHAT → lifeguardChatCore.generateLifeguardChatResponse",
+        "home_brain_route": "homeBrainRouter.resolveHomeBrainRoute → CASUAL_CHAT for isCasualHomeQuestion"
+      },
+      "active_llm_general_layer_spine_a": {
+        "module": "server/lifeguardChatCore.js",
+        "prompt_role": "LIFEGUARD — warm Korean · food/travel/family/hospitals · ongoing chat",
+        "anti_insurance_push": "explicit — no \"보험 상담도 도와드릴게요\" on everyday topics",
+        "response_source": "lifeguard_chat_* / lifeguard_chat_fallback"
+      },
+      "pattern_only_social": {
+        "module": "server/keyConversationPatterns.js",
+        "compose_mode": "key_social",
+        "scope": "greeting/thanks/closing templates — not broad general knowledge"
+      },
+      "gi_1_gap_observed": {
+        "fact": "General knowledge without CASUAL_LIFE_TOPIC keywords may route to tom_internal_defer or KEY structured compose instead of lifeguardChatCore",
+        "example_risk": "Long-form general knowledge / education / economy questions outside regex signals",
+        "note": "Design phase topic — not fixed at Start Gate"
+      }
+    },
+    "casual_conversational_reuse_assessment": {
+      "status": "complete — READ ONLY",
+      "rule": "Reuse on Spine A · do not merge Spine B (HOLD)",
+      "spine_a_reuse_candidates": [
+        {
+          "asset": "lifeguardChatCore.js",
+          "reuse": "high",
+          "role": "Primary GI-1 LLM layer on customer path · extend/refine prompt scope for GI-1"
+        },
+        {
+          "asset": "homeBrainRouter.js · isCasualHomeQuestion · CASUAL_LIFE_TOPIC_SIGNAL",
+          "reuse": "high",
+          "role": "Routing to CHAT — may expand signals in Slice (design)"
+        },
+        {
+          "asset": "intentGateLayer.detectCasualChatIntent",
+          "reuse": "medium",
+          "role": "Narrow casual detection today — GI-1 may need broader general-knowledge classify"
+        },
+        {
+          "asset": "homeAgentTom.runTomChatTurn",
+          "reuse": "high",
+          "role": "Existing CHAT branch wiring"
+        },
+        {
+          "asset": "keyConversationPatterns key_social",
+          "reuse": "low for GI-1",
+          "role": "Social templates only"
+        }
+      ],
+      "spine_b_not_gi1_ssot": [
+        {
+          "asset": "casualChatResponseCore.js · fastResponseLayer.buildCasualChatResponse",
+          "path": "conversational-qa / BACKOFFICE-AI-CHAT",
+          "reuse": "prompt patterns reference only — Hand boundary · no wire",
+          "note": "Different persona (보험 주치의) · not customer KEY SSOT"
+        }
+      ],
+      "forbidden_reuse_action": "Connect Spine B into customer path · merge · dedupe at this gate"
+    },
+    "scope_exclude_confirmed": {
+      "status": "pass",
+      "in_scope": ["일반 상식", "자연스러운 답변", "non-insurance no forced bridge"],
+      "out_of_scope": [
+        "청구",
+        "보험 자연 연결",
+        "장기 대화",
+        "Presence",
+        "Opportunity Engine",
+        "Carrier API",
+        "Spine B integration"
+      ]
+    }
+  },
+  "forbidden_at_gate": [
+    "설계 본문",
+    "코드 수정",
+    "구현",
+    "보험 연결 로직",
+    "Presence 설계",
+    "Spine B merge"
+  ],
+  "next_after_tom_go": [
+    "KEY-GI-1 Design (contract · Birth Record sketch · reuse plan)",
+    "Tom GO",
+    "Implement Start Gate EXEC"
+  ],
+  "jerry": "Start Gate PASS · GI-1 · no design body · await Tom GO design"
+}

@@ -8,7 +8,11 @@ import {
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
 } from "./homeBrainRouter.js";
-import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
+import {
+  delegateGeneralKnowledgeChatTurn,
+  shouldRunGeneralKnowledgeDelegation,
+  TOM_INTERNAL_ROUTES,
+} from "./homeAgentTom.js";
 import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
 import {
   finalizeSalesDirectorResponse,
@@ -193,6 +197,7 @@ function finalizeHomeKeyOrchestratorResponse({
   tomInternalRoute = null,
   responseSource = null,
   freeThinking = null,
+  history = [],
 }) {
   const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
   const keyFactBundle = {
@@ -216,6 +221,7 @@ function finalizeHomeKeyOrchestratorResponse({
     conversationContext: {
       freeThinking,
       responseSource,
+      history,
     },
   });
 }
@@ -229,6 +235,7 @@ function applyHomeSalesDirectorFormatter({
   tomInternalRoute = null,
   responseSource = null,
   freeThinking = null,
+  history = [],
 }) {
   const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
 
@@ -253,6 +260,7 @@ function applyHomeSalesDirectorFormatter({
     conversationContext: {
       freeThinking,
       responseSource,
+      history,
     },
   });
 }
@@ -267,6 +275,7 @@ function finalizeHomeAgentResponse({
   responseSource = null,
   salesDirectorResponseSource = null,
   customerState = null,
+  history = [],
 }) {
   const originalText = text;
   const pilotSource = salesDirectorResponseSource ?? responseSource;
@@ -288,6 +297,7 @@ function finalizeHomeAgentResponse({
       tomInternalRoute,
       responseSource,
       freeThinking: customerState?.freeThinking ?? null,
+      history,
     });
     const finalText = applyP5BrainCustomerTextGuard(finalized.text);
     return {
@@ -313,6 +323,7 @@ function finalizeHomeAgentResponse({
       tomInternalRoute,
       responseSource,
       freeThinking: customerState?.freeThinking ?? null,
+      history,
     });
     const formatted = finalized.text;
     const finalText = applyP5BrainCustomerTextGuard(formatted);
@@ -456,9 +467,38 @@ export async function handleHomeBrainFactRequest({
   } = loopResult;
 
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
+  const consultationIntent = agentTurn.consultationIntent ?? modeDecision.consultationIntent;
+
+  const keyOrchestratorActive =
+    agentTurn.factBundle?.key_orchestrator === true ||
+    loopResult.modeDecision?.key_orchestrator === true;
+
+  if (
+    shouldRunGeneralKnowledgeDelegation({
+      question: trimmedQuestion,
+      consultationIntent,
+      keyOrchestrator: keyOrchestratorActive,
+    })
+  ) {
+    const delegated = await delegateGeneralKnowledgeChatTurn({
+      question: trimmedQuestion,
+      history,
+      fetchImpl,
+      env,
+    });
+    agentTurn.text = delegated.text;
+    agentTurn.responseSource = delegated.response_source;
+    agentTurn.factBundle = {
+      ...(agentTurn.factBundle ?? {}),
+      general_knowledge_delegation: true,
+      chat_profile: delegated.chat_profile ?? "gi1",
+      gi1_max_chars: delegated.max_chars_applied ?? null,
+      classification_intent: consultationIntent?.intent ?? intent,
+    };
+  }
 
   const composeStart = Date.now();
-  const factoryAudit = buildSalesDirectorFactoryAudit({
+  let factoryAudit = buildSalesDirectorFactoryAudit({
     customerContextBundle: loopResult.customerContextBundle,
     loadedContext,
     agentTurn,
@@ -491,16 +531,27 @@ export async function handleHomeBrainFactRequest({
     tomInternalRoute: agentTurn.tomInternalRoute,
     responseSource: agentTurn.responseSource ?? null,
     salesDirectorResponseSource: observabilityPreview.response_source,
+    history,
     customerState: {
       question: trimmedQuestion,
       coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
       recommendationContext: loopResult.customerContextBundle?.recommendationContext ?? null,
+      underwritingRiskContext: loopResult.customerContextBundle?.underwritingRiskContext ?? null,
       designContext: loopResult.customerContextBundle?.designContext ?? null,
       keyOrchestrator: loopResult.modeDecision?.key_orchestrator === true,
       freeThinking: salesDirectorTrace?.conversation_brain?.free_thinking ?? null,
     },
   });
   const answerText = finalized.text;
+
+  factoryAudit = buildSalesDirectorFactoryAudit({
+    customerContextBundle: loopResult.customerContextBundle,
+    loadedContext,
+    agentTurn,
+    salesDirectorTrace,
+    storedProbe: storedFactoryProbe,
+    keyComposeTrace: finalized.finalizeTrace?.key_compose_trace ?? null,
+  });
 
   if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
     activeStreamHandlers.onDelta(answerText);
@@ -560,6 +611,7 @@ export async function handleHomeBrainFactRequest({
       sales_director_judgment_audit: judgmentAudit,
       answer_evidence: factoryAudit.answer_evidence,
       p10_3e_preserve_gate: finalized.preserveGateTrace ?? null,
+      finalize_trace: finalized.finalizeTrace ?? null,
       p10_4_key_path_trace: keyPathTrace,
       latency: {
         ...(loopLatency ?? {}),

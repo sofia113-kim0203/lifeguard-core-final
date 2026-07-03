@@ -6,7 +6,18 @@
  * P9-2: basisTagged facts remain as thinking material; final speech via Human Understanding Loop.
  */
 import { finalizeHumanSalesDirectorResponse, shouldApplyHumanUnderstandingLoop } from "./humanUnderstandingLoop.js";
-import { LOOKUP_CATEGORIES, matchPolicyToCategory } from "./intentGateLayer.js";
+import {
+  LOOKUP_CATEGORIES,
+  matchPolicyToCategory,
+  detectPremiumBurdenCompanionCluster,
+  detectCoverageAnxietyCompanionCluster,
+  PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+  COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+  detectContinuityCompanionCluster,
+  RC_CONTINUITY_COMPANION_CLUSTER_ID,
+  detectRecognitionCompanionCluster,
+  RC_RECOGNITION_COMPANION_CLUSTER_ID,
+} from "./intentGateLayer.js";
 
 export const SALES_DIRECTOR_JUDGMENT_INTENTS = {
   COVERAGE_JUDGMENT: "coverage_judgment",
@@ -294,6 +305,26 @@ export function extractFactBundleEvidence(factBundle = {}) {
 export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", question = "") {
   const q = normalizeQuestion(question);
   if (!q) return null;
+
+  const premiumBurdenCluster = detectPremiumBurdenCompanionCluster(q);
+  if (premiumBurdenCluster?.cluster_id === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+    return SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION;
+  }
+
+  const coverageAnxietyCluster = detectCoverageAnxietyCompanionCluster(q);
+  if (coverageAnxietyCluster?.cluster_id === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID) {
+    return SALES_DIRECTOR_JUDGMENT_INTENTS.COVERAGE_JUDGMENT;
+  }
+
+  const continuityCluster = detectContinuityCompanionCluster(q);
+  if (continuityCluster?.cluster_id === RC_CONTINUITY_COMPANION_CLUSTER_ID) {
+    return null;
+  }
+
+  const recognitionCluster = detectRecognitionCompanionCluster(q);
+  if (recognitionCluster?.cluster_id === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
+    return null;
+  }
 
   for (const rule of QUESTION_INTENT_RULES) {
     if (rule.pattern.test(q)) return rule.intent;

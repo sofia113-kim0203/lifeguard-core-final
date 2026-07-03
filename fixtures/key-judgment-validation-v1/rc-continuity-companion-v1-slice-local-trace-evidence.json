@@ -1,0 +1,922 @@
+{
+  "document": "rc_continuity_companion_v1_slice_local_trace_evidence",
+  "slice": "RELATIONSHIP-ARC-SLICE-1-RC-CONTINUITY-COMPANION-v1",
+  "contract_subtitle": "Conversation Continuity Bridge",
+  "mode": "local module trace · no PASS · no Production deploy",
+  "tom_go": "conditional EXEC GO — local implementation",
+  "pass_declaration": "none",
+  "observed_at": "2026-06-30T19:29:36.872Z",
+  "design_ref": "rc-continuity-companion-v1-slice-design.json",
+  "upstream_refs": [
+    "rc-continuity-companion-v1-r1-continuity-trace-evidence.json",
+    "relationship-role-split-r0-audit-evidence.json"
+  ],
+  "tom_conditions": [
+    "기억해? → memory_recall_lookup preserved",
+    "insurance questions excluded from cluster",
+    "no coverage_gap / recommendation / premium_stats",
+    "memory absent — no fabrication",
+    "no internal memory lookup customer exposure"
+  ],
+  "summary": {
+    "paraphrase": "5/5",
+    "negative": "8/8",
+    "memory_anchor": "3/3",
+    "r0_role_split": "2/2",
+    "slice1_regression": "spot",
+    "slice2_regression": "spot"
+  },
+  "paraphrase": [
+    {
+      "question": "그 이야기 이어서.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "continue_explicit"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": true,
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "response_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "response_shape": "memory_absent",
+      "bridge": {
+        "memory_present": false,
+        "bridge_source": null,
+        "thread_hint": null
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "아까 말한 거.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": true,
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "response_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "response_shape": "memory_absent",
+      "bridge": {
+        "memory_present": false,
+        "bridge_source": null,
+        "thread_hint": null
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "전에 말한 거.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": true,
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "response_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "response_shape": "memory_absent",
+      "bridge": {
+        "memory_present": false,
+        "bridge_source": null,
+        "thread_hint": null
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "그때 이야기.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": true,
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "response_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "response_shape": "memory_absent",
+      "bridge": {
+        "memory_present": false,
+        "bridge_source": null,
+        "thread_hint": null
+      },
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "지난번 이야기.",
+      "intent": "general_consultation",
+      "matched_rule": "continuity_companion_cluster",
+      "companion_cluster": "RC-CONTINUITY-COMPANION-v1",
+      "companion_cluster_signals": [
+        "time_speech_reference"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "memory"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": true,
+      "compose_gate": "continuity_companion_bridge",
+      "judgment_rule_id": "continuity_companion_judgment",
+      "response_preview": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "response_shape": "memory_absent",
+      "bridge": {
+        "memory_present": false,
+        "bridge_source": null,
+        "thread_hint": null
+      },
+      "assessment": {
+        "aligned": true
+      }
+    }
+  ],
+  "negative": [
+    {
+      "question": "암보장 부족해?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "cancer_gap"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "보험료 부담돼.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "burden"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "뭐 가입해야 해?",
+      "intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "내 보험 부족한 부분 있어?",
+      "intent": "coverage_gap_check",
+      "matched_rule": "coverage_gap_check",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "gap_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "지난번 이야기 기억해?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Memory",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "아까 보험료 얘기했잖아.",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "오늘 너무 힘들어.",
+      "intent": "casual_chat",
+      "matched_rule": "casual_emotion_check",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    },
+    {
+      "question": "그냥 이야기하자.",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true,
+        "no_cluster": true
+      }
+    }
+  ],
+  "memory_anchor": [
+    {
+      "question": "지난번 이야기 기억해?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Memory",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "전에 말했던 거 기억해?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Memory",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "기억나?",
+      "intent": "general_consultation",
+      "matched_rule": "general_consultation_fallback",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "memory_recall_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Memory",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "response_shape_samples": {
+    "memory_absent": {
+      "text": "이전 대화를 확인할 수 없어요. 조금만 다시 말씀해 주시면 자연스럽게 이어갈게요.",
+      "shape": "memory_absent"
+    },
+    "memory_present_session": {
+      "text": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨는데, 오늘은 좀 나아지셨나요?",
+      "shape": "memory_present"
+    },
+    "memory_present_facts": {
+      "text": "지난번 이야기 이어서 해볼게요. 힘들다고 이야기해 주셨던 부분, 그 흐름 이어서 같이 볼게요.",
+      "shape": "memory_present"
+    }
+  },
+  "r0_role_split": [
+    {
+      "question": "힘들어요.",
+      "intent": "casual_chat",
+      "matched_rule": "casual_emotion_check",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "spec": {
+        "question": "힘들어요.",
+        "expected_role": "Companion",
+        "fail_if": "insurance_judgment"
+      },
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "암보험이 부족한가요?",
+      "intent": "coverage_gap_check",
+      "matched_rule": "coverage_gap_check",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "gap_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "spec": {
+        "question": "암보험이 부족한가요?",
+        "expected_role": "Insurance",
+        "fail_if": "companion_only"
+      },
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "slice1_regression": [
+    {
+      "question": "보험료가 부담돼.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "burden"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "보험을 줄이고 싶어.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "reduction"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료를 낮추고 싶어.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "reduction"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료 얼마야?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "lookup_ok": true,
+        "no_continuity_cluster": true
+      }
+    },
+    {
+      "question": "내 보험료 총액 얼마야?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "lookup_ok": true,
+        "no_continuity_cluster": true
+      }
+    },
+    {
+      "question": "보험료 몇 원이야?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "home_brain_intent": "premium_lookup",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "lookup_ok": true,
+        "no_continuity_cluster": true
+      }
+    }
+  ],
+  "slice2_regression": [
+    {
+      "question": "내 보험 괜찮아?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "adequacy_ok"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "policy_count",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "보장이 부족한 것 같아.",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "inadequacy_feel"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "뭐가 빠졌지?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "missing_piece"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "casual_chat",
+      "role_axis": "Companion",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "암보장 부족해?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "cancer_gap"
+      ],
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": false,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "어떤 보장이 있어?",
+      "intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "보장 분석해줘.",
+      "intent": "coverage_review_request",
+      "matched_rule": "coverage_review_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "뭐 가입해야 해?",
+      "intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "home_brain_intent": "unsupported",
+      "home_route": "high_stakes_defer",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    },
+    {
+      "question": "내 보험 문제 있어?",
+      "intent": "factual_lookup",
+      "matched_rule": "policy_count",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "policy_count",
+      "home_brain_intent": "policy_count",
+      "home_route": "factual_grounded",
+      "role_axis": "Insurance",
+      "tools": [
+        "snapshot"
+      ],
+      "coverage_gap_suppressed": false,
+      "forbidden_tools_absent": true,
+      "compose_gate": null,
+      "judgment_rule_id": null,
+      "response_preview": null,
+      "response_shape": null,
+      "bridge": null,
+      "assessment": {
+        "preserved": true
+      }
+    }
+  ],
+  "changed_files": [
+    "server/intentGateLayer.js",
+    "server/conversationContinuityBridge.js",
+    "server/salesDirectorKeyToolRegistry.js",
+    "server/keyJudgmentRules.js",
+    "server/salesDirectorFormatter.js",
+    "server/humanUnderstandingLoop.js",
+    "server/personalKeyTimeContinuity.js",
+    "scripts/rc-continuity-companion-v1-paraphrase-trace-readonly.mjs",
+    "package.json"
+  ],
+  "jerry": "STOP — local evidence only · no PASS · no Production"
+}

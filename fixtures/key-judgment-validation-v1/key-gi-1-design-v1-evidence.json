@@ -1,0 +1,258 @@
+{
+  "document": "key_gi_1_design_v1_evidence",
+  "slice": "KEY-GI-1",
+  "label": "KEY General Intelligence — GI-1 일반 상식",
+  "mode": "Design · no implement · no new engine",
+  "status": "submitted — await Tom GO",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T02:00:00.000Z",
+  "pass_declaration": "none",
+  "start_gate_ref": "fixtures/key-judgment-validation-v1/key-gi-1-start-gate-v1-evidence.json",
+  "roadmap_vnext_ref": "fixtures/key-judgment-validation-v1/lifeguard-roadmap-vnext-tom.json",
+  "hand_boundary_ref": "fixtures/key-judgment-validation-v1/dual-chat-hand-boundary-readonly-v1-evidence.json",
+  "tom_design_brief": {
+    "first_question": "현재 있는 일반상식 경로를 GPT 수준까지 어떻게 성장시킬 것인가?",
+    "not": "일반상식을 새로 만들 것인가",
+    "one_line": "새 일반상식 엔진 ❌ · 이미 있는 경로의 최소 성장 ✅"
+  },
+  "forbidden": [
+    "GPT 복제 설계",
+    "새 엔진 추가",
+    "새 대화 시스템",
+    "보험 로직 추가",
+    "Spine B merge",
+    "GI-2~4 scope (장기 대화·보험 연결·Opportunity Engine)"
+  ],
+  "design_flow": {
+    "current": "see section current_state",
+    "gap": "see section gpt_gaps",
+    "reuse": "see section reuse_minimal_extension",
+    "minimal_extension": "see section minimal_extension_plan",
+    "gi_1_done_when": "see section completion_criteria"
+  },
+  "current_state": {
+    "summary": "일반상식 경로는 이미 존재 — Spine A · HOME-KEY-SSOT",
+    "ingress": "LifeguardHomeChat → /api/customer-home-brain-fact → salesDirectorLoop",
+    "routing_layers": {
+      "layer_1_intent": {
+        "module": "intentGateLayer.detectCasualChatIntent + classifyConsultationIntent",
+        "casual_chat_today": {
+          "greeting": "CASUAL_GREETING_RE — 안녕·하이 등",
+          "thanks": "CASUAL_THANKS_RE",
+          "small_talk": "CASUAL_SMALL_TALK_RE — 뭐해·잘지내·오랜만",
+          "emotion_short": "CASUAL_EMOTION_RE · 질문 ≤40자 — 피곤·힘들·우울·스트레스",
+          "not_covered_by_intent": "여행·역사·과학·경제·IT·긴 설명형 일반상식 — intent는 often general_consultation"
+        }
+      },
+      "layer_2_home_router": {
+        "module": "homeBrainRouter.isCasualHomeQuestion",
+        "reaches_casual_chat_route": {
+          "identity": "IDENTITY_CHAT_SIGNAL — 누구·LIFEGUARD 정체",
+          "casual_intent": "consultationIntent === casual_chat",
+          "life_topics": "CASUAL_LIFE_TOPIC_SIGNAL — 맛집·여행·가족·분당·날씨·취미·영화·드라마·등산·쇼핑 등",
+          "non_insurance_general": "general_consultation + !hasInsuranceTopicSignal (any length if general_consultation)",
+          "short_non_insurance": "text.length ≤120 + !insurance signal"
+        },
+        "topic_coverage_map": {
+          "날씨": "partial — not explicit regex · may pass via general_consultation",
+          "여행": "yes — CASUAL_LIFE_TOPIC_SIGNAL",
+          "맛집": "yes — CASUAL_LIFE_TOPIC_SIGNAL",
+          "영화": "yes — CASUAL_LIFE_TOPIC_SIGNAL",
+          "역사": "partial — no keyword · general_consultation non-insurance path",
+          "과학": "partial — no keyword · general_consultation non-insurance path",
+          "경제": "partial — high-stakes may defer (세금·상속 등) · plain economy question unclear",
+          "IT": "partial — no keyword · general_consultation path"
+        }
+      },
+      "layer_3_compose_fork": {
+        "critical": "두 갈래 — GI-1 설계 핵심",
+        "path_a_key_orchestrator": {
+          "when": "shouldUseSalesDirectorKeyOrchestrator === true (default when enabled + not blocked intent)",
+          "casual_compose": "humanUnderstandingLoop — casual_chat → shouldUseKeyRelationalCompose → buildKeyRelationalResponse (template variants)",
+          "social_compose": "keyConversationPatterns key_social — greeting templates",
+          "not": "lifeguardChatCore LLM for broad general knowledge",
+          "gi_1_issue": "Orchestrator may answer travel/life with relational filler instead of GPT-level factual reply"
+        },
+        "path_b_lifeguard_chat": {
+          "when": "homeAgentTom TOM_INTERNAL_ROUTES.CHAT → runTomChatTurn",
+          "module": "lifeguardChatCore.generateLifeguardChatResponse",
+          "llm": "Claude · LIFEGUARD_AGENT_SYSTEM_PROMPT",
+          "limits": "max_tokens 512 · max_chars 600 · history 10 turns",
+          "anti_insurance_push": "prompt explicit — everyday topics no insurance push",
+          "this_is": "실질적 일반상식 LLM layer today"
+        }
+      }
+    },
+    "spine_b_not_in_scope": "casualChatResponseCore / fastResponseLayer — BACKOFFICE-AI-CHAT · reference only"
+  },
+  "question_1_current_scope": {
+    "casual_chat_intent_narrow": [
+      "인사·감사·짧은 안부",
+      "짧은 감정(≤40자)"
+    ],
+    "casual_home_broader": [
+      "생활 토픽 regex (여행·맛집·영화·가족·날씨·취미 등)",
+      "보험 토픽 없는 general_consultation",
+      "정체/identity 질문"
+    ],
+    "llm_general_knowledge_when": "homeAgentTom CHAT branch → lifeguardChatCore · General Knowledge Delegation (orchestrator → 판단 → 위임)",
+    "gi_1_scope_definition": {
+      "in": "보험 토픽 없는 일반 지식·생활·교양 질문 — 자연스러운 factual/conversational 답",
+      "out": "보험 judgment · 청구 · companion bridges · 억지 보험 연결"
+    }
+  },
+  "question_2_gpt_gaps": {
+    "routing_gap": {
+      "issue": "KEY orchestrator relational templates intercept before lifeguardChatCore",
+      "impact": "여행/일상도 template 수준 — GPT 수준 factual 답 아님"
+    },
+    "capability_gaps": [
+      {
+        "area": "추론",
+        "today": "LLM capable when reached · prompt asks 1-5 sentences — discourages deep reasoning",
+        "gap": "shallow by design + relational template intercept before delegation"
+      },
+      {
+        "area": "긴 설명",
+        "today": "max_chars 600 · max_tokens 512",
+        "gap": "hard cap limits GPT-level exposition"
+      },
+      {
+        "area": "표·비교",
+        "today": "prompt: plain sentences · no markdown tables",
+        "gap": "structured comparison weak"
+      },
+      {
+        "area": "연속·복합 질문",
+        "today": "history 10 turns · 1500 chars/turn truncation",
+        "gap": "GI-3 scope partially · GI-1 needs baseline multi-turn within limits"
+      },
+      {
+        "area": "교양 범위 (역사·과학·경제·IT)",
+        "today": "no dedicated classify · relies on general_consultation + router",
+        "gap": "inconsistent reach to lifeguardChatCore · high-stakes defer edge cases"
+      }
+    ],
+    "not_gaps_for_gi_1": [
+      "Claude API availability",
+      "SSE streaming (exists)",
+      "Persona baseline infrastructure"
+    ]
+  },
+  "question_3_reuse_before_new_code": {
+    "priority_order": [
+      {
+        "asset": "lifeguardChatCore.js",
+        "growth": "GI-1 profile — prompt + limits tuning for general knowledge (same module)",
+        "reuse": "high"
+      },
+      {
+        "asset": "homeAgentTom.runTomChatTurn + TOM_INTERNAL_ROUTES.CHAT",
+        "growth": "ensure general-knowledge questions reliably land here",
+        "reuse": "high"
+      },
+      {
+        "asset": "homeBrainRouter.isCasualHomeQuestion",
+        "growth": "align GENERAL_KNOWLEDGE eligibility · expand signals (역사·과학·IT·경제) without insurance false positives",
+        "reuse": "high"
+      },
+      {
+        "asset": "intentGateLayer.detectCasualChatIntent",
+        "growth": "optional broaden OR shared helper with homeBrainRouter — avoid duplicate regex drift",
+        "reuse": "medium"
+      },
+      {
+        "asset": "salesDirectorKeyOrchestrator + humanUnderstandingLoop compose gate",
+        "growth": "GI-1: general-knowledge eligible → General Knowledge Delegation to lifeguardChatCore (orchestrator judgment retained)",
+        "reuse": "high — Hand fix not new engine"
+      },
+      {
+        "asset": "keyConversationPatterns key_social",
+        "growth": "keep for greeting — do not expand to general knowledge",
+        "reuse": "low for GI-1 breadth"
+      }
+    ],
+    "spine_b_reference_only": "casualChatResponseCore prompts — pattern reference · no wire"
+  },
+  "question_4_new_layer_needed": {
+    "verdict": "no_new_layer",
+    "rationale": "lifeguardChatCore already IS the general LLM layer · problem is routing + limits + orchestrator fork",
+    "minimal_extension_only": true,
+    "alternative_rejected": "New GI engine · GPT clone · parallel chat system"
+  },
+  "minimal_extension_plan": {
+    "slice_id": "KEY-GI-1",
+    "changes_conceptual_only": [
+      {
+        "id": "GI1-R1",
+        "title": "General Knowledge Delegation — lifeguardChatCore",
+        "touch": "humanUnderstandingLoop / salesDirectorKeyOrchestrator handoff",
+        "rule": "When GI-1 eligible (non-insurance general) · orchestrator 판단 후 lifeguardChatCore 위임 · relational template 아님",
+        "new_engine": false
+      },
+      {
+        "id": "GI1-R2",
+        "title": "Unified general-knowledge eligibility",
+        "touch": "homeBrainRouter + intentGateLayer (shared helper or single SSOT function)",
+        "rule": "One place defines: life topics + general_consultation non-insurance + GI-1 topic keywords",
+        "new_engine": false
+      },
+      {
+        "id": "GI1-P1",
+        "title": "lifeguardChatCore GI-1 prompt profile",
+        "touch": "lifeguardChatCore.js LIFEGUARD_AGENT_SYSTEM_PROMPT (+ optional GI-1 variant flag)",
+        "rule": "General knowledge: factual · natural · no insurance push · allow modestly longer when needed",
+        "new_engine": false
+      },
+      {
+        "id": "GI1-L1",
+        "title": "Limits tune (minimal)",
+        "touch": "lifeguardChatCore max_tokens / max_chars for GI-1 path only",
+        "rule": "Slightly higher cap for explanation — not unbounded · not GI-3 long conversation",
+        "new_engine": false
+      }
+    ],
+    "explicitly_not_in_gi_1": [
+      "Insurance Opportunity Engine",
+      "Claim paths",
+      "Presence / RC bridge changes",
+      "New API ingress",
+      "Spine B merge"
+    ]
+  },
+  "completion_criteria_gi_1": {
+    "customer_seat": "HOME-KEY-SSOT · LifeguardHomeChat",
+    "behavior": [
+      "보험 없는 일반상식·생활·교양 질문 → 자연스러운 LLM 답",
+      "보험 억지 연결 없음",
+      "relational template filler 대신 factual answer (when orchestrator on)"
+    ],
+    "regression": "test:key-v2-key-persona must not break · Persona First",
+    "birth_record_sketch": "KEY가 보험 없는 질문에도 자연스럽게 답한다",
+    "evidence_at_close": "implementation_sha + evidence_sha · Tom GO"
+  },
+  "tom_design_go": {
+    "status": "GO",
+    "observed_at": "2026-07-02T03:00:00.000Z",
+    "approvals": {
+      "GI1-R1": "GO",
+      "GI1-R2": "GO",
+      "GI1-P1": "GO",
+      "GI1-L1": "conditional GO — 800~1000 chars GI-1 path only"
+    },
+    "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+    "implement": "forbidden until Tom GO EXEC"
+  },
+  "tom_exec_review": {
+    "status": "3 amendments applied — ready for GO EXEC pending Tom confirm",
+    "observed_at": "2026-07-02T04:00:00.000Z",
+    "amendments": [
+      "GI1-MEASURE 분류 실측 before R2",
+      "Bypass → General Knowledge Delegation",
+      "Regression bank ~110 (gi-1-regression-bank-v1.json)"
+    ],
+    "regression_bank_ref": "fixtures/key-judgment-validation-v1/gi-1-regression-bank-v1.json",
+    "classification_baseline_ref": "fixtures/key-judgment-validation-v1/key-gi-1-classification-baseline-plan-v1.json"
+  },
+  "jerry": "Design submitted · minimal extension · no implement · await Tom GO"
+}

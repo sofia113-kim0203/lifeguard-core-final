@@ -1,0 +1,63 @@
+{
+  "schema_version": "phase-c-slice-2-premium-care-plan-closure-v1.1",
+  "recorded_at": "2026-07-04T02:23:00+09:00",
+  "slice": {
+    "id": "phase_c_slice_2",
+    "name": "Premium Care Plan",
+    "intent": "Premium burden follow-on after Phase B Judge",
+    "primary_question": "보험료 부담돼.",
+    "cluster": "JC-PREMIUM-BURDEN-v1",
+    "compose_module": "server/keyBrain/phaseCSlice2PremiumCarePlan.js",
+    "status": "closed",
+    "closed_at": "2026-07-04",
+    "git_commit": "713e388",
+    "evidence_commit": "8e9159a",
+    "preview_bundle": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app"
+  },
+  "care_plan_contract_ssot": "fixtures/key-judgment-validation-v1/phase-c-care-plan-contract-v1.json",
+  "contract_slice2_v1_1": {
+    "transition": "pass",
+    "what": "pass",
+    "when": "pass",
+    "why": "pass",
+    "reassurance": "pass",
+    "companion": "pass",
+    "plan_not_conclusion": "pass"
+  },
+  "product_principles": {
+    "plan_not_conclusion": "pass",
+    "why_customer_language": "pass",
+    "companion_voice": "pass",
+    "key_together_execution": "pass"
+  },
+  "merge_gate": {
+    "local_unit": "7/7 pass",
+    "preview_wiring": "phase_c_slice2_premium_care_plan_active",
+    "preview_seat": "slice2_contract_pass",
+    "regression_30q": "30/30 probe_ok",
+    "friction": 0,
+    "manual_role_split": "30/30"
+  },
+  "evidence": {
+    "closure": "fixtures/key-judgment-validation-v1/phase-c-slice-2-premium-care-plan-closure-evidence.json",
+    "preview_wiring": "fixtures/key-judgment-validation-v1/phase-c-slice-2-preview-wiring-trace-evidence.json",
+    "preview_seat": "fixtures/key-judgment-validation-v1/phase-c-slice-2-preview-customer-seat-evidence.json",
+    "regression": "fixtures/key-customer-validation-v1/preview-validation-report.json"
+  },
+  "achievement": "Phase B: 보험료를 어떻게 판단할지 → Phase C Slice 2: 어떤 순서로 판단해 나갈지. 고객은 '줄여야 하나?'가 아니라 '무엇부터 확인하면 되는지'를 얻는다.",
+  "tom_final_ratify": {
+    "approved": true,
+    "approved_at": "2026-07-04T02:23:00+09:00",
+    "approved_by": "Tom",
+    "final_sentence": "Phase C Slice 2 — Premium Care Plan 공식 종료 승인."
+  },
+  "next_slice": {
+    "id": "phase_c_slice_3",
+    "name": "Delegation Care Plan",
+    "question": "알아서 봐줘.",
+    "cluster": "JC-DELEGATION-v1",
+    "status": "tom_go_next",
+    "goal": "Phase B '제가 먼저 판단하겠습니다' → Phase C '그럼 앞으로는 제가 이런 순서로 같이 진행하겠습니다' — 위임을 함께 진행할 계획으로"
+  },
+  "jerry_pass_declaration": "none"
+}

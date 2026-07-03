@@ -1,0 +1,45 @@
+{
+  "schema_version": "key-product-growth-roadmap-v1",
+  "document_type": "roadmap",
+  "recorded_at": "2026-07-04T03:16:00+09:00",
+  "authority": "Tom — 실행 계획 (헌법 아님)",
+  "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
+  "status_summary": "Phase A~C 완성. 헌법 감사 ① 완료 — Tom GAP-01 Slice GO. 기능보다 일관성: Recommendation Panel Alignment.",
+  "phases": [
+    { "id": "phase_a", "name": "Understand", "status": "complete", "summary": "고객을 이해한다" },
+    { "id": "phase_b", "name": "Judge", "status": "complete", "summary": "전문가처럼 판단한다" },
+    { "id": "phase_c", "name": "Care Plan", "status": "complete", "summary": "앞으로의 계획을 함께 세운다", "closed_at": "2026-07-04" },
+    {
+      "id": "constitution_product_audit",
+      "name": "기존 제품 헌법 감사",
+      "status": "in_progress",
+      "audit_1_recommendation_design": "complete_tom_slice_go",
+      "audit_plan": "fixtures/key-judgment-validation-v1/key-constitution-product-audit-plan-v1.json",
+      "audit_evidence": "fixtures/key-judgment-validation-v1/key-constitution-audit-recommendation-design-repository-reality-v1.json"
+    },
+    {
+      "id": "recommendation_panel_alignment",
+      "name": "Recommendation Panel Alignment",
+      "status": "tom_slice_go",
+      "implementation": "not_started",
+      "gap": "GAP-01",
+      "goal": "패널 = KEY",
+      "design": "fixtures/key-judgment-validation-v1/recommendation-panel-alignment-slice-design-v1.json",
+      "note": "Tom 1순위 — KEY chat과 패널 이중 KEY 경험 제거"
+    },
+    {
+      "id": "phase_d",
+      "name": "Proactive",
+      "status": "planned",
+      "implementation": "not_started",
+      "note": "헌법 감사 후 설계·착수 — 고객이 찾아올 때만 반응 → KEY가 먼저 찾아오는 보험 주치의"
+    }
+  ],
+  "abc_maps_to_direction": {
+    "phase_a": "이해 — 고객을 이해한다",
+    "phase_b": "판단 — 전문가처럼 판단한다",
+    "phase_c": "계획 — 앞으로의 계획을 함께 세운다",
+    "phase_d_plus": "관리 · 손해 · 평생 — 끝까지 함께한다"
+  },
+  "jerry_pass_declaration": "none"
+}

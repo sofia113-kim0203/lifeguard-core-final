@@ -1,0 +1,114 @@
+{
+  "document": "rc_recognition_companion_v1_slice_contract",
+  "contract_id": "RC-RECOGNITION-COMPANION-v1",
+  "contract_subtitle": "Return Visit Recognition Bridge",
+  "arc": "Relationship Arc — Slice 2 (Recognition)",
+  "family": "Relationship",
+  "mode": "Contract frozen · Tom Contract GO · no implementation · no deploy · no PASS",
+  "status": "contract_go — R1 READ ONLY next",
+  "observed_at": "2026-07-01T02:30:00.000Z",
+  "pass_declaration": "none",
+  "tom_go": "Contract GO / R1 READ ONLY GO — 2026-07-01",
+  "upstream_refs": [
+    "rc-recognition-companion-v1-r0-trace-readonly-evidence.json"
+  ],
+  "constitution_classification": {
+    "primary": "LIFEGUARD(KEY) — Relationship / Return Recognition · Persona continuity",
+    "secondary_hand": "Expand existing relationship_reunion pattern into companion cluster — no Memory lookup",
+    "secondary_factory": "none — no new storage · no Memory fact read for Recognition",
+    "family_question_answer": "KEY를 더 같은 사람으로? — YES",
+    "family_question_not": "보험을 더 잘하게? · Memory recall · 새 Family · 새 Persona"
+  },
+  "identity": {
+    "statement": "고객의 재방문을 자연스럽게 맞이하는 사람",
+    "customer_facing": "반갑게 맞이하고 대화를 다시 시작할 준비를 한다",
+    "not": [
+      "기억을 증명하는 사람 (Memory)",
+      "보험 판단을 시작하는 사람",
+      "사실을 회상해 나열하는 사람"
+    ],
+    "birth_record_axis": "Relationship",
+    "birth_record_identity_candidate": "고객의 재방문을 자연스럽게 맞이한다"
+  },
+  "boundary": {
+    "recognition": {
+      "definition": "사람을 맞이한다",
+      "opens": "Conversation"
+    },
+    "memory": {
+      "definition": "사실을 회상한다",
+      "opens": "Facts"
+    },
+    "rule": "Recognition ≠ Memory — must never mix in this Slice"
+  },
+  "in_scope_paraphrase_set": [
+    "오랜만이야",
+    "다시 왔어",
+    "또 왔어",
+    "오늘도 왔어",
+    "또 보네",
+    "다시 왔네",
+    "왔어"
+  ],
+  "exclude_set": {
+    "memory_family": [
+      "나 기억해?",
+      "기억하지?",
+      "기억해?",
+      "지난번 기억?",
+      "전에 말한 거 기억?"
+    ],
+    "insurance_topic": "hasInsuranceTopicSignal(text) — any insurance-topic utterance",
+    "preserve_clusters": [
+      "JC-PREMIUM-BURDEN-v1",
+      "JC-COVERAGE-ANXIETY-v1",
+      "RC-CONTINUITY-COMPANION-v1"
+    ]
+  },
+  "compose_contract": {
+    "allowed": [
+      "key_social",
+      "recognition_companion_bridge (design target — mirror RC continuity bridge pattern)"
+    ],
+    "forbidden": [
+      "insurance structured opener",
+      "gap_grounded",
+      "recommendation",
+      "premium judgment cluster response",
+      "memory_recall_judgment",
+      "memory fact lookup"
+    ],
+    "voice": "Companion → Recognition voice → Conversation open"
+  },
+  "implementation_approach": {
+    "tom_direction": "Expand existing relationship_reunion — not invent new feature",
+    "seed_pattern": "relationship_reunion in keyConversationPatterns.js",
+    "mechanism_target": "detectRecognitionCompanionCluster() — additive companion_cluster (mirror RC-CONTINUITY / JC pattern)",
+    "cluster_id": "RC-RECOGNITION-COMPANION-v1",
+    "insertion_point": "classifyConsultationIntent — after continuity cluster · before general_consultation_fallback"
+  },
+  "slice_success_condition": {
+    "customer_facing": "고객이 다시 찾아왔을 때 KEY가 상대를 알아보고 맞이하는 사람처럼 느껴지는가?",
+    "not_success": [
+      "route PASS alone",
+      "pattern_id match alone without unified 7-paraphrase voice",
+      "Memory fact count",
+      "insurance tool load"
+    ]
+  },
+  "one_ability_per_slice": {
+    "ability": "Return visit recognition / welcome",
+    "must_not_combine": [
+      "Memory recall",
+      "Conversation continuity bridge (RC-CONTINUITY)",
+      "Trust judgment (JC)"
+    ]
+  },
+  "r0_findings_summary": {
+    "split_axes": ["Recognition (1/5)", "Insurance structured (3/5)", "Memory misroute (1/5)"],
+    "seed": "오랜만이야 → relationship_reunion + key_social",
+    "gap": "다시/또/오늘도 왔어 → insurance structured; no recognition cluster"
+  },
+  "next_step": "R1 READ ONLY trace → Tom audit → slice design (not EXEC)",
+  "jerry": "Contract frozen — R1 evidence only until design GO"
+}

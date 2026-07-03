@@ -1,0 +1,361 @@
+{
+  "document": "key_evidence_adoption_v1_slice_design",
+  "gate": "KEY-EVIDENCE-ADOPTION-V1",
+  "label": "LIFEGUARD Cognition Stack — Factory Raw Output · KEY Evidence · KEY Fact · Memory",
+  "supersedes": "fixtures/key-judgment-validation-v1/key-memory-adoption-v1-slice-design.json",
+  "mode": "Design · EA-1 EXEC GO · implementation complete · Preview not in EA-1 scope",
+  "status": "Tom EXEC GO · Amendment #2 locked · EA-1 wired · push locked",
+  "observed_at": "2026-07-03",
+  "tom_cognition_stack": {
+    "locked_at": "2026-07-03",
+    "declaration": "LIFEGUARD의 인식 체계 — Upload 기능이 아님",
+    "hierarchy": [
+      "Reality",
+      "Raw Output",
+      "Evidence",
+      "Fact",
+      "Memory",
+      "Judgment",
+      "Action"
+    ],
+    "key_layer_owns": [
+      "Evidence 생성 (Raw Output → Evidence)",
+      "Evidence 평가 (adopt / hold / reject)",
+      "Fact 생성 (Evidence → Fact)",
+      "Memory 저장 (Fact → customer_memory_facts)"
+    ],
+    "factory_owns": "Raw Output only — Fact도 Evidence도 모름 · Evidence라는 단어도 모름",
+    "example": {
+      "raw_output": "OCR JSON — text spans · bbox · engine scores",
+      "not_evidence": "OCR JSON is NOT Evidence",
+      "evidence_when": "KEY interprets: '신뢰도 92%, 가입담보상세로 보인다' — Evidence born at KEY layer",
+      "fact_when": "KEY adopts evidence → derives normalized fact_key/fact_value for Memory"
+    },
+    "philosophy_shift": {
+      "was": "KEY가 공장을 지휘한다",
+      "now": "KEY만이 사실(Fact)을 정의한다 — Evidence도 KEY 해석 산물",
+      "ultimate": "공장은 Raw Output만 · KEY가 Reality를 이해하고 Evidence→Fact→Memory"
+    },
+    "jerry_first_design_question": "이 기능이 KEY에게 새로운 Evidence를 주는가? (Raw Output 경유 — KEY가 Evidence 생성)",
+    "ten_year_contract": "Factory → Raw Output → KEY Layer — factory count may grow; contract unchanged"
+  },
+  "tom_design_amendment_1": {
+    "amended_at": "2026-07-03",
+    "verdict": "🟢 방향 GO",
+    "shift": "Factory Fact author → Factory Evidence submitter · KEY Fact author",
+    "superseded_by_amendment_2": "Factory no longer submits Evidence — submits Raw Output only"
+  },
+  "tom_design_amendment_2": {
+    "amended_at": "2026-07-03",
+    "verdict": "EA-1 timing GO · design amended · EXEC separate GO",
+    "ea1_goal": "작게 만드는 것 ❌ · 절대 잘못 만들지 않는 것 ✅",
+    "ea1_timing_why": "Factory ≈ Upload 하나 — 지금 고치면 하나만. 사진·음성·병원·마이데이터·보험사·법인 유입 후엔 전 Factory 재수정.",
+    "rejected_framing": "Factory → candidate_evidence (Factory knows Evidence vocabulary)",
+    "approved_framing": "Factory → Raw Output → KEY Layer → Evidence (KEY-created) → Fact → Memory",
+    "factory_knowledge_ceiling": "OCR Worker knows: '나는 OCR 결과를 만들었어.' — nothing about Evidence · Fact · Memory",
+    "ocr_json_is": "Raw Output",
+    "evidence_is": "KEY interpretation of Raw Output — not factory payload type"
+  },
+  "tom_stop_ruling": {
+    "memory_owner_is_key": false,
+    "final_declaration": "FORBIDDEN until EA-4 Preview PASS"
+  },
+  "backbone_complete": {
+    "same_key_runtime": "runSalesDirectorKeyTurn",
+    "same_persona_outlet": "finalizeSalesDirectorResponse",
+    "key_layer_raw_to_memory": false
+  },
+  "classification": {
+    "primary": "LIFEGUARD cognition architecture — not Upload slice · not Memory engine",
+    "not": "Factory Evidence types · candidate_evidence from factory · Factory Memory author"
+  },
+  "problem_statement": {
+    "today": "Memory Builder + policy extract invokeMemoryBuilder — Factory output treated as Memory-bound facts",
+    "amendment_1_gap": "Factory submitting Evidence still couples factory to KEY vocabulary",
+    "target": "Factory emits Raw Output only · KEY Layer is sole Evidence and Fact author"
+  },
+  "slice_goal": {
+    "one_line": "Factory는 Raw Output만 낸다. KEY Layer가 Raw→Evidence→Fact→Memory 전 과정을 소유한다.",
+    "ea1_scope_only": "Factory Raw Output must always pass through KEY — KEY Evidence creation · retire invokeMemoryBuilder on policy_extract path — NOT full EA-2/3/4",
+    "prove_at_preview_ea4": [
+      "factory_raw_output_reported → key_evidence_reported → key_fact_adoption → memory_committed",
+      "no customer_memory_facts before key_fact_adoption",
+      "Evidence records authored_by: KEY · sourced_from_raw_output_id",
+      "Factory payloads contain zero evidence_id · fact_key · memory fields"
+    ]
+  },
+  "layer_definitions": {
+    "reality": "Physical / digital world — documents · APIs · speech · sensors",
+    "raw_output": {
+      "author": "Factory",
+      "definition": "Factory-native artifact — OCR JSON · extract JSON · API response body · transcript blob",
+      "factory_message": "I produced this output",
+      "forbidden_in_payload": ["evidence", "fact_key", "fact_value", "memory", "customer_memory_facts"],
+      "schema_sketch": {
+        "raw_output_id": "uuid",
+        "source_factory": "policy_extract | document_ocr | …",
+        "source_ref": "document_id · job_id",
+        "payload": "opaque factory JSON — KEY interprets",
+        "factory_confidence": "optional — factory self-score only · not KEY evidence confidence",
+        "reported_at": "iso"
+      }
+    },
+    "evidence": {
+      "author": "KEY only",
+      "definition": "KEY interpretation of Raw Output — trust · classification · salience · provisional reading",
+      "born_when": "KEY Layer processes raw_output_id",
+      "example": "신뢰도 92%, 가입담보상세로 보인다 — NOT the OCR JSON itself",
+      "schema_sketch": {
+        "evidence_id": "uuid",
+        "raw_output_id": "uuid",
+        "authored_by": "KEY",
+        "interpretation": "KEY-readable assessment",
+        "salience": "optional",
+        "consent_scope": "KEY-evaluated",
+        "created_at": "iso"
+      }
+    },
+    "fact": {
+      "author": "KEY only",
+      "definition": "Normalized Memory-bound assertion — only after key_fact_adoption",
+      "store": "customer_memory_facts",
+      "provenance": "key_from_evidence + evidence_ids[]"
+    },
+    "memory": {
+      "definition": "Durable KEY facts only"
+    }
+  },
+  "target_architecture": {
+    "final_structure": [
+      "Reality",
+      "        ↓",
+      "Factory",
+      "        ↓",
+      "Raw Output",
+      "        ↓",
+      "┌──────────────── KEY Layer ────────────────┐",
+      "│ Evidence 생성 (Raw → Evidence)            │",
+      "│ Evidence 평가 (adopt / hold / reject)     │",
+      "│ Fact 생성 (Evidence → Fact)               │",
+      "│ Memory 저장 (Fact → customer_memory_facts)│",
+      "└───────────────────────────────────────────┘",
+      "        ↓",
+      "Memory → Judgment → Action"
+    ],
+    "ea1_subset": [
+      "Factory (policy_extract v1)",
+      "        ↓  raw_output only",
+      " factory_raw_output_reported",
+      "        ↓",
+      " KEY Layer — ingest raw · create Evidence",
+      "        ↓",
+      " key_evidence_reported",
+      "        ↓",
+      " RETIRE invokeMemoryBuilder — Factory Raw Output must always pass through KEY Layer"
+    ],
+    "invariants": [
+      "Factory never uses Evidence · Fact · Memory vocabulary in code or API contract",
+      "Evidence and Fact records always authored_by: KEY",
+      "Single Runtime SSOT: runSalesDirectorKeyTurn for adoption turns (EA-2+)",
+      "Raw Output schema stable when OCR/hospital/photo AI replaced — KEY Layer absorbs change",
+      "Hand P1–P3 · Persona · KU arc preserved"
+    ]
+  },
+  "adoption_model": {
+    "ea1": "Factory Raw Output must always pass through KEY — KEY Evidence creation · no invokeMemoryBuilder on policy_extract success",
+    "ea2_plus": "KEY evaluates Evidence → adopt/hold/reject → derives Fact",
+    "factory_role": "Emit factory_raw_output_reported — period",
+    "key_layer_role": "All steps from Raw Output through Memory commit"
+  },
+  "design_extension": {
+    "forbidden": [
+      "Factory emits candidate_evidence or evidence_id",
+      "Factory imports keyBrain Evidence types",
+      "Factory calls applyCandidateFacts or invokeMemoryBuilder for Memory",
+      "Treating OCR JSON as Evidence in factory code",
+      "New Runtime primitive outside runSalesDirectorKeyTurn"
+    ],
+    "key_layer_modules_proposed": {
+      "keyRawOutputInbox": "Receive · persist raw_output batches from factories",
+      "keyEvidenceFromRaw": "Raw Output → Evidence creation (KEY interpretation)",
+      "keyFactAdoption": "EA-2 — Evidence adopt/hold/reject + Fact derivation",
+      "keyFactCommit": "EA-3 — gated Memory write"
+    },
+    "key_entry_ea2": {
+      "param": "keyEntry",
+      "value": "evidence_adoption",
+      "ssot": "runSalesDirectorKeyTurn",
+      "note": "EA-1 does not require full adoption turn — only KEY Evidence creation from raw"
+    }
+  },
+  "wiring_contract": {
+    "v1_factory": "policy_extract (Upload path — only factory today)",
+    "ea1_sequence": [
+      "policy extract completes · persistExtractedPolicies (operational profile data — not KEY Memory fact)",
+      "RETIRE: invokeMemoryBuilder → applyCandidateFacts on this path",
+      "NEW: factory emits raw_output payload (extract JSON · field spans — factory-native)",
+      "NEW: factory_raw_output_reported trace — actor FACTORY",
+      "NEW: KEY Layer ingests raw_output_id",
+      "NEW: KEY creates Evidence from Raw — key_evidence_reported trace — actor KEY",
+      "EA-1 STOP — no key_fact_adoption · no memory_committed until EA-2/3 GO"
+    ],
+    "trace_contract_ea1": {
+      "required_order": [
+        "factory_raw_output_reported",
+        "key_evidence_reported"
+      ],
+      "forbidden_before_ea3": "memory_committed · customer_memory_facts upsert from factory path",
+      "factory_raw_output_reported": {
+        "actor": "FACTORY",
+        "payload": {
+          "raw_output_id": "uuid",
+          "source_factory": "policy_extract",
+          "document_id": "uuid",
+          "payload_kind": "policy_extract_json",
+          "reported_at": "iso"
+        }
+      },
+      "key_evidence_reported": {
+        "actor": "KEY",
+        "after": "factory_raw_output_reported",
+        "payload": {
+          "raw_output_id": "uuid",
+          "evidence_ids": "uuid[]",
+          "evidence_count": "number",
+          "authored_by": "KEY",
+          "generation_mode": "key_evidence_from_raw",
+          "subject": "KEY"
+        }
+      }
+    },
+    "trace_contract_full_ea4": {
+      "required_order": [
+        "factory_raw_output_reported",
+        "key_evidence_reported",
+        "key_fact_adoption",
+        "memory_committed"
+      ]
+    }
+  },
+  "factory_changes": {
+    "documentPolicyExtractionPipeline": {
+      "remove": "invokeMemoryBuilder memory apply",
+      "add": "reportFactoryRawOutput({ raw_output }) — no Evidence types in factory module",
+      "vocabulary_rule": "Factory code must not import or name Evidence · Fact · Memory adoption"
+    },
+    "future_factories": {
+      "contract": "Identical — Raw Output only · OCR replacement does not change KEY Layer",
+      "list": ["document_ocr", "gap", "recommendation", "claim", "hospital", "mydata", "voice", "calendar", "risk_watcher", "corporate"]
+    }
+  },
+  "execution_phases": {
+    "phase_ea1_raw_output_and_key_evidence": {
+      "name": "EA-1 — Factory Raw Output · KEY Evidence creation · retire factory Memory write",
+      "tom_timing_go": true,
+      "exec_go": true,
+      "implemented_at": "2026-07-03",
+      "goal": "절대 잘못 만들지 않는 것 — factory Evidence vocabulary zero · KEY owns Evidence birth",
+      "ea1_framing_locked": "Factory Raw Output must always pass through KEY — not 'Factory→Memory hole'",
+      "deliverables": [
+        "factory_raw_output_reported trace + schema",
+        "KEY Layer keyEvidenceFromRaw — Raw → Evidence",
+        "key_evidence_reported trace",
+        "Retire policy extract → invokeMemoryBuilder on upload path",
+        "Unit: factory payload has no evidence/fact/memory fields",
+        "Unit: Evidence authored_by KEY · links raw_output_id",
+        "Unit: no customer_memory_facts write in EA-1"
+      ],
+      "explicitly_not_ea1": ["key_fact_adoption", "memory_committed", "Preview probe", "Persona-facing change"]
+    },
+    "phase_du1_customer_explain_wedge": {
+      "name": "DU-1 — KEY understands the document and explains to the customer",
+      "depends_on": "phase_ea1_raw_output_and_key_evidence",
+      "exec_go": false,
+      "product_framing_locked": "KEY가 문서를 이해하고 고객에게 설명한다 — '문서 이해' alone is not the product wedge",
+      "not": "Internal document parsing label only",
+      "tom_wording_correction": "문서를 이해하는 것 ≠ 고객이 이해하는 것 — we ship the latter"
+    },
+    "phase_ea2_key_fact_adoption": {
+      "name": "Evidence adopt/hold/reject + Fact derivation",
+      "depends_on": "phase_ea1",
+      "exec_go": false
+    },
+    "phase_ea3_gated_commit": {
+      "name": "memory_committed — KEY facts only",
+      "depends_on": "phase_ea2",
+      "exec_go": false
+    },
+    "phase_ea4_preview_evidence": {
+      "name": "Full chain Preview",
+      "depends_on": "phase_ea3",
+      "exec_go": false
+    }
+  },
+  "files_touch_map": {
+    "ea1_proposed_new": [
+      "server/keyBrain/keyRawOutputInbox.js",
+      "server/keyBrain/keyEvidenceFromRaw.js",
+      "server/keyBrain/keyEvidenceFoundationEa1.js",
+      "scripts/key-evidence-foundation-ea1-unit-test.mjs"
+    ],
+    "ea1_modify": [
+      "server/documentPolicyExtractionPipeline.js",
+      "server/keyBrain/index.js",
+      "api/customer-document-policy-extract.js"
+    ],
+    "ea1_do_not_touch": [
+      "src/hooks/useCustomerDocumentUpload.js",
+      "server/keyBrain/workOrder.js",
+      "server/keyBrain/documentFirstSpeak.js",
+      "server/salesDirectorKeyOrchestrator.js",
+      "fixtures/key-customer-validation-v1/question-bank-v1.json"
+    ],
+    "ea2_plus_defer": [
+      "server/salesDirectorKeyOrchestrator.js",
+      "server/keyBrain/keyFactAdoption.js",
+      "server/keyBrain/keyFactCommit.js"
+    ]
+  },
+  "tom_audit_precheck": {
+    "0_factory_raw_only": {
+      "question": "Factory가 Evidence/Fact/Memory vocabulary를 모르는가?",
+      "design_answer": "YES — Raw Output only"
+    },
+    "1_key_creates_evidence": {
+      "question": "Evidence는 KEY가 Raw에서 만드는가?",
+      "design_answer": "YES — OCR JSON is Raw · Evidence is KEY interpretation"
+    },
+    "2_key_creates_fact": {
+      "question": "Fact는 KEY만 만드는가?",
+      "design_answer": "YES — EA-2+ commit path"
+    },
+    "3_scales_replacement": {
+      "question": "OCR/병원/AI 교체 시 Factory contract unchanged?",
+      "design_answer": "YES — Raw Output contract stable"
+    }
+  },
+  "merge_gate": {
+    "design_go": true,
+    "design_amended_at": "2026-07-03",
+    "amendment_2_locked": true,
+    "ea1_timing_go": true,
+    "ea1_exec_go": true,
+    "ea1_preview_go": false,
+    "commit_go": false,
+    "push_go": false
+  },
+  "declaration_lock": {
+    "forbidden_until_ea4_preview": "LIFEGUARD에는 하나의 KEY만 존재한다 (full)",
+    "cognition_stack_locked": "Reality → Raw Output → Evidence → Fact → Memory → Judgment → Action"
+  },
+  "tom_jerry_role_split": {
+    "tom": "철학 감사 · 회귀 감사 · LIFEGUARD 전체 영향 · GO / 수정 / STOP — 설계 작성 없음",
+    "jerry": "Repository 조사 → 설계 → 영향도 → Preview → Evidence"
+  },
+  "jerry_command": {
+    "ea1_rule": "Factory Raw Output must always pass through KEY — KEY Layer → Evidence · never let factory name Evidence",
+    "du1_rule": "KEY가 문서를 이해하고 고객에게 설명한다 — product wedge after EA-1 GO",
+    "design_question": "이 기능이 KEY에게 새로운 Evidence를 주는가? (via Raw Output)",
+    "stop": "DU-1 · Preview · commit · push — Tom separate GO each"
+  }
+}

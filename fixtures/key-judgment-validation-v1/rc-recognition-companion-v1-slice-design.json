@@ -1,0 +1,579 @@
+{
+  "document": "rc_recognition_companion_v1_slice_design",
+  "slice": "RELATIONSHIP-ARC-SLICE-2",
+  "arc": "Relationship Arc — Slice 2 (Recognition)",
+  "contract_id": "RC-RECOGNITION-COMPANION-v1",
+  "contract_subtitle": "Return Visit Recognition Bridge",
+  "mode": "Design only · Tom Design GO · no implementation · no deploy · no PASS",
+  "status": "submitted — await Tom design audit before EXEC",
+  "observed_at": "2026-07-01T03:00:00.000Z",
+  "pass_declaration": "none",
+  "tom_go": "Design GO — R1 evidence sufficient · Relationship Identity fracture confirmed",
+  "upstream_refs": [
+    "rc-recognition-companion-v1-slice-contract.json",
+    "rc-recognition-companion-v1-r0-trace-readonly-evidence.json",
+    "rc-recognition-companion-v1-r1-recognition-trace-evidence.json",
+    "rc-continuity-companion-v1-slice-production-close-evidence.json",
+    "jc-premium-burden-v1-slice-production-close-evidence.json",
+    "jc-coverage-anxiety-v1-slice-production-close-evidence.json",
+    "lifeguard-personal-customer-baseline-v1.json",
+    "lifeguard-deployment-standard-v1.json"
+  ],
+  "constitution_classification": {
+    "primary": "LIFEGUARD(KEY) — Relationship / Return Recognition · Persona continuity",
+    "secondary_hand": "Expand relationship_reunion seed into companion cluster — Companion voice only",
+    "secondary_factory": "none — no Memory read · no insurance factory on cluster hit",
+    "family_question_answer": "KEY를 더 같은 사람으로? — YES",
+    "family_question_not": "보험을 더 잘하게? · Memory recall · 새 Family · 새 Persona · Need Surface · Life Companion"
+  },
+  "problem_definition": {
+    "source": "rc-recognition-companion-v1-r1-recognition-trace-evidence.json",
+    "tom_framing": "Relationship Identity fracture — same return-visit human intent splits Recognition vs Insurance",
+    "r1_observed": {
+      "seven_paraphrases": "Recognition 1/7 (오랜만이야) · Insurance structured 6/7",
+      "seed_pattern": "relationship_reunion on 오랜만이야 only — key_social · no insurance pivot",
+      "failure_shape": "다시/또/오늘도/왔어 → general_consultation + key_structured insurance opener",
+      "exclude_clean": "0/5 recognition cluster candidate hit on Memory exclude set",
+      "jc_rc_regression": "JC-PREMIUM · JC-COVERAGE · RC-CONTINUITY anchors preserved on current code"
+    },
+    "human_flow_expected": "고객 재방문 → KEY가 반갑게 맞이 → 대화 재개 준비",
+    "code_flow_expected": "Recognition cluster → recognition_companion_judgment → recognition voice → Conversation open",
+    "code_flow_today": "오랜만이야 → relationship_reunion OR Insurance structured on 6/7",
+    "not_the_problem": [
+      "Memory storage missing",
+      "Need to prove KEY remembers facts (Memory Family)",
+      "Emotion empathy as primary slice",
+      "New Persona Family"
+    ]
+  },
+  "slice_success_condition": {
+    "identity": "고객의 재방문을 자연스럽게 맞이하는 사람",
+    "customer_facing": "고객이 다시 찾아왔을 때 KEY가 상대를 알아보고 맞이하는 사람처럼 느껴지는가?",
+    "not_success": [
+      "route PASS alone",
+      "relationship_reunion on 1 phrase only while 6/7 still insurance",
+      "Memory fact count",
+      "tool audit PASS alone",
+      "서버 cluster hit without Companion voice"
+    ],
+    "tom_example": {
+      "customer": "다시 왔어.",
+      "key_target": "반갑습니다. 편하실 때 이어가도 됩니다.",
+      "must_not": "확인된 범위 안에서만… 담보 구조와 한도…"
+    }
+  },
+  "section_1_recognition_cluster": {
+    "id": "RC-RECOGNITION-COMPANION-v1",
+    "mechanism": "detectRecognitionCompanionCluster() — additive companion_cluster (mirror JC / RC-CONTINUITY pattern)",
+    "theme": "Return visit recognition — customer signals they are back; KEY welcomes without Memory quiz or insurance turn",
+    "seed": {
+      "existing_pattern": "relationship_reunion in keyConversationPatterns.js",
+      "tom_direction": "Expand seed into cluster — do not invent parallel if-branch tree"
+    },
+    "paraphrase_set": {
+      "tom_boundary_in": [
+        "오랜만이야",
+        "다시 왔어",
+        "또 왔어",
+        "오늘도 왔어",
+        "또 보네",
+        "다시 왔네",
+        "왔어"
+      ],
+      "expected_consistency": {
+        "same_companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+        "same_intent_surface": "general_consultation + companion_cluster (no new intent enum)",
+        "same_compose_family": "Recognition — recognition_companion_bridge or key_social",
+        "same_internal_pipeline": "Recognition frame → Companion welcome → Conversation open",
+        "must_not": [
+          "한 문장은 key_social · 다른 문장은 key_structured insurance",
+          "한 문장은 casual_chat · 다른 문장은 general_consultation without cluster",
+          "Memory fact lookup on any of 7",
+          "Insurance structured opener on any of 7"
+        ]
+      }
+    },
+    "detector_signals": {
+      "include_groups": [
+        {
+          "id": "reunion_time_gap",
+          "patterns": [
+            "^오랜만(?:이(?:에|)?(?:요|야|)?|(?:이야|입니다)?)(?:[!.?\\s~♡♥]*)?$"
+          ],
+          "examples": ["오랜만이야", "오랜만이에요"],
+          "note": "Align with existing relationship_reunion match — do not drift"
+        },
+        {
+          "id": "return_explicit",
+          "patterns": [
+            "^다시\\s*왔(?:어|네)?(?:[!.?\\s~]*)?$",
+            "^또\\s*왔(?:어|네)?(?:[!.?\\s~]*)?$",
+            "^오늘도\\s*왔(?:어|네)?(?:[!.?\\s~]*)?$",
+            "^다시\\s*왔네(?:[!.?\\s~]*)?$"
+          ],
+          "examples": ["다시 왔어", "또 왔어", "오늘도 왔어", "다시 왔네"]
+        },
+        {
+          "id": "repeat_acknowledgment",
+          "patterns": ["^또\\s*보네(?:[!.?\\s~]*)?$"],
+          "examples": ["또 보네"]
+        },
+        {
+          "id": "bare_arrival",
+          "patterns": ["^왔(?:어|네)?(?:[!.?\\s~]*)?$"],
+          "examples": ["왔어"],
+          "note": "Tom contract in-scope — short utterance; negative controls must catch compound insurance arrivals"
+        }
+      ],
+      "insertion_point": "classifyConsultationIntent — after JC clusters · after RC-CONTINUITY cluster · before general_consultation_fallback",
+      "on_hit": {
+        "intent": "general_consultation",
+        "matched_rule": "recognition_companion_cluster",
+        "companion_cluster": "RC-RECOGNITION-COMPANION-v1",
+        "companion_cluster_signals": "reunion_time_gap | return_explicit | repeat_acknowledgment | bare_arrival"
+      }
+    }
+  },
+  "section_2_hard_exclusions": {
+    "principle": "Detector runs exclusions BEFORE signal match — same ordering discipline as RC-CONTINUITY",
+    "order": [
+      "memory_recall_lexeme",
+      "insurance_topic",
+      "premium_burden_cluster",
+      "coverage_anxiety_cluster",
+      "continuity_companion_cluster",
+      "coverage_gap_and_review",
+      "recommendation",
+      "pure_premium_lookup"
+    ],
+    "hard_exclusions": [
+      {
+        "id": "memory_recall_lexeme",
+        "pattern": "기억(?:해|나|하|)",
+        "extended_note": "Also exclude 지난번\\s*기억? and any utterance where Memory quiz is primary — R1: 전에 말한 거 기억? → RC-CONTINUITY wins",
+        "preserve_path": "memory_recall_lookup + memory_recall_judgment OR RC-CONTINUITY when time+speech+기억",
+        "examples": [
+          "나 기억해?",
+          "기억하지?",
+          "기억해?",
+          "지난번 기억?",
+          "전에 말한 거 기억?",
+          "지난번 이야기 기억해?"
+        ]
+      },
+      {
+        "id": "insurance_topic",
+        "test": "hasInsuranceTopicSignal(text)",
+        "preserve_path": "insurance judgment / factual / gap — Role Split",
+        "examples": [
+          "오랜만이야. 보험료부터 볼까요?",
+          "다시 왔어. 보험 점검해줘."
+        ]
+      },
+      {
+        "id": "premium_burden_cluster",
+        "test": "detectPremiumBurdenCompanionCluster",
+        "preserve_path": "JC-PREMIUM-BURDEN-v1 unchanged",
+        "examples": ["보험료가 너무 부담돼요"]
+      },
+      {
+        "id": "coverage_anxiety_cluster",
+        "test": "detectCoverageAnxietyCompanionCluster",
+        "preserve_path": "JC-COVERAGE-ANXIETY-v1 unchanged",
+        "examples": ["내 보험 괜찮을까?"]
+      },
+      {
+        "id": "continuity_companion_cluster",
+        "test": "detectContinuityCompanionCluster",
+        "preserve_path": "RC-CONTINUITY-COMPANION-v1 unchanged — continuity before recognition when time+speech signals",
+        "examples": ["그 이야기 이어서.", "전에 말한 거 기억? → RC not Recognition"]
+      },
+      {
+        "id": "coverage_gap_and_review",
+        "test": "coverage_gap_check · coverage_review_request · J04 probes",
+        "preserve_path": "structured gap / review paths"
+      },
+      {
+        "id": "recommendation",
+        "test": "RECOMMEND_SIGNAL or recommendation_request",
+        "preserve_path": "recommendation path"
+      }
+    ]
+  },
+  "section_3_memory_vs_recognition_boundary": {
+    "contract_rule": "Recognition = 사람을 맞이한다 → Conversation opens · Memory = 사실을 회상한다 → Facts open",
+    "absolute": "Recognition ≠ Memory — must never mix in this Slice",
+    "recognition_must_not": [
+      "Call memory tool",
+      "Read memory_facts for compose",
+      "Emit memory_recall_judgment shape",
+      "Say 저장해 둔 · 확인된 기억 · memory theme inventory",
+      "Pretend to remember prior facts without Evidence"
+    ],
+    "recognition_may": [
+      "Welcome warmly as returning customer",
+      "Invite conversation to continue",
+      "Use Companion voice variants (pickVariant)",
+      "Acknowledge return without factual recall"
+    ],
+    "memory_family_stays": {
+      "path": "memory_recall_lookup → memory_recall_judgment",
+      "examples": ["기억해?", "지난번 이야기 기억해?"],
+      "r1_note": "나 기억해? routes factual_grounded but judgment gap exists — OUT OF SLICE unless Tom separate GO"
+    },
+    "rc_continuity_stays": {
+      "path": "RC-CONTINUITY-COMPANION-v1 → continuity_companion_bridge",
+      "overlap_rule": "If detectContinuityCompanionCluster hits first, Recognition detector must not fire",
+      "example": "전에 말한 거 기억? → RC-CONTINUITY (R1 observed)"
+    },
+    "no_memory_bridge": {
+      "contrast_with_rc": "RC-CONTINUITY uses Memory Bridge internally — Recognition explicitly does NOT",
+      "rationale": "Return visit welcome is not fact recall; Scope: uncertain memory → no guess"
+    }
+  },
+  "section_4_compose_gate_order": {
+    "principle": "Cluster hit forces Recognition compose before insurance structured absorption",
+    "ingress": "humanUnderstandingLoop buildKeyStructuredResponse path (Sales Director KEY orchestrator)",
+    "gate_order": [
+      {
+        "order": 1,
+        "gate": "tool_brain_fixed_slice",
+        "action": "unchanged — JC fixed slots if any"
+      },
+      {
+        "order": 2,
+        "gate": "continuity_companion_cluster",
+        "cluster": "RC-CONTINUITY-COMPANION-v1",
+        "compose_mode": "continuity_companion_bridge",
+        "action": "unchanged — RC Slice 1 preserved"
+      },
+      {
+        "order": 3,
+        "gate": "recognition_companion_cluster",
+        "cluster": "RC-RECOGNITION-COMPANION-v1",
+        "compose_mode": "recognition_companion_bridge",
+        "action": "NEW — must run before key_structured · before generic key_companion_guidance"
+      },
+      {
+        "order": 4,
+        "gate": "time_continuity",
+        "action": "unchanged"
+      },
+      {
+        "order": 5,
+        "gate": "key_social",
+        "note": "relationship_reunion may remain as pattern library fallback but cluster path is primary for 7 paraphrases"
+      },
+      {
+        "order": 6,
+        "gate": "key_relational",
+        "action": "must NOT absorb recognition cluster hits"
+      },
+      {
+        "order": 7,
+        "gate": "key_companion_guidance",
+        "action": "must NOT absorb recognition cluster hits"
+      },
+      {
+        "order": 8,
+        "gate": "key_structured",
+        "action": "FORBIDDEN when companion_cluster === RC-RECOGNITION-COMPANION-v1"
+      }
+    ],
+    "forbidden_on_cluster_hit": [
+      "key_structured insurance opener",
+      "gap_grounded",
+      "recommendation compose",
+      "memory_recall_judgment",
+      "premium_burden_companion_judgment",
+      "coverage_anxiety_companion_judgment",
+      "continuity_companion_judgment"
+    ],
+    "route_alignment": {
+      "home_brain_route_on_cluster_hit": "Must NOT drop to bare casual_chat without recognition bridge",
+      "home_brain_intent_on_cluster_hit": "unsupported or recognition_companion_bridge surface — must NOT flip to memory_recall_lookup",
+      "sales_director_tool_plan": "No tools on cluster hit — empty or passthrough only"
+    },
+    "judgment_rule_sketch": {
+      "id": "recognition_companion_judgment",
+      "match": "factBundle.companion_cluster === RC-RECOGNITION-COMPANION-v1",
+      "branch": "buildRecognitionCompanionResponse({ question, humanFrame }) — no memory read",
+      "compose_priority": "Before generic key_companion_guidance and key_structured"
+    }
+  },
+  "section_5_companion_response_contract": {
+    "both_cases_companion": true,
+    "no_memory_branch": true,
+    "recognition_welcome": {
+      "contract_id": "RC-RECOGNITION-WELCOME",
+      "customer_feel": "다시 찾아온 고객을 KEY가 자연스럽게 맞이함 — not insurance · not memory quiz",
+      "shape": {
+        "opener": "Return acknowledgment — 반갑습니다 / 오랜만이에요 / 다시 오셨네요 (variant by signal group)",
+        "body": "Warm welcome only — no fact claim · no insurance topic",
+        "invite": "Conversation open — 편하실 때 이어가도 됩니다",
+        "examples_by_group": {
+          "reunion_time_gap": "오랜만이에요. 편하실 때 천천히 이어가도 됩니다.",
+          "return_explicit": "다시 오셨네요. 편하실 때 이어가도 됩니다.",
+          "repeat_acknowledgment": "네, 또 뵙네요. 천천히 맞춰가면 됩니다.",
+          "bare_arrival": "반갑습니다. 편하실 때 이어가도 됩니다."
+        }
+      },
+      "must": [
+        "Companion tone consistent with relationship_reunion seed",
+        "Same KEY persona as RC/JC closed slices",
+        "Open next turn — invite continuation"
+      ],
+      "must_not": [
+        "확인된 범위 안에서만… 담보… (insurance structured leak)",
+        "저장해 둔 상담 맥락 (memory recall shape)",
+        "보험료 · 보장 · 점검 unsolicited",
+        "Fabricate prior visit details",
+        "Engine or Memory mechanics exposed"
+      ]
+    },
+    "tool_plan": {
+      "tools": [],
+      "forbidden_tools": [
+        "memory",
+        "coverage_gap",
+        "premium_stats",
+        "recommendation",
+        "snapshot default-on"
+      ],
+      "rationale": "Recognition welcomes — does not read factory"
+    }
+  },
+  "section_6_insurance_topic_exclusion": {
+    "mechanism": "hasInsuranceTopicSignal(text) in detector hard_exclusions — before recognition signal match",
+    "role_split": "Return visit + insurance topic → insurance path · not Recognition cluster",
+    "negative_controls": [
+      {
+        "question": "오랜만이야. 보험료부터 볼까요?",
+        "preserve_path": "insurance judgment — NOT RC-RECOGNITION",
+        "r1_observed": "insurance topic excludes recognition cluster candidate"
+      },
+      {
+        "question": "다시 왔어. 보험 점검해줘.",
+        "preserve_path": "coverage_review or general insurance"
+      },
+      {
+        "question": "또 왔어. 실손 보장 봐줘.",
+        "preserve_path": "insurance structured"
+      }
+    ],
+    "compose_fail_if": "Any insurance lexeme in answer on pure 7-paraphrase probes"
+  },
+  "section_7_rc_continuity_regression": {
+    "principle": "RC-CONTINUITY-COMPANION-v1 PROVEN identity must remain MAINTAINED",
+    "detector_order": "detectContinuityCompanionCluster runs before detectRecognitionCompanionCluster",
+    "anchor_phrases_must_preserve": [
+      {
+        "question": "그 이야기 이어서.",
+        "expected_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "expected_compose": "continuity_companion_bridge"
+      },
+      {
+        "question": "아까 말한 거.",
+        "expected_cluster": "RC-CONTINUITY-COMPANION-v1"
+      },
+      {
+        "question": "지난번 이야기.",
+        "expected_cluster": "RC-CONTINUITY-COMPANION-v1"
+      },
+      {
+        "question": "전에 말한 거 기억?",
+        "expected_cluster": "RC-CONTINUITY-COMPANION-v1",
+        "note": "R1 — RC wins over Recognition due to time+speech+기억; must not become RC-RECOGNITION"
+      }
+    ],
+    "must_not_regress": [
+      "Continuity 5-paraphrase unified cluster",
+      "Memory anchor on 지난번 이야기 기억해? still memory_recall_judgment",
+      "Production Close evidence for RC-CONTINUITY remains valid reference"
+    ],
+    "local_gate": {
+      "script": "rc-continuity-companion-v1-preview-verify-exec.mjs (existing)",
+      "on_recognition_pr": "Re-run RC continuity spot probes — must PASS unchanged"
+    }
+  },
+  "section_8_jc_slice_regression": {
+    "principle": "Trust Arc JC slices remain PROVEN / MAINTAINED",
+    "anchor_phrases_must_preserve": [
+      {
+        "question": "보험료가 너무 부담돼요",
+        "expected_cluster": "JC-PREMIUM-BURDEN-v1"
+      },
+      {
+        "question": "내 보험 괜찮을까?",
+        "expected_cluster": "JC-COVERAGE-ANXIETY-v1"
+      }
+    ],
+    "negative_must_not_enter_recognition": [
+      "보험료 부담 paraphrase set",
+      "coverage anxiety paraphrase set",
+      "암보장 부족해?",
+      "뭐 가입해야 해?"
+    ],
+    "persona_gate": "npm run test:key-v2-key-persona — must PASS on any deploy",
+    "30q_gate": "FROZEN bank — 34/34 · friction 0"
+  },
+  "section_9_role_split_and_negative_controls": {
+    "tom_boundary_out": [
+      "Memory recall quiz",
+      "Conversation continuity bridge",
+      "Insurance judgment",
+      "Coverage Gap",
+      "Recommendation",
+      "Need Surface",
+      "Life Companion",
+      "Proactive",
+      "KEY Mind"
+    ],
+    "negative_control_table": [
+      {
+        "question": "나 기억해?",
+        "preserve_path": "Memory — NOT Recognition",
+        "exclude_reason": "Memory Family"
+      },
+      {
+        "question": "기억해?",
+        "preserve_path": "memory_recall_judgment",
+        "exclude_reason": "Memory Family"
+      },
+      {
+        "question": "그 이야기 이어서.",
+        "preserve_path": "RC-CONTINUITY-COMPANION-v1",
+        "exclude_reason": "Continuity not Recognition"
+      },
+      {
+        "question": "보험료가 너무 부담돼요",
+        "preserve_path": "JC-PREMIUM-BURDEN-v1",
+        "exclude_reason": "Trust Slice 1"
+      },
+      {
+        "question": "내 보험 괜찮을까?",
+        "preserve_path": "JC-COVERAGE-ANXIETY-v1",
+        "exclude_reason": "Trust Slice 2"
+      },
+      {
+        "question": "오늘 너무 힘들어.",
+        "preserve_path": "Companion emotion — casual_chat",
+        "exclude_reason": "Not return-visit recognition"
+      },
+      {
+        "question": "안녕하세요",
+        "preserve_path": "greeting_welcome — key_social",
+        "exclude_reason": "First visit greeting not return recognition"
+      }
+    ]
+  },
+  "section_10_preview_production_close_plan": {
+    "local_trace": {
+      "script_candidates": [
+        "rc-recognition-companion-v1-r1-recognition-trace-readonly.mjs (exists — extend at EXEC)",
+        "rc-recognition-companion-v1-paraphrase-trace-readonly.mjs (EXEC phase — create)"
+      ],
+      "gates": {
+        "paraphrase": "7/7 RC-RECOGNITION-COMPANION-v1 cluster hit · same compose_mode · no insurance pivot",
+        "exclude": "5/5 Memory exclude — no recognition cluster · Memory/RC paths preserved",
+        "negative": "section_9 table preserved",
+        "rc_spot": "RC-CONTINUITY 5-paraphrase unchanged",
+        "jc_spot": "JC-PREMIUM + JC-COVERAGE anchors unchanged",
+        "memory_anchor": "지난번 이야기 기억해? · 기억나? still memory_recall_judgment"
+      }
+    },
+    "preview_customer_seat": {
+      "script_candidate": "verify:rc-recognition-companion-v1-preview (EXEC phase — npm script)",
+      "tom_preview_5_dimensions": [
+        "Identity — same KEY welcomes return across 7 paraphrases",
+        "Trust — no fabricated visit memory",
+        "Continuity — RC slice MAINTAINED on spot probes",
+        "Role Split — no insurance on pure recognition",
+        "Friction — no 담보/한도/걱정 축 opener on return visit"
+      ],
+      "focus": "Recognition dimension — customer feels welcomed back, not sold insurance"
+    },
+    "production_close": {
+      "standard": "Deployment Standard v1",
+      "sequence": ["D0 preflight", "D1 deploy", "D3 alias promote", "D4 confirm", "D5 verify", "30Q fresh regression", "D6 close bundle"],
+      "evidence_artifacts": [
+        "rc-recognition-companion-v1-slice-local-trace-evidence.json",
+        "rc-recognition-companion-v1-slice-preview-evidence.json",
+        "rc-recognition-companion-v1-slice-production-deploy-evidence.json",
+        "rc-recognition-companion-v1-slice-production-evidence.json",
+        "rc-recognition-companion-v1-slice-production-close-evidence.json"
+      ],
+      "requires": "Tom EXEC GO after local trace + Preview audit",
+      "birth_record": {
+        "what": "Identity: 고객의 재방문을 자연스럽게 맞이한다",
+        "how_governance": "Deployment Standard v1 Process",
+        "reference": "rc-recognition-companion-v1-slice-production-close-evidence.json"
+      }
+    }
+  },
+  "design_strategy": {
+    "one_line": "Additive recognition_companion_cluster + recognition_companion_bridge — expand relationship_reunion to 7 paraphrases; no Memory read; insurance structured forbidden on cluster hit",
+    "pattern_reuse": "JC companion_cluster · RC-CONTINUITY cluster · relationship_reunion seed",
+    "pattern_difference": "No Memory Bridge — welcome only; output is Recognition Companion not insurance judgment",
+    "no_new_intent": true,
+    "no_new_factory": true,
+    "no_30q_edit": true
+  },
+  "implementation_scope": {
+    "status": "BLOCKED until Tom design audit GO on this document",
+    "expected_files": [
+      "server/intentGateLayer.js — detectRecognitionCompanionCluster + RC_RECOGNITION_COMPANION_CLUSTER_ID",
+      "server/keyJudgmentRules.js — recognition_companion_judgment",
+      "server/humanUnderstandingLoop.js — recognition_companion_bridge compose gate (order per section_4)",
+      "server/salesDirectorKeyToolRegistry.js — suppress tools on recognition cluster",
+      "server/conversationRecognitionBridge.js — NEW Hand module (mirror conversationContinuityBridge.js shape, no memory read)",
+      "server/keyConversationPatterns.js — align relationship_reunion with cluster signals (optional consolidation at EXEC)",
+      "scripts/rc-recognition-companion-v1-paraphrase-trace-readonly.mjs"
+    ],
+    "forbidden_touch": [
+      "memory storage schema",
+      "RC-CONTINUITY detector body regression",
+      "JC-PREMIUM-BURDEN-v1 detector body",
+      "JC-COVERAGE-ANXIETY-v1 detector body",
+      "30Q question bank",
+      "Governance SSOT documents",
+      "Production deploy without Tom EXEC GO"
+    ]
+  },
+  "risk_analysis": {
+    "over_capture_memory": {
+      "risk": "Recognition cluster absorbs 기억해? phrases",
+      "mitigation": "Hard exclusion on 기억 lexeme · RC continuity precedence on time+speech+기억"
+    },
+    "over_capture_continuity": {
+      "risk": "Recognition absorbs 그 이야기 이어서",
+      "mitigation": "detectContinuityCompanionCluster runs first · regression anchors section_7"
+    },
+    "bare_waseo_ambiguity": {
+      "risk": "왔어 alone over-matches unrelated contexts",
+      "mitigation": "Anchor ^왔(?:어|네)?$ only · negative controls · insurance exclusion"
+    },
+    "insurance_structured_leak": {
+      "risk": "Cluster hit but HUL still key_structured",
+      "mitigation": "Compose gate order section_4 · trace field recognition_companion_bridge"
+    },
+    "memory_shape_leak": {
+      "risk": "Welcome sounds like memory recall",
+      "mitigation": "No memory tool · forbid 저장해 둔 / 확인된 기억 phrases in section_5"
+    }
+  },
+  "exec_phases_after_tom_design_audit_go": {
+    "phase_0": "Tom design audit on this document",
+    "phase_1": "Implement cluster + recognition bridge + judgment rule",
+    "phase_2": "Local 7-paraphrase + exclude + negative + RC/JC spot trace evidence",
+    "phase_3": "Preview customer-seat Recognition audit",
+    "phase_4": "Deployment Standard v1 production close",
+    "phase_5": "Tom audit — Jerry does not declare PASS"
+  },
+  "customer_effect": {
+    "before": "오랜만이야 → welcome · 다시/또/오늘도/왔어 → insurance structured — Relationship Identity fracture",
+    "after": "7 return-visit paraphrases → KEY welcomes consistently · Conversation opens · no insurance · no memory quiz",
+    "not": "기억하는 AI · insurance cross-sell · new Persona Family"
+  },
+  "jerry": "STOP — READ ONLY design submitted · no code · await Tom design audit GO before EXEC"
+}

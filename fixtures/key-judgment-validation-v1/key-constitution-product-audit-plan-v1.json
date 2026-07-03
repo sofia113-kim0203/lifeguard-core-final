@@ -1,0 +1,47 @@
+{
+  "schema_version": "key-constitution-product-audit-plan-v1.1",
+  "document_type": "roadmap",
+  "recorded_at": "2026-07-04T03:01:00+09:00",
+  "authority": "Tom — 실행 계획 (헌법 아님)",
+  "status": "planned",
+  "roadmap_ssot": "fixtures/key-judgment-validation-v1/key-product-growth-roadmap-v1.json",
+  "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
+  "design_audit_question": "이 기능이 KEY 정체성과 최종 목표에 맞는가?",
+  "audit_sequence_rationale": "고객 접점·철학 충돌 위험 순 — 새 기능 추가보다 기존 기능이 같은 철학으로 움직이게 만드는 것이 우선",
+  "audit_outcomes": ["aligned", "conflict", "gap"],
+  "initial_audit_targets": [
+    {
+      "order": 1,
+      "id": "recommendation_design_flow",
+      "label": "추천/설계 흐름",
+      "question": "상품보다 고객의 삶을 먼저 본다 · 보험 가입을 먼저 권하지 않는다가 실제로 지켜지는가?",
+      "principles": ["상품보다 고객의 삶을 먼저 본다.", "보험 가입을 먼저 권하지 않는다."],
+      "tom_note": "KEY 철학과 가장 충돌하기 쉬운 영역",
+      "status": "pending",
+      "evidence": "fixtures/key-judgment-validation-v1/key-constitution-audit-recommendation-design-repository-reality-v1.json",
+      "evidence_status": "complete_tom_slice_go",
+      "next_slice": "fixtures/key-judgment-validation-v1/recommendation-panel-alignment-slice-design-v1.json"
+    },
+    {
+      "order": 2,
+      "id": "notification_proactive_flow",
+      "label": "알림·능동 안내 흐름",
+      "question": "고객을 불필요하게 불안하게 만들지 않는다가 지켜지는가?",
+      "principles": ["고객을 불필요하게 불안하게 만들지 않는다."],
+      "status": "pending"
+    },
+    {
+      "order": 3,
+      "id": "claim_flow",
+      "label": "청구 흐름",
+      "question": "판단보다 관계를 잃지 않는다 · 함께한다가 실제 청구 과정에 반영되는가?",
+      "principles": ["판단보다 관계를 잃지 않는다."],
+      "status": "pending"
+    }
+  ],
+  "phase_d_gate": {
+    "implementation": "not_started",
+    "proceed_when": "위 3개 감사 대상 순서대로 점검 완료 · 충돌은 Slice 후보 또는 STOP으로 기록 · Tom GO"
+  },
+  "jerry_pass_declaration": "none"
+}

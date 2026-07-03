@@ -1,0 +1,128 @@
+{
+  "document": "key_upload_ku2c_design_v1",
+  "gate": "KU-2c",
+  "tom_go": "EXEC GO — local implementation complete; Preview evidence pending",
+  "mode": "KEY first customer sentence after upload · KEY_UPLOAD_ENTRY=active",
+  "status": "Local implementation — Preview evidence pending",
+  "observed_at": "2026-07-03",
+  "arc_context": {
+    "one_arc": "KU-1 → KU-2a → KU-2b → KU-2c is one KEY Upload Authority arc, not four unrelated slices.",
+    "sequence": [
+      { "slice": "KU-1", "meaning": "KEY가 만난다 (intake)" },
+      { "slice": "KU-2a", "meaning": "KEY가 허락한다 (Work Order · factory gate)" },
+      { "slice": "KU-2b", "meaning": "KEY가 생각한다 (key_first_judgment trace)" },
+      { "slice": "KU-2c", "meaning": "KEY가 처음 말한다 (customer outlet)" }
+    ],
+    "tom_ruling": "KU-2c is not a new feature — it is the moment KEY Authority first becomes visible to the customer."
+  },
+  "key_authority_philosophy": {
+    "inherit": "fixtures/key-judgment-validation-v1/key-upload-ku2b-design-v1.json#key_authority_philosophy",
+    "env": "KEY_UPLOAD_ENTRY=active only — no KEY_UPLOAD_SPEAK · no slice env proliferation",
+    "future_entries": "Same KEY → judgment → speak → Work Order pattern extends to chat/photo/voice later; upload is first proof."
+  },
+  "prerequisites_proven": {
+    "KU-1": "intake shadow/active path",
+    "KU-2a": "Work Order gate — fixtures/key-judgment-validation-v1/key-upload-ku2a-preview-gate-evidence.json",
+    "KU-2b": "judgment before legacy — fixtures/key-judgment-validation-v1/key-upload-ku2b-preview-trace-evidence.json"
+  },
+  "ku2c_goal": {
+    "one_line": "고객이 업로드 직후 처음 듣는 문장을 KEY가 말한다.",
+    "prove": [
+      "customer_first_sentence from KEY (not DOCUMENT_UI_MESSAGES generic copy as primary)",
+      "speak derived from key_first_judgment — same authority, now audible",
+      "factory/ingest status messages are not the first visible line"
+    ],
+    "not": [
+      "담보 판단 · 추천 · Gap 설명",
+      "KB-1 full read / OCR body claims",
+      "새 Family · Persona change · 30Q bank change",
+      "KU-2a Work Order gate 약화",
+      "KU-2b trace order regression"
+    ]
+  },
+  "repository_reality": {
+    "customer_ui_ssot": "src/hooks/useCustomerDocumentUpload.js",
+    "current_first_line": "DOCUMENT_UI_MESSAGES.uploadSuccess + ingestQueuedNotice etc. — generic, not KEY voice",
+    "intake_api": "/api/key-document-intake — returns key_first_judgment; customer_speak_changed: false today",
+    "gap": "KEY thinks (KU-2b) but customer still sees legacy upload copy — KEY Authority invisible to customer"
+  },
+  "design_slice": {
+    "name": "KU-2c — KEY first speak (upload Entry)",
+    "when": "KEY_UPLOAD_ENTRY=active only",
+    "server_sequence": [
+      "KEY intake",
+      "key_first_judgment (KU-2b — unchanged)",
+      "customer_first_sentence (NEW — speakable string from judgment posture)",
+      "Work Order issued (KU-2a — unchanged)",
+      "legacy_pipeline_continued / factory (Phase B — unchanged)"
+    ],
+    "trace_addition": {
+      "step": "key_first_speak",
+      "after": "key_first_judgment",
+      "before": "work_order_issued",
+      "fields": {
+        "customer_first_sentence": "string — single provisional sentence",
+        "customer_speak_changed": true,
+        "subject": "KEY"
+      }
+    },
+    "speak_rules": {
+      "source": "build from key_first_judgment posture + document_kind_guess + consent hold",
+      "posture": "provisional — received · will look · will tell what KEY can confirm",
+      "must_not_claim": [
+        "담보·Gap·추천",
+        "OCR/공장 결과를 이미 본 것처럼",
+        "확정 보험료·가입 여부"
+      ],
+      "example_with_consent": "보내주신 문서 잘 받았습니다. KEY가 먼저 확인하고, 확인되는 범위에서 말씀드리겠습니다.",
+      "example_consent_hold": "문서는 안전하게 받아 두었습니다. 내용 확인은 동의 후 KEY가 진행하겠습니다."
+    },
+    "client_wiring": {
+      "hook": "useCustomerDocumentUpload.js",
+      "change": "When intake returns customer_first_sentence, setSuccess(KEY sentence) as first visible line; generic DOCUMENT_UI_MESSAGES only as secondary/fallback when speak absent",
+      "forbidden": "Engine names · factory status as first line when KEY speak present"
+    },
+    "module_proposed": "server/keyBrain/documentFirstSpeak.js — maps key_first_judgment → customer_first_sentence (design-only until EXEC GO)"
+  },
+  "tom_audit_precheck": {
+    "1_first_line_is_key": {
+      "question": "업로드 직후 고객 첫 문장이 KEY 출구인가?",
+      "design_answer": "YES — customer_first_sentence from intake; UI primary line",
+      "verify_at_exec": "Preview upload — visible text matches intake payload subject KEY"
+    },
+    "2_not_factory_voice": {
+      "question": "공장/legacy copy가 첫 문장을 가로채지 않는가?",
+      "design_answer": "YES — KEY speak shown before ingestQueuedNotice path",
+      "verify_at_exec": "Upload flow — no ingest success string before KEY sentence"
+    },
+    "3_ku2b_trace_preserved": {
+      "question": "key_first_judgment → legacy 순서 유지되는가?",
+      "design_answer": "YES — key_first_speak inserted after judgment; KU-2b merge gate regression",
+      "verify_at_exec": "verify:key-upload-ku2b-preview-trace still PASS"
+    },
+    "4_ku2a_gate_preserved": {
+      "question": "Work Order gate 유지되는가?",
+      "design_answer": "YES — no change to workOrder.js / worker gates",
+      "verify_at_exec": "verify:key-upload-ku2a-preview-gate regression"
+    },
+    "5_single_authority": {
+      "question": "KEY upload authority가 하나인가?",
+      "design_answer": "YES — still KEY_UPLOAD_ENTRY=active; KU-2c is speak layer on same authority",
+      "verify_at_exec": "no new env vars"
+    }
+  },
+  "merge_gate": {
+    "local": "key-upload-ku2c-first-speak-unit-test.mjs (design placeholder)",
+    "preview": "key-upload-ku2c-preview-speak-evidence.mjs",
+    "regression": [
+      "verify:key-upload-ku2b-preview-trace",
+      "verify:key-upload-ku2a-preview-gate"
+    ]
+  },
+  "explicit_out_of_scope": [
+    "담보 · Gap · Recommendation in first sentence",
+    "KB-1 document body read",
+    "Chat/photo/voice Entry (future KEY Authority entries)",
+    "Persona v1 / Customer Validation 30Q change"
+  ]
+}

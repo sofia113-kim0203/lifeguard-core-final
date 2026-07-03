@@ -1,0 +1,68 @@
+{
+  "schema_version": "key-upload-hand-wiring-p1-preview-snapshot-evidence-v1",
+  "gate": "HAND-P1-SNAPSHOT",
+  "recorded_at": "2026-07-03T04:13:48.015Z",
+  "preview_base": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app",
+  "auth_fingerprint": {
+    "ssot": "key-customer-validation-v1-preview-verify.mjs",
+    "method": "fetch + x-vercel-protection-bypass + QA JWT",
+    "supabase_url_ref": "inwswsruvvzaeioqkelq",
+    "supabase_url_source": "VITE_SUPABASE_URL",
+    "anon_key_len": 208,
+    "bypass_set": true,
+    "qa_email_domain": "staging-qa.example.com",
+    "forbidden_paths": {
+      "production_probe_creds": false,
+      "management_api_anon": false,
+      "plain_fetch_no_bypass": false
+    }
+  },
+  "document_id": "c95d33c2-dcc9-4d6e-a311-35c1ee4b9ea9",
+  "intake_http_status": 200,
+  "intake_mode": "active",
+  "intake_reason": null,
+  "context_snapshot_id": "54e521a0",
+  "trace_steps": [
+    "document_uploaded",
+    "key_intake_called",
+    "key_reads",
+    "key_context_loaded",
+    "key_interprets",
+    "key_first_judgment",
+    "key_first_speak",
+    "dispatch_plan_created",
+    "work_order_issued"
+  ],
+  "tom_hand_p1_gate": {
+    "question": "Upload intake sees same loadSalesDirectorTurnContext snapshot as chat?",
+    "checks": {
+      "intake_http_ok": true,
+      "not_snapshot_load_failed": true,
+      "key_context_loaded_present": true,
+      "order_after_key_reads": true,
+      "order_before_key_interprets": true,
+      "loader_is_chat_ssot": true,
+      "context_snapshot_id_present": true,
+      "memory_status_present": true,
+      "policies_status_present": true,
+      "has_policies_boolean": true,
+      "has_memory_boolean": true,
+      "has_recent_conversation_boolean": true,
+      "judgment_customer_context_status": true
+    },
+    "result": "PASS"
+  },
+  "ku2b_regression": {
+    "question": "key_first_judgment before legacy (unchanged)?",
+    "result": "PASS",
+    "reason": "judgment_before_legacy"
+  },
+  "judgment_customer_context_status": {
+    "memory": "present",
+    "policies": "present",
+    "documents": "empty",
+    "conversations": "empty"
+  },
+  "hand_p1_preview_pass": true,
+  "tom_note": "Phase 1 only — snapshot wiring · no Persona outlet · no Orchestrator merge · no UI change"
+}

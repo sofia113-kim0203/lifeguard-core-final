@@ -5,7 +5,15 @@
  * kind: judgment_rule — customer intent needs insurance judgment (not relational turn-taking).
  */
 import { SALES_DIRECTOR_JUDGMENT_INTENTS } from "./salesDirectorFormatter.js";
-import { classifyConsultationIntent } from "./intentGateLayer.js";
+import {
+  classifyConsultationIntent,
+  PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
+  COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
+  RC_CONTINUITY_COMPANION_CLUSTER_ID,
+  RC_RECOGNITION_COMPANION_CLUSTER_ID,
+} from "./intentGateLayer.js";
+import { buildContinuityCompanionJudgment } from "./conversationContinuityBridge.js";
+import { buildRecognitionCompanionJudgment } from "./conversationRecognitionBridge.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { abstractMemoryThemes } from "./salesDirectorPersona.js";
 
@@ -244,6 +252,7 @@ function buildClaimDocumentsJudgment({ factBundle = {}, question = "" } = {}) {
 }
 
 function isMemoryRecallQuestion(q = "") {
+  if (/^기억(?:해|나)\??$/.test(q)) return true;
   if (/뭐라고\s*(?:했|말)/.test(q)) return true;
   if (/걱정.{0,12}(?:했|하|한|던).{0,12}기억/.test(q)) return true;
   if (!/기억/.test(q)) return false;
@@ -490,6 +499,58 @@ function buildDesignReviewJudgment({ factBundle = {} } = {}) {
 /** @type {Array<{ id: string, kind: "judgment_rule", scene: string, reason: string, match: (ctx: object) => boolean, buildJudgment: (ctx?: object) => string }>} */
 export const KEY_JUDGMENT_RULES = [
   {
+    id: "premium_burden_companion_judgment",
+    kind: "judgment_rule",
+    scene: "B",
+    reason:
+      "JC-PREMIUM-BURDEN-v1 — burden/reduction paraphrases share companion judgment, not lookup or generic consult.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment() {
+      return "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다.";
+    },
+  },
+  {
+    id: "coverage_anxiety_companion_judgment",
+    kind: "judgment_rule",
+    scene: "B",
+    reason:
+      "JC-COVERAGE-ANXIETY-v1 — insecurity paraphrases share companion judgment; gap tool loads but no inventory dump opener.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment() {
+      return "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다.";
+    },
+  },
+  {
+    id: "continuity_companion_judgment",
+    kind: "judgment_rule",
+    scene: "R",
+    reason:
+      "RC-CONTINUITY-COMPANION-v1 — continuity paraphrases bridge to Companion; memory present/absent shapes only.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === RC_CONTINUITY_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment(ctx = {}) {
+      return buildContinuityCompanionJudgment(ctx);
+    },
+  },
+  {
+    id: "recognition_companion_judgment",
+    kind: "judgment_rule",
+    scene: "R",
+    reason:
+      "RC-RECOGNITION-COMPANION-v1 — return visit paraphrases welcome customer; no Memory read · no insurance turn.",
+    match({ factBundle = {} } = {}) {
+      return factBundle.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID;
+    },
+    buildJudgment(ctx = {}) {
+      return buildRecognitionCompanionJudgment(ctx);
+    },
+  },
+  {
     id: "memory_recall_judgment",
     kind: "judgment_rule",
     scene: "M",
@@ -625,6 +686,9 @@ export const KEY_JUDGMENT_RULES = [
     match({ question = "", resolvedIntent = null, factBundle = {} } = {}) {
       const q = normalizeQuestion(question);
       if (!q) return false;
+      if (factBundle.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID) {
+        return false;
+      }
       if (resolvedIntent === SALES_DIRECTOR_JUDGMENT_INTENTS.PREMIUM_INTERPRETATION) {
         return false;
       }

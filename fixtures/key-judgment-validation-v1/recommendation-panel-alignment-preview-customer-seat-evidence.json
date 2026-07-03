@@ -1,0 +1,105 @@
+{
+  "schema_version": "recommendation-panel-alignment-preview-customer-seat-v1",
+  "audit": "recommendation_panel_alignment_preview_customer_seat",
+  "note": "Observation only — Tom PASS/close. Jerry does not declare PASS.",
+  "slice_design": "fixtures/key-judgment-validation-v1/recommendation-panel-alignment-slice-design-v1.json",
+  "preview_base": "https://lifeguard-core-final-l1ouzi2lx-70sofia113-1918s-projects.vercel.app",
+  "git_commit": "fe24f07",
+  "observed_at": "2026-07-03T18:35:15.938Z",
+  "tom_completion_criterion": "채팅 → 패널 → 같은 사람인가?",
+  "flow": [
+    "chat 추천해줘",
+    "chat priority path",
+    "panel continuation voice",
+    "Tom seat audit"
+  ],
+  "chat_recommend": {
+    "question": "추천해줘.",
+    "answerText": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+    "responseSource": "sales_director_guarded_hold",
+    "classificationIntent": "recommendation_request",
+    "gap_03_note": "recommendation_request — KEY orchestrator OFF; panel alignment alone cannot unify this path (GAP-03)"
+  },
+  "chat_priority": {
+    "question": "지금 뭐부터 추가하면 좋을까?",
+    "answerText": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 뇌혈관과 암입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "responseSource": "sales_director_key",
+    "classificationIntent": "recommendation_priority_check"
+  },
+  "panel_voice": {
+    "rec_top2_count": 2,
+    "continuation": "같은 저장된 자료를 기준으로 보면, 지금 우선 같이 짚을 여지가 있는 축은 뇌혈관과 암입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.",
+    "limitation": "다만, 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "next_step_sample": "그럼 앞으로는, 위 축부터 순서대로 함께 확인하면 됩니다."
+  },
+  "recommendation_api": {
+    "ok": true,
+    "status": 200,
+    "top2_labels": [
+      "뇌혈관",
+      "암"
+    ]
+  },
+  "panel_ui_on_preview_bundle": true,
+  "panel_ui_git_commit": "fe24f07",
+  "panel_ui_note": "RecommendationPanelKeyView on Preview — Tom visual customer seat pending",
+  "slice_close_excludes_gap_03": true,
+  "tom_slice_close_question": "패널에서 KEY가 계속 설명하는가? (GAP-03 chat path 별도 Slice)",
+  "tom_primary_flow": {
+    "question": "추천해줘.",
+    "expected_for_slice_close": "Tom visual YES on chat → panel after deploy",
+    "current_api_probe": {
+      "tom_question": "채팅에서 패널로 넘어가도, 고객은 계속 KEY와 이야기하고 있다고 느끼는가?",
+      "signals": {
+        "chat_has_stored_basis": false,
+        "chat_has_together": true,
+        "panel_continuation_bridge": true,
+        "panel_not_fresh_screen": true,
+        "shared_basis_vocab": false,
+        "shared_together_vocab": true,
+        "chat_blocked_guarded_hold": true
+      },
+      "checks": {
+        "panel_continues_chat": true,
+        "not_independent_screen_start": true,
+        "same_key_feel_heuristic": false,
+        "limitation_present": true,
+        "chat_panel_same_voice": false
+      },
+      "pass_heuristic": false,
+      "gap_note": "GAP-03 — chat recommendation_request not on KEY path; panel-only slice cannot PASS this flow"
+    }
+  },
+  "tom_aligned_flow": {
+    "question": "지금 뭐부터 추가하면 좋을까?",
+    "note": "KEY judgment path — panel voice parity probe",
+    "current_api_probe": {
+      "tom_question": "채팅에서 패널로 넘어가도, 고객은 계속 KEY와 이야기하고 있다고 느끼는가?",
+      "signals": {
+        "chat_has_stored_basis": true,
+        "chat_has_together": true,
+        "panel_continuation_bridge": true,
+        "panel_not_fresh_screen": true,
+        "shared_basis_vocab": true,
+        "shared_together_vocab": true,
+        "chat_blocked_guarded_hold": false
+      },
+      "checks": {
+        "panel_continues_chat": true,
+        "not_independent_screen_start": true,
+        "same_key_feel_heuristic": true,
+        "limitation_present": true,
+        "chat_panel_same_voice": true
+      },
+      "pass_heuristic": true,
+      "gap_note": null
+    }
+  },
+  "tom_preview_questions": {
+    "q1_not_new_screen": "패널이 독립적으로 시작하지 않고 대화를 이어받는가?",
+    "q2_same_key": "KEY가 계속 설명하고 있다고 느껴지는가?",
+    "q3_phase_bc_flow": "Phase B judgment → panel continuation → Phase C next step 흐름이 이어지는가?"
+  },
+  "status": "awaiting_tom_visual_customer_seat",
+  "jerry_pass_declaration": "none"
+}

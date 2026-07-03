@@ -1,0 +1,250 @@
+{
+  "document": "key_hand_wiring_p2_key_runtime_design_v1",
+  "gate": "HAND-P2-KEY-RUNTIME",
+  "label": "Upload Entry → runSalesDirectorKeyTurn (KEY Runtime SSOT — 유일)",
+  "mode": "Phase 2 EXEC complete · Tom audit key_runtime_entered",
+  "status": "Local + Preview PASS — Phase 3 Persona HOLD",
+  "observed_at": "2026-07-03",
+  "tom_amendment": {
+    "rejected": "runKeyAuthorityRuntimeTurn (NEW) + runSalesDirectorKeyTurn body 추출",
+    "reason": "공통화처럼 보이나 몇 달 뒤 Chat/Upload Runtime이 따로 수정되며 KEY Runtime이 둘이 됨 — 'KEY는 하나' 위반",
+    "tom_ruling": "기존 runSalesDirectorKeyTurn 자체를 KEY Runtime SSOT로 성장. 새 Runtime primitive 금지.",
+    "approved": "runSalesDirectorKeyTurn에 entry trigger 확장 (document_intake 등). Runtime 하나 · Entry 여러 개."
+  },
+  "tom_charter_ref": "LIFEGUARD_CONSTITUTION.md — 최상위 원칙 · 하나의 KEY · KEY Runtime 감사",
+  "tom_audit_primary_question": {
+    "question": "runSalesDirectorKeyTurn이 앞으로도 유일한 KEY Runtime인가?",
+    "yes": "GO",
+    "no": "STOP"
+  },
+  "tom_audit_entry_question": {
+    "question": "Upload도 Chat과 같은 KEY Runtime을 타는가?",
+    "yes": "GO — both call runSalesDirectorKeyTurn",
+    "no": "STOP"
+  },
+  "current_verdict": {
+    "one_key_runtime": "YES (Upload active) — runSalesDirectorKeyTurn via key_runtime_entered trace",
+    "phase_1_proven": {
+      "loadSalesDirectorTurnContext": "Local + Preview PASS",
+      "evidence": "fixtures/key-judgment-validation-v1/key-upload-hand-wiring-p1-preview-snapshot-evidence.json",
+      "judgment_customer_context_status": { "memory": "present", "policies": "present" }
+    }
+  },
+  "classification": {
+    "primary": "LIFEGUARD(KEY) + Hand — KEY Runtime growth (not new runtime, not Upload feature)",
+    "tom_framing": "Runtime은 하나. Entry만 여러 개.",
+    "not": "새 KEY · 새 Runtime primitive · 새 Persona · 새 env · 고객 UI · 공장 권한 약화 · Persona outlet (Phase 3 HOLD)"
+  },
+  "problem_statement": {
+    "today_upload": "loadSalesDirectorTurnContext → documentIntakeShadow / documentFirstJudgment (parallel judgment — runSalesDirectorKeyTurn 미경유)",
+    "today_chat": "runSalesDirectorLoopTurn → loadSalesDirectorTurnContext → runSalesDirectorKeyTurn",
+    "gap": "같은 Memory · 다른 사고 엔진"
+  },
+  "slice_goal": {
+    "one_line": "Upload Entry가 runSalesDirectorKeyTurn — 유일한 KEY Runtime SSOT — 을 반드시 지나간다.",
+    "prove_at_exec": [
+      "intake trace: key_runtime_entered.primitive === runSalesDirectorKeyTurn (only)",
+      "Upload judgment from runSalesDirectorKeyTurn result — not parallel-only documentFirstJudgment path",
+      "Chat: runSalesDirectorLoopTurn → runSalesDirectorKeyTurn — unchanged entry, same function",
+      "KU trace order preserved · Work Order gate unchanged"
+    ],
+    "tom_declaration_unlock": "Upload가 runSalesDirectorKeyTurn 경유 YES → '라이프가드에는 하나의 KEY만 존재한다' 선언 가능"
+  },
+  "target_architecture": {
+    "diagram": [
+      "Upload ──┐",
+      "Chat   ──┤",
+      "Voice  ──┤  (future — same pattern)",
+      "Photo  ──┤",
+      "…      ──┘",
+      "        │",
+      "        ▼",
+      " runSalesDirectorKeyTurn  ← 유일한 KEY Runtime SSOT",
+      "        │",
+      " Memory · Judgment · tool plan · Work Order plan",
+      "        │",
+      " Chat → finalizeSalesDirectorResponse (existing)",
+      " Upload → intake_trace map (static KU-2c speak — Phase 3 HOLD)"
+    ],
+    "runtime_ssot": {
+      "function": "runSalesDirectorKeyTurn",
+      "file": "server/salesDirectorKeyOrchestrator.js",
+      "rule": "모든 Entry는 이 함수만 호출. body 추출 · wrapper · parallel runtime 금지."
+    },
+    "chat_entry": {
+      "route": "POST /api/customer-home-brain-fact",
+      "path": "runSalesDirectorLoopTurn → runSalesDirectorKeyTurn({ keyEntry: question, question, … })",
+      "change": "keyEntry trigger 명시 (default question — chat regression zero)"
+    },
+    "upload_entry": {
+      "route": "POST /api/key-document-intake",
+      "path": "loadSalesDirectorTurnContext (Phase 1) → runSalesDirectorKeyTurn({ keyEntry: document_intake, document, … }) → map to intake_trace",
+      "change": "parallel judgment retired for active mode"
+    }
+  },
+  "design_extension": {
+    "forbidden": [
+      "runKeyAuthorityRuntimeTurn",
+      "keyAuthorityRuntime.js",
+      "runSalesDirectorKeyTurn body 추출 into second module",
+      "Chat-only runtime fork",
+      "Upload-only runtime fork"
+    ],
+    "key_entry_trigger": {
+      "param": "keyEntry",
+      "ssot_function": "runSalesDirectorKeyTurn",
+      "values_v1_exec": ["question", "document_intake"],
+      "values_future_design_only": ["voice", "photo", "hospital_event", "mydata"],
+      "note": "Phase 2 EXEC scope = document_intake only. Future entries extend same param — no new runtime."
+    },
+    "per_entry_behavior": {
+      "question": {
+        "default": true,
+        "classification": "classifyConsultationIntent(question) — unchanged",
+        "tool_plan": "planKeyTools(classification, loadedContext, question) — unchanged",
+        "output": "agentTurn → HUL / home brain — unchanged"
+      },
+      "document_intake": {
+        "classification": {
+          "intent": "document_intake",
+          "internal_only": true,
+          "not_new_persona": true,
+          "note": "Fixed intake intent inside runSalesDirectorKeyTurn branch — no chat classifier on empty question"
+        },
+        "tool_plan": {
+          "branch_inside": "planKeyTools or planKeyToolsForEntry(keyEntry, …) — same registry file, intake branch only",
+          "allowed": "document_ocr · policy_extract · analysis_refresh (dispatch shadow)",
+          "forbidden_on_intake": "Auto gap/rec/design invoke on first upload turn"
+        },
+        "output": "map to intake_trace (key_first_judgment · dispatch_plan) — static speak Phase 3 HOLD"
+      }
+    },
+    "shared_invariants": [
+      "Single function runSalesDirectorKeyTurn for all entries",
+      "snapshot + unified + loadedContext from loadSalesDirectorTurnContext",
+      "runKeyTools shared",
+      "factBundle.key_orchestrator === true",
+      "responseSource sales_director_key"
+    ]
+  },
+  "wiring_contract": {
+    "phase_1_preserved": "loadSalesDirectorTurnContext in api/key-document-intake.js",
+    "intake_api_sequence": [
+      "auth + document row",
+      "loadSalesDirectorTurnContext + buildLoadedContextFromSnapshot + snapshotToContextBundle",
+      "runSalesDirectorKeyTurn({ keyEntry: document_intake, document, hasAnalysisConsent, snapshot, unified, loadedContext, customerContextBundle, … })",
+      "mapKeyTurnToIntakeTrace(result) — KU trace step names preserved",
+      "appendKeyFirstSpeakTrace static (Phase 3 HOLD)",
+      "Work Order persist (KU-2a)",
+      "return JSON — client enqueue unchanged"
+    ],
+    "trace_additions": {
+      "step": "key_runtime_entered",
+      "after": "key_context_loaded",
+      "before": "key_interprets",
+      "fields": {
+        "primitive": "runSalesDirectorKeyTurn",
+        "key_entry": "document_intake",
+        "runtime_ssot": true,
+        "subject": "KEY"
+      }
+    },
+    "parallel_path_retirement": {
+      "active_mode": "buildKeyDocumentIntakeShadowTrace must not be sole judgment path — runtime result required",
+      "documentFirstJudgment.js": "mapper from runSalesDirectorKeyTurn output",
+      "documentIntakeShadow.js": "trace adapter only"
+    }
+  },
+  "forbidden": {
+    "new_runtime_primitive": true,
+    "new_key_class": true,
+    "new_persona": true,
+    "new_env": true,
+    "customer_ui_change": true,
+    "work_order_gate_weakening": true,
+    "persona_outlet_in_p2": true,
+    "body_extract_to_second_module": true,
+    "full_runSalesDirectorLoopTurn_for_upload": "Upload calls runSalesDirectorKeyTurn directly — not full chat loop"
+  },
+  "files_touch_map": {
+    "proposed_new": [],
+    "modify": [
+      "server/salesDirectorKeyOrchestrator.js",
+      "server/salesDirectorKeyToolRegistry.js",
+      "api/key-document-intake.js",
+      "server/keyBrain/documentIntakeShadow.js",
+      "server/keyBrain/documentFirstJudgment.js"
+    ],
+    "do_not_touch": [
+      "src/hooks/useCustomerDocumentUpload.js",
+      "server/keyBrain/workOrder.js",
+      "server/keyBrain/documentFirstSpeak.js",
+      "fixtures/key-customer-validation-v1/question-bank-v1.json",
+      "supabase/functions/document-ingest-worker"
+    ]
+  },
+  "tom_audit_precheck": {
+    "0_sole_runtime_ssot": {
+      "question": "runSalesDirectorKeyTurn이 유일한 KEY Runtime인가?",
+      "design_answer": "YES — no second primitive · no body extract · entry triggers only"
+    },
+    "1_upload_same_runtime": {
+      "question": "Upload도 Chat과 같은 KEY Runtime을 타는가?",
+      "design_answer": "YES after EXEC — both invoke runSalesDirectorKeyTurn"
+    },
+    "2_no_second_key": {
+      "question": "새 KEY / 새 Runtime을 만드는가?",
+      "design_answer": "NO — extend existing runSalesDirectorKeyTurn"
+    },
+    "3_no_key_bypass": {
+      "question": "KEY를 우회하는가?",
+      "design_answer": "NO — parallel intake judgment path retired (active)"
+    },
+    "4_strengthens_key": {
+      "question": "기존 KEY를 더 강하게?",
+      "design_answer": "YES — Runtime grows to accept document_intake; Tom charter aligned"
+    },
+    "5_ku_arc_and_factory": {
+      "question": "KU arc · WO gate?",
+      "design_answer": "YES — unchanged"
+    }
+  },
+  "merge_gate": {
+    "design_go": true,
+    "design_amended_at": "2026-07-03",
+    "exec_go": true,
+    "exec_completed_at": "2026-07-03",
+    "preview_evidence": "fixtures/key-judgment-validation-v1/key-hand-wiring-p2-key-runtime-preview-evidence.json",
+    "hand_p2_preview_pass": true,
+    "local_tests_proposed": [
+      "key-hand-wiring-p2-key-runtime-unit-test.mjs",
+      "assert primitive === runSalesDirectorKeyTurn only"
+    ],
+    "preview_evidence_proposed": [
+      "key-hand-wiring-p2-key-runtime-preview-probe.mjs"
+    ],
+    "preview_pass_criteria": {
+      "key_runtime_entered": true,
+      "primitive": "runSalesDirectorKeyTurn",
+      "key_entry": "document_intake",
+      "sole_runtime_ssot": true,
+      "ku2a_ku2b_regression": true
+    },
+    "regression_always": [
+      "npm run test:key-v2-key-persona",
+      "npm run test:key-upload-hand-wiring-snapshot",
+      "npm run test:key-upload-ku2b-judgment-trace",
+      "npm run test:key-upload-ku2a-work-order-gate"
+    ]
+  },
+  "phase_sequence_locked": {
+    "phase_1_snapshot": "COMPLETE — Local + Preview GO",
+    "phase_2_key_runtime": "COMPLETE — Local + Preview PASS",
+    "phase_3_persona_outlet": "HOLD"
+  },
+  "jerry_stop": {
+    "phase_2_exec": "complete",
+    "awaiting": "Tom — Phase 3 Persona or KEY singularity declaration",
+    "command": "새 Runtime을 만들지 마라. runSalesDirectorKeyTurn을 성장시켜라."
+  }
+}

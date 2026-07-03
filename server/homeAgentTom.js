@@ -103,18 +103,42 @@ async function runGapAuditTool({
   });
 }
 
-async function runTomChatTurn({ question, history, fetchImpl, env }) {
+async function runTomChatTurn({ question, history, fetchImpl, env, gi1Profile = false }) {
   const llm = await generateLifeguardChatResponse({
     question,
     history,
     fetchImpl,
     env,
+    gi1Profile,
   });
   return {
     text: llm.text || LIFEGUARD_CHAT_FALLBACK,
     response_source: llm.response_source ?? "lifeguard_chat_fallback",
     llm_ok: llm.ok === true,
+    chat_profile: llm.chat_profile ?? (gi1Profile ? "gi1" : "default"),
+    max_chars_applied: llm.max_chars_applied ?? null,
   };
+}
+
+/** KEY-GI-1 R1 — General Knowledge Delegation to lifeguardChatCore (orchestrator path). */
+export async function delegateGeneralKnowledgeChatTurn({
+  question,
+  history = [],
+  fetchImpl = fetch,
+  env = process.env,
+} = {}) {
+  return runTomChatTurn({ question, history, fetchImpl, env, gi1Profile: true });
+}
+
+export function shouldRunGeneralKnowledgeDelegation({
+  question = "",
+  consultationIntent = null,
+  keyOrchestrator = false,
+} = {}) {
+  if (!keyOrchestrator) return false;
+  if (!consultationIntent) return false;
+  if (consultationIntent.general_knowledge === true) return true;
+  return false;
 }
 
 export async function runHomeAgentTomTurn({

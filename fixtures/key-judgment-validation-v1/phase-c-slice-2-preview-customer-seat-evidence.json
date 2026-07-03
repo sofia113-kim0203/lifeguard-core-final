@@ -1,0 +1,50 @@
+{
+  "schema_version": "phase-c-slice-2-preview-customer-seat-evidence-v1",
+  "audit_purpose": "Phase B Premium Judge + Phase C Care Plan Contract v1.1 on Preview",
+  "slice": "Phase C Slice 2 — Premium Care Plan",
+  "question": "보험료 부담돼.",
+  "recorded_at": "2026-07-03T17:17:41.245Z",
+  "git_short_sha": "713e388",
+  "preview_base": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app",
+  "auth_fingerprint": {
+    "ssot": "key-customer-validation-v1-preview-verify.mjs",
+    "method": "fetch + x-vercel-protection-bypass + QA JWT",
+    "supabase_url_ref": "inwswsruvvzaeioqkelq",
+    "supabase_url_source": "VITE_SUPABASE_URL",
+    "anon_key_len": 208,
+    "bypass_set": true,
+    "qa_email_domain": "staging-qa.example.com",
+    "forbidden_paths": {
+      "production_probe_creds": false,
+      "management_api_anon": false,
+      "plain_fetch_no_bypass": false
+    }
+  },
+  "probe_ok": true,
+  "probe_error": null,
+  "answer_text": "현재 자료에서는 급하게 줄이기보다 구조를 먼저 보는 것이 맞아 보입니다. 등록된 보험은 있지만, 월 납입액은 아직 전부 확인되지 않았습니다. 보험료 숫자만으로는, 지금 받는 보장 가치까지는 단정하기 어렵습니다. 그럼 앞으로는 이렇게 진행하면 됩니다. ① 이번 달 납입액과 보장내역을 함께 맞춰 보겠습니다 (급하게 줄이기 전에 구조를 봐야 하기 때문입니다) ② 다음 부담이 큰 항목부터 함께 확인하겠습니다 (어디에서 부담이 생기는지 먼저 알아야 하기 때문입니다)",
+  "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+  "expected_companion_cluster": "JC-PREMIUM-BURDEN-v1",
+  "phase_b_seat_audit": {
+    "judgment_first": true,
+    "customer_understandable_reason": true,
+    "honest_boundary": true,
+    "plan_not_conclusion": true
+  },
+  "care_plan_contract": {
+    "judge_to_plan_transition": true,
+    "what_present": true,
+    "when_present": true,
+    "why_present": true,
+    "plan_reassurance": true,
+    "companion_voice": true,
+    "not_product_pitch": true
+  },
+  "slice2_contract_pass": true,
+  "guardrails": {
+    "no_first_action_overlap": true,
+    "no_empathy_opener": true
+  },
+  "jerry_pass_declaration": "none",
+    "tom_seat_audit_status": "observed_pass_pending_tom_ratify"
+}

@@ -1,0 +1,374 @@
+{
+  "document": "jc_coverage_anxiety_v1_slice_local_trace_evidence",
+  "slice": "SLICE-2-JC-COVERAGE-ANXIETY-v1",
+  "mode": "local module trace · intentGateLayer-only · no PASS · no Production deploy",
+  "tom_go": "conditional GO — Tom 3 amendments applied",
+  "observed_at": "2026-06-30T18:51:34.116Z",
+  "pass_declaration": "none",
+  "design_ref": "jc-coverage-anxiety-v1-slice-design.json",
+  "summary": {
+    "paraphrase": "4/4",
+    "negative": "4/4",
+    "slice1_regression": "aligned",
+    "j04_spot": {
+      "question": "내 보험 부족한 부분 있어?",
+      "intent": "coverage_gap_check",
+      "companion_cluster": null,
+      "preserved": true
+    }
+  },
+  "paraphrase": [
+    {
+      "question": "내 보험 괜찮아?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "adequacy_ok"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "coverage_judgment",
+      "judgment_rule_id": "coverage_anxiety_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "보장이 부족한 것 같아.",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "inadequacy_feel"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "coverage_judgment",
+      "judgment_rule_id": "coverage_anxiety_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "뭐가 빠졌지?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "missing_piece"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "coverage_judgment",
+      "judgment_rule_id": "coverage_anxiety_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "암보장 부족해?",
+      "intent": "general_consultation",
+      "matched_rule": "coverage_anxiety_companion_cluster",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "companion_cluster_signals": [
+        "cancer_gap"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "coverage_judgment",
+      "judgment_rule_id": "coverage_anxiety_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    }
+  ],
+  "negative_control": [
+    {
+      "question": "어떤 보장이 있어?",
+      "intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "judgment_intent": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "no_cluster": true,
+        "preserved": true
+      }
+    },
+    {
+      "question": "보장 분석해줘.",
+      "intent": "coverage_review_request",
+      "matched_rule": "coverage_review_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "judgment_intent": "coverage_judgment",
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "no_cluster": true,
+        "preserved": true
+      }
+    },
+    {
+      "question": "뭐 가입해야 해?",
+      "intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": null,
+      "judgment_intent": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "no_cluster": true,
+        "preserved": true
+      }
+    },
+    {
+      "question": "내 보험 문제 있어?",
+      "intent": "factual_lookup",
+      "matched_rule": "policy_count",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "policy_count",
+      "judgment_intent": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "no_cluster": true,
+        "preserved": true
+      }
+    }
+  ],
+  "slice1_regression": [
+    {
+      "question": "보험료가 부담돼.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "burden"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "premium_interpretation",
+      "judgment_rule_id": "premium_burden_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "pilot_key": "premium_burden",
+      "tool_brain_slice": "premium_burden",
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "보험을 줄이고 싶어.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "reduction"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "premium_interpretation",
+      "judgment_rule_id": "premium_burden_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료를 낮추고 싶어.",
+      "intent": "general_consultation",
+      "matched_rule": "premium_burden_companion_cluster",
+      "companion_cluster": "JC-PREMIUM-BURDEN-v1",
+      "companion_cluster_signals": [
+        "reduction"
+      ],
+      "lookup_sub_intent": null,
+      "judgment_intent": "premium_interpretation",
+      "judgment_rule_id": "premium_burden_companion_judgment",
+      "tools": [
+        "snapshot",
+        "memory",
+        "premium_stats"
+      ],
+      "coverage_gap_suppressed": true,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "aligned": true
+      }
+    },
+    {
+      "question": "월 보험료 얼마야?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "judgment_intent": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "lookup_ok": true,
+        "no_coverage_cluster": true
+      }
+    },
+    {
+      "question": "내 보험료 총액 얼마야?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "judgment_intent": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "lookup_ok": true,
+        "no_coverage_cluster": true
+      }
+    },
+    {
+      "question": "보험료 몇 원이야?",
+      "intent": "factual_lookup",
+      "matched_rule": "premium_lookup",
+      "companion_cluster": null,
+      "companion_cluster_signals": null,
+      "lookup_sub_intent": "premium_lookup",
+      "judgment_intent": null,
+      "judgment_rule_id": null,
+      "tools": [
+        "snapshot",
+        "memory"
+      ],
+      "coverage_gap_suppressed": false,
+      "pilot_key": null,
+      "tool_brain_slice": null,
+      "sales_director_mode": "chat_or_orchestrator",
+      "assessment": {
+        "lookup_ok": true,
+        "no_coverage_cluster": true
+      }
+    }
+  ],
+  "j04_spot": {
+    "question": "내 보험 부족한 부분 있어?",
+    "intent": "coverage_gap_check",
+    "matched_rule": "coverage_gap_check",
+    "companion_cluster": null,
+    "companion_cluster_signals": null,
+    "lookup_sub_intent": null,
+    "judgment_intent": "coverage_judgment",
+    "judgment_rule_id": "coverage_gap_judgment_or_structured",
+    "tools": [
+      "snapshot",
+      "memory",
+      "coverage_gap"
+    ],
+    "coverage_gap_suppressed": false,
+    "pilot_key": null,
+    "tool_brain_slice": null,
+    "sales_director_mode": "chat_or_orchestrator"
+  },
+  "jerry": "STOP — local trace only · await Tom audit · no Production PASS",
+  "local_gates": {
+    "persona_customer_journey": "3/3 local unit (test:key-persona-v1-customer-journey)",
+    "question_bank_structure": "30/30 frozen v1 (test:key-customer-validation-v1-bank)",
+    "preview_30q_regression": "not_run — requires Preview deploy + URL (regression:key-customer-validation-v1)"
+  }
+}

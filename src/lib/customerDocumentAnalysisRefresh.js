@@ -6,17 +6,22 @@ const ROUTE_PATH = "/api/customer-document-analysis-refresh";
 function mapServerError(payload, status) {
   if (payload?.error_message) return payload.error_message;
   if (payload?.reason === "UNAUTHORIZED") return "로그인이 필요합니다.";
-  if (payload?.reason === "JOB_CREATE_FAILED") return "분석 작업을 시작하지 못했습니다.";
+  if (payload?.reason === "work_order_required") return "KEY Work Order 없이 공장을 실행할 수 없습니다.";
   if (payload?.reason === "panel_results_incomplete") return "일부 분석 결과가 아직 준비되지 않았습니다.";
   if (status === 404) return "분석 갱신 API 경로를 찾을 수 없습니다.";
   return "문서 기반 분석 갱신을 처리하지 못했습니다.";
 }
 
-export async function triggerDocumentAnalysisRefresh(documentId) {
+export async function triggerDocumentAnalysisRefresh(documentId, { workOrderId = null } = {}) {
   const trimmedId = String(documentId ?? "").trim();
 
+  const body = trimmedId ? { document_id: trimmedId } : {};
+  if (workOrderId) {
+    body.work_order_id = workOrderId;
+  }
+
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
-    body: trimmedId ? { document_id: trimmedId } : {},
+    body,
   });
 
   try {

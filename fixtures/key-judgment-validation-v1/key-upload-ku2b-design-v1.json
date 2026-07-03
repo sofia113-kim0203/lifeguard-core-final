@@ -1,0 +1,189 @@
+{
+  "document": "key_upload_ku2b_design_v1",
+  "gate": "KU-2b",
+  "tom_go": "Tom A unified KEY Authority — design locked",
+  "mode": "KEY Authority first Entry (upload) · judgment trace · no customer visible",
+  "status": "Philosophy locked — Preview trace evidence pending",
+  "observed_at": "2026-07-03",
+  "key_authority_philosophy": {
+    "tom_lock": "LIFEGUARD has KEY Authority — not Upload Authority. Upload is the first Entry where KEY Authority was applied.",
+    "one_line": "KEY_UPLOAD_ENTRY is not an upload-only feature flag; it is the first Entry of future KEY Authority.",
+    "universal_flow": [
+      "all inputs (upload · chat · photo · voice · hospital · mydata · insurer · schedule · life events)",
+      "KEY",
+      "judgment",
+      "Work Order",
+      "Factory",
+      "KEY",
+      "customer"
+    ],
+    "naming_guardrail": "Do not proliferate KEY_CHAT_ENTRY · KEY_IMAGE_ENTRY · KEY_VOICE_ENTRY — extend KEY Authority pattern, not slice env names."
+  },
+  "revision": {
+    "tom_ruling": "KU-2b는 KEY 선판단 trace만 증명. 고객 visible은 다음 Slice.",
+    "removed_from_ku2b": [
+      "customer_first_sentence",
+      "useCustomerDocumentUpload UI change",
+      "customer_speak_changed: true"
+    ],
+    "next_slice": "KU-2c (provisional name) — customer_first_sentence · KEY outlet visible"
+  },
+  "classification": "LIFEGUARD(KEY) — upload path judgment precedence trace only",
+  "ku2a_proven": {
+    "one_line": "공장은 KEY Work Order 없이는 움직일 수 없다.",
+    "evidence": "fixtures/key-judgment-validation-v1/key-upload-ku2a-preview-gate-evidence.json",
+    "tom_preview_all_pass": true
+  },
+  "ku2b_goal": {
+    "one_line": "KEY 판단이 공장 실행보다 먼저 일어나는가?",
+    "prove": [
+      "key_first_judgment 생성",
+      "trace 순서 증명 (judgment → work_order → legacy_pipeline_continued)",
+      "공장은 그 뒤 실행"
+    ],
+    "not": [
+      "고객에게 실제 표시 (다음 Slice)",
+      "새 Family · 새 Persona · KB-1 full read · Gap/Rec 선행",
+      "공장 scope 확장 (KU-2a item 4 LOCAL_UNIT_TEST 범위)",
+      "KU-2a Work Order gate 약화 · bypass · shadow-only 우회"
+    ]
+  },
+  "repository_reality": {
+    "upload_ssot": "src/lib/customerDocuments.js — uploadDocument",
+    "current_order": [
+      "storage upload + customer_documents insert",
+      "requestKeyDocumentIntake (/api/key-document-intake)",
+      "enqueueDocumentIngest → worker → policy extract → analysis refresh (same turn, WO gated in active)"
+    ],
+    "intake_today": "server/keyBrain/documentIntakeShadow.js — metadata read + interpret shadow; no key_first_judgment step; customer_speak_changed: false",
+    "gap": "intake trace에 key_first_judgment step 없음; enqueue가 judgment 기록 전/후 순서가 trace로 증명되지 않음"
+  },
+  "design_slice": {
+    "name": "KU-2b — KEY 선판단 trace",
+    "bisection": "uploadDocument를 2-phase로 분리 — Phase A: 저장 + KEY intake(key_first_judgment + trace) · Phase B: 공장 enqueue (KU-2a WO 필수)",
+    "phase_a": {
+      "steps": [
+        "document_uploaded (storage + row — unchanged)",
+        "key_intake_called",
+        "key_reads (metadata v1: filename · category_key · mime · byte_size · consent)",
+        "key_interprets (judgment_scope — knowable / unknowable / must_not_claim)",
+        "key_first_judgment (NEW — structured judgment record, trace only)",
+        "dispatch_plan_created",
+        "work_order_issued (KU-2a — mint after key_first_judgment recorded)"
+      ],
+      "api": "/api/key-document-intake — extend intake_trace + key_first_judgment; no new route",
+      "new_fields": {
+        "key_first_judgment": "object — posture · document_kind_guess · judgment_scope · recorded_at",
+        "intake_trace.gate": "KEY_UPLOAD_ACTIVE when entry=active"
+      },
+      "forbidden_in_ku2b": [
+        "customer_first_sentence in API response",
+        "customer_speak_changed: true",
+        "useCustomerDocumentUpload change"
+      ]
+    },
+    "phase_b": {
+      "when": "Phase A complete — key_first_judgment persisted in trace/metadata before legacy_pipeline_continued",
+      "what": "enqueueDocumentIngest(authUser, documentId, { workOrderId }) — unchanged KU-2a propagation",
+      "factory_gates": "document-ingest-worker · customer-document-policy-extract · customer-document-analysis-refresh — KU-2a gates untouched"
+    },
+    "trace_proof_requirement": {
+      "ordered_steps": [
+        "key_first_judgment",
+        "work_order_issued",
+        "legacy_pipeline_continued"
+      ],
+      "evidence_field": "intake_trace.trace_steps[].step",
+      "fail_if": "legacy_pipeline_continued appears before key_first_judgment"
+    }
+  },
+  "key_first_judgment_v1": {
+    "input": "document metadata + analysis consent + customer_hint_type (no file body — KB-1 out of scope)",
+    "output_posture": "provisional_metadata",
+    "fields": {
+      "document_kind_guess": "string",
+      "judgment_scope": "knowable / unknowable / must_not_claim",
+      "hold": "boolean — consent or body unread",
+      "recorded_at": "ISO timestamp"
+    },
+    "must_not_claim": [
+      "담보·Gap·추천 단정",
+      "OCR/공장 결과를 KEY가 이미 본 것처럼 기록",
+      "확정 보험료·가입 여부"
+    ],
+    "no_customer_speech": "judgment object only — no speakable string field in KU-2b",
+    "module_proposed": "server/keyBrain/documentFirstJudgment.js (design-only until EXEC GO)"
+  },
+  "feature_flag": {
+    "name": "KEY_UPLOAD_ENTRY",
+    "tom_a_unified": "2026-07-03 — KEY_UPLOAD_JUDGMENT removed; single KEY upload authority",
+    "values": {
+      "off": "intake skipped",
+      "shadow": "KU-1 intake trace only — no judgment · no Work Order",
+      "active": "unified KEY upload authority — intake + key_first_judgment (KU-2b) + Work Order (KU-2a) + factory gate"
+    },
+    "forbidden": "KEY_UPLOAD_JUDGMENT · KEY_UPLOAD_* slice env proliferation"
+  },
+  "key_upload_active_sequence": [
+    "KEY intake",
+    "key_first_judgment",
+    "Work Order issued",
+    "factory gate (Phase B enqueue)",
+    "trace order: key_first_judgment → work_order_issued → legacy_pipeline_continued"
+  ],
+  "tom_audit_unified_authority": {
+    "question": "KEY upload authority가 하나인가?",
+    "answer": "YES — KEY_UPLOAD_ENTRY=active is the single switch for KU-2a + KU-2b",
+    "gate_label": "KEY_UPLOAD_ACTIVE"
+  },
+  "tom_audit_precheck": {
+    "1_key_before_factory": {
+      "question": "KEY 판단이 공장 실행보다 먼저 일어나는가?",
+      "design_answer": "YES — trace proves key_first_judgment before legacy_pipeline_continued; enqueue in Phase B only",
+      "verify_at_exec": "trace step order + key_first_judgment present before worker invoke timestamp",
+      "ku2b_primary": true
+    },
+    "2_first_sentence_key_outlet": {
+      "question": "고객에게 보이는 첫 문장이 KEY 출구인가?",
+      "design_answer": "OUT OF SCOPE — deferred to next Slice (KU-2c provisional)",
+      "verify_at_exec": "not in KU-2b merge gate"
+    },
+    "3_factory_still_wo_gated": {
+      "question": "공장은 아직 Work Order 없이는 못 움직이는가?",
+      "design_answer": "YES — KU-2a gates unchanged; Phase B still requires work_order_id",
+      "verify_at_exec": "verify:key-upload-ku2a-preview-gate items 1–3 PASS preserved"
+    },
+    "4_ku2a_not_weakened": {
+      "question": "기존 KU-2a 권한을 약화시키지 않는가?",
+      "design_answer": "YES — WO mint/validate/consume unchanged; KU-2b adds judgment step before mint, no bypass",
+      "verify_at_exec": "key-upload-ku2a-work-order-gate-unit-test.mjs + Preview gate regression"
+    }
+  },
+  "ku2b_merge_gate": {
+    "items": [
+      "KEY_UPLOAD_ENTRY=active → key_first_judgment in intake_trace",
+      "trace order: key_first_judgment → work_order_issued → legacy_pipeline_continued",
+      "KU-2a preview gate tom_preview_all_pass remains true",
+      "no separate KEY_UPLOAD_JUDGMENT env"
+    ],
+    "excluded": "customer visible text change"
+  },
+  "next_slice_ku2c_provisional": {
+    "name": "KEY customer outlet — first sentence visible",
+    "depends_on": "KU-2b trace PASS",
+    "scope": "customer_first_sentence · useCustomerDocumentUpload · customer_speak_changed",
+    "tom_go": "none — design not started"
+  },
+  "exec_verification_plan": {
+    "local": "key-upload-ku2b-judgment-trace-unit-test.mjs (design placeholder)",
+    "preview": "key-upload-ku2b-preview-trace-evidence.mjs — trace order + KU-2a regression",
+    "merge_gate": "KU-2a preview gate PASS must remain true"
+  },
+  "explicit_out_of_scope": [
+    "고객 첫 문장 표시 · UI 변경",
+    "KB-1 page-1 OCR / KEY eyes full read",
+    "KU-2a factory scope enforcement (item 4 LOCAL_UNIT_TEST)",
+    "Gap · Recommendation · new chat Family",
+    "Persona v1 / Customer Validation 30Q question bank change"
+  ]
+}

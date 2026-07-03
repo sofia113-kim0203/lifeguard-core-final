@@ -1,0 +1,63 @@
+{
+  "document": "key_gi_1_classification_baseline_plan_v1",
+  "slice": "KEY-GI-1",
+  "phase": "GI1-MEASURE",
+  "label": "분류 실측 — R2 전 Evidence",
+  "status": "plan · output pending first run",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T04:00:00.000Z",
+  "purpose": "helper 만들기 전 · 현재 routing/intent 분류 baseline 측정",
+  "exec_plan_ref": "fixtures/key-judgment-validation-v1/key-gi-1-exec-plan-v1-evidence.json",
+  "input_corpus": {
+    "primary": "gi-1-regression-bank-v1.json general_knowledge_90",
+    "supplement": "10+ additional edge cases from Start Gate examples",
+    "minimum_count": 100,
+    "note": "100 일반상식 질문 → bucket 분포 측정"
+  },
+  "measurement_targets": {
+    "intent_gate_buckets": [
+      "casual_chat",
+      "general_consultation",
+      "insurance",
+      "companion_cluster",
+      "claim",
+      "fallback_other"
+    ],
+    "router_buckets": [
+      "CASUAL_CHAT",
+      "JUDGMENT",
+      "GAP",
+      "DEFER",
+      "other"
+    ],
+    "compose_destination_pre_gi1": [
+      "key_relational_template",
+      "lifeguardChatCore",
+      "judgment_compose",
+      "defer"
+    ]
+  },
+  "output_metrics": {
+    "required": [
+      "percent per intent bucket (100 GK questions)",
+      "percent per domain (9 Tom topics)",
+      "misroute list: GK → insurance",
+      "misroute list: GK → relational-only (never reaches lifeguardChatCore)",
+      "misroute list: GK → fallback/defer without honest answer path"
+    ],
+    "success_for_r2_gate": "gap list reviewed by Tom · R2 scope confirmed from data not assumption"
+  },
+  "probe_method": {
+    "mode": "readonly",
+    "entry": "import classifyConsultationIntent · resolveHomeBrainRoute · (optional) orchestrator compose preview hook",
+    "no_api_calls": true,
+    "no_production_mutation": true,
+    "script_sketch": "scripts/key-gi-1-classification-baseline-readonly.mjs"
+  },
+  "output_artifact": "fixtures/key-judgment-validation-v1/key-gi-1-classification-baseline-v1-evidence.json",
+  "sequence": [
+    "분류 실측 (this)",
+    "누락 확인 (gap list in evidence)",
+    "GI1-R2 (helper SSOT — gap-driven)"
+  ]
+}

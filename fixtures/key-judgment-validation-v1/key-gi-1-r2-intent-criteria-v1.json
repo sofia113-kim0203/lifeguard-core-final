@@ -1,0 +1,89 @@
+{
+  "document": "key_gi_1_r2_intent_criteria_v1",
+  "slice": "KEY-GI-1",
+  "label": "GI Intent Criteria — SSOT for R2 and GI-2/GI-3 reuse",
+  "status": "frozen draft — R1-ready · reuse in GI-2/GI-3",
+  "version": "1.0.0",
+  "observed_at": "2026-07-02T08:00:00.000Z",
+  "module_ref": "server/generalKnowledgeEligibility.js",
+  "principle": "의도(intent) 우선 · 토픽 키워드는 보조 · 보험 연결(linkage) 있으면 Insurance",
+  "decision_order": [
+    "1. companion_cluster JC-* → Insurance (not GK)",
+    "2. claim / gap explicit → Insurance",
+    "3. hasInsuranceConsultationIntent (보험 linkage) → Insurance",
+    "4. hasGeneralKnowledgeIntent (순수 지식·생활·건강상식) → General Knowledge",
+    "5. fallback general_consultation"
+  ],
+  "classification_table": [
+    {
+      "question_type": "순수 지식 질문",
+      "examples": ["양자컴퓨터가 뭐야?", "세종대왕 업적", "인플레이션이 뭐야"],
+      "final_classification": "General Knowledge",
+      "matched_rule": "general_knowledge_eligible"
+    },
+    {
+      "question_type": "생활 조언",
+      "examples": ["유럽 배낭여행 준비물", "빨래 얼룩 지우는 법", "장마철 결로 방지"],
+      "final_classification": "General Knowledge",
+      "matched_rule": "general_knowledge_eligible"
+    },
+    {
+      "question_type": "여행·맛집 추천 (보험 무)",
+      "examples": ["강원도 여행 추천해줘", "분당 맛집 추천"],
+      "final_classification": "General Knowledge",
+      "note": "추천 keyword alone ≠ Insurance when no insurance linkage"
+    },
+    {
+      "question_type": "보험과 무관한 건강상식",
+      "examples": ["살을 빼려면?", "고혈압 줄이는 생활", "감기랑 독감 차이"],
+      "final_classification": "General Knowledge",
+      "note": "줄이/건강 keyword alone ≠ Insurance without 보험 linkage"
+    },
+    {
+      "question_type": "보험 가입/보장",
+      "examples": ["뭐 가입해야 해", "암보험 부족한가", "보장 공백 있어?"],
+      "final_classification": "Insurance",
+      "intent_examples": ["recommendation_request", "coverage_gap_check"]
+    },
+    {
+      "question_type": "보험금/청구",
+      "examples": ["실손 MRI 청구 가능해?", "보험금 안 나온다고"],
+      "final_classification": "Insurance",
+      "intent_examples": ["claim_eligibility_check", "factual_lookup"]
+    },
+    {
+      "question_type": "일반 지식 + 보험 언급",
+      "examples": [
+        "살을 빼면 보험료가 내려가?",
+        "실손보험에서 다이어트 치료는 보장돼?",
+        "건강검진 결과가 보험 가입에 영향 있어?"
+      ],
+      "final_classification": "Insurance",
+      "rule": "health/life topic + insurance linkage → Insurance wins"
+    },
+    {
+      "question_type": "보험료/담보 factual lookup",
+      "examples": ["암 진단비 얼마나 필요해", "내 보험료 얼마야"],
+      "final_classification": "Insurance",
+      "intent_examples": ["factual_lookup", "premium_lookup"]
+    }
+  ],
+  "tom_contrast_pairs": [
+    {
+      "gk": "살을 빼려면?",
+      "insurance": "살을 빼면 보험료가 내려가?",
+      "rule": "same health topic · insurance linkage is the divider"
+    },
+    {
+      "gk": "강원도 여행 추천해줘",
+      "insurance": "뭐 가입해야 해",
+      "rule": "recommendation in life domain vs insurance product recommendation"
+    }
+  ],
+  "forbidden_r2_regression": [
+    "Insurance questions reclassified as general_knowledge_eligible",
+    "Insurance casual_home leak on factual_lookup with coverage/premium"
+  ],
+  "reuse": "GI-2 · GI-3 · Opportunity Engine boundary reference",
+  "jerry": "Intent criteria SSOT · code implements this table"
+}

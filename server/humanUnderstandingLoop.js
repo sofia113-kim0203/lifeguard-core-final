@@ -3,6 +3,7 @@
  * People first, insurance as tool. Frame + basisTaggedFacts are thinking material, not slot templates.
  */
 import { classifyConsultationIntent, computePremiumLookupStats } from "./intentGateLayer.js";
+import { isGeneralKnowledgeEligible } from "./generalKnowledgeEligibility.js";
 import { detectClaimTopic, findRelevantPolicies } from "./claimBridgeLayer.js";
 import { hasCoveragePresenceFactualAnswer, isGenericHulCounselingIntro } from "./coveragePresencePreserveGate.js";
 import {
@@ -28,6 +29,28 @@ import {
   KEY_GENERIC_FILLER_JUDGMENT,
   shouldUseKeyCompanionGuidanceCompose,
 } from "./keyCompanionGuidance.js";
+import {
+  buildPersonalTimeContinuityResponse,
+  hasTimeContinuityUsedSignal,
+  shouldUsePersonalTimeContinuityCompose,
+} from "./personalKeyTimeContinuity.js";
+import {
+  buildContinuityCompanionResponse,
+  shouldUseContinuityCompanionCompose,
+} from "./conversationContinuityBridge.js";
+import {
+  buildRecognitionCompanionResponse,
+  shouldUseRecognitionCompanionCompose,
+} from "./conversationRecognitionBridge.js";
+import { buildPhaseBSlice1CoverageJudgment } from "./keyBrain/phaseBSlice1CoverageJudgment.js";
+import { buildPhaseCSlice1CoverageCarePlanText } from "./keyBrain/phaseCSlice1CoverageCarePlan.js";
+import { buildPhaseCSlice2PremiumCarePlanText } from "./keyBrain/phaseCSlice2PremiumCarePlan.js";
+import { buildPhaseBSlice2PremiumBurdenJudgment } from "./keyBrain/phaseBSlice2PremiumBurdenJudgment.js";
+import {
+  buildPhaseBSlice3DelegationResponse,
+  isDelegationIntentQuestion,
+} from "./keyBrain/phaseBSlice3DelegationJudgment.js";
+import { buildPhaseCSlice3DelegationResponseWithCarePlan } from "./keyBrain/phaseCSlice3DelegationCarePlan.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
@@ -468,6 +491,12 @@ export function shouldUseKeyRelationalCompose({
 
   const q = normalizeQuestion(question || humanFrame.surface_question || factBundle.question || "");
   if (!q) return false;
+  if (factBundle.general_knowledge === true || factBundle.general_knowledge_delegation === true) {
+    return false;
+  }
+  if (isGeneralKnowledgeEligible(q, { intent: classificationIntent })) {
+    return false;
+  }
   if (humanFrame.needs_insurance_tools) return false;
   if (INSURANCE_TOPIC.test(q)) return false;
   if (isKeySocialTurn(q)) return false;
@@ -536,12 +565,15 @@ export function buildKeyStructuredResponse(
   const question = humanFrame.surface_question ?? factBundle.question ?? "";
   const classificationIntent =
     factBundle.classification_intent ?? classifyConsultationIntent(question).intent ?? "";
-  const judgment = enforceKeyJudgmentFirst(
+  let judgment = enforceKeyJudgmentFirst(
     buildKeyJudgmentBlock(intent, humanFrame, factBundle),
   );
   let evidence = buildKeyEvidenceBlock(basisTaggedFacts, options);
   let limitation = buildKeyLimitationBlock(intent, factBundle, basisTaggedFacts);
   let nextAction = buildKeyNextActionBlock(humanFrame.main_blocker, intent);
+
+  let phaseBCoverageJudgment = null;
+  let phaseBPremiumJudgment = null;
 
   const activeJudgmentRule = resolveKeyJudgmentRule({
     question,
@@ -819,11 +851,54 @@ export function buildKeyStructuredResponse(
       limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
       nextAction = buildKeyNextActionBlock("information_gap");
     }
+  } else if (activeJudgmentRule?.id === "coverage_anxiety_companion_judgment") {
+    phaseBCoverageJudgment = buildPhaseBSlice1CoverageJudgment({ factBundle, question });
+    if (phaseBCoverageJudgment) {
+      judgment = phaseBCoverageJudgment.judgment;
+      evidence = phaseBCoverageJudgment.evidence;
+      limitation = phaseBCoverageJudgment.limitation;
+      nextAction = phaseBCoverageJudgment.nextAction;
+    }
+  } else if (activeJudgmentRule?.id === "premium_burden_companion_judgment") {
+    phaseBPremiumJudgment = buildPhaseBSlice2PremiumBurdenJudgment({ factBundle, question });
+    if (phaseBPremiumJudgment) {
+      judgment = phaseBPremiumJudgment.judgment;
+      evidence = phaseBPremiumJudgment.evidence;
+      limitation = phaseBPremiumJudgment.limitation;
+      nextAction = phaseBPremiumJudgment.nextAction;
+    }
   }
 
-  const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);
-  const joined = normalizeText(parts.join(" "));
-  if (activeJudgmentRule?.id === "memory_recall_judgment") {
+  const carePlanText =
+    activeJudgmentRule?.id === "coverage_anxiety_companion_judgment"
+      ? buildPhaseCSlice1CoverageCarePlanText({
+          factBundle,
+          question,
+          phaseBJudgment: phaseBCoverageJudgment,
+        })
+      : activeJudgmentRule?.id === "premium_burden_companion_judgment"
+        ? buildPhaseCSlice2PremiumCarePlanText({
+            factBundle,
+            question,
+            phaseBJudgment: phaseBPremiumJudgment,
+          })
+        : null;
+
+  const parts = [
+    judgment,
+    evidence,
+    limitation,
+    carePlanText ? null : nextAction,
+  ].filter(Boolean);
+  let joined = normalizeText(parts.join(" "));
+  if (
+    activeJudgmentRule?.id === "memory_recall_judgment" ||
+    activeJudgmentRule?.id === "coverage_anxiety_companion_judgment" ||
+    activeJudgmentRule?.id === "premium_burden_companion_judgment"
+  ) {
+    if (carePlanText) {
+      joined = normalizeText(`${joined} ${carePlanText}`);
+    }
     return joined;
   }
   return enforceKeyDeclarativeEnding(joined, humanFrame.main_blocker);
@@ -1125,6 +1200,10 @@ export function buildHumanUnderstandingFrame({
     resolved_intent: resolvedIntent,
     surface,
     is_trust_human_question: isHumanTrustQuestion(q),
+    conversation_history: Array.isArray(conversationContext.history)
+      ? conversationContext.history
+      : [],
+    classification_intent: conversationContext.classificationIntent ?? "",
   };
 }
 
@@ -1320,10 +1399,53 @@ export function generateHumanSalesDirectorResponse({
   let text;
   if (useKeyOrchestrator) {
     const fixedSlice = resolveToolBrainFixedSlice(factBundle);
+    const useContinuityCompanion =
+      !fixedSlice &&
+      shouldUseContinuityCompanionCompose({
+        question,
+        factBundle,
+        humanFrame,
+      });
+    const useRecognitionCompanion =
+      !fixedSlice &&
+      !useContinuityCompanion &&
+      shouldUseRecognitionCompanionCompose({
+        question,
+        factBundle,
+        humanFrame,
+      });
+    const timeContinuityCandidate =
+      !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      shouldUsePersonalTimeContinuityCompose({
+        question: question || factBundle.question || "",
+        humanFrame,
+        classificationIntent: resolvedClassificationIntent,
+        factBundle,
+      });
+    let timeContinuityText = null;
+    if (timeContinuityCandidate) {
+      const candidate = buildPersonalTimeContinuityResponse({
+        question: question || factBundle.question || "",
+        humanFrame,
+      });
+      if (hasTimeContinuityUsedSignal(candidate)) {
+        timeContinuityText = candidate;
+      }
+    }
+    const useTimeContinuity = Boolean(timeContinuityText);
     const useAnalysisStatus =
-      !fixedSlice && isKeyAnalysisStatusQuestion(question || factBundle.question || "");
+      !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
+      isKeyAnalysisStatusQuestion(question || factBundle.question || "");
     const useSocial =
       !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       isKeySocialTurn(question || factBundle.question || "");
     const socialPattern = useSocial
@@ -1331,17 +1453,33 @@ export function generateHumanSalesDirectorResponse({
       : null;
     const useClosing =
       !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
       isKeyClosingTurn(question || factBundle.question || "");
     const closingPattern = useClosing
       ? resolveKeyClosingConversationPattern(question || factBundle.question || "")
       : null;
-    const useRelational =
+    const useDelegation =
       !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
       !useClosing &&
+      isDelegationIntentQuestion(question || factBundle.question || "");
+    const useRelational =
+      !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
+      !useAnalysisStatus &&
+      !useSocial &&
+      !useClosing &&
+      !useDelegation &&
       shouldUseKeyRelationalCompose({
         question,
         classificationIntent: resolvedClassificationIntent,
@@ -1349,9 +1487,13 @@ export function generateHumanSalesDirectorResponse({
         humanFrame,
       });
     const useCompanionGuidance =
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
       !useAnalysisStatus &&
       !useSocial &&
       !useClosing &&
+      !useDelegation &&
       !useRelational &&
       shouldUseKeyCompanionGuidanceCompose({
         question,
@@ -1359,35 +1501,52 @@ export function generateHumanSalesDirectorResponse({
         humanFrame,
         fixedSlice,
       });
-    text = useAnalysisStatus
-      ? buildKeyAnalysisStatusResponse(factBundle, question)
-      : useSocial
-        ? (socialPattern?.text ?? normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
-        : useClosing
-          ? (closingPattern?.text ?? buildKeyClosingResponse(question))
-          : useRelational
-            ? buildKeyRelationalResponse(humanFrame, question)
-            : useCompanionGuidance
-              ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
-              : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
+    text = useContinuityCompanion
+      ? buildContinuityCompanionResponse({ question, factBundle, humanFrame })
+      : useRecognitionCompanion
+        ? buildRecognitionCompanionResponse({ question, factBundle, humanFrame })
+        : useTimeContinuity
+      ? timeContinuityText
+      : useAnalysisStatus
+        ? buildKeyAnalysisStatusResponse(factBundle, question)
+        : useSocial
+          ? (socialPattern?.text ?? normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
+          : useClosing
+            ? (closingPattern?.text ?? buildKeyClosingResponse(question))
+            : useDelegation
+              ? buildPhaseCSlice3DelegationResponseWithCarePlan({ question, factBundle })
+              : useRelational
+              ? buildKeyRelationalResponse(humanFrame, question)
+              : useCompanionGuidance
+                ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
+                : buildKeyStructuredResponse(humanFrame, basisTaggedFacts, factBundle, { resolvedIntent });
     keyComposeTrace = {
       called: true,
       skip_reason: null,
       text_preview: String(text ?? "").slice(0, 300),
       used_safe_fallback: false,
-      compose_mode: useAnalysisStatus
-        ? "key_analysis_status"
-        : useSocial
-          ? "key_social"
-          : useClosing
-            ? "key_closing"
-            : useRelational
-              ? "key_relational"
-              : useCompanionGuidance
-                ? "key_companion_guidance"
-                : fixedSlice
-                  ? "tool_brain_fixed_slots"
-                  : "key_structured",
+      compose_mode: useContinuityCompanion
+        ? "continuity_companion_bridge"
+        : useRecognitionCompanion
+          ? "recognition_companion_bridge"
+        : useTimeContinuity
+        ? "time_continuity"
+        : useAnalysisStatus
+          ? "key_analysis_status"
+          : useSocial
+            ? "key_social"
+            : useClosing
+              ? "key_closing"
+              : useDelegation
+                ? "phase_b_slice3_delegation"
+                : useRelational
+                ? "key_relational"
+                : useCompanionGuidance
+                  ? "key_companion_guidance"
+                  : fixedSlice
+                    ? "tool_brain_fixed_slots"
+                    : "key_structured",
+      time_continuity_used: useTimeContinuity,
       absorbed_slice: fixedSlice,
       conversation_pattern_id: socialPattern?.pattern_id ?? closingPattern?.pattern_id ?? null,
       conversation_pattern_kind: socialPattern?.kind ?? closingPattern?.kind ?? null,
@@ -1437,7 +1596,21 @@ export function generateHumanSalesDirectorResponse({
                   normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
               : isKeyClosingTurn(question || factBundle.question || "")
                 ? buildKeyClosingResponse(question)
-                : shouldUseKeyRelationalCompose({
+                : isDelegationIntentQuestion(question || factBundle.question || "")
+                  ? buildPhaseCSlice3DelegationResponseWithCarePlan({ question, factBundle })
+                : shouldUseContinuityCompanionCompose({
+                      question,
+                      factBundle,
+                      humanFrame,
+                    })
+                  ? buildContinuityCompanionResponse({ question, factBundle, humanFrame })
+                  : shouldUseRecognitionCompanionCompose({
+                        question,
+                        factBundle,
+                        humanFrame,
+                      })
+                    ? buildRecognitionCompanionResponse({ question, factBundle, humanFrame })
+                  : shouldUseKeyRelationalCompose({
                       question,
                       classificationIntent: resolvedClassificationIntent,
                       factBundle,
@@ -1646,6 +1819,60 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     };
   }
 
+  if (input.factBundle?.document_intake === true && rawText) {
+    const preservedText = polishHumanOutput(normalizeText(rawText));
+    return {
+      text: preservedText,
+      intent: "document_intake",
+      applied: true,
+      humanFrame: null,
+      basisTaggedFacts: null,
+      forbidden_pattern_scan: detectForbiddenOutputPatterns(preservedText),
+      generation_mode: "document_intake_persona_outlet",
+      p9_version: "p9-2",
+      key_compose_trace: {
+        called: true,
+        skip_reason: null,
+        text_preview: preservedText.slice(0, 300),
+        used_safe_fallback: false,
+        compose_mode: "document_intake_persona_outlet",
+      },
+      preserve_gate_trace: null,
+    };
+  }
+
+  if (input.factBundle?.general_knowledge_delegation === true && rawText) {
+    const preservedText = normalizeText(rawText);
+    return {
+      text: preservedText,
+      intent: resolvedIntent,
+      applied: false,
+      humanFrame: null,
+      basisTaggedFacts: null,
+      forbidden_pattern_scan: detectForbiddenOutputPatterns(preservedText),
+      generation_mode: "general_knowledge_delegation",
+      p9_version: "p9-2",
+      key_compose_trace: {
+        called: true,
+        skip_reason: "lifeguard_chat_core_delegated_preserved",
+        text_preview: preservedText.slice(0, 300),
+        used_safe_fallback: false,
+        compose_mode: "general_knowledge_delegation",
+        response_source: responseSource ?? null,
+        chat_profile: input.factBundle?.chat_profile ?? "gi1",
+        gi1_max_chars: input.factBundle?.gi1_max_chars ?? null,
+      },
+      preserve_gate_trace: null,
+    };
+  }
+
+  const timeGateUsedSnapshot = {
+    design_used: input.factBundle?.design_used === true,
+    recommendation_used: input.factBundle?.recommendation_used === true,
+    underwriting_used: input.factBundle?.underwriting_used === true,
+    coverage_gap_used: input.factBundle?.coverage_gap_used === true,
+  };
+
   const bundle = {
     ...input.factBundle,
     question,
@@ -1721,6 +1948,7 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
   const enrichedBundle = {
     ...bundle,
     premium_stats: bundle.premium_stats ?? computePremiumLookupStats(policies),
+    time_gate_used_snapshot: timeGateUsedSnapshot,
   };
 
   const basisTaggedFacts = buildBasisTaggedFacts(enrichedBundle, resolvedIntent);

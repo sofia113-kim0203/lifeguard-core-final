@@ -41,6 +41,13 @@ import {
   runSalesDirectorKeyTurn,
   shouldUseSalesDirectorKeyOrchestrator,
 } from "./salesDirectorKeyOrchestrator.js";
+import { resolveEntityRuntimeForTurn } from "./entity/entityConversationRouter.js";
+import { resolveEntityLoopBranchDecision } from "./entity/entityLoopBranchDecision.js";
+import { buildEntityContextPassthroughTrace } from "./entity/entityApiContextPassthrough.js";
+import {
+  runCorporateKeyLoopTurn,
+  shouldRunCorporateKeyLoopTurn,
+} from "./entity/corporate/runCorporateKeyLoopTurn.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
@@ -76,7 +83,7 @@ export function decideSalesDirectorMode({
   const classification = consultationIntent ?? classifyConsultationIntent(trimmedQuestion);
   const pilotKey = matchP5BrainPilotQuestion(trimmedQuestion);
 
-  if (pilotKey) {
+  if (pilotKey && !classification.companion_cluster) {
     return {
       mode: SALES_DIRECTOR_MODES.PILOT,
       pilotKey,
@@ -138,6 +145,16 @@ function buildConversationBrainStubTurn(question, consultationIntent) {
   };
 }
 
+function buildLoopEntityRuntimeTraceFields(entityRuntime, branchDecision) {
+  return {
+    entity_runtime: {
+      ...(entityRuntime.trace ?? {}),
+      wired_to_loop: true,
+    },
+    runtime_decision: branchDecision?.runtime_decision ?? null,
+  };
+}
+
 /**
  * P6-2A loop skeleton:
  * load snapshot → understand intent → decide mode → existing handler → compose (caller) → observability
@@ -154,6 +171,10 @@ export async function runSalesDirectorLoopTurn({
   startedAt = Date.now(),
   streamHandlers = null,
   requestStartedAt = null,
+  conversationContext = {},
+  existingSession = null,
+  entityRecord = null,
+  membership = null,
 } = {}) {
   const trimmedQuestion = normalizeSalesDirectorQuestion(question);
   const loopStartedAt = startedAt ?? Date.now();
@@ -189,11 +210,11 @@ export async function runSalesDirectorLoopTurn({
   } else {
     [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
       await Promise.all([
-      loadSalesDirectorCoverageGapContext(userSupabase, customerId),
-      loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
-      loadSalesDirectorRecommendationContext(userSupabase, customerId),
-      loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
-    ]);
+        loadSalesDirectorCoverageGapContext(userSupabase, customerId),
+        loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
+        loadSalesDirectorRecommendationContext(userSupabase, customerId),
+        loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
+      ]);
   }
 
   const memoryHydrateStart = Date.now();
@@ -216,12 +237,60 @@ export async function runSalesDirectorLoopTurn({
   });
   latency.memory_ms = markLatencyMs(memoryHydrateStart);
 
+  const conversationContextResolved = conversationContext ?? {};
+  const entityContextPassthrough = buildEntityContextPassthroughTrace({
+    conversationContext: conversationContextResolved,
+    existingSession,
+    entityRecord,
+    membership,
+  });
+
+  const entityRuntime = await resolveEntityRuntimeForTurn({
+    userSupabase,
+    customerId,
+    conversationContext: conversationContextResolved,
+    existingSession,
+    entityRecord,
+    membership,
+    env,
+  });
+  const branchDecision = resolveEntityLoopBranchDecision(entityRuntime);
+  const entityRuntimeTraceFields = buildLoopEntityRuntimeTraceFields(entityRuntime, branchDecision);
+
   let keyLoopTrace = {
     entered: false,
     handled: false,
     failed_reason: null,
     legacy_fallback: null,
+    corporate_key_path: false,
   };
+
+  if (shouldRunCorporateKeyLoopTurn({ branchDecision, entityRuntime })) {
+    keyLoopTrace.entered = true;
+    keyLoopTrace.corporate_key_path = true;
+    const corpTurn = runCorporateKeyLoopTurn({
+      question: trimmedQuestion,
+      history,
+      entityRuntime,
+      branchDecision,
+      snapshot,
+      unified,
+      loadedContext,
+      customerContextBundle,
+      reconciliationWarning,
+      loopStartedAt,
+      entityRuntimeTraceFields,
+    });
+    if (corpTurn?.handled && corpTurn.result) {
+      keyLoopTrace.handled = true;
+      corpTurn.result.salesDirectorTrace = {
+        ...(corpTurn.result.salesDirectorTrace ?? {}),
+        entity_context_passthrough: entityContextPassthrough,
+        key_loop_trace: keyLoopTrace,
+      };
+      return corpTurn.result;
+    }
+  }
 
   if (
     shouldUseSalesDirectorKeyOrchestrator({
@@ -256,6 +325,8 @@ export async function runSalesDirectorLoopTurn({
       keyLoopTrace.handled = true;
       keyTurn.result.salesDirectorTrace = {
         ...(keyTurn.result.salesDirectorTrace ?? {}),
+        ...entityRuntimeTraceFields,
+        entity_context_passthrough: entityContextPassthrough,
         key_loop_trace: keyLoopTrace,
       };
       return keyTurn.result;
@@ -374,6 +445,8 @@ export async function runSalesDirectorLoopTurn({
     legacy_tom_internal_route: agentTurn.tomInternalRoute ?? null,
     tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
     conversation_brain: agentTurn.trace?.conversation_brain ?? null,
+    ...entityRuntimeTraceFields,
+    entity_context_passthrough: entityContextPassthrough,
     key_loop_trace: keyLoopTrace,
     truth_gate: truthGate,
     snapshot_cache_hit: latency.snapshot_cache_hit === true,

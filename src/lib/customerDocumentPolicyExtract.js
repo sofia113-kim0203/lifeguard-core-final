@@ -7,6 +7,7 @@ function mapServerError(payload, status) {
   if (payload?.error_message) return payload.error_message;
   if (payload?.reason === "UNAUTHORIZED") return "로그인이 필요합니다.";
   if (payload?.reason === "document_not_ready") return "문서 OCR 분석이 아직 완료되지 않았습니다.";
+  if (payload?.reason === "work_order_required") return "KEY Work Order 없이 공장을 실행할 수 없습니다.";
   if (payload?.reason === "chunks_missing") return "OCR chunk가 없어 보험정보를 추출할 수 없습니다.";
   if (payload?.reason === "insufficient_policy_fields") {
     if (payload?.status === "pending_manual_review") {
@@ -18,15 +19,20 @@ function mapServerError(payload, status) {
   return "보험정보 추출을 처리하지 못했습니다.";
 }
 
-export async function extractPolicyFromReadyDocument(documentId, { invokeMemory = true } = {}) {
+export async function extractPolicyFromReadyDocument(documentId, { invokeMemory = true, workOrderId = null } = {}) {
   const trimmedId = String(documentId ?? "").trim();
   if (!trimmedId) throw new Error("문서 ID가 없습니다.");
 
+  const body = {
+    document_id: trimmedId,
+    invoke_memory: invokeMemory,
+  };
+  if (workOrderId) {
+    body.work_order_id = workOrderId;
+  }
+
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
-    body: {
-      document_id: trimmedId,
-      invoke_memory: invokeMemory,
-    },
+    body,
   });
 
   try {
@@ -78,6 +84,8 @@ export async function extractPolicyFromReadyDocument(documentId, { invokeMemory 
     profileInsurancePoliciesCount: payload.profile_insurance_policies_count ?? 0,
     customerMemoryFactsCount: payload.customer_memory_facts_count ?? 0,
     memoryBuilder: payload.memory_builder ?? null,
+    keyFollowUpSentence: payload.key_follow_up_sentence ?? null,
+    keyFollowUpSegments: payload.key_follow_up_segments ?? null,
     message: "보험정보 추출이 완료되었습니다.",
   };
 }
