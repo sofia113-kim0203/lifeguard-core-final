@@ -1,6 +1,6 @@
 /**
  * POST /api/customer-document-policy-extract
- * Runs OCR chunk → policy extraction → profile_insurance_policies + memory builder.
+ * Runs OCR chunk → policy extraction → profile_insurance_policies + KEY EA-1 evidence foundation.
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";

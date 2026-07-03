@@ -45,3 +45,24 @@ export {
   WORK_ORDER_ALREADY_USED_REASON,
   KEY_WORK_ORDER_SCHEMA_VERSION,
 } from "./workOrder.js";
+export {
+  applyKeyEvidenceFoundationEa1,
+  buildCoverageSheetMultiExtractionForEa1,
+  buildKeyEvidenceFoundationMetadataPatch,
+  KEY_EVIDENCE_FOUNDATION_EA1_SCHEMA,
+} from "./keyEvidenceFoundationEa1.js";
+export {
+  createEvidenceFromPolicyExtractRaw,
+  processPolicyExtractRawOutputThroughKeyLayer,
+  validateEa1TraceOrder,
+  KEY_EVIDENCE_SCHEMA_VERSION,
+  KEY_EVIDENCE_GENERATION_MODE,
+  TRACE_STEP_KEY_EVIDENCE_REPORTED,
+} from "./keyEvidenceFromRaw.js";
+export {
+  buildPolicyExtractRawOutput,
+  buildFactoryRawOutputReportedTraceStep,
+  assertFactoryRawOutputHasNoKeyVocabulary,
+  FACTORY_RAW_OUTPUT_SCHEMA_VERSION,
+  TRACE_STEP_FACTORY_RAW_OUTPUT_REPORTED,
+} from "./keyRawOutputInbox.js";

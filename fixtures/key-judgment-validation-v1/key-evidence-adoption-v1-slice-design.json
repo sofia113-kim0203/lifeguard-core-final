@@ -3,8 +3,8 @@
   "gate": "KEY-EVIDENCE-ADOPTION-V1",
   "label": "LIFEGUARD Cognition Stack — Factory Raw Output · KEY Evidence · KEY Fact · Memory",
   "supersedes": "fixtures/key-judgment-validation-v1/key-memory-adoption-v1-slice-design.json",
-  "mode": "Design · EA-1 timing GO · EXEC GO pending · build correctly not small",
-  "status": "Tom design GO · Amendment #2 Raw Output / KEY Layer locked · EXEC pending",
+  "mode": "Design · EA-1 EXEC GO · implementation complete · Preview not in EA-1 scope",
+  "status": "Tom EXEC GO · Amendment #2 locked · EA-1 wired · push locked",
   "observed_at": "2026-07-03",
   "tom_cognition_stack": {
     "locked_at": "2026-07-03",
@@ -76,7 +76,7 @@
   },
   "slice_goal": {
     "one_line": "Factory는 Raw Output만 낸다. KEY Layer가 Raw→Evidence→Fact→Memory 전 과정을 소유한다.",
-    "ea1_scope_only": "Raw Output handoff + KEY Evidence creation + retire factory direct Memory write — NOT full EA-2/3/4",
+    "ea1_scope_only": "Factory Raw Output must always pass through KEY — KEY Evidence creation · retire invokeMemoryBuilder on policy_extract path — NOT full EA-2/3/4",
     "prove_at_preview_ea4": [
       "factory_raw_output_reported → key_evidence_reported → key_fact_adoption → memory_committed",
       "no customer_memory_facts before key_fact_adoption",
@@ -151,7 +151,7 @@
       "        ↓",
       " key_evidence_reported",
       "        ↓",
-      " RETIRE factory → invokeMemoryBuilder → Memory (no premature Memory write)"
+      " RETIRE invokeMemoryBuilder — Factory Raw Output must always pass through KEY Layer"
     ],
     "invariants": [
       "Factory never uses Evidence · Fact · Memory vocabulary in code or API contract",
@@ -162,7 +162,7 @@
     ]
   },
   "adoption_model": {
-    "ea1": "Raw Output receipt + KEY Evidence creation + block factory Memory write",
+    "ea1": "Factory Raw Output must always pass through KEY — KEY Evidence creation · no invokeMemoryBuilder on policy_extract success",
     "ea2_plus": "KEY evaluates Evidence → adopt/hold/reject → derives Fact",
     "factory_role": "Emit factory_raw_output_reported — period",
     "key_layer_role": "All steps from Raw Output through Memory commit"
@@ -252,8 +252,10 @@
     "phase_ea1_raw_output_and_key_evidence": {
       "name": "EA-1 — Factory Raw Output · KEY Evidence creation · retire factory Memory write",
       "tom_timing_go": true,
-      "exec_go": false,
+      "exec_go": true,
+      "implemented_at": "2026-07-03",
       "goal": "절대 잘못 만들지 않는 것 — factory Evidence vocabulary zero · KEY owns Evidence birth",
+      "ea1_framing_locked": "Factory Raw Output must always pass through KEY — not 'Factory→Memory hole'",
       "deliverables": [
         "factory_raw_output_reported trace + schema",
         "KEY Layer keyEvidenceFromRaw — Raw → Evidence",
@@ -264,6 +266,14 @@
         "Unit: no customer_memory_facts write in EA-1"
       ],
       "explicitly_not_ea1": ["key_fact_adoption", "memory_committed", "Preview probe", "Persona-facing change"]
+    },
+    "phase_du1_customer_explain_wedge": {
+      "name": "DU-1 — KEY understands the document and explains to the customer",
+      "depends_on": "phase_ea1_raw_output_and_key_evidence",
+      "exec_go": false,
+      "product_framing_locked": "KEY가 문서를 이해하고 고객에게 설명한다 — '문서 이해' alone is not the product wedge",
+      "not": "Internal document parsing label only",
+      "tom_wording_correction": "문서를 이해하는 것 ≠ 고객이 이해하는 것 — we ship the latter"
     },
     "phase_ea2_key_fact_adoption": {
       "name": "Evidence adopt/hold/reject + Fact derivation",
@@ -285,7 +295,8 @@
     "ea1_proposed_new": [
       "server/keyBrain/keyRawOutputInbox.js",
       "server/keyBrain/keyEvidenceFromRaw.js",
-      "scripts/key-evidence-adoption-ea1-unit-test.mjs"
+      "server/keyBrain/keyEvidenceFoundationEa1.js",
+      "scripts/key-evidence-foundation-ea1-unit-test.mjs"
     ],
     "ea1_modify": [
       "server/documentPolicyExtractionPipeline.js",
@@ -328,7 +339,7 @@
     "design_amended_at": "2026-07-03",
     "amendment_2_locked": true,
     "ea1_timing_go": true,
-    "ea1_exec_go": false,
+    "ea1_exec_go": true,
     "ea1_preview_go": false,
     "commit_go": false,
     "push_go": false
@@ -337,9 +348,14 @@
     "forbidden_until_ea4_preview": "LIFEGUARD에는 하나의 KEY만 존재한다 (full)",
     "cognition_stack_locked": "Reality → Raw Output → Evidence → Fact → Memory → Judgment → Action"
   },
+  "tom_jerry_role_split": {
+    "tom": "철학 감사 · 회귀 감사 · LIFEGUARD 전체 영향 · GO / 수정 / STOP — 설계 작성 없음",
+    "jerry": "Repository 조사 → 설계 → 영향도 → Preview → Evidence"
+  },
   "jerry_command": {
-    "ea1_rule": "Factory → Raw Output only · KEY Layer → Evidence · never let factory name Evidence",
+    "ea1_rule": "Factory Raw Output must always pass through KEY — KEY Layer → Evidence · never let factory name Evidence",
+    "du1_rule": "KEY가 문서를 이해하고 고객에게 설명한다 — product wedge after EA-1 GO",
     "design_question": "이 기능이 KEY에게 새로운 Evidence를 주는가? (via Raw Output)",
-    "stop": "EA-1 EXEC · Preview · commit · push — Tom separate GO each"
+    "stop": "DU-1 · Preview · commit · push — Tom separate GO each"
   }
 }
