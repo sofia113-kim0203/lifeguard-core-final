@@ -189,6 +189,11 @@ async function main() {
 
   const firstSentence = intake.payload?.customer_first_sentence ?? null;
   const workOrderId = intake.payload?.work_order_id ?? null;
+  const judgmentPosture = intake.payload?.key_first_judgment?.posture ?? null;
+  const intakeTrace = intake.payload?.intake_trace ?? null;
+  const speakStep = (intakeTrace?.trace_steps ?? []).find((row) => row?.step === "key_first_speak");
+  const staticDraft = speakStep?.payload?.static_draft ?? null;
+  const du1Fusion = intakeTrace?.du1_fusion ?? null;
   const firstAudit = firstSentence
     ? auditForbiddenSpeech(firstSentence)
     : { ok: true, reason: "sentence_missing" };
@@ -233,6 +238,9 @@ async function main() {
     forbidden_word_count: forbiddenHits.length,
     intake_http_status: intake.status,
     intake_reason: intake.payload?.reason ?? null,
+    judgment_posture: judgmentPosture,
+    static_draft: staticDraft,
+    du1_fusion: du1Fusion,
     work_order_id: workOrderId,
     extract_http_status: extract?.status ?? null,
     extract_ok: extract?.payload?.ok ?? null,

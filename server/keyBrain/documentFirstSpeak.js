@@ -9,14 +9,23 @@ import { ONE_BRAIN_SURFACES } from "../oneBrainResponseLayer.js";
 import {
   buildDu1CustomerFirstSentence,
   buildDu1InputBundle,
+  composeDu1WithEpistemicTrace,
   DU1_SCHEMA_VERSION,
 } from "./du1DocumentUploadFirstSpeak.js";
 
 export const KEY_FIRST_SPEAK_SCHEMA_VERSION = "key-first-speak-ku2c-v1";
 export const DOCUMENT_INTAKE_PERSONA_OUTLET = "finalizeSalesDirectorResponse";
 
+function resolveJudgmentPosture(keyFirstJudgment = {}) {
+  return keyFirstJudgment.posture ?? keyFirstJudgment.orient_speech_planned?.posture ?? null;
+}
+
 function buildLegacyCustomerFirstSentence(keyFirstJudgment, { document = {} } = {}) {
   const hold = keyFirstJudgment.hold ?? {};
+  const posture = resolveJudgmentPosture(keyFirstJudgment);
+  if (posture === "provisional_metadata") {
+    return null;
+  }
   const kind = String(keyFirstJudgment.document_kind_guess ?? "");
   const filename = String(document.original_filename ?? "").trim();
 
@@ -64,6 +73,17 @@ export function buildCustomerFirstSentence(
       loadedContext,
     });
     if (du1) return du1;
+
+    if (resolveJudgmentPosture(keyFirstJudgment) === "provisional_metadata") {
+      const bundle = buildDu1InputBundle({
+        document,
+        contextSnapshot,
+        loadedContext,
+        keyFirstJudgment,
+      });
+      const { text } = composeDu1WithEpistemicTrace(bundle);
+      if (text) return text;
+    }
   }
 
   return buildLegacyCustomerFirstSentence(keyFirstJudgment, { document });
