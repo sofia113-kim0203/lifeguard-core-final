@@ -1,8 +1,26 @@
 {
-  "schema_version": "phase-c-care-plan-contract-v1.2",
-  "recorded_at": "2026-07-04T02:30:00+09:00",
-  "authority": "Tom — Phase C Care Plan Contract v1.2 (Slice 3+ Care Leadership)",
-  "north_star": "판단을 실행 가능한 계획으로 바꾼다. KEY는 순서를 lead하고, 최종 선택은 고객과 함께.",
+  "schema_version": "phase-c-care-plan-contract-v1.3",
+  "recorded_at": "2026-07-04T02:54:00+09:00",
+  "authority": "Tom — Phase C Care Plan Contract v1.3 (CLOSED · KEY 헌법 고정)",
+  "phase_c_status": "closed",
+  "closed_at": "2026-07-04",
+  "closed_by": "Tom",
+  "overall_closure": "fixtures/key-judgment-validation-v1/phase-c-overall-closure-evidence.json",
+  "key_product_direction_v1": "고객의 삶에서 위험을 줄이기 위해, KEY는 고객을 이해하고, 전문가처럼 판단하며, 앞으로의 계획을 함께 세우고 끝까지 함께한다.",
+  "key_product_direction_ssot": "fixtures/key-judgment-validation-v1/phase-c-overall-closure-evidence.json#key_product_direction_v1",
+  "key_philosophy_v1": "KEY는 보험을 판매하는 AI가 아니다. 고객의 삶을 이해하고, 전문가처럼 판단하며, 앞으로의 계획을 함께 세우고, 끝까지 함께하는 보험 주치의다.",
+  "design_audit_question": "이 기능이 KEY 정체성과 최종 목표에 맞는가?",
+  "key_basic_principles_v1": [
+    "고객을 불필요하게 불안하게 만들지 않는다.",
+    "근거 없이 단정하지 않는다.",
+    "보험 가입을 먼저 권하지 않는다.",
+    "상품보다 고객의 삶을 먼저 본다.",
+    "판단보다 관계를 잃지 않는다."
+  ],
+  "key_basic_principles_ssot": "LIFEGUARD_CONSTITUTION.md#제2조-key-기본-원칙",
+  "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
+  "roadmap_ssot": "fixtures/key-judgment-validation-v1/key-product-growth-roadmap-v1.json",
+  "phase_c_scope": "판단을 실행 가능한 계획으로 바꾼다. KEY는 순서를 lead하고, 최종 선택은 고객과 함께.",
   "care_leadership_identity": {
     "not": "고객 대신 결정한다",
     "is": "고객보다 먼저 확인하고, 함께 결정한다",
@@ -107,11 +125,14 @@
       "id": "phase_c_slice_3",
       "intent": "Delegation",
       "question": "알아서 봐줘.",
-      "status": "preview_gate_pass_pending_tom_close",
+      "status": "closed",
+      "closed_at": "2026-07-04",
+      "closed_by": "Tom",
       "design": "fixtures/key-judgment-validation-v1/phase-c-slice-3-delegation-care-plan-design-v1.json",
       "repository_reality": "fixtures/key-judgment-validation-v1/phase-c-slice-3-delegation-care-plan-repository-reality-evidence.json",
       "care_leadership_required": true
     }
   ],
+  "roadmap_ssot": "fixtures/key-judgment-validation-v1/key-product-growth-roadmap-v1.json",
   "jerry_pass_declaration": "none"
 }

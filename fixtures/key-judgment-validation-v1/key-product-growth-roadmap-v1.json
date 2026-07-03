@@ -1,0 +1,34 @@
+{
+  "schema_version": "key-product-growth-roadmap-v1",
+  "document_type": "roadmap",
+  "recorded_at": "2026-07-04T02:58:00+09:00",
+  "authority": "Tom — 실행 계획 (헌법 아님)",
+  "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
+  "status_summary": "LIFEGUARD는 Phase A(이해), Phase B(판단), Phase C(계획)의 핵심 경험을 완성했고, 이제 새로운 기능을 추가하기 전에 기존 제품 전체가 이 철학과 일치하는지 점검하는 단계에 들어섰다.",
+  "phases": [
+    { "id": "phase_a", "name": "Understand", "status": "complete", "summary": "고객을 이해한다" },
+    { "id": "phase_b", "name": "Judge", "status": "complete", "summary": "전문가처럼 판단한다" },
+    { "id": "phase_c", "name": "Care Plan", "status": "complete", "summary": "앞으로의 계획을 함께 세운다", "closed_at": "2026-07-04" },
+    {
+      "id": "constitution_product_audit",
+      "name": "기존 제품 헌법 감사",
+      "status": "next_preparation",
+      "note": "새 기능 추가 전 — 기존 기능이 제품 철학과 일치하는지 점검",
+      "audit_plan": "fixtures/key-judgment-validation-v1/key-constitution-product-audit-plan-v1.json"
+    },
+    {
+      "id": "phase_d",
+      "name": "Proactive",
+      "status": "planned",
+      "implementation": "not_started",
+      "note": "헌법 감사 후 설계·착수 — 고객이 찾아올 때만 반응 → KEY가 먼저 찾아오는 보험 주치의"
+    }
+  ],
+  "abc_maps_to_direction": {
+    "phase_a": "이해 — 고객을 이해한다",
+    "phase_b": "판단 — 전문가처럼 판단한다",
+    "phase_c": "계획 — 앞으로의 계획을 함께 세운다",
+    "phase_d_plus": "관리 · 손해 · 평생 — 끝까지 함께한다"
+  },
+  "jerry_pass_declaration": "none"
+}
