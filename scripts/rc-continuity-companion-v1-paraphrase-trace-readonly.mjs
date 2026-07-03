@@ -180,7 +180,7 @@ function assessNegative(row, q) {
   const checks = {
     "암보장 부족해?": () => noCluster && row.companion_cluster === COVERAGE_ANXIETY_COMPANION_CLUSTER_ID,
     "보험료 부담돼.": () => noCluster && row.companion_cluster === PREMIUM_BURDEN_COMPANION_CLUSTER_ID,
-    "뭐 가입해야 해?": () => noCluster && row.intent === "recommendation_request",
+    "뭐 가입해야 해?": () => noCluster && row.intent === "recommendation_priority_check",
     "내 보험 부족한 부분 있어?": () => noCluster && row.intent === "coverage_gap_check",
     "지난번 이야기 기억해?": () => noCluster && row.home_brain_intent === "memory_recall_lookup",
     "아까 보험료 얘기했잖아.": () => noCluster && hasInsuranceTopicSignal(q),

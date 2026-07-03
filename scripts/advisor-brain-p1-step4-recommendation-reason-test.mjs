@@ -230,15 +230,18 @@ const mockClaude = async ({ maxTokens }) => {
   console.log("D PASS");
 }
 
-// E — 추천해줘 → 기존 recommendation_request 경로 유지 (reason 모드 비활성)
+// E — entry utterances → KEY recommendation path (GAP-03)
 {
   const question = "뭐 가입해야 해?";
   const classification = classifyConsultationIntent(question);
-  assert.equal(classification.intent, "recommendation_request");
+  assert.equal(classification.intent, "recommendation_priority_check");
+  assert.equal(classification.matched_rule, "recommendation_entry_check");
   assert.equal(isRecommendationReasonClassification(classification, question), false);
   assert.equal(shouldActivateAdvisorBrainForClassification(classification, envOn, question), false);
 
   const pureRecommend = classifyConsultationIntent("추천해줘");
+  assert.equal(pureRecommend.intent, "recommendation_priority_check");
+  assert.equal(pureRecommend.matched_rule, "recommendation_entry_check");
   assert.equal(isRecommendationReasonClassification(pureRecommend, "추천해줘"), false);
   console.log("E PASS");
 }

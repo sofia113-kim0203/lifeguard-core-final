@@ -232,7 +232,7 @@ function assessNegative(row, q) {
   const byQuestion = {
     "어떤 보장이 있어?": () => noCluster && row.intent !== "general_consultation",
     "보장 분석해줘.": () => noCluster && row.intent === "coverage_review_request",
-    "뭐 가입해야 해?": () => noCluster && row.intent === "recommendation_request",
+    "뭐 가입해야 해?": () => noCluster && row.intent === "recommendation_priority_check",
     "내 보험 문제 있어?": () => noCluster && row.companion_cluster == null,
   };
   const preserved = byQuestion[q]?.() ?? noCluster;

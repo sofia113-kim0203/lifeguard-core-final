@@ -1,0 +1,101 @@
+{
+  "slice": "recommendation_entry_gap03_v1",
+  "tom_design": "Reclassify entry utterances to recommendation_priority_check; guard stays for other recommendation_request",
+  "observed_at": "2026-07-03T19:52:01.280Z",
+  "file_touch": [
+    "server/intentGateLayer.js"
+  ],
+  "all_pass": true,
+  "results": [
+    {
+      "id": "GAP03-01",
+      "question": "추천해줘.",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_entry_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_entry_check",
+      "pass": true
+    },
+    {
+      "id": "GAP03-02",
+      "question": "뭐 가입하면 돼?",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_entry_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_entry_check",
+      "pass": true
+    },
+    {
+      "id": "GAP03-03",
+      "question": "뭐가 제일 급해?",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_entry_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_entry_check",
+      "pass": true
+    },
+    {
+      "id": "GAP03-04",
+      "question": "어떤 보험부터 봐야 해?",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_entry_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_entry_check",
+      "pass": true
+    },
+    {
+      "id": "J11",
+      "question": "나한테 필요한 보험 추천해줘.",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_entry_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_entry_check",
+      "pass": true
+    },
+    {
+      "id": "J12",
+      "question": "보장 보완 어디부터 하면 돼?",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_entry_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_entry_check",
+      "pass": true
+    },
+    {
+      "id": "J10",
+      "question": "지금 뭐부터 추가하면 좋을까?",
+      "expected_intent": "recommendation_priority_check",
+      "expected_rule": "recommendation_priority_check",
+      "actual_intent": "recommendation_priority_check",
+      "matched_rule": "recommendation_priority_check",
+      "pass": true
+    },
+    {
+      "id": "GUARD-01",
+      "question": "뭐가 부족해?",
+      "expected_intent": "recommendation_request",
+      "expected_rule": "recommendation_request",
+      "actual_intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "pass": true
+    },
+    {
+      "id": "GUARD-02",
+      "question": "상품 추천해줘",
+      "expected_intent": "recommendation_request",
+      "expected_rule": "recommendation_request",
+      "actual_intent": "recommendation_request",
+      "matched_rule": "recommendation_request",
+      "pass": true
+    },
+    {
+      "id": "GK-01",
+      "question": "강원도 여행 추천해줘",
+      "expected_intent": "general_consultation",
+      "expected_rule": "general_knowledge_eligible",
+      "actual_intent": "general_consultation",
+      "matched_rule": "general_knowledge_eligible",
+      "pass": true
+    }
+  ]
+}
