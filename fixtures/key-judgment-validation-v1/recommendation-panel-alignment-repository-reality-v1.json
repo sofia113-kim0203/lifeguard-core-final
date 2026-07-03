@@ -1,0 +1,55 @@
+{
+  "schema_version": "recommendation-panel-alignment-repository-reality-v1",
+  "document_type": "evidence",
+  "recorded_at": "2026-07-04T03:16:00+09:00",
+  "authority": "Tom GO — GAP-01 Slice prep (READ ONLY)",
+  "mode": "repository_reality",
+  "code_modified": false,
+  "slice_design": "fixtures/key-judgment-validation-v1/recommendation-panel-alignment-slice-design-v1.json",
+  "parent_audit": "fixtures/key-judgment-validation-v1/key-constitution-audit-recommendation-design-repository-reality-v1.json",
+  "panel_file": "src/components/AiRecommendationPanel.jsx",
+  "key_limitation_ssot": {
+    "file": "server/humanUnderstandingLoop.js",
+    "recommendation_limitation": "특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+    "judgment_ssot": "server/keyJudgmentRules.js → buildRecommendationPriorityJudgment"
+  },
+  "panel_copy_inventory": {
+    "page_title": "AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천 · 보험설계안",
+    "recommendation_section_title": "AI 보험 추천 Top 2",
+    "loading_copy": "Coverage Gap과 인수 위험을 반영해 추천을 생성하는 중…",
+    "item_fields_shown": [
+      "coverage_label",
+      "recommendation_type (RECOMMENDATION_TYPE_LABELS)",
+      "priority (PRIORITY_LABELS)",
+      "reason",
+      "underwriting_consideration",
+      "budget_consideration",
+      "required_documents",
+      "memory_sources_used"
+    ],
+    "other_sections": ["유지 보장", "필요 서류", "가입 가능 항목", "가입 전 주의사항", "보험설계안"],
+    "cta_style_risk": "recommendation_type add_coverage renders as product-action label via RECOMMENDATION_TYPE_LABELS"
+  },
+  "label_sources": {
+    "recommendation_types": "src/lib/customerRecommendations.js → RECOMMENDATION_TYPE_LABELS",
+    "priority": "src/lib/customerRecommendations.js → PRIORITY_LABELS"
+  },
+  "data_path": {
+    "panel_load": "loadCustomerRecommendations() → POST /api/customer-recommendations",
+    "display_slice": "pickCustomerVisibleTop2 / normalizeRecommendationPanelState",
+    "bypasses_key_compose": true
+  },
+  "contradiction_points_for_slice": [
+    {
+      "key_says": "특정 상품 가입을 단정하거나 권유드리기는 어렵습니다",
+      "panel_can_show": "Top 2 + 보장 추가 type + 가입 가능 항목 section",
+      "tom_verdict": "product consistency break — slice must fix"
+    }
+  ],
+  "implementation_touchpoints_sketch": [
+    "AiRecommendationPanel.jsx — section titles · item copy · limitation banner",
+    "src/lib/customerRecommendations.js — RECOMMENDATION_TYPE_LABELS reframe (optional)",
+    "shared KEY voice helper (new, minimal) — optional if duplication avoided"
+  ],
+  "jerry_pass_declaration": "none"
+}

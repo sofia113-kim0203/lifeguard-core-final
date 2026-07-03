@@ -1,0 +1,106 @@
+{
+  "schema_version": "recommendation-panel-alignment-slice-design-v1",
+  "status": "tom_implement_go_awaiting_preview_seat",
+  "recorded_at": "2026-07-04T03:16:00+09:00",
+  "authority": "Tom GO — Recommendation Panel Alignment (구현 GO는 별도)",
+  "slice": {
+    "id": "recommendation_panel_alignment",
+    "name": "Recommendation Panel Alignment",
+    "not_named": "추천 기능 Slice — 기능 추가 아님",
+    "category": "Hand · LIFEGUARD(KEY)",
+    "primary_gap": "GAP-01",
+    "audit_evidence": "fixtures/key-judgment-validation-v1/key-constitution-audit-recommendation-design-repository-reality-v1.json"
+  },
+  "tom_decision": {
+    "audit_question": "패널도 KEY처럼 말해야 하는가?",
+    "answer": "YES",
+    "priority_rationale": "KEY가 한 말과 화면이 서로 싸우는 이중 KEY 경험이 1순위 위험 — GAP-01 >>> GAP-02",
+    "customer_scenario": "KEY: '가입을 단정하지 않겠습니다' → 패널: Top2 · 보장 추가 · 가입 가능 → '아까는 안 된다고 하더니?'"
+  },
+  "goal": {
+    "single_sentence": "고객이 어디를 보든 같은 KEY를 만난다.",
+    "target": "패널 = KEY",
+    "not_goal": "패널을 KEY처럼 보이게 꾸미는 것 (cosmetic)",
+    "is_goal": "패널이 KEY 철학을 따르게 하는 것"
+  },
+  "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
+  "design_audit_question": "이 기능이 KEY 정체성과 최종 목표에 맞는가?",
+  "voice_shift": {
+    "from": {
+      "framing": ["AI 추천", "Top 2", "보장 추가", "가입 가능"],
+      "problem": "상품·추천 중심 — KEY chat limitation과 충돌"
+    },
+    "to": {
+      "framing": ["KEY 판단", "현재 자료 기준으로 …", "왜냐하면 …", "다만 …", "그럼 앞으로는 …"],
+      "aligns_with": ["Phase B judgment", "limitation", "Phase C co-plan voice where applicable"]
+    },
+    "example": {
+      "before": "AI 보험 추천 Top 2 — 암보험 · 보장 추가",
+      "after": "현재 자료 기준으로는 이 보장을 먼저 검토하는 것이 맞아 보입니다. 왜냐하면 … 다만 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다."
+    }
+  },
+  "scope": {
+    "primary_surface": "src/components/AiRecommendationPanel.jsx",
+    "recommendation_sections": [
+      "AI 보험 추천 Top 2",
+      "유지 보장",
+      "필요 서류",
+      "추천 Claude 설명"
+    ],
+    "in_scope_v1": "Recommendation panel copy · labels · section headers · top2 item presentation aligned to KEY voice",
+    "out_of_scope_v1": [
+      "새 recommender · recommendationEngine 로직 변경",
+      "recommendation_request intent unguard (GAP-03)",
+      "budget_consideration Hand wiring (GAP-02 — after GAP-01)",
+      "Care Plan module on panel (GAP-04)",
+      "Phase D"
+    ],
+    "design_panel_note": "같은 AiRecommendationPanel 내 설계안 섹션은 v1 follow-up 후보 — Tom ①은 recommendation panel 우선"
+  },
+  "alignment_rules": {
+    "must_echo_key_limitation": "특정 상품 가입을 단정하거나 권유드리기는 어렵습니다. (humanUnderstandingLoop recommendation_priority_judgment)",
+    "must_not_lead_with": ["가입하세요", "보장 추가 (as CTA)", "AI 추천 (as primary identity)"],
+    "recommendation_type_reframe": {
+      "add_coverage": "함께 검토할 보장 축 (not '보장 추가' CTA)",
+      "prepare_documents": "먼저 준비할 자료",
+      "review_existing": "함께 점검할 구조",
+      "keep_existing": "유지하고 볼 축",
+      "avoid_for_now": "지금은 서두르지 않을 축"
+    },
+    "header_reframe": {
+      "from": "AI 보험 추천 · … Top 2 추천",
+      "to": "KEY가 저장된 자료 기준으로 함께 볼 축"
+    },
+    "principles_checklist": [
+      "고객을 불필요하게 불안하게 만들지 않는다",
+      "근거 없이 단정하지 않는다",
+      "보험 가입을 먼저 권하지 않는다",
+      "상품보다 고객의 삶을 먼저 본다",
+      "판단보다 관계를 잃지 않는다"
+    ]
+  },
+  "gap_priority_after_tom": [
+    { "id": "GAP-01", "status": "active_slice", "name": "패널과 KEY 일관성" },
+    { "id": "GAP-02", "status": "deferred", "name": "budget_consideration 전달" },
+    { "id": "GAP-03", "status": "deferred", "name": "Intent 분기 일관성" },
+    { "id": "GAP-04", "status": "deferred", "name": "Care Plan 연결" },
+    { "id": "GAP-05", "status": "deferred", "name": "보장 추가 표현" }
+  ],
+  "implementation_sequence": [
+    "Repository Reality (panel-specific copy paths) — readonly",
+    "Slice implement (panel voice only)",
+    "Preview customer-seat: KEY chat + panel same session — consistency check",
+    "Tom Audit"
+  ],
+  "merge_gate_sketch": {
+    "local": "panel alignment unit or snapshot test",
+    "preview": "고객 좌석 — chat '추천해줘' or priority path then open panel — no contradiction",
+    "regression": "30Q unchanged unless panel route touched"
+  },
+  "tom_audit_questions": [
+    "패널만 봐도 KEY와 같은 사람인가?",
+    "KEY limitation과 패널 메시지가 싸우지 않는가?",
+    "상품 추천 UI가 아니라 함께 검토 framing인가?"
+  ],
+  "jerry_pass_declaration": "none"
+}

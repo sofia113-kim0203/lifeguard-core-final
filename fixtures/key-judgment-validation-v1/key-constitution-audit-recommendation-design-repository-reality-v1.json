@@ -1,0 +1,281 @@
+{
+  "schema_version": "key-constitution-audit-recommendation-design-repository-reality-v1",
+  "document_type": "evidence",
+  "audit_id": "constitution_product_audit_1_recommendation_design",
+  "audit_plan_ref": "fixtures/key-judgment-validation-v1/key-constitution-product-audit-plan-v1.json",
+  "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
+  "recorded_at": "2026-07-04T03:13:00+09:00",
+  "authority": "Tom GO — ① 추천/설계 Repository Reality (READ ONLY)",
+  "mode": "repository_reality",
+  "code_modified": false,
+  "status": "complete_pending_tom_review",
+  "jerry_pass_declaration": "none",
+  "audit_question": "추천/설계 기능이 KEY 철학과 일치하는가?",
+  "constitution_checks": {
+    "design_audit_question": "이 기능이 KEY 정체성과 최종 목표에 맞는가?",
+    "key_basic_principles_v1": [
+      "고객을 불필요하게 불안하게 만들지 않는다.",
+      "근거 없이 단정하지 않는다.",
+      "보험 가입을 먼저 권하지 않는다.",
+      "상품보다 고객의 삶을 먼저 본다.",
+      "판단보다 관계를 잃지 않는다."
+    ]
+  },
+  "1_current_structure": {
+    "summary": "추천/설계는 공장(recommendationEngine · insurance design job) → 저장(analysis_jobs) → 두 개의 고객-facing 출구(분석 패널 UI · KEY 대화)로 분기한다.",
+    "customer_surfaces": [
+      {
+        "id": "key_home_chat",
+        "label": "LIFEGUARD(KEY) 홈 대화",
+        "client": "src/components/LifeguardHomeChat.jsx → CustomerLifeguardShell",
+        "api": "POST /api/customer-home-brain-fact",
+        "server_chain": "server/homeBrainFactCore.js → server/salesDirectorLoop.js → server/salesDirectorKeyOrchestrator.js → server/humanUnderstandingLoop.js",
+        "role": "고객이 아는 유일한 KEY — Tom SSOT customer-facing path"
+      },
+      {
+        "id": "analysis_panel",
+        "label": "AI 보험 추천 · 설계 패널",
+        "client": "src/components/AiRecommendationPanel.jsx (src/App.jsx)",
+        "apis": [
+          "POST /api/customer-recommendations",
+          "POST /api/customer-insurance-design",
+          "POST /api/customer-coverage-gap",
+          "POST /api/customer-underwriting-risk"
+        ],
+        "server_chain": "server/customerRecommendationCore.js · server/salesDirectorInsuranceDesignContext.js (stored read) 등",
+        "role": "공장 결과를 패널로 직접 표시 — KEY compose/HUL을 거치지 않음"
+      }
+    ],
+    "factory_layer": {
+      "recommendation_engine": {
+        "file": "server/recommendationEngine.js",
+        "inputs": "coverage_gap + underwriting + memory_facts (recommendationInputBuilder.js)",
+        "output_types": ["add_coverage", "prepare_documents", "review_existing", "keep_existing", "avoid_for_now"],
+        "customer_visible_slice": "customer_visible_top2 (최대 2개 category 추천)",
+        "e2_fields": ["budget_consideration", "memory_sources_used", "recommendation_type"]
+      },
+      "insurance_design": {
+        "file": "analysis_jobs.result_json.insurance_design",
+        "key_read_path": "server/salesDirectorInsuranceDesignContext.js",
+        "customer_visible_slice": "customer_visible_design only"
+      }
+    },
+    "key_intent_routing": {
+      "file": "server/intentGateLayer.js · server/salesDirectorKeyToolRegistry.js",
+      "recommendation_priority_check": {
+        "intent": "recommendation_priority_check",
+        "example_patterns": ["지금 뭐부터 추가", "무엇부터 추가"],
+        "key_orchestrator": "ON — recommendation tool loaded",
+        "judgment_rule": "server/keyJudgmentRules.js → buildRecommendationPriorityJudgment"
+      },
+      "recommendation_request": {
+        "intent": "recommendation_request",
+        "example_patterns": ["추천해", "뭐 가입", "어떤 보험", "보완해야"],
+        "key_orchestrator": "OFF by default — SALES_DIRECTOR_KEY_BLOCK_INTENTS includes recommendation_request",
+        "fallback": "legacy sales_director_guarded_hold (customerObservability.js)"
+      },
+      "design_priority_check": {
+        "intent": "design_priority_check",
+        "key_orchestrator": "ON — stored design read",
+        "judgment_rule": "buildDesignPriorityJudgment"
+      },
+      "design_request": {
+        "intent": "design_request",
+        "key_orchestrator": "OFF by default — blocked like recommendation_request"
+      }
+    },
+    "key_recommendation_normalization": {
+      "file": "server/salesDirectorRecommendationContext.js",
+      "reads": "analysis_jobs.result_json.recommendation.customer_visible_top2",
+      "key_facing_fields": ["priority_labels", "priority_signals", "priority_types", "record_count"],
+      "stripped_before_key_compose": [
+        "budget_consideration",
+        "memory_sources_used",
+        "recommendation_type",
+        "burden_constraint"
+      ],
+      "prior_audit_ref": "fixtures/key-judgment-validation-v1/production-f1-recommendation-key-compose-audit-evidence.json"
+    },
+    "execution_path_diagram": "고객 질문 → intentGateLayer → [KEY ON: priority_check] → planKeyTools(recommendation) → loadSalesDirectorRecommendationContext → keyJudgmentRules → humanUnderstandingLoop compose · limitation · (Care Plan 없음) || [KEY OFF: recommendation_request] → guarded_hold legacy"
+  },
+  "2_actual_customer_experience": {
+    "key_chat_recommendation_priority": {
+      "trigger": "recommendation_priority_check — 예: 지금 뭐부터 추가하면 좋을까?",
+      "with_stored_top2": {
+        "judgment_sample": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 {label1}과 {label2}입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.",
+        "limitation": "특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+        "phase_c_care_plan": false,
+        "preview_ref": "fixtures/key-judgment-validation-v1/j10-recommendation-slice-preview-evidence.json"
+      },
+      "without_stored": {
+        "judgment_sample": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다.",
+        "limitation_variants": ["특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.", "보장 구조부터 같이 보면 됩니다."],
+        "preview_answer_sample": "저장된 우선순위 분석이 아직 없어, 지금은 보장 구조부터 같이 보면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다."
+      }
+    },
+    "key_chat_recommendation_request_blocked": {
+      "trigger": "recommendation_request — 예: 뭐 가입해야 해? / 추천해줘",
+      "response_source": "sales_director_guarded_hold",
+      "behavior": "KEY orchestrator 미진입 — stored recommendation judgment rule 미사용",
+      "preview_sample": "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.",
+      "preview_ref": "fixtures/key-judgment-validation-v1/j10-recommendation-slice-preview-evidence.json#j11_j12_guarded_hold"
+    },
+    "key_chat_design": {
+      "design_priority_with_stored": "저장된 설계 기준으로, 지금 우선 같이 짚을 축은 … — 어느 쪽부터 볼지는 같이 정하면 됩니다.",
+      "design_limitation": "본 설계안은 초안이며, 특정 상품 가입이나 최종 보험료·인수 결과를 확정하지 않습니다.",
+      "design_request_blocked": "design_request intent — KEY orchestrator OFF (same block list as recommendation_request)"
+    },
+    "analysis_panel_experience": {
+      "ui_title": "AI 보험 추천 · 보장 공백 · 인수 위험 · Top 2 추천 · 보험설계안",
+      "top2_display": "coverage_label + recommendation_type (예: add_coverage → 보장 추가) + priority + reason + budget_consideration + underwriting_consideration",
+      "sections": ["AI 보험 추천 Top 2", "가입 가능 항목", "가입 전 주의사항", "보험설계안"],
+      "key_voice": false,
+      "note": "패널은 공장 full payload를 그대로 노출 — KEY limitation/함께함 문장 없음"
+    },
+    "phase_b_to_phase_c_on_recommendation": {
+      "companion_clusters_with_care_plan": ["coverage_anxiety", "premium_burden", "delegation"],
+      "recommendation_priority_path": "Phase B judgment only (recommendation_priority_judgment) — Care Plan transition/sequence 없음",
+      "gap_vs_phase_abc_arc": "A/B/C 완성 경험은 companion cluster 질문에 집중; recommendation_priority_check는 B에서 멈춤"
+    }
+  },
+  "3_aligned_with_key_philosophy": [
+    {
+      "principle": "보험 가입을 먼저 권하지 않는다",
+      "evidence": "humanUnderstandingLoop.js — recommendation_priority_judgment limitation: '특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.'"
+    },
+    {
+      "principle": "근거 없이 단정하지 않는다",
+      "evidence": "buildRecommendationPriorityJudgment — '저장된 분석 기준으로' prefix; stored analysis_jobs 없으면 priority 단정 안 함"
+    },
+    {
+      "principle": "판단보다 관계를 잃지 않는다",
+      "evidence": "KEY judgment — '어느 쪽부터 볼지는 같이 정하면 됩니다' (함께 결정 framing)"
+    },
+    {
+      "principle": "상품보다 고객의 삶을 먼저 본다",
+      "evidence_partial": "Factory recommendationEngine — prepare_documents/review_existing vs add_coverage 분기; memory_sources_used · budget_consideration in factory (E2)"
+    },
+    {
+      "principle": "KEY Architecture — KEY만 고객-facing",
+      "evidence_partial": "recommendation_request/design_request blocked from KEY orchestrator — intentionally conservative"
+    },
+    {
+      "principle": "설계 감사 — 판매 AI 아님",
+      "evidence": "design judgment limitation — '특정 상품 가입이나 최종 보험료·인수 결과를 확정하지 않습니다'"
+    }
+  ],
+  "4_gaps_and_differences": [
+    {
+      "id": "GAP-01",
+      "label": "이중 고객 출구 — KEY vs 분석 패널",
+      "constitution_principle": ["상품보다 고객의 삶을 먼저 본다", "보험 가입을 먼저 권하지 않는다"],
+      "fact": "AiRecommendationPanel은 KEY compose 없이 'AI 보험 추천 Top 2' · recommendation_type · '가입 가능 항목'을 직접 표시한다.",
+      "severity": "high",
+      "hand_vs_panel": "KEY chat는 limitation으로 가입 권유를 막지만, 패널은 add_coverage 타입을 UI에 노출 가능"
+    },
+    {
+      "id": "GAP-02",
+      "label": "Factory E2 constraint → KEY Hand 단절",
+      "constitution_principle": ["상품보다 고객의 삶을 먼저 본다", "고객을 불필요하게 불안하게 만들지 않는다"],
+      "fact": "salesDirectorRecommendationContext.js가 budget_consideration · memory_sources_used · recommendation_type을 KEY compose 전에 제거한다 (F1 audit EC2–EC5).",
+      "severity": "medium",
+      "prior_audit_ref": "production-f1-recommendation-key-compose-audit-evidence.json"
+    },
+    {
+      "id": "GAP-03",
+      "label": "Intent split — 같은 추천 의도, 다른 경로",
+      "constitution_principle": ["KEY 정체성 — 하나의 KEY"],
+      "fact": "'지금 뭐부터 추가' → recommendation_priority_check (KEY ON) vs '추천해/뭐 가입' → recommendation_request (KEY OFF, guarded_hold). 고객 표현만 다르면 철학 적용 경로가 달라진다.",
+      "severity": "medium"
+    },
+    {
+      "id": "GAP-04",
+      "label": "Phase C Care Plan 미연결",
+      "constitution_principle": ["LIFEGUARD 최종 목표 — 계획을 함께 세우고 끝까지 함께"],
+      "fact": "recommendation_priority_judgment는 Phase B judgment + limitation만 반환; Phase C Transition/What/When/Care Leadership sequence 없음.",
+      "severity": "medium",
+      "note": "companion cluster (coverage/premium/delegation)와 recommendation_priority 경로 비대칭"
+    },
+    {
+      "id": "GAP-05",
+      "label": "공장 recommendation_type add_coverage",
+      "constitution_principle": ["보험 가입을 먼저 권하지 않는다"],
+      "fact": "recommendationEngine.js deriveRecommendationType — gap critical/high/medium + UW standard → add_coverage. 패널에 '보장 추가'로 표시될 수 있음.",
+      "severity": "medium",
+      "key_mitigation": "KEY chat path는 category label만 전달하고 가입 권유 limitation을 붙임 — 패널에는 mitigation 없음"
+    }
+  ],
+  "5_confirmed_facts_without_modification": {
+    "repository_files_traced": [
+      "server/intentGateLayer.js",
+      "server/salesDirectorKeyToolRegistry.js",
+      "server/salesDirectorRecommendationContext.js",
+      "server/salesDirectorInsuranceDesignContext.js",
+      "server/keyJudgmentRules.js",
+      "server/humanUnderstandingLoop.js",
+      "server/recommendationEngine.js",
+      "server/recommendationInputBuilder.js",
+      "server/customerRecommendationCore.js",
+      "src/components/LifeguardHomeChat.jsx",
+      "src/components/AiRecommendationPanel.jsx",
+      "src/components/CustomerLifeguardShell.jsx"
+    ],
+    "prior_readonly_audits_reused": [
+      "fixtures/key-judgment-validation-v1/production-e2-b-recommendation-constraint-audit-evidence.json",
+      "fixtures/key-judgment-validation-v1/production-f1-recommendation-key-compose-audit-evidence.json",
+      "fixtures/key-judgment-validation-v1/j10-recommendation-slice-preview-evidence.json",
+      "fixtures/key-judgment-validation-v1/j10-recommendation-slice-design-v1.md"
+    ],
+    "key_paths_confirmed": {
+      "customer_key_ssot": "CustomerLifeguardShell → LifeguardHomeChat → /api/customer-home-brain-fact",
+      "recommendation_tool_gate": "shouldAddRecommendationTool — intent === recommendation_priority_check only",
+      "blocked_intents_default": ["recommendation_request", "design_request"],
+      "stored_read_scope": "customer_visible_top2 (recommendation) · customer_visible_design (design)"
+    },
+    "no_code_changed_in_this_audit": true
+  },
+  "design_proposals_only": [
+    {
+      "id": "PROPOSAL-01",
+      "trigger": "GAP-01 panel vs KEY",
+      "direction": "Slice 후보 — 패널 copy/노출을 KEY limitation·함께함 framing에 정렬하거나, 패널을 KEY 서사의 연장으로 재설계 (구현 GO 없음)",
+      "not_in_scope": "새 recommender · 새 KEY"
+    },
+    {
+      "id": "PROPOSAL-02",
+      "trigger": "GAP-02 F1 disconnect",
+      "direction": "기존 F1 Hand EXEC 방향 재검토 — budget_consideration을 KEY compose까지 carry (production-f1-recommendation-key-compose-hand-plan.json)",
+      "not_in_scope": "이번 audit에서 구현"
+    },
+    {
+      "id": "PROPOSAL-03",
+      "trigger": "GAP-03 intent split",
+      "direction": "recommendation_request를 guarded_hold 대신 KEY priority judgment 경로로 통합할지 Tom 설계 판단",
+      "not_in_scope": "즉시 unguard J11/J12 (j10 design HOLD 유지)"
+    },
+    {
+      "id": "PROPOSAL-04",
+      "trigger": "GAP-04 Phase C gap",
+      "direction": "recommendation_priority_check에 Care Plan sequence 적용 여부 — Phase C contract v1.3 lead/decision boundary 준수 전제",
+      "not_in_scope": "Phase D"
+    }
+  ],
+  "tom_decision_prompt": {
+    "question": "추천/설계가 이미 철학과 충분히 맞는가, 아니면 Slice가 필요한가?",
+    "tom_answer_at": "2026-07-04T03:16:00+09:00",
+    "tom_answer": "Slice 필요 — GAP-01 우선",
+    "next_slice": {
+      "id": "recommendation_panel_alignment",
+      "name": "Recommendation Panel Alignment",
+      "design": "fixtures/key-judgment-validation-v1/recommendation-panel-alignment-slice-design-v1.json",
+      "goal": "패널 = KEY — 고객이 어디를 보든 같은 KEY"
+    },
+    "gap_priority": [
+      { "id": "GAP-01", "status": "active_slice", "rank": 1 },
+      { "id": "GAP-02", "status": "deferred", "rank": 2 },
+      { "id": "GAP-03", "status": "deferred", "rank": 3 },
+      { "id": "GAP-04", "status": "deferred", "rank": 4 },
+      { "id": "GAP-05", "status": "deferred", "rank": 5 }
+    ]
+  }
+}

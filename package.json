@@ -181,6 +181,8 @@
     "test:phase-c-slice-2-premium-care-plan": "node scripts/phase-c-slice-2-premium-care-plan-unit-test.mjs",
     "trace:phase-c-slice-2-preview-wiring": "node scripts/phase-c-slice-2-preview-wiring-trace-readonly.mjs",
     "test:phase-c-slice-3-delegation-care-plan": "node scripts/phase-c-slice-3-delegation-care-plan-unit-test.mjs",
+    "test:recommendation-panel-key-voice": "node scripts/recommendation-panel-key-voice-unit-test.mjs",
+    "verify:recommendation-panel-alignment-preview-customer-seat": "node scripts/recommendation-panel-alignment-preview-customer-seat-audit.mjs",
     "trace:phase-c-slice-3-preview-wiring": "node scripts/phase-c-slice-3-preview-wiring-trace-readonly.mjs",
     "verify:phase-c-slice-3-preview-customer-seat": "node scripts/phase-c-slice-3-preview-customer-seat-audit.mjs",
     "trace:phase-c-slice-1-preview-wiring": "node scripts/phase-c-slice-1-preview-wiring-trace-readonly.mjs",

@@ -1,10 +1,10 @@
 {
   "schema_version": "key-product-growth-roadmap-v1",
   "document_type": "roadmap",
-  "recorded_at": "2026-07-04T02:58:00+09:00",
+  "recorded_at": "2026-07-04T03:16:00+09:00",
   "authority": "Tom — 실행 계획 (헌법 아님)",
   "constitution_ssot": "LIFEGUARD_CONSTITUTION.md#제품-철학-tom--헌법-고정",
-  "status_summary": "LIFEGUARD는 Phase A(이해), Phase B(판단), Phase C(계획)의 핵심 경험을 완성했고, 이제 새로운 기능을 추가하기 전에 기존 제품 전체가 이 철학과 일치하는지 점검하는 단계에 들어섰다.",
+  "status_summary": "Phase A~C 완성. 헌법 감사 ① 완료 — Tom GAP-01 Slice GO. 기능보다 일관성: Recommendation Panel Alignment.",
   "phases": [
     { "id": "phase_a", "name": "Understand", "status": "complete", "summary": "고객을 이해한다" },
     { "id": "phase_b", "name": "Judge", "status": "complete", "summary": "전문가처럼 판단한다" },
@@ -12,9 +12,20 @@
     {
       "id": "constitution_product_audit",
       "name": "기존 제품 헌법 감사",
-      "status": "next_preparation",
-      "note": "새 기능 추가 전 — 기존 기능이 제품 철학과 일치하는지 점검",
-      "audit_plan": "fixtures/key-judgment-validation-v1/key-constitution-product-audit-plan-v1.json"
+      "status": "in_progress",
+      "audit_1_recommendation_design": "complete_tom_slice_go",
+      "audit_plan": "fixtures/key-judgment-validation-v1/key-constitution-product-audit-plan-v1.json",
+      "audit_evidence": "fixtures/key-judgment-validation-v1/key-constitution-audit-recommendation-design-repository-reality-v1.json"
+    },
+    {
+      "id": "recommendation_panel_alignment",
+      "name": "Recommendation Panel Alignment",
+      "status": "tom_slice_go",
+      "implementation": "not_started",
+      "gap": "GAP-01",
+      "goal": "패널 = KEY",
+      "design": "fixtures/key-judgment-validation-v1/recommendation-panel-alignment-slice-design-v1.json",
+      "note": "Tom 1순위 — KEY chat과 패널 이중 KEY 경험 제거"
     },
     {
       "id": "phase_d",
