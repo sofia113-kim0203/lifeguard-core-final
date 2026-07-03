@@ -778,12 +778,20 @@ export function composePhaseAFollowUpWithEpistemicTrace({
     segments.push(...buildConversationSegments(bundle.conversation));
   }
 
-  segments.push(
-    ...buildFollowUpUnknownSegments({
-      kind: documentClass.kind,
-      policiesPresent: gates.policiesPresent,
-    }),
-  );
+  if (summary) {
+    segments.push(
+      ...buildFollowUpUnknownSegments({
+        kind: documentClass.kind,
+        policiesPresent: gates.policiesPresent,
+      }),
+    );
+  } else if (gates.policiesPresent) {
+    segments.push({
+      source: DU1_INPUT_SOURCE.JUDGMENT,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로 정리하겠습니다.",
+    });
+  }
 
   return { segments, text: segmentsToCustomerText(segments), inputGates: gates };
 }

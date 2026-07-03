@@ -188,6 +188,7 @@ function testFollowUpWhenExtractionFailedProvisional() {
   assert.match(speak.text, /단정하기 어렵/);
   assert.match(speak.text, /등록돼 있던 보험과 이번 자료/);
   assert.doesNotMatch(speak.text, /등록돼 있던\s+축/);
+  assert.doesNotMatch(speak.text, /특약·보장 범위까지는 아직 말씀드리기 어렵습니다[\s\S]*특약·보장 범위까지는 아직/);
   assert.equal(validateDu1CustomerSpeech(speak.text).ok, true);
 }
 
