@@ -3,10 +3,7 @@
  */
 import assert from "node:assert/strict";
 import { buildKeyFirstJudgment } from "../server/keyBrain/documentFirstJudgment.js";
-import {
-  buildCustomerFirstSentence,
-  DU1_SCHEMA_VERSION,
-} from "../server/keyBrain/documentFirstSpeak.js";
+import { buildCustomerFirstSentence } from "../server/keyBrain/documentFirstSpeak.js";
 import {
   assertDu1FourInputsPresent,
   buildDu1InputBundle,
@@ -136,13 +133,23 @@ function testCustomerFirstSentenceRequiresLoadedContext() {
     original_filename: "운전자보험.pdf",
     customer_hint_type: "insurance_policy",
   };
-  const judgment = buildJudgment(document);
-  const withoutLoaded = buildCustomerFirstSentence(judgment, {
-    document,
-    contextSnapshot: buildSnapshot(),
-  });
+  const withoutLoaded = buildCustomerFirstSentence(
+    buildKeyFirstJudgment({
+      document,
+      keyInterprets: {
+        document_kind_guess: "insurance_policy",
+        hold: { needed: true },
+        orient_speech_planned: { posture: "hold_consent" },
+      },
+    }),
+    {
+      document,
+      contextSnapshot: buildSnapshot(),
+    },
+  );
   assert.match(withoutLoaded, /KEY/);
 
+  const judgment = buildJudgment(document);
   const withLoaded = buildCustomerFirstSentence(judgment, {
     document,
     contextSnapshot: buildSnapshot({
