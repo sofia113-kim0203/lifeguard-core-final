@@ -43,6 +43,7 @@ import {
   shouldUseRecognitionCompanionCompose,
 } from "./conversationRecognitionBridge.js";
 import { buildPhaseBSlice1CoverageJudgment } from "./keyBrain/phaseBSlice1CoverageJudgment.js";
+import { buildPhaseCSlice1CoverageCarePlanText } from "./keyBrain/phaseCSlice1CoverageCarePlan.js";
 import { buildPhaseBSlice2PremiumBurdenJudgment } from "./keyBrain/phaseBSlice2PremiumBurdenJudgment.js";
 import {
   buildPhaseBSlice3DelegationResponse,
@@ -569,6 +570,8 @@ export function buildKeyStructuredResponse(
   let limitation = buildKeyLimitationBlock(intent, factBundle, basisTaggedFacts);
   let nextAction = buildKeyNextActionBlock(humanFrame.main_blocker, intent);
 
+  let phaseBCoverageJudgment = null;
+
   const activeJudgmentRule = resolveKeyJudgmentRule({
     question,
     resolvedIntent: intent,
@@ -846,12 +849,12 @@ export function buildKeyStructuredResponse(
       nextAction = buildKeyNextActionBlock("information_gap");
     }
   } else if (activeJudgmentRule?.id === "coverage_anxiety_companion_judgment") {
-    const phaseB = buildPhaseBSlice1CoverageJudgment({ factBundle, question });
-    if (phaseB) {
-      judgment = phaseB.judgment;
-      evidence = phaseB.evidence;
-      limitation = phaseB.limitation;
-      nextAction = phaseB.nextAction;
+    phaseBCoverageJudgment = buildPhaseBSlice1CoverageJudgment({ factBundle, question });
+    if (phaseBCoverageJudgment) {
+      judgment = phaseBCoverageJudgment.judgment;
+      evidence = phaseBCoverageJudgment.evidence;
+      limitation = phaseBCoverageJudgment.limitation;
+      nextAction = phaseBCoverageJudgment.nextAction;
     }
   } else if (activeJudgmentRule?.id === "premium_burden_companion_judgment") {
     const phaseB = buildPhaseBSlice2PremiumBurdenJudgment({ factBundle, question });
@@ -863,13 +866,30 @@ export function buildKeyStructuredResponse(
     }
   }
 
-  const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);
-  const joined = normalizeText(parts.join(" "));
+  const carePlanText =
+    activeJudgmentRule?.id === "coverage_anxiety_companion_judgment"
+      ? buildPhaseCSlice1CoverageCarePlanText({
+          factBundle,
+          question,
+          phaseBJudgment: phaseBCoverageJudgment,
+        })
+      : null;
+
+  const parts = [
+    judgment,
+    evidence,
+    limitation,
+    carePlanText ? null : nextAction,
+  ].filter(Boolean);
+  let joined = normalizeText(parts.join(" "));
   if (
     activeJudgmentRule?.id === "memory_recall_judgment" ||
     activeJudgmentRule?.id === "coverage_anxiety_companion_judgment" ||
     activeJudgmentRule?.id === "premium_burden_companion_judgment"
   ) {
+    if (carePlanText) {
+      joined = normalizeText(`${joined} ${carePlanText}`);
+    }
     return joined;
   }
   return enforceKeyDeclarativeEnding(joined, humanFrame.main_blocker);

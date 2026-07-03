@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { COVERAGE_ANXIETY_COMPANION_CLUSTER_ID, classifyConsultationIntent } from "../server/intentGateLayer.js";
 import { finalizeHumanSalesDirectorResponse } from "../server/humanUnderstandingLoop.js";
 import { buildPhaseBSlice1CoverageJudgment } from "../server/keyBrain/phaseBSlice1CoverageJudgment.js";
+import { CARE_PLAN_TRANSITION } from "../server/keyBrain/phaseCSlice1CoverageCarePlan.js";
 import { ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
 
 const SLICE1_Q = "내 보험 괜찮아?";
@@ -91,7 +92,10 @@ results.push(
     assert.match(text, /유지하는\s*쪽이\s*맞아\s*보입니다|공백\s*신호/, "direction");
     assert.match(text, /현재\s*자료|등록된\s*보험|확인되는\s*범위/, "customer reason");
     assert.match(text, /단정하지\s*않|확인되지\s*않/, "clear limit");
-    assert.match(text, /이번에는.*같이\s*확인/, "companion pledge");
+    assert.match(text, /그럼\s*앞으로는\s*이렇게\s*진행하면\s*됩니다/, "Phase C transition");
+    assert.match(text, /①\s*이번 달\s*실손\s*구조\s*확인/, "Phase C timeline step 1");
+    assert.match(text, /②\s*올해 안\s*암\s*보장\s*점검/, "Phase C timeline step 2");
+    assert.doesNotMatch(text, /이번에는.*같이\s*확인/, "First Action omitted when Care Plan present");
   }),
 );
 
@@ -105,7 +109,7 @@ results.push(
       coverage_gap_maintained: [],
     });
     assert.match(text, /등록|가입\s*정보|확인/);
-    assert.match(text, /같이\s*확인|같이\s*보/);
+    assert.ok(text.includes(CARE_PLAN_TRANSITION) || /같이\s*확인|같이\s*보/.test(text));
     assert.doesNotMatch(text, EMPATHY_OPENER_RE);
   }),
 );
@@ -117,7 +121,7 @@ results.push(
       coverage_gap_signals: ["암:부족"],
     });
     assert.match(text, /암/);
-    assert.match(text, /이번에는\s*암/);
+    assert.match(text, /①\s*이번 달\s*암\s*보장\s*확인/);
     assert.doesNotMatch(text, EMPATHY_OPENER_RE);
   }),
 );
