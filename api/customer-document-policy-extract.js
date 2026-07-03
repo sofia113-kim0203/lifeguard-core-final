@@ -18,6 +18,34 @@ import {
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
 
+const DOCUMENT_SELECT =
+  "id, customer_id, original_filename, ingest_status, doc_class, customer_hint_type, mime_type, metadata_json, created_at";
+
+async function buildPhaseAFollowUpFromDocument({
+  supabase,
+  customerId,
+  documentRow,
+  result = null,
+} = {}) {
+  const meta = documentRow?.metadata_json ?? result?.metadata_json ?? {};
+  const extractionReady =
+    result?.ok === true || meta.policy_extraction_status === "completed";
+  if (!extractionReady || !documentRow) return null;
+
+  const turnContext = await loadSalesDirectorTurnContext(supabase, customerId, {
+    requestHistory: [],
+  });
+
+  return buildPhaseAFollowUpCustomerSpeak({
+    document: documentRow,
+    contextSnapshot: turnContext.snapshot,
+    loadedContext: buildLoadedContextFromSnapshot(turnContext.snapshot),
+    multiExtraction: result?.extraction ?? meta.policy_extraction ?? null,
+    linkedPolicyIds: result?.policy_ids ?? meta.profile_policy_ids ?? [],
+    ea1CustomerSummary: meta.key_ea1_customer_summary ?? null,
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.statusCode = 405;
@@ -136,33 +164,23 @@ export default async function handler(req, res) {
     });
 
     let keyFollowUp = null;
-    if (result.ok) {
-      try {
-        const { data: documentRow } = await supabase
-          .from("customer_documents")
-          .select(
-            "id, customer_id, original_filename, ingest_status, doc_class, customer_hint_type, mime_type, metadata_json, created_at",
-          )
-          .eq("id", documentId)
-          .eq("customer_id", auth.customerId)
-          .is("deleted_at", null)
-          .maybeSingle();
+    try {
+      const { data: documentRow } = await supabase
+        .from("customer_documents")
+        .select(DOCUMENT_SELECT)
+        .eq("id", documentId)
+        .eq("customer_id", auth.customerId)
+        .is("deleted_at", null)
+        .maybeSingle();
 
-        const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
-          requestHistory: [],
-        });
-
-        keyFollowUp = buildPhaseAFollowUpCustomerSpeak({
-          document: documentRow ?? { id: documentId, metadata_json: result.metadata_json ?? {} },
-          contextSnapshot: turnContext.snapshot,
-          loadedContext: buildLoadedContextFromSnapshot(turnContext.snapshot),
-          multiExtraction: result.extraction ?? null,
-          linkedPolicyIds: result.policy_ids ?? [],
-          ea1CustomerSummary: result.metadata_json?.key_ea1_customer_summary ?? null,
-        });
-      } catch {
-        keyFollowUp = null;
-      }
+      keyFollowUp = await buildPhaseAFollowUpFromDocument({
+        supabase,
+        customerId: auth.customerId,
+        documentRow,
+        result,
+      });
+    } catch {
+      keyFollowUp = null;
     }
 
     res.statusCode = result.ok ? 200 : 422;
@@ -178,13 +196,33 @@ export default async function handler(req, res) {
       }),
     );
   } catch (error) {
-    res.statusCode = 500;
+    let keyFollowUp = null;
+    try {
+      const { data: documentRow } = await supabase
+        .from("customer_documents")
+        .select(DOCUMENT_SELECT)
+        .eq("id", documentId)
+        .eq("customer_id", auth.customerId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      keyFollowUp = await buildPhaseAFollowUpFromDocument({
+        supabase,
+        customerId: auth.customerId,
+        documentRow,
+      });
+    } catch {
+      keyFollowUp = null;
+    }
+
+    res.statusCode = keyFollowUp?.text ? 422 : 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
         reason: "policy_extraction_failed",
         error_message: error instanceof Error ? error.message : "policy_extraction_failed",
+        key_follow_up_sentence: keyFollowUp?.text ?? null,
+        key_follow_up_segments: keyFollowUp?.segments ?? null,
       }),
     );
   }

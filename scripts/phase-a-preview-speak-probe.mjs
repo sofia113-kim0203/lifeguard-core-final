@@ -23,20 +23,101 @@ function parseArgs(argv) {
   return { previewBase, documentId };
 }
 
-async function resolveProbeDocumentId(admin, email) {
-  const { data: userRow } = await admin.auth.admin.listUsers({ perPage: 200 });
-  const user = userRow?.users?.find((u) => u.email === email);
-  if (!user?.id) return null;
-  const { data: profile } = await admin
+async function ensureAnalysisConsent(resolved) {
+  const client = createClient(resolved.supabaseUrl, resolved.supabaseAnon, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { error: authError } = await client.auth.signInWithPassword({
+    email: resolved.email,
+    password: resolved.password,
+  });
+  if (authError) return { client: null, error: authError.message };
+
+  const { data: existing } = await client
+    .from("customer_consents")
+    .select("id")
+    .eq("consent_type", "document_analysis")
+    .eq("granted", true)
+    .limit(1)
+    .maybeSingle();
+  if (!existing) {
+    const { error: grantError } = await client.rpc("lifeguard_grant_document_analysis_consent", {
+      p_consent_version: "2026-06-07-ko-doc-analysis",
+    });
+    if (grantError) return { client: null, error: grantError.message };
+  }
+
+  const { data: storageConsent } = await client
+    .from("customer_consents")
+    .select("id")
+    .eq("consent_type", "document_storage")
+    .eq("granted", true)
+    .limit(1)
+    .maybeSingle();
+  if (!storageConsent) {
+    const { data: profile } = await client
+      .from("customer_profiles")
+      .select("id")
+      .eq("user_id", (await client.auth.getUser()).data.user?.id ?? "")
+      .maybeSingle();
+    if (profile?.id) {
+      await client.from("customer_consents").insert({
+        customer_id: profile.id,
+        consent_type: "document_storage",
+        consent_version: "2026-06-07-ko-doc-storage",
+        granted: true,
+        granted_at: new Date().toISOString(),
+        source: "phase_a_preview_probe",
+        purpose: "고객 문서 보관",
+        required: true,
+      });
+    }
+  }
+  return { client, error: null };
+}
+
+async function resolveProbeDocumentIdViaUserJwt(resolved, userClient = null) {
+  let client = userClient;
+  let userId = null;
+
+  if (!client) {
+    client = createClient(resolved.supabaseUrl, resolved.supabaseAnon, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: auth, error: authError } = await client.auth.signInWithPassword({
+      email: resolved.email,
+      password: resolved.password,
+    });
+    if (authError || !auth.user?.id) return null;
+    userId = auth.user.id;
+  } else {
+    const { data: userData } = await client.auth.getUser();
+    userId = userData.user?.id ?? null;
+    if (!userId) return null;
+  }
+
+  const { data: profile } = await client
     .from("customer_profiles")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
   if (!profile?.id) return null;
 
-  const { data: readyDoc } = await admin
+  const { data: completedDoc } = await client
     .from("customer_documents")
-    .select("id, ingest_status, metadata_json")
+    .select("id")
+    .eq("customer_id", profile.id)
+    .eq("ingest_status", "ready")
+    .filter("metadata_json->>policy_extraction_status", "eq", "completed")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (completedDoc?.id) return completedDoc.id;
+
+  const { data: readyDoc } = await client
+    .from("customer_documents")
+    .select("id")
     .eq("customer_id", profile.id)
     .eq("ingest_status", "ready")
     .is("deleted_at", null)
@@ -45,7 +126,7 @@ async function resolveProbeDocumentId(admin, email) {
     .maybeSingle();
   if (readyDoc?.id) return readyDoc.id;
 
-  const { data: anyDoc } = await admin
+  const { data: anyDoc } = await client
     .from("customer_documents")
     .select("id")
     .eq("customer_id", profile.id)
@@ -83,10 +164,8 @@ async function main() {
   loadPreviewProbeEnvFile(join(import.meta.dirname, "..", ".env.local"));
   loadPreviewProbeEnvFile(join(import.meta.dirname, "..", ".env.preview.pulled"));
   const { previewBase, documentId: cliDocumentId } = parseArgs(process.argv);
-  const resolved = resolvePreviewProbeEnv({ previewBase });
   const bypass = resolveBypassSecret();
-  const serviceRole =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SERVICE_ROLE_KEY ?? "";
+  const resolved = resolvePreviewProbeEnv({ previewBase });
 
   if (!resolved.previewBase || !bypass) {
     console.error("BLOCKED — preview URL and bypass required");
@@ -94,13 +173,14 @@ async function main() {
   }
 
   const token = await mintPreviewProbeJwt(resolved);
-  const admin = serviceRole
-    ? createClient(resolved.supabaseUrl, serviceRole, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
-    : null;
+  const consent = await ensureAnalysisConsent(resolved);
+  if (consent.error) {
+    console.error(`BLOCKED — analysis consent: ${consent.error}`);
+    process.exit(1);
+  }
+
   const documentId =
-    cliDocumentId ?? (admin ? await resolveProbeDocumentId(admin, resolved.email) : null);
+    cliDocumentId ?? (await resolveProbeDocumentIdViaUserJwt(resolved, consent.client));
 
   const intake = await postJson(resolved.previewBase, "/api/key-document-intake", token, bypass, {
     document_id: documentId ?? "00000000-0000-0000-0000-000000000000",
@@ -108,7 +188,10 @@ async function main() {
   });
 
   const firstSentence = intake.payload?.customer_first_sentence ?? null;
-  const firstAudit = auditForbiddenSpeech(firstSentence ?? "");
+  const workOrderId = intake.payload?.work_order_id ?? null;
+  const firstAudit = firstSentence
+    ? auditForbiddenSpeech(firstSentence)
+    : { ok: true, reason: "sentence_missing" };
 
   let extract = null;
   let followUpSentence = null;
@@ -120,7 +203,11 @@ async function main() {
       "/api/customer-document-policy-extract",
       token,
       bypass,
-      { document_id: documentId, invoke_memory: true },
+      {
+        document_id: documentId,
+        invoke_memory: true,
+        ...(workOrderId ? { work_order_id: workOrderId } : {}),
+      },
     );
     followUpSentence = extract.payload?.key_follow_up_sentence ?? null;
     followUpAudit = followUpSentence
@@ -129,8 +216,8 @@ async function main() {
   }
 
   const forbiddenHits = [];
-  if (!firstAudit.ok) forbiddenHits.push({ surface: "first_sentence", ...firstAudit });
-  if (!followUpAudit.ok && followUpAudit.reason !== "skipped") {
+  if (firstSentence && !firstAudit.ok) forbiddenHits.push({ surface: "first_sentence", ...firstAudit });
+  if (followUpSentence && !followUpAudit.ok) {
     forbiddenHits.push({ surface: "follow_up_sentence", ...followUpAudit });
   }
 
@@ -145,8 +232,11 @@ async function main() {
     forbidden_word_hits: forbiddenHits,
     forbidden_word_count: forbiddenHits.length,
     intake_http_status: intake.status,
+    intake_reason: intake.payload?.reason ?? null,
+    work_order_id: workOrderId,
     extract_http_status: extract?.status ?? null,
     extract_ok: extract?.payload?.ok ?? null,
+    extract_reason: extract?.payload?.reason ?? null,
     tom_preview_gate: {
       first_sentence_present: Boolean(firstSentence),
       follow_up_present: Boolean(followUpSentence),

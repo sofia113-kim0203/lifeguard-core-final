@@ -640,9 +640,16 @@ function segmentsToCustomerText(segments = []) {
 /**
  * @param {ReturnType<typeof buildDu1InputBundle>} bundle
  */
+function isAnalysisConsentHold(bundle = {}) {
+  const posture = bundle.judgment?.orient_speech_planned?.posture;
+  if (posture === "hold_consent") return true;
+  if (posture === "provisional_metadata") return false;
+  const scope = bundle.judgment?.judgment_scope?.unknowable ?? [];
+  return scope.includes("document_body") && !scope.includes("document_body_before_key_read");
+}
+
 export function composeDu1WithEpistemicTrace(bundle) {
-  const hold = bundle.judgment?.hold ?? {};
-  if (hold.needed === true) {
+  if (isAnalysisConsentHold(bundle)) {
     const segments = buildConsentHoldSegments();
     return { segments, text: segmentsToCustomerText(segments), inputGates: bundle.inputGates ?? {} };
   }

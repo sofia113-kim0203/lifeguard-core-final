@@ -158,12 +158,50 @@ function testSchemaVersion() {
   assert.equal(DU1_SCHEMA_VERSION, "du-1-document-upload-first-speak-v2");
 }
 
+function testConsentHoldOnlyWhenAnalysisConsentMissing() {
+  const document = {
+    id: "doc-consent-gate",
+    original_filename: "운전자보험.pdf",
+    customer_hint_type: "insurance_policy",
+  };
+  const snapshot = buildSnapshot({ policies: [{ product_name: "실손의료비" }] });
+  const loadedContext = buildLoadedContext({ policies: true });
+
+  const withConsent = buildDu1InputBundle({
+    document,
+    contextSnapshot: snapshot,
+    loadedContext,
+    keyFirstJudgment: {
+      hold: { needed: true },
+      orient_speech_planned: { posture: "provisional_metadata" },
+      judgment_scope: { unknowable: ["document_body_before_key_read"] },
+    },
+  });
+  const fused = composeDu1WithEpistemicTrace(withConsent);
+  assert.match(fused.text, /프로필에.*축 보험이 등록/);
+  assert.doesNotMatch(fused.text, /동의 후 KEY가 진행/);
+
+  const withoutConsent = buildDu1InputBundle({
+    document,
+    contextSnapshot: snapshot,
+    loadedContext,
+    keyFirstJudgment: {
+      hold: { needed: true },
+      orient_speech_planned: { posture: "hold_consent" },
+      judgment_scope: { unknowable: ["document_body"] },
+    },
+  });
+  const held = composeDu1WithEpistemicTrace(withoutConsent);
+  assert.match(held.text, /동의 후 KEY가 진행/);
+}
+
 const tests = [
   testFourInputsRequireLoadedContext,
   testEpistemicSegmentsPerSource,
   testMemoryNeverRegisteredPolicyWording,
   testConversationAbsentWhenEmpty,
   testCustomerFirstSentenceRequiresLoadedContext,
+  testConsentHoldOnlyWhenAnalysisConsentMissing,
   testSchemaVersion,
 ];
 
