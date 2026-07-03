@@ -43,6 +43,7 @@ import {
   shouldUseRecognitionCompanionCompose,
 } from "./conversationRecognitionBridge.js";
 import { buildPhaseBSlice1CoverageJudgment } from "./keyBrain/phaseBSlice1CoverageJudgment.js";
+import { buildPhaseBSlice2PremiumBurdenJudgment } from "./keyBrain/phaseBSlice2PremiumBurdenJudgment.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
@@ -848,13 +849,22 @@ export function buildKeyStructuredResponse(
       limitation = phaseB.limitation;
       nextAction = phaseB.nextAction;
     }
+  } else if (activeJudgmentRule?.id === "premium_burden_companion_judgment") {
+    const phaseB = buildPhaseBSlice2PremiumBurdenJudgment({ factBundle, question });
+    if (phaseB) {
+      judgment = phaseB.judgment;
+      evidence = phaseB.evidence;
+      limitation = phaseB.limitation;
+      nextAction = phaseB.nextAction;
+    }
   }
 
   const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);
   const joined = normalizeText(parts.join(" "));
   if (
     activeJudgmentRule?.id === "memory_recall_judgment" ||
-    activeJudgmentRule?.id === "coverage_anxiety_companion_judgment"
+    activeJudgmentRule?.id === "coverage_anxiety_companion_judgment" ||
+    activeJudgmentRule?.id === "premium_burden_companion_judgment"
   ) {
     return joined;
   }
