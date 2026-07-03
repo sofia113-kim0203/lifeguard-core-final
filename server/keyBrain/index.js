@@ -18,7 +18,9 @@ export {
 export {
   appendKeyFirstSpeakTrace,
   buildCustomerFirstSentence,
+  finalizeDocumentIntakeFirstSentence,
   validateKu2cSpeakOrder,
+  DOCUMENT_INTAKE_PERSONA_OUTLET,
   KEY_FIRST_SPEAK_SCHEMA_VERSION,
 } from "./documentFirstSpeak.js";
 export {

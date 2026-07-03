@@ -13,6 +13,7 @@ import { buildKeyDocumentIntakeShadowTrace } from "../server/keyBrain/documentIn
 import {
   appendKeyFirstSpeakTrace,
   buildCustomerFirstSentence,
+  finalizeDocumentIntakeFirstSentence,
 } from "../server/keyBrain/documentFirstSpeak.js";
 import {
   KEY_ENTRY,
@@ -149,6 +150,7 @@ export default async function handler(req, res) {
   }
 
   let keyRuntimeEntered = false;
+  let keyTurnResult = null;
   if (activeAuthority) {
     const customerContextBundle = snapshotToContextBundle(contextSnapshot) ?? {};
     const keyTurn = await runSalesDirectorKeyTurn({
@@ -178,6 +180,7 @@ export default async function handler(req, res) {
       );
       return;
     }
+    keyTurnResult = keyTurn.result;
     keyRuntimeEntered = true;
   }
 
@@ -195,11 +198,20 @@ export default async function handler(req, res) {
   });
 
   let customerFirstSentence = null;
+  let personaMeta = null;
   if (activeAuthority && intakeTrace.key_first_judgment) {
-    customerFirstSentence = buildCustomerFirstSentence(intakeTrace.key_first_judgment, { document });
+    const staticDraft = buildCustomerFirstSentence(intakeTrace.key_first_judgment, { document });
+    const finalized = finalizeDocumentIntakeFirstSentence(staticDraft, {
+      keyTurnResult,
+      document,
+    });
+    if (finalized?.text) {
+      customerFirstSentence = finalized.text;
+      personaMeta = finalized;
+    }
   }
   let resolvedTrace = customerFirstSentence
-    ? appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence)
+    ? appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence, personaMeta)
     : intakeTrace;
 
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
@@ -254,6 +266,7 @@ export default async function handler(req, res) {
       intake_trace: resolvedTrace,
       key_first_judgment: resolvedTrace.key_first_judgment ?? null,
       customer_first_sentence: resolvedTrace.customer_first_sentence ?? null,
+      persona_outlet: resolvedTrace.persona_outlet ?? null,
       work_order_id: workOrderId,
       work_order_ordered_by: workOrderId ? "KEY" : null,
       factory_executed: false,

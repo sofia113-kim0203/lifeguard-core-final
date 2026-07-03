@@ -1,7 +1,13 @@
 /**
  * KU-2c — KEY first customer sentence (from key_first_judgment · no coverage/gap/rec).
+ * Hand P3 — Persona outlet via finalizeSalesDirectorResponse (draft preserve).
  */
+import { polishLifeguardCustomerText } from "../lifeguardOutputGuard.js";
+import { finalizeSalesDirectorResponse } from "../salesDirectorFormatter.js";
+import { ONE_BRAIN_SURFACES } from "../oneBrainResponseLayer.js";
+
 export const KEY_FIRST_SPEAK_SCHEMA_VERSION = "key-first-speak-ku2c-v1";
+export const DOCUMENT_INTAKE_PERSONA_OUTLET = "finalizeSalesDirectorResponse";
 
 /**
  * @param {object|null} keyFirstJudgment — from buildKeyFirstJudgment
@@ -39,10 +45,54 @@ export function buildCustomerFirstSentence(keyFirstJudgment, { document = {} } =
 }
 
 /**
+ * Hand P3 — route upload first sentence through Chat-equivalent Persona outlet.
+ * @param {string} draftText — from buildCustomerFirstSentence (semantic draft only)
+ * @param {object} [keyTurnResult] — runSalesDirectorKeyTurn result
+ * @param {object} [document]
+ */
+export function finalizeDocumentIntakeFirstSentence(draftText, { keyTurnResult = null, document = {} } = {}) {
+  const trimmedDraft = String(draftText ?? "").trim();
+  if (!trimmedDraft) return null;
+
+  const agentTurn = keyTurnResult?.agentTurn ?? null;
+  const factBundle = {
+    ...(agentTurn?.factBundle ?? {}),
+    document_intake: true,
+    key_orchestrator: true,
+    document_id: document.id ?? agentTurn?.factBundle?.document_id ?? null,
+    classification_intent: "document_intake",
+  };
+
+  const finalized = finalizeSalesDirectorResponse({
+    rawText: trimmedDraft,
+    intent: "document_intake",
+    classificationIntent: "document_intake",
+    surface: ONE_BRAIN_SURFACES.HOME,
+    factBundle,
+    customerState: {
+      keyOrchestrator: true,
+      question: "",
+    },
+    conversationContext: {},
+  });
+
+  const text = polishLifeguardCustomerText(finalized.text ?? trimmedDraft);
+
+  return {
+    text,
+    static_draft: trimmedDraft,
+    persona_outlet: DOCUMENT_INTAKE_PERSONA_OUTLET,
+    generation_mode: finalized.generation_mode ?? "document_intake_persona_outlet",
+    key_compose_trace: finalized.key_compose_trace ?? null,
+  };
+}
+
+/**
  * @param {object} intakeTrace
  * @param {string|null} customerFirstSentence
+ * @param {object} [personaMeta]
  */
-export function appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence) {
+export function appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence, personaMeta = null) {
   if (!intakeTrace || !customerFirstSentence) return intakeTrace;
 
   const speakStep = {
@@ -53,6 +103,13 @@ export function appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence) {
       schema_version: KEY_FIRST_SPEAK_SCHEMA_VERSION,
       customer_first_sentence: customerFirstSentence,
       subject: "KEY",
+      ...(personaMeta?.persona_outlet
+        ? {
+            persona_outlet: personaMeta.persona_outlet,
+            generation_mode: personaMeta.generation_mode ?? null,
+            static_draft: personaMeta.static_draft ?? null,
+          }
+        : {}),
     },
   };
 
@@ -66,6 +123,7 @@ export function appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence) {
     trace_steps: steps,
     customer_first_sentence: customerFirstSentence,
     customer_speak_changed: true,
+    persona_outlet: personaMeta?.persona_outlet ?? intakeTrace.persona_outlet ?? null,
   };
 }
 

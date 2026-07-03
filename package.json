@@ -167,6 +167,8 @@
     "test:key-upload-hand-wiring-snapshot": "node scripts/key-upload-hand-wiring-snapshot-unit-test.mjs",
     "verify:key-upload-hand-wiring-p1-preview-snapshot": "node scripts/key-upload-hand-wiring-p1-preview-snapshot-probe.mjs",
     "test:key-upload-hand-wiring-p2-key-runtime": "node scripts/key-hand-wiring-p2-key-runtime-unit-test.mjs",
+    "test:key-upload-hand-wiring-p3-persona-outlet": "node scripts/key-upload-hand-wiring-persona-outlet-unit-test.mjs",
+    "verify:key-upload-hand-wiring-p3-persona-outlet-preview": "node scripts/key-hand-wiring-p3-persona-outlet-preview-probe.mjs",
     "verify:key-upload-hand-wiring-p2-key-runtime-preview": "node scripts/key-hand-wiring-p2-key-runtime-preview-probe.mjs",
     "verify:key-upload-ku2b-preview-trace": "node scripts/key-upload-ku2b-preview-trace-probe.mjs",
     "test:key-upload-ku2c-first-speak": "node scripts/key-upload-ku2c-first-speak-unit-test.mjs",

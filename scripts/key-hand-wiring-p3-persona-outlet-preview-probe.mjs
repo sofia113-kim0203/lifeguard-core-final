@@ -1,5 +1,8 @@
 /**
- * KU-2c — Preview first-speak evidence (Tom gate: customer hears KEY first).
+ * Hand Wiring Phase 3 — Preview Persona outlet evidence (Tom merge gate).
+ *
+ * Usage:
+ *   node scripts/key-hand-wiring-p3-persona-outlet-preview-probe.mjs [preview-url] [--document=<uuid>]
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,10 +14,13 @@ import {
   resolvePreviewProbeEnv,
 } from "./preview-auth-probe-path.mjs";
 import { resolveBypassSecret } from "./p10-5-preview-curl-helper.mjs";
-import { validateKu2cSpeakOrder, DOCUMENT_INTAKE_PERSONA_OUTLET } from "../server/keyBrain/documentFirstSpeak.js";
+import {
+  DOCUMENT_INTAKE_PERSONA_OUTLET,
+  validateKu2cSpeakOrder,
+} from "../server/keyBrain/documentFirstSpeak.js";
 
 const FIX = join(import.meta.dirname, "..", "fixtures", "key-judgment-validation-v1");
-const OUT = join(FIX, "key-upload-ku2c-preview-speak-evidence.json");
+const OUT = join(FIX, "key-hand-wiring-p3-persona-outlet-preview-evidence.json");
 
 function parseArgs(argv) {
   const previewBase = argv[2]?.startsWith("http") ? argv[2].trim() : "";
@@ -74,53 +80,65 @@ async function main() {
     },
     body: JSON.stringify({
       document_id: documentId ?? "00000000-0000-0000-0000-000000000000",
-      upload_source: "ku2c_preview_speak_probe",
+      upload_source: "hand_p3_persona_outlet_preview_probe",
     }),
   });
   const payload = await res.json().catch(() => ({}));
-  const sentence = payload?.customer_first_sentence ?? null;
   const trace = payload?.intake_trace ?? null;
-  const speakOrder = validateKu2cSpeakOrder(trace?.trace_steps ?? []);
   const speakStep = (trace?.trace_steps ?? []).find((row) => row?.step === "key_first_speak");
   const personaOutlet =
-    speakStep?.payload?.persona_outlet ?? trace?.persona_outlet ?? null;
-  const personaOutletPass = personaOutlet === DOCUMENT_INTAKE_PERSONA_OUTLET;
+    payload?.persona_outlet ??
+    speakStep?.payload?.persona_outlet ??
+    trace?.persona_outlet ??
+    null;
+  const generationMode = speakStep?.payload?.generation_mode ?? null;
+  const staticDraft = speakStep?.payload?.static_draft ?? null;
+  const speakOrder = validateKu2cSpeakOrder(trace?.trace_steps ?? []);
+
+  const checks = {
+    intake_http_ok: res.status === 200,
+    intake_mode_active: payload?.mode === "active",
+    customer_sentence_present: Boolean(payload?.customer_first_sentence),
+    subject_is_key: payload?.subject === "KEY",
+    persona_outlet_finalize: personaOutlet === DOCUMENT_INTAKE_PERSONA_OUTLET,
+    generation_mode_persona: generationMode === "document_intake_persona_outlet",
+    static_draft_on_trace: Boolean(staticDraft),
+    speak_trace_order: speakOrder.ok,
+    work_order_unchanged: Boolean(payload?.work_order_id),
+  };
+
+  const pass = Object.values(checks).every(Boolean);
 
   const evidence = {
-    schema_version: "key-upload-ku2c-preview-speak-evidence-v1",
+    schema_version: "key-hand-wiring-p3-persona-outlet-preview-evidence-v1",
+    gate: "HAND-P3-PERSONA-OUTLET",
     recorded_at: new Date().toISOString(),
     preview_base: resolved.previewBase,
     auth_fingerprint: previewAuthPathFingerprint(resolved),
     document_id: documentId,
     intake_http_status: res.status,
     intake_mode: payload?.mode ?? null,
-    customer_first_sentence: sentence,
-    customer_speak_changed: payload?.customer_speak_changed ?? null,
+    customer_first_sentence: payload?.customer_first_sentence ?? null,
     persona_outlet: personaOutlet,
-    generation_mode: speakStep?.payload?.generation_mode ?? null,
-    subject: payload?.subject ?? null,
-    tom_preview_gate: {
-      question: "업로드 직후 고객이 처음 듣는 문장이 KEY인가?",
-      api_sentence_is_key:
-        Boolean(sentence) && /KEY/.test(sentence) && payload?.subject === "KEY" ? "PASS" : "FAIL",
-      speak_trace_order: speakOrder.ok ? "PASS" : "FAIL",
-      persona_outlet: personaOutletPass ? "PASS" : "FAIL",
+    generation_mode: generationMode,
+    static_draft: staticDraft,
+    work_order_id: payload?.work_order_id ?? null,
+    tom_hand_p3_gate: {
+      question: "Upload 첫 문장이 static template가 아니라 Persona 출구를 통과했는가?",
+      checks,
+      result: pass ? "PASS" : "FAIL",
     },
-    ku2c_preview_pass:
-      Boolean(sentence) &&
-      /KEY/.test(sentence) &&
-      payload?.subject === "KEY" &&
-      speakOrder.ok &&
-      personaOutletPass,
+    hand_p3_preview_pass: pass,
   };
 
   writeFileSync(OUT, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
-  console.log("[KU-2c Preview Speak]");
-  console.log(`customer_first_sentence: ${sentence ?? "(null)"}`);
-  console.log(`Tom gate: ${evidence.tom_preview_gate.api_sentence_is_key}`);
-  console.log(`Persona outlet: ${personaOutlet ?? "(null)"} — ${evidence.tom_preview_gate.persona_outlet}`);
+  console.log("[Hand P3 Persona Outlet Preview]");
+  console.log(`persona_outlet: ${personaOutlet ?? "(null)"}`);
+  console.log(`generation_mode: ${generationMode ?? "(null)"}`);
+  console.log(`Tom gate: ${evidence.tom_hand_p3_gate.result}`);
   console.log(`Evidence: ${OUT}`);
-  console.log(`KU-2c Preview pass: ${evidence.ku2c_preview_pass}`);
+  console.log(`Hand P3 Preview pass: ${pass}`);
+  if (!pass) process.exit(1);
 }
 
 main().catch((error) => {

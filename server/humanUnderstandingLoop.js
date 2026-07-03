@@ -1747,6 +1747,28 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
     };
   }
 
+  if (input.factBundle?.document_intake === true && rawText) {
+    const preservedText = polishHumanOutput(normalizeText(rawText));
+    return {
+      text: preservedText,
+      intent: "document_intake",
+      applied: true,
+      humanFrame: null,
+      basisTaggedFacts: null,
+      forbidden_pattern_scan: detectForbiddenOutputPatterns(preservedText),
+      generation_mode: "document_intake_persona_outlet",
+      p9_version: "p9-2",
+      key_compose_trace: {
+        called: true,
+        skip_reason: null,
+        text_preview: preservedText.slice(0, 300),
+        used_safe_fallback: false,
+        compose_mode: "document_intake_persona_outlet",
+      },
+      preserve_gate_trace: null,
+    };
+  }
+
   if (input.factBundle?.general_knowledge_delegation === true && rawText) {
     const preservedText = normalizeText(rawText);
     return {
