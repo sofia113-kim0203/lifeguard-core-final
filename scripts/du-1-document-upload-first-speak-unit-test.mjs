@@ -10,6 +10,7 @@ import {
   composeDu1WithEpistemicTrace,
   DU1_EPISTEMIC_TIER,
   DU1_INPUT_SOURCE,
+  DU1_SCHEMA_VERSION,
   validateDu1CustomerSpeech,
 } from "../server/keyBrain/du1DocumentUploadFirstSpeak.js";
 
