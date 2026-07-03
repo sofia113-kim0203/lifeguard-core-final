@@ -1,0 +1,143 @@
+---
+description: LIFEGUARD 헌법 — 작업 전 필독. 신뢰·KEY·공장·Hand 기준.
+alwaysApply: true
+---
+
+# LIFEGUARD 헌법 (작업 전 필독)
+
+**모든 작업 시작 전** [LIFEGUARD_CONSTITUTION.md](../../LIFEGUARD_CONSTITUTION.md) (Tom 수정본)를 읽고 판단한다.
+
+## 최상위 원칙 — Tom 헌장 (모든 구조보다 위)
+
+> **"LIFEGUARD의 KEY는 하나이며, 그 하나의 KEY는 최고여야 한다."**
+
+**설계의 첫 줄:** LIFEGUARD에는 단 하나의 KEY만 존재한다. 모든 기능은 그 하나의 KEY를 더 뛰어나게 만들기 위해 존재한다.
+
+**Tom 설계 감사:** (1) 기존 KEY 더 강하게? NO→STOP · (2) 새 KEY? YES→STOP · (3) KEY 우회? YES→STOP · (4) KEY 더 똑똑하게(기억·판단·대화·전문가 호출)? YES→GO
+
+**성장 감사:** 새 기능 → KEY가 배우는가? / 새 모듈이 대신하는가? → 모듈 성장 STOP · KEY 성장 GO
+
+**Jerry 명령 (단 하나):** **"새 기능을 만들지 마라. KEY를 성장시켜라."**
+
+## 작업 시작 전 판단 (필수)
+
+이 변경이 무엇인지 **먼저** 분류한다:
+
+1. **공장** — 엔진/데이터/정확성 (Gap · Memory · Document · Claim …)
+2. **LIFEGUARD(KEY)** — 대화 · 신뢰 · 기억 · 포장 · 고객-facing KEY
+3. **Hand** — 공장 결과 ↔ KEY 답변 연결, 엇박자 제거
+
+판단 없이 코딩 시작 금지. 셋 중 어디에도 해당 없으면, LIFEGUARD 신뢰에 왜 필요한지 먼저 말한다.
+
+## 한 줄
+
+LIFEGUARD(KEY) = 고객이 아는 **유일한 KEY**. 공장(Gap·Memory·Document 등)은 뒤에 숨고, KEY만 말한다. 신뢰 = 정확성 × 책임감. 공장·KEY·Hand는 **동시에** 맞아야 한다.
+
+## KEY Architecture — 권한 구조 (Tom GO · 헌법)
+
+LIFEGUARD의 **권한 구조** — 단순 기술 규칙 아님.  
+흐름: `입력 → KEY → KEY 판단 → Work Order → 공장 → Fact → KEY → 고객`
+
+| # | 지배권 | 정의 |
+|---|--------|------|
+| ① | **입력 (Input Authority)** | 모든 입력은 반드시 KEY를 먼저 만난다 |
+| ② | **실행 (Execution Authority)** | 공장은 KEY Work Order 또는 KEY용 시스템 이벤트로만 동작 · cron/worker 이벤트 감지 OK · 고객 직접 알림 ❌ |
+| ③ | **정보 (Information Authority)** | 새 Fact → KEY 보고 → KEY가 Memory·고객 전달 여부 결정 (**Memory도 KEY 승인 후**) |
+| ④ | **판단·출력 (Decision & Output Authority)** | 판단·설명·추천·알림은 KEY만 · 이벤트는 worker가 만들 수 있으나 최종 고객 응대는 KEY |
+
+**Tom 감사 5질문 (하나라도 해당 → STOP):**
+1. 입력이 KEY를 먼저 만나는가?
+2. 공장이 KEY Work Order 또는 시스템 이벤트로만 동작하는가?
+3. 새로운 Fact는 먼저 KEY에게 보고되는가?
+4. 고객 응답과 판단은 KEY만 하는가?
+5. **이 변경으로 KEY의 권한이 줄어드는가?** (YES → STOP)
+
+## 용어 (Tom Language — 필수)
+
+- 사용: **LIFEGUARD(KEY)**, **KEY**, **KEY + Hand**, **LIFEGUARD(KEY) + Hand**
+- 금지: "영업부장", Sales Director(KEY), "영업부장 + 손발" 등 구 표현
+
+## Family 시작 전 질문 (Tom — 필수)
+
+Family를 만들기 **전에** 하나만 고른다:
+
+- **보험을 더 잘하게 만드는가?** (Policy · Claim …)
+- **KEY를 더 같은 사람으로 만드는가?** (Memory · Relationship …)
+
+**둘 중 하나만.** 한 PR에서 같이 하지 않는다.
+
+## Family 시공 순서 (깨지 않음)
+
+Repository Reality → **한 Slice** → Journey → Baseline
+
+Memory Family 종료 잣대: Slice → Family → Journey → Baseline → Trust → Continuity
+
+## KEY Persona v1 — COMPLETE (Tom GO)
+
+| Family | Baseline |
+|--------|----------|
+| Policy | ✅ |
+| Claim | ✅ |
+| Memory | ✅ |
+| Relationship | ✅ |
+| End-to-End Journey | ✅ |
+
+**최상위 회귀 기준:** `npm run test:key-v2-key-persona`  
+새 Slice·변경은 **반드시** 이 baseline을 통과해야 한다.
+
+E2E 감사 기준: Voice Consistency · Role Split · Context Switching · Persona Integrity
+
+## Persona v1 이후 원칙 (Tom)
+
+- **Persona First** — 새 기능보다 **기존 Persona를 깨지 않는 것**이 우선
+- **새 Family 추가 < Persona 깨지 않기** — KEY는 성장보다 **일관성**이 우선
+- **Repository Reality 먼저** — 습관 잃지 않음
+- 큰 구조(Family) **잠시 멈춤** → **실제 고객 Journey** Preview·화면 검증
+- 발견된 문제는 다시 **Slice**로 고침 (Family 신규 추가 아님)
+
+**Customer Validation:** `npm run test:key-persona-v1-customer-journey` (local)  
+**Preview:** `npm run verify:key-persona-v1-customer-journey-preview` (고객 좌석 — **감정의 흐름**, 기능 PASS 아님)
+
+Tom Preview 5 dimensions + score:
+| 항목 | 질문 |
+| Identity | 처음부터 끝까지 같은 KEY였는가? |
+| Trust | 한 번이라도 거짓말했는가? |
+| Continuity | 대화가 자연스럽게 이어졌는가? |
+| Role Split | Family가 서로 침범했는가? |
+| Friction | "왜 저런 말을 하지?" 순간이 있었는가? (generic filler 없어도 어색함 포함) |
+
+Jerry: **새 기능을 만들지 마라. KEY를 성장시켜라.** — 고객이 KEY가 사람 같지 않다고 느낀 한 지점만 Slice로 고침.
+
+## Customer Validation v1 — COMPLETE · FROZEN (Tom GO)
+
+| 항목 | 상태 |
+|------|------|
+| Question Bank v1 | **FROZEN** — `fixtures/key-customer-validation-v1/question-bank-v1.json` |
+| 30문항 | **Regression Gate** — KEY 변경 PR Merge 전 필수 |
+| 새 Family | **금지** |
+| 새 Persona | **금지** |
+
+**Regression (Merge Gate):** `npm run regression:key-customer-validation-v1 -- "<preview-url>"`  
+**조건:** 30/30 probe_ok · Friction 0 · Tom Audit
+
+**Quality Opportunity Catalog:** `fixtures/key-customer-validation-v1/quality-opportunity-catalog-v1.json`  
+버그 아님 — Q13/Q15/Q21/Q26 등 제품 완성도 Slice 후보. Tom GO + PR 1 = Slice 1.
+
+## 작업 시 절대 금지
+
+- Build/Test PASS만으로 "완료" 선언
+- **Test + Commit + Push를 한 번에 실행** (Push는 Commit과 분리 · Tom Push 승인 후 별도 실행)
+- Tom 감사 전 Push
+- 엔진 이름·내부 용어를 고객 UI/답변에 노출
+- 공장 결과와 KEY 답변 엇박자 (공장 "부족" ↔ KEY "충분" 등)
+- 확신 없는 숫자·inventory dump·틀린 제품의 예쁜 포장
+- 고객 마음 열기 전 보험부터 꺼내기
+- 파일럿/if문만 늘려 "브레인 PASS" 주장
+
+## 완료 잣대 (제9조)
+
+고객 좌석에서 "나를 안다 / 내 편 / 믿을 수 있다" — **서버 PASS ≠ 화면 PASS**.
+
+## 거짓0 (제6조)
+
+"모르겠습니다"에서 끝내지 않는다. "확인해보고 다시 말씀드리겠습니다"까지. 단, **엉뚱한 보류·시스템 한계 떠넘기기**는 답이 아니다.

@@ -22,7 +22,7 @@ export const DU1_INPUT_SOURCE = {
 };
 
 const OCR_FORBIDDEN_SPEECH_RE = [
-  /보험사명|상품명|필드|식별\s*필드|신뢰도|field_count|OCR|Evidence|Factory|Memory|trace/i,
+  /보험사명|상품명|필드|식별\s*필드|신뢰도|field_count|OCR|Evidence|Factory|Memory\s*Loop|Memory\s*write|Memory\s*Builder|trace/i,
   /(?:삼성|현대|메리츠|KB|DB|한화|흥국|롯데|NH|AIG|AXA)[^\n]{0,20}(?:화재|손해|생명|손보)/,
   /policy_count|profile_policy|coverage_sheet_l1|passing_row_count/i,
   /확인\s*가능한\s*내용은/i,
@@ -381,7 +381,12 @@ function buildMemorySegments(memoryFacts = []) {
   for (const fact of memoryFacts) {
     const value = normalizeText(fact?.fact_value ?? fact?.value ?? "");
     if (value.length < 6) continue;
-    if (/memory_fact|fact_key|trace/i.test(value)) continue;
+    if (/memory_fact|fact_key|trace|qa\s*synthetic|staging\s*only|synthetic\s*memory/i.test(value)) {
+      continue;
+    }
+    if (!/[가-힣]/.test(value) && /^[a-z0-9\s._\-()]+$/i.test(value)) {
+      continue;
+    }
 
     const axes = detectLifeAxesFromText(value);
     if (axes.length > 0) {
