@@ -1,0 +1,59 @@
+{
+  "schema_version": "phase-c-slice-3-delegation-care-plan-closure-v1.2",
+  "recorded_at": "2026-07-04T02:40:00+09:00",
+  "slice": {
+    "id": "phase_c_slice_3",
+    "name": "Delegation Care Plan",
+    "intent": "Decision delegation follow-on after Phase B Judge",
+    "primary_question": "알아서 봐줘.",
+    "compose_path": "useDelegation → phase_b_slice3_delegation → Care Plan append",
+    "compose_module": "server/keyBrain/phaseCSlice3DelegationCarePlan.js",
+    "status": "preview_gate_pass_pending_tom_close",
+    "git_commit": "ead70bb",
+    "preview_bundle": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app"
+  },
+  "care_plan_contract_ssot": "fixtures/key-judgment-validation-v1/phase-c-care-plan-contract-v1.json",
+  "care_leadership_identity": {
+    "not": "고객 대신 결정한다",
+    "is": "고객보다 먼저 확인하고, 함께 결정한다"
+  },
+  "contract_slice3_v1_2": {
+    "transition": "pass",
+    "what": "pass",
+    "when": "pass",
+    "why": "pass",
+    "reassurance": "pass",
+    "care_leadership": "pass",
+    "lead_decision_boundary": "pass"
+  },
+  "delegation_care_plan_tom": {
+    "key_leads_first": "pass",
+    "no_decision_dump_to_customer": "pass",
+    "final_decision_together": "pass",
+    "no_over_delegation_promise": "pass",
+    "primary_care_physician_feel": "pass"
+  },
+  "merge_gate": {
+    "local_unit": "7/7 pass",
+    "preview_wiring": "phase_c_slice3_delegation_care_plan_active",
+    "preview_seat": "slice3_contract_pass",
+    "regression_30q": "30/30 probe_ok",
+    "friction": 0,
+    "manual_role_split": "30/30"
+  },
+  "evidence": {
+    "closure": "fixtures/key-judgment-validation-v1/phase-c-slice-3-delegation-care-plan-closure-evidence.json",
+    "preview_wiring": "fixtures/key-judgment-validation-v1/phase-c-slice-3-preview-wiring-trace-evidence.json",
+    "preview_seat": "fixtures/key-judgment-validation-v1/phase-c-slice-3-preview-customer-seat-evidence.json",
+    "regression": "fixtures/key-customer-validation-v1/preview-validation-report.json"
+  },
+  "achievement": "Phase C 완성 — Coverage·Premium·Delegation 모두 Care Plan Contract v1.2. KEY는 고객을 대신 결정하는 AI가 아니라 고객보다 먼저 움직이고 함께 결정하는 보험 주치의.",
+  "tom_final_ratify": {
+    "approved": false,
+    "approved_at": null,
+    "approved_by": null,
+    "final_sentence": null
+  },
+  "phase_c_status": "all_three_slices_preview_gate_pass_pending_tom_phase_c_close",
+  "jerry_pass_declaration": "none"
+}

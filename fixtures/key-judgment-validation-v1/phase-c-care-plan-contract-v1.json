@@ -107,7 +107,7 @@
       "id": "phase_c_slice_3",
       "intent": "Delegation",
       "question": "알아서 봐줘.",
-      "status": "implement_go",
+      "status": "preview_gate_pass_pending_tom_close",
       "design": "fixtures/key-judgment-validation-v1/phase-c-slice-3-delegation-care-plan-design-v1.json",
       "repository_reality": "fixtures/key-judgment-validation-v1/phase-c-slice-3-delegation-care-plan-repository-reality-evidence.json",
       "care_leadership_required": true
