@@ -173,7 +173,7 @@ function testConsentHoldOnlyWhenAnalysisConsentMissing() {
     loadedContext,
     keyFirstJudgment: {
       hold: { needed: true },
-      orient_speech_planned: { posture: "provisional_metadata" },
+      posture: "provisional_metadata",
       judgment_scope: { unknowable: ["document_body_before_key_read"] },
     },
   });
@@ -187,7 +187,7 @@ function testConsentHoldOnlyWhenAnalysisConsentMissing() {
     loadedContext,
     keyFirstJudgment: {
       hold: { needed: true },
-      orient_speech_planned: { posture: "hold_consent" },
+      posture: "hold_consent",
       judgment_scope: { unknowable: ["document_body"] },
     },
   });

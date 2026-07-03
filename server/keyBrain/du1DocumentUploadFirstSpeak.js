@@ -641,7 +641,8 @@ function segmentsToCustomerText(segments = []) {
  * @param {ReturnType<typeof buildDu1InputBundle>} bundle
  */
 function isAnalysisConsentHold(bundle = {}) {
-  const posture = bundle.judgment?.orient_speech_planned?.posture;
+  const posture =
+    bundle.judgment?.posture ?? bundle.judgment?.orient_speech_planned?.posture ?? null;
   if (posture === "hold_consent") return true;
   if (posture === "provisional_metadata") return false;
   const scope = bundle.judgment?.judgment_scope?.unknowable ?? [];
