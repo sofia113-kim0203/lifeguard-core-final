@@ -9,6 +9,18 @@ export {
   KEY_DOCUMENT_INTAKE_SCHEMA_VERSION,
 } from "./documentIntakeShadow.js";
 export {
+  buildKeyFirstJudgment,
+  validateKu2bJudgmentBeforeLegacy,
+  KEY_FIRST_JUDGMENT_SCHEMA_VERSION,
+} from "./documentFirstJudgment.js";
+export {
+  getKeyUploadJudgmentMode,
+  isKeyUploadJudgmentEnabled,
+  isKeyUploadJudgmentShadowEnabled,
+  isKeyUploadJudgmentActiveEnabled,
+  KEY_UPLOAD_JUDGMENT_MODES,
+} from "./uploadJudgmentFlags.js";
+export {
   getKeyUploadEntryMode,
   isKeyUploadEntryShadowEnabled,
   isKeyUploadEntryActiveEnabled,

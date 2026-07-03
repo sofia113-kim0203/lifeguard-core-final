@@ -1,7 +1,8 @@
 /**
  * KU-1 — KEY document intake shadow (upload → KEY before factory).
- * Trace only — no factory invoke · no customer speak · no pipeline change.
+ * KU-2b — optional key_first_judgment trace step (no customer speak).
  */
+import { buildKeyFirstJudgment } from "./documentFirstJudgment.js";
 import { KEY_BRAIN_SHADOW_SCHEMA_VERSION } from "./shadowPlan.js";
 
 export const KEY_DOCUMENT_INTAKE_SCHEMA_VERSION = "key-document-intake-ku1-v1";
@@ -141,6 +142,7 @@ export function buildKeyDocumentIntakeShadowTrace({
   hasAnalysisConsent = false,
   uploadSource = "web",
   categoryKey = null,
+  includeFirstJudgment = false,
 } = {}) {
   const keyReads = buildReadsShadow({ document });
   const keyInterprets = buildInterpretShadow({ document, hasAnalysisConsent });
@@ -170,23 +172,36 @@ export function buildKeyDocumentIntakeShadowTrace({
       actor: "KEY",
       payload: keyInterprets,
     },
-    {
-      step: "dispatch_plan_created",
-      actor: "KEY",
-      payload: dispatchPlan,
-    },
   ];
+
+  let keyFirstJudgment = null;
+  if (includeFirstJudgment) {
+    keyFirstJudgment = buildKeyFirstJudgment({ document, keyInterprets });
+    traceSteps.push({
+      step: "key_first_judgment",
+      actor: "KEY",
+      gate: "KU-2b",
+      payload: keyFirstJudgment,
+    });
+  }
+
+  traceSteps.push({
+    step: "dispatch_plan_created",
+    actor: "KEY",
+    payload: dispatchPlan,
+  });
 
   return {
     schema_version: KEY_DOCUMENT_INTAKE_SCHEMA_VERSION,
     brain_schema_version: KEY_BRAIN_SHADOW_SCHEMA_VERSION,
-    gate: "KU-1",
+    gate: includeFirstJudgment ? "KU-2b" : "KU-1",
     mode: "shadow",
     subject: "KEY",
     document_id: document.id ?? null,
     trace_steps: traceSteps,
     key_reads: keyReads,
     key_interprets: keyInterprets,
+    key_first_judgment: keyFirstJudgment,
     dispatch_plan: dispatchPlan,
     legacy_pipeline_continued: null,
     factory_executed: false,

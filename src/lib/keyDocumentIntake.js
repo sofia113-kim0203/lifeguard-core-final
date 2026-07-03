@@ -40,6 +40,7 @@ export async function requestKeyDocumentIntake(documentId, { categoryKey = null,
       mode: payload.mode ?? "shadow",
       work_order_id: payload.work_order_id ?? null,
       work_order_ordered_by: payload.work_order_ordered_by ?? null,
+      key_first_judgment: payload.key_first_judgment ?? payload.intake_trace?.key_first_judgment ?? null,
       intake_trace: payload.intake_trace ?? null,
     };
   } catch (error) {
@@ -64,4 +65,22 @@ export function appendLegacyPipelineContinuedClientTrace(intakeTrace, { ingestSt
     legacy_pipeline_continued: continued,
     trace_steps: [...(intakeTrace.trace_steps ?? []), continued],
   };
+}
+
+/** KU-2b — judgment must exist in trace before factory enqueue (Phase A complete). */
+export function assertKu2bReadyForFactory(intakeTrace) {
+  const judgment = intakeTrace?.key_first_judgment ?? null;
+  if (!judgment) {
+    return { ok: false, reason: "missing_key_first_judgment" };
+  }
+  const steps = (intakeTrace.trace_steps ?? []).map((row) => String(row?.step ?? ""));
+  const judgmentIdx = steps.indexOf("key_first_judgment");
+  const legacyIdx = steps.indexOf("legacy_pipeline_continued");
+  if (judgmentIdx === -1) {
+    return { ok: false, reason: "missing_key_first_judgment_step" };
+  }
+  if (legacyIdx !== -1 && judgmentIdx >= legacyIdx) {
+    return { ok: false, reason: "judgment_not_before_legacy" };
+  }
+  return { ok: true, reason: "judgment_ready" };
 }

@@ -1,7 +1,7 @@
 import { loadCustomerDashboardData } from "./customerDashboard.js";
 import { extractPolicyFromReadyDocument } from "./customerDocumentPolicyExtract.js";
 import { DOCUMENT_CATEGORIES, resolveLegacyDocClass } from "./documentCategories.js";
-import { appendLegacyPipelineContinuedClientTrace, requestKeyDocumentIntake } from "./keyDocumentIntake.js";
+import { appendLegacyPipelineContinuedClientTrace, assertKu2bReadyForFactory, requestKeyDocumentIntake } from "./keyDocumentIntake.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
@@ -612,27 +612,41 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
 
   let keyIntakeTrace = keyIntakeResult?.intake_trace ?? null;
   const workOrderId = keyIntakeResult?.work_order_id ?? null;
+  const ku2bGate = keyIntakeTrace?.key_first_judgment
+    ? assertKu2bReadyForFactory(keyIntakeTrace)
+    : { ok: true };
 
   let ingest = null;
-  try {
-    ingest = await enqueueDocumentIngest(authUser, documentId, {
-      workOrderId,
-      categoryKey: category.key,
-      uploadSource: "web",
-    });
-  } catch (ingestError) {
+  if (ku2bGate.ok) {
+    try {
+      ingest = await enqueueDocumentIngest(authUser, documentId, {
+        workOrderId,
+        categoryKey: category.key,
+        uploadSource: "web",
+      });
+    } catch (ingestError) {
+      ingest = {
+        blocked: false,
+        ingestStatus: data?.ingest_status ?? "uploaded",
+        failed: true,
+        message: ingestError instanceof Error ? ingestError.message : "문서 분석 시작에 실패했습니다.",
+        workerResult: null,
+      };
+    }
+  } else {
     ingest = {
       blocked: false,
       ingestStatus: data?.ingest_status ?? "uploaded",
       failed: true,
-      message: ingestError instanceof Error ? ingestError.message : "문서 분석 시작에 실패했습니다.",
+      message: "KEY first judgment required before factory enqueue.",
       workerResult: null,
+      ku2b_reason: ku2bGate.reason,
     };
   }
 
   if (keyIntakeTrace) {
     keyIntakeTrace = appendLegacyPipelineContinuedClientTrace(keyIntakeTrace, {
-      ingestStarted: true,
+      ingestStarted: ku2bGate.ok,
     });
   }
 
