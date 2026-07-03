@@ -45,6 +45,10 @@ import {
 import { buildPhaseBSlice1CoverageJudgment } from "./keyBrain/phaseBSlice1CoverageJudgment.js";
 import { buildPhaseBSlice2PremiumBurdenJudgment } from "./keyBrain/phaseBSlice2PremiumBurdenJudgment.js";
 import {
+  buildPhaseBSlice3DelegationResponse,
+  isDelegationIntentQuestion,
+} from "./keyBrain/phaseBSlice3DelegationJudgment.js";
+import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
   STATEMENT_BASIS,
@@ -1429,6 +1433,15 @@ export function generateHumanSalesDirectorResponse({
     const closingPattern = useClosing
       ? resolveKeyClosingConversationPattern(question || factBundle.question || "")
       : null;
+    const useDelegation =
+      !fixedSlice &&
+      !useContinuityCompanion &&
+      !useRecognitionCompanion &&
+      !useTimeContinuity &&
+      !useAnalysisStatus &&
+      !useSocial &&
+      !useClosing &&
+      isDelegationIntentQuestion(question || factBundle.question || "");
     const useRelational =
       !fixedSlice &&
       !useContinuityCompanion &&
@@ -1437,6 +1450,7 @@ export function generateHumanSalesDirectorResponse({
       !useAnalysisStatus &&
       !useSocial &&
       !useClosing &&
+      !useDelegation &&
       shouldUseKeyRelationalCompose({
         question,
         classificationIntent: resolvedClassificationIntent,
@@ -1450,6 +1464,7 @@ export function generateHumanSalesDirectorResponse({
       !useAnalysisStatus &&
       !useSocial &&
       !useClosing &&
+      !useDelegation &&
       !useRelational &&
       shouldUseKeyCompanionGuidanceCompose({
         question,
@@ -1469,7 +1484,9 @@ export function generateHumanSalesDirectorResponse({
           ? (socialPattern?.text ?? normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
           : useClosing
             ? (closingPattern?.text ?? buildKeyClosingResponse(question))
-            : useRelational
+            : useDelegation
+              ? buildPhaseBSlice3DelegationResponse({ question, factBundle, humanFrame })
+              : useRelational
               ? buildKeyRelationalResponse(humanFrame, question)
               : useCompanionGuidance
                 ? buildKeyCompanionGuidanceResponse({ question, factBundle, humanFrame })
@@ -1491,7 +1508,9 @@ export function generateHumanSalesDirectorResponse({
             ? "key_social"
             : useClosing
               ? "key_closing"
-              : useRelational
+              : useDelegation
+                ? "phase_b_slice3_delegation"
+                : useRelational
                 ? "key_relational"
                 : useCompanionGuidance
                   ? "key_companion_guidance"
@@ -1548,6 +1567,8 @@ export function generateHumanSalesDirectorResponse({
                   normalizeText("안녕하세요. 편하실 때 이어가도 됩니다."))
               : isKeyClosingTurn(question || factBundle.question || "")
                 ? buildKeyClosingResponse(question)
+                : isDelegationIntentQuestion(question || factBundle.question || "")
+                  ? buildPhaseBSlice3DelegationResponse({ question, factBundle, humanFrame })
                 : shouldUseContinuityCompanionCompose({
                       question,
                       factBundle,

@@ -10,6 +10,7 @@ import {
   RC_CONTINUITY_COMPANION_CLUSTER_ID,
   RC_RECOGNITION_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
+import { isDelegationIntentQuestion } from "./keyBrain/phaseBSlice3DelegationJudgment.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
@@ -117,6 +118,8 @@ function dedupeTools(tools = []) {
 }
 
 function shouldAddCoverageGapTool(classification = {}, question = "") {
+  if (isDelegationIntentQuestion(question)) return true;
+
   const intent = classification.intent ?? "";
   const subIntent = classification.lookup_sub_intent ?? null;
 
