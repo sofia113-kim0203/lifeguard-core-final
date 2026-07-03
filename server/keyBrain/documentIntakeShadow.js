@@ -82,7 +82,39 @@ function buildDispatchPlanShadow({ document = {}, hasAnalysisConsent = false }) 
   };
 }
 
-function buildInterpretShadow({ document = {}, hasAnalysisConsent = false }) {
+export function buildKeyContextLoadedStep({
+  contextSnapshot = null,
+  loadedContext = null,
+  fromCache = false,
+} = {}) {
+  if (!contextSnapshot && !loadedContext) return null;
+
+  const flags = contextSnapshot?.flags ?? {};
+  return {
+    step: "key_context_loaded",
+    actor: "KEY",
+    gate: "HAND-P1",
+    payload: {
+      context_snapshot_id: contextSnapshot?.context_snapshot_id ?? null,
+      memory_status: loadedContext?.memory ?? contextSnapshot?.memory?.status ?? "empty",
+      policies_status: loadedContext?.policies ?? contextSnapshot?.policies?.status ?? "empty",
+      documents_status: loadedContext?.documents ?? contextSnapshot?.documents?.status ?? "empty",
+      has_policies: flags.has_policies === true,
+      has_memory: flags.has_memory === true,
+      has_recent_conversation: flags.has_recent_conversation === true,
+      snapshot_cache_hit: fromCache === true,
+      loader: "loadSalesDirectorTurnContext",
+      subject: "KEY",
+    },
+  };
+}
+
+function buildInterpretShadow({
+  document = {},
+  hasAnalysisConsent = false,
+  loadedContext = null,
+  contextSnapshot = null,
+} = {}) {
   const filename = String(document.original_filename ?? "");
   const hint = String(document.customer_hint_type ?? "");
   const knowable = ["document_received"];
@@ -91,6 +123,17 @@ function buildInterpretShadow({ document = {}, hasAnalysisConsent = false }) {
 
   if (filename) knowable.push("filename_metadata");
   if (hint) knowable.push("customer_hint_type");
+
+  const flags = contextSnapshot?.flags ?? {};
+  if (flags.has_policies === true) knowable.push("has_policies");
+  if (flags.has_memory === true) knowable.push("has_memory");
+  if (flags.has_recent_conversation === true) knowable.push("has_recent_conversation");
+  if (
+    loadedContext?.documents === "present" ||
+    contextSnapshot?.documents?.status === "present"
+  ) {
+    knowable.push("registered_document_inventory");
+  }
 
   if (!hasAnalysisConsent) {
     unknowable.push("document_body", "coverage", "gap", "recommendation");
@@ -143,9 +186,22 @@ export function buildKeyDocumentIntakeShadowTrace({
   uploadSource = "web",
   categoryKey = null,
   includeFirstJudgment = false,
+  loadedContext = null,
+  contextSnapshot = null,
+  snapshotFromCache = false,
 } = {}) {
   const keyReads = buildReadsShadow({ document });
-  const keyInterprets = buildInterpretShadow({ document, hasAnalysisConsent });
+  const keyContextLoaded = buildKeyContextLoadedStep({
+    contextSnapshot,
+    loadedContext,
+    fromCache: snapshotFromCache,
+  });
+  const keyInterprets = buildInterpretShadow({
+    document,
+    hasAnalysisConsent,
+    loadedContext,
+    contextSnapshot,
+  });
   const dispatchPlan = buildDispatchPlanShadow({ document, hasAnalysisConsent });
 
   const traceSteps = [
@@ -167,16 +223,26 @@ export function buildKeyDocumentIntakeShadowTrace({
       actor: "KEY",
       payload: keyReads,
     },
-    {
-      step: "key_interprets",
-      actor: "KEY",
-      payload: keyInterprets,
-    },
   ];
+
+  if (keyContextLoaded) {
+    traceSteps.push(keyContextLoaded);
+  }
+
+  traceSteps.push({
+    step: "key_interprets",
+    actor: "KEY",
+    payload: keyInterprets,
+  });
 
   let keyFirstJudgment = null;
   if (includeFirstJudgment) {
-    keyFirstJudgment = buildKeyFirstJudgment({ document, keyInterprets });
+    keyFirstJudgment = buildKeyFirstJudgment({
+      document,
+      keyInterprets,
+      loadedContext,
+      contextSnapshot,
+    });
     traceSteps.push({
       step: "key_first_judgment",
       actor: "KEY",
@@ -200,8 +266,10 @@ export function buildKeyDocumentIntakeShadowTrace({
     document_id: document.id ?? null,
     trace_steps: traceSteps,
     key_reads: keyReads,
+    key_context_loaded: keyContextLoaded?.payload ?? null,
     key_interprets: keyInterprets,
     key_first_judgment: keyFirstJudgment,
+    context_snapshot_id: contextSnapshot?.context_snapshot_id ?? null,
     dispatch_plan: dispatchPlan,
     legacy_pipeline_continued: null,
     factory_executed: false,

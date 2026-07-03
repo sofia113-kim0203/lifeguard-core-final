@@ -1,0 +1,279 @@
+{
+  "document": "key_upload_hand_wiring_design_v1",
+  "gate": "KEY-UPLOAD-HAND-WIRING",
+  "label": "Upload intake → 기존 KEY Memory / Persona / Orchestrator 합류",
+  "mode": "Design only · no implement · no UI · no deploy · Tom EXEC GO pending",
+  "status": "Phase 1 Local GO (Tom) — Preview evidence pending; Phase 2 after Preview",
+  "observed_at": "2026-07-03",
+  "tom_phase_ruling": {
+    "phase_1_snapshot_wiring": "GO — EXEC in progress",
+    "phase_2_persona_outlet": "HOLD — Orchestrator merge must precede Persona speak",
+    "phase_3_orchestrator_merge": "PENDING — becomes Phase 2 after Tom reorder; before Persona outlet",
+    "tom_reason": "Persona speak on parallel path risks KEY voice without KEY body — same KEY first, tone second"
+  },
+  "tom_audit_ref": "Hand wiring READ ONLY audit — 4 questions (2026-07-03)",
+  "classification": {
+    "primary": "LIFEGUARD(KEY) + Hand",
+    "not": "새 Family · 새 Persona · KU-2d feature · KB-1 full read · UI browser seat",
+    "family_question": "KEY를 더 같은 사람으로 만드는가? — YES (Upload parallel path를 chat KEY 본체에 Hand로 합류)",
+    "persona_baseline": "npm run test:key-v2-key-persona — EXEC slice must pass unchanged Persona v1"
+  },
+  "tom_lock_inherited": {
+    "source": "fixtures/key-judgment-validation-v1/key-upload-ku2b-design-v1.json#key_authority_philosophy",
+    "single_key": "두 번째 KEY 없음 — Upload Authority가 아니라 KEY Authority 첫 Entry",
+    "single_env": "KEY_UPLOAD_ENTRY=off|shadow|active only — Hand wiring adds no new env",
+    "ku_arc_preserved": "KU-1 → KU-2a → KU-2b → KU-2c trace order · Work Order gate · judgment-before-legacy — Hand wiring must not regress"
+  },
+  "problem_statement": {
+    "today": "Upload intake는 parallel path — document row + consent만 보고 static template으로 첫 문장을 낸다.",
+    "chat_ssot": "runSalesDirectorLoopTurn → loadSalesDirectorTurnContext → runSalesDirectorKeyTurn → finalizeSalesDirectorResponse → generateHumanSalesDirectorResponse",
+    "upload_ssot": "uploadDocument → /api/key-document-intake → documentIntakeShadow / documentFirstJudgment / documentFirstSpeak (static) → client enqueueDocumentIngest",
+    "hand_gap": "같은 고객 · 같은 KEY subject 라벨 · 다른 Memory · 다른 Persona 출구 · Orchestrator 미경유"
+  },
+  "tom_verdicts_locked": {
+    "second_key": "NO",
+    "orchestrator_merge": "NEEDED — currently parallel path",
+    "persona_outlet": "FAIL today — static KU-2c templates bypass HUL/guard",
+    "memory_snapshot": "FAIL today — document row only",
+    "wiring_without_new_key": "YES"
+  },
+  "slice_goal": {
+    "one_line": "Upload intake가 기존 KEY의 Memory snapshot · Persona v1 출구 · Orchestrator 경로와 Hand wiring으로 합류한다.",
+    "prove_at_exec": [
+      "intake judgment inputs include same loadSalesDirectorTurnContext bundle as chat turn",
+      "customer_first_sentence passes finalizeSalesDirectorResponse (or equivalent Persona v1 outlet)",
+      "document_intake trigger enters shared KEY authority turn — not a second orchestrator",
+      "KU-2a/2b/2c trace order and Work Order gate unchanged"
+    ],
+    "explicitly_not": [
+      "새 KEY class · KEY_UPLOAD_* env proliferation",
+      "담보/Gap/Rec/OCR 본문 claim (KB-1 scope)",
+      "30Q bank change · new Persona · UI browser seat verification",
+      "공장 scope 확장 · Work Order gate 약화"
+    ]
+  },
+  "execution_phases": {
+    "note": "Tom reorder 2026-07-03 — Orchestrator before Persona speak",
+    "phase_1_snapshot_wiring": {
+      "name": "Snapshot wiring into intake",
+      "priority": 1,
+      "tom_go": "EXEC GO — Local GO (Tom 2026-07-03); Preview evidence pending",
+      "touch_points": {
+        "primary": "api/key-document-intake.js",
+        "reuse": "server/customerContextSnapshot.js — loadSalesDirectorTurnContext",
+        "extend": "server/keyBrain/documentFirstJudgment.js — accept loadedContext / contextSnapshot in buildKeyFirstJudgment",
+        "extend_shadow": "server/keyBrain/documentIntakeShadow.js — key_interprets uses snapshot.flags + memory presence (metadata level only)"
+      },
+      "wiring_contract": {
+        "before": "buildKeyDocumentIntakeShadowTrace({ document, hasAnalysisConsent, ... })",
+        "insert": "const { snapshot, unifiedState } = await loadSalesDirectorTurnContext(supabase, customerId, { requestHistory: [] })",
+        "pass": "loadedContext from buildLoadedContextFromSnapshot(snapshot) into shadow + judgment builders",
+        "cache": "reuse salesDirectorTurnContextCache — same customerId key as chat; no duplicate snapshot loader"
+      },
+      "judgment_scope_delta": {
+        "knowable_additions": [
+          "has_policies (snapshot.flags)",
+          "has_memory (snapshot.flags)",
+          "has_recent_conversation (snapshot.flags)",
+          "registered_document_inventory_count (snapshot.documents metadata — not OCR body)"
+        ],
+        "still_unknowable": [
+          "document_body",
+          "coverage",
+          "gap",
+          "recommendation",
+          "OCR text before KEY peek"
+        ],
+        "must_not_claim_unchanged": "KU-2b must_not_claim list — Hand adds context awareness, not factory claims"
+      },
+      "trace_addition": {
+        "step": "key_context_loaded",
+        "after": "key_reads",
+        "before": "key_interprets",
+        "fields": {
+          "context_snapshot_id": "from snapshot.id",
+          "memory_status": "loadedContext.memory",
+          "has_policies": "snapshot.flags.has_policies",
+          "has_memory": "snapshot.flags.has_memory",
+          "subject": "KEY"
+        }
+      },
+      "regression": [
+        "verify:key-upload-ku2b-preview-trace",
+        "verify:key-upload-ku2a-preview-gate",
+        "npm run test:key-v2-key-persona"
+      ]
+    },
+    "phase_2_orchestrator_merge": {
+      "name": "Orchestrator document_intake branch merge",
+      "priority": 2,
+      "tom_go": "PENDING — after Phase 1 evidence",
+      "depends_on": "phase_1_snapshot_wiring",
+      "touch_points": {
+        "shared_entry_proposed": "server/keyBrain/keyAuthorityTurn.js (NEW module — Hand adapter, not new KEY)",
+        "orchestrator": "server/salesDirectorLoop.js — document_intake branch before shouldUseSalesDirectorKeyOrchestrator chat gate",
+        "key_turn": "server/salesDirectorKeyOrchestrator.js — runDocumentIntakeKeyTurn or trigger param on existing runSalesDirectorKeyTurn",
+        "intake_api": "api/key-document-intake.js — delegates judgment+speak to shared keyAuthorityTurn instead of parallel-only builders"
+      },
+      "wiring_contract": {
+        "trigger": {
+          "type": "document_intake",
+          "document": "customer_documents row",
+          "customerId": "auth.customerId",
+          "question": null,
+          "synthetic_turn_label": "document_received"
+        },
+        "shared_sequence": [
+          "loadSalesDirectorTurnContext",
+          "key_reads (document metadata + snapshot)",
+          "key_interprets",
+          "key_first_judgment",
+          "dispatch_plan",
+          "work_order_issued",
+          "return to intake API — factory enqueue remains client-side Phase B unchanged"
+        ],
+        "chat_unchanged": "question-present turns still use existing runSalesDirectorKeyTurn path — no regression"
+      },
+      "branch_shape": {
+        "decision_point": "runSalesDirectorLoopTurn — early exit only when invoked with document_intake trigger (intake API internal call, not customer-home-brain-fact)",
+        "not": "Merge upload into customer-home-brain-fact POST — upload stays /api/key-document-intake route; Orchestrator logic is shared module import, not route collapse"
+      },
+      "trace_addition": {
+        "step": "key_authority_turn",
+        "fields": {
+          "trigger": "document_intake",
+          "orchestrator_branch": "shared",
+          "subject": "KEY"
+        }
+      },
+      "regression": [
+        "verify:key-upload-ku2a-preview-gate",
+        "verify:key-upload-ku2b-preview-trace",
+        "npm run test:key-v2-key-persona",
+        "npm run test:key-persona-v1-customer-journey"
+      ]
+    },
+    "phase_3_persona_outlet": {
+      "name": "Speak through existing KEY Persona outlet",
+      "priority": 3,
+      "tom_go": "HOLD — only after Phase 2 Orchestrator merge",
+      "depends_on": "phase_2_orchestrator_merge",
+      "touch_points": {
+        "replace_static": "server/keyBrain/documentFirstSpeak.js — buildCustomerFirstSentence becomes draft producer only, not final customer text",
+        "persona_ssot": "server/salesDirectorFormatter.js — finalizeSalesDirectorResponse",
+        "compose_ssot": "server/humanUnderstandingLoop.js — generateHumanSalesDirectorResponse",
+        "guard": "server/lifeguardOutputGuard.js — applyLifeguardCustomerOutputGuard on final text",
+        "api": "api/key-document-intake.js — customer_first_sentence from finalize path, not static return"
+      },
+      "wiring_contract": {
+        "input": {
+          "rawText": "KU-2c draft from buildCustomerFirstSentence (provisional posture — unchanged semantic intent)",
+          "intent": "document_intake_ack",
+          "classificationIntent": "document_intake_ack",
+          "surface": "ONE_BRAIN_SURFACES.HOME",
+          "factBundle": {
+            "key_orchestrator": true,
+            "document_intake": true,
+            "document_id": "from intake",
+            "key_first_judgment": "from KU-2b — judgment unchanged",
+            "customer_context_used": true
+          },
+          "customerState": "minimal — from snapshot bundle; keyOrchestrator: true"
+        },
+        "output": "customer_first_sentence = finalized.text"
+      },
+      "persona_constraints": {
+        "ku2c_semantics_preserved": "received · consent hold · provisional · no coverage/gap/rec claims",
+        "forbidden": "Engine names · factory status as speak source · inventing memory facts not in snapshot"
+      },
+      "client_unchanged": "useCustomerDocumentUpload.js — still displays customer_first_sentence from API",
+      "regression": [
+        "verify:key-upload-ku2c-preview-speak",
+        "verify:key-upload-ku2b-preview-trace",
+        "npm run test:key-v2-key-persona"
+      ]
+    }
+  },
+  "architecture_after_hand": {
+    "one_key": "Single KEY subject — chat and upload both call shared keyAuthorityTurn / Orchestrator branch",
+    "memory": "loadSalesDirectorTurnContext — one snapshot SSOT per customerId",
+    "persona": "finalizeSalesDirectorResponse — upload first sentence uses same outlet as chat KEY",
+    "factory": "enqueueDocumentIngest + Work Order — unchanged Phase B; Hand wiring is Phase A only"
+  },
+  "files_touch_map": {
+    "phase_1": [
+      "api/key-document-intake.js",
+      "server/keyBrain/documentIntakeShadow.js",
+      "server/keyBrain/documentFirstJudgment.js"
+    ],
+    "phase_2": [
+      "api/key-document-intake.js",
+      "server/keyBrain/documentFirstSpeak.js",
+      "server/salesDirectorFormatter.js (call site only — no formatter rewrite)"
+    ],
+    "phase_3": [
+      "server/keyBrain/keyAuthorityTurn.js (proposed)",
+      "server/salesDirectorLoop.js",
+      "server/salesDirectorKeyOrchestrator.js",
+      "api/key-document-intake.js"
+    ],
+    "do_not_touch": [
+      "server/keyBrain/workOrder.js",
+      "src/hooks/useCustomerDocumentUpload.js (Hand v1)",
+      "fixtures/key-customer-validation-v1/question-bank-v1.json",
+      "supabase/functions/document-ingest-worker"
+    ]
+  },
+  "tom_audit_precheck": {
+    "1_no_second_key": {
+      "question": "두 번째 KEY가 생기는가?",
+      "design_answer": "NO — shared module + Orchestrator branch; subject remains KEY"
+    },
+    "2_memory_parity": {
+      "question": "Upload judgment이 chat과 같은 snapshot을 보는가?",
+      "design_answer": "YES after phase 1 — loadSalesDirectorTurnContext in intake"
+    },
+    "3_persona_outlet": {
+      "question": "Upload 첫 문장이 Persona v1 출구를 통과하는가?",
+      "design_answer": "YES after phase 2 — finalizeSalesDirectorResponse on KU-2c draft"
+    },
+    "4_orchestrator_merge": {
+      "question": "Parallel path가 Orchestrator와 합류하는가?",
+      "design_answer": "YES after phase 3 — document_intake branch in shared keyAuthorityTurn"
+    },
+    "5_ku_arc_regression": {
+      "question": "KU-2a/2b/2c trace · WO gate 유지되는가?",
+      "design_answer": "YES — Hand wiring wraps existing steps; order unchanged"
+    },
+    "6_env_proliferation": {
+      "question": "새 env가 생기는가?",
+      "design_answer": "NO — KEY_UPLOAD_ENTRY only"
+    }
+  },
+  "merge_gate": {
+    "design_complete": true,
+    "phase_1_exec_go": true,
+    "phase_1_local": "test:key-upload-hand-wiring-snapshot — Tom Local GO",
+    "phase_1_preview": "verify:key-upload-hand-wiring-p1-preview-snapshot",
+    "exec_go": false,
+    "local_tests_proposed": [
+      "key-upload-hand-wiring-snapshot-unit-test.mjs",
+      "key-upload-hand-wiring-persona-outlet-unit-test.mjs",
+      "key-upload-hand-wiring-orchestrator-branch-unit-test.mjs"
+    ],
+    "preview_evidence_proposed": [
+      "key-upload-hand-wiring-preview-evidence.mjs"
+    ],
+    "regression_always": [
+      "npm run test:key-v2-key-persona",
+      "verify:key-upload-ku2a-preview-gate",
+      "verify:key-upload-ku2b-preview-trace",
+      "verify:key-upload-ku2c-preview-speak"
+    ]
+  },
+  "jerry_stop": {
+    "submitted": "Minimal Hand Wiring design v1",
+    "awaiting": "Tom EXEC GO — phase 1 / 2 / 3 bisect or single GO",
+    "forbidden_until_go": ["implement", "UI", "deploy", "Supabase", "new env", "KU-2d naming"]
+  }
+}

@@ -4,6 +4,10 @@
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
+import {
+  buildLoadedContextFromSnapshot,
+  loadSalesDirectorTurnContext,
+} from "../server/customerContextSnapshot.js";
 import { buildKeyDocumentIntakeShadowTrace } from "../server/keyBrain/documentIntakeShadow.js";
 import {
   appendKeyFirstSpeakTrace,
@@ -119,12 +123,33 @@ export default async function handler(req, res) {
 
   const hasAnalysisConsent = await hasDocumentAnalysisConsent(supabase, auth.customerId);
   const activeAuthority = isKeyUploadEntryActiveEnabled(process.env);
+
+  let contextSnapshot = null;
+  let loadedContext = null;
+  let snapshotFromCache = false;
+  try {
+    const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
+      requestHistory: [],
+    });
+    contextSnapshot = turnContext.snapshot;
+    loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
+    snapshotFromCache = turnContext.from_cache === true;
+  } catch {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: false, reason: "context_snapshot_load_failed" }));
+    return;
+  }
+
   const intakeTrace = buildKeyDocumentIntakeShadowTrace({
     document,
     hasAnalysisConsent,
     uploadSource: String(body.upload_source ?? "web"),
     categoryKey: body.category_key ?? null,
     includeFirstJudgment: activeAuthority,
+    loadedContext,
+    contextSnapshot,
+    snapshotFromCache,
   });
 
   let customerFirstSentence = null;

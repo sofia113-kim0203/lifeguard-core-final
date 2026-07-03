@@ -6,6 +6,7 @@ export {
 export {
   buildKeyDocumentIntakeShadowTrace,
   appendLegacyPipelineContinuedTrace,
+  buildKeyContextLoadedStep,
   KEY_DOCUMENT_INTAKE_SCHEMA_VERSION,
 } from "./documentIntakeShadow.js";
 export {
