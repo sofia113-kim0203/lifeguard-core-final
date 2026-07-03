@@ -15,7 +15,8 @@ import {
 } from "./preview-auth-probe-path.mjs";
 import { resolveBypassSecret } from "./p10-5-preview-curl-helper.mjs";
 import { validateKu2bJudgmentBeforeLegacy } from "../server/keyBrain/documentFirstJudgment.js";
-import { KEY_RUNTIME_SSOT } from "../server/salesDirectorKeyOrchestrator.js";
+
+const KEY_RUNTIME_SSOT = "runSalesDirectorKeyTurn";
 
 const FIX = join(import.meta.dirname, "..", "fixtures", "key-judgment-validation-v1");
 const OUT = join(FIX, "key-hand-wiring-p2-key-runtime-preview-evidence.json");
