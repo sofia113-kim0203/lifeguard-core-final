@@ -27,10 +27,11 @@ async function buildPhaseAFollowUpFromDocument({
   documentRow,
   result = null,
 } = {}) {
+  if (!documentRow) return null;
+
   const meta = documentRow?.metadata_json ?? result?.metadata_json ?? {};
   const extractionReady =
     result?.ok === true || meta.policy_extraction_status === "completed";
-  if (!extractionReady || !documentRow) return null;
 
   const turnContext = await loadSalesDirectorTurnContext(supabase, customerId, {
     requestHistory: [],
@@ -40,9 +41,13 @@ async function buildPhaseAFollowUpFromDocument({
     document: documentRow,
     contextSnapshot: turnContext.snapshot,
     loadedContext: buildLoadedContextFromSnapshot(turnContext.snapshot),
-    multiExtraction: result?.extraction ?? meta.policy_extraction ?? null,
-    linkedPolicyIds: result?.policy_ids ?? meta.profile_policy_ids ?? [],
-    ea1CustomerSummary: meta.key_ea1_customer_summary ?? null,
+    multiExtraction: extractionReady
+      ? (result?.extraction ?? meta.policy_extraction ?? null)
+      : null,
+    linkedPolicyIds: extractionReady
+      ? (result?.policy_ids ?? meta.profile_policy_ids ?? [])
+      : [],
+    ea1CustomerSummary: extractionReady ? (meta.key_ea1_customer_summary ?? null) : null,
   });
 }
 

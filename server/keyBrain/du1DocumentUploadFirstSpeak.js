@@ -549,6 +549,16 @@ function buildFollowUpEvidenceSegments(summary = {}, linkedPolicyIds = []) {
   return segments;
 }
 
+function buildFollowUpProvisionalEvidenceSegments() {
+  return [
+    {
+      source: DU1_INPUT_SOURCE.EVIDENCE,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "방금 올려 주신 자료를 이어서 더 확인해 봤습니다. 아직 특약·보장 상세까지는 단정하기 어렵습니다.",
+    },
+  ];
+}
+
 function buildFollowUpPolicySegments(
   policies = [],
   linkedPolicyIds = [],
@@ -731,6 +741,8 @@ export function composePhaseAFollowUpWithEpistemicTrace({
 
   if (summary) {
     segments.push(...buildFollowUpEvidenceSegments(summary, linkedPolicyIds));
+  } else {
+    segments.push(...buildFollowUpProvisionalEvidenceSegments());
   }
 
   if (gates.policiesPresent) {

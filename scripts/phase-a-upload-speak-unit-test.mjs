@@ -160,13 +160,44 @@ function testNoGapOrRecommendationPush() {
   assert.equal(/Gap|추천|담보\s*부족/.test(speak.text), false);
 }
 
+function testFollowUpWhenExtractionFailedProvisional() {
+  const document = {
+    id: "doc-failed",
+    original_filename: "운전자보험증권.pdf",
+    customer_hint_type: "insurance_policy",
+    metadata_json: { policy_extraction_status: "failed" },
+  };
+  const snapshot = buildSnapshot({
+    policies: [{ id: "p-existing", product_name: "실손의료비보험" }],
+    memoryFacts: [{ fact_value: "운전자 쪽을 먼저 챙기는 편" }],
+    conversation: { hasHistory: false },
+  });
+  const loadedContext = buildLoadedContext({ policies: true, memory: true });
+
+  const speak = buildPhaseAFollowUpCustomerSpeak({
+    document,
+    contextSnapshot: snapshot,
+    loadedContext,
+    multiExtraction: null,
+    linkedPolicyIds: [],
+    ea1CustomerSummary: null,
+  });
+
+  assert.ok(speak?.text);
+  assert.match(speak.text, /이어서 더 확인/);
+  assert.match(speak.text, /단정하기 어렵/);
+  assert.match(speak.text, /기억해 둔 내용/);
+  assert.equal(validateDu1CustomerSpeech(speak.text).ok, true);
+}
+
 function main() {
   testEa1CustomerSummaryUsesLifeAxesNotOcrEcho();
   testFollowUpSpeakConnectsEvidencePoliciesMemory();
   testFollowUpUnknownWhenEvidenceThin();
   testIntakeIncludesEvidenceWhenExtractAlreadyComplete();
   testNoGapOrRecommendationPush();
-  console.log("phase-a-upload-speak-unit-test: PASS (5/5)");
+  testFollowUpWhenExtractionFailedProvisional();
+  console.log("phase-a-upload-speak-unit-test: PASS (6/6)");
 }
 
 main();
