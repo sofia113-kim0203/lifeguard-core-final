@@ -1,0 +1,69 @@
+{
+  "schema_version": "phase-c-slice-3-delegation-care-plan-design-v1",
+  "status": "tom_design_go_implement",
+  "recorded_at": "2026-07-04T02:30:00+09:00",
+  "authority": "Tom Design GO — Phase C Slice 3",
+  "slice": {
+    "id": "phase_c_slice_3",
+    "name": "Delegation Care Plan",
+    "primary_question": "알아서 봐줘.",
+    "paraphrase": "나도 잘 모르겠는데 그냥 알아서 봐줘.",
+    "completion_feel": "이제 내가 고민하지 않아도 되겠다 — KEY가 순서를 lead하고, 최종 선택은 함께."
+  },
+  "repository_reality": "fixtures/key-judgment-validation-v1/phase-c-slice-3-delegation-care-plan-repository-reality-evidence.json",
+  "care_plan_contract": {
+    "ssot": "fixtures/key-judgment-validation-v1/phase-c-care-plan-contract-v1.json",
+    "version": "v1.2",
+    "sequence": ["Transition", "What", "When", "Why", "Reassurance", "Care Leadership"]
+  },
+  "key_constitution_boundary": {
+    "may_lead": ["무엇부터 볼지", "무엇이 우선인지", "어떤 순서인지"],
+    "must_not_decide_for_customer": ["가입 확정", "해지 확정", "청구 확정"]
+  },
+  "phase_flow": {
+    "phase_b": "제가 먼저 이렇게 판단하겠습니다. + Reason + Limitation (First Action omitted when Care Plan)",
+    "transition": "그럼 앞으로는 제가 이런 순서로 같이 진행하겠습니다.",
+    "phase_c": "① When + Care Leadership What + Why — 제가 먼저 … 같이 결과를 보겠습니다"
+  },
+  "care_leadership": {
+    "companion_weak": "같이 보겠습니다.",
+    "leadership_strong": "제가 먼저 확인하고, 같이 결과를 보겠습니다.",
+    "flow": [
+      "제가 먼저 순서를 정하겠습니다",
+      "확인한 내용을 같이 보겠습니다",
+      "그다음 함께 결정하겠습니다"
+    ],
+    "must_not": ["다 맡겨 주세요", "전부 제가 하겠습니다 (고객 배제)"]
+  },
+  "compose_module": {
+    "path": "server/keyBrain/phaseCSlice3DelegationCarePlan.js",
+    "exports": [
+      "buildPhaseCSlice3DelegationCarePlan",
+      "buildPhaseCSlice3DelegationCarePlanText",
+      "buildPhaseCSlice3DelegationResponseWithCarePlan",
+      "DELEGATION_CARE_PLAN_TRANSITION",
+      "DELEGATION_CARE_PLAN_FORBIDDEN_RE"
+    ]
+  },
+  "hul_wiring": {
+    "file": "server/humanUnderstandingLoop.js",
+    "hook": "useDelegation branch — NOT buildKeyStructuredResponse",
+    "changes": [
+      "buildPhaseCSlice3DelegationResponseWithCarePlan replaces buildPhaseBSlice3DelegationResponse",
+      "compose_mode remains phase_b_slice3_delegation"
+    ],
+    "do_not_modify": ["phaseBSlice3DelegationJudgment.js unless wiring bug"]
+  },
+  "must_not": [
+    "다 맡겨 주세요",
+    "가입·해지·청구 확정",
+    "암보험 추가하세요 (근거 없는 확장)",
+    "Phase B First Action과 Care Plan 중복"
+  ],
+  "verification": {
+    "unit_test": "scripts/phase-c-slice-3-delegation-care-plan-unit-test.mjs",
+    "npm": "test:phase-c-slice-3-delegation-care-plan",
+    "regression": "npm run regression:key-customer-validation-v1"
+  },
+  "jerry_pass_declaration": "none"
+}

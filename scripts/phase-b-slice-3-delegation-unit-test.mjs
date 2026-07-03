@@ -12,10 +12,13 @@ import {
   DELEGATION_OPENER,
   isDelegationIntentQuestion,
 } from "../server/keyBrain/phaseBSlice3DelegationJudgment.js";
+import { DELEGATION_CARE_PLAN_TRANSITION } from "../server/keyBrain/phaseCSlice3DelegationCarePlan.js";
 import { ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
 
 const SLICE3_Q = "알아서 봐줘.";
 const SLICE3_PARAPHRASE = "나도 잘 모르겠는데 그냥 알아서 봐줘.";
+const FIRST_ACTION_RE = /이번에는.*같이/;
+const LEADERSHIP_RE = /제가\s*먼저/;
 
 function delegationFactBundle(overrides = {}) {
   return {
@@ -95,7 +98,9 @@ results.push(
     assert.match(text, new RegExp(`^${DELEGATION_OPENER}`));
     assert.doesNotMatch(text, DELEGATION_FORBIDDEN_RE, "Tom forbidden deflection");
     assert.match(text, /등록|보장|분석|유지|구조/);
-    assert.match(text, /이번에는.*같이/);
+    assert.match(text, new RegExp(DELEGATION_CARE_PLAN_TRANSITION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "Phase C transition");
+    assert.match(text, LEADERSHIP_RE, "Care Leadership in plan");
+    assert.doesNotMatch(text, FIRST_ACTION_RE, "no First Action overlap");
   }),
 );
 
@@ -119,7 +124,7 @@ results.push(
       coverage_gap_maintained: [],
     });
     assert.match(text, new RegExp(`^${DELEGATION_OPENER}`));
-    assert.match(text, /저장|같이\s*확인/);
+    assert.match(text, /가입\s*정보|정리|같이/);
     assert.doesNotMatch(text, DELEGATION_FORBIDDEN_RE);
   }),
 );
@@ -131,7 +136,9 @@ results.push(
       coverage_gap_signals: ["암:부족"],
     });
     assert.match(text, /암/);
-    assert.match(text, /이번에는\s*암/);
+    assert.match(text, /암/);
+    assert.match(text, LEADERSHIP_RE);
+    assert.doesNotMatch(text, FIRST_ACTION_RE);
   }),
 );
 

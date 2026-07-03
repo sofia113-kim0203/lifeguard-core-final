@@ -50,6 +50,7 @@ import {
   buildPhaseBSlice3DelegationResponse,
   isDelegationIntentQuestion,
 } from "./keyBrain/phaseBSlice3DelegationJudgment.js";
+import { buildPhaseCSlice3DelegationResponseWithCarePlan } from "./keyBrain/phaseCSlice3DelegationCarePlan.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
@@ -1513,7 +1514,7 @@ export function generateHumanSalesDirectorResponse({
           : useClosing
             ? (closingPattern?.text ?? buildKeyClosingResponse(question))
             : useDelegation
-              ? buildPhaseBSlice3DelegationResponse({ question, factBundle, humanFrame })
+              ? buildPhaseCSlice3DelegationResponseWithCarePlan({ question, factBundle })
               : useRelational
               ? buildKeyRelationalResponse(humanFrame, question)
               : useCompanionGuidance
@@ -1596,7 +1597,7 @@ export function generateHumanSalesDirectorResponse({
               : isKeyClosingTurn(question || factBundle.question || "")
                 ? buildKeyClosingResponse(question)
                 : isDelegationIntentQuestion(question || factBundle.question || "")
-                  ? buildPhaseBSlice3DelegationResponse({ question, factBundle, humanFrame })
+                  ? buildPhaseCSlice3DelegationResponseWithCarePlan({ question, factBundle })
                 : shouldUseContinuityCompanionCompose({
                       question,
                       factBundle,
