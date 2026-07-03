@@ -572,6 +572,13 @@ function summarizePolicySituationLabel(policies = []) {
   return "등록되어 있는 보험";
 }
 
+function formatRegisteredPolicyReference(policyLabel = "") {
+  if (policyLabel === "등록되어 있는 보험" || policyLabel === "등록돼 있는 보험") {
+    return "등록되어 있는 보험";
+  }
+  return `등록돼 있는 ${policyLabel}`;
+}
+
 function buildFollowUpForwardStepSegment() {
   return {
     source: DU1_INPUT_SOURCE.JUDGMENT,
@@ -610,20 +617,21 @@ function buildFollowUpProvisionalDeltaSegments({
 
   if (gates.policiesPresent && policies.length > 0) {
     const policyAxes = summarizeExistingPolicyAxes(policies);
+    const registeredRef = formatRegisteredPolicyReference(policyLabel);
     if (documentLifeAxes.length > 0 && policyAxes.length > 0) {
       const overlap = documentLifeAxes.filter((axis) => policyAxes.includes(axis));
       if (overlap.length > 0) {
         segments.push({
           source: DU1_INPUT_SOURCE.POLICIES,
           tier: DU1_EPISTEMIC_TIER.INFERENCE,
-          text: `새로 확인한 것은, 이번 자료가 ${joinKoLabels(overlap)} 축으로 보인다는 점입니다. 등록돼 있는 ${policyLabel}과 같은 축으로 묶어 볼 수 있습니다.`,
+          text: `새로 확인한 것은, 이번 자료가 ${joinKoLabels(overlap)} 축으로 보인다는 점입니다. ${registeredRef}과 같은 축으로 묶어 볼 수 있습니다.`,
           basis: "post_confirmation_axis_overlap",
         });
       } else {
         segments.push({
           source: DU1_INPUT_SOURCE.POLICIES,
           tier: DU1_EPISTEMIC_TIER.INFERENCE,
-          text: `새로 확인한 것은, 이번 자료(${joinKoLabels(documentLifeAxes)})와 등록돼 있는 ${policyLabel} 축이 서로 다르다는 점입니다. 추가 계약인지 같은 계약인지는 아직 구분 중입니다.`,
+          text: `새로 확인한 것은, 이번 자료(${joinKoLabels(documentLifeAxes)})와 ${registeredRef} 축이 서로 다르다는 점입니다. 추가 계약인지 같은 계약인지는 아직 구분 중입니다.`,
           basis: "post_confirmation_axis_split",
         });
       }
@@ -631,7 +639,7 @@ function buildFollowUpProvisionalDeltaSegments({
       segments.push({
         source: DU1_INPUT_SOURCE.POLICIES,
         tier: DU1_EPISTEMIC_TIER.INFERENCE,
-        text: `등록돼 있는 ${policyLabel}과 이번 자료를 나란히 두고, 같은 계약인지부터 가르겠습니다.`,
+        text: `${registeredRef}과 이번 자료를 나란히 두고, 같은 계약인지부터 가르겠습니다.`,
         basis: "post_confirmation_policy_comparison",
       });
     }

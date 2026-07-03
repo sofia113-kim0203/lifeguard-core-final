@@ -185,7 +185,8 @@ function testFollowUpWhenExtractionFailedProvisional() {
 
   assert.ok(speak?.text);
   assert.match(speak.text, /내용 확인을 마쳤습니다/);
-  assert.match(speak.text, /등록되어 있는 보험/);
+  assert.match(speak.text, /등록되어 있는 보험과 이번 자료/);
+  assert.doesNotMatch(speak.text, /등록돼 있는 등록/);
   assert.doesNotMatch(speak.text, /QA/i);
   assert.doesNotMatch(speak.text, /이어서 더 확인/);
   assert.doesNotMatch(speak.text, /특약·보장 범위까지는 아직 말씀드리기 어렵습니다/);
