@@ -104,7 +104,7 @@
       "intent": "Premium",
       "question": "보험료 부담돼.",
       "cluster": "JC-PREMIUM-BURDEN-v1",
-      "status": "implement_go",
+      "status": "preview_gate_pass_pending_tom_close",
       "why_required": true,
       "companion_required": true,
       "design": "fixtures/key-judgment-validation-v1/phase-c-slice-2-premium-care-plan-design-v1.json",

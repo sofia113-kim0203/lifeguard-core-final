@@ -1,0 +1,59 @@
+{
+  "schema_version": "phase-c-slice-2-premium-care-plan-closure-v1.1",
+  "recorded_at": "2026-07-04T02:20:00+09:00",
+  "slice": {
+    "id": "phase_c_slice_2",
+    "name": "Premium Care Plan",
+    "intent": "Premium burden follow-on after Phase B Judge",
+    "primary_question": "보험료 부담돼.",
+    "cluster": "JC-PREMIUM-BURDEN-v1",
+    "compose_module": "server/keyBrain/phaseCSlice2PremiumCarePlan.js",
+    "status": "preview_gate_pass_pending_tom_close",
+    "git_commit": "713e388",
+    "preview_bundle": "https://lifeguard-core-final-git-feat-972c4f-70sofia113-1918s-projects.vercel.app"
+  },
+  "care_plan_contract_ssot": "fixtures/key-judgment-validation-v1/phase-c-care-plan-contract-v1.json",
+  "contract_slice2_v1_1": {
+    "transition": "pass",
+    "what": "pass",
+    "when": "pass",
+    "why": "pass",
+    "reassurance": "pass",
+    "companion": "pass",
+    "plan_not_conclusion": "pass"
+  },
+  "product_principles": {
+    "plan_not_conclusion": "pass",
+    "why_customer_language": "pass",
+    "companion_voice": "pass"
+  },
+  "merge_gate": {
+    "local_unit": "7/7 pass",
+    "preview_wiring": "phase_c_slice2_premium_care_plan_active",
+    "preview_seat": "slice2_contract_pass",
+    "regression_30q": "30/30 probe_ok",
+    "friction": 0,
+    "manual_role_split": "30/30"
+  },
+  "evidence": {
+    "closure": "fixtures/key-judgment-validation-v1/phase-c-slice-2-premium-care-plan-closure-evidence.json",
+    "preview_wiring": "fixtures/key-judgment-validation-v1/phase-c-slice-2-preview-wiring-trace-evidence.json",
+    "preview_seat": "fixtures/key-judgment-validation-v1/phase-c-slice-2-preview-customer-seat-evidence.json",
+    "regression": "fixtures/key-customer-validation-v1/preview-validation-report.json"
+  },
+  "achievement": "Premium 판단 후 실행 계획 — Why(고객 언어) + Companion voice로 KEY가 함께하는 보험 주치의 경험",
+  "tom_final_ratify": {
+    "approved": false,
+    "approved_at": null,
+    "approved_by": null,
+    "final_sentence": null
+  },
+  "next_slice": {
+    "id": "phase_c_slice_3",
+    "name": "Delegation Care Plan",
+    "question": "알아서 봐줘.",
+    "cluster": "JC-DELEGATION-v1",
+    "status": "planned"
+  },
+  "jerry_pass_declaration": "none"
+}
