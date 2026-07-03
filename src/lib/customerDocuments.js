@@ -1,6 +1,7 @@
 import { loadCustomerDashboardData } from "./customerDashboard.js";
 import { extractPolicyFromReadyDocument } from "./customerDocumentPolicyExtract.js";
 import { DOCUMENT_CATEGORIES, resolveLegacyDocClass } from "./documentCategories.js";
+import { appendLegacyPipelineContinuedClientTrace, requestKeyDocumentIntake } from "./keyDocumentIntake.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
@@ -245,7 +246,7 @@ export async function grantDocumentAnalysisConsent(authUser) {
   };
 }
 
-async function invokeDocumentIngestWorker(documentId) {
+async function invokeDocumentIngestWorker(documentId, { workOrderId = null } = {}) {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session?.access_token) {
     throw new Error("로그인이 필요합니다.");
@@ -257,6 +258,11 @@ async function invokeDocumentIngestWorker(documentId) {
     throw new Error("문서 분석 서비스가 설정되지 않았습니다.");
   }
 
+  const payloadBody = { document_id: documentId };
+  if (workOrderId) {
+    payloadBody.work_order_id = workOrderId;
+  }
+
   const response = await fetch(`${baseUrl}/functions/v1/document-ingest-worker`, {
     method: "POST",
     headers: {
@@ -264,7 +270,7 @@ async function invokeDocumentIngestWorker(documentId) {
       apikey: anonKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ document_id: documentId }),
+    body: JSON.stringify(payloadBody),
   });
 
   let payload = null;
@@ -286,7 +292,23 @@ async function invokeDocumentIngestWorker(documentId) {
   return payload ?? { ok: true };
 }
 
-export async function enqueueDocumentIngest(authUser, documentId) {
+async function resolveKeyWorkOrderForFactory(documentId, { workOrderId = null, categoryKey = null, uploadSource = "web" } = {}) {
+  if (workOrderId) {
+    return { workOrderId, intakeResult: null };
+  }
+
+  const intakeResult = await requestKeyDocumentIntake(documentId, {
+    categoryKey,
+    uploadSource,
+  });
+
+  return {
+    workOrderId: intakeResult?.work_order_id ?? null,
+    intakeResult,
+  };
+}
+
+export async function enqueueDocumentIngest(authUser, documentId, { workOrderId = null, categoryKey = null, uploadSource = "web" } = {}) {
   const { customerId } = await ensureCustomerContext(authUser);
   const trimmedId = String(documentId ?? "").trim();
   if (!trimmedId) {
@@ -340,12 +362,22 @@ export async function enqueueDocumentIngest(authUser, documentId) {
     };
   }
 
-  const workerResult = await invokeDocumentIngestWorker(trimmedId);
+  const { workOrderId: resolvedWorkOrderId } = await resolveKeyWorkOrderForFactory(trimmedId, {
+    workOrderId,
+    categoryKey,
+    uploadSource,
+  });
+
+  const workerResult = await invokeDocumentIngestWorker(trimmedId, {
+    workOrderId: resolvedWorkOrderId,
+  });
 
   let policyExtraction = null;
   if (workerResult?.ingest_status === "ready") {
     try {
-      policyExtraction = await extractPolicyFromReadyDocument(trimmedId);
+      policyExtraction = await extractPolicyFromReadyDocument(trimmedId, {
+        workOrderId: resolvedWorkOrderId,
+      });
     } catch (extractError) {
       policyExtraction = {
         ok: false,
@@ -367,6 +399,7 @@ export async function enqueueDocumentIngest(authUser, documentId) {
     message: data?.message ?? "ingest_queued",
     workerResult,
     policyExtraction,
+    workOrderId: resolvedWorkOrderId,
   };
 }
 
@@ -489,7 +522,12 @@ export async function retryPendingPolicyExtractions(authUser) {
 
   for (const document of eligible) {
     try {
-      const policyExtraction = await extractPolicyFromReadyDocument(document.id);
+      const intake = await requestKeyDocumentIntake(document.id, {
+        uploadSource: "retry_policy_extract",
+      });
+      const policyExtraction = await extractPolicyFromReadyDocument(document.id, {
+        workOrderId: intake?.work_order_id ?? null,
+      });
       results.push({ documentId: document.id, policyExtraction });
     } catch (extractError) {
       results.push({
@@ -567,9 +605,21 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
     throw new Error(toCustomerErrorMessage(insertError, "문서 정보를 저장하지 못했습니다."));
   }
 
+  const keyIntakeResult = await requestKeyDocumentIntake(documentId, {
+    categoryKey: category.key,
+    uploadSource: "web",
+  });
+
+  let keyIntakeTrace = keyIntakeResult?.intake_trace ?? null;
+  const workOrderId = keyIntakeResult?.work_order_id ?? null;
+
   let ingest = null;
   try {
-    ingest = await enqueueDocumentIngest(authUser, documentId);
+    ingest = await enqueueDocumentIngest(authUser, documentId, {
+      workOrderId,
+      categoryKey: category.key,
+      uploadSource: "web",
+    });
   } catch (ingestError) {
     ingest = {
       blocked: false,
@@ -580,10 +630,19 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
     };
   }
 
+  if (keyIntakeTrace) {
+    keyIntakeTrace = appendLegacyPipelineContinuedClientTrace(keyIntakeTrace, {
+      ingestStarted: true,
+    });
+  }
+
   return {
     customerId,
     document: data,
     ingest,
+    keyIntake: keyIntakeResult,
+    keyIntakeTrace,
+    workOrderId,
   };
 }
 

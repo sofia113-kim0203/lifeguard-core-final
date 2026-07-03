@@ -70,6 +70,7 @@ export function useCustomerDocumentUpload({
           documentId: lastResult.documentId,
           ingest: lastResult.ingest,
           policyExtraction: lastResult.ingest.policyExtraction,
+          workOrderId: lastResult.ingest?.workOrderId ?? null,
           refreshSession,
           setActiveAnalysisJob,
         });
@@ -139,6 +140,7 @@ export function useCustomerDocumentUpload({
         documentId,
         ingest,
         policyExtraction: ingest?.policyExtraction,
+        workOrderId: uploadResult?.workOrderId ?? ingest?.workOrderId ?? null,
         refreshSession,
         setActiveAnalysisJob,
       });

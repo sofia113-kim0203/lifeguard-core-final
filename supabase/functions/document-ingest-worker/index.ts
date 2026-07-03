@@ -8,6 +8,7 @@ import {
   failIngestTrace,
   startIngestTrace,
 } from "./trace.ts";
+import { isKeyUploadEntryActive, markWorkOrderFactoryUsed, validateKeyWorkOrderGate } from "./workOrderGate.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -78,9 +79,11 @@ Deno.serve(async (req) => {
   }
 
   let documentId: string;
+  let workOrderId: string | undefined;
   try {
     const body = await req.json();
     documentId = String(body?.document_id ?? "").trim();
+    workOrderId = String(body?.work_order_id ?? "").trim() || undefined;
     if (!documentId) {
       return jsonResponse({ error: "document_id_required" }, 422);
     }
@@ -132,6 +135,42 @@ Deno.serve(async (req) => {
     }
 
     document = docRow as DocumentRecord;
+
+    if (isKeyUploadEntryActive(Deno.env.get("KEY_UPLOAD_ENTRY"))) {
+      const gate = validateKeyWorkOrderGate({
+        workOrderId,
+        documentId,
+        customerId,
+        metadataJson: (document.metadata_json ?? null) as Record<string, unknown> | null,
+        factory: "document_ocr",
+      });
+      if (!gate.ok) {
+        return jsonResponse(
+          {
+            error: gate.reason,
+            error_message: gate.message,
+            work_order_required: gate.reason === "work_order_required",
+            ordered_by: null,
+          },
+          gate.status,
+        );
+      }
+
+      const consumedMetadata = markWorkOrderFactoryUsed(
+        (document.metadata_json ?? null) as Record<string, unknown> | null,
+        gate.record,
+        "document_ocr",
+      );
+      await adminClient
+        .from("customer_documents")
+        .update({
+          metadata_json: consumedMetadata,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", documentId)
+        .eq("customer_id", customerId);
+      document.metadata_json = consumedMetadata as DocumentRecord["metadata_json"];
+    }
 
     if (document.ingest_status !== "queued") {
       return jsonResponse(

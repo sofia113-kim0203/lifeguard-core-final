@@ -55,6 +55,7 @@ export async function runPostDocumentPipelineRefresh({
   documentId,
   ingest = null,
   policyExtraction = null,
+  workOrderId = null,
   onAnalysisJobProgress = null,
   refreshSession = null,
   setActiveAnalysisJob = null,
@@ -80,7 +81,7 @@ export async function runPostDocumentPipelineRefresh({
 
   let refreshResult = null;
   try {
-    refreshResult = await triggerDocumentAnalysisRefresh(documentId);
+    refreshResult = await triggerDocumentAnalysisRefresh(documentId, { workOrderId });
   } catch (error) {
     steps.analysis_job = {
       ok: false,
