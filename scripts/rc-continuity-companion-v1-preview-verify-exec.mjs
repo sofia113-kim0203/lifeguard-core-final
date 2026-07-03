@@ -194,7 +194,7 @@ function assessNegative(row, q) {
   const byQ = {
     "암보장 부족해?": () => noCluster && row.companion_cluster === SLICE2_CLUSTER,
     "보험료 부담돼.": () => noCluster && row.companion_cluster === SLICE1_CLUSTER,
-    "뭐 가입해야 해?": () => noCluster && row.classification_intent === "recommendation_request",
+    "뭐 가입해야 해?": () => noCluster && row.classification_intent === "recommendation_priority_check",
     "내 보험 부족한 부분 있어?": () => noCluster && row.classification_intent === "coverage_gap_check",
     "지난번 이야기 기억해?": () => noCluster && row.classification_intent !== CLUSTER_ID,
     "아까 보험료 얘기했잖아.": () => noCluster,

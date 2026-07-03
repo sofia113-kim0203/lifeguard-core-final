@@ -35,7 +35,7 @@ function testGateOffUsesLegacy() {
 function testGateBlockedIntent() {
   assert(
     shouldUseSalesDirectorKeyOrchestrator({
-      question: "뭐 가입해야 해?",
+      question: "뭐가 부족해?",
       customerId: "test-customer",
       env: { SALES_DIRECTOR_KEY_ORCHESTRATOR: "1" },
     }) === false,
@@ -181,8 +181,8 @@ function testRecommendationUtilizationSlice() {
 
   const j11Classification = classifyConsultationIntent("나한테 필요한 보험 추천해줘.");
   assert(
-    j11Classification.intent === "recommendation_request",
-    "J11 stays recommendation_request",
+    j11Classification.intent === "recommendation_priority_check",
+    "J11 entry reclassified to recommendation_priority_check (GAP-03)",
   );
   assert(
     shouldUseSalesDirectorKeyOrchestrator({
@@ -190,14 +190,14 @@ function testRecommendationUtilizationSlice() {
       customerId: "test-customer",
       consultationIntent: j11Classification,
       env: { SALES_DIRECTOR_KEY_ORCHESTRATOR: "1" },
-    }) === false,
-    "J11 KEY orchestrator remains blocked",
+    }) === true,
+    "J11 KEY orchestrator ON after entry reclassify",
   );
 
   const j12Classification = classifyConsultationIntent("보장 보완 어디부터 하면 돼?");
   assert(
-    j12Classification.intent === "recommendation_request",
-    "J12 stays recommendation_request",
+    j12Classification.intent === "recommendation_priority_check",
+    "J12 entry reclassified to recommendation_priority_check (GAP-03)",
   );
 }
 

@@ -67,10 +67,11 @@ async function main() {
       assert.equal(isGeneralKnowledgeEligible(q), false);
       assert.notEqual(classifyConsultationIntent(q).matched_rule, "general_knowledge_eligible");
     }],
-    ["T6 insurance recommend stays insurance", () => {
+    ["T6 insurance recommend entry opens KEY path (GAP-03)", () => {
       const q = "뭐 가입해야 해";
       const c = classifyConsultationIntent(q);
-      assert.equal(c.intent, "recommendation_request");
+      assert.equal(c.intent, "recommendation_priority_check");
+      assert.equal(c.matched_rule, "recommendation_entry_check");
     }],
     ["T7 INS-07 no casual home leak", () => {
       const q = "암 진단비 얼마나 필요해";

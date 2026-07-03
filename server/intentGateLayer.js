@@ -363,6 +363,59 @@ function isRecommendationPriorityCheck(text) {
   return false;
 }
 
+/**
+ * GAP-03 / Recommendation Entry Slice — narrow customer entry utterances that should
+ * open the stored-read KEY recommendation path (recommendation_priority_check), not
+ * blocked recommendation_request → guarded_hold. Guard stays for other RECOMMEND shapes.
+ */
+export function isRecommendationEntryCheck(text = "") {
+  const normalized = normalizeQuestion(text);
+  if (!normalized) return false;
+
+  if (/청구|보험금|클레임/.test(normalized)) return false;
+  if (/설계\s*해|플랜\s*짜|포트폴리오|리밸런싱|재구성|월\s*보험료|예산.{0,6}(?:맞|기준|으로)/.test(normalized)) {
+    return false;
+  }
+  if (/고혈압|당뇨|건강(?:\s*상태)?|인수|거절/.test(normalized) && /가입|들\s*수/.test(normalized)) {
+    return false;
+  }
+  if (/뭐부터\s*해야\s*할지\s*모르/.test(normalized)) return false;
+  if (/부족한\s*부분|부족해|뭐가\s*부족|어디가\s*부족|공백|갭/.test(normalized)) return false;
+  if (/상품\s*추천|보험사\s*추천|왜\s*\d+\s*위|추천\s*근거|추천\s*이유/.test(normalized)) return false;
+  if (shouldReclassifyInsuranceIntentAsGeneralKnowledge(normalized, "recommendation_request")) {
+    return false;
+  }
+
+  if (/^추천(?:해(?:줘|주)?)?[.?!]?$/.test(normalized)) return true;
+
+  if (/추천(?:해(?:줘|주)?)/.test(normalized)) {
+    if (/(?:보험|보장|담보|특약)/.test(normalized)) return true;
+    if (/(?:나한테|내게|저한테).{0,12}(?:필요한|맞는)/.test(normalized)) return true;
+    if (normalized.length <= 16) return true;
+  }
+
+  if (/뭐\s*가입(?:하면|해야|할)?.{0,10}(?:돼|되|좋|해|줘)/.test(normalized)) return true;
+  if (/무엇(?:을)?\s*가입(?:하면|해야|할)?/.test(normalized) && /(?:돼|해야|좋|해|줘)/.test(normalized)) {
+    return true;
+  }
+
+  if (/뭐가\s*제일\s*급(?:해|한|함)?/.test(normalized)) return true;
+
+  if (/(?:어떤|무슨)\s*보험.{0,16}(?:부터|먼저).{0,16}(?:봐|볼|보|할|해)/.test(normalized)) {
+    return true;
+  }
+  if (/어떤\s*보험(?:부터|을\s*먼저)/.test(normalized)) return true;
+
+  if (/(?:나한테|내게|저한테).{0,12}(?:필요한|맞는).{0,12}(?:보험|보장).{0,12}추천/.test(normalized)) {
+    return true;
+  }
+
+  if (/보(?:장|험)\s*보완.{0,12}어디(?:부터|부터\s*하면)/.test(normalized)) return true;
+  if (/보완.{0,12}어디부터/.test(normalized)) return true;
+
+  return false;
+}
+
 /** J-DESIGN-SUBINTENT — stored design anchor required before sub-intent classification. */
 export function hasStoredDesignAnchor(text = "") {
   const normalized = normalizeQuestion(text);
@@ -645,6 +698,17 @@ export function classifyConsultationIntent(question = "") {
       intent: "recommendation_priority_check",
       confidence: "high",
       matched_rule: "recommendation_priority_check",
+      lookup_sub_intent: null,
+      lookup_category: null,
+      question_focus: text,
+    };
+  }
+
+  if (isRecommendationEntryCheck(text)) {
+    return {
+      intent: "recommendation_priority_check",
+      confidence: "high",
+      matched_rule: "recommendation_entry_check",
       lookup_sub_intent: null,
       lookup_category: null,
       question_focus: text,
