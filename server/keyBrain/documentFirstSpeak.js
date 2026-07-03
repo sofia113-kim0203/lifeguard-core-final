@@ -1,23 +1,21 @@
 /**
  * KU-2c — KEY first customer sentence (from key_first_judgment · no coverage/gap/rec).
+ * DU-1 — Document + Policies + Memory + Conversation fusion when snapshot present.
  * Hand P3 — Persona outlet via finalizeSalesDirectorResponse (draft preserve).
  */
 import { polishLifeguardCustomerText } from "../lifeguardOutputGuard.js";
 import { finalizeSalesDirectorResponse } from "../salesDirectorFormatter.js";
 import { ONE_BRAIN_SURFACES } from "../oneBrainResponseLayer.js";
+import {
+  buildDu1CustomerFirstSentence,
+  buildDu1InputBundle,
+  DU1_SCHEMA_VERSION,
+} from "./du1DocumentUploadFirstSpeak.js";
 
 export const KEY_FIRST_SPEAK_SCHEMA_VERSION = "key-first-speak-ku2c-v1";
 export const DOCUMENT_INTAKE_PERSONA_OUTLET = "finalizeSalesDirectorResponse";
 
-/**
- * @param {object|null} keyFirstJudgment — from buildKeyFirstJudgment
- * @param {object} [document]
- */
-export function buildCustomerFirstSentence(keyFirstJudgment, { document = {} } = {}) {
-  if (!keyFirstJudgment || typeof keyFirstJudgment !== "object") {
-    return null;
-  }
-
+function buildLegacyCustomerFirstSentence(keyFirstJudgment, { document = {} } = {}) {
   const hold = keyFirstJudgment.hold ?? {};
   const kind = String(keyFirstJudgment.document_kind_guess ?? "");
   const filename = String(document.original_filename ?? "").trim();
@@ -43,6 +41,35 @@ export function buildCustomerFirstSentence(keyFirstJudgment, { document = {} } =
 
   return "문서 잘 받았습니다. KEY가 먼저 확인한 뒤 말씀드리겠습니다.";
 }
+
+/**
+ * @param {object|null} keyFirstJudgment — from buildKeyFirstJudgment
+ * @param {object} [options]
+ * @param {object} [options.document]
+ * @param {object|null} [options.contextSnapshot]
+ * @param {object|null} [options.loadedContext]
+ */
+export function buildCustomerFirstSentence(
+  keyFirstJudgment,
+  { document = {}, contextSnapshot = null, loadedContext = null } = {},
+) {
+  if (!keyFirstJudgment || typeof keyFirstJudgment !== "object") {
+    return null;
+  }
+
+  if (contextSnapshot && loadedContext) {
+    const du1 = buildDu1CustomerFirstSentence(keyFirstJudgment, {
+      document,
+      contextSnapshot,
+      loadedContext,
+    });
+    if (du1) return du1;
+  }
+
+  return buildLegacyCustomerFirstSentence(keyFirstJudgment, { document });
+}
+
+export { buildDu1InputBundle, DU1_SCHEMA_VERSION };
 
 /**
  * Hand P3 — route upload first sentence through Chat-equivalent Persona outlet.

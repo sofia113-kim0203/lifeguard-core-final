@@ -84,6 +84,8 @@ export async function extractPolicyFromReadyDocument(documentId, { invokeMemory 
     profileInsurancePoliciesCount: payload.profile_insurance_policies_count ?? 0,
     customerMemoryFactsCount: payload.customer_memory_facts_count ?? 0,
     memoryBuilder: payload.memory_builder ?? null,
+    keyFollowUpSentence: payload.key_follow_up_sentence ?? null,
+    keyFollowUpSegments: payload.key_follow_up_segments ?? null,
     message: "보험정보 추출이 완료되었습니다.",
   };
 }

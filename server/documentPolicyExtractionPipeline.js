@@ -33,6 +33,7 @@ import {
   applyKeyEvidenceFoundationEa1,
   buildCoverageSheetMultiExtractionForEa1,
 } from "./keyBrain/keyEvidenceFoundationEa1.js";
+import { buildEa1CustomerSummaryFromMultiExtraction } from "./keyBrain/du1DocumentUploadFirstSpeak.js";
 
 function createServiceClient(env = process.env) {
   const url = String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim();
@@ -405,7 +406,10 @@ async function runCoverageSheetLiveGateExtraction({
         extractor_origin: COVERAGE_SHEET_EXTRACTOR_ORIGIN,
       },
       ...(ea1Foundation.key_evidence_foundation
-        ? { key_evidence_foundation_ea1: ea1Foundation.key_evidence_foundation }
+        ? {
+            key_evidence_foundation_ea1: ea1Foundation.key_evidence_foundation,
+            key_ea1_customer_summary: buildEa1CustomerSummaryFromMultiExtraction(multiExtraction),
+          }
         : {}),
     },
     shadowState,
@@ -651,7 +655,10 @@ export async function runDocumentPolicyExtraction({
       policy_extraction_action: persistResult.policy_actions.map((entry) => entry.action).join(","),
       policy_extraction_retired_policy_ids: persistResult.retired_policy_ids,
       ...(ea1Foundation.key_evidence_foundation
-        ? { key_evidence_foundation_ea1: ea1Foundation.key_evidence_foundation }
+        ? {
+            key_evidence_foundation_ea1: ea1Foundation.key_evidence_foundation,
+            key_ea1_customer_summary: buildEa1CustomerSummaryFromMultiExtraction(multiExtraction),
+          }
         : {}),
     },
     shadowState,

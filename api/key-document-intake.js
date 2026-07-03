@@ -200,7 +200,11 @@ export default async function handler(req, res) {
   let customerFirstSentence = null;
   let personaMeta = null;
   if (activeAuthority && intakeTrace.key_first_judgment) {
-    const staticDraft = buildCustomerFirstSentence(intakeTrace.key_first_judgment, { document });
+    const staticDraft = buildCustomerFirstSentence(intakeTrace.key_first_judgment, {
+      document,
+      contextSnapshot,
+      loadedContext,
+    });
     const finalized = finalizeDocumentIntakeFirstSentence(staticDraft, {
       keyTurnResult,
       document,
@@ -213,6 +217,21 @@ export default async function handler(req, res) {
   let resolvedTrace = customerFirstSentence
     ? appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence, personaMeta)
     : intakeTrace;
+
+  if (customerFirstSentence && contextSnapshot) {
+    resolvedTrace = {
+      ...resolvedTrace,
+      du1_fusion: {
+        schema_version: "du-1-document-upload-first-speak-v2",
+        four_inputs: {
+          document: true,
+          policies: (contextSnapshot?.bundle?.policies ?? []).length,
+          memory: (contextSnapshot?.bundle?.memoryFacts ?? []).length,
+          conversation: contextSnapshot?.flags?.has_recent_conversation === true,
+        },
+      },
+    };
+  }
 
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
   let workOrderId = null;

@@ -4,7 +4,12 @@
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
+import {
+  buildLoadedContextFromSnapshot,
+  loadSalesDirectorTurnContext,
+} from "../server/customerContextSnapshot.js";
 import { runDocumentPolicyExtraction } from "../server/documentPolicyExtractionPipeline.js";
+import { buildPhaseAFollowUpCustomerSpeak } from "../server/keyBrain/du1DocumentUploadFirstSpeak.js";
 import { isKeyUploadEntryActiveEnabled } from "../server/keyBrain/uploadEntryFlags.js";
 import { gateFactoryWithKeyWorkOrder, recordKeyWorkOrderFactoryUse } from "../server/keyBrain/workOrder.js";
 import {
@@ -130,6 +135,36 @@ export default async function handler(req, res) {
       forceRetry,
     });
 
+    let keyFollowUp = null;
+    if (result.ok) {
+      try {
+        const { data: documentRow } = await supabase
+          .from("customer_documents")
+          .select(
+            "id, customer_id, original_filename, ingest_status, doc_class, customer_hint_type, mime_type, metadata_json, created_at",
+          )
+          .eq("id", documentId)
+          .eq("customer_id", auth.customerId)
+          .is("deleted_at", null)
+          .maybeSingle();
+
+        const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
+          requestHistory: [],
+        });
+
+        keyFollowUp = buildPhaseAFollowUpCustomerSpeak({
+          document: documentRow ?? { id: documentId, metadata_json: result.metadata_json ?? {} },
+          contextSnapshot: turnContext.snapshot,
+          loadedContext: buildLoadedContextFromSnapshot(turnContext.snapshot),
+          multiExtraction: result.extraction ?? null,
+          linkedPolicyIds: result.policy_ids ?? [],
+          ea1CustomerSummary: result.metadata_json?.key_ea1_customer_summary ?? null,
+        });
+      } catch {
+        keyFollowUp = null;
+      }
+    }
+
     res.statusCode = result.ok ? 200 : 422;
     res.setHeader("Content-Type", "application/json");
     res.end(
@@ -138,6 +173,8 @@ export default async function handler(req, res) {
         customer_id: auth.customerId,
         document_id: documentId,
         ...result,
+        key_follow_up_sentence: keyFollowUp?.text ?? null,
+        key_follow_up_segments: keyFollowUp?.segments ?? null,
       }),
     );
   } catch (error) {
