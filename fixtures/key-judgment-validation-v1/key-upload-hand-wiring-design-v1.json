@@ -3,7 +3,7 @@
   "gate": "KEY-UPLOAD-HAND-WIRING",
   "label": "Upload intake → 기존 KEY Memory / Persona / Orchestrator 합류",
   "mode": "Design only · no implement · no UI · no deploy · Tom EXEC GO pending",
-  "status": "Phase 1 Local GO (Tom) — Preview evidence pending; Phase 2 after Preview",
+  "status": "Phase 1 Local GO + Preview PASS (Tom) — Phase 2 HOLD",
   "observed_at": "2026-07-03",
   "tom_phase_ruling": {
     "phase_1_snapshot_wiring": "GO — EXEC in progress",
@@ -254,7 +254,9 @@
     "design_complete": true,
     "phase_1_exec_go": true,
     "phase_1_local": "test:key-upload-hand-wiring-snapshot — Tom Local GO",
-    "phase_1_preview": "verify:key-upload-hand-wiring-p1-preview-snapshot",
+    "phase_1_preview": "verify:key-upload-hand-wiring-p1-preview-snapshot — PASS",
+    "phase_1_preview_evidence": "fixtures/key-judgment-validation-v1/key-upload-hand-wiring-p1-preview-snapshot-evidence.json",
+    "hand_p1_preview_pass": true,
     "exec_go": false,
     "local_tests_proposed": [
       "key-upload-hand-wiring-snapshot-unit-test.mjs",
