@@ -1,0 +1,22 @@
+{
+  "schema_version": "recommendation-panel-alignment-preview-deploy-v1",
+  "slice": "recommendation_panel_alignment",
+  "mode": "Preview deploy only — customer seat audit is separate (Tom)",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-04T03:35:00+09:00",
+  "git_commit": "fe24f07",
+  "tom_deploy_go": "Deploy purpose: verify panel = KEY customer experience — not feature rollout",
+  "deploy": {
+    "ok": true,
+    "preview_url": "https://lifeguard-core-final-l1ouzi2lx-70sofia113-1918s-projects.vercel.app",
+    "deployment_id": "dpl_A1pkQ3dMEnqoUTj3xPaW9NTbUjYr",
+    "inspector_url": "https://vercel.com/70sofia113-1918s-projects/lifeguard-core-final/A1pkQ3dMEnqoUTj3xPaW9NTbUjYr"
+  },
+  "production_alias_unchanged": true,
+  "panel_ui_included": true,
+  "next_step": "Tom Preview visual customer seat — chat → panel same KEY?",
+  "tom_seat_question": "채팅에서 패널로 넘어가도, 고객은 계속 KEY와 이야기하고 있다고 느끼는가?",
+  "slice_close_excludes": ["GAP-03 recommendation_request chat path"],
+  "verify_command": "npm run verify:recommendation-panel-alignment-preview-customer-seat -- \"https://lifeguard-core-final-l1ouzi2lx-70sofia113-1918s-projects.vercel.app\"",
+  "jerry_pass_declaration": "none"
+}

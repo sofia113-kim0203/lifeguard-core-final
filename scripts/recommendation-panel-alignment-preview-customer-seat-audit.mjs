@@ -154,8 +154,11 @@ async function main() {
       status: recApi.status,
       top2_labels: recTop2.map((item) => item.coverage_label ?? item.coverage_category),
     },
-    panel_ui_on_preview_bundle: false,
-    panel_ui_note: "Preview bundle may predate RecommendationPanelKeyView — Tom visual seat requires deploy of panel alignment code",
+    panel_ui_on_preview_bundle: true,
+    panel_ui_git_commit: "fe24f07",
+    panel_ui_note: "RecommendationPanelKeyView deployed — Tom visual customer seat required",
+    slice_close_excludes_gap_03: true,
+    tom_slice_close_question: "패널에서 KEY가 계속 설명하는가? (chat recommendation_request path = GAP-03, 별도 Slice)",
     tom_primary_flow: {
       question: CHAT_Q_RECOMMEND,
       expected_for_slice_close: "Tom visual YES on chat → panel after deploy",
