@@ -163,16 +163,16 @@ function testNoGapOrRecommendationPush() {
 function testFollowUpWhenExtractionFailedProvisional() {
   const document = {
     id: "doc-failed",
-    original_filename: "운전자보험증권.pdf",
-    customer_hint_type: "insurance_policy",
+    original_filename: "scan.pdf",
+    customer_hint_type: "other",
     metadata_json: { policy_extraction_status: "failed" },
   };
   const snapshot = buildSnapshot({
-    policies: [{ id: "p-existing", product_name: "실손의료비보험" }],
-    memoryFacts: [{ fact_value: "운전자 쪽을 먼저 챙기는 편" }],
+    policies: [{ id: "p-existing", product_name: "종합보장플랜" }],
+    memoryFacts: [],
     conversation: { hasHistory: false },
   });
-  const loadedContext = buildLoadedContext({ policies: true, memory: true });
+  const loadedContext = buildLoadedContext({ policies: true });
 
   const speak = buildPhaseAFollowUpCustomerSpeak({
     document,
@@ -186,7 +186,8 @@ function testFollowUpWhenExtractionFailedProvisional() {
   assert.ok(speak?.text);
   assert.match(speak.text, /이어서 더 확인/);
   assert.match(speak.text, /단정하기 어렵/);
-  assert.match(speak.text, /기억해 둔 내용/);
+  assert.match(speak.text, /등록돼 있던 보험과 이번 자료/);
+  assert.doesNotMatch(speak.text, /등록돼 있던\s+축/);
   assert.equal(validateDu1CustomerSpeech(speak.text).ok, true);
 }
 

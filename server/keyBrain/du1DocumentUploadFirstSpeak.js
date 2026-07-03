@@ -589,6 +589,13 @@ function buildFollowUpPolicySegments(
         text: `등록돼 있던 ${joinKoLabels(otherAxes)} 축과 이번에 확인한 ${joinKoLabels(overlap)} 축이 맞닿아 있습니다.`,
         basis: "registered_policies_vs_extracted_axes",
       });
+    } else if (otherAxes.length === 0 && mergedAxes.length === 0) {
+      segments.push({
+        source: DU1_INPUT_SOURCE.POLICIES,
+        tier: DU1_EPISTEMIC_TIER.INFERENCE,
+        text: "등록돼 있던 보험과 이번 자료를 함께 정리할 수 있습니다.",
+        basis: "registered_policies_vs_document",
+      });
     } else {
       segments.push({
         source: DU1_INPUT_SOURCE.POLICIES,
@@ -597,6 +604,13 @@ function buildFollowUpPolicySegments(
         basis: "registered_policies_vs_extracted_axes",
       });
     }
+  } else if (policies.length > 0 && linkedPolicyIds.length === 0) {
+    segments.push({
+      source: DU1_INPUT_SOURCE.POLICIES,
+      tier: DU1_EPISTEMIC_TIER.INFERENCE,
+      text: "프로필에 등록된 보험과 이번 자료도 함께 정리할 수 있습니다.",
+      basis: "registered_policies_present",
+    });
   }
 
   return segments;
