@@ -549,14 +549,87 @@ function buildFollowUpEvidenceSegments(summary = {}, linkedPolicyIds = []) {
   return segments;
 }
 
-function buildFollowUpProvisionalEvidenceSegments() {
-  return [
-    {
-      source: DU1_INPUT_SOURCE.EVIDENCE,
-      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
-      text: "방금 올려 주신 자료를 이어서 더 확인해 봤습니다. 아직 특약·보장 상세까지는 단정하기 어렵습니다.",
-    },
-  ];
+function summarizePolicySituationLabel(policies = []) {
+  const axes = summarizeExistingPolicyAxes(policies);
+  if (axes.length === 1) return `${axes[0]} 축 보험`;
+  if (axes.length > 1) return `${joinKoLabels(axes)} 축 보험`;
+  const productName = normalizeText(policies[0]?.product_name ?? "");
+  if (productName.length >= 2) {
+    return `「${productName.slice(0, 28)}」`;
+  }
+  return "등록돼 있는 보험";
+}
+
+function buildFollowUpForwardStepSegment() {
+  return {
+    source: DU1_INPUT_SOURCE.JUDGMENT,
+    tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+    text: "특약·가입현황 자료가 오면, 그때부터 비교 기준이 생깁니다.",
+    basis: "forward_step_after_confirmation",
+  };
+}
+
+/**
+ * Post-confirmation follow-up when body extract is thin — delta only, no first-speak repeat.
+ */
+function buildFollowUpProvisionalDeltaSegments({
+  documentClass = {},
+  policies = [],
+  memoryFacts = [],
+  conversation = {},
+  gates = {},
+} = {}) {
+  const segments = [];
+  const documentLifeAxes = documentClass.lifeAxes ?? [];
+  const policyLabel = summarizePolicySituationLabel(policies);
+
+  segments.push({
+    source: DU1_INPUT_SOURCE.EVIDENCE,
+    tier: DU1_EPISTEMIC_TIER.CERTAIN,
+    text: "내용 확인을 마쳤습니다.",
+  });
+
+  segments.push({
+    source: DU1_INPUT_SOURCE.EVIDENCE,
+    tier: DU1_EPISTEMIC_TIER.INFERENCE,
+    text: "파일 안쪽까지 확인했지만, 계약을 가르는 식별 정보는 아직 잡히지 않았습니다.",
+    basis: "confirmation_without_identifiers",
+  });
+
+  if (gates.policiesPresent && policies.length > 0) {
+    const policyAxes = summarizeExistingPolicyAxes(policies);
+    if (documentLifeAxes.length > 0 && policyAxes.length > 0) {
+      const overlap = documentLifeAxes.filter((axis) => policyAxes.includes(axis));
+      if (overlap.length > 0) {
+        segments.push({
+          source: DU1_INPUT_SOURCE.POLICIES,
+          tier: DU1_EPISTEMIC_TIER.INFERENCE,
+          text: `새로 확인한 것은, 이번 자료가 ${joinKoLabels(overlap)} 축으로 보인다는 점입니다. 등록돼 있는 ${policyLabel}과 같은 축으로 묶어 볼 수 있습니다.`,
+          basis: "post_confirmation_axis_overlap",
+        });
+      } else {
+        segments.push({
+          source: DU1_INPUT_SOURCE.POLICIES,
+          tier: DU1_EPISTEMIC_TIER.INFERENCE,
+          text: `새로 확인한 것은, 이번 자료(${joinKoLabels(documentLifeAxes)})와 등록돼 있는 ${policyLabel} 축이 서로 다르다는 점입니다. 추가 계약인지 같은 계약인지는 아직 구분 중입니다.`,
+          basis: "post_confirmation_axis_split",
+        });
+      }
+    } else {
+      segments.push({
+        source: DU1_INPUT_SOURCE.POLICIES,
+        tier: DU1_EPISTEMIC_TIER.INFERENCE,
+        text: `등록돼 있는 ${policyLabel}과 이번 자료를 나란히 두고, 같은 계약인지부터 가르겠습니다.`,
+        basis: "post_confirmation_policy_comparison",
+      });
+    }
+  }
+
+  segments.push(...buildMemorySegments(memoryFacts));
+  segments.push(...buildConversationSegments(conversation));
+  segments.push(buildFollowUpForwardStepSegment());
+
+  return segments;
 }
 
 function buildFollowUpPolicySegments(
@@ -610,35 +683,6 @@ function buildFollowUpPolicySegments(
       tier: DU1_EPISTEMIC_TIER.INFERENCE,
       text: "프로필에 등록된 보험과 이번 자료도 함께 정리할 수 있습니다.",
       basis: "registered_policies_present",
-    });
-  }
-
-  return segments;
-}
-
-function buildFollowUpUnknownSegments({ kind, policiesPresent }) {
-  const segments = [];
-
-  if (kind === "coverage_sheet") {
-    segments.push({
-      source: DU1_INPUT_SOURCE.JUDGMENT,
-      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
-      text: "표 형식만으로는 특약·보장 상세와 '부족한 보장' 판단은 아직 어렵습니다.",
-    });
-    return segments;
-  }
-
-  segments.push({
-    source: DU1_INPUT_SOURCE.JUDGMENT,
-    tier: DU1_EPISTEMIC_TIER.UNKNOWN,
-    text: "특약·보장 범위까지는 아직 말씀드리기 어렵습니다.",
-  });
-
-  if (policiesPresent) {
-    segments.push({
-      source: DU1_INPUT_SOURCE.JUDGMENT,
-      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
-      text: "특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로 정리하겠습니다.",
     });
   }
 
@@ -756,7 +800,16 @@ export function composePhaseAFollowUpWithEpistemicTrace({
   if (summary) {
     segments.push(...buildFollowUpEvidenceSegments(summary, linkedPolicyIds));
   } else {
-    segments.push(...buildFollowUpProvisionalEvidenceSegments());
+    segments.push(
+      ...buildFollowUpProvisionalDeltaSegments({
+        documentClass,
+        policies: bundle.policies,
+        memoryFacts: bundle.memoryFacts,
+        conversation: bundle.conversation,
+        gates,
+      }),
+    );
+    return { segments, text: segmentsToCustomerText(segments), inputGates: gates };
   }
 
   if (gates.policiesPresent) {
@@ -778,19 +831,17 @@ export function composePhaseAFollowUpWithEpistemicTrace({
     segments.push(...buildConversationSegments(bundle.conversation));
   }
 
-  if (summary) {
-    segments.push(
-      ...buildFollowUpUnknownSegments({
-        kind: documentClass.kind,
-        policiesPresent: gates.policiesPresent,
-      }),
-    );
-  } else if (gates.policiesPresent) {
+  const hasIdentifiedAxes =
+    (summary.life_axes ?? []).length > 0 && summary.identifiable !== false;
+  if (hasIdentifiedAxes) {
     segments.push({
       source: DU1_INPUT_SOURCE.JUDGMENT,
       tier: DU1_EPISTEMIC_TIER.UNKNOWN,
-      text: "특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로 정리하겠습니다.",
+      text: "특약·보장 상세는 가입현황과 맞춰 보면 이어서 말씀드리겠습니다.",
+      basis: "forward_step_after_identified_axes",
     });
+  } else {
+    segments.push(buildFollowUpForwardStepSegment());
   }
 
   return { segments, text: segmentsToCustomerText(segments), inputGates: gates };

@@ -184,11 +184,12 @@ function testFollowUpWhenExtractionFailedProvisional() {
   });
 
   assert.ok(speak?.text);
-  assert.match(speak.text, /이어서 더 확인/);
-  assert.match(speak.text, /단정하기 어렵/);
-  assert.match(speak.text, /등록돼 있던 보험과 이번 자료/);
-  assert.doesNotMatch(speak.text, /등록돼 있던\s+축/);
-  assert.doesNotMatch(speak.text, /특약·보장 범위까지는 아직 말씀드리기 어렵습니다[\s\S]*특약·보장 범위까지는 아직/);
+  assert.match(speak.text, /내용 확인을 마쳤습니다/);
+  assert.match(speak.text, /식별 정보는 아직 잡히지 않았/);
+  assert.match(speak.text, /나란히 두고/);
+  assert.doesNotMatch(speak.text, /이어서 더 확인/);
+  assert.doesNotMatch(speak.text, /특약·보장 범위까지는 아직 말씀드리기 어렵습니다/);
+  assert.doesNotMatch(speak.text, /특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로/);
   assert.equal(validateDu1CustomerSpeech(speak.text).ok, true);
 }
 
