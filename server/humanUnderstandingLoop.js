@@ -42,6 +42,7 @@ import {
   buildRecognitionCompanionResponse,
   shouldUseRecognitionCompanionCompose,
 } from "./conversationRecognitionBridge.js";
+import { buildPhaseBSlice1CoverageJudgment } from "./keyBrain/phaseBSlice1CoverageJudgment.js";
 import {
   FACTUAL_LOOKUP_JUDGMENT_INTENTS,
   SALES_DIRECTOR_JUDGMENT_INTENTS,
@@ -556,7 +557,7 @@ export function buildKeyStructuredResponse(
   const question = humanFrame.surface_question ?? factBundle.question ?? "";
   const classificationIntent =
     factBundle.classification_intent ?? classifyConsultationIntent(question).intent ?? "";
-  const judgment = enforceKeyJudgmentFirst(
+  let judgment = enforceKeyJudgmentFirst(
     buildKeyJudgmentBlock(intent, humanFrame, factBundle),
   );
   let evidence = buildKeyEvidenceBlock(basisTaggedFacts, options);
@@ -839,11 +840,22 @@ export function buildKeyStructuredResponse(
       limitation = "보험 정보를 저장해 주시면 같이 확인해 볼게요.";
       nextAction = buildKeyNextActionBlock("information_gap");
     }
+  } else if (activeJudgmentRule?.id === "coverage_anxiety_companion_judgment") {
+    const phaseB = buildPhaseBSlice1CoverageJudgment({ factBundle, question });
+    if (phaseB) {
+      judgment = phaseB.judgment;
+      evidence = phaseB.evidence;
+      limitation = phaseB.limitation;
+      nextAction = phaseB.nextAction;
+    }
   }
 
   const parts = [judgment, evidence, limitation, nextAction].filter(Boolean);
   const joined = normalizeText(parts.join(" "));
-  if (activeJudgmentRule?.id === "memory_recall_judgment") {
+  if (
+    activeJudgmentRule?.id === "memory_recall_judgment" ||
+    activeJudgmentRule?.id === "coverage_anxiety_companion_judgment"
+  ) {
     return joined;
   }
   return enforceKeyDeclarativeEnding(joined, humanFrame.main_blocker);
