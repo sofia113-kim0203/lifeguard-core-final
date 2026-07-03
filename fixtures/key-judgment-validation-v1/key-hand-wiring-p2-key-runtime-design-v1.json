@@ -2,14 +2,8 @@
   "document": "key_hand_wiring_p2_key_runtime_design_v1",
   "gate": "HAND-P2-KEY-RUNTIME",
   "label": "Upload Entry → runSalesDirectorKeyTurn (KEY Runtime SSOT — 유일)",
-  "mode": "Design only · Tom Phase 2 Design GO (amended) · EXEC GO pending",
-  "status": "Phase 2 EXEC complete — Local + Preview PASS (Tom audit: key_runtime_entered)",
-  "merge_gate": {
-    "design_go": true,
-    "exec_go": true,
-    "exec_completed_at": "2026-07-03",
-    "preview_evidence": "fixtures/key-judgment-validation-v1/key-hand-wiring-p2-key-runtime-preview-evidence.json",
-    "hand_p2_preview_pass": true,
+  "mode": "Phase 2 EXEC complete · Tom audit key_runtime_entered",
+  "status": "Local + Preview PASS — Phase 3 Persona HOLD",
   "observed_at": "2026-07-03",
   "tom_amendment": {
     "rejected": "runKeyAuthorityRuntimeTurn (NEW) + runSalesDirectorKeyTurn body 추출",
@@ -29,7 +23,7 @@
     "no": "STOP"
   },
   "current_verdict": {
-    "one_key_runtime": "NO — Context 공유 ✅ · 사고 엔진 parallel ❌",
+    "one_key_runtime": "YES (Upload active) — runSalesDirectorKeyTurn via key_runtime_entered trace",
     "phase_1_proven": {
       "loadSalesDirectorTurnContext": "Local + Preview PASS",
       "evidence": "fixtures/key-judgment-validation-v1/key-upload-hand-wiring-p1-preview-snapshot-evidence.json",
@@ -245,12 +239,12 @@
   },
   "phase_sequence_locked": {
     "phase_1_snapshot": "COMPLETE — Local + Preview GO",
-    "phase_2_key_runtime": "Design GO (amended) — EXEC pending",
+    "phase_2_key_runtime": "COMPLETE — Local + Preview PASS",
     "phase_3_persona_outlet": "HOLD"
   },
   "jerry_stop": {
-    "submitted": "Phase 2 design v1 — Tom amendment applied",
-    "awaiting": "Tom EXEC GO",
+    "phase_2_exec": "complete",
+    "awaiting": "Tom — Phase 3 Persona or KEY singularity declaration",
     "command": "새 Runtime을 만들지 마라. runSalesDirectorKeyTurn을 성장시켜라."
   }
 }
