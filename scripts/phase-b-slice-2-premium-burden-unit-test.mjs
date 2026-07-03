@@ -10,6 +10,7 @@ import {
 } from "../server/intentGateLayer.js";
 import { finalizeHumanSalesDirectorResponse } from "../server/humanUnderstandingLoop.js";
 import { buildPhaseBSlice2PremiumBurdenJudgment } from "../server/keyBrain/phaseBSlice2PremiumBurdenJudgment.js";
+import { CARE_PLAN_TRANSITION } from "../server/keyBrain/phaseCSlice1CoverageCarePlan.js";
 import { ONE_BRAIN_SURFACES } from "../server/oneBrainResponseLayer.js";
 
 const SLICE2_Q = "보험료 부담돼.";
@@ -18,6 +19,8 @@ const DEFLECT_RE = /제일\s*불편|뭐가\s*불편|오늘은\s*확인이\s*목�
 const EMPATHY_OPENER_RE = /느껴지시는|느껴지|마음은\s*이해|걱정되시는/;
 const PREMIUM_CALC_OPENER_RE = /^현재\s*확인\s*가능한\s*월\s*보험료|^\d|원입니다/;
 const DIRECTION_RE = /^지금|^현재/;
+const FIRST_ACTION_RE = /이번에는.*같이\s*확인/;
+const COMPANION_PLAN_RE = /함께|같이/;
 
 function premiumFactBundle(overrides = {}) {
   return {
@@ -108,7 +111,9 @@ results.push(
     assert.match(text, /유지|구조|부담|줄이|우선|맞아\s*보입니다/, "value direction");
     assert.match(text, /보장|가치|납입|자료|등록/, "customer reason");
     assert.match(text, /단정하지\s*않|어렵/, "clear limit");
-    assert.match(text, /이번에는.*같이/, "companion pledge");
+    assert.match(text, new RegExp(CARE_PLAN_TRANSITION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "Phase C transition");
+    assert.match(text, COMPANION_PLAN_RE, "companion in Care Plan");
+    assert.doesNotMatch(text, FIRST_ACTION_RE, "no First Action overlap with Care Plan");
   }),
 );
 
@@ -133,7 +138,8 @@ results.push(
       companion_cluster_signals: ["reduction"],
     });
     assert.match(text, /부담이\s*큰\s*계약|줄이는\s*것보다/);
-    assert.match(text, /이번에는.*같이/);
+    assert.match(text, COMPANION_PLAN_RE, "companion in Care Plan");
+    assert.doesNotMatch(text, FIRST_ACTION_RE);
     assert.doesNotMatch(text, EMPATHY_OPENER_RE);
   }),
 );

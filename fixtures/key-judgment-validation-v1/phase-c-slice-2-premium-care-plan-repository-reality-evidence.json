@@ -1,0 +1,78 @@
+{
+  "schema_version": "phase-c-slice-2-premium-care-plan-repository-reality-v1",
+  "audit_purpose": "Slice 2 구현 전 Premium Intent Repository Reality — Tom 4-item checklist",
+  "primary_question": "보험료 부담돼.",
+  "negative_control": "보험료 얼마야?",
+  "recorded_at": "2026-07-04T02:10:00+09:00",
+  "git_short_sha": "059c624",
+  "pass_declaration": "none — reality confirmation only",
+  "tom_four_questions": {
+    "q1_current_premium_compose": {
+      "question": "현재 Premium Intent가 어떤 compose를 사용하는가?",
+      "answer": "sales_director_key → buildKeyStructuredResponse → activeJudgmentRule premium_burden_companion_judgment → buildPhaseBSlice2PremiumBurdenJudgment (Phase B Slice 2 override). compose_mode: key_structured.",
+      "confirmed": true,
+      "files": [
+        "server/humanUnderstandingLoop.js:859-866",
+        "server/keyBrain/phaseBSlice2PremiumBurdenJudgment.js",
+        "server/keyJudgmentRules.js:premium_burden_companion_judgment (legacy rule bypassed when phaseB returns)"
+      ]
+    },
+    "q2_care_plan_hook_point": {
+      "question": "Phase B Premium Judgment 이후 Care Plan을 어디에서 연결할 것인가?",
+      "answer": "Mirror Phase C Slice 1: buildKeyStructuredResponse — after phaseB premium block, extend carePlanText branch (currently only coverage_anxiety_companion_judgment at lines 869-876). Omit nextAction when Care Plan appended.",
+      "confirmed": true,
+      "hook_file": "server/humanUnderstandingLoop.js",
+      "hook_pattern": "premium_burden_companion_judgment → buildPhaseCSlice2PremiumCarePlanText",
+      "phase_c_slice1_precedent": "coverage_anxiety_companion_judgment → buildPhaseCSlice1CoverageCarePlanText"
+    },
+    "q3_lookup_vs_judgment_split": {
+      "question": "보험료 얼마야?(조회)와 보험료 부담돼.(판단)가 계속 분리되는가?",
+      "answer": "Yes. detectPremiumBurdenCompanionCluster excludes pure amount lookup. Local trace 059c624: burden → JC-PREMIUM-BURDEN-v1 + direction-first; lookup → premium_lookup + amount opener only.",
+      "confirmed": true,
+      "local_trace": {
+        "burden": {
+          "cluster": "JC-PREMIUM-BURDEN-v1",
+          "lookup_sub_intent": null,
+          "answer_prefix": "현재는 보험료를 줄이는 것보다 부담이 큰 계약부터"
+        },
+        "lookup": {
+          "cluster": null,
+          "lookup_sub_intent": "premium_lookup",
+          "answer_prefix": "현재 확인 가능한 월 보험료는"
+        }
+      }
+    },
+    "q4_hold_with_insufficient_data": {
+      "question": "Premium 데이터가 부족한 경우에도 Care Plan이 자연스럽게 HOLD를 유지하는가?",
+      "answer": "Phase B already HOLDs: P0 no policies, partial premium unknown. Care Plan Slice 2 must add timeline HOLD steps (가입 정보 저장 / 납입·보장 맞추기) — not enrollment push. Design required; not yet wired.",
+      "confirmed": true,
+      "phase_b_hold_cases": [
+        "policy_count 0 → judgment hold + nextAction 저장",
+        "premiumKnown false → structure-first judgment + 납입·보장내역 nextAction"
+      ],
+      "care_plan_hold_design_required": true
+    }
+  },
+  "cluster": {
+    "id": "JC-PREMIUM-BURDEN-v1",
+    "detector": "server/intentGateLayer.js — detectPremiumBurdenCompanionCluster",
+    "judgment_rule_id": "premium_burden_companion_judgment"
+  },
+  "tools": {
+    "premium_stats": true,
+    "coverage_gap_suppressed": true,
+    "coverage_gap_suppress_reason": "companion_cluster_jc_premium_burden_v1"
+  },
+  "phase_c_slice1_already_wired": {
+    "coverage_care_plan": true,
+    "premium_care_plan": false
+  },
+  "must_not_patterns_tom": [
+    "줄이세요",
+    "갈아타세요",
+    "이 상품이 좋습니다",
+    "새로 가입하세요"
+  ],
+  "recommended_next": "Tom Design audit → phase-c-slice-2-premium-care-plan-design-v1.json → implement",
+  "jerry_pass_declaration": "none"
+}

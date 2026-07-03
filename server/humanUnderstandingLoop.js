@@ -44,6 +44,7 @@ import {
 } from "./conversationRecognitionBridge.js";
 import { buildPhaseBSlice1CoverageJudgment } from "./keyBrain/phaseBSlice1CoverageJudgment.js";
 import { buildPhaseCSlice1CoverageCarePlanText } from "./keyBrain/phaseCSlice1CoverageCarePlan.js";
+import { buildPhaseCSlice2PremiumCarePlanText } from "./keyBrain/phaseCSlice2PremiumCarePlan.js";
 import { buildPhaseBSlice2PremiumBurdenJudgment } from "./keyBrain/phaseBSlice2PremiumBurdenJudgment.js";
 import {
   buildPhaseBSlice3DelegationResponse,
@@ -571,6 +572,7 @@ export function buildKeyStructuredResponse(
   let nextAction = buildKeyNextActionBlock(humanFrame.main_blocker, intent);
 
   let phaseBCoverageJudgment = null;
+  let phaseBPremiumJudgment = null;
 
   const activeJudgmentRule = resolveKeyJudgmentRule({
     question,
@@ -857,12 +859,12 @@ export function buildKeyStructuredResponse(
       nextAction = phaseBCoverageJudgment.nextAction;
     }
   } else if (activeJudgmentRule?.id === "premium_burden_companion_judgment") {
-    const phaseB = buildPhaseBSlice2PremiumBurdenJudgment({ factBundle, question });
-    if (phaseB) {
-      judgment = phaseB.judgment;
-      evidence = phaseB.evidence;
-      limitation = phaseB.limitation;
-      nextAction = phaseB.nextAction;
+    phaseBPremiumJudgment = buildPhaseBSlice2PremiumBurdenJudgment({ factBundle, question });
+    if (phaseBPremiumJudgment) {
+      judgment = phaseBPremiumJudgment.judgment;
+      evidence = phaseBPremiumJudgment.evidence;
+      limitation = phaseBPremiumJudgment.limitation;
+      nextAction = phaseBPremiumJudgment.nextAction;
     }
   }
 
@@ -873,7 +875,13 @@ export function buildKeyStructuredResponse(
           question,
           phaseBJudgment: phaseBCoverageJudgment,
         })
-      : null;
+      : activeJudgmentRule?.id === "premium_burden_companion_judgment"
+        ? buildPhaseCSlice2PremiumCarePlanText({
+            factBundle,
+            question,
+            phaseBJudgment: phaseBPremiumJudgment,
+          })
+        : null;
 
   const parts = [
     judgment,

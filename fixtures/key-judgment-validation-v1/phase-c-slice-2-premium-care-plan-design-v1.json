@@ -1,0 +1,120 @@
+{
+  "schema_version": "phase-c-slice-2-premium-care-plan-design-v1",
+  "status": "tom_design_go_awaiting_audit",
+  "recorded_at": "2026-07-04T02:10:00+09:00",
+  "authority": "Tom Design GO — implement only after this audit PASS",
+  "slice": {
+    "id": "phase_c_slice_2",
+    "name": "Premium Care Plan",
+    "primary_question": "보험료 부담돼.",
+    "cluster": "JC-PREMIUM-BURDEN-v1",
+    "completion_feel": "보험료를 당장 줄이라는 얘기가 아니라, 어떤 순서로 판단하면 되는지 알겠다."
+  },
+  "repository_reality": "fixtures/key-judgment-validation-v1/phase-c-slice-2-premium-care-plan-repository-reality-evidence.json",
+  "care_plan_contract": {
+    "ssot": "fixtures/key-judgment-validation-v1/phase-c-care-plan-contract-v1.json",
+    "slice2_requires_why": true,
+    "sequence": ["Transition", "What", "When", "Why", "Reassurance"]
+  },
+  "phase_flow": {
+    "phase_b": "Direction · Reason · Limitation (First Action omitted when Care Plan present)",
+    "transition": "그럼 앞으로는 이렇게 진행하면 됩니다.",
+    "phase_c": "① When What + Why · ② · ③ — co-execution voice (함께 확인/살펴봅니다)"
+  },
+  "compose_module": {
+    "path": "server/keyBrain/phaseCSlice2PremiumCarePlan.js",
+    "exports": [
+      "shouldApplyPhaseCSlice2PremiumCarePlan",
+      "buildPhaseCSlice2PremiumCarePlan",
+      "buildPhaseCSlice2PremiumCarePlanText",
+      "PREMIUM_CARE_PLAN_FORBIDDEN_RE"
+    ],
+    "reuse_from_slice1": [
+      "CARE_PLAN_TRANSITION from phaseCSlice1CoverageCarePlan.js",
+      "formatCarePlanSteps pattern — extend with why per step"
+    ]
+  },
+  "hul_wiring": {
+    "file": "server/humanUnderstandingLoop.js",
+    "changes": [
+      "Store phaseBPremiumJudgment from buildPhaseBSlice2PremiumBurdenJudgment",
+      "Extend carePlanText branch: premium_burden_companion_judgment → buildPhaseCSlice2PremiumCarePlanText",
+      "Omit nextAction when premium care plan text present (mirror Slice 1)"
+    ],
+    "do_not_modify": ["phaseBSlice2PremiumBurdenJudgment.js unless wiring bug"]
+  },
+  "step_format": {
+    "template": "① {when} {what} ({why})",
+    "example_primary": [
+      {
+        "when": "이번 달",
+        "what": "부담이 큰 계약부터 함께 확인합니다",
+        "why": "어디에서 부담이 생기는지 먼저 알아야 하기 때문입니다"
+      },
+      {
+        "when": "다음",
+        "what": "중복되거나 효율이 낮은 보장이 있는지 함께 살펴봅니다",
+        "why": "줄일 수 있는 부분이 있는지 판단하기 위해서입니다"
+      },
+      {
+        "when": "그다음",
+        "what": "필요한 보장은 유지하고, 조정이 필요한 부분만 다시 결정합니다",
+        "why": null
+      }
+    ]
+  },
+  "branch_logic": {
+    "default_structure_first": "Tom primary — structure before reduction",
+    "p0_no_policies": [
+      { "when": "이번 달", "what": "가입 정보 저장", "why": "부담을 보려면 먼저 등록된 계약이 필요하기 때문입니다" },
+      { "when": "저장 후", "what": "납입과 보장 구조를 함께 확인", "why": "숫자만으로는 가치 판단이 어렵기 때문입니다" }
+    ],
+    "premium_unknown": [
+      { "when": "이번 달", "what": "납입액과 보장내역을 함께 맞춥니다", "why": "급하게 줄이기 전에 구조를 봐야 하기 때문입니다" },
+      { "when": "다음", "what": "부담이 큰 항목부터 함께 확인합니다", "why": "어디서 부담이 생기는지부터 알아야 하기 때문입니다" }
+    ],
+    "gap_duplicates": [
+      { "when": "이번 달", "what": "겹치는 보장부터 함께 정리합니다", "why": "중복이 줄이기 전에 먼저일 수 있기 때문입니다" },
+      { "when": "다음", "what": "유지·조정이 필요한 부분만 다시 판단합니다", "why": "보장 공백 없이 조정하려면 순서가 필요하기 때문입니다" }
+    ],
+    "heaviest_dominates": [
+      { "when": "이번 달", "what": "부담이 큰 계약부터 함께 확인합니다", "why": "납입이 한쪽에 몰려 있을 수 있기 때문입니다" },
+      { "when": "다음", "what": "그 계약의 보장 가치를 함께 봅니다", "why": "줄일지 유지할지는 가치 확인 후에야 하기 때문입니다" },
+      { "when": "갱신 시기", "what": "유지·조정을 다시 판단합니다", "why": "그때 변경 여지를 함께 보면 되기 때문입니다", "conditional": "renewal_signal_or_default_third_step" }
+    ]
+  },
+  "must_not": [
+    "줄이세요",
+    "갈아타세요",
+    "이 상품이 좋습니다",
+    "새로 가입하세요",
+    "해지하세요",
+    "월 보험료는 N원 (calculation opener in Care Plan block)"
+  ],
+  "must": [
+    "구조를 확인한다",
+    "부담 원인을 찾는다",
+    "유지 여부를 판단한다",
+    "필요한 경우에만 조정을 검토한다",
+    "함께 실행 voice"
+  ],
+  "verification": {
+    "unit_test": "scripts/phase-c-slice-2-premium-care-plan-unit-test.mjs",
+    "npm": "test:phase-c-slice-2-premium-care-plan",
+    "preview_wiring": "trace:phase-c-slice-2-preview-wiring",
+    "preview_seat": "verify:phase-c-slice-2-preview-customer-seat",
+    "regression": "npm run regression:key-customer-validation-v1",
+    "negative_control": "보험료 얼마야? must remain premium_lookup"
+  },
+  "gate_sequence": [
+    "Local PASS",
+    "Commit",
+    "Push",
+    "Preview",
+    "Wiring",
+    "Customer seat + Care Plan Contract (incl. Why)",
+    "Regression 30/30",
+    "Slice close"
+  ],
+  "jerry_pass_declaration": "none"
+}
