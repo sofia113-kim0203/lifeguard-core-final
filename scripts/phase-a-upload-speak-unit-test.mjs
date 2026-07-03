@@ -168,7 +168,7 @@ function testFollowUpWhenExtractionFailedProvisional() {
     metadata_json: { policy_extraction_status: "failed" },
   };
   const snapshot = buildSnapshot({
-    policies: [{ id: "p-existing", product_name: "종합보장플랜" }],
+    policies: [{ id: "p-existing", product_name: "QA종합보장A" }],
     memoryFacts: [],
     conversation: { hasHistory: false },
   });
@@ -185,11 +185,10 @@ function testFollowUpWhenExtractionFailedProvisional() {
 
   assert.ok(speak?.text);
   assert.match(speak.text, /내용 확인을 마쳤습니다/);
-  assert.match(speak.text, /식별 정보는 아직 잡히지 않았/);
-  assert.match(speak.text, /나란히 두고/);
+  assert.match(speak.text, /등록되어 있는 보험/);
+  assert.doesNotMatch(speak.text, /QA/i);
   assert.doesNotMatch(speak.text, /이어서 더 확인/);
   assert.doesNotMatch(speak.text, /특약·보장 범위까지는 아직 말씀드리기 어렵습니다/);
-  assert.doesNotMatch(speak.text, /특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로/);
   assert.equal(validateDu1CustomerSpeech(speak.text).ok, true);
 }
 

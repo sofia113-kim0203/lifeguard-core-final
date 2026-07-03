@@ -30,6 +30,8 @@ const OCR_FORBIDDEN_SPEECH_RE = [
 
 const SPECULATION_RE = /것\s*같습니다|흐름과\s*맞춰\s*보면|그다음\s*단계로\s*보입니다|평소[^\n]{0,20}챙기셨는데/;
 const MEMORY_AS_REGISTERED_RE = /기억[^\n]{0,24}등록|등록[^\n]{0,24}기억/;
+const QA_TEST_ENV_SPEECH_RE =
+  /\bqa\b|qa[\d_\-가-힣]*|staging|synthetic|fixture|dummy|mock|seed|테스트\s*용|test\s*only|test[\d_]/i;
 
 function joinKoLabels(labels = []) {
   const list = labels.filter(Boolean);
@@ -254,6 +256,9 @@ export function validateDu1CustomerSpeech(text = "") {
   }
   if (MEMORY_AS_REGISTERED_RE.test(normalized)) {
     return { ok: false, reason: "memory_as_registered_forbidden" };
+  }
+  if (QA_TEST_ENV_SPEECH_RE.test(normalized)) {
+    return { ok: false, reason: "qa_test_env_forbidden" };
   }
   return { ok: true, reason: "key_only_speech" };
 }
@@ -549,15 +554,22 @@ function buildFollowUpEvidenceSegments(summary = {}, linkedPolicyIds = []) {
   return segments;
 }
 
+function isCustomerSafePolicyLabel(text = "") {
+  const normalized = normalizeText(text);
+  if (normalized.length < 2) return false;
+  if (QA_TEST_ENV_SPEECH_RE.test(normalized)) return false;
+  return true;
+}
+
 function summarizePolicySituationLabel(policies = []) {
   const axes = summarizeExistingPolicyAxes(policies);
   if (axes.length === 1) return `${axes[0]} 축 보험`;
   if (axes.length > 1) return `${joinKoLabels(axes)} 축 보험`;
   const productName = normalizeText(policies[0]?.product_name ?? "");
-  if (productName.length >= 2) {
+  if (isCustomerSafePolicyLabel(productName)) {
     return `「${productName.slice(0, 28)}」`;
   }
-  return "등록돼 있는 보험";
+  return "등록되어 있는 보험";
 }
 
 function buildFollowUpForwardStepSegment() {
