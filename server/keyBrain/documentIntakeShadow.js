@@ -109,6 +109,23 @@ export function buildKeyContextLoadedStep({
   };
 }
 
+export function buildKeyRuntimeEnteredStep({
+  keyEntry = "document_intake",
+  primitive = "runSalesDirectorKeyTurn",
+} = {}) {
+  return {
+    step: "key_runtime_entered",
+    actor: "KEY",
+    gate: "HAND-P2",
+    payload: {
+      primitive,
+      key_entry: keyEntry,
+      runtime_ssot: true,
+      subject: "KEY",
+    },
+  };
+}
+
 function buildInterpretShadow({
   document = {},
   hasAnalysisConsent = false,
@@ -189,6 +206,8 @@ export function buildKeyDocumentIntakeShadowTrace({
   loadedContext = null,
   contextSnapshot = null,
   snapshotFromCache = false,
+  keyRuntimeEntered = false,
+  keyEntry = "document_intake",
 } = {}) {
   const keyReads = buildReadsShadow({ document });
   const keyContextLoaded = buildKeyContextLoadedStep({
@@ -229,6 +248,10 @@ export function buildKeyDocumentIntakeShadowTrace({
     traceSteps.push(keyContextLoaded);
   }
 
+  if (keyRuntimeEntered) {
+    traceSteps.push(buildKeyRuntimeEnteredStep({ keyEntry }));
+  }
+
   traceSteps.push({
     step: "key_interprets",
     actor: "KEY",
@@ -267,6 +290,9 @@ export function buildKeyDocumentIntakeShadowTrace({
     trace_steps: traceSteps,
     key_reads: keyReads,
     key_context_loaded: keyContextLoaded?.payload ?? null,
+    key_runtime_entered: keyRuntimeEntered
+      ? buildKeyRuntimeEnteredStep({ keyEntry }).payload
+      : null,
     key_interprets: keyInterprets,
     key_first_judgment: keyFirstJudgment,
     context_snapshot_id: contextSnapshot?.context_snapshot_id ?? null,

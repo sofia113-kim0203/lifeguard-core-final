@@ -191,6 +191,24 @@ function runDesignTool({ existingDesignContext = null } = {}) {
  */
 export function planKeyTools(classification = {}, loadedContext = null, question = "") {
   const intent = classification.intent ?? "general_consultation";
+
+  if (intent === "document_intake") {
+    const tools = [KEY_TOOLS.SNAPSHOT];
+    if (loadedContext?.memory === "present") {
+      tools.push(KEY_TOOLS.MEMORY);
+    }
+    return {
+      intent,
+      subIntent: null,
+      legacy_slice: null,
+      companion_cluster: null,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "document_intake_entry_hand_p2",
+      document_intake: true,
+    };
+  }
+
   const subIntent = classification.lookup_sub_intent ?? null;
   const legacySlice = matchToolBrainSliceQuestion(question);
   const tools = [KEY_TOOLS.SNAPSHOT];

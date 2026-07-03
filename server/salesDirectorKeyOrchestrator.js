@@ -25,6 +25,20 @@ export {
   shouldUseSalesDirectorKeyOrchestrator,
 } from "./salesDirectorKeyToolRegistry.js";
 
+/** Tom Hand P2 — 유일한 KEY Runtime SSOT. Entry만 확장; 새 Runtime primitive 금지. */
+export const KEY_ENTRY = {
+  QUESTION: "question",
+  DOCUMENT_INTAKE: "document_intake",
+};
+
+export const KEY_RUNTIME_SSOT = "runSalesDirectorKeyTurn";
+
+export const DOCUMENT_INTAKE_CONSULTATION_INTENT = {
+  intent: "document_intake",
+  lookup_sub_intent: null,
+  companion_cluster: null,
+};
+
 function createKeyTruthGatePlaceholder({ draftText = "", factBundle = {}, loadedContext = null } = {}) {
   return {
     status: "placeholder_p10_1_key",
@@ -44,10 +58,11 @@ function createKeyTruthGatePlaceholder({ draftText = "", factBundle = {}, loaded
   };
 }
 
-function buildKeyModeDecision(consultationIntent = null) {
+function buildKeyModeDecision(consultationIntent = null, keyEntry = KEY_ENTRY.QUESTION) {
   return {
     mode: SALES_DIRECTOR_MODES.KEY,
     key_orchestrator: true,
+    key_entry: keyEntry,
     pilotKey: null,
     tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
     consultationIntent,
@@ -61,6 +76,9 @@ function buildKeyAgentTurn({
   unified = null,
   toolRun = null,
   plan = null,
+  keyEntry = KEY_ENTRY.QUESTION,
+  document = null,
+  hasAnalysisConsent = false,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
   const legacySlice = plan?.legacy_slice ?? null;
@@ -89,6 +107,15 @@ function buildKeyAgentTurn({
       memory_fact_count: customerContextBundle?.memoryFactCount ?? 0,
       customer_context_used: true,
       key_orchestrator: true,
+      key_entry: keyEntry,
+      key_runtime_ssot: KEY_RUNTIME_SSOT,
+      ...(keyEntry === KEY_ENTRY.DOCUMENT_INTAKE
+        ? {
+            document_intake: true,
+            document_id: document?.id ?? null,
+            has_analysis_consent: hasAnalysisConsent === true,
+          }
+        : {}),
       key_tools_called: toolRun?.tools_called ?? [],
       premium_stats: toolRun?.premium_stats ?? null,
       snapshot_tool_used: toolRun?.snapshot_used === true,
@@ -145,14 +172,20 @@ export async function runSalesDirectorKeyTurn({
   modeDecision = null,
   latency = null,
   loopStartedAt = null,
+  keyEntry = KEY_ENTRY.QUESTION,
+  document = null,
+  hasAnalysisConsent = false,
 } = {}) {
   const consultationIntent =
-    modeDecision?.consultationIntent ?? classifyConsultationIntent(question);
+    keyEntry === KEY_ENTRY.DOCUMENT_INTAKE
+      ? DOCUMENT_INTAKE_CONSULTATION_INTENT
+      : modeDecision?.consultationIntent ?? classifyConsultationIntent(question);
   const keyLatency = latency ?? createSalesDirectorLatencyBucket();
-  const keyModeDecision = buildKeyModeDecision(consultationIntent);
+  const keyModeDecision = buildKeyModeDecision(consultationIntent, keyEntry);
 
   const planStart = Date.now();
-  const plan = planKeyTools(consultationIntent, loadedContext, question);
+  const planQuestion = keyEntry === KEY_ENTRY.DOCUMENT_INTAKE ? "" : question;
+  const plan = planKeyTools(consultationIntent, loadedContext, planQuestion);
   keyLatency.key_plan_ms = markLatencyMs(planStart);
 
   const toolsStart = Date.now();
@@ -198,6 +231,9 @@ export async function runSalesDirectorKeyTurn({
     unified,
     toolRun,
     plan,
+    keyEntry,
+    document,
+    hasAnalysisConsent,
   });
 
   const toolBrainAbsorbed = buildToolBrainAbsorbedTrace({
@@ -221,6 +257,8 @@ export async function runSalesDirectorKeyTurn({
     legacy_tom_internal_route: agentTurn.tomInternalRoute,
     key_orchestrator: {
       status: "p10_1_skeleton",
+      key_entry: keyEntry,
+      key_runtime_ssot: KEY_RUNTIME_SSOT,
       plan,
       tools_called: toolRun.tools_called ?? [],
       skipped_layers: KEY_SKIPPED_LAYERS,
@@ -252,6 +290,8 @@ export async function runSalesDirectorKeyTurn({
       truthGate,
       latency: keyLatency,
       loopStartedAt: loopStartedAt ?? startedAt,
+      keyEntry,
+      keyRuntimeSsot: KEY_RUNTIME_SSOT,
     },
   };
 }

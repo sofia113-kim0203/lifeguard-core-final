@@ -7,12 +7,17 @@ import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
 import {
   buildLoadedContextFromSnapshot,
   loadSalesDirectorTurnContext,
+  snapshotToContextBundle,
 } from "../server/customerContextSnapshot.js";
 import { buildKeyDocumentIntakeShadowTrace } from "../server/keyBrain/documentIntakeShadow.js";
 import {
   appendKeyFirstSpeakTrace,
   buildCustomerFirstSentence,
 } from "../server/keyBrain/documentFirstSpeak.js";
+import {
+  KEY_ENTRY,
+  runSalesDirectorKeyTurn,
+} from "../server/salesDirectorKeyOrchestrator.js";
 import {
   getKeyUploadEntryMode,
   isKeyUploadEntryActiveEnabled,
@@ -127,11 +132,13 @@ export default async function handler(req, res) {
   let contextSnapshot = null;
   let loadedContext = null;
   let snapshotFromCache = false;
+  let unifiedState = null;
   try {
     const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
       requestHistory: [],
     });
     contextSnapshot = turnContext.snapshot;
+    unifiedState = turnContext.unifiedState;
     loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
     snapshotFromCache = turnContext.from_cache === true;
   } catch {
@@ -139,6 +146,39 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ ok: false, reason: "context_snapshot_load_failed" }));
     return;
+  }
+
+  let keyRuntimeEntered = false;
+  if (activeAuthority) {
+    const customerContextBundle = snapshotToContextBundle(contextSnapshot) ?? {};
+    const keyTurn = await runSalesDirectorKeyTurn({
+      userSupabase: supabase,
+      customerId: auth.customerId,
+      question: "",
+      keyEntry: KEY_ENTRY.DOCUMENT_INTAKE,
+      document,
+      hasAnalysisConsent,
+      snapshot: contextSnapshot,
+      unified: unifiedState,
+      loadedContext,
+      customerContextBundle,
+      reconciliationWarning: null,
+      env: process.env,
+    });
+
+    if (!keyTurn?.handled || !keyTurn.result) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: "key_runtime_failed",
+          detail: keyTurn?.reason ?? "runSalesDirectorKeyTurn_not_handled",
+        }),
+      );
+      return;
+    }
+    keyRuntimeEntered = true;
   }
 
   const intakeTrace = buildKeyDocumentIntakeShadowTrace({
@@ -150,6 +190,8 @@ export default async function handler(req, res) {
     loadedContext,
     contextSnapshot,
     snapshotFromCache,
+    keyRuntimeEntered,
+    keyEntry: KEY_ENTRY.DOCUMENT_INTAKE,
   });
 
   let customerFirstSentence = null;
