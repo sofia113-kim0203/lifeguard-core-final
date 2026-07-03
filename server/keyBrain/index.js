@@ -14,6 +14,12 @@ export {
   KEY_FIRST_JUDGMENT_SCHEMA_VERSION,
 } from "./documentFirstJudgment.js";
 export {
+  appendKeyFirstSpeakTrace,
+  buildCustomerFirstSentence,
+  validateKu2cSpeakOrder,
+  KEY_FIRST_SPEAK_SCHEMA_VERSION,
+} from "./documentFirstSpeak.js";
+export {
   getKeyUploadEntryMode,
   isKeyUploadEntryShadowEnabled,
   isKeyUploadEntryActiveEnabled,

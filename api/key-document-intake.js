@@ -1,10 +1,14 @@
 /**
  * KU-1 — POST /api/key-document-intake
- * KU-2a+2b — active: unified KEY upload authority (judgment trace + Work Order gate).
+ * KU-2a+2b+2c — active: unified KEY upload authority (judgment + speak + Work Order gate).
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
 import { buildKeyDocumentIntakeShadowTrace } from "../server/keyBrain/documentIntakeShadow.js";
+import {
+  appendKeyFirstSpeakTrace,
+  buildCustomerFirstSentence,
+} from "../server/keyBrain/documentFirstSpeak.js";
 import {
   getKeyUploadEntryMode,
   isKeyUploadEntryActiveEnabled,
@@ -123,6 +127,14 @@ export default async function handler(req, res) {
     includeFirstJudgment: activeAuthority,
   });
 
+  let customerFirstSentence = null;
+  if (activeAuthority && intakeTrace.key_first_judgment) {
+    customerFirstSentence = buildCustomerFirstSentence(intakeTrace.key_first_judgment, { document });
+  }
+  let resolvedTrace = customerFirstSentence
+    ? appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence)
+    : intakeTrace;
+
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
   let workOrderId = null;
 
@@ -132,7 +144,7 @@ export default async function handler(req, res) {
       workOrderId,
       customerId: auth.customerId,
       documentId,
-      dispatchPlan: intakeTrace.dispatch_plan,
+      dispatchPlan: resolvedTrace.dispatch_plan,
       ttlMs: resolveKeyWorkOrderTtlMs(process.env),
     });
 
@@ -150,10 +162,10 @@ export default async function handler(req, res) {
       return;
     }
 
-    intakeTrace.gate = KEY_UPLOAD_ACTIVE_GATE;
-    intakeTrace.work_order = workOrderRecord;
-    intakeTrace.trace_steps = [
-      ...(intakeTrace.trace_steps ?? []),
+    resolvedTrace.gate = KEY_UPLOAD_ACTIVE_GATE;
+    resolvedTrace.work_order = workOrderRecord;
+    resolvedTrace.trace_steps = [
+      ...(resolvedTrace.trace_steps ?? []),
       {
         step: "work_order_issued",
         actor: "KEY",
@@ -172,12 +184,13 @@ export default async function handler(req, res) {
       mode: responseMode,
       subject: "KEY",
       document_id: documentId,
-      intake_trace: intakeTrace,
-      key_first_judgment: intakeTrace.key_first_judgment ?? null,
+      intake_trace: resolvedTrace,
+      key_first_judgment: resolvedTrace.key_first_judgment ?? null,
+      customer_first_sentence: resolvedTrace.customer_first_sentence ?? null,
       work_order_id: workOrderId,
       work_order_ordered_by: workOrderId ? "KEY" : null,
       factory_executed: false,
-      customer_speak_changed: false,
+      customer_speak_changed: Boolean(resolvedTrace.customer_speak_changed),
     }),
   );
 }

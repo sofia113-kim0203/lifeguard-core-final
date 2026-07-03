@@ -41,6 +41,8 @@ export async function requestKeyDocumentIntake(documentId, { categoryKey = null,
       work_order_id: payload.work_order_id ?? null,
       work_order_ordered_by: payload.work_order_ordered_by ?? null,
       key_first_judgment: payload.key_first_judgment ?? payload.intake_trace?.key_first_judgment ?? null,
+      customer_first_sentence: payload.customer_first_sentence ?? payload.intake_trace?.customer_first_sentence ?? null,
+      customer_speak_changed: Boolean(payload.customer_speak_changed),
       intake_trace: payload.intake_trace ?? null,
     };
   } catch (error) {

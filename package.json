@@ -165,6 +165,8 @@
     "test:key-upload-ku2a-work-order-gate": "node scripts/key-upload-ku2a-work-order-gate-unit-test.mjs",
     "test:key-upload-ku2b-judgment-trace": "node scripts/key-upload-ku2b-judgment-trace-unit-test.mjs",
     "verify:key-upload-ku2b-preview-trace": "node scripts/key-upload-ku2b-preview-trace-probe.mjs",
+    "test:key-upload-ku2c-first-speak": "node scripts/key-upload-ku2c-first-speak-unit-test.mjs",
+    "verify:key-upload-ku2c-preview-speak": "node scripts/key-upload-ku2c-preview-speak-probe.mjs",
     "verify:key-upload-ku2a-preview-gate": "node scripts/key-upload-ku2a-preview-gate-probe.mjs",
     "test:key-v2-key-persona": "npm run test:key-v2-policy-family && npm run test:key-v2-claim-family && npm run test:key-v2-memory-family && npm run test:key-v2-relationship-family && npm run test:key-v2-phase-31 && npm run test:key-persona-v1-customer-journey",
     "test:key-persona-v1-customer-journey": "node scripts/key-persona-v1-customer-journey-unit-test.mjs",
