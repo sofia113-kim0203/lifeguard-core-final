@@ -253,6 +253,8 @@ function buildClaimDocumentsJudgment({ factBundle = {}, question = "" } = {}) {
 
 function isMemoryRecallQuestion(q = "") {
   if (/^기억(?:해|나)\??$/.test(q)) return true;
+  // Q3-S1 — bare self-presence recall ("나를 기억해?" etc.), no prior-context required
+  if (/(?:나|저|내).{0,6}기억(?:해|나|하고\s*있(?:어)?)?/.test(q)) return true;
   if (/뭐라고\s*(?:했|말)/.test(q)) return true;
   if (/걱정.{0,12}(?:했|하|한|던).{0,12}기억/.test(q)) return true;
   if (!/기억/.test(q)) return false;

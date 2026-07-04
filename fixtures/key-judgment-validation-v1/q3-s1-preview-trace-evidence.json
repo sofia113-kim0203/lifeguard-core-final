@@ -1,0 +1,20 @@
+{
+  "audit": "q3_s1_preview_memory_recall_trace",
+  "schema_version": "q3-s1-preview-trace-v1",
+  "mode": "preview_observation_only",
+  "observed_at": "2026-07-04T18:35:20.419Z",
+  "preview_base": "https://lifeguard-core-final-prkiy4r66-70sofia113-1918s-projects.vercel.app",
+  "question": "나를 기억해?",
+  "local_expected_judgment_rule": "memory_recall_judgment",
+  "probe_ok": true,
+  "probe_error": null,
+  "response_source": "sales_director_key",
+  "compose_mode": "key_structured",
+  "classification_intent": null,
+  "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요.",
+  "answer_length": 95,
+  "generic_filler": false,
+  "memory_recall_wording": true,
+  "verdict": "observe_ok",
+  "note": "judgment inferred from answer fingerprint + local resolveKeyJudgmentRule; runtime trace has no judgment_rule_id field"
+}

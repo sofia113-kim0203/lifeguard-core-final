@@ -1,0 +1,44 @@
+{
+  "audit": "q3_s1_memory_recall_pattern_fix",
+  "schema_version": "q3-s1-evidence-v1",
+  "slice": "Q3-S1",
+  "status": "preview_verified",
+  "observed_at": "2026-07-05T03:35:00.000Z",
+  "tom_go": true,
+  "s2_hold": true,
+  "changes": [
+    {
+      "file": "server/keyJudgmentRules.js",
+      "change": "isMemoryRecallQuestion — add (?:나|저|내).{0,6}기억(?:해|나|하고\\s*있(?:어)?)? for bare self-presence recall"
+    },
+    {
+      "file": "scripts/key-v2-phase-22-key-memory-recall-unit-test.mjs",
+      "change": "V2-Mr1b confirmed memory + V2-Mr1c empty memory for \"나를 기억해?\" with general_consultation (runtime shape)"
+    }
+  ],
+  "local_trace": {
+    "question": "나를 기억해?",
+    "classification_intent": "general_consultation",
+    "judgment_rule": "memory_recall_judgment",
+    "compose_mode": "key_structured",
+    "generic_filler": false,
+    "answer_preview": "지금은 확인된 기억이 없어요. 대화는 이어가고 있지만, 저장된 기억은 아직 확인되지 않았어요. 지금 걸리는 부분부터 적어 주셔도 돼요. 그 기준으로 같이 정리해 드릴게요."
+  },
+  "validation": {
+    "test_key_v2_phase_22": "PASS (6/6)",
+    "test_key_v2_memory_family": "PASS",
+    "test_key_v2_key_persona": "PASS"
+  },
+  "preview_trace": {
+    "preview_base": "https://lifeguard-core-final-prkiy4r66-70sofia113-1918s-projects.vercel.app",
+    "deployment_id": "dpl_Dxc6N4kHWiBbYoKKASufwHchy1BK",
+    "judgment_rule": "memory_recall_judgment",
+    "compose_mode": "key_structured",
+    "response_source": "sales_director_key",
+    "generic_filler": false,
+    "verdict": "observe_ok",
+    "evidence_ref": "fixtures/key-judgment-validation-v1/q3-s1-preview-trace-evidence.json"
+  },
+  "preview_note": "Preview deploy only — no push, no alias promote, Production HOLD.",
+  "prior_readonly_ref": "fixtures/key-judgment-validation-v1/q3-persona-presence-readonly-audit.json"
+}
