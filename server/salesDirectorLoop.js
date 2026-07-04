@@ -48,8 +48,53 @@ import {
   runCorporateKeyLoopTurn,
   shouldRunCorporateKeyLoopTurn,
 } from "./entity/corporate/runCorporateKeyLoopTurn.js";
+import {
+  attachF8LegacyBackfillToTrace,
+  attachKeyPreloadControlToSalesDirectorTrace,
+  backfillMissingLegacyFactoryPreloads,
+  buildKeyChatPreloadActiveFallbackTrace,
+  buildKeyChatPreloadActiveTrace,
+  buildKeyChatPreloadShadowTrace,
+  buildKeyPreloadPlanBundle,
+  executeSelectiveFactoryPreloads,
+  factoryContextsFromTuple,
+  getKeyChatPreloadControlMode,
+  KEY_CHAT_PRELOAD_CONTROL_MODES,
+  loadFactoryPreloadByKey,
+  shouldExecuteSelectivePreload,
+} from "./keyBrain/chatPreloadControl.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
+
+const CHAT_FACTORY_PRELOAD_LOADERS = {
+  loadCoverageGap: loadSalesDirectorCoverageGapContext,
+  loadUnderwriting: loadSalesDirectorUnderwritingRiskContext,
+  loadRecommendation: loadSalesDirectorRecommendationContext,
+  loadDesign: loadSalesDirectorInsuranceDesignContext,
+};
+
+async function loadLegacyFullFactoryPreloads(userSupabase, customerId) {
+  return Promise.all([
+    loadSalesDirectorCoverageGapContext(userSupabase, customerId),
+    loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
+    loadSalesDirectorRecommendationContext(userSupabase, customerId),
+    loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
+  ]);
+}
+
+function createChatFactoryPreloadLoader(userSupabase, customerId) {
+  return (factoryKey) =>
+    loadFactoryPreloadByKey(userSupabase, customerId, factoryKey, CHAT_FACTORY_PRELOAD_LOADERS);
+}
+
+function withKeyPreloadShadowTrace(result, keyPreloadShadowTrace) {
+  if (!result || !keyPreloadShadowTrace) return result;
+  result.salesDirectorTrace = attachKeyPreloadControlToSalesDirectorTrace(
+    result.salesDirectorTrace,
+    keyPreloadShadowTrace,
+  );
+  return result;
+}
 
 export function normalizeSalesDirectorQuestion(question = "") {
   return String(question ?? "").replace(/\s+/g, " ").trim();
@@ -186,40 +231,209 @@ export async function runSalesDirectorLoopTurn({
   let underwritingRiskContext = null;
   let recommendationContext = null;
   let designContext = null;
+  let keyPreloadShadowTrace = null;
+  const preloadControlMode = getKeyChatPreloadControlMode(env);
+  const shadowPreloadEnabled =
+    preloadControlMode === KEY_CHAT_PRELOAD_CONTROL_MODES.SHADOW;
+  const activePreloadEnabled =
+    preloadControlMode === KEY_CHAT_PRELOAD_CONTROL_MODES.ACTIVE;
+  const snapshotFirstPreloadEnabled = shadowPreloadEnabled || activePreloadEnabled;
+
   if (!snapshot || !unified) {
     const snapshotLoadStart = Date.now();
-    const [turnContext, gapContext, uwContext, recContext, desContext] = await Promise.all([
-      loadSalesDirectorTurnContext(userSupabase, customerId, {
+    if (snapshotFirstPreloadEnabled) {
+      const turnContext = await loadSalesDirectorTurnContext(userSupabase, customerId, {
         requestHistory: history,
-      }),
-      loadSalesDirectorCoverageGapContext(userSupabase, customerId),
-      loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
-      loadSalesDirectorRecommendationContext(userSupabase, customerId),
-      loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
-    ]);
-    snapshot = snapshot ?? turnContext.snapshot;
-    unified = unified ?? turnContext.unifiedState;
-    coverageGapContext = gapContext;
-    underwritingRiskContext = uwContext;
-    recommendationContext = recContext;
-    designContext = desContext;
-    latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
-    if (turnContext.from_cache) {
-      latency.snapshot_cache_hit = true;
-    }
-  } else {
-    [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
-      await Promise.all([
+      });
+      snapshot = snapshot ?? turnContext.snapshot;
+      unified = unified ?? turnContext.unifiedState;
+      latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
+      if (turnContext.from_cache) {
+        latency.snapshot_cache_hit = true;
+      }
+
+      const earlySnapshotCheck = assertSnapshotReady(snapshot);
+      const classification = earlySnapshotCheck.ok
+        ? classifyConsultationIntent(trimmedQuestion)
+        : null;
+      const keyOrchestratorEligible =
+        earlySnapshotCheck.ok &&
+        shouldUseSalesDirectorKeyOrchestrator({
+          question: trimmedQuestion,
+          customerId,
+          consultationIntent: classification,
+          env,
+        });
+
+      if (shadowPreloadEnabled && earlySnapshotCheck.ok) {
+        keyPreloadShadowTrace = buildKeyChatPreloadShadowTrace({
+          question: trimmedQuestion,
+          loadedContext: earlySnapshotCheck.loadedContext,
+          history,
+          unified,
+          customerId,
+        });
+      }
+
+      if (
+        shouldExecuteSelectivePreload({
+          preloadControlMode,
+          keyOrchestratorEligible,
+        }) &&
+        earlySnapshotCheck.ok
+      ) {
+        const preloadStartedAt = Date.now();
+        try {
+          const planBundle = buildKeyPreloadPlanBundle({
+            question: trimmedQuestion,
+            loadedContext: earlySnapshotCheck.loadedContext,
+            history,
+            unified,
+            customerId,
+          });
+          const loadFactoryPreload = createChatFactoryPreloadLoader(userSupabase, customerId);
+          const selectiveResult = await executeSelectiveFactoryPreloads({
+            factoryKeys: planBundle.keyPlannedFactoryPreloads,
+            loadFactoryPreload,
+          });
+          keyPreloadShadowTrace = buildKeyChatPreloadActiveTrace({
+            planBundle,
+            selectiveResult,
+            latencyPreloadMs: markLatencyMs(preloadStartedAt),
+          });
+          ({ coverageGapContext, underwritingRiskContext, recommendationContext, designContext } =
+            selectiveResult.contexts);
+        } catch (error) {
+          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
+            fallbackReason: "plan_failed",
+            error: error instanceof Error ? error.message : "active_preload_failed",
+          });
+          [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
+            await loadLegacyFullFactoryPreloads(userSupabase, customerId);
+        }
+      } else {
+        if (activePreloadEnabled && earlySnapshotCheck.ok) {
+          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
+            planBundle: buildKeyPreloadPlanBundle({
+              question: trimmedQuestion,
+              loadedContext: earlySnapshotCheck.loadedContext,
+              history,
+              unified,
+              customerId,
+            }),
+            fallbackReason: keyOrchestratorEligible ? "plan_failed" : "orchestrator_ineligible",
+          });
+        }
+        [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
+          await loadLegacyFullFactoryPreloads(userSupabase, customerId);
+      }
+    } else {
+      const [turnContext, gapContext, uwContext, recContext, desContext] = await Promise.all([
+        loadSalesDirectorTurnContext(userSupabase, customerId, {
+          requestHistory: history,
+        }),
         loadSalesDirectorCoverageGapContext(userSupabase, customerId),
         loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
         loadSalesDirectorRecommendationContext(userSupabase, customerId),
         loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
       ]);
+      snapshot = snapshot ?? turnContext.snapshot;
+      unified = unified ?? turnContext.unifiedState;
+      coverageGapContext = gapContext;
+      underwritingRiskContext = uwContext;
+      recommendationContext = recContext;
+      designContext = desContext;
+      latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
+      if (turnContext.from_cache) {
+        latency.snapshot_cache_hit = true;
+      }
+    }
+  } else {
+    if (snapshotFirstPreloadEnabled) {
+      const earlySnapshotCheck = assertSnapshotReady(snapshot);
+      const classification = earlySnapshotCheck.ok
+        ? classifyConsultationIntent(trimmedQuestion)
+        : null;
+      const keyOrchestratorEligible =
+        earlySnapshotCheck.ok &&
+        shouldUseSalesDirectorKeyOrchestrator({
+          question: trimmedQuestion,
+          customerId,
+          consultationIntent: classification,
+          env,
+        });
+
+      if (shadowPreloadEnabled && earlySnapshotCheck.ok) {
+        keyPreloadShadowTrace = buildKeyChatPreloadShadowTrace({
+          question: trimmedQuestion,
+          loadedContext: earlySnapshotCheck.loadedContext,
+          history,
+          unified,
+          customerId,
+        });
+      }
+
+      if (
+        shouldExecuteSelectivePreload({
+          preloadControlMode,
+          keyOrchestratorEligible,
+        }) &&
+        earlySnapshotCheck.ok
+      ) {
+        const preloadStartedAt = Date.now();
+        try {
+          const planBundle = buildKeyPreloadPlanBundle({
+            question: trimmedQuestion,
+            loadedContext: earlySnapshotCheck.loadedContext,
+            history,
+            unified,
+            customerId,
+          });
+          const loadFactoryPreload = createChatFactoryPreloadLoader(userSupabase, customerId);
+          const selectiveResult = await executeSelectiveFactoryPreloads({
+            factoryKeys: planBundle.keyPlannedFactoryPreloads,
+            loadFactoryPreload,
+          });
+          keyPreloadShadowTrace = buildKeyChatPreloadActiveTrace({
+            planBundle,
+            selectiveResult,
+            latencyPreloadMs: markLatencyMs(preloadStartedAt),
+          });
+          ({ coverageGapContext, underwritingRiskContext, recommendationContext, designContext } =
+            selectiveResult.contexts);
+        } catch (error) {
+          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
+            fallbackReason: "plan_failed",
+            error: error instanceof Error ? error.message : "active_preload_failed",
+          });
+          [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
+            await loadLegacyFullFactoryPreloads(userSupabase, customerId);
+        }
+      } else {
+        if (activePreloadEnabled && earlySnapshotCheck.ok) {
+          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
+            planBundle: buildKeyPreloadPlanBundle({
+              question: trimmedQuestion,
+              loadedContext: earlySnapshotCheck.loadedContext,
+              history,
+              unified,
+              customerId,
+            }),
+            fallbackReason: keyOrchestratorEligible ? "plan_failed" : "orchestrator_ineligible",
+          });
+        }
+        [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
+          await loadLegacyFullFactoryPreloads(userSupabase, customerId);
+      }
+    } else {
+      [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
+        await loadLegacyFullFactoryPreloads(userSupabase, customerId);
+    }
   }
 
   const memoryHydrateStart = Date.now();
   const snapshotCheck = assertSnapshotReady(snapshot);
-  if (!snapshotCheck.ok) return snapshotCheck;
+  if (!snapshotCheck.ok) return withKeyPreloadShadowTrace(snapshotCheck, keyPreloadShadowTrace);
 
   const { loadedContext, bundle: customerContextBundle } = snapshotCheck;
   customerContextBundle.coverageGapContext = coverageGapContext ?? customerContextBundle.coverageGapContext;
@@ -288,7 +502,7 @@ export async function runSalesDirectorLoopTurn({
         entity_context_passthrough: entityContextPassthrough,
         key_loop_trace: keyLoopTrace,
       };
-      return corpTurn.result;
+      return withKeyPreloadShadowTrace(corpTurn.result, keyPreloadShadowTrace);
     }
   }
 
@@ -329,18 +543,51 @@ export async function runSalesDirectorLoopTurn({
         entity_context_passthrough: entityContextPassthrough,
         key_loop_trace: keyLoopTrace,
       };
-      return keyTurn.result;
+      return withKeyPreloadShadowTrace(keyTurn.result, keyPreloadShadowTrace);
     }
 
     keyLoopTrace.failed_reason = keyTurn?.reason ?? "key_turn_not_handled";
     keyLoopTrace.legacy_fallback = keyTurn?.legacy_fallback ?? isKeyLegacyFallbackEnabled(env);
 
     if (!isKeyLegacyFallbackEnabled(env)) {
-      return {
-        ok: false,
-        reason: "KEY_ORCHESTRATOR_FAILED",
-        error_message: keyTurn?.reason ?? "key_turn_failed",
-      };
+      return withKeyPreloadShadowTrace(
+        {
+          ok: false,
+          reason: "KEY_ORCHESTRATOR_FAILED",
+          error_message: keyTurn?.reason ?? "key_turn_failed",
+        },
+        keyPreloadShadowTrace,
+      );
+    }
+
+    if (keyPreloadShadowTrace?.executed_selective_preload) {
+      const currentContexts = factoryContextsFromTuple([
+        coverageGapContext,
+        underwritingRiskContext,
+        recommendationContext,
+        designContext,
+      ]);
+      const loadFactoryPreload = createChatFactoryPreloadLoader(userSupabase, customerId);
+      const backfill = await backfillMissingLegacyFactoryPreloads({
+        contexts: currentContexts,
+        loadFactoryPreload,
+      });
+      if (backfill.f8_backfill_executed) {
+        coverageGapContext = backfill.contexts.coverageGapContext;
+        underwritingRiskContext = backfill.contexts.underwritingRiskContext;
+        recommendationContext = backfill.contexts.recommendationContext;
+        designContext = backfill.contexts.designContext;
+        customerContextBundle.coverageGapContext = coverageGapContext;
+        customerContextBundle.underwritingRiskContext = underwritingRiskContext;
+        customerContextBundle.recommendationContext = recommendationContext;
+        customerContextBundle.designContext = designContext;
+        keyPreloadShadowTrace = attachF8LegacyBackfillToTrace(keyPreloadShadowTrace, backfill);
+        keyLoopTrace.f8_legacy_backfill = {
+          executed: true,
+          backfilled: backfill.backfilled,
+          f8_backfill_full: backfill.f8_backfill_full,
+        };
+      }
     }
   }
 
@@ -456,20 +703,23 @@ export async function runSalesDirectorLoopTurn({
     },
   };
 
-  return {
-    ok: true,
-    contextSnapshot: snapshot,
-    unifiedState: unified,
-    loadedContext,
-    reconciliationWarning,
-    customerContextBundle,
-    modeDecision,
-    agentTurn,
-    salesDirectorTrace,
-    truthGate,
-    latency,
-    loopStartedAt,
-  };
+  return withKeyPreloadShadowTrace(
+    {
+      ok: true,
+      contextSnapshot: snapshot,
+      unifiedState: unified,
+      loadedContext,
+      reconciliationWarning,
+      customerContextBundle,
+      modeDecision,
+      agentTurn,
+      salesDirectorTrace,
+      truthGate,
+      latency,
+      loopStartedAt,
+    },
+    keyPreloadShadowTrace,
+  );
 }
 
 export function buildSalesDirectorLoopObservability({

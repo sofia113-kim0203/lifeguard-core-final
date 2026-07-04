@@ -1,0 +1,84 @@
+{
+  "audit": "key_recovery_03_slice_a_a2_preload_active",
+  "schema_version": "key-recovery-03-slice-a-a2-evidence-v1",
+  "mode": "unit_local",
+  "tom_go": "Slice A A2 active selective preload + F8 legacy backfill",
+  "pass": true,
+  "observed_at": "2026-07-04T18:43:50.173Z",
+  "flag": "KEY_CHAT_PRELOAD_CONTROL=active",
+  "invariants": {
+    "executed_selective_preload_when_eligible": true,
+    "legacy_preload_when_ineligible": true,
+    "f8_backfill_on_legacy_fallback": true,
+    "compose_changed": false,
+    "work_order_changed": false
+  },
+  "tom_three_questions": [
+    {
+      "id": "Q1",
+      "question": "추천해줘",
+      "classification_intent": "recommendation_priority_check",
+      "companion_cluster": null,
+      "plan_tools": [
+        "snapshot",
+        "memory",
+        "recommendation"
+      ],
+      "key_planned_factory_preloads": [
+        "recommendation"
+      ],
+      "active_preloads_executed": [
+        "recommendation"
+      ],
+      "active_preloads_skipped": [
+        "coverage_gap",
+        "underwriting",
+        "design"
+      ]
+    },
+    {
+      "id": "Q2",
+      "question": "내 보험 괜찮아",
+      "classification_intent": "general_consultation",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "plan_tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "key_planned_factory_preloads": [
+        "coverage_gap"
+      ],
+      "active_preloads_executed": [
+        "coverage_gap"
+      ],
+      "active_preloads_skipped": [
+        "underwriting",
+        "recommendation",
+        "design"
+      ]
+    },
+    {
+      "id": "Q3",
+      "question": "나를 기억해?",
+      "classification_intent": "general_consultation",
+      "companion_cluster": null,
+      "plan_tools": [
+        "snapshot",
+        "memory"
+      ],
+      "key_planned_factory_preloads": [],
+      "active_preloads_executed": [],
+      "active_preloads_skipped": [
+        "coverage_gap",
+        "underwriting",
+        "recommendation",
+        "design"
+      ]
+    }
+  ],
+  "f8_test": {
+    "scenario": "active selective recommendation only → KEY fail → legacy fallback → backfill gap/uw/design",
+    "backfill_executed": true
+  }
+}

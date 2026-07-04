@@ -1,3 +1,23 @@
+export {
+  buildKeyChatPreloadShadowTrace,
+  buildKeyChatPreloadActiveTrace,
+  buildKeyChatPreloadActiveFallbackTrace,
+  buildKeyPreloadPlanBundle,
+  deriveFactoryPreloadKeysFromPlan,
+  executeSelectiveFactoryPreloads,
+  backfillMissingLegacyFactoryPreloads,
+  attachF8LegacyBackfillToTrace,
+  getKeyChatPreloadControlMode,
+  isKeyChatPreloadShadowEnabled,
+  isKeyChatPreloadActiveEnabled,
+  shouldExecuteSelectivePreload,
+  attachKeyPreloadControlToSalesDirectorTrace,
+  KEY_CHAT_PRELOAD_CONTROL_MODES,
+  KEY_CHAT_PRELOAD_SHADOW_SCHEMA_VERSION,
+  KEY_CHAT_PRELOAD_ACTIVE_SCHEMA_VERSION,
+  LEGACY_CHAT_FULL_FACTORY_PRELOAD,
+  getMissingFactoryPreloadKeys,
+} from "./chatPreloadControl.js";
 export { isKeyBrainShadowEnabled, isKeyBrainShadowLogEnabled } from "./envFlags.js";
 export {
   buildKeyBrainShadowPlan,

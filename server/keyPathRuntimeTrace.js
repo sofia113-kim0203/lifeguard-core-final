@@ -99,6 +99,7 @@ export function buildKeyPathRuntimeTrace({
   const keyCompose = finalizeTrace?.key_compose_trace ?? null;
   const toolBrainAbsorbed =
     salesDirectorTrace?.tool_brain_absorbed ?? salesDirectorTrace?.tool_brain ?? null;
+  const keyPreloadControl = salesDirectorTrace?.key_preload_control ?? null;
 
   return {
     audit: "p10_4_key_path_trace",
@@ -187,5 +188,6 @@ export function buildKeyPathRuntimeTrace({
         observability?.response_source !== "sales_director_key" &&
         finalizeTrace?.generation_mode !== "key_orchestrator",
     },
+    key_preload_control: keyPreloadControl,
   };
 }
