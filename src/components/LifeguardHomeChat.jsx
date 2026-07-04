@@ -12,6 +12,7 @@ import {
   persistLifeguardChatTurn,
 } from "../lib/lifeguardChatSessions.js";
 import { supabase } from "../lib/supabase.js";
+import { buildKeyUploadChatPresenceMessage } from "../lib/keyChatPresenceWire.js";
 import { buildLifeguardHomeGreeting } from "../lib/lifeguardGreeting.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import {
@@ -270,10 +271,36 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [thinkingIndex, setThinkingIndex] = useState(0);
   const loadDocumentsRef = useRef(async () => {});
 
+  const focusChatInputRef = useRef(() => {});
+
+  const handleKeyChatPresence = useCallback(({ keyFirstSentence = null, keyFollowUpSentence = null } = {}) => {
+    const presenceMessage = buildKeyUploadChatPresenceMessage({
+      keyFirstSentence,
+      keyFollowUpSentence,
+    });
+    if (!presenceMessage) return;
+
+    setPanelView("chat");
+    setSidebarOpen(false);
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (
+        last?.role === "assistant" &&
+        last?.keyPresence === true &&
+        last?.content === presenceMessage.content
+      ) {
+        return prev;
+      }
+      return [...prev, presenceMessage];
+    });
+    focusChatInputRef.current();
+  }, []);
+
   const uploadFlow = useCustomerDocumentUpload({
     user: authUser,
     refreshSession: session?.refreshSession,
     setActiveAnalysisJob: session?.setActiveAnalysisJob,
+    onKeyChatPresence: handleKeyChatPresence,
     onUploadComplete: async () => {
       await loadDocumentsRef.current();
     },
@@ -330,6 +357,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   useEffect(() => () => {
     if (focusTimerRef.current) window.clearTimeout(focusTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    focusChatInputRef.current = focusChatInput;
+  }, [focusChatInput]);
 
   const goBackToChat = useCallback(() => {
     setPanelView("chat");

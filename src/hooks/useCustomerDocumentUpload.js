@@ -15,6 +15,7 @@ export function useCustomerDocumentUpload({
   notifySystemMessage = null,
   insurancePolicyCount = null,
   onUploadComplete = null,
+  onKeyChatPresence = null,
   enableSystemMessage = false,
   defaultCategoryKey = "insurance_policy",
 } = {}) {
@@ -194,6 +195,10 @@ export function useCustomerDocumentUpload({
         );
       }
 
+      if (typeof onKeyChatPresence === "function" && (keyFirstSentence || keyFollowUpSentence)) {
+        onKeyChatPresence({ keyFirstSentence, keyFollowUpSentence });
+      }
+
       if (typeof onUploadComplete === "function") {
         await onUploadComplete();
       }
@@ -214,6 +219,7 @@ export function useCustomerDocumentUpload({
     enableSystemMessage,
     notifySystemMessage,
     onUploadComplete,
+    onKeyChatPresence,
   ]);
 
   const handleFileChange = useCallback((file) => {
