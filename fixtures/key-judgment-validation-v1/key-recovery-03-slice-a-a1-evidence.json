@@ -1,0 +1,133 @@
+{
+  "audit": "key_recovery_03_slice_a_a1_preload_shadow",
+  "schema_version": "key-recovery-03-slice-a-a1-evidence-v1",
+  "mode": "unit_local",
+  "tom_go": "Slice A A1 shadow only",
+  "pass": true,
+  "observed_at": "2026-07-04T18:43:50.564Z",
+  "flag": "KEY_CHAT_PRELOAD_CONTROL=shadow",
+  "invariants": {
+    "executed_selective_preload": false,
+    "legacy_preload_executed": true,
+    "customer_answer_impact": false,
+    "a2_active_preload_change": false
+  },
+  "tom_three_questions": [
+    {
+      "id": "Q1",
+      "question": "추천해줘",
+      "classification_intent": "recommendation_priority_check",
+      "companion_cluster": null,
+      "plan_tools": [
+        "snapshot",
+        "memory",
+        "recommendation"
+      ],
+      "key_planned_factory_preloads": [
+        "recommendation"
+      ],
+      "legacy_full_preload": [
+        "coverage_gap",
+        "underwriting",
+        "recommendation",
+        "design"
+      ],
+      "preload_would_change": {
+        "shadow_recommended": [
+          "recommendation"
+        ],
+        "legacy_actual": [
+          "coverage_gap",
+          "underwriting",
+          "recommendation",
+          "design"
+        ],
+        "strict_subset": true,
+        "would_skip": [
+          "coverage_gap",
+          "underwriting",
+          "design"
+        ],
+        "would_add": [],
+        "differs": true
+      },
+      "customer_answer_impact": false
+    },
+    {
+      "id": "Q2",
+      "question": "내 보험 괜찮아",
+      "classification_intent": "general_consultation",
+      "companion_cluster": "JC-COVERAGE-ANXIETY-v1",
+      "plan_tools": [
+        "snapshot",
+        "memory",
+        "coverage_gap"
+      ],
+      "key_planned_factory_preloads": [
+        "coverage_gap"
+      ],
+      "legacy_full_preload": [
+        "coverage_gap",
+        "underwriting",
+        "recommendation",
+        "design"
+      ],
+      "preload_would_change": {
+        "shadow_recommended": [
+          "coverage_gap"
+        ],
+        "legacy_actual": [
+          "coverage_gap",
+          "underwriting",
+          "recommendation",
+          "design"
+        ],
+        "strict_subset": true,
+        "would_skip": [
+          "underwriting",
+          "recommendation",
+          "design"
+        ],
+        "would_add": [],
+        "differs": true
+      },
+      "customer_answer_impact": false
+    },
+    {
+      "id": "Q3",
+      "question": "나를 기억해?",
+      "classification_intent": "general_consultation",
+      "companion_cluster": null,
+      "plan_tools": [
+        "snapshot",
+        "memory"
+      ],
+      "key_planned_factory_preloads": [],
+      "legacy_full_preload": [
+        "coverage_gap",
+        "underwriting",
+        "recommendation",
+        "design"
+      ],
+      "preload_would_change": {
+        "shadow_recommended": [],
+        "legacy_actual": [
+          "coverage_gap",
+          "underwriting",
+          "recommendation",
+          "design"
+        ],
+        "strict_subset": true,
+        "would_skip": [
+          "coverage_gap",
+          "underwriting",
+          "recommendation",
+          "design"
+        ],
+        "would_add": [],
+        "differs": true
+      },
+      "customer_answer_impact": false
+    }
+  ]
+}
