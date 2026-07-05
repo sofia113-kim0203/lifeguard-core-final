@@ -1,0 +1,46 @@
+{
+  "schema_version": "one-key-core-s02-1-document-local-trace-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-06T01:40:00+09:00",
+  "scope": "S02-1 document beat only — local hand unit test + trace dump",
+  "response_source": "one_key_core_document",
+  "trace_complete": true,
+  "work_order_mint": true,
+  "work_order_persist": true,
+  "client_contract": {
+    "top_level_fields_preserved": [
+      "ok",
+      "mode",
+      "subject",
+      "document_id",
+      "intake_trace",
+      "key_first_judgment",
+      "customer_first_sentence",
+      "persona_outlet",
+      "work_order_id",
+      "work_order_ordered_by",
+      "factory_executed",
+      "customer_speak_changed"
+    ],
+    "additive_fields": ["response_source", "one_key_core_event"],
+    "intake_trace_legacy_steps": ["key_first_judgment", "key_first_speak", "work_order_issued"],
+    "upload_bubble_unchanged": true
+  },
+  "eight_step_trace": [
+    { "step": "interpret", "moved_into_core": ["document_kind_guess", "judgment_scope", "consent_hold", "orient_speech"] },
+    { "step": "thinking", "moved_into_core": ["DU-1 inputGates", "four_inputs", "snapshot_loaded"] },
+    { "step": "judgment", "moved_into_core": ["buildKeyFirstJudgment", "KU-2b posture"] },
+    { "step": "planner", "moved_into_core": ["runSalesDirectorKeyTurn", "KEY_ENTRY.DOCUMENT_INTAKE"] },
+    { "step": "work_order", "moved_into_core": ["dispatch_plan", "mintKeyWorkOrderId", "persistKeyWorkOrder"] },
+    { "step": "evidence", "moved_into_core": ["consent", "document", "memory", "policies"], "factory_explain_invoked": false },
+    { "step": "speak", "moved_into_core": ["buildCustomerFirstSentence", "DU-1 fusion"] },
+    { "step": "persona", "moved_into_core": ["finalizeDocumentIntakeFirstSentence"] }
+  ],
+  "route_matrix": {
+    "document": "one_key_core (ONE_KEY_CORE_DOCUMENT=1)",
+    "analysis_complete": "legacy (S02-2 not started)",
+    "return_judgment": "legacy (S02-4 not started)"
+  },
+  "unit_tests": "4/4 PASS — npm run test:one-key-core-s02-1-document",
+  "s1_regression": "6/6 PASS — npm run test:one-key-core-s1"
+}

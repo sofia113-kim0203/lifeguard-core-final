@@ -1,0 +1,9 @@
+{
+  "schema_version": "one-key-core-s02-1-document-visual-seat-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-05T16:50:50.683Z",
+  "preview_base": "https://lifeguard-core-final-bdtngvctm-70sofia113-1918s-projects.vercel.app",
+  "document_beat_screen_sentence": "올려 주신 자료를 받았습니다. 파일명·분류 기준으로 보험 계약 자료로 보입니다. 프로필에 실손 축 보험이 등록돼 있습니다. 이전에 기억해 둔 내용 기준으로 암 쪽에 관심을 두신 적이 있습니다. 이 파일 내용만으로는 특약·보장 범위까지는 아직 말씀드리기 어렵습니다. 특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로 정리하겠습니다.",
+  "analysis_complete_bubble_follows_legacy": "방금 올려 주신 자료 확인을 마쳤습니다. 확인된 내용 기준으로 실손·암 축 계약으로 보이며, 프로필과 연결해 두었습니다. … (S02-2 legacy · same chat session)",
+  "screenshot": "fixtures\\key-judgment-validation-v1\\one-key-core-s02-1-document-visual-seat\\01-document-beat-key-bubble.png"
+}

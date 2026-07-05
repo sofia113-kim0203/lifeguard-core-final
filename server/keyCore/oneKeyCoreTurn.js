@@ -1,5 +1,5 @@
 /**
- * ONE KEY Core S1 — Interpret → Thinking → Judgment → Planner → Work Order → Evidence → Speak → Persona
+ * ONE KEY Core — Interpret → Thinking → Judgment → Planner → Work Order → Evidence → Speak → Persona
  */
 import { classifyConsultationIntent } from "../intentGateLayer.js";
 import {
@@ -23,16 +23,27 @@ import {
 } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
 import {
+  isOneKeyCoreDocumentEnabled,
   isOneKeyCoreS1Enabled,
+  ONE_KEY_CORE_RESPONSE_SOURCE,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
+  resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreS1Env,
 } from "./oneKeyCoreFlags.js";
 import {
   buildQuestionInterpretShadow,
   buildQuestionThinkingBundle,
 } from "./oneKeyCoreInterpret.js";
+import { runOneKeyCoreDocumentTurn } from "./oneKeyCoreDocument.js";
 
-export { isOneKeyCoreS1Enabled, resolveOneKeyCoreS1Env, ONE_KEY_CORE_S1_BLOCKED_PATHS };
+export {
+  isOneKeyCoreDocumentEnabled,
+  isOneKeyCoreS1Enabled,
+  resolveOneKeyCoreDocumentEnv,
+  resolveOneKeyCoreS1Env,
+  ONE_KEY_CORE_S1_BLOCKED_PATHS,
+  ONE_KEY_CORE_RESPONSE_SOURCE,
+};
 
 const CORE_STEPS = [
   "interpret",
@@ -185,7 +196,7 @@ function finalizeOneKeyCorePersona({
       keyOrchestrator: true,
     },
     homeBrainIntent: "unsupported",
-    conversationContext: { responseSource: "one_key_core_s1" },
+    conversationContext: { responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION },
   });
 
   const customerText = polishLifeguardCustomerText(finalized.text ?? speakDraft);
@@ -198,10 +209,53 @@ function finalizeOneKeyCorePersona({
 }
 
 /**
- * ONE KEY Core turn — S1 question event.
- * @returns {Promise<{ ok: boolean, customerText?: string, oneKeyCoreTrace?: object, ... }>}
+ * ONE KEY Core turn — routes by event (question · document).
  */
 export async function runOneKeyCoreTurn({
+  event = "question",
+  userSupabase,
+  customerId,
+  question = "",
+  history = [],
+  document = null,
+  hasAnalysisConsent = false,
+  uploadSource = "web",
+  categoryKey = null,
+  uploadEntryMode = null,
+  env = process.env,
+  fetchImpl = fetch,
+  startedAt = Date.now(),
+} = {}) {
+  if (event === "document") {
+    return runOneKeyCoreDocumentTurn({
+      userSupabase,
+      customerId,
+      document,
+      hasAnalysisConsent,
+      uploadSource,
+      categoryKey,
+      uploadEntryMode,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
+  return runOneKeyCoreQuestionTurn({
+    userSupabase,
+    customerId,
+    question,
+    history,
+    env,
+    fetchImpl,
+    startedAt,
+  });
+}
+
+/**
+ * ONE KEY Core question event (S1).
+ */
+async function runOneKeyCoreQuestionTurn({
   userSupabase,
   customerId,
   question,
@@ -362,7 +416,7 @@ export async function runOneKeyCoreTurn({
     agentTurn: {
       ...agentTurn,
       text: personaResult.customerText,
-      responseSource: "one_key_core_s1",
+      responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
       consultationIntent,
       factBundle,
     },
