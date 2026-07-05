@@ -168,6 +168,7 @@
     "test:key-upload-ku2b-judgment-trace": "node scripts/key-upload-ku2b-judgment-trace-unit-test.mjs",
     "test:key-upload-hand-wiring-snapshot": "node scripts/key-upload-hand-wiring-snapshot-unit-test.mjs",
     "verify:key-upload-hand-wiring-p1-preview-snapshot": "node scripts/key-upload-hand-wiring-p1-preview-snapshot-probe.mjs",
+    "test:one-key-core-s1": "node scripts/one-key-core-s1-hand-unit-test.mjs",
     "test:key-upload-hand-wiring-p2-key-runtime": "node scripts/key-hand-wiring-p2-key-runtime-unit-test.mjs",
     "test:key-upload-hand-wiring-p3-persona-outlet": "node scripts/key-upload-hand-wiring-persona-outlet-unit-test.mjs",
     "test:key-evidence-foundation-ea1": "node scripts/key-evidence-foundation-ea1-unit-test.mjs",

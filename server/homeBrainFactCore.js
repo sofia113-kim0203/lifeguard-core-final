@@ -36,6 +36,7 @@ import {
 } from "./customerObservability.js";
 import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { buildKeyWaitAck } from "./keyWaitAck.js";
+import { isOneKeyCoreS1Enabled, runOneKeyCoreTurn } from "./keyCore/oneKeyCoreTurn.js";
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
@@ -435,6 +436,125 @@ export async function handleHomeBrainFactRequest({
     sseTrace.key_wait_ack_text = ackText;
     sseTrace.key_wait_ack_ms = Math.max(0, Date.now() - startedAt);
     activeStreamHandlers.onKeyWaitAck(ackText);
+  }
+
+  if (isOneKeyCoreS1Enabled(env)) {
+    const coreResult = await runOneKeyCoreTurn({
+      userSupabase,
+      customerId,
+      question: trimmedQuestion,
+      history,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+
+    if (!coreResult.ok) {
+      return {
+        ok: false,
+        reason: coreResult.reason ?? "ONE_KEY_CORE_S1_FAILED",
+        error_message: coreResult.error_message ?? coreResult.reason ?? "one_key_core_failed",
+        one_key_core_trace: coreResult.one_key_core_trace ?? null,
+      };
+    }
+
+    const {
+      agentTurn,
+      modeDecision,
+      loadedContext,
+      contextSnapshot,
+      salesDirectorTrace,
+      truthGate,
+      latency: loopLatency,
+      customerText: answerText,
+      customerContextBundle,
+    } = coreResult;
+
+    if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
+      activeStreamHandlers.onDelta(answerText);
+      activeStreamHandlers._emitted = true;
+      activeStreamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
+    }
+
+    const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
+    const storedFactoryProbe = await probeStoredFactoryRecords(userSupabase, customerId);
+    const factoryAudit = buildSalesDirectorFactoryAudit({
+      customerContextBundle,
+      loadedContext,
+      agentTurn,
+      salesDirectorTrace,
+      storedProbe: storedFactoryProbe,
+      keyComposeTrace: salesDirectorTrace?.finalize_trace?.key_compose_trace ?? null,
+    });
+
+    const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
+      agentTurn,
+      customerContextBundle,
+      loadedContext,
+      computeStats: computePremiumLookupStats,
+      buildFactsUsed: buildHomeBrainFactsUsed,
+    });
+
+    const judgmentAudit = buildSalesDirectorJudgmentAudit({
+      answerText,
+      customerContextBundle,
+      factoryAudit,
+      answerEvidence: factoryAudit.answer_evidence,
+    });
+
+    const observability = buildSalesDirectorLoopObservability({
+      modeDecision,
+      agentTurn,
+      loadedContext,
+      guardResult: null,
+      contextSnapshotId: contextSnapshot.context_snapshot_id,
+      reconciliationWarning: null,
+      factsUsed,
+      loadedContextContradictions,
+      salesDirectorTrace: {
+        ...salesDirectorTrace,
+        truth_gate: truthGate,
+        sales_director_factory_audit: factoryAudit,
+        sales_director_judgment_audit: judgmentAudit,
+        answer_evidence: factoryAudit.answer_evidence,
+        finalize_trace: salesDirectorTrace?.finalize_trace ?? null,
+        p10_4_key_path_trace: {
+          one_key_core_s1: true,
+          legacy_paths_blocked: salesDirectorTrace?.legacy_paths_blocked ?? [],
+        },
+        latency: {
+          ...(loopLatency ?? {}),
+          total_ms: Date.now() - startedAt,
+        },
+      },
+    });
+
+    return {
+      ok: true,
+      answerText,
+      intent,
+      home_route: agentTurn.tomInternalRoute,
+      tom_internal_route: agentTurn.tomInternalRoute,
+      tool_used: agentTurn.toolUsed,
+      agent: "one_key_core_s1",
+      sales_director_loop: true,
+      sales_director_mode: observability.sales_director_mode,
+      response_source: "one_key_core_s1",
+      selected_route: observability.selected_route,
+      loaded_context: observability.loaded_context,
+      factory_called: observability.factory_called,
+      guard_result: observability.guard_result,
+      context_snapshot_id: observability.context_snapshot_id,
+      reconciliation_warning: observability.reconciliation_warning,
+      loaded_context_contradictions: observability.loaded_context_contradictions,
+      sales_director_trace: observability.sales_director_trace,
+      sales_director_factory_audit: factoryAudit,
+      sales_director_judgment_audit: judgmentAudit,
+      answer_evidence: factoryAudit.answer_evidence,
+      one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
+      factsUsed,
+      response_latency_ms: Date.now() - startedAt,
+    };
   }
 
   const [loopResult, storedFactoryProbe] = await Promise.all([
