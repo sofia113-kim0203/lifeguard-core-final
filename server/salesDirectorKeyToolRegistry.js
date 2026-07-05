@@ -14,7 +14,11 @@ import { isDelegationIntentQuestion } from "./keyBrain/phaseBSlice3DelegationJud
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
-import { buildEmptyDesignContext } from "./salesDirectorInsuranceDesignContext.js";
+import { buildEmptyDesignContext, buildDesignContextFromPayload } from "./salesDirectorInsuranceDesignContext.js";
+import {
+  buildEmptyRebalancingContext,
+  buildRebalancingContextFromAnalysisJob,
+} from "./salesDirectorRebalancingContext.js";
 import {
   matchToolBrainSliceQuestion,
   SALES_DIRECTOR_TOOL_BRAIN_SLICES,
@@ -36,6 +40,7 @@ export const KEY_TOOLS = {
   UNDERWRITING: "underwriting",
   RECOMMENDATION: "recommendation",
   DESIGN: "design",
+  REBALANCING: "rebalancing",
   PREMIUM_STATS: "premium_stats",
 };
 
@@ -192,7 +197,94 @@ function runDesignTool({ existingDesignContext = null } = {}) {
 /**
  * Intent-aware tool plan — P11-2D Tool Brain slice parity via matchToolBrainSliceQuestion.
  */
-export function planKeyTools(classification = {}, loadedContext = null, question = "") {
+import { extractRecommendationTop2Items } from "./salesDirectorRecommendationContext.js";
+import { buildCoverageGapContextFromPayload } from "./salesDirectorCoverageGapContext.js";
+import { buildUnderwritingRiskContextFromPayload } from "./salesDirectorUnderwritingRiskContext.js";
+
+function analysisJobHasStoredRecommendation(analysisJob = null) {
+  if (!analysisJob || typeof analysisJob !== "object") return false;
+  const result = analysisJob.result_json ?? analysisJob.resultJson ?? null;
+  const payload = result?.recommendation ?? null;
+  return extractRecommendationTop2Items(payload).length > 0;
+}
+
+function analysisJobHasStoredCoverageGap(analysisJob = null) {
+  if (!analysisJob || typeof analysisJob !== "object") return false;
+  const result = analysisJob.result_json ?? analysisJob.resultJson ?? null;
+  const payload = result?.coverage_gap ?? null;
+  const ctx = buildCoverageGapContextFromPayload(payload, { jobId: analysisJob.id ?? null });
+  return ctx.loaded === true && (ctx.top_concerns?.length ?? 0) > 0;
+}
+
+function analysisJobHasStoredUnderwriting(analysisJob = null) {
+  if (!analysisJob || typeof analysisJob !== "object") return false;
+  const result = analysisJob.result_json ?? analysisJob.resultJson ?? null;
+  const payload = result?.underwriting_risk ?? null;
+  const ctx = buildUnderwritingRiskContextFromPayload(payload, { jobId: analysisJob.id ?? null });
+  if (!ctx.loaded) return false;
+  if (Number(ctx.risk_score) > 0) return true;
+  if ((ctx.review_flags?.length ?? 0) > 0) return true;
+  if ((ctx.health_topics?.length ?? 0) > 0) return true;
+  return ctx.record_count > 0;
+}
+
+function analysisJobHasStoredDesign(analysisJob = null) {
+  if (!analysisJob || typeof analysisJob !== "object") return false;
+  const result = analysisJob.result_json ?? analysisJob.resultJson ?? null;
+  const payload = result?.insurance_design ?? null;
+  const ctx = buildDesignContextFromPayload(payload, { jobId: analysisJob.id ?? null });
+  if (!ctx.loaded) return false;
+  if ((ctx.next_actions?.length ?? 0) > 0) return true;
+  if ((ctx.priority_coverages?.length ?? 0) > 0) return true;
+  if (ctx.design_summary) return true;
+  return false;
+}
+
+function analysisJobHasRebalancingEligible(analysisJob = null) {
+  if (!analysisJobHasStoredDesign(analysisJob)) return false;
+  return analysisJobHasStoredCoverageGap(analysisJob) || analysisJobHasStoredUnderwriting(analysisJob);
+}
+
+function runRebalancingTool({ existingRebalancingContext = null, analysisJob = null, policies = [] } = {}) {
+  if (existingRebalancingContext?.loaded) {
+    return {
+      ok: true,
+      tool: KEY_TOOLS.REBALANCING,
+      rebalancing_context: existingRebalancingContext,
+      rebalancing_used: existingRebalancingContext.used === true,
+      rebalancing_loaded: true,
+      source: "preloaded",
+    };
+  }
+
+  if (analysisJob) {
+    const ctx = buildRebalancingContextFromAnalysisJob(analysisJob, { policies });
+    return {
+      ok: true,
+      tool: KEY_TOOLS.REBALANCING,
+      rebalancing_context: ctx,
+      rebalancing_used: ctx.used === true,
+      rebalancing_loaded: ctx.loaded === true,
+      source: "analysis_job_read",
+    };
+  }
+
+  return {
+    ok: true,
+    tool: KEY_TOOLS.REBALANCING,
+    rebalancing_context: buildEmptyRebalancingContext(),
+    rebalancing_used: false,
+    rebalancing_loaded: false,
+    source: "absent",
+  };
+}
+
+export function planKeyTools(
+  classification = {},
+  loadedContext = null,
+  question = "",
+  analysisJob = null,
+) {
   const intent = classification.intent ?? "general_consultation";
 
   if (intent === "document_intake") {
@@ -209,6 +301,82 @@ export function planKeyTools(classification = {}, loadedContext = null, question
       coverage_gap_suppressed: true,
       coverage_gap_suppress_reason: "document_intake_entry_hand_p2",
       document_intake: true,
+    };
+  }
+
+  if (intent === "analysis_complete") {
+    const tools = [KEY_TOOLS.SNAPSHOT];
+    if (loadedContext?.memory === "present") {
+      tools.push(KEY_TOOLS.MEMORY);
+    }
+    const recommendationPanelWired = analysisJobHasStoredRecommendation(analysisJob);
+    if (recommendationPanelWired) {
+      tools.push(KEY_TOOLS.RECOMMENDATION);
+    }
+    return {
+      intent,
+      subIntent: null,
+      legacy_slice: null,
+      companion_cluster: null,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "analysis_complete_entry_hand_p4",
+      analysis_complete: true,
+      conn_001_recommendation_panel_wired: recommendationPanelWired,
+    };
+  }
+
+  if (intent === "key_bridge") {
+    const tools = [KEY_TOOLS.SNAPSHOT];
+    if (loadedContext?.memory === "present") {
+      tools.push(KEY_TOOLS.MEMORY);
+    }
+    return {
+      intent,
+      subIntent: null,
+      legacy_slice: null,
+      companion_cluster: null,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "key_bridge_entry_hand_p5b",
+      key_bridge: true,
+    };
+  }
+
+  if (intent === "return_judgment") {
+    const tools = [KEY_TOOLS.SNAPSHOT, KEY_TOOLS.RECOMMENDATION];
+    if (loadedContext?.memory === "present") {
+      tools.push(KEY_TOOLS.MEMORY);
+    }
+    const coverageGapPanelWired = analysisJobHasStoredCoverageGap(analysisJob);
+    if (coverageGapPanelWired) {
+      tools.push(KEY_TOOLS.COVERAGE_GAP);
+    }
+    const underwritingPanelWired = analysisJobHasStoredUnderwriting(analysisJob);
+    if (underwritingPanelWired) {
+      tools.push(KEY_TOOLS.UNDERWRITING);
+    }
+    const designPanelWired = analysisJobHasStoredDesign(analysisJob);
+    if (designPanelWired) {
+      tools.push(KEY_TOOLS.DESIGN);
+    }
+    const rebalancingPanelWired = analysisJobHasRebalancingEligible(analysisJob);
+    if (rebalancingPanelWired) {
+      tools.push(KEY_TOOLS.REBALANCING);
+    }
+    return {
+      intent,
+      subIntent: null,
+      legacy_slice: null,
+      companion_cluster: null,
+      tools: dedupeTools(tools),
+      coverage_gap_suppressed: true,
+      coverage_gap_suppress_reason: "return_judgment_entry_hand_p5c",
+      return_judgment: true,
+      conn_002_coverage_gap_panel_wired: coverageGapPanelWired,
+      conn_003_underwriting_panel_wired: underwritingPanelWired,
+      conn_004_design_panel_wired: designPanelWired,
+      conn_005_rebalancing_panel_wired: rebalancingPanelWired,
     };
   }
 
@@ -582,7 +750,9 @@ export async function runKeyTools({
   existingUnderwritingContext = null,
   existingRecommendationContext = null,
   existingDesignContext = null,
+  existingRebalancingContext = null,
   unified = null,
+  analysisJob = null,
 } = {}) {
   if (!plan?.tools?.length) {
     if (plan?.companion_cluster === RC_RECOGNITION_COMPANION_CLUSTER_ID) {
@@ -626,6 +796,8 @@ export async function runKeyTools({
   let recommendationContext =
     existingRecommendationContext ?? customerContextBundle?.recommendationContext ?? null;
   let designContext = existingDesignContext ?? customerContextBundle?.designContext ?? null;
+  let rebalancingContext =
+    existingRebalancingContext ?? customerContextBundle?.rebalancingContext ?? null;
   let snapshot_used = false;
   let memory_used = false;
   let premium_used = false;
@@ -636,6 +808,8 @@ export async function runKeyTools({
   let recommendation_loaded = false;
   let design_used = false;
   let design_loaded = false;
+  let rebalancing_used = false;
+  let rebalancing_loaded = false;
 
   const needsGap = plan.tools.includes(KEY_TOOLS.COVERAGE_GAP);
   const needsUnderwriting = plan.tools.includes(KEY_TOOLS.UNDERWRITING);
@@ -695,6 +869,19 @@ export async function runKeyTools({
       designContext = result.design_context ?? designContext;
       design_used = result.design_used === true;
       design_loaded = result.design_loaded === true;
+      continue;
+    }
+    if (tool === KEY_TOOLS.REBALANCING) {
+      const result = runRebalancingTool({
+        existingRebalancingContext: rebalancingContext,
+        analysisJob,
+        policies,
+      });
+      tool_results.push(result);
+      tools_called.push(tool);
+      rebalancingContext = result.rebalancing_context ?? rebalancingContext;
+      rebalancing_used = result.rebalancing_used === true;
+      rebalancing_loaded = result.rebalancing_loaded === true;
     }
   }
 
@@ -760,6 +947,7 @@ export async function runKeyTools({
     underwritingContext,
     recommendationContext,
     designContext,
+    rebalancingContext,
     snapshot_used,
     memory_used,
     premium_used,
@@ -770,6 +958,8 @@ export async function runKeyTools({
     recommendation_loaded,
     design_used,
     design_loaded,
+    rebalancing_used,
+    rebalancing_loaded,
     trace: {
       status: "p10_1_key_skeleton",
       plan,
@@ -784,6 +974,8 @@ export async function runKeyTools({
       recommendation_loaded,
       design_used,
       design_loaded,
+      rebalancing_used,
+      rebalancing_loaded,
       coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
       coverage_gap_suppress_reason: plan?.coverage_gap_suppress_reason ?? null,
     },

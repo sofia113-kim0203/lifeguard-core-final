@@ -18,6 +18,11 @@ import {
   runKeyTools,
   shouldUseSalesDirectorKeyOrchestrator,
 } from "./salesDirectorKeyToolRegistry.js";
+import { buildRecommendationContextFromPayload } from "./salesDirectorRecommendationContext.js";
+import { buildCoverageGapContextFromPayload } from "./salesDirectorCoverageGapContext.js";
+import { buildUnderwritingRiskContextFromPayload } from "./salesDirectorUnderwritingRiskContext.js";
+import { buildDesignContextFromPayload } from "./salesDirectorInsuranceDesignContext.js";
+import { buildRebalancingContextFromAnalysisJob } from "./salesDirectorRebalancingContext.js";
 
 export {
   isKeyLegacyFallbackEnabled,
@@ -29,12 +34,33 @@ export {
 export const KEY_ENTRY = {
   QUESTION: "question",
   DOCUMENT_INTAKE: "document_intake",
+  ANALYSIS_COMPLETE: "analysis_complete",
+  BRIDGE: "bridge",
+  RETURN_JUDGMENT: "return_judgment",
 };
 
 export const KEY_RUNTIME_SSOT = "runSalesDirectorKeyTurn";
 
 export const DOCUMENT_INTAKE_CONSULTATION_INTENT = {
   intent: "document_intake",
+  lookup_sub_intent: null,
+  companion_cluster: null,
+};
+
+export const ANALYSIS_COMPLETE_CONSULTATION_INTENT = {
+  intent: "analysis_complete",
+  lookup_sub_intent: null,
+  companion_cluster: null,
+};
+
+export const BRIDGE_CONSULTATION_INTENT = {
+  intent: "key_bridge",
+  lookup_sub_intent: null,
+  companion_cluster: null,
+};
+
+export const RETURN_JUDGMENT_CONSULTATION_INTENT = {
+  intent: "return_judgment",
   lookup_sub_intent: null,
   companion_cluster: null,
 };
@@ -79,6 +105,7 @@ function buildKeyAgentTurn({
   keyEntry = KEY_ENTRY.QUESTION,
   document = null,
   hasAnalysisConsent = false,
+  analysisJob = null,
 } = {}) {
   const policies = customerContextBundle?.policies ?? [];
   const legacySlice = plan?.legacy_slice ?? null;
@@ -87,7 +114,12 @@ function buildKeyAgentTurn({
     toolRun?.recommendationContext?.priority_labels ??
     customerContextBundle?.recommendationContext?.priority_labels ??
     [];
+  const coverageGapContext =
+    toolRun?.coverageGapContext ?? customerContextBundle?.coverageGapContext ?? null;
+  const underwritingRiskContext =
+    toolRun?.underwritingContext ?? customerContextBundle?.underwritingRiskContext ?? null;
   const designCtx = toolRun?.designContext ?? customerContextBundle?.designContext ?? null;
+  const rebalancingCtx = toolRun?.rebalancingContext ?? customerContextBundle?.rebalancingContext ?? null;
   const designPriorityCoverages = designCtx?.priority_coverages ?? [];
   const designKeepCoverages = designCtx?.keep_existing_coverages ?? [];
   const designNextActions = (designCtx?.next_actions ?? []).slice(0, 2);
@@ -116,15 +148,46 @@ function buildKeyAgentTurn({
             has_analysis_consent: hasAnalysisConsent === true,
           }
         : {}),
+      ...(keyEntry === KEY_ENTRY.ANALYSIS_COMPLETE
+        ? {
+            analysis_complete: true,
+            analysis_job_id: analysisJob?.id ?? null,
+            analysis_job_status: analysisJob?.status ?? null,
+          }
+        : {}),
+      ...(keyEntry === KEY_ENTRY.BRIDGE
+        ? {
+            key_bridge: true,
+            analysis_job_id: analysisJob?.id ?? null,
+            analysis_job_status: analysisJob?.status ?? null,
+          }
+        : {}),
+      ...(keyEntry === KEY_ENTRY.RETURN_JUDGMENT
+        ? {
+            return_judgment: true,
+            analysis_job_id: analysisJob?.id ?? null,
+            analysis_job_status: analysisJob?.status ?? null,
+          }
+        : {}),
       key_tools_called: toolRun?.tools_called ?? [],
       premium_stats: toolRun?.premium_stats ?? null,
       snapshot_tool_used: toolRun?.snapshot_used === true,
       memory_tool_used: toolRun?.memory_used === true,
       coverage_gap_used: toolRun?.coverage_gap_used === true,
       has_stored_coverage_analysis: toolRun?.coverage_gap_used === true,
+      coverage_gap_top_concerns: coverageGapContext?.top_concerns ?? [],
+      coverage_gap_score: coverageGapContext?.gap_score ?? null,
       underwriting_used: toolRun?.underwriting_used === true,
       underwriting_loaded: toolRun?.underwriting_loaded === true,
       has_stored_underwriting_analysis: toolRun?.underwriting_used === true,
+      underwriting_risk_score: underwritingRiskContext?.risk_score ?? null,
+      underwriting_overall_risk:
+        underwritingRiskContext?.overall_underwriting_risk ??
+        underwritingRiskContext?.overall_severity ??
+        null,
+      underwriting_review_flags: underwritingRiskContext?.review_flags ?? [],
+      underwriting_health_topics: underwritingRiskContext?.health_topics ?? [],
+      underwriting_record_count: underwritingRiskContext?.record_count ?? 0,
       recommendation_used: toolRun?.recommendation_used === true,
       recommendation_loaded: toolRun?.recommendation_loaded === true,
       has_stored_recommendation_analysis: toolRun?.recommendation_used === true,
@@ -137,6 +200,15 @@ function buildKeyAgentTurn({
       design_next_actions: designNextActions,
       design_title: designCtx?.design_title ?? null,
       design_summary: designCtx?.design_summary ?? null,
+      design_priority: designCtx?.design_priority ?? null,
+      rebalancing_used: toolRun?.rebalancing_used === true,
+      rebalancing_loaded: toolRun?.rebalancing_loaded === true,
+      rebalancing_keep_labels: rebalancingCtx?.rebalancing_keep_labels ?? [],
+      rebalancing_strengthen_labels: rebalancingCtx?.rebalancing_strengthen_labels ?? [],
+      rebalancing_review_labels: rebalancingCtx?.rebalancing_review_labels ?? [],
+      rebalancing_reduce_signal: rebalancingCtx?.rebalancing_reduce_signal === true,
+      maintenance_return_eligible:
+        keyEntry === KEY_ENTRY.RETURN_JUDGMENT && rebalancingCtx?.maintenance_return_eligible === true,
       tool_brain_slice: legacySlice,
       tool_brain_absorbed: Boolean(legacySlice),
       coverage_gap_suppressed: plan?.coverage_gap_suppressed === true,
@@ -175,17 +247,92 @@ export async function runSalesDirectorKeyTurn({
   keyEntry = KEY_ENTRY.QUESTION,
   document = null,
   hasAnalysisConsent = false,
+  analysisJob = null,
 } = {}) {
   const consultationIntent =
     keyEntry === KEY_ENTRY.DOCUMENT_INTAKE
       ? DOCUMENT_INTAKE_CONSULTATION_INTENT
-      : modeDecision?.consultationIntent ?? classifyConsultationIntent(question);
+      : keyEntry === KEY_ENTRY.ANALYSIS_COMPLETE
+        ? ANALYSIS_COMPLETE_CONSULTATION_INTENT
+        : keyEntry === KEY_ENTRY.BRIDGE
+          ? BRIDGE_CONSULTATION_INTENT
+          : keyEntry === KEY_ENTRY.RETURN_JUDGMENT
+            ? RETURN_JUDGMENT_CONSULTATION_INTENT
+            : modeDecision?.consultationIntent ?? classifyConsultationIntent(question);
   const keyLatency = latency ?? createSalesDirectorLatencyBucket();
   const keyModeDecision = buildKeyModeDecision(consultationIntent, keyEntry);
 
   const planStart = Date.now();
-  const planQuestion = keyEntry === KEY_ENTRY.DOCUMENT_INTAKE ? "" : question;
-  const plan = planKeyTools(consultationIntent, loadedContext, planQuestion);
+  const planQuestion =
+    keyEntry === KEY_ENTRY.DOCUMENT_INTAKE ||
+    keyEntry === KEY_ENTRY.ANALYSIS_COMPLETE ||
+    keyEntry === KEY_ENTRY.BRIDGE ||
+    keyEntry === KEY_ENTRY.RETURN_JUDGMENT
+      ? ""
+      : question;
+
+  if (
+    keyEntry === KEY_ENTRY.ANALYSIS_COMPLETE &&
+    analysisJob?.result_json?.recommendation &&
+    customerContextBundle
+  ) {
+    const jobReco = buildRecommendationContextFromPayload(analysisJob.result_json.recommendation, {
+      jobId: analysisJob.id ?? null,
+    });
+    if (jobReco?.loaded) {
+      customerContextBundle.recommendationContext = jobReco;
+    }
+  }
+
+  if (
+    keyEntry === KEY_ENTRY.RETURN_JUDGMENT &&
+    analysisJob?.result_json?.coverage_gap &&
+    customerContextBundle
+  ) {
+    const jobGap = buildCoverageGapContextFromPayload(analysisJob.result_json.coverage_gap, {
+      jobId: analysisJob.id ?? null,
+    });
+    if (jobGap?.loaded) {
+      customerContextBundle.coverageGapContext = jobGap;
+    }
+  }
+
+  if (
+    keyEntry === KEY_ENTRY.RETURN_JUDGMENT &&
+    analysisJob?.result_json?.underwriting_risk &&
+    customerContextBundle
+  ) {
+    const jobUw = buildUnderwritingRiskContextFromPayload(analysisJob.result_json.underwriting_risk, {
+      jobId: analysisJob.id ?? null,
+    });
+    if (jobUw?.loaded) {
+      customerContextBundle.underwritingRiskContext = jobUw;
+    }
+  }
+
+  if (
+    keyEntry === KEY_ENTRY.RETURN_JUDGMENT &&
+    analysisJob?.result_json?.insurance_design &&
+    customerContextBundle
+  ) {
+    const jobDesign = buildDesignContextFromPayload(analysisJob.result_json.insurance_design, {
+      jobId: analysisJob.id ?? null,
+    });
+    if (jobDesign?.loaded) {
+      customerContextBundle.designContext = jobDesign;
+    }
+  }
+
+  if (keyEntry === KEY_ENTRY.RETURN_JUDGMENT && analysisJob && customerContextBundle) {
+    const jobRebalancing = buildRebalancingContextFromAnalysisJob(analysisJob, {
+      policies: customerContextBundle.policies ?? [],
+    });
+    if (jobRebalancing?.loaded) {
+      customerContextBundle.rebalancingContext = jobRebalancing;
+    }
+  }
+
+  const plan = planKeyTools(consultationIntent, loadedContext, planQuestion, analysisJob);
   keyLatency.key_plan_ms = markLatencyMs(planStart);
 
   const toolsStart = Date.now();
@@ -199,7 +346,9 @@ export async function runSalesDirectorKeyTurn({
     existingUnderwritingContext: customerContextBundle?.underwritingRiskContext ?? null,
     existingRecommendationContext: customerContextBundle?.recommendationContext ?? null,
     existingDesignContext: customerContextBundle?.designContext ?? null,
+    existingRebalancingContext: customerContextBundle?.rebalancingContext ?? null,
     unified,
+    analysisJob,
   });
   keyLatency.key_tools_ms = markLatencyMs(toolsStart);
 
@@ -223,6 +372,9 @@ export async function runSalesDirectorKeyTurn({
   if (toolRun.designContext) {
     customerContextBundle.designContext = toolRun.designContext;
   }
+  if (toolRun.rebalancingContext) {
+    customerContextBundle.rebalancingContext = toolRun.rebalancingContext;
+  }
 
   const agentTurn = buildKeyAgentTurn({
     question,
@@ -234,6 +386,7 @@ export async function runSalesDirectorKeyTurn({
     keyEntry,
     document,
     hasAnalysisConsent,
+    analysisJob,
   });
 
   const toolBrainAbsorbed = buildToolBrainAbsorbedTrace({

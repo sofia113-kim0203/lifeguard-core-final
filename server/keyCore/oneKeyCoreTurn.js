@@ -23,10 +23,12 @@ import {
 } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
 import {
+  isOneKeyCoreAnalysisCompleteEnabled,
   isOneKeyCoreDocumentEnabled,
   isOneKeyCoreS1Enabled,
   ONE_KEY_CORE_RESPONSE_SOURCE,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
+  resolveOneKeyCoreAnalysisCompleteEnv,
   resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreS1Env,
 } from "./oneKeyCoreFlags.js";
@@ -35,10 +37,13 @@ import {
   buildQuestionThinkingBundle,
 } from "./oneKeyCoreInterpret.js";
 import { runOneKeyCoreDocumentTurn } from "./oneKeyCoreDocument.js";
+import { runOneKeyCoreAnalysisCompleteTurn } from "./oneKeyCoreAnalysisComplete.js";
 
 export {
+  isOneKeyCoreAnalysisCompleteEnabled,
   isOneKeyCoreDocumentEnabled,
   isOneKeyCoreS1Enabled,
+  resolveOneKeyCoreAnalysisCompleteEnv,
   resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreS1Env,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
@@ -209,7 +214,7 @@ function finalizeOneKeyCorePersona({
 }
 
 /**
- * ONE KEY Core turn — routes by event (question · document).
+ * ONE KEY Core turn — routes by event (question · document · analysis_complete).
  */
 export async function runOneKeyCoreTurn({
   event = "question",
@@ -218,6 +223,8 @@ export async function runOneKeyCoreTurn({
   question = "",
   history = [],
   document = null,
+  analysisJob = null,
+  transitionObservedAt = null,
   hasAnalysisConsent = false,
   uploadSource = "web",
   categoryKey = null,
@@ -235,6 +242,18 @@ export async function runOneKeyCoreTurn({
       uploadSource,
       categoryKey,
       uploadEntryMode,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
+  if (event === "analysis_complete") {
+    return runOneKeyCoreAnalysisCompleteTurn({
+      userSupabase,
+      customerId,
+      analysisJob,
+      transitionObservedAt,
       env,
       fetchImpl,
       startedAt,

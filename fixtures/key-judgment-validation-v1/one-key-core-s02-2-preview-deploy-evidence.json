@@ -1,0 +1,34 @@
+{
+  "schema_version": "one-key-core-s02-2-preview-deploy-evidence-v1",
+  "slice": "ONE-KEY-CORE-S02-2-analysis_complete",
+  "mode": "Preview deploy only · no push · no production",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-05T17:16:02.601Z",
+  "git_short_sha": "f4ebc37",
+  "preview_env_add": {
+    "ONE_KEY_CORE_ANALYSIS_COMPLETE": "1"
+  },
+  "preview_env_preserved": [
+    "ONE_KEY_CORE_DOCUMENT",
+    "ONE_KEY_CORE_S1",
+    "KEY_UPLOAD_ENTRY",
+    "SALES_DIRECTOR_KEY_ORCHESTRATOR",
+    "SALES_DIRECTOR_KEY_LEGACY_FALLBACK",
+    "SALES_DIRECTOR_KEY_CUSTOMER_ALLOWLIST"
+  ],
+  "env_ops": [
+    {
+      "key": "ONE_KEY_CORE_ANALYSIS_COMPLETE",
+      "action": "add",
+      "value": "1"
+    }
+  ],
+  "deploy": {
+    "ok": true,
+    "exit_code": 0,
+    "preview_url": "https://lifeguard-core-final-5g498157k-70sofia113-1918s-projects.vercel.app",
+    "log_tail": "p npmrc` for supported config options.\nVercel CLI 54.20.1 (Node.js 24.15.0)\nRetrieving project…\nDeploying 70sofia113-1918s-projects/lifeguard-core-final\nUploading [--------------------] (0.0B/175.4KB)\nUploading [======--------------] (54.6KB/175.4KB)\nUploading [==========----------] (94.6KB/175.4KB)\nUploading [===============-----] (136.3KB/175.4KB)\nUploading [====================] (175.4KB/175.4KB)\n  Inspect         https://vercel.com/70sofia113-1918s-projects/lifeguard-core-final/5MLVPfTsNpeC2xsh5n1bvHm2joUH\n  Preview         https://lifeguard-core-final-5g498157k-70sofia113-1918s-projects.vercel.app\nBuilding…\nBuilding…\nRunning build in Washington, D.C., USA (East) – iad1\nBuild machine configuration: 4 cores, 8 GB\nRetrieving list of deployment files...\nDownloading 1176 deployment files...\nRestored build cache from previous deployment (8BBQyhCmrevknJ1RNTLgLRXbxGMW)\nRunning \"vercel build\"\nVercel CLI 54.19.0\nInstalling dependencies...\nup to date in 503ms\n16 packages are looking for funding\nrun `npm fund` for details\n> lifeguard-core@0.1.0 build\n> vite build\nvite v8.0.16 building client environment for production...\ntransforming...✓ 201 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.39 kB │ gzip:   0.27 kB\ndist/assets/index-ByqiJt-3.css    1.56 kB │ gzip:   0.72 kB\ndist/assets/index-Ch_eziLB.js   962.17 kB │ gzip: 217.58 kB\n✓ built in 427ms\n[plugin builtin:vite-reporter]\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.\nBuild Completed in /vercel/output [14s]\nDeploying outputs...\nDeployment completed\nCreating build cache...\n\u001b[2K\u001b[1A\u001b[2K\u001b[G  Preview         https://lifeguard-core-final-5g498157k-70sofia113-1918s-projects.vercel.app\nCompleting…\n"
+  },
+  "production_alias_unchanged": true,
+  "next_step": "node scripts/one-key-core-s02-2-upload-3beat-preview-probe.mjs <preview-url>"
+}

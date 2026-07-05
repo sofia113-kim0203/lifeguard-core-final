@@ -170,6 +170,7 @@
     "verify:key-upload-hand-wiring-p1-preview-snapshot": "node scripts/key-upload-hand-wiring-p1-preview-snapshot-probe.mjs",
     "test:one-key-core-s1": "node scripts/one-key-core-s1-hand-unit-test.mjs",
     "test:one-key-core-s02-1-document": "node scripts/one-key-core-s02-1-document-hand-unit-test.mjs",
+    "test:one-key-core-s02-2-analysis-complete": "node scripts/one-key-core-s02-2-analysis-complete-hand-unit-test.mjs",
     "test:key-upload-hand-wiring-p2-key-runtime": "node scripts/key-hand-wiring-p2-key-runtime-unit-test.mjs",
     "test:key-upload-hand-wiring-p3-persona-outlet": "node scripts/key-upload-hand-wiring-persona-outlet-unit-test.mjs",
     "test:key-evidence-foundation-ea1": "node scripts/key-evidence-foundation-ea1-unit-test.mjs",
