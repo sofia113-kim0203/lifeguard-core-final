@@ -1,6 +1,7 @@
 /**
  * KU-1 — POST /api/key-document-intake
  * KU-2a+2b+2c — active: unified KEY upload authority (judgment + speak + Work Order gate).
+ * S02-1 — ONE_KEY_CORE_DOCUMENT=1 → runOneKeyCoreTurn({ event: "document" }).
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
@@ -29,7 +30,6 @@ import {
   buildKeyWorkOrderRecord,
   mintKeyWorkOrderId,
   persistKeyWorkOrder,
-  recordKeyWorkOrderFactoryUse,
   resolveKeyWorkOrderTtlMs,
 } from "../server/keyBrain/workOrder.js";
 import {
@@ -37,6 +37,10 @@ import {
   readCustomerAuthHeader,
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
+import {
+  isOneKeyCoreDocumentEnabled,
+  runOneKeyCoreTurn,
+} from "../server/keyCore/oneKeyCoreTurn.js";
 
 const DOCUMENT_SELECT =
   "id, customer_id, original_filename, ingest_status, doc_class, customer_hint_type, mime_type, metadata_json, created_at";
@@ -129,6 +133,58 @@ export default async function handler(req, res) {
 
   const hasAnalysisConsent = await hasDocumentAnalysisConsent(supabase, auth.customerId);
   const activeAuthority = isKeyUploadEntryActiveEnabled(process.env);
+  const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
+
+  if (isOneKeyCoreDocumentEnabled(process.env)) {
+    const coreResult = await runOneKeyCoreTurn({
+      event: "document",
+      userSupabase: supabase,
+      customerId: auth.customerId,
+      document,
+      hasAnalysisConsent,
+      uploadSource: String(body.upload_source ?? "web"),
+      categoryKey: body.category_key ?? null,
+      uploadEntryMode: mode,
+      env: process.env,
+    });
+
+    if (!coreResult.ok) {
+      res.statusCode = coreResult.reason === "work_order_persist_failed" ? 500 : 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: coreResult.reason ?? "one_key_core_document_failed",
+          error_message: coreResult.error_message ?? null,
+          one_key_core_trace: coreResult.one_key_core_trace ?? null,
+        }),
+      );
+      return;
+    }
+
+    const resolvedTrace = coreResult.intakeTrace;
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: true,
+        mode: responseMode,
+        subject: "KEY",
+        document_id: documentId,
+        response_source: coreResult.response_source,
+        one_key_core_event: "document",
+        intake_trace: resolvedTrace,
+        key_first_judgment: resolvedTrace.key_first_judgment ?? null,
+        customer_first_sentence: resolvedTrace.customer_first_sentence ?? null,
+        persona_outlet: resolvedTrace.persona_outlet ?? null,
+        work_order_id: coreResult.workOrderId ?? null,
+        work_order_ordered_by: coreResult.workOrderId ? "KEY" : null,
+        factory_executed: false,
+        customer_speak_changed: Boolean(resolvedTrace.customer_speak_changed),
+      }),
+    );
+    return;
+  }
 
   let contextSnapshot = null;
   let loadedContext = null;
@@ -233,7 +289,6 @@ export default async function handler(req, res) {
     };
   }
 
-  const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
   let workOrderId = null;
 
   if (mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE) {

@@ -1,9 +1,14 @@
 /**
- * ONE KEY Core S1 — feature gate (customer-home-brain-fact 1 turn only).
+ * ONE KEY Core — feature gates (question S1 · document S02-1).
  */
 
 export function isOneKeyCoreS1Enabled(env = process.env) {
   const raw = String(env.ONE_KEY_CORE_S1 ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "active";
+}
+
+export function isOneKeyCoreDocumentEnabled(env = process.env) {
+  const raw = String(env.ONE_KEY_CORE_DOCUMENT ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "active";
 }
 
@@ -16,6 +21,21 @@ export function resolveOneKeyCoreS1Env(env = process.env) {
     SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
   };
 }
+
+/** S02-1 document env overlay. */
+export function resolveOneKeyCoreDocumentEnv(env = process.env) {
+  return {
+    ...env,
+    ONE_KEY_CORE_DOCUMENT: "1",
+    SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
+    SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
+  };
+}
+
+export const ONE_KEY_CORE_RESPONSE_SOURCE = {
+  QUESTION: "one_key_core_s1",
+  DOCUMENT: "one_key_core_document",
+};
 
 export const ONE_KEY_CORE_S1_BLOCKED_PATHS = [
   "legacy_tom_speak",

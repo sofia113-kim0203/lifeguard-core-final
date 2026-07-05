@@ -26,7 +26,7 @@ function pickDocumentRow(document = {}) {
   return row;
 }
 
-function buildDispatchPlanShadow({ document = {}, hasAnalysisConsent = false }) {
+export function buildDocumentDispatchPlanShadow({ document = {}, hasAnalysisConsent = false }) {
   const workOrders = [];
   if (!hasAnalysisConsent) {
     return {
@@ -126,7 +126,7 @@ export function buildKeyRuntimeEnteredStep({
   };
 }
 
-function buildInterpretShadow({
+export function buildDocumentInterpretShadow({
   document = {},
   hasAnalysisConsent = false,
   loadedContext = null,
@@ -175,7 +175,7 @@ function buildInterpretShadow({
   };
 }
 
-function buildReadsShadow({ document = {} }) {
+export function buildDocumentReadsShadow({ document = {} }) {
   return {
     actor: "KEY",
     read_mode: "document_metadata_ku1",
@@ -209,19 +209,19 @@ export function buildKeyDocumentIntakeShadowTrace({
   keyRuntimeEntered = false,
   keyEntry = "document_intake",
 } = {}) {
-  const keyReads = buildReadsShadow({ document });
+  const keyReads = buildDocumentReadsShadow({ document });
   const keyContextLoaded = buildKeyContextLoadedStep({
     contextSnapshot,
     loadedContext,
     fromCache: snapshotFromCache,
   });
-  const keyInterprets = buildInterpretShadow({
+  const keyInterprets = buildDocumentInterpretShadow({
     document,
     hasAnalysisConsent,
     loadedContext,
     contextSnapshot,
   });
-  const dispatchPlan = buildDispatchPlanShadow({ document, hasAnalysisConsent });
+  const dispatchPlan = buildDocumentDispatchPlanShadow({ document, hasAnalysisConsent });
 
   const traceSteps = [
     {

@@ -1,0 +1,44 @@
+{
+  "schema_version": "one-key-core-s02-1-upload-3beat-preview-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-05T16:46:25.470Z",
+  "preview_base": "https://lifeguard-core-final-bdtngvctm-70sofia113-1918s-projects.vercel.app",
+  "beats": [
+    {
+      "beat": "document",
+      "path": "/api/key-document-intake",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_document",
+      "work_order_id": "kwo_f0191e72-b73c-4ea0-915f-a7fdb1ac3d52",
+      "customer_first_sentence_preview": "올려 주신 자료를 받았습니다. 파일명·분류 기준으로 보험 계약 자료로 보입니다. 프로필에 실손 축 보험이 등록돼 있습니다. 확인해 둔 내용 기준으로 실손·암 축 계약이며, 프로필과 연결돼 있습니다. 이전에 기억해 둔 내용 기준으로 암 쪽에 관심을 두신 적이 있습니다. 이 파일 내용만으로는 특약·보장 범위까지는 아직 말씀드리기 어렵습니다. 특약이나 가입현황이 함께 오면, 등록된 보험과 한 세트로 정리하겠습니다.",
+      "core_steps": [
+        "interpret",
+        "thinking",
+        "judgment",
+        "planner",
+        "work_order",
+        "evidence",
+        "speak",
+        "persona"
+      ],
+      "probe_ok": true
+    },
+    {
+      "beat": "analysis_complete",
+      "path": "/api/key-analysis-complete-intake",
+      "core_route": "legacy",
+      "response_source": null,
+      "probe_ok": true,
+      "note": "S02-2 not started — expected legacy unless flag extended"
+    },
+    {
+      "beat": "return_judgment",
+      "path": "/api/key-return-judgment-intake",
+      "core_route": "legacy",
+      "response_source": null,
+      "probe_ok": false,
+      "probe_error": "session_id_required",
+      "note": "S02-4 not started — expected legacy"
+    }
+  ]
+}
