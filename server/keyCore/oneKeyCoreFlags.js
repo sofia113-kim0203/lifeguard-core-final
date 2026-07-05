@@ -1,5 +1,5 @@
 /**
- * ONE KEY Core — feature gates (question S1 · document S02-1).
+ * ONE KEY Core — feature gates (question S1 · document S02-1 · analysis_complete S02-2).
  */
 
 export function isOneKeyCoreS1Enabled(env = process.env) {
@@ -9,6 +9,11 @@ export function isOneKeyCoreS1Enabled(env = process.env) {
 
 export function isOneKeyCoreDocumentEnabled(env = process.env) {
   const raw = String(env.ONE_KEY_CORE_DOCUMENT ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "active";
+}
+
+export function isOneKeyCoreAnalysisCompleteEnabled(env = process.env) {
+  const raw = String(env.ONE_KEY_CORE_ANALYSIS_COMPLETE ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "active";
 }
 
@@ -32,9 +37,20 @@ export function resolveOneKeyCoreDocumentEnv(env = process.env) {
   };
 }
 
+/** S02-2 analysis_complete env overlay. */
+export function resolveOneKeyCoreAnalysisCompleteEnv(env = process.env) {
+  return {
+    ...env,
+    ONE_KEY_CORE_ANALYSIS_COMPLETE: "1",
+    SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
+    SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
+  };
+}
+
 export const ONE_KEY_CORE_RESPONSE_SOURCE = {
   QUESTION: "one_key_core_s1",
   DOCUMENT: "one_key_core_document",
+  ANALYSIS_COMPLETE: "one_key_core_analysis_complete",
 };
 
 export const ONE_KEY_CORE_S1_BLOCKED_PATHS = [

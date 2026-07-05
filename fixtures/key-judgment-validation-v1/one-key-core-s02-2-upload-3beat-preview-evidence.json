@@ -1,0 +1,40 @@
+{
+  "schema_version": "one-key-core-s02-2-upload-3beat-preview-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-05T17:16:12.627Z",
+  "preview_base": "https://lifeguard-core-final-5g498157k-70sofia113-1918s-projects.vercel.app",
+  "beats": [
+    {
+      "beat": "document",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_document",
+      "work_order_id": "kwo_ebc78968-8fe6-444a-a593-4b529406e9cb",
+      "probe_ok": true
+    },
+    {
+      "beat": "analysis_complete",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_analysis_complete",
+      "work_order_id": null,
+      "customer_initiative_sentence_preview": "뇌혈관 쪽부터 같이 짚어보면 좋겠습니다.",
+      "core_steps": [
+        "interpret",
+        "thinking",
+        "judgment",
+        "planner",
+        "work_order",
+        "evidence",
+        "speak",
+        "persona"
+      ],
+      "probe_ok": true
+    },
+    {
+      "beat": "return_judgment",
+      "core_route": "legacy",
+      "response_source": null,
+      "probe_ok": false,
+      "note": "S02-4 not started — expected legacy"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "one-key-core-s02-2-analysis-complete-local-trace-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-06T02:10:00+09:00",
+  "response_source": "one_key_core_analysis_complete",
+  "trace_complete": true,
+  "work_order_mint": false,
+  "work_order_shadow_only": true,
+  "factory_explain_invoked": false,
+  "unit_tests": "5/5 PASS — npm run test:one-key-core-s02-2-analysis-complete",
+  "regressions": {
+    "s02_1_document": "4/4 PASS",
+    "s1_question": "6/6 PASS",
+    "conn_001_panel": "8/8 PASS",
+    "p4_entry": "9/9 PASS"
+  },
+  "eight_step_trace": [
+    "interpret",
+    "thinking",
+    "judgment",
+    "planner",
+    "work_order",
+    "evidence",
+    "speak",
+    "persona"
+  ],
+  "work_order_step": {
+    "shadow_only": true,
+    "work_order_id": null,
+    "persisted": false,
+    "hold_reason": "analysis_complete_stored_panel_read_only"
+  },
+  "speak_branches": {
+    "static_fallback": "conn_001_panel_wired=false · KEY_ANALYSIS_INITIATIVE_PASS_VOICE",
+    "conn_001_panel": "conn_001_panel_wired=true · {label} 쪽부터 같이 짚어보면 좋겠습니다."
+  },
+  "route_matrix_local": {
+    "document": "Core (ONE_KEY_CORE_DOCUMENT=1)",
+    "analysis_complete": "Core (ONE_KEY_CORE_ANALYSIS_COMPLETE=1)",
+    "return_judgment": "legacy (S02-4 not started)"
+  },
+  "preview_note": "Preview probe requires ONE_KEY_CORE_ANALYSIS_COMPLETE=1 deploy — not run (Commit/Push forbidden)"
+}
