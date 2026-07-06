@@ -74,20 +74,20 @@ const report = {
       pass: Array.isArray(result.full_ranking) && result.full_ranking.length > result.customer_top2.length,
     },
     highRiskWarningsOrReview: {
-      pass: result.requires_agent_review === true && result.warnings.some((warning) => warning.includes("인수심사")),
-      warnings: result.warnings,
+      pass: result.requires_agent_review === true && result.warning_codes.some((code) => code.includes("uw")),
+      warning_codes: result.warning_codes,
       requires_agent_review: result.requires_agent_review,
     },
     coverageGapsInfluenceScore: {
       pass:
-        result.full_ranking[0].reasons.some((reason) => reason.includes("보장 공백")) &&
-        result.full_ranking.some((item) => item.warnings.some((warning) => warning.includes("보장 공백"))),
+        result.full_ranking[0].reason_codes.includes("coverage_fit_positive") &&
+        result.full_ranking.some((item) => item.warning_codes.includes("coverage_fit_negative")),
       top: result.full_ranking[0],
     },
     budgetPreferenceInfluence: {
       pass:
-        result.full_ranking.some((item) => item.reasons.some((reason) => reason.includes("예산"))) &&
-        result.full_ranking.some((item) => item.warnings.some((warning) => warning.includes("예산"))),
+        result.full_ranking.some((item) => item.reason_codes.includes("budget_fit")) &&
+        result.full_ranking.some((item) => item.warning_codes.some((code) => code.startsWith("budget_over"))),
     },
     scoreRange: {
       pass: result.full_ranking.every((item) => Number.isInteger(item.recommendation_score) && item.recommendation_score >= 0 && item.recommendation_score <= 100),

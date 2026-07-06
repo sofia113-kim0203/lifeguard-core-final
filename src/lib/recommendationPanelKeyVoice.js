@@ -81,19 +81,44 @@ export function buildRecommendationPanelItemLead(item = {}) {
 }
 
 export function buildRecommendationPanelItemWhy(item = {}) {
-  const parts = [];
-  if (item.reason) {
-    parts.push(`왜냐하면 ${String(item.reason).trim()}`);
+  const label = String(item.coverage_label ?? "").trim();
+  const type = item.recommendation_type;
+  if (!label) return null;
+
+  if (type === "add_coverage") {
+    return `${label} 보장부터 같이 확인하는 편이 좋겠습니다.`;
   }
-  if (item.budget_consideration) {
-    parts.push(String(item.budget_consideration).trim());
+  if (type === "prepare_documents") {
+    return `${label} 쪽은 필요한 자료를 먼저 정리하고 같이 보는 편이 좋겠습니다.`;
   }
-  return parts.filter(Boolean).join(" ");
+  if (type === "review_existing") {
+    return `${label} 구조부터 함께 점검해 보겠습니다.`;
+  }
+  if (type === "avoid_for_now") {
+    return `${label} 쪽은 지금 서두르지 않고 건강 조건을 같이 보겠습니다.`;
+  }
+  if (type === "keep_existing") {
+    return `${label} 보장은 유지하면서 함께 보면 됩니다.`;
+  }
+  return `${label} 쪽을 같이 짚어보면 좋겠습니다.`;
 }
 
 export function buildRecommendationPanelItemCaveat(item = {}) {
-  if (!item.underwriting_consideration) return null;
-  return `인수 쪽은 ${String(item.underwriting_consideration).trim()}`;
+  const flags = item.uw_flags ?? [];
+  if (flags.includes("likely_decline")) {
+    return "다만 상품 가입을 단정하기보다는 현재 건강 조건을 같이 보고 판단하겠습니다.";
+  }
+  if (
+    flags.includes("likely_exclusion") ||
+    flags.includes("likely_surcharge") ||
+    flags.includes("likely_additional_review")
+  ) {
+    return "다만 인수 쪽은 추가 확인이 필요할 수 있어, 건강 조건을 같이 보겠습니다.";
+  }
+  if (item.budget_band === "review_needed" || item.budget_band === "over_budget_risk") {
+    return "다만 상품 가입을 단정하기보다는 현재 보장금액과 건강 조건을 같이 보고 판단하겠습니다.";
+  }
+  return null;
 }
 
 export function chatPanelContinuitySignals({ chatAnswer = "", panelContinuation = "" } = {}) {

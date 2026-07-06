@@ -199,7 +199,9 @@ export async function generatePanelClaudeExplanations({
     });
   }
 
-  if (recommendationResult) {
+  // FACTORY-SPEAK-01-S1 — recommendation panel Claude blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_01_S1_BLOCK_RECOMMENDATION_CLAUDE = true;
+  if (recommendationResult && !FACTORY_SPEAK_01_S1_BLOCK_RECOMMENDATION_CLAUDE) {
     const prompt = buildRecommendationExplanationPrompt(
       structuredMemory,
       recommendationResult,

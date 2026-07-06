@@ -107,12 +107,12 @@ function scoreRiskFit(candidate, risks) {
 }
 
 function scoreBudget(candidate, budget) {
-  if (!budget) return { score: 0, warning: null };
-  if (candidate.monthly_premium_estimate <= budget) return { score: 10, warning: null };
+  if (!budget) return { score: 0, warning_code: null };
+  if (candidate.monthly_premium_estimate <= budget) return { score: 10, warning_code: null };
   const overBy = candidate.monthly_premium_estimate - budget;
   return {
     score: overBy > 50000 ? -12 : -6,
-    warning: `월 예상 보험료가 선호 예산 ${budget.toLocaleString("ko-KR")}원을 초과할 수 있습니다.`,
+    warning_code: overBy > 50000 ? "budget_over_significant" : "budget_over_moderate",
   };
 }
 
@@ -123,32 +123,33 @@ function scorePreference(candidate, preferences) {
 }
 
 function rankCandidate(candidate, context) {
-  const reasons = [];
-  const warnings = [];
+  const reason_codes = [];
+  const warning_codes = [];
   const gaps = criticalGaps(context.coverageGapResult);
   const risks = highRiskFlags(context.underwritingRiskResult);
   const budget = extractBudget(context.memoryFacts);
   const preferences = extractPreferenceKeywords(context.memoryFacts);
 
   const coverageScore = scoreCoverageFit(candidate, gaps);
-  if (coverageScore > 0) reasons.push("보장 공백 항목과 후보 강점이 일부 일치합니다.");
-  if (coverageScore < 0) warnings.push("일부 보장 공백 항목이 후보 약점과 겹칩니다.");
+  if (coverageScore > 0) reason_codes.push("coverage_fit_positive");
+  if (coverageScore < 0) warning_codes.push("coverage_fit_negative");
 
   const riskScore = scoreRiskFit(candidate, risks);
-  if (risks.length > 0) warnings.push("건강 memory 기반 인수심사 검토 필요 가능성이 있습니다.");
+  if (risks.length > 0) warning_codes.push("uw_review_needed");
 
   const budgetResult = scoreBudget(candidate, budget);
-  if (budgetResult.warning) warnings.push(budgetResult.warning);
-  if (budgetResult.score > 0) reasons.push("고객 예산 선호와 월 예상 보험료가 맞습니다.");
+  if (budgetResult.warning_code) warning_codes.push(budgetResult.warning_code);
+  if (budgetResult.score > 0) reason_codes.push("budget_fit");
 
   const preferenceScore = scorePreference(candidate, preferences);
-  if (preferenceScore > 0) reasons.push("고객 선호 memory와 후보 강점이 일치합니다.");
+  if (preferenceScore > 0) reason_codes.push("preference_fit");
 
   const reviewPenalty = (context.coverageGapResult?.agent_review_items?.length ?? 0) +
     (context.underwritingRiskResult?.agent_review_items?.length ?? 0);
   const base = 50 + coverageScore + riskScore + budgetResult.score + preferenceScore - Math.min(reviewPenalty, 15);
   const recommendation_score = clamp(Math.round(base), 0, 100);
-  const requires_agent_review = warnings.length > 0 || (context.underwritingRiskResult?.underwriting_risk_level === "high");
+  const requires_agent_review =
+    warning_codes.length > 0 || context.underwritingRiskResult?.underwriting_risk_level === "high";
 
   return {
     carrier_id: candidate.carrier_id,
@@ -156,8 +157,8 @@ function rankCandidate(candidate, context) {
     product_id: candidate.product_id,
     product_name: candidate.product_name,
     recommendation_score,
-    reasons,
-    warnings,
+    reason_codes,
+    warning_codes,
     requires_agent_review,
   };
 }
@@ -169,8 +170,8 @@ function customerView(item) {
     product_id: item.product_id,
     product_name: item.product_name,
     recommendation_score: item.recommendation_score,
-    reasons: item.reasons,
-    warnings: item.warnings,
+    reason_codes: item.reason_codes,
+    warning_codes: item.warning_codes,
     requires_agent_review: item.requires_agent_review,
   };
 }
@@ -192,8 +193,8 @@ export function buildRecommendationResult({
     customer_top2: full_ranking.slice(0, 2).map(customerView),
     full_ranking,
     recommendation_score: full_ranking[0]?.recommendation_score ?? 0,
-    reasons: full_ranking[0]?.reasons ?? [],
-    warnings: Array.from(new Set(full_ranking.flatMap((item) => item.warnings))),
+    reason_codes: full_ranking[0]?.reason_codes ?? [],
+    warning_codes: Array.from(new Set(full_ranking.flatMap((item) => item.warning_codes))),
     requires_agent_review: full_ranking.some((item) => item.requires_agent_review),
     generated_at: generatedAt,
   };
@@ -204,8 +205,8 @@ export function customerRecommendationView(result) {
     customer_id: result.customer_id,
     customer_top2: result.customer_top2,
     recommendation_score: result.recommendation_score,
-    reasons: result.reasons,
-    warnings: result.warnings,
+    reason_codes: result.reason_codes,
+    warning_codes: result.warning_codes,
     requires_agent_review: result.requires_agent_review,
     generated_at: result.generated_at,
   };
@@ -280,33 +281,73 @@ function derivePriority(gapItem, uwItem, recommendationType) {
   return "low";
 }
 
-function buildReason(gapItem, uwItem, recommendationType, label) {
-  const parts = [];
-  if (gapItem?.reason) parts.push(`보장공백: ${gapItem.reason}`);
-  if (uwItem?.reason) parts.push(`인수위험: ${uwItem.reason}`);
-  if (recommendationType === "keep_existing") {
-    return `${label}은(는) 현재 Memory 기준 유지 보장으로 판단됩니다.`;
-  }
+function buildReasonCodes(gapItem, uwItem, recommendationType) {
+  const codes = [];
+  const gapLevel = gapItem?.gap_level;
+  if (gapLevel === "critical") codes.push("critical_gap");
+  else if (gapLevel === "high") codes.push("high_gap");
+  else if (gapLevel === "medium") codes.push("medium_gap");
+  else if (gapLevel === "low") codes.push("low_gap");
+  else if (gapLevel === "sufficient") codes.push("gap_sufficient");
+
+  const status = gapItem?.current_status;
+  if (status === "held") codes.push("coverage_held");
+  if (status === "missing") codes.push("coverage_missing");
+  if (status === "insufficient") codes.push("coverage_insufficient");
+
+  const uwStatus = uwItem?.underwriting_status ?? "unknown";
+  if (uwStatus !== "unknown") codes.push(`uw_${uwStatus}`);
+
   if (recommendationType === "add_coverage") {
-    return `${label} 보장 보강이 필요하며, 현재 health memory 기준 특별한 인수 제한 신호는 제한적입니다.`;
+    codes.push("type_add_coverage");
+    if (["likely_standard", "unknown"].includes(uwStatus)) codes.push("uw_friction_low");
+  } else if (recommendationType === "prepare_documents") {
+    codes.push("type_prepare_documents");
+  } else if (recommendationType === "review_existing") {
+    codes.push("type_review_existing");
+  } else if (recommendationType === "keep_existing") {
+    codes.push("type_keep_existing");
+  } else if (recommendationType === "avoid_for_now") {
+    codes.push("type_avoid_for_now");
+    codes.push("uw_friction_high");
   }
-  if (recommendationType === "prepare_documents") {
-    return `${label} 보장 보강이 필요하고, health memory 기준 추가 고지·서류 준비 후 가입 검토가 필요합니다.`;
+
+  if (["likely_decline", "likely_exclusion"].includes(uwStatus)) {
+    codes.push("uw_friction_high");
   }
-  if (recommendationType === "avoid_for_now") {
-    return `${label}은(는) 현재 Memory 기준 가입 거절 위험이 높아 당장 가입보다 정보 보완·전문 상담이 우선입니다.`;
-  }
-  return parts.join(" ") || `${label} 관련 추가 검토가 필요합니다.`;
+
+  return Array.from(new Set(codes));
 }
 
-function budgetConsideration(monthlyBudget, recommendationType) {
-  if (!monthlyBudget) {
-    return "월 보험 예산이 Memory에 기록되어 있지 않습니다.";
-  }
-  if (recommendationType === "keep_existing") {
-    return `현재 유지 보험료와 함께 월 예산 ${monthlyBudget.toLocaleString("ko-KR")}원 내 유지 여부를 점검하세요.`;
-  }
-  return `신규 보장 검토 시 월 예산 ${monthlyBudget.toLocaleString("ko-KR")}원 범위를 고려하세요.`;
+function buildBudgetBand(monthlyBudget, recommendationType) {
+  if (!monthlyBudget) return "not_recorded";
+  if (recommendationType === "keep_existing") return "keep_existing_check";
+  if (recommendationType === "avoid_for_now") return "review_needed";
+  return "review_needed";
+}
+
+function buildGapSignals(gapItem) {
+  if (!gapItem) return [];
+  const signals = [];
+  if (gapItem.gap_level) signals.push(`gap_level:${gapItem.gap_level}`);
+  if (gapItem.current_status) signals.push(`status:${gapItem.current_status}`);
+  if (gapItem.coverage_category) signals.push(`category:${gapItem.coverage_category}`);
+  return signals;
+}
+
+function buildUwFlags(uwItem) {
+  if (!uwItem) return [];
+  const flags = [];
+  if (uwItem.underwriting_status) flags.push(uwItem.underwriting_status);
+  if (uwItem.risk_level) flags.push(`risk_${uwItem.risk_level}`);
+  return flags;
+}
+
+function buildEvidenceCodes(gapItem, uwItem) {
+  const codes = [];
+  if (gapItem?.confidence) codes.push(`gap_confidence_${gapItem.confidence}`);
+  if (uwItem?.confidence_level) codes.push(`uw_confidence_${uwItem.confidence_level}`);
+  return codes;
 }
 
 function confidenceLevel(gapItem, uwItem) {
@@ -351,9 +392,11 @@ export function buildCoverageCategoryRecommendations({
       coverage_label: label,
       recommendation_type,
       priority,
-      reason: buildReason(gapItem, uwItem, recommendation_type, label),
-      underwriting_consideration: uwItem?.reason ?? "인수 위험 분석 결과가 없습니다.",
-      budget_consideration: budgetConsideration(monthly_budget, recommendation_type),
+      reason_codes: buildReasonCodes(gapItem, uwItem, recommendation_type),
+      budget_band: buildBudgetBand(monthly_budget, recommendation_type),
+      gap_signals: buildGapSignals(gapItem),
+      uw_flags: buildUwFlags(uwItem),
+      evidence_codes: buildEvidenceCodes(gapItem, uwItem),
       required_documents: uwItem?.required_documents ?? [],
       memory_sources_used: Array.from(
         new Set([
@@ -364,7 +407,7 @@ export function buildCoverageCategoryRecommendations({
       confidence_level: confidenceLevel(gapItem, uwItem),
       coverage_gap_level: gapItem?.gap_level ?? null,
       underwriting_status: uwItem?.underwriting_status ?? null,
-      insurance_goal_alignment: insurance_goal ? `고객 보험 목표: ${insurance_goal}` : null,
+      insurance_goal: insurance_goal ?? null,
       _score: score,
     };
   });

@@ -108,13 +108,6 @@ export default function RecommendationPanelKeyView({
           </div>
 
           <div style={{ fontSize: "14px", color: "#cbd5e1", lineHeight: 1.6 }}>{nextStep}</div>
-
-          {recResult?.claudeExplanation ? (
-            <div>
-              <h4 style={S.sectionTitle}>KEY가 덧붙이는 설명</h4>
-              <div style={S.explanation}>{recResult.claudeExplanation}</div>
-            </div>
-          ) : null}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>

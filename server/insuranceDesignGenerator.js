@@ -67,15 +67,18 @@ function currentIssues({ coverageGapResult, underwritingRiskResult }) {
 
 function designFocus(recommendation, coverageGapResult) {
   const gaps = topGaps(coverageGapResult).map((gap) => gap.coverage_type);
-  const focus = gaps.filter((gap) => recommendation.reasons?.some((reason) => reason.includes("보장 공백")));
+  const hasCoverageFit =
+    recommendation.reason_codes?.includes("coverage_fit_positive") ||
+    recommendation.reasons?.some((reason) => reason.includes("보장 공백"));
+  const focus = hasCoverageFit ? gaps : gaps.slice(0, 3);
   return focus.length ? focus : gaps.slice(0, 3);
 }
 
 function buildDesign(recommendation, context, rank) {
   const focus = designFocus(recommendation, context.coverageGapResult);
   const warnings = unique([
-    ...(recommendation.warnings ?? []),
-    ...(context.underwritingRiskResult?.underwriting_risk_level === "high" ? ["건강 memory 기반 인수심사 검토가 필요합니다."] : []),
+    ...(recommendation.warning_codes ?? recommendation.warnings ?? []),
+    ...(context.underwritingRiskResult?.underwriting_risk_level === "high" ? ["uw_review_needed"] : []),
   ]);
   return {
     rank,
@@ -85,7 +88,7 @@ function buildDesign(recommendation, context, rank) {
     product_name: recommendation.product_name,
     recommendation_score: recommendation.recommendation_score,
     design_focus: focus,
-    rationale: recommendation.reasons ?? [],
+    rationale: recommendation.reason_codes ?? recommendation.reasons ?? [],
     warnings,
     requires_agent_review: recommendation.requires_agent_review || warnings.length > 0,
     disclaimer: "초안 설계안입니다. 가입 여부, 인수 조건, 보험료, 보장 여부는 확정하지 않으며 설계사 검토가 필요합니다.",
@@ -256,8 +259,8 @@ export function buildCustomerInsuranceDesignPlan({
   }));
 
   const underwriting_warnings = uniqueStrings(
-    top2.map((item) => item.underwriting_consideration).concat(
-      (underwritingResult.likely_surcharge ?? []).map((item) => item.reason),
+    top2.flatMap((item) => item.uw_flags ?? []).concat(
+      (underwritingResult.likely_surcharge ?? []).map((item) => item.underwriting_status).filter(Boolean),
     ),
   );
 

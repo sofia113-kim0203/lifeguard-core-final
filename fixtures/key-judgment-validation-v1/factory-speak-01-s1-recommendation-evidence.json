@@ -1,0 +1,49 @@
+{
+  "slice_id": "FACTORY-SPEAK-01-S1",
+  "scope": "recommendation",
+  "tom_one_liner": "Recommendation 공장은 추천하지 않는다. 후보와 점수만 낸다. 추천은 KEY가 한다.",
+  "structured_factory_fields": [
+    "coverage_label",
+    "recommendation_type",
+    "priority",
+    "recommendation_score",
+    "recommendation_rank",
+    "reason_codes",
+    "budget_band",
+    "gap_signals",
+    "uw_flags",
+    "evidence_codes"
+  ],
+  "removed_customer_exposure": [
+    "reason",
+    "budget_consideration",
+    "underwriting_consideration",
+    "claude_explanation",
+    "fallback_explanation",
+    "panel_why_factory_reason",
+    "panel_claude_explanation_block"
+  ],
+  "changed_files": [
+    "server/recommendationEngine.js",
+    "server/customerRecommendationCore.js",
+    "server/panelClaudeExplanationHydration.js",
+    "src/lib/recommendationPanelKeyVoice.js",
+    "src/components/RecommendationPanelKeyView.jsx",
+    "server/advisorBrain/advisorRecommendationReasonResponder.js"
+  ],
+  "tests": {
+    "test:factory-speak-01-s1-recommendation": "5/5 PASS",
+    "test:recommendation-panel-key-voice": "8/8 PASS",
+    "test:phase24-step3c": "PASS",
+    "advisor-brain-p1-step4-recommendation-reason-test": "PASS"
+  },
+  "production_env_changed": false,
+  "sample_structured_item": {
+    "coverage_label": "암",
+    "recommendation_type": "add_coverage",
+    "priority": "high",
+    "recommendation_score": 115,
+    "reason_codes": ["critical_gap", "type_add_coverage", "uw_friction_low"],
+    "budget_band": "review_needed"
+  }
+}

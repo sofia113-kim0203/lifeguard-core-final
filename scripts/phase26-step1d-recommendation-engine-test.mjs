@@ -89,8 +89,8 @@ const report = {
       underwriting_used: fullResult.underwriting_used,
     },
     claudeExplanation: {
-      pass: process.env.ANTHROPIC_API_KEY ? Boolean(fullResult.claude_explanation) : true,
-      skipped: !process.env.ANTHROPIC_API_KEY,
+      pass: fullResult.claude_explanation === null && fullResult.claude_meta?.reason === "FACTORY_SPEAK_01_S1",
+      meta: fullResult.claude_meta,
     },
   },
 };
