@@ -99,7 +99,8 @@ export function buildCompressedAnalysisSummary(workingContext) {
   const topGaps = (coverageGapResult?.top_gaps ?? []).slice(0, 3).map((item) => ({
     category: item.coverage_label ?? item.coverage_category,
     gap_level: item.gap_level,
-    reason: String(item.reason ?? "").slice(0, 120),
+    action_code: item.action_code ?? null,
+    gap_reason_codes: item.gap_reason_codes ?? [],
   }));
 
   const uwRisks = (underwritingResult?.likely_surcharge ?? []).slice(0, 3).map((item) => ({

@@ -10,8 +10,7 @@ import {
   loadCustomerMemorySnapshot,
   mapMemoryFactsForResponse,
 } from "./customerMemorySnapshot.js";
-import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
-import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
 import { createClient } from "@supabase/supabase-js";
 
 const GAP_LEVEL_ORDER = { critical: 0, high: 1, medium: 2, low: 3, sufficient: 4 };
@@ -74,18 +73,13 @@ function mapCurrentStatus(item) {
   return "unknown";
 }
 
-function recommendedAction(item, gapLevel) {
-  const label = CATEGORY_LABELS[item.coverage_type] ?? item.coverage_type;
-  if (item.coverage_type === "corporate_group") {
-    return "법인/단체 보장은 현재 개인 Memory 기준으로 평가하지 않습니다. 단체 계약 정보가 Memory에 추가되면 분석 가능합니다.";
-  }
-  if (gapLevel === "sufficient") return `${label} 보장은 현재 Memory 기준 유지 가능합니다.`;
-  if (gapLevel === "critical" || gapLevel === "high") {
-    return `${label} 보장 보강을 우선 검토하세요.`;
-  }
-  if (gapLevel === "medium") return `${label} 보장 수준을 점검하고 부족분을 보완 검토하세요.`;
-  if (item.status === "duplicate") return `${label} 보장 중복 여부를 정리하고 유지/조정을 검토하세요.`;
-  return `${label} 관련 추가 정보를 Memory에 보완한 뒤 재분석하세요.`;
+function deriveActionCode(item, gapLevel) {
+  if (item.coverage_type === "corporate_group") return "skip_corporate_group";
+  if (gapLevel === "sufficient") return "maintain_coverage";
+  if (gapLevel === "critical" || gapLevel === "high") return "review_coverage";
+  if (gapLevel === "medium") return "check_coverage_level";
+  if (item.status === "duplicate") return "resolve_duplicate";
+  return "add_memory_context";
 }
 
 function mapPriority(item, gapLevel) {
@@ -105,12 +99,13 @@ export function transformCoverageGapResults(analysis, input, memoryFactsUsed = [
       coverage_label: CATEGORY_LABELS[item.coverage_type] ?? item.coverage_type,
       current_status: mapCurrentStatus(item),
       gap_level,
-      reason: item.reason,
-      recommended_action: recommendedAction(item, gap_level),
+      gap_reason_codes: item.gap_reason_codes ?? [],
+      action_code: deriveActionCode(item, gap_level),
       priority: mapPriority(item, gap_level),
       memory_sources_used: item.evidence_fact_keys ?? [],
       confidence: item.confidence ?? "medium",
       requires_agent_review: item.requires_agent_review ?? false,
+      evidence_codes: item.evidence_codes ?? [],
     };
   });
 
@@ -154,15 +149,40 @@ export function transformCoverageGapResults(analysis, input, memoryFactsUsed = [
   };
 }
 
+export function sanitizeCoverageGapStructuredForPrompt(coverageGapResult = {}) {
+  const pickItem = (item) => ({
+    coverage_category: item.coverage_category ?? null,
+    coverage_label: item.coverage_label ?? null,
+    current_status: item.current_status ?? null,
+    gap_level: item.gap_level ?? null,
+    priority: item.priority ?? null,
+    gap_reason_codes: item.gap_reason_codes ?? [],
+    action_code: item.action_code ?? null,
+    evidence_codes: item.evidence_codes ?? [],
+    confidence: item.confidence ?? null,
+    requires_agent_review: item.requires_agent_review ?? false,
+  });
+
+  return {
+    overall_risk: coverageGapResult.overall_risk ?? null,
+    gap_score: coverageGapResult.gap_score ?? null,
+    items: (coverageGapResult.items ?? []).map(pickItem),
+    top_gaps: (coverageGapResult.top_gaps ?? []).map(pickItem),
+    maintained_coverage: (coverageGapResult.maintained_coverage ?? []).map(pickItem),
+    priority_actions: (coverageGapResult.priority_actions ?? []).map(pickItem),
+  };
+}
+
 export function buildCoverageGapExplanationPrompt(structuredMemory, coverageGapResult) {
+  const structuredGap = sanitizeCoverageGapStructuredForPrompt(coverageGapResult);
   const user = [
     "Explain the coverage gap analysis to the customer using only the blocks below.",
     "",
     "A. customer_memory_summary:",
     JSON.stringify(structuredMemory, null, 2),
     "",
-    "B. coverage_gap_analysis:",
-    JSON.stringify(coverageGapResult, null, 2),
+    "B. coverage_gap_analysis (structured codes only — do not invent Korean factory actions):",
+    JSON.stringify(structuredGap, null, 2),
     "",
     "Required sections in Korean:",
     "1) 고객 Memory 기준 현재 상황",
@@ -173,47 +193,6 @@ export function buildCoverageGapExplanationPrompt(structuredMemory, coverageGapR
   ].join("\n");
 
   return { system: COVERAGE_GAP_SYSTEM_RULES, user };
-}
-
-async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetch }) {
-  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 1400,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      reason: "CLAUDE_API_ERROR",
-      errorMessage: `Claude API error (${response.status})`,
-    };
-  }
-
-  const data = await response.json();
-  const text = Array.isArray(data?.content)
-    ? data.content
-        .filter((block) => block?.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim()
-    : "";
-
-  return {
-    ok: true,
-    answer: text,
-    model: data?.model ?? modelName,
-    provider: "anthropic",
-  };
 }
 
 async function resolveCustomerId(supabase) {
@@ -299,41 +278,13 @@ export async function handleCustomerCoverageGapRequest({
 
   const context = await loadCoverageAnalysisContext(supabase, customerId);
 
-  let claudeExplanation = null;
-  let claudeMeta = { skipped: true, reason: "skipClaude" };
-
-  if (!skipClaude) {
-    const anthropicApiKey = resolveAnthropicApiKey(env);
-    if (!anthropicApiKey) {
-      claudeMeta = { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" };
-    } else {
-      const prompt = buildCoverageGapExplanationPrompt(
-        context.structuredMemory,
-        context.coverageGapResult,
-      );
-      const claudeResult = await callAnthropic({
-        apiKey: anthropicApiKey,
-        modelName: resolveClaudeModel(env),
-        system: prompt.system,
-        user: prompt.user,
-        fetchImpl,
-      });
-      if (claudeResult.ok) {
-        claudeExplanation = claudeResult.answer;
-        claudeMeta = {
-          skipped: false,
-          model_name: claudeResult.model,
-          provider: claudeResult.provider,
-        };
-      } else {
-        claudeMeta = {
-          skipped: true,
-          reason: claudeResult.reason,
-          error_message: claudeResult.errorMessage,
-        };
-      }
-    }
-  }
+  // FACTORY-SPEAK-02-S1 — coverage gap factory must not speak to customers via Claude explanation.
+  const claudeExplanation = null;
+  const claudeMeta = {
+    skipped: true,
+    reason: "FACTORY_SPEAK_02_S1",
+    explanation_mode: "blocked",
+  };
 
   return {
     ok: true,

@@ -261,9 +261,9 @@ function buildAddItems({ design = null, recommendationResult = {}, coverageGapRe
       coverage_label: source.coverage_label ?? CATEGORY_LABELS[source.coverage_category] ?? key,
       priority: source.priority ?? source.gap_level ?? "high",
       reason:
-        (source.reason_codes ?? []).join(",") ||
-        source.recommended_action ||
-        `${source.coverage_label ?? key} 보장 보강이 필요합니다.`,
+        (source.gap_reason_codes ?? source.reason_codes ?? []).join(",") ||
+        source.action_code ||
+        `${source.coverage_label ?? key}_gap_review`,
       underwriting_status: source.underwriting_status ?? null,
       gap_level: source.gap_level ?? source.coverage_gap_level ?? null,
       memory_sources_used: source.memory_sources_used ?? [],
@@ -287,7 +287,7 @@ function buildReduceItems({ coverageGapResult = {}, holdings = [] } = {}) {
       item_type: "reduce",
       coverage_category: warning.coverage_type ?? warning.coverage_category ?? null,
       coverage_label: CATEGORY_LABELS[warning.coverage_type] ?? warning.coverage_label ?? "중복 보장",
-      reason: warning.reason ?? "중복 가능 보장이 있어 보험료 절감 여지를 검토할 수 있습니다.",
+      reason: (warning.gap_reason_codes ?? []).join(",") || "memory_duplicate",
       caution: "해지·감액 전 기존 보장 범위와 면책/대기기간을 반드시 확인하세요.",
       memory_sources_used: warning.memory_sources_used ?? [],
     });
@@ -303,7 +303,7 @@ function buildReduceItems({ coverageGapResult = {}, holdings = [] } = {}) {
       item_type: "reduce",
       coverage_category: gap.coverage_category,
       coverage_label: gap.coverage_label,
-      reason: gap.reason ?? `${gap.coverage_label} 보장 중복 가능성이 있습니다.`,
+      reason: (gap.gap_reason_codes ?? []).join(",") || gap.action_code || "memory_duplicate",
       caution: "감액·해지 시 보장 공백이 생기지 않는지 설계사와 확인하세요.",
       related_policies: relatedPolicies.map((policy) => ({
         insurer_name: policy.insurer_name,
@@ -344,7 +344,7 @@ function buildReviewItems({ recommendationResult = {}, underwritingResult = {}, 
       coverage_category: item.coverage_category,
       coverage_label: item.coverage_label,
       review_type: "coverage_gap",
-      reason: item.reason ?? `${item.coverage_label} 보장 재검토가 필요합니다.`,
+      reason: (item.gap_reason_codes ?? []).join(",") || item.action_code || "review_coverage",
       memory_sources_used: item.memory_sources_used ?? [],
       linked_design_id: design?.design_id ?? null,
     });

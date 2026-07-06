@@ -95,14 +95,17 @@ function pickCoverageGapEvidence(coverageGapResult = null) {
     top_gaps: topGaps.slice(0, 5).map((item) => ({
       coverage_label: item.coverage_label ?? item.coverage_category ?? null,
       gap_level: item.gap_level ?? null,
-      reason: item.reason ?? null,
+      action_code: item.action_code ?? null,
+      gap_reason_codes: item.gap_reason_codes ?? [],
     })),
     items: items.slice(0, 8).map((item) => ({
       coverage_category: item.coverage_category ?? null,
       coverage_label: item.coverage_label ?? null,
       gap_level: item.gap_level ?? null,
       current_status: item.current_status ?? null,
-      reason: item.reason ?? null,
+      action_code: item.action_code ?? null,
+      gap_reason_codes: item.gap_reason_codes ?? [],
+      evidence_codes: item.evidence_codes ?? [],
     })),
   };
 }
