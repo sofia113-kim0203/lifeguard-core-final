@@ -7,6 +7,18 @@ export function isOneKeyCoreS1Enabled(env = process.env) {
   return raw === "1" || raw === "true" || raw === "active";
 }
 
+/** KEY First Decision — off | shadow | active (S1 = shadow only). */
+export function getKeyFirstDecisionMode(env = process.env) {
+  const raw = String(env.KEY_FIRST_DECISION ?? "").trim().toLowerCase();
+  if (raw === "shadow") return "shadow";
+  if (raw === "active") return "active";
+  return "off";
+}
+
+export function isKeyFirstDecisionShadowEnabled(env = process.env) {
+  return isOneKeyCoreS1Enabled(env) && getKeyFirstDecisionMode(env) === "shadow";
+}
+
 export function isOneKeyCoreDocumentEnabled(env = process.env) {
   const raw = String(env.ONE_KEY_CORE_DOCUMENT ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "active";
