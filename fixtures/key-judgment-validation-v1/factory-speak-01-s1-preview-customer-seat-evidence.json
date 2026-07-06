@@ -1,0 +1,312 @@
+{
+  "schema_version": "factory-speak-01-s1-preview-customer-seat-v1",
+  "audit": "factory_speak_01_s1_preview_customer_seat",
+  "note": "Observation only — Tom declares Commit/Push GO. Jerry does not declare PASS.",
+  "tom_one_liner": "이번 Slice는 기능 추가가 아니다. 추천하는 공장을 계산하는 공장으로 되돌리는 첫 번째 수술이다.",
+  "preview_base": "https://lifeguard-core-final-blplmrwez-70sofia113-1918s-projects.vercel.app",
+  "git_commit": "0758bb3",
+  "observed_at": "2026-07-06T02:55:57.443Z",
+  "recommendation_api": {
+    "ok": true,
+    "status": 200,
+    "top2_count": 2
+  },
+  "tom_checks": {
+    "check_1_panel_no_wae_nya_ha_myeon": {
+      "question": "Recommendation Panel — '왜냐하면...' 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "forbidden_phrase_hits": [],
+        "why_lines": [
+          "뇌혈관 보장부터 같이 확인하는 편이 좋겠습니다.",
+          "암 보장부터 같이 확인하는 편이 좋겠습니다."
+        ]
+      }
+    },
+    "check_2_no_claude_explanation_block": {
+      "question": "Claude 설명 — 'KEY가 덧붙이는 설명' 영역 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "claude_explanation": null,
+        "claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_01_S1",
+          "explanation_mode": "blocked",
+          "active_policy_count": 22,
+          "active_policy_count_source": "unified_state",
+          "active_policy_ids": [
+            "2283ea4e-55ac-4dee-9992-d73dd4194bae",
+            "4aaaea2e-dd5c-4aea-b97e-b4c3f2930321",
+            "4bbe668e-d916-4410-b9f0-fab48c53ff91",
+            "4fd88ac3-2156-4c6e-ad45-4bd6c579bf65",
+            "51e0dd87-a776-451f-8935-aacbd75760a6",
+            "6dba616c-ad89-4d71-a0cf-7767ccde9fc8",
+            "8fa9be66-a5fe-44e8-af4b-73fb384a69ef",
+            "9be196a5-87f8-4622-9435-e40beb09595f",
+            "9d6a7bea-f2b6-4609-a981-83c9e9d25928",
+            "a85c0bcd-8df0-47b2-9571-de275adb7932",
+            "a9431ab2-8803-4b5a-b7a4-3070142f4810",
+            "b9ba0ed1-3111-4cd9-b776-3dc7e62a7e80",
+            "c2aa8af8-10d8-4d0d-80d4-96e271f252ec",
+            "c2e03b08-99c4-4c94-9ca0-b7817bf4ffac",
+            "d0ce1470-0883-4767-ba34-6e285d4d189f",
+            "d4d1ec3a-9fd7-4a01-bc16-427c1c73f67a",
+            "e3fb7966-2feb-4c66-88e3-74770a0d91b6",
+            "e4ed48a6-8a57-4af8-9530-da1c23fba841",
+            "e89b4ade-159e-4a0e-9fdb-3e719c90f222",
+            "ecee0193-957c-479b-b1d9-eb7ac4e48384",
+            "f7aac900-de56-4660-97d5-97328aec5244",
+            "faa5ad3e-37c0-4bb9-abd3-a418ac2a335d"
+          ],
+          "policy_count": 22,
+          "policy_ids": [
+            "51e0dd87-a776-451f-8935-aacbd75760a6",
+            "4aaaea2e-dd5c-4aea-b97e-b4c3f2930321",
+            "d0ce1470-0883-4767-ba34-6e285d4d189f",
+            "faa5ad3e-37c0-4bb9-abd3-a418ac2a335d",
+            "ecee0193-957c-479b-b1d9-eb7ac4e48384",
+            "9be196a5-87f8-4622-9435-e40beb09595f",
+            "a85c0bcd-8df0-47b2-9571-de275adb7932",
+            "4fd88ac3-2156-4c6e-ad45-4bd6c579bf65",
+            "9d6a7bea-f2b6-4609-a981-83c9e9d25928",
+            "2283ea4e-55ac-4dee-9992-d73dd4194bae",
+            "c2aa8af8-10d8-4d0d-80d4-96e271f252ec",
+            "b9ba0ed1-3111-4cd9-b776-3dc7e62a7e80",
+            "4bbe668e-d916-4410-b9f0-fab48c53ff91",
+            "e4ed48a6-8a57-4af8-9530-da1c23fba841",
+            "8fa9be66-a5fe-44e8-af4b-73fb384a69ef",
+            "d4d1ec3a-9fd7-4a01-bc16-427c1c73f67a",
+            "a9431ab2-8803-4b5a-b7a4-3070142f4810",
+            "e89b4ade-159e-4a0e-9fdb-3e719c90f222",
+            "c2e03b08-99c4-4c94-9ca0-b7817bf4ffac",
+            "f7aac900-de56-4660-97d5-97328aec5244",
+            "e3fb7966-2feb-4c66-88e3-74770a0d91b6",
+            "6dba616c-ad89-4d71-a0cf-7767ccde9fc8"
+          ]
+        },
+        "ai_page_html_has_claude_block": false,
+        "ai_page_html_has_wae_nya": false,
+        "note": "SPA shell may not include panel text in initial HTML — API + panel voice layer primary"
+      }
+    },
+    "check_3_key_voice_only": {
+      "question": "KEY 설명만 남았는가?",
+      "pass": true,
+      "evidence": {
+        "why_lines": [
+          "뇌혈관 보장부터 같이 확인하는 편이 좋겠습니다.",
+          "암 보장부터 같이 확인하는 편이 좋겠습니다."
+        ],
+        "caveat_lines": [],
+        "continuation": "같은 저장된 자료를 기준으로 보면, 지금 우선 같이 짚을 여지가 있는 축은 뇌혈관과 암입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.",
+        "factory_korean_hits": []
+      }
+    },
+    "check_4_json_structured_only": {
+      "question": "Recommendation JSON — reason_codes/budget_band only, no Korean reason?",
+      "pass": true,
+      "evidence": {
+        "item_count": 16,
+        "violations": [],
+        "pass": true,
+        "samples": [
+          {
+            "coverage_label": "뇌혈관",
+            "recommendation_type": "add_coverage",
+            "recommendation_score": 155,
+            "reason_codes": [
+              "critical_gap",
+              "coverage_missing",
+              "uw_likely_standard",
+              "type_add_coverage",
+              "uw_friction_low"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "암",
+            "recommendation_type": "add_coverage",
+            "recommendation_score": 155,
+            "reason_codes": [
+              "critical_gap",
+              "coverage_missing",
+              "uw_likely_standard",
+              "type_add_coverage",
+              "uw_friction_low"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "뇌혈관",
+            "recommendation_type": "add_coverage",
+            "recommendation_score": 155,
+            "reason_codes": [
+              "critical_gap",
+              "coverage_missing",
+              "uw_likely_standard",
+              "type_add_coverage",
+              "uw_friction_low"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "암",
+            "recommendation_type": "add_coverage",
+            "recommendation_score": 155,
+            "reason_codes": [
+              "critical_gap",
+              "coverage_missing",
+              "uw_likely_standard",
+              "type_add_coverage",
+              "uw_friction_low"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "법인/단체",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "사망",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "치매/간병",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "치아",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "장해",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "운전자",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "가족 보장",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "심혈관",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "입원비",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "수술비",
+            "recommendation_type": "review_existing",
+            "recommendation_score": 37,
+            "reason_codes": [
+              "low_gap",
+              "type_review_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "실손",
+            "recommendation_type": "keep_existing",
+            "recommendation_score": 25,
+            "reason_codes": [
+              "gap_sufficient",
+              "coverage_held",
+              "uw_likely_standard",
+              "type_keep_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          },
+          {
+            "coverage_label": "실손",
+            "recommendation_type": "keep_existing",
+            "recommendation_score": 25,
+            "reason_codes": [
+              "gap_sufficient",
+              "coverage_held",
+              "uw_likely_standard",
+              "type_keep_existing"
+            ],
+            "budget_band": "not_recorded",
+            "has_forbidden_reason": false
+          }
+        ]
+      }
+    }
+  },
+  "all_four_pass": true,
+  "status": "awaiting_tom_commit_push_go",
+  "jerry_pass_declaration": "none"
+}

@@ -62,8 +62,9 @@ const mockCompletedJob = {
           recommendation_score: 115,
           coverage_label: "암",
           coverage_category: "cancer",
-          reason: "암 보장 보강이 필요하며, 현재 health memory 기준 특별한 인수 제한 신호는 제한적입니다.",
-          underwriting_consideration: "현재 건강 memory 기준 인수 제한 신호는 제한적입니다.",
+          reason_codes: ["critical_gap", "type_add_coverage", "uw_friction_low"],
+          uw_flags: ["likely_standard"],
+          budget_band: "review_needed",
           coverage_gap_level: "critical",
           recommendation_type: "add_coverage",
           priority: "high",
@@ -73,8 +74,9 @@ const mockCompletedJob = {
           recommendation_score: 90,
           coverage_label: "실손",
           coverage_category: "medical_expense",
-          reason: "실손 보장 검토가 필요합니다.",
-          underwriting_consideration: "인수 위험 분석 결과가 없습니다.",
+          reason_codes: ["high_gap", "type_review_existing"],
+          uw_flags: [],
+          budget_band: "review_needed",
           coverage_gap_level: "high",
         },
       ],
@@ -133,8 +135,9 @@ const mockClaude = async ({ maxTokens }) => {
   });
 
   assert.match(prompt, /"recommendation_rank": 1/);
-  assert.match(prompt, /"reason":/);
-  assert.match(prompt, /"underwriting_consideration":/);
+  assert.match(prompt, /"reason_codes":/);
+  assert.match(prompt, /"uw_flags":/);
+  assert.match(prompt, /"budget_band":/);
 
   const result = await buildRecommendationReasonAnswer({
     supabase: {},
@@ -145,7 +148,7 @@ const mockClaude = async ({ maxTokens }) => {
     claudeCall: async () => ({
       ok: true,
       message:
-        "1위 추천은 암 보장 보강이며, 저장된 reason과 underwriting_consideration을 근거로 한 예비 추천입니다.",
+        "1위 추천은 암 보장 보강이며, 저장된 reason_codes와 uw_flags를 근거로 한 예비 추천입니다.",
     }),
   });
 

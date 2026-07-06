@@ -14,6 +14,7 @@ import {
   buildRecommendationPanelJudgment,
   buildRecommendationPanelNextStep,
   buildRecommendationPanelItemLead,
+  buildRecommendationPanelItemWhy,
 } from "../src/lib/recommendationPanelKeyVoice.js";
 
 const SAMPLE_TOP2 = [
@@ -21,15 +22,16 @@ const SAMPLE_TOP2 = [
     coverage_category: "cancer",
     coverage_label: "암",
     recommendation_type: "prepare_documents",
-    reason: "보장 공백과 인수 정보를 함께 볼 여지가 있습니다.",
-    budget_consideration: "신규 보장 추가 시 부담 증가 가능성을 함께 점검하세요.",
-    underwriting_consideration: "추가 심사가 필요할 수 있습니다.",
+    reason_codes: ["critical_gap", "type_prepare_documents"],
+    budget_band: "review_needed",
+    uw_flags: ["likely_additional_review"],
   },
   {
     coverage_category: "brain",
     coverage_label: "뇌혈관",
     recommendation_type: "review_existing",
-    reason: "현재 구조를 먼저 점검하는 편이 낫습니다.",
+    reason_codes: ["high_gap", "type_review_existing"],
+    budget_band: "review_needed",
   },
 ];
 
@@ -93,6 +95,13 @@ test("tom seat heuristic passes for aligned priority chat + panel", () => {
 
 test("next step uses care-plan style forward voice", () => {
   assert.match(buildRecommendationPanelNextStep(SAMPLE_TOP2), /그럼 앞으로는/);
+});
+
+test("item why is KEY voice without factory reason surfacing", () => {
+  const why = buildRecommendationPanelItemWhy(SAMPLE_TOP2[0]);
+  assert.match(why, /암/);
+  assert.doesNotMatch(why, /왜냐하면/);
+  assert.doesNotMatch(why, /보장 공백/);
 });
 
 console.log(`\n${passed}/${passed} passed`);

@@ -321,83 +321,17 @@ export async function handleCustomerRecommendationRequest({
     new Set(context.recommendationResult.recommendations.flatMap((item) => item.required_documents ?? [])),
   );
 
-  const fallbackExplanation = () =>
-    buildRecommendationFallbackExplanation({
-      recommendationResult: context.recommendationResult,
-      underwritingResult: context.underwritingResult,
-      requiredDocuments,
-    });
-
-  let claudeExplanation = null;
-  let claudeMeta = { skipped: true, reason: "skipClaude" };
-
-  if (!skipClaude) {
-    const anthropicApiKey = resolveAnthropicApiKey(env);
-    if (!anthropicApiKey) {
-      claudeExplanation = fallbackExplanation();
-      claudeMeta = attachPolicyMeta(
-        {
-          skipped: true,
-          reason: "ANTHROPIC_NOT_CONFIGURED",
-          http_status: null,
-          error_type: null,
-          error_message: "ANTHROPIC_API_KEY is not configured on the server.",
-          fallback_used: true,
-          explanation_mode: "fallback",
-        },
-        context.policies ?? [],
-        countContract,
-      );
-    } else {
-      const prompt = buildRecommendationExplanationPrompt(
-        context.structuredMemory,
-        context.recommendationResult,
-        context.coverageGapResult,
-        context.underwritingResult,
-        context.policies ?? [],
-        countContract,
-      );
-      let claudeResult;
-      try {
-        claudeResult = await callAnthropic({
-          apiKey: anthropicApiKey,
-          modelName: resolveClaudeModel(env),
-          system: prompt.system,
-          user: prompt.user,
-          fetchImpl,
-        });
-      } catch (error) {
-        claudeResult = {
-          ok: false,
-          reason: "CLAUDE_API_ERROR",
-          http_status: null,
-          error_type: "network_error",
-          error_message: error instanceof Error ? error.message : "claude_request_failed",
-          errorMessage: error instanceof Error ? error.message : "claude_request_failed",
-        };
-      }
-      if (claudeResult.ok) {
-        claudeExplanation = claudeResult.answer;
-        claudeMeta = attachPolicyMeta(
-          {
-            skipped: false,
-            model_name: claudeResult.model,
-            provider: claudeResult.provider,
-            explanation_mode: "claude",
-          },
-          context.policies ?? [],
-          countContract,
-        );
-      } else {
-        claudeExplanation = fallbackExplanation();
-        claudeMeta = attachPolicyMeta(
-          buildRecommendationClaudeMetaFromFailure(claudeResult),
-          context.policies ?? [],
-          countContract,
-        );
-      }
-    }
-  }
+  // FACTORY-SPEAK-01-S1 — recommendation factory must not speak to customers.
+  const claudeExplanation = null;
+  const claudeMeta = attachPolicyMeta(
+    {
+      skipped: true,
+      reason: "FACTORY_SPEAK_01_S1",
+      explanation_mode: "blocked",
+    },
+    context.policies ?? [],
+    countContract,
+  );
 
   return {
     ok: true,

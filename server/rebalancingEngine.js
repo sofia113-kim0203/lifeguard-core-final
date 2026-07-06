@@ -218,9 +218,7 @@ function buildKeepItems({ holdings = [], keepExisting = [], maintainedCoverage =
       coverage_label: CATEGORY_LABELS[category] ?? keepRef?.coverage_label ?? category,
       status: policy.status ?? "유지",
       monthly_premium: policy.monthly_premium ?? null,
-      reason:
-        keepRef?.reason ??
-        `${policy.insurer_name ?? "기존"} ${policy.product_name ?? "보험"}은 현재 보장 구조에서 유지하는 것이 적절합니다.`,
+      reason: keepRef?.reason_codes?.join(",") ?? `${policy.insurer_name ?? "기존"} ${policy.product_name ?? "보험"}은 현재 보장 구조에서 유지하는 것이 적절합니다.`,
       memory_sources_used: keepRef?.memory_sources_used ?? [],
       linked_design_id: design?.design_id ?? null,
     });
@@ -237,7 +235,7 @@ function buildKeepItems({ holdings = [], keepExisting = [], maintainedCoverage =
       coverage_label: item.coverage_label,
       status: "유지",
       monthly_premium: null,
-      reason: item.reason ?? `${item.coverage_label} 보장은 유지하는 것이 적절합니다.`,
+      reason: item.reason_codes?.join(",") ?? `${item.coverage_label} 보장은 유지하는 것이 적절합니다.`,
       memory_sources_used: item.memory_sources_used ?? [],
       linked_design_id: design?.design_id ?? null,
     });
@@ -263,8 +261,8 @@ function buildAddItems({ design = null, recommendationResult = {}, coverageGapRe
       coverage_label: source.coverage_label ?? CATEGORY_LABELS[source.coverage_category] ?? key,
       priority: source.priority ?? source.gap_level ?? "high",
       reason:
-        source.reason ??
-        source.recommended_action ??
+        (source.reason_codes ?? []).join(",") ||
+        source.recommended_action ||
         `${source.coverage_label ?? key} 보장 보강이 필요합니다.`,
       underwriting_status: source.underwriting_status ?? null,
       gap_level: source.gap_level ?? source.coverage_gap_level ?? null,
@@ -329,8 +327,10 @@ function buildReviewItems({ recommendationResult = {}, underwritingResult = {}, 
       coverage_category: rec.coverage_category,
       coverage_label: rec.coverage_label,
       review_type: rec.recommendation_type,
-      reason: rec.reason ?? `${rec.coverage_label} 보장은 전환·재검토가 필요합니다.`,
-      underwriting_consideration: rec.underwriting_consideration ?? null,
+      reason:
+        (rec.reason_codes ?? []).join(",") ||
+        `${rec.coverage_label} 보장은 전환·재검토가 필요합니다.`,
+      uw_flags: rec.uw_flags ?? [],
       memory_sources_used: rec.memory_sources_used ?? [],
       linked_design_id: design?.design_id ?? null,
     });
