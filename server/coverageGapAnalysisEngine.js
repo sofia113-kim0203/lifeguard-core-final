@@ -77,22 +77,50 @@ function matchesItem(item, fact) {
   return item.keywords.some((keyword) => text.includes(normalize(keyword)));
 }
 
+function gapReasonCodesFor(status, item) {
+  const codes = [];
+  if (status === "missing") codes.push("memory_missing");
+  else if (status === "insufficient") codes.push("memory_insufficient");
+  else if (status === "adequate") codes.push("memory_adequate");
+  else if (status === "duplicate") codes.push("memory_duplicate");
+  else codes.push("memory_unknown");
+  if (item.highPriority && (status === "missing" || status === "insufficient")) {
+    codes.push("high_priority_category");
+  }
+  return codes;
+}
+
+function evidenceCodesFor(status, facts, requiresReview) {
+  const codes = [];
+  if (facts.some((fact) => fact?.metadata_json?.memory_confidence === "low")) {
+    codes.push("memory_confidence_low");
+  } else if (facts.some((fact) => hasReview(fact)) || status === "unknown") {
+    codes.push("memory_confidence_medium");
+  } else {
+    codes.push("memory_confidence_high");
+  }
+  if (requiresReview) codes.push("requires_agent_review");
+  const basis = evidenceBasis(facts);
+  if (basis === "document") codes.push("evidence_basis_document");
+  else if (basis === "memory") codes.push("evidence_basis_memory");
+  else if (basis === "mixed") codes.push("evidence_basis_mixed");
+  return codes;
+}
+
 function classifyItem(item, facts) {
   const itemFacts = facts.filter((fact) => matchesItem(item, fact));
   const text = itemFacts.map(factText).join(" ");
   const count = itemFacts.length;
   let status = "unknown";
-  let reason = `${item.label} 보장 관련 memory가 부족합니다.`;
 
   if (/없|미보유|없음|부족|공백|필요/.test(text)) {
     status = text.includes("부족") ? "insufficient" : "missing";
-    reason = `${item.label} 보장이 없거나 부족하다는 memory가 있습니다.`;
+  } else if (/중복|여러|2건|3건|복수/.test(text)) {
+    status = "duplicate";
   } else if (/보유|유지|가입|충분|adequate|held/.test(text)) {
     status = "adequate";
-    reason = `${item.label} 관련 보유 memory가 있습니다.`;
-  } else if (/중복|여러|2건|3건|복수/.test(text) || count >= 2) {
+  } else if (count >= 2) {
     status = "duplicate";
-    reason = `${item.label} 관련 중복 가능성이 있는 memory가 있습니다.`;
   }
 
   const severity = status === "missing" && item.highPriority
@@ -108,10 +136,11 @@ function classifyItem(item, facts) {
     coverage_type: item.type,
     status,
     severity,
-    reason,
+    gap_reason_codes: gapReasonCodesFor(status, item),
     evidence_basis: evidenceBasis(itemFacts),
     confidence: confidenceFor(status, itemFacts),
     requires_agent_review: requiresReview,
+    evidence_codes: evidenceCodesFor(status, itemFacts, requiresReview),
     evidence_fact_keys: itemFacts.map((fact) => fact.fact_key).filter(Boolean),
   };
 }

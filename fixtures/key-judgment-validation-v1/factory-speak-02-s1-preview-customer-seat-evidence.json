@@ -1,0 +1,194 @@
+{
+  "schema_version": "factory-speak-02-s1-preview-customer-seat-v1",
+  "audit": "factory_speak_02_s1_preview_customer_seat",
+  "note": "Observation only — Tom declares Commit/Push GO. Jerry does not declare PASS.",
+  "tom_one_liner": "Coverage Gap 공장은 \"부족\"을 계산한다. \"부족합니다\"라고 고객에게 말하는 것은 ONE KEY만 한다.",
+  "preview_base": "https://lifeguard-core-final-6m5lzqupg-70sofia113-1918s-projects.vercel.app",
+  "git_commit": "486a64c",
+  "observed_at": "2026-07-06T03:37:31.258Z",
+  "coverage_gap_api": {
+    "ok": true,
+    "status": 200,
+    "top_gaps_count": 2,
+    "gap_score": 89
+  },
+  "tom_checks": {
+    "check_1_panel_no_factory_gap_phrases": {
+      "question": "Gap 패널 — 공장 한국어 문장(보강 검토/memory 설명) 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "forbidden_phrase_hits": [],
+        "factory_korean_hits": [],
+        "why_lines": [
+          "현재 확인되는 자료 기준으로는 암 보장부터 같이 확인하는 것이 좋겠습니다.",
+          "현재 확인되는 자료 기준으로는 뇌혈관 보장부터 같이 확인하는 것이 좋겠습니다."
+        ]
+      }
+    },
+    "check_2_no_claude_explanation_block": {
+      "question": "Claude 설명 — '보장 공백 Claude 설명' / claude_explanation 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "claude_explanation": null,
+        "claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_02_S1",
+          "explanation_mode": "blocked"
+        },
+        "ai_page_html_has_gap_claude_block": false,
+        "note": "SPA shell may not include panel text in initial HTML — API + panel voice layer primary"
+      }
+    },
+    "check_3_key_voice_present": {
+      "question": "KEY voice — '같이 확인' + '단정하기 어렵' 형태 남았는가?",
+      "pass": true,
+      "evidence": {
+        "why_lines": [
+          "현재 확인되는 자료 기준으로는 암 보장부터 같이 확인하는 것이 좋겠습니다.",
+          "현재 확인되는 자료 기준으로는 뇌혈관 보장부터 같이 확인하는 것이 좋겠습니다."
+        ],
+        "caveat_lines": [
+          "다만 특약과 가입금액까지는 아직 단정하기 어려우므로, 등록된 자료를 함께 보면서 판단하겠습니다.",
+          "다만 특약과 가입금액까지는 아직 단정하기 어려우므로, 등록된 자료를 함께 보면서 판단하겠습니다."
+        ]
+      }
+    },
+    "check_4_json_structured_only": {
+      "question": "Coverage Gap JSON — action_code/gap_reason_codes only, no reason/recommended_action?",
+      "pass": true,
+      "evidence": {
+        "gap_score": 89,
+        "item_count": 17,
+        "violations": [],
+        "pass": true,
+        "samples": [
+          {
+            "coverage_label": "암",
+            "gap_level": "critical",
+            "current_status": "missing",
+            "action_code": "review_coverage",
+            "gap_reason_codes": [
+              "memory_missing",
+              "high_priority_category"
+            ],
+            "evidence_codes": [
+              "memory_confidence_high",
+              "evidence_basis_memory"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "뇌혈관",
+            "gap_level": "critical",
+            "current_status": "missing",
+            "action_code": "review_coverage",
+            "gap_reason_codes": [
+              "memory_missing",
+              "high_priority_category"
+            ],
+            "evidence_codes": [
+              "memory_confidence_high",
+              "evidence_basis_memory"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "심혈관",
+            "gap_level": "low",
+            "current_status": "unknown",
+            "action_code": "add_memory_context",
+            "gap_reason_codes": [
+              "memory_unknown"
+            ],
+            "evidence_codes": [
+              "memory_confidence_medium",
+              "requires_agent_review"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "수술비",
+            "gap_level": "low",
+            "current_status": "unknown",
+            "action_code": "add_memory_context",
+            "gap_reason_codes": [
+              "memory_unknown"
+            ],
+            "evidence_codes": [
+              "memory_confidence_medium",
+              "requires_agent_review"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "입원비",
+            "gap_level": "low",
+            "current_status": "unknown",
+            "action_code": "add_memory_context",
+            "gap_reason_codes": [
+              "memory_unknown"
+            ],
+            "evidence_codes": [
+              "memory_confidence_medium",
+              "requires_agent_review"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "사망",
+            "gap_level": "low",
+            "current_status": "unknown",
+            "action_code": "add_memory_context",
+            "gap_reason_codes": [
+              "memory_unknown"
+            ],
+            "evidence_codes": [
+              "memory_confidence_medium",
+              "requires_agent_review"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "장해",
+            "gap_level": "low",
+            "current_status": "unknown",
+            "action_code": "add_memory_context",
+            "gap_reason_codes": [
+              "memory_unknown"
+            ],
+            "evidence_codes": [
+              "memory_confidence_medium",
+              "requires_agent_review"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          },
+          {
+            "coverage_label": "운전자",
+            "gap_level": "low",
+            "current_status": "unknown",
+            "action_code": "add_memory_context",
+            "gap_reason_codes": [
+              "memory_unknown"
+            ],
+            "evidence_codes": [
+              "memory_confidence_medium",
+              "requires_agent_review"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_action": false
+          }
+        ]
+      }
+    }
+  },
+  "all_four_pass": true,
+  "status": "awaiting_tom_commit_push_go",
+  "jerry_pass_declaration": "none"
+}

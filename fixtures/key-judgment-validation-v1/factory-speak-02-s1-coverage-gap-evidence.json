@@ -1,0 +1,34 @@
+{
+  "slice": "FACTORY-SPEAK-02-S1",
+  "status": "implemented_local",
+  "tom_one_liner": "Coverage Gap 공장은 \"부족\"을 계산한다. \"부족합니다\"라고 고객에게 말하는 것은 ONE KEY만 한다.",
+  "factory_output_shape": {
+    "coverage_label": "암",
+    "current_status": "missing",
+    "gap_level": "critical",
+    "priority": "urgent",
+    "gap_score": "result-level only",
+    "gap_reason_codes": ["memory_missing", "high_priority_category"],
+    "action_code": "review_coverage",
+    "evidence_codes": ["memory_confidence_medium"]
+  },
+  "removed_factory_speak": ["reason", "recommended_action", "claude_explanation", "panel_gap_claude_block"],
+  "action_codes": [
+    "review_coverage",
+    "check_coverage_level",
+    "maintain_coverage",
+    "resolve_duplicate",
+    "add_memory_context",
+    "skip_corporate_group"
+  ],
+  "key_voice_module": "src/lib/gapPanelKeyVoice.js",
+  "claude_block_meta": "FACTORY_SPEAK_02_S1",
+  "preview_deploy_url": "https://lifeguard-core-final-6m5lzqupg-70sofia113-1918s-projects.vercel.app",
+  "preview_customer_seat_audit": "fixtures/key-judgment-validation-v1/factory-speak-02-s1-preview-customer-seat-evidence.json",
+  "preview_all_four_pass": true,
+  "tests": [
+    "npm run test:factory-speak-02-s1-coverage-gap",
+    "npm run test:phase24-step3a",
+    "npm run test:advisor-brain-p1-step2"
+  ]
+}

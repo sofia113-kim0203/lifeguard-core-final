@@ -105,7 +105,7 @@ const report = {
     hasPriorityGaps: { pass: hasCriticalOrHighGap, top_gaps: coverageGapResult.top_gaps.length },
     fullHandlerOk: { pass: fullResult.ok === true, memory_used: fullResult.memory_used },
     claudeExplanation: {
-      pass: process.env.ANTHROPIC_API_KEY ? Boolean(fullResult.claude_explanation) : true,
+      pass: fullResult.claude_explanation === null && fullResult.claude_meta?.reason === "FACTORY_SPEAK_02_S1",
       skipped: !process.env.ANTHROPIC_API_KEY,
     },
   },

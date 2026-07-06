@@ -52,7 +52,7 @@ function currentIssues({ coverageGapResult, underwritingRiskResult }) {
       type: "coverage_gap",
       key: gap.coverage_type,
       severity: gap.severity,
-      summary: gap.reason,
+      summary: (gap.gap_reason_codes ?? []).join(",") || gap.status,
       requires_agent_review: gap.requires_agent_review,
     })),
     ...riskWarnings(underwritingRiskResult).map((warning) => ({

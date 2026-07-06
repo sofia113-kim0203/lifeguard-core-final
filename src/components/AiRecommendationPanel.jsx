@@ -14,6 +14,11 @@ import {
 } from "../lib/customerRecommendations.js";
 import RecommendationPanelKeyView from "./RecommendationPanelKeyView.jsx";
 import { KEY_PANEL_PAGE_DESC, KEY_PANEL_PAGE_TITLE } from "../lib/recommendationPanelKeyVoice.js";
+import {
+  buildGapPanelItemCaveat,
+  buildGapPanelItemLead,
+  buildGapPanelItemWhy,
+} from "../lib/gapPanelKeyVoice.js";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadAllCustomerAnalysis } from "../lib/customerAnalysisAll.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
@@ -69,7 +74,12 @@ async function hydrateMissingClaudeExplanations(job, setters) {
   const claude = mapped.claudeExplanations ?? {};
   const tasks = [];
 
-  if (panelNeedsClaudeHydration(claude, mapped.coverageGapResult, "coverage_gap")) {
+  // FACTORY-SPEAK-02-S1 — coverage gap panel Claude blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_02_S1_BLOCK_GAP_CLAUDE = true;
+  if (
+    !FACTORY_SPEAK_02_S1_BLOCK_GAP_CLAUDE &&
+    panelNeedsClaudeHydration(claude, mapped.coverageGapResult, "coverage_gap")
+  ) {
     tasks.push(
       analyzeCustomerCoverageGap()
         .then((data) => ({
@@ -298,16 +308,17 @@ function ToneBadge({ toneMap, level, labels }) {
 }
 
 function GapListItem({ item }) {
+  const why = buildGapPanelItemWhy(item);
+  const caveat = buildGapPanelItemCaveat(item);
   return (
     <li style={S.listItem}>
       <div style={{ marginBottom: "6px" }}>
         <ToneBadge toneMap={GAP_TONES} level={item.gap_level} labels={GAP_LEVEL_LABELS} />
         <strong style={{ color: "#f1f5f9" }}>{item.coverage_label}</strong>
       </div>
-      <div style={S.muted}>{item.reason}</div>
-      <div style={{ marginTop: "6px", fontSize: "13px", color: "#cbd5e1" }}>
-        {item.recommended_action}
-      </div>
+      <div style={{ fontSize: "13px", color: "#cbd5e1" }}>{buildGapPanelItemLead(item)}</div>
+      {why ? <div style={{ ...S.muted, marginTop: "6px" }}>{why}</div> : null}
+      {caveat ? <div style={{ marginTop: "6px", fontSize: "13px", color: "#94a3b8" }}>{caveat}</div> : null}
       {item.memory_sources_used?.length ? (
         <div style={{ marginTop: "6px", fontSize: "12px", color: "#64748b" }}>
           Memory 근거: {item.memory_sources_used.join(", ")}
@@ -1096,12 +1107,6 @@ export default function AiRecommendationPanel({
                 <div style={S.muted}>우선 보강 항목이 없습니다.</div>
               )}
             </div>
-            {gapResult?.claudeExplanation ? (
-              <div>
-                <h4 style={S.sectionTitle}>보장 공백 Claude 설명</h4>
-                <div style={S.explanation}>{gapResult.claudeExplanation}</div>
-              </div>
-            ) : null}
           </div>
         ) : (
           <div style={S.muted}>보장 공백 결과가 없습니다.</div>
