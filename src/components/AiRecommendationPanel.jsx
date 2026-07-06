@@ -72,16 +72,7 @@ import {
 } from "../lib/analysisPanelJobUtils.js";
 import {
   hasClaudeExplanation,
-  normalizeClaudeExplanationEntry,
 } from "../lib/panelClaudeExplanation.js";
-
-function resolveClaudeFromJobEntry(entry) {
-  const normalized = normalizeClaudeExplanationEntry(entry);
-  return {
-    claudeExplanation: normalized.explanation,
-    claudeMeta: normalized.meta,
-  };
-}
 
 function panelNeedsClaudeHydration(claudeExplanations, hasPanelResult, claudeKey) {
   return Boolean(hasPanelResult) && !hasClaudeExplanation(claudeExplanations?.[claudeKey]);
@@ -526,21 +517,19 @@ async function refreshPanelsFromBackgroundOneShot({
   }
 }
 
+const LEGACY_S1_STRIPPED_CLAUDE = {
+  claudeExplanation: null,
+  claudeMeta: { skipped: true, reason: "LEGACY_S1_STRIP", explanation_mode: "blocked" },
+};
+
 function applyJobResultsToPanelState(job, setters) {
   const mapped = mapJobResultsToAnalysisPanels(job);
   if (!mapped) return false;
 
-  const claude = mapped.claudeExplanations ?? {};
-  const coverageClaude = resolveClaudeFromJobEntry(claude.coverage_gap);
-  const underwritingClaude = resolveClaudeFromJobEntry(claude.underwriting);
-  const recommendationClaude = resolveClaudeFromJobEntry(claude.recommendation);
-  const designClaude = resolveClaudeFromJobEntry(claude.insurance_design);
-
   if (mapped.coverageGapResult) {
     setters.setGapResult((prev) => ({
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: coverageClaude.claudeExplanation ?? null,
-      claudeMeta: coverageClaude.claudeMeta,
+      ...LEGACY_S1_STRIPPED_CLAUDE,
       memoryUsed: true,
     }));
   }
@@ -548,8 +537,7 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setUwResult((prev) => ({
       underwritingResult: mapped.underwritingResult,
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: underwritingClaude.claudeExplanation ?? null,
-      claudeMeta: underwritingClaude.claudeMeta,
+      ...LEGACY_S1_STRIPPED_CLAUDE,
       memoryUsed: true,
       coverageGapUsed: true,
     }));
@@ -557,8 +545,7 @@ function applyJobResultsToPanelState(job, setters) {
   if (mapped.recommendationResult) {
     setters.setRecResult((prev) =>
       normalizeRecommendationPanelState(mapped.recommendationResult, {
-        claudeExplanation: recommendationClaude.claudeExplanation ?? null,
-        claudeMeta: recommendationClaude.claudeMeta,
+        ...LEGACY_S1_STRIPPED_CLAUDE,
         memoryUsed: true,
         coverageGapUsed: true,
         underwritingUsed: true,
@@ -569,8 +556,7 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setDesignResult((prev) => ({
       insuranceDesign: mapped.designBundle.insurance_design ?? null,
       customerVisibleDesign: mapped.designBundle.customer_visible_design ?? null,
-      claudeExplanation: designClaude.claudeExplanation ?? null,
-      claudeMeta: designClaude.claudeMeta,
+      ...LEGACY_S1_STRIPPED_CLAUDE,
       memoryUsed: true,
       coverageGapUsed: true,
       underwritingUsed: true,

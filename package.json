@@ -204,6 +204,7 @@
     "verify:factory-speak-02-s1-preview-customer-seat": "node scripts/factory-speak-02-s1-preview-customer-seat-audit.mjs",
     "verify:factory-speak-01-s1-preview-customer-seat": "node scripts/factory-speak-01-s1-preview-customer-seat-audit.mjs",
     "verify:hydration-s1-local": "node scripts/hydration-s1-local-audit.mjs",
+    "verify:legacy-s1-local": "node scripts/legacy-s1-local-audit.mjs",
     "verify:recommendation-panel-alignment-preview-customer-seat": "node scripts/recommendation-panel-alignment-preview-customer-seat-audit.mjs",
     "trace:phase-c-slice-3-preview-wiring": "node scripts/phase-c-slice-3-preview-wiring-trace-readonly.mjs",
     "verify:phase-c-slice-3-preview-customer-seat": "node scripts/phase-c-slice-3-preview-customer-seat-audit.mjs",

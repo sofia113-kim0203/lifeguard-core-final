@@ -28,6 +28,7 @@ import {
 } from "./advisorBrain/advisorBrainResponder.js";
 import { isAdvisorConversationQuestion } from "./advisorBrain/advisorConversationResponder.js";
 import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
+import { stripLegacyClaudeFromJobResultJson } from "./stripLegacyClaudeFromJobResultJson.js";
 import {
   isCentralBrainActive,
   mergeConversationMetadata,
@@ -285,7 +286,7 @@ export function mapAnalysisJobForClient(job) {
     timing_metrics: job.timing_metrics ?? {},
     fast_response_text: job.fast_response_text,
     final_response_text: job.final_response_text,
-    result_json: job.result_json ?? {},
+    result_json: stripLegacyClaudeFromJobResultJson(job.result_json ?? {}),
     error_message: job.error_message,
     source_memory_version: job.source_memory_version,
     created_at: job.created_at,
