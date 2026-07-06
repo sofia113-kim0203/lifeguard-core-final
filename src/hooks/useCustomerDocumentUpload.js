@@ -16,6 +16,7 @@ export function useCustomerDocumentUpload({
   insurancePolicyCount = null,
   onUploadComplete = null,
   onKeyChatPresence = null,
+  trackAnalysisJobFromUpload = null,
   enableSystemMessage = false,
   defaultCategoryKey = "insurance_policy",
 } = {}) {
@@ -74,6 +75,7 @@ export function useCustomerDocumentUpload({
           workOrderId: lastResult.ingest?.workOrderId ?? null,
           refreshSession,
           setActiveAnalysisJob,
+          onTrackAnalysisJob: trackAnalysisJobFromUpload,
         });
         if (pipeline.ok) pipelineMessage = ` ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`;
         else if (pipeline.message) pipelineMessage = ` (${pipeline.message})`;
@@ -94,7 +96,7 @@ export function useCustomerDocumentUpload({
     } finally {
       setGrantingAnalysisConsent(false);
     }
-  }, [user, clearMessages, refreshSession, setActiveAnalysisJob, onUploadComplete]);
+  }, [user, clearMessages, refreshSession, setActiveAnalysisJob, onUploadComplete, trackAnalysisJobFromUpload]);
 
   const handleUpload = useCallback(async () => {
     if (!user) return;
@@ -156,6 +158,7 @@ export function useCustomerDocumentUpload({
         workOrderId: uploadResult?.workOrderId ?? ingest?.workOrderId ?? null,
         refreshSession,
         setActiveAnalysisJob,
+        onTrackAnalysisJob: trackAnalysisJobFromUpload,
       });
 
       let refreshed = null;
@@ -220,6 +223,7 @@ export function useCustomerDocumentUpload({
     notifySystemMessage,
     onUploadComplete,
     onKeyChatPresence,
+    trackAnalysisJobFromUpload,
   ]);
 
   const handleFileChange = useCallback((file) => {

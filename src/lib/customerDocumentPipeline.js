@@ -1,5 +1,6 @@
 import { triggerDocumentAnalysisRefresh } from "./customerDocumentAnalysisRefresh.js";
 import { processAnalysisJobUntilComplete } from "./customerConversationalAnalysis.js";
+import { writeEmitterTrace } from "./keyAnalysisCompleteSessionTransition.js";
 
 function buildIngestStep(ingest) {
   if (!ingest) return { ok: false, status: "missing", error_message: "ingest_missing" };
@@ -59,6 +60,7 @@ export async function runPostDocumentPipelineRefresh({
   onAnalysisJobProgress = null,
   refreshSession = null,
   setActiveAnalysisJob = null,
+  onTrackAnalysisJob = null,
 } = {}) {
   const steps = {
     ingest: buildIngestStep(ingest),
@@ -67,7 +69,14 @@ export async function runPostDocumentPipelineRefresh({
     analysis_job: null,
   };
 
-  if (!steps.ingest.ok || !steps.policy_extraction.ok) {
+  if (!steps.ingest.ok) {
+    writeEmitterTrace({
+      pipeline_early_exit: true,
+      pipeline_ingest_ok: steps.ingest.ok,
+      pipeline_policy_ok: steps.policy_extraction.ok,
+      pipeline_ingest_status: steps.ingest.status,
+      pipeline_policy_status: steps.policy_extraction.status,
+    });
     if (typeof refreshSession === "function") {
       await refreshSession({ event: "document_upload_partial", reloadJob: false });
     }
@@ -75,8 +84,16 @@ export async function runPostDocumentPipelineRefresh({
       ok: false,
       steps,
       analysisJob: null,
-      message: steps.policy_extraction.error_message ?? steps.ingest.error_message ?? "문서 파이프라인이 완료되지 않았습니다.",
+      message: steps.ingest.error_message ?? "문서 파이프라인이 완료되지 않았습니다.",
     };
+  }
+
+  if (!steps.policy_extraction.ok) {
+    writeEmitterTrace({
+      pipeline_policy_gate_bypassed: true,
+      pipeline_policy_ok: false,
+      pipeline_policy_status: steps.policy_extraction.status,
+    });
   }
 
   let refreshResult = null;
@@ -101,6 +118,28 @@ export async function runPostDocumentPipelineRefresh({
 
   steps.memory_sync = refreshResult.memory_sync ?? { ok: true };
   let finalJob = refreshResult.analysisJob ?? null;
+  const resolvedJobId =
+    finalJob?.id ?? refreshResult.analysisJobId ?? refreshResult.analysis_job_id ?? null;
+
+  if (resolvedJobId && typeof onTrackAnalysisJob === "function") {
+    onTrackAnalysisJob(resolvedJobId);
+    writeEmitterTrace({
+      tracked_job_id: resolvedJobId,
+      track_source: "upload_pipeline_refresh",
+      refresh_ok: refreshResult.ok,
+      refresh_job_status: finalJob?.status ?? null,
+    });
+  } else {
+    writeEmitterTrace({
+      track_skipped: true,
+      resolved_job_id: resolvedJobId,
+      on_track_callable: typeof onTrackAnalysisJob === "function",
+    });
+  }
+
+  if (!finalJob?.id && resolvedJobId) {
+    finalJob = { id: resolvedJobId, status: finalJob?.status ?? "processing" };
+  }
 
   if (finalJob && typeof setActiveAnalysisJob === "function") {
     setActiveAnalysisJob(finalJob);
