@@ -44,6 +44,11 @@ import { runOneKeyCoreDocumentTurn } from "./oneKeyCoreDocument.js";
 import { runOneKeyCoreAnalysisCompleteTurn } from "./oneKeyCoreAnalysisComplete.js";
 import { runOneKeyCoreBridgeTurn } from "./oneKeyCoreBridge.js";
 import { runOneKeyCoreReturnJudgmentTurn } from "./oneKeyCoreReturnJudgment.js";
+import {
+  buildKeyFirstDecisionShadowDiff,
+  isKeyFirstDecisionShadowEnabled,
+  resolveKeyFirstDecision,
+} from "../keyBrain/keyFirstDecision.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
@@ -385,6 +390,18 @@ async function runOneKeyCoreQuestionTurn({
   });
   recordStep("judgment", keyJudgment);
 
+  let keyFirstDecisionRecord = null;
+  if (isKeyFirstDecisionShadowEnabled(env)) {
+    keyFirstDecisionRecord = resolveKeyFirstDecision({
+      question,
+      consultationIntent,
+      keyJudgment,
+      loadedContext,
+      thinkingBundle,
+    });
+    recordStep("key_first_decision", keyFirstDecisionRecord);
+  }
+
   const keyTurn = await runSalesDirectorKeyTurn({
     userSupabase,
     customerId,
@@ -422,6 +439,16 @@ async function runOneKeyCoreQuestionTurn({
     tools_called: toolRun.tools_called,
     consultation_intent: consultationIntent?.intent ?? null,
   });
+
+  if (isKeyFirstDecisionShadowEnabled(env) && keyFirstDecisionRecord) {
+    recordStep(
+      "key_first_decision_shadow_diff",
+      buildKeyFirstDecisionShadowDiff({
+        decision: keyFirstDecisionRecord,
+        legacyPlan: plan,
+      }),
+    );
+  }
 
   const workOrderTrace = buildS1WorkOrderTrace({ plan });
   recordStep("work_order", workOrderTrace);

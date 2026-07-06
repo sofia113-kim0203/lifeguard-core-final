@@ -206,6 +206,7 @@
     "verify:hydration-s1-local": "node scripts/hydration-s1-local-audit.mjs",
     "verify:legacy-s1-local": "node scripts/legacy-s1-local-audit.mjs",
     "verify:advisor-s1-local": "node scripts/advisor-s1-local-audit.mjs",
+    "verify:key-first-s1-shadow-local": "node scripts/key-first-s1-shadow-local-audit.mjs",
     "verify:recommendation-panel-alignment-preview-customer-seat": "node scripts/recommendation-panel-alignment-preview-customer-seat-audit.mjs",
     "trace:phase-c-slice-3-preview-wiring": "node scripts/phase-c-slice-3-preview-wiring-trace-readonly.mjs",
     "verify:phase-c-slice-3-preview-customer-seat": "node scripts/phase-c-slice-3-preview-customer-seat-audit.mjs",

@@ -1,0 +1,137 @@
+{
+  "schema_version": "key-first-s1-shadow-local-audit-v1",
+  "audit": "key_first_s1_shadow_local",
+  "status": "local_pass · commit_pending",
+  "observed_at": "2026-07-06T14:23:41.932Z",
+  "tom_checks": {
+    "check_1_shadow_wired": {
+      "question": "runOneKeyCoreQuestionTurn에 key_first_decision trace",
+      "pass": true
+    },
+    "check_2_no_branching": {
+      "question": "active/branching/approved_plan 없음",
+      "pass": true,
+      "no_active_branch": true
+    },
+    "check_3_legacy_preserved": {
+      "question": "runSalesDirectorKeyTurn + speak path 불변",
+      "pass": true
+    },
+    "check_4_validation_questions": {
+      "question": "Tom 6검증 질문 outcome 분류",
+      "pass": true,
+      "rows": [
+        {
+          "id": "q1_casual",
+          "question": "안녕",
+          "consultationIntent": {
+            "intent": "casual_chat"
+          },
+          "expected_outcome": "answer_now",
+          "classified_intent": "casual_chat",
+          "decision_outcome": "answer_now",
+          "decision_factories": [],
+          "pass": true,
+          "outcome_match": true,
+          "factories_match": true
+        },
+        {
+          "id": "q2_premium",
+          "question": "내 보험료 얼마야?",
+          "consultationIntent": {
+            "intent": "factual_lookup",
+            "lookup_sub_intent": "premium_lookup"
+          },
+          "expected_outcome": "answer_now",
+          "classified_intent": "factual_lookup",
+          "decision_outcome": "answer_now",
+          "decision_factories": [],
+          "pass": true,
+          "outcome_match": true,
+          "factories_match": true
+        },
+        {
+          "id": "q3_gap",
+          "question": "암보험 부족해?",
+          "consultationIntent": {
+            "intent": "coverage_gap_check"
+          },
+          "expected_outcome": "visit_factories",
+          "expected_factories": [
+            "coverage_gap"
+          ],
+          "classified_intent": "coverage_gap_check",
+          "decision_outcome": "visit_factories",
+          "decision_factories": [
+            "coverage_gap"
+          ],
+          "pass": true,
+          "outcome_match": true,
+          "factories_match": true
+        },
+        {
+          "id": "q4_reco_blocked",
+          "question": "그냥 추천해줘",
+          "consultationIntent": {
+            "intent": "recommendation_request"
+          },
+          "expected_outcome": "ask_followup",
+          "classified_intent": "recommendation_request",
+          "decision_outcome": "ask_followup",
+          "decision_factories": [],
+          "pass": true,
+          "outcome_match": true,
+          "factories_match": true
+        },
+        {
+          "id": "q5_uw",
+          "question": "가입 가능해?",
+          "consultationIntent": {
+            "intent": "underwriting_bound_check"
+          },
+          "expected_outcome": "visit_factories",
+          "expected_factories": [
+            "underwriting"
+          ],
+          "classified_intent": "underwriting_bound_check",
+          "decision_outcome": "visit_factories",
+          "decision_factories": [
+            "underwriting"
+          ],
+          "pass": true,
+          "outcome_match": true,
+          "factories_match": true
+        },
+        {
+          "id": "q6_design_blocked",
+          "question": "설계해줘",
+          "consultationIntent": {
+            "intent": "design_request"
+          },
+          "expected_outcome": "ask_followup",
+          "classified_intent": "design_request",
+          "decision_outcome": "ask_followup",
+          "decision_factories": [],
+          "pass": true,
+          "outcome_match": true,
+          "factories_match": true
+        }
+      ]
+    },
+    "check_5_flag_gate": {
+      "question": "KEY_FIRST_DECISION=shadow + ONE_KEY_CORE_S1",
+      "pass": true,
+      "shadow_enabled": true,
+      "shadow_disabled_when_off": true,
+      "active_mode_defined_not_wired": true
+    }
+  },
+  "overall_pass": true,
+  "tom_one_liner": "KEY First S1 shadow는 실행을 바꾸지 않는다. KEY가 어떤 판단을 하는지 trace에만 기록한다.",
+  "forbidden_verified": [
+    "no active branch",
+    "no factory skip",
+    "no customerText change",
+    "no planKeyTools replacement"
+  ]
+}
