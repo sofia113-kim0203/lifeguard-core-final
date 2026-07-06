@@ -148,7 +148,12 @@ async function hydrateMissingClaudeExplanations(job, setters) {
     );
   }
 
-  if (panelNeedsClaudeHydration(claude, mapped.recommendationResult, "recommendation")) {
+  // FACTORY-SPEAK-01-S1 — recommendation panel Claude blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_01_S1_BLOCK_RECOMMENDATION_CLAUDE = true;
+  if (
+    !FACTORY_SPEAK_01_S1_BLOCK_RECOMMENDATION_CLAUDE &&
+    panelNeedsClaudeHydration(claude, mapped.recommendationResult, "recommendation")
+  ) {
     tasks.push(
       loadCustomerRecommendations()
         .then((data) => ({
@@ -534,7 +539,7 @@ function applyJobResultsToPanelState(job, setters) {
   if (mapped.coverageGapResult) {
     setters.setGapResult((prev) => ({
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: coverageClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
+      claudeExplanation: coverageClaude.claudeExplanation ?? null,
       claudeMeta: coverageClaude.claudeMeta,
       memoryUsed: true,
     }));
@@ -543,7 +548,7 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setUwResult((prev) => ({
       underwritingResult: mapped.underwritingResult,
       coverageGapResult: mapped.coverageGapResult,
-      claudeExplanation: underwritingClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
+      claudeExplanation: underwritingClaude.claudeExplanation ?? null,
       claudeMeta: underwritingClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
@@ -552,7 +557,7 @@ function applyJobResultsToPanelState(job, setters) {
   if (mapped.recommendationResult) {
     setters.setRecResult((prev) =>
       normalizeRecommendationPanelState(mapped.recommendationResult, {
-        claudeExplanation: recommendationClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
+        claudeExplanation: recommendationClaude.claudeExplanation ?? null,
         claudeMeta: recommendationClaude.claudeMeta,
         memoryUsed: true,
         coverageGapUsed: true,
@@ -564,7 +569,7 @@ function applyJobResultsToPanelState(job, setters) {
     setters.setDesignResult((prev) => ({
       insuranceDesign: mapped.designBundle.insurance_design ?? null,
       customerVisibleDesign: mapped.designBundle.customer_visible_design ?? null,
-      claudeExplanation: designClaude.claudeExplanation ?? prev?.claudeExplanation ?? null,
+      claudeExplanation: designClaude.claudeExplanation ?? null,
       claudeMeta: designClaude.claudeMeta,
       memoryUsed: true,
       coverageGapUsed: true,
@@ -757,7 +762,7 @@ export default function AiRecommendationPanel({
     }
   }, [user, sessionRefreshKey, resolvedExternalJob, applyJobToState]);
 
-  const loadPanelDataFromApis = useCallback(async ({ skipClaude = false } = {}) => {
+  const loadPanelDataFromApis = useCallback(async ({ skipClaude = true } = {}) => {
     const [gapRes, uwRes, recRes, designRes, rebalancingRes] = await Promise.allSettled([
       analyzeCustomerCoverageGap({ skipClaude }),
       analyzeCustomerUnderwritingRisk({ skipClaude }),

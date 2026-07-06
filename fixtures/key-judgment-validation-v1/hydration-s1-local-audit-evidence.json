@@ -1,0 +1,260 @@
+{
+  "schema_version": "hydration-s1-local-audit-v1",
+  "audit": "hydration_s1_local_readonly",
+  "status": "local_pass · commit_pending",
+  "pass_declaration": "none",
+  "implementation_forbidden_beyond_scope": true,
+  "tom_one_liner": "Hydration-S1 방향은 맞다. 오래된 Claude 설명이 다시 살아나는 wiring이 0인지 검증한 뒤 저장한다.",
+  "observed_at": "2026-07-06T09:11:27.342Z",
+  "git_commit_local": "6940c69",
+  "tom_checks": {
+    "check_1_hydration_no_op": {
+      "question": "hydrateMissingClaudeExplanations가 실제 no-op인지",
+      "pass": true,
+      "evidence": {
+        "panel_wiring": {
+          "pass": true,
+          "blocks": [
+            {
+              "panel": "coverage_gap",
+              "flag": "FACTORY_SPEAK_02_S1_BLOCK_GAP_CLAUDE = true"
+            },
+            {
+              "panel": "underwriting",
+              "flag": "FACTORY_SPEAK_03_S1_BLOCK_UW_CLAUDE = true"
+            },
+            {
+              "panel": "recommendation",
+              "flag": "FACTORY_SPEAK_01_S1_BLOCK_RECOMMENDATION_CLAUDE = true"
+            },
+            {
+              "panel": "insurance_design",
+              "flag": "FACTORY_SPEAK_04_S1_BLOCK_DESIGN_CLAUDE = true"
+            }
+          ],
+          "violations": [],
+          "hydration_wiring_open": 0
+        },
+        "dead_hydrator_export": {
+          "pass": true
+        },
+        "runtime_dead_hydrator": {
+          "pass": true,
+          "hydration_results": [
+            {
+              "panel": "underwriting",
+              "ok": true,
+              "skipped": true,
+              "reason": "FACTORY_SPEAK_HYDRATION_BLOCKED"
+            },
+            {
+              "panel": "recommendation",
+              "ok": true,
+              "skipped": true,
+              "reason": "FACTORY_SPEAK_HYDRATION_BLOCKED"
+            },
+            {
+              "panel": "insurance_design",
+              "ok": true,
+              "skipped": true,
+              "reason": "FACTORY_SPEAK_HYDRATION_BLOCKED"
+            }
+          ],
+          "api_called": false,
+          "mode": "structural_mirror_no_vite_import"
+        }
+      }
+    },
+    "check_2_all_panels_claude_null": {
+      "question": "Recommendation/Gap/UW/Design/Rebalancing claudeExplanation null 유지",
+      "pass": true,
+      "evidence": {
+        "client_hydration_wiring": {
+          "pass": true,
+          "hydration_wiring_open": 0,
+          "note": "All 4 panel hydration blocks guarded — tasks array stays empty (no-op)"
+        },
+        "preview_panel_apis": {
+          "pass": true,
+          "rows": [
+            {
+              "panel": "recommendation",
+              "status": 200,
+              "ok": true,
+              "claude_explanation": null,
+              "claude_meta_reason": "skipClaude",
+              "pass": true
+            },
+            {
+              "panel": "coverage_gap",
+              "status": 200,
+              "ok": true,
+              "claude_explanation": null,
+              "claude_meta_reason": "skipClaude",
+              "pass": true
+            },
+            {
+              "panel": "underwriting",
+              "status": 200,
+              "ok": true,
+              "claude_explanation": null,
+              "claude_meta_reason": "skipClaude",
+              "pass": true
+            },
+            {
+              "panel": "insurance_design",
+              "status": 200,
+              "ok": true,
+              "claude_explanation": null,
+              "claude_meta_reason": "skipClaude",
+              "pass": true
+            },
+            {
+              "panel": "rebalancing",
+              "status": 200,
+              "ok": true,
+              "claude_explanation": null,
+              "claude_meta_reason": "skipClaude",
+              "pass": true
+            }
+          ]
+        },
+        "preview_mode": "preview_read_only"
+      }
+    },
+    "check_3_no_stale_prev_merge": {
+      "question": "이전 state claudeExplanation이 새 job에 남지 않는지",
+      "pass": true,
+      "evidence": {
+        "source_stale_merge_removed": {
+          "pass": true,
+          "prev_claude_explanation_merge_present": false
+        },
+        "runtime_simulation": {
+          "pass": true,
+          "cases": [
+            {
+              "name": "empty_job_entry",
+              "entry": null,
+              "prev": "오래된 Claude 설명 — 이전 job에서 남은 prose",
+              "expected": null,
+              "applied": null,
+              "pass": true
+            },
+            {
+              "name": "legacy_string_job_entry",
+              "entry": "DB legacy_string prose",
+              "prev": "오래된 Claude 설명 — 이전 job에서 남은 prose",
+              "expected": "DB legacy_string prose",
+              "note": "Legacy-S1 will strip at mapper; Hydration-S1 only removes prev merge",
+              "applied": "DB legacy_string prose",
+              "pass": true
+            },
+            {
+              "name": "blocked_meta_only_job_entry",
+              "entry": {
+                "explanation": null,
+                "meta": {
+                  "skipped": true,
+                  "reason": "FACTORY_SPEAK_01_S1"
+                }
+              },
+              "prev": "오래된 Claude 설명 — 이전 job에서 남은 prose",
+              "expected": null,
+              "applied": null,
+              "pass": true
+            }
+          ]
+        },
+        "job_mapper_note": {
+          "pass": true,
+          "note": "Legacy stored job prose still readable until Legacy-S1 mapper strip",
+          "mapped_keys": [
+            "recommendation",
+            "underwriting"
+          ],
+          "resolved": {
+            "recommendation": "legacy stored prose",
+            "underwriting": null
+          },
+          "applied_without_prev_merge": {
+            "recommendation": "legacy stored prose",
+            "underwriting": null
+          },
+          "stale_prev_blocked_for_empty_new_job": true
+        }
+      }
+    },
+    "check_4_cold_load_skip_claude": {
+      "question": "cold load가 Claude를 다시 부르지 않는지",
+      "pass": true,
+      "evidence": {
+        "load_panel_default": {
+          "pass": true,
+          "default_skip_claude": "true"
+        },
+        "passes_skip_claude_to_apis": true
+      }
+    }
+  },
+  "overall_pass": true,
+  "preview_probe": {
+    "mode": "preview_read_only",
+    "preview_base": "https://lifeguard-core-final-kr23jz607-70sofia113-1918s-projects.vercel.app",
+    "panel_apis": {
+      "pass": true,
+      "rows": [
+        {
+          "panel": "recommendation",
+          "status": 200,
+          "ok": true,
+          "claude_explanation": null,
+          "claude_meta_reason": "skipClaude",
+          "pass": true
+        },
+        {
+          "panel": "coverage_gap",
+          "status": 200,
+          "ok": true,
+          "claude_explanation": null,
+          "claude_meta_reason": "skipClaude",
+          "pass": true
+        },
+        {
+          "panel": "underwriting",
+          "status": 200,
+          "ok": true,
+          "claude_explanation": null,
+          "claude_meta_reason": "skipClaude",
+          "pass": true
+        },
+        {
+          "panel": "insurance_design",
+          "status": 200,
+          "ok": true,
+          "claude_explanation": null,
+          "claude_meta_reason": "skipClaude",
+          "pass": true
+        },
+        {
+          "panel": "rebalancing",
+          "status": 200,
+          "ok": true,
+          "claude_explanation": null,
+          "claude_meta_reason": "skipClaude",
+          "pass": true
+        }
+      ]
+    }
+  },
+  "next_step": "Tom GO for commit after evidence review",
+  "forbidden": [
+    "commit",
+    "push",
+    "legacy_s1",
+    "advisor",
+    "conversational_qa",
+    "production_change",
+    "db_migration"
+  ]
+}

@@ -180,6 +180,18 @@ export async function hydrateMissingClaudeExplanations({
   panels = ["underwriting", "recommendation", "insurance_design"],
   hasPanelData = {},
 } = {}) {
+  // FACTORY-SPEAK Hydration-S1 — panel Claude hydration blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_BLOCK_ALL_PANEL_CLAUDE_HYDRATION = true;
+  if (FACTORY_SPEAK_BLOCK_ALL_PANEL_CLAUDE_HYDRATION) {
+    const hydrationResults = panels.map((panel) => ({
+      panel,
+      ok: true,
+      skipped: true,
+      reason: "FACTORY_SPEAK_HYDRATION_BLOCKED",
+    }));
+    return { claudeExplanations: { ...claudeExplanations }, hydrationResults };
+  }
+
   const hydrated = { ...claudeExplanations };
   const hydrationResults = [];
 
