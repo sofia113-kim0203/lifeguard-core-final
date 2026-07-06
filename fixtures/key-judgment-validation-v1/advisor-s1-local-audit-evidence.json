@@ -1,0 +1,45 @@
+{
+  "schema_version": "advisor-s1-local-audit-v1",
+  "audit": "advisor_s1_local",
+  "status": "local_pass · commit_pending",
+  "observed_at": "2026-07-06T13:50:10.571Z",
+  "tom_checks": {
+    "check_1_central_brain_muted_when_one_key": {
+      "question": "ONE_KEY_CORE_S1 시 Central Brain fast path 차단",
+      "pass": true,
+      "central_brain_guarded": true
+    },
+    "check_2_advisor_brain_muted_when_one_key": {
+      "question": "ONE_KEY_CORE_S1 시 Advisor Brain fast path 차단",
+      "pass": true,
+      "advisor_brain_guarded": true
+    },
+    "check_3_one_key_wired": {
+      "question": "conversational-qa → runOneKeyCoreTurn 연결",
+      "pass": true
+    },
+    "check_4_modules_preserved": {
+      "question": "advisorBrain/centralBrain/audit 삭제 없음",
+      "pass": true,
+      "modules_present": [
+        "server/advisorBrain/advisorBrainResponder.js",
+        "server/centralBrain/centralBrainOrchestrator.js",
+        "server/advisorBrain/advisorAuditLog.js"
+      ]
+    },
+    "check_5_flag_gate": {
+      "question": "isOneKeyCoreS1Enabled flag 동작",
+      "pass": true,
+      "enabled_with_1": true,
+      "disabled_with_0": false
+    }
+  },
+  "overall_pass": true,
+  "tom_one_liner": "customer-conversational-qa에서 ONE_KEY_CORE_S1=1이면 Advisor/Central fast path는 mute되고 ONE KEY가 먼저 말한다.",
+  "forbidden": [
+    "advisor_brain_delete",
+    "central_brain_delete",
+    "db_migration",
+    "customer_conversations_schema"
+  ]
+}

@@ -29,6 +29,7 @@ import {
 import { isAdvisorConversationQuestion } from "./advisorBrain/advisorConversationResponder.js";
 import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
 import { stripLegacyClaudeFromJobResultJson } from "./stripLegacyClaudeFromJobResultJson.js";
+import { isOneKeyCoreS1Enabled, runOneKeyCoreTurn } from "./keyCore/oneKeyCoreTurn.js";
 import {
   isCentralBrainActive,
   mergeConversationMetadata,
@@ -243,6 +244,59 @@ async function insertConversationMessage(adminSupabase, customerId, { role, mess
     throw new Error(`conversation_insert_failed: ${error.message}`);
   }
   return data;
+}
+
+function buildOneKeyCoreS1ConversationalMeta({ used = false, trace = null } = {}) {
+  if (!used) return {};
+  return {
+    one_key_core_s1: true,
+    advisor_fast_path_muted: true,
+    central_brain_fast_path_muted: true,
+    phase: "advisor-s1-one-key-core",
+    one_key_core_trace: trace ?? null,
+  };
+}
+
+async function resolveOneKeyCoreConversationalFastResponse({
+  userSupabase,
+  customerId,
+  question,
+  history = [],
+  env = process.env,
+  fetchImpl = fetch,
+  startedAt = Date.now(),
+} = {}) {
+  if (!isOneKeyCoreS1Enabled(env) || !userSupabase) {
+    return { used: false, ok: false, fastResponse: null, trace: null };
+  }
+
+  const coreResult = await runOneKeyCoreTurn({
+    userSupabase,
+    customerId,
+    question,
+    history,
+    env,
+    fetchImpl,
+    startedAt,
+  });
+
+  const customerText = String(coreResult.customerText ?? "").trim();
+  if (!coreResult.ok || !customerText) {
+    return {
+      used: true,
+      ok: false,
+      fastResponse: null,
+      trace: coreResult.oneKeyCoreTrace ?? null,
+      reason: coreResult.reason ?? "ONE_KEY_CORE_S1_FAILED",
+    };
+  }
+
+  return {
+    used: true,
+    ok: true,
+    fastResponse: customerText,
+    trace: coreResult.oneKeyCoreTrace ?? null,
+  };
 }
 
 export function mapAnalysisJobForClient(job) {
@@ -552,13 +606,14 @@ export async function handleConversationalQuestionRequest({
   );
   const advisorStoredOnlyMode = recommendationReasonMode || advisorConversationMode;
 
+  const oneKeyCoreS1Active = isOneKeyCoreS1Enabled(env);
   let centralBrainResult = null;
 
   // Direction1 Step2 — for analysis-type questions, run the live coverage/underwriting/
   // recommendation engines (same ones the screen uses) and ground the chat answer in the
   // computed results. Step4/5 and Central Brain activated turns skip live engine context.
   let analysisContext = null;
-  if (isCentralBrainActive(env)) {
+  if (!oneKeyCoreS1Active && isCentralBrainActive(env)) {
     centralBrainResult = await runCentralBrainTurn({
       question: trimmedQuestion,
       supabase: adminClient,
@@ -582,10 +637,34 @@ export async function handleConversationalQuestionRequest({
   }
 
   let fastResponse = null;
+  let oneKeyCoreS1Used = false;
+  let oneKeyCoreTrace = null;
 
-  if (centralBrainResult?.activated && centralBrainResult?.ok && centralBrainResult?.message) {
+  if (oneKeyCoreS1Active && userSupabase) {
+    const oneKeyFast = await resolveOneKeyCoreConversationalFastResponse({
+      userSupabase,
+      customerId,
+      question: trimmedQuestion,
+      history: conversationHistory,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+    if (oneKeyFast.used && oneKeyFast.ok && oneKeyFast.fastResponse) {
+      fastResponse = oneKeyFast.fastResponse;
+      oneKeyCoreS1Used = true;
+      oneKeyCoreTrace = oneKeyFast.trace ?? null;
+    }
+  }
+
+  if (!fastResponse && centralBrainResult?.activated && centralBrainResult?.ok && centralBrainResult?.message) {
     fastResponse = centralBrainResult.message;
-  } else if (!isCentralBrainActive(env) && shouldActivateAdvisorBrainForClassification(intentClassification, env, trimmedQuestion)) {
+  } else if (
+    !fastResponse &&
+    !oneKeyCoreS1Active &&
+    !isCentralBrainActive(env) &&
+    shouldActivateAdvisorBrainForClassification(intentClassification, env, trimmedQuestion)
+  ) {
     try {
       const advisorBrainResult = await buildAdvisorBrainAnswer({
         supabase: adminClient,
@@ -618,18 +697,28 @@ export async function handleConversationalQuestionRequest({
     });
   }
 
-  const finalized = await applyOneBrainFinalResponse(fastResponse, {
-    question: trimmedQuestion,
-    intentClassification,
-    memoryContext,
-    cachePayload,
-    analysisContext,
-    history: conversationHistory,
-    fetchImpl,
-    env,
+  let tomVoiceTrace = null;
+  if (oneKeyCoreS1Used) {
+    // ONE KEY already finalized customer text — do not re-compose via OneBrain/Advisor layers.
+  } else {
+    const finalized = await applyOneBrainFinalResponse(fastResponse, {
+      question: trimmedQuestion,
+      intentClassification,
+      memoryContext,
+      cachePayload,
+      analysisContext,
+      history: conversationHistory,
+      fetchImpl,
+      env,
+    });
+    fastResponse = finalized.text;
+    tomVoiceTrace = finalized.tom_voice_trace ?? null;
+  }
+
+  const oneKeyMeta = buildOneKeyCoreS1ConversationalMeta({
+    used: oneKeyCoreS1Used,
+    trace: oneKeyCoreTrace,
   });
-  fastResponse = finalized.text;
-  const tomVoiceTrace = finalized.tom_voice_trace ?? null;
 
   if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {
     const initialResponseTimeMs = Date.now() - startedAt;
@@ -641,7 +730,11 @@ export async function handleConversationalQuestionRequest({
     const assistantMetadata = mergeConversationMetadata(
       {
         source: "conversational_background_analysis",
-        phase: centralBrainResult?.activated ? "central-brain-p2" : "phase26-2a-fast",
+        phase: oneKeyCoreS1Used
+          ? "advisor-s1-one-key-core"
+          : centralBrainResult?.activated
+            ? "central-brain-p2"
+            : "phase26-2a-fast",
         recommendation_reason_mode:
           recommendationReasonMode || centralBrainResult?.recommendation_reason_mode === true,
         advisor_conversation_mode:
@@ -653,6 +746,7 @@ export async function handleConversationalQuestionRequest({
         source_data_available: memoryContext.data_available,
         cache_status: cachePayload.cache_status,
         initial_response_time_ms: initialResponseTimeMs,
+        ...oneKeyMeta,
       },
       centralBrainResult?.metadata ?? {},
     );
@@ -679,6 +773,8 @@ export async function handleConversationalQuestionRequest({
       central_brain_activated: centralBrainResult?.activated === true,
       coverage_review_mode: centralBrainResult?.coverage_review_mode === true,
       job_skipped: true,
+      one_key_core_s1_active: oneKeyCoreS1Active,
+      one_key_core_s1_used: oneKeyCoreS1Used,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,
       cache_status: cachePayload.cache_status,
@@ -715,7 +811,7 @@ export async function handleConversationalQuestionRequest({
         metadata: mergeConversationMetadata(
           {
             source: "conversational_background_analysis",
-            phase: "central-brain-p2",
+            phase: oneKeyCoreS1Used ? "advisor-s1-one-key-core" : "central-brain-p2",
             analysis_job_id: reusedJob.id,
             analysis_job_reused: true,
             central_brain_mode: centralBrainResult.central_brain_mode ?? null,
@@ -726,6 +822,7 @@ export async function handleConversationalQuestionRequest({
             source_data_available: memoryContext.data_available,
             cache_status: cachePayload.cache_status,
             initial_response_time_ms: initialResponseTimeMs,
+            ...oneKeyMeta,
           },
           centralBrainResult.metadata ?? {},
         ),
@@ -736,7 +833,7 @@ export async function handleConversationalQuestionRequest({
         customer_id: customerId,
         question: trimmedQuestion,
         fast_response: fastResponse,
-      tom_voice_trace: tomVoiceTrace,
+        tom_voice_trace: tomVoiceTrace,
         initial_response_time_ms: initialResponseTimeMs,
         analysis_job_id: reusedJob.id,
         analysis_job: mapAnalysisJobForClient(reusedJob),
@@ -744,6 +841,8 @@ export async function handleConversationalQuestionRequest({
         central_brain_activated: true,
         coverage_review_mode: centralBrainResult.coverage_review_mode === true,
         job_reused: true,
+        one_key_core_s1_active: oneKeyCoreS1Active,
+        one_key_core_s1_used: oneKeyCoreS1Used,
         user_message_id: userMessage.id,
         assistant_message_id: assistantMessage.id,
         cache_status: cachePayload.cache_status,
@@ -815,7 +914,7 @@ export async function handleConversationalQuestionRequest({
     message: fastResponse,
     metadata: {
       source: "conversational_background_analysis",
-      phase: "phase26-2a-fast",
+      phase: oneKeyCoreS1Used ? "advisor-s1-one-key-core" : "phase26-2a-fast",
       analysis_job_id: jobRow.id,
       memory_version: snapshot.memory_version ?? 0,
       memory_fact_count: snapshot.fact_count ?? 0,
@@ -824,6 +923,7 @@ export async function handleConversationalQuestionRequest({
       cache_status: cachePayload.cache_status,
       background_refresh_types: cachePayload.background_refresh_types,
       initial_response_time_ms: initialResponseTimeMs,
+      ...oneKeyMeta,
     },
   });
 
@@ -851,6 +951,8 @@ export async function handleConversationalQuestionRequest({
     initial_response_time_ms: initialResponseTimeMs,
     analysis_job_id: jobRow.id,
     analysis_job: mapAnalysisJobForClient(latestJob),
+    one_key_core_s1_active: oneKeyCoreS1Active,
+    one_key_core_s1_used: oneKeyCoreS1Used,
     user_message_id: userMessage.id,
     assistant_message_id: assistantMessage.id,
     cache_status: cachePayload.cache_status,
