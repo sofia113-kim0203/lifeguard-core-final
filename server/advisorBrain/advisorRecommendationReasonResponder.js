@@ -119,7 +119,9 @@ function pickUnderwritingEvidence(underwritingResult = null) {
       coverage_category: item.coverage_category ?? null,
       coverage_label: item.coverage_label ?? null,
       underwriting_status: item.underwriting_status ?? null,
-      reason: item.reason ?? null,
+      uw_reason_codes: item.uw_reason_codes ?? [],
+      review_step_code: item.review_step_code ?? null,
+      evidence_codes: item.evidence_codes ?? [],
     })),
   };
 }

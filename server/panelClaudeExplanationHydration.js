@@ -180,7 +180,9 @@ export async function generatePanelClaudeExplanations({
   const modelName = resolveClaudeModel(env);
   const explanations = {};
 
-  if (underwritingResult) {
+  // FACTORY-SPEAK-03-S1 — underwriting panel Claude blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_03_S1_BLOCK_UNDERWRITING_CLAUDE = true;
+  if (underwritingResult && !FACTORY_SPEAK_03_S1_BLOCK_UNDERWRITING_CLAUDE) {
     const prompt = buildUnderwritingExplanationPrompt(
       structuredMemory,
       coverageGapResult,

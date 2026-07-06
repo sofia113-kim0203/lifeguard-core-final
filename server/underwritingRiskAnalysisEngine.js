@@ -88,10 +88,34 @@ function matchesDefinition(definition, fact) {
   return definition.keywords.some((keyword) => text.includes(normalize(keyword)));
 }
 
-function itemReason(definition, status, facts) {
-  if (facts.length === 0) return `${definition.label} 관련 health memory가 없습니다.`;
-  if (status === "unknown") return `${definition.label} 관련 표현이 불확실하여 인수심사 검토가 필요할 수 있습니다.`;
-  return `${definition.label} 관련 고객 health memory가 있어 인수심사 검토 필요 가능성을 표시합니다.`;
+function healthRiskReasonCodes(definition, status, facts) {
+  const codes = [];
+  if (facts.length === 0) codes.push("health_memory_missing");
+  else codes.push("health_memory_present");
+  if (status === "unknown") codes.push("health_signal_uncertain");
+  if (status === "high") codes.push("high_severity_health_risk");
+  if (status === "medium") codes.push("elevated_health_risk");
+  if (status === "low") codes.push("low_severity_health_risk");
+  if (facts.some(hasReview)) codes.push("requires_agent_review");
+  if (definition.type === "vague_health" && status === "unknown") codes.push("vague_health_signal");
+  return codes;
+}
+
+function evidenceCodesForRisk(status, facts, requiresReview) {
+  const codes = [];
+  if (facts.some((fact) => fact?.metadata_json?.memory_confidence === "low")) {
+    codes.push("memory_confidence_low");
+  } else if (facts.some(hasReview) || status === "unknown") {
+    codes.push("memory_confidence_medium");
+  } else {
+    codes.push("memory_confidence_high");
+  }
+  if (requiresReview) codes.push("requires_agent_review");
+  const basis = evidenceBasis(facts);
+  if (basis === "document") codes.push("evidence_basis_document");
+  else if (basis === "memory") codes.push("evidence_basis_memory");
+  else if (basis === "mixed") codes.push("evidence_basis_mixed");
+  return codes;
 }
 
 function classifyRisk(definition, facts) {
@@ -107,11 +131,12 @@ function classifyRisk(definition, facts) {
     risk_type: definition.type,
     status,
     severity: matched.length > 0 ? definition.severity : "low",
-    reason: itemReason(definition, status, matched),
+    health_risk_reason_codes: healthRiskReasonCodes(definition, status, matched),
     evidence_basis: evidenceBasis(matched),
     confidence: memoryConfidence(status, matched),
     requires_agent_review: requiresAgentReview,
     review_reason: reviewReasons(matched),
+    evidence_codes: evidenceCodesForRisk(status, matched, requiresAgentReview),
     evidence_fact_keys: matched.map((fact) => fact.fact_key).filter(Boolean),
   };
 }

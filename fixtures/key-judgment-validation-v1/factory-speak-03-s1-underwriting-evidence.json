@@ -1,0 +1,50 @@
+{
+  "slice": "FACTORY-SPEAK-03-S1",
+  "title": "Underwriting Speak — structured factory + KEY panel voice",
+  "status": "preview_audit_observation_pass",
+  "tom_go": "2026-07-06",
+  "principle": "Factory calculates risk_score/review_flags/codes only; ONE KEY speaks hedged underwriting guidance",
+  "claude_block_reason": "FACTORY_SPEAK_03_S1",
+  "factory_item_shape": {
+    "coverage_label": "암",
+    "underwriting_status": "likely_surcharge",
+    "risk_level": "high",
+    "uw_reason_codes": ["diabetes_signal", "elevated_health_risk"],
+    "review_step_code": "prepare_health_documents",
+    "evidence_codes": ["memory_confidence_medium"],
+    "required_document_codes": ["health_disclosure", "prescription_record"]
+  },
+  "forbidden_factory_fields": ["reason", "recommended_next_step"],
+  "forbidden_key_phrases": ["가입 가능합니다", "가입이 거절됩니다", "할증됩니다"],
+  "tests_local": {
+    "test:factory-speak-03-s1-underwriting": "7/7 PASS",
+    "phase24-step3b-underwriting-risk-analysis-test": "PASS",
+    "test:factory-speak-01-s1-recommendation": "5/5 PASS",
+    "test:factory-speak-02-s1-coverage-gap": "7/7 PASS"
+  },
+  "files_touched": [
+    "server/customerUnderwritingRiskCore.js",
+    "server/underwritingRiskAnalysisEngine.js",
+    "server/panelClaudeExplanationHydration.js",
+    "server/rebalancingEngine.js",
+    "server/recommendationEngine.js",
+    "server/customerRecommendationCore.js",
+    "server/insuranceDesignGenerator.js",
+    "server/claudePerformanceAudit.js",
+    "server/advisorBrain/advisorRecommendationReasonResponder.js",
+    "server/customerConversationalTone.js",
+    "src/lib/underwritingPanelKeyVoice.js",
+    "src/lib/customerUnderwritingRisk.js",
+    "src/components/AiRecommendationPanel.jsx",
+    "scripts/factory-speak-03-s1-underwriting-unit-test.mjs",
+    "scripts/phase26-step1c-underwriting-risk-memory-test.mjs"
+  ],
+  "preview_audit": {
+    "deploy_url": "https://lifeguard-core-final-f5qrnndq4-70sofia113-1918s-projects.vercel.app",
+    "git_short_sha": "4c7eaa1",
+    "tom_checks": "4/4 observation pass",
+    "evidence": "fixtures/key-judgment-validation-v1/factory-speak-03-s1-preview-customer-seat-evidence.json"
+  },
+  "phase26_e2e": "BLOCKED locally — SUPABASE_URL/SERVICE_ROLE_KEY not in shell env",
+  "production": "untouched"
+}

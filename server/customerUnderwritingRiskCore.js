@@ -12,9 +12,7 @@ import {
   buildStructuredMemoryProfile,
   mapMemoryFactsForResponse,
 } from "./customerMemorySnapshot.js";
-import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
-import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
-import { attachPolicyMeta, buildPoliciesPromptBlock } from "./panelClaudePoliciesContext.js";
+import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
 import { createClient } from "@supabase/supabase-js";
 
 const STATUS_ORDER = {
@@ -71,44 +69,79 @@ function hasDiabetesSignal(healthRiskItems, healthFacts) {
   return Boolean(diabetes) || (medication && diabetesInFacts);
 }
 
-function requiredDocumentsFor(status, relatedRisks) {
+function documentCodesFor(status, relatedRisks) {
   const docs = new Set();
-  if (status === "likely_additional_review" || status === "likely_surcharge" || status === "likely_exclusion") {
-    docs.add("건강고지서");
-    docs.add("최근 처방전 또는 투약 확인서");
+  if (
+    status === "likely_additional_review" ||
+    status === "likely_surcharge" ||
+    status === "likely_exclusion" ||
+    status === "likely_decline"
+  ) {
+    docs.add("health_disclosure");
+    docs.add("prescription_record");
   }
   if (relatedRisks.some((risk) => ["surgery_history", "hospitalization_history"].includes(risk.risk_type))) {
-    docs.add("진단서 또는 입퇴원 확인서");
+    docs.add("hospitalization_record");
   }
   if (relatedRisks.some((risk) => ["recent_diagnosis", "cancer_history"].includes(risk.risk_type))) {
-    docs.add("진단 관련 의료기록");
+    docs.add("diagnosis_record");
   }
   if (status === "unknown") {
-    docs.add("추가 건강 정보 확인 자료");
+    docs.add("additional_health_context");
   }
   return Array.from(docs);
 }
 
-function recommendedNextStep(status, label, gapItem) {
-  if (status === "likely_standard" && gapItem?.gap_level === "sufficient") {
-    return `${label}은(는) 현재 Memory 기준 유지 보장으로 판단됩니다.`;
+function deriveReviewStepCode(underwriting_status, gapItem) {
+  if (underwriting_status === "likely_standard" && gapItem?.gap_level === "sufficient") {
+    return "maintain_standard_path";
   }
-  if (status === "likely_standard") {
-    return `${label} 가입 가능성이 상대적으로 높습니다. Coverage Gap 우선순위와 함께 검토하세요.`;
+  if (underwriting_status === "likely_standard") return "review_with_gap_priority";
+  if (underwriting_status === "likely_surcharge") return "prepare_health_documents";
+  if (underwriting_status === "likely_exclusion") return "check_exclusion_riders";
+  if (underwriting_status === "likely_additional_review" || underwriting_status === "likely_decline") {
+    return "agent_review_required";
   }
-  if (status === "likely_surcharge") {
-    return `${label}은(는) 건강 Memory 기준 할증 또는 부담보 가능성이 있어 사전 고지와 서류 준비가 필요합니다.`;
+  return "add_health_memory_context";
+}
+
+function deriveUwReasonCodes({
+  underwriting_status,
+  gapItem,
+  diabetesSignal,
+  critical,
+  elevated,
+  vague,
+  related,
+}) {
+  const codes = [];
+  if (gapItem?.gap_level === "sufficient") codes.push("coverage_held");
+  if (gapItem && ["critical", "high", "medium"].includes(gapItem.gap_level)) {
+    codes.push("coverage_gap_priority");
   }
-  if (status === "likely_exclusion") {
-    return `${label}은(는) 특정 담보 부담보 가능성이 있어 약관·고지 내용을 먼저 확인하세요.`;
+  if (diabetesSignal) codes.push("diabetes_signal");
+  if (critical.some((item) => item.status === "high")) codes.push("critical_health_risk");
+  if (elevated.some((item) => item.status === "high")) codes.push("elevated_health_risk");
+  if (elevated.some((item) => item.status === "medium")) codes.push("medium_health_risk");
+  if (vague.length > 0) codes.push("vague_health_signal");
+  if (underwriting_status === "likely_decline") codes.push("high_uw_friction");
+  if (underwriting_status === "likely_surcharge") codes.push("surcharge_review_signal");
+  if (underwriting_status === "likely_exclusion") codes.push("exclusion_review_signal");
+  if (underwriting_status === "likely_additional_review") codes.push("additional_review_signal");
+  if (underwriting_status === "likely_standard" && related.length === 0) {
+    codes.push("no_elevated_health_signal");
   }
-  if (status === "likely_additional_review") {
-    return `${label}은(는) 추가 심사 가능성이 있어 건강 관련 서류를 준비한 뒤 진행하세요.`;
-  }
-  if (status === "likely_decline") {
-    return `${label}은(는) 현재 Memory 기준 가입 거절 위험이 높습니다. 설계사·보험사 심사 확인이 필요합니다.`;
-  }
-  return `${label} 관련 건강 Memory가 부족하여 추가 정보 확인 후 재분석하세요.`;
+  if (related.length === 0 && underwriting_status === "unknown") codes.push("health_memory_limited");
+  return codes;
+}
+
+function itemEvidenceCodes(confidence_level, related) {
+  const codes = [];
+  if (confidence_level === "low") codes.push("memory_confidence_low");
+  else if (confidence_level === "high") codes.push("memory_confidence_high");
+  else codes.push("memory_confidence_medium");
+  if (related.some((item) => item.requires_agent_review)) codes.push("requires_agent_review");
+  return codes;
 }
 
 function assessCategoryUnderwriting(categoryConfig, healthRiskItems, gapItem, healthFacts) {
@@ -120,45 +153,55 @@ function assessCategoryUnderwriting(categoryConfig, healthRiskItems, gapItem, he
 
   let underwriting_status = "unknown";
   let risk_level = "low";
-  let reason = `${categoryConfig.label} 관련 건강 Memory가 제한적입니다.`;
   let confidence_level = "low";
 
   if (gapItem?.gap_level === "sufficient") {
     underwriting_status = "likely_standard";
     risk_level = "low";
-    reason = `${categoryConfig.label} 보장이 Memory에 유지 중으로 기록되어 있습니다.`;
     confidence_level = gapItem.confidence === "high" ? "high" : "medium";
   } else if (critical.some((item) => item.status === "high")) {
     underwriting_status = "likely_decline";
     risk_level = "critical";
-    reason = `${categoryConfig.label} 가입 시 ${critical[0].reason}`;
     confidence_level = critical[0].confidence ?? "medium";
-  } else if (diabetesSignal && ["cancer", "brain", "heart", "surgery", "hospitalization", "dementia_care", "death"].includes(categoryConfig.coverage_category)) {
+  } else if (
+    diabetesSignal &&
+    ["cancer", "brain", "heart", "surgery", "hospitalization", "dementia_care", "death"].includes(
+      categoryConfig.coverage_category,
+    )
+  ) {
     underwriting_status = "likely_surcharge";
     risk_level = "high";
-    reason = `당뇨 관련 health memory(복용약 등)가 있어 ${categoryConfig.label} 가입 시 할증 또는 부담보 가능성이 있습니다.`;
     confidence_level = "high";
   } else if (elevated.some((item) => item.status === "high")) {
     underwriting_status = "likely_exclusion";
     risk_level = "high";
-    reason = `${categoryConfig.label} 가입 시 특정 담보 부담보 가능성이 있는 health memory가 있습니다.`;
     confidence_level = elevated[0].confidence ?? "medium";
   } else if (elevated.some((item) => item.status === "medium") || vague.length > 0) {
     underwriting_status = "likely_additional_review";
     risk_level = "medium";
-    reason = `${categoryConfig.label} 가입 시 추가 심사 또는 고지 확인이 필요할 수 있는 health memory가 있습니다.`;
     confidence_level = "medium";
   } else if (gapItem && ["critical", "high", "medium"].includes(gapItem.gap_level) && related.length === 0) {
     underwriting_status = "likely_standard";
     risk_level = "low";
-    reason = `Coverage Gap에서 ${categoryConfig.label} 보장이 부족하지만, 현재 health memory 기준 특별한 인수 위험 신호는 없습니다.`;
     confidence_level = "medium";
   } else if (related.length > 0) {
     underwriting_status = "likely_additional_review";
     risk_level = "medium";
-    reason = `${categoryConfig.label} 가입과 연관된 health memory가 있어 추가 확인이 필요합니다.`;
     confidence_level = "medium";
   }
+
+  const uw_reason_codes = deriveUwReasonCodes({
+    underwriting_status,
+    gapItem,
+    diabetesSignal,
+    critical,
+    elevated,
+    vague,
+    related,
+  });
+  const review_step_code = deriveReviewStepCode(underwriting_status, gapItem);
+  const required_document_codes = documentCodesFor(underwriting_status, related);
+  const evidence_codes = itemEvidenceCodes(confidence_level, related);
 
   const memorySources = Array.from(
     new Set([
@@ -172,12 +215,13 @@ function assessCategoryUnderwriting(categoryConfig, healthRiskItems, gapItem, he
     coverage_label: categoryConfig.label,
     underwriting_status,
     risk_level,
-    reason,
+    uw_reason_codes,
+    review_step_code,
     related_memory_sources: memorySources,
-    related_health_risks: related.map((item) => item.risk_type),
-    recommended_next_step: recommendedNextStep(underwriting_status, categoryConfig.label, gapItem),
-    required_documents: requiredDocumentsFor(underwriting_status, related),
+    related_health_risk_types: related.map((item) => item.risk_type),
+    required_document_codes,
     confidence_level,
+    evidence_codes,
     coverage_gap_level: gapItem?.gap_level ?? null,
     coverage_gap_priority: gapItem?.priority ?? null,
   };
@@ -211,7 +255,7 @@ export function transformUnderwritingRiskResults({
   );
   const likely_decline = items.filter((item) => item.underwriting_status === "likely_decline");
 
-  const required_documents = Array.from(new Set(items.flatMap((item) => item.required_documents)));
+  const required_document_codes = Array.from(new Set(items.flatMap((item) => item.required_document_codes ?? [])));
 
   const overallRisk =
     items.some((item) => item.risk_level === "critical")
@@ -233,7 +277,7 @@ export function transformUnderwritingRiskResults({
     likely_exclusion,
     likely_additional_review,
     likely_decline,
-    required_documents,
+    required_document_codes,
     health_risk_items: healthAnalysis.health_risk_items ?? [],
     unknown_items: healthAnalysis.unknown_items ?? [],
     agent_review_items: healthAnalysis.agent_review_items ?? [],
@@ -250,6 +294,34 @@ export function transformUnderwritingRiskResults({
   };
 }
 
+export function sanitizeUnderwritingStructuredForPrompt(underwritingResult = {}) {
+  const pickItem = (item) => ({
+    coverage_category: item.coverage_category ?? null,
+    coverage_label: item.coverage_label ?? null,
+    underwriting_status: item.underwriting_status ?? null,
+    risk_level: item.risk_level ?? null,
+    uw_reason_codes: item.uw_reason_codes ?? [],
+    review_step_code: item.review_step_code ?? null,
+    evidence_codes: item.evidence_codes ?? [],
+    confidence_level: item.confidence_level ?? null,
+    required_document_codes: item.required_document_codes ?? [],
+    related_health_risk_types: item.related_health_risk_types ?? [],
+  });
+
+  return {
+    overall_underwriting_risk: underwritingResult.overall_underwriting_risk ?? null,
+    risk_score: underwritingResult.risk_score ?? null,
+    items: (underwritingResult.items ?? []).map(pickItem),
+    likely_standard: (underwritingResult.likely_standard ?? []).map(pickItem),
+    likely_surcharge: (underwritingResult.likely_surcharge ?? []).map(pickItem),
+    likely_exclusion: (underwritingResult.likely_exclusion ?? []).map(pickItem),
+    likely_additional_review: (underwritingResult.likely_additional_review ?? []).map(pickItem),
+    likely_decline: (underwritingResult.likely_decline ?? []).map(pickItem),
+    coverage_gap_reference: underwritingResult.coverage_gap_reference ?? null,
+    required_document_codes: underwritingResult.required_document_codes ?? [],
+  };
+}
+
 export function buildUnderwritingExplanationPrompt(
   structuredMemory,
   coverageGapResult,
@@ -257,20 +329,18 @@ export function buildUnderwritingExplanationPrompt(
   policies = [],
   countContract = null,
 ) {
+  const structuredUw = sanitizeUnderwritingStructuredForPrompt(underwritingResult);
   const user = [
     "Explain underwriting risk analysis to the customer using only the blocks below.",
     "",
     "A. customer_memory_summary:",
     JSON.stringify(structuredMemory, null, 2),
     "",
-    "B.",
-    buildPoliciesPromptBlock(policies, countContract),
-    "",
-    "C. coverage_gap_reference:",
+    "B. coverage_gap_reference:",
     JSON.stringify(underwritingResult.coverage_gap_reference, null, 2),
     "",
-    "D. underwriting_risk_analysis:",
-    JSON.stringify(underwritingResult, null, 2),
+    "C. underwriting_risk_analysis (structured codes only — do not invent binding enrollment verdicts):",
+    JSON.stringify(structuredUw, null, 2),
     "",
     "Required sections in Korean:",
     "1) 고객 Memory 기준 현재 상황",
@@ -283,47 +353,6 @@ export function buildUnderwritingExplanationPrompt(
   ].join("\n");
 
   return { system: UNDERWRITING_SYSTEM_RULES, user };
-}
-
-async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetch }) {
-  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 1500,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      reason: "CLAUDE_API_ERROR",
-      errorMessage: `Claude API error (${response.status})`,
-    };
-  }
-
-  const data = await response.json();
-  const text = Array.isArray(data?.content)
-    ? data.content
-        .filter((block) => block?.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim()
-    : "";
-
-  return {
-    ok: true,
-    answer: text,
-    model: data?.model ?? modelName,
-    provider: "anthropic",
-  };
 }
 
 async function resolveCustomerId(supabase) {
@@ -403,63 +432,14 @@ export async function handleCustomerUnderwritingRiskRequest({
   }
 
   const context = await loadUnderwritingAnalysisContext(supabase, customerId);
-  const countContract = {
-    active_policy_count: context.active_policy_count ?? null,
-    active_policy_count_source: context.active_policy_count_source ?? null,
-    active_policy_ids: context.active_policy_ids ?? null,
-    policy_count: context.policy_count ?? null,
+
+  // FACTORY-SPEAK-03-S1 — underwriting factory must not speak to customers via Claude explanation.
+  const claudeExplanation = null;
+  const claudeMeta = {
+    skipped: true,
+    reason: "FACTORY_SPEAK_03_S1",
+    explanation_mode: "blocked",
   };
-
-  let claudeExplanation = null;
-  let claudeMeta = { skipped: true, reason: "skipClaude" };
-
-  if (!skipClaude) {
-    const anthropicApiKey = resolveAnthropicApiKey(env);
-    if (!anthropicApiKey) {
-      claudeMeta = attachPolicyMeta(
-        { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" },
-        context.policies ?? [],
-        countContract,
-      );
-    } else {
-      const prompt = buildUnderwritingExplanationPrompt(
-        context.structuredMemory,
-        context.coverageGapResult,
-        context.underwritingResult,
-        context.policies ?? [],
-        countContract,
-      );
-      const claudeResult = await callAnthropic({
-        apiKey: anthropicApiKey,
-        modelName: resolveClaudeModel(env),
-        system: prompt.system,
-        user: prompt.user,
-        fetchImpl,
-      });
-      if (claudeResult.ok) {
-        claudeExplanation = claudeResult.answer;
-        claudeMeta = attachPolicyMeta(
-          {
-            skipped: false,
-            model_name: claudeResult.model,
-            provider: claudeResult.provider,
-          },
-          context.policies ?? [],
-          countContract,
-        );
-      } else {
-        claudeMeta = attachPolicyMeta(
-          {
-            skipped: true,
-            reason: claudeResult.reason,
-            error_message: claudeResult.errorMessage,
-          },
-          context.policies ?? [],
-          countContract,
-        );
-      }
-    }
-  }
 
   return {
     ok: true,
@@ -472,7 +452,7 @@ export async function handleCustomerUnderwritingRiskRequest({
     structured_memory: context.structuredMemory,
     coverage_gap_result: context.coverageGapResult,
     underwriting_result: context.underwritingResult,
-    required_documents: context.underwritingResult.required_documents,
+    required_document_codes: context.underwritingResult.required_document_codes,
     claude_explanation: claudeExplanation,
     claude_meta: claudeMeta,
   };

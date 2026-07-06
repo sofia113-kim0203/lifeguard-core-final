@@ -86,7 +86,7 @@ const report = {
       risk_level: item.risk_level,
     })),
     likely_standard: underwritingResult.likely_standard.map((item) => item.coverage_category),
-    required_documents: underwritingResult.required_documents,
+    required_documents: underwritingResult.required_document_codes,
   },
   claude: fullResult.claude_explanation
     ? { has_explanation: true, preview: fullResult.claude_explanation.slice(0, 200) }
@@ -117,8 +117,10 @@ const report = {
       coverage_gap_used: fullResult.coverage_gap_used,
     },
     claudeExplanation: {
-      pass: process.env.ANTHROPIC_API_KEY ? Boolean(fullResult.claude_explanation) : true,
-      skipped: !process.env.ANTHROPIC_API_KEY,
+      pass:
+        fullResult.claude_meta?.reason === "FACTORY_SPEAK_03_S1" &&
+        fullResult.claude_explanation == null,
+      reason: fullResult.claude_meta?.reason ?? null,
     },
   },
 };

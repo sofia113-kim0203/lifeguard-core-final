@@ -1,0 +1,167 @@
+{
+  "schema_version": "factory-speak-03-readonly-underwriting-audit-v1",
+  "audit": "factory_speak_03_underwriting_readonly",
+  "status": "readonly_complete · implementation_forbidden",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-06T03:53:00.000Z",
+  "git_main_head": "4c7eaa1",
+  "tom_one_liner": "추천과 보장 공장의 입을 닫았다. 다음은 인수심사 공장의 입을 닫는다.",
+  "factory_speak_progress": {
+    "recommendation_speak": "merged_main_fs01_s1",
+    "coverage_gap_speak": "merged_main_fs02_s1",
+    "underwriting_speak": "readonly_audit_only",
+    "design_speak": "not_started"
+  },
+  "investigation_targets": [
+    "server/underwritingRiskAnalysisEngine.js",
+    "server/customerUnderwritingRiskCore.js",
+    "server/salesDirectorUnderwritingRiskContext.js",
+    "server/keyJudgmentRules.js",
+    "server/keyBrain/returnJudgmentFirstSpeak.js",
+    "src/components/AiRecommendationPanel.jsx",
+    "server/panelClaudeExplanationHydration.js",
+    "api/customer-underwriting-risk.js"
+  ],
+  "tom_five_findings": {
+    "1_factory_computes_risk_score_review_flags": {
+      "verdict": "KEEP_AS_FACTORY — already structured at score/flag layer",
+      "evidence": [
+        "underwritingRiskAnalysisEngine.js — risk_score, underwriting_risk_level, risk_flags, health_risk_items.status/severity",
+        "customerUnderwritingRiskCore.js — transform items carry underwriting_status, risk_level, confidence_level",
+        "salesDirectorUnderwritingRiskContext.js — normalizeUnderwritingRiskForDirector: signals, review_flags, risk_score (compact codes for KEY read path)"
+      ],
+      "gap": "health_risk_items.reason and category items.reason are Korean factory speak layered on top of scores"
+    },
+    "2_factory_enrollment_eligibility_sentences": {
+      "verdict": "MOVE_TO_KEY — HIGH RISK factory speak",
+      "examples": [
+        "recommendedNextStep(): \"암 가입 가능성이 상대적으로 높습니다. Coverage Gap 우선순위와 함께 검토하세요.\"",
+        "recommendedNextStep(): \"암은(는) 현재 Memory 기준 가입 거절 위험이 높습니다.\"",
+        "assessCategoryUnderwriting reason: \"당뇨 관련 health memory(복용약 등)가 있어 암 가입 시 할증 또는 부담보 가능성이 있습니다.\"",
+        "itemReason(): \"고혈압 관련 고객 health memory가 있어 인수심사 검토 필요 가능성을 표시합니다.\""
+      ],
+      "fields_to_remove": ["reason", "recommended_next_step"],
+      "proposed_replacement": "uw_reason_codes + review_step_code (mirror FS02 action_code)"
+    },
+    "3_claude_explanation": {
+      "verdict": "DELETE_OR_DISABLE — same class as FS01/FS02",
+      "active_paths": [
+        "customerUnderwritingRiskCore.js handleCustomerUnderwritingRiskRequest — claude_explanation still generated when skipClaude=false",
+        "panelClaudeExplanationHydration.js — underwriting Claude NOT blocked (recommendation blocked FS01)",
+        "AiRecommendationPanel.jsx — \"인수 위험 Claude 설명\" block + hydration via analyzeCustomerUnderwritingRisk()"
+      ],
+      "fs03_s1_target_meta": "FACTORY_SPEAK_03_S1 blocked"
+    },
+    "4_panel_direct_factory_text": {
+      "verdict": "MOVE_TO_KEY — panel renders factory fields raw",
+      "component": "AiRecommendationPanel.jsx UnderwritingListItem",
+      "currently_shows": ["item.reason", "item.recommended_next_step"],
+      "fs02_analog": "GapListItem → gapPanelKeyVoice.js (needs underwritingPanelKeyVoice.js)"
+    },
+    "5_key_already_reclaimed_speak": {
+      "verdict": "KEEP — do not break",
+      "paths": [
+        {
+          "path": "keyJudgmentRules.js underwriting_bound_judgment + buildUnderwritingBoundJudgment",
+          "pattern": "\"가입 가능 여부는 단정할 수 없고, 저장된 분석 기준으로 … 인수심사 확인이 필요합니다.\" — KEY voice, no binding approval"
+        },
+        {
+          "path": "returnJudgmentFirstSpeak.js buildReturnJudgmentUnderwritingDraft (CONN-003)",
+          "pattern": "review_flags + overall_risk → KEY draft; forbids 가입 가능합니다/불가능합니다 in scanReturnJudgmentSentence"
+        },
+        {
+          "path": "salesDirectorUnderwritingRiskContext.js",
+          "pattern": "label:status signals only (표준/할증검토/심사필요) — no factory reason passthrough"
+        },
+        {
+          "path": "recommendationEngine.js buildUwFlags",
+          "pattern": "already consumes underwriting_status codes for recommendation structured output (post-FS01)"
+        },
+        {
+          "path": "recommendationPanelKeyVoice.js buildRecommendationPanelItemCaveat",
+          "pattern": "KEY caveat from uw_flags — partial underwriting speak already on recommendation panel"
+        }
+      ]
+    }
+  },
+  "classification": {
+    "KEEP_AS_FACTORY": [
+      "analyzeUnderwritingRisk()",
+      "risk_score",
+      "underwriting_risk_level",
+      "risk_flags",
+      "health_risk_items.status / severity / evidence_fact_keys",
+      "underwriting_status (likely_standard | likely_surcharge | …)",
+      "risk_level",
+      "confidence_level",
+      "required_documents → migrate to required_document_codes in FS03-S1",
+      "coverage_gap_reference",
+      "overall_underwriting_risk",
+      "salesDirectorUnderwritingRiskContext signals / review_flags / risk_score",
+      "recommendationEngine uw_flags input path",
+      "backgroundAnalysisJobRunner underwriting_risk stage",
+      "loadUnderwritingAnalysisContext pipeline"
+    ],
+    "MOVE_TO_KEY": [
+      "health_risk_items.reason (engine Korean)",
+      "transform items.reason (category Korean)",
+      "transform items.recommended_next_step",
+      "UnderwritingListItem panel rendering",
+      "customerConversationalTone extractCustomerSituation uwNotes from item.reason",
+      "claudePerformanceAudit top_risks reason slice",
+      "rebalancingEngine / insuranceDesignGenerator references to uw.reason / recommended_next_step",
+      "advisorRecommendationReasonResponder pickUnderwritingEvidence reason field"
+    ],
+    "DELETE_OR_DISABLE": [
+      "API claude_explanation (customerUnderwritingRiskCore)",
+      "Panel \"인수 위험 Claude 설명\" block (AiRecommendationPanel.jsx)",
+      "panelClaudeExplanationHydration underwriting Claude path",
+      "buildUnderwritingExplanationPrompt factory JSON with reason/recommended_next_step",
+      "Factory Korean reason / recommended_next_step in transform output"
+    ],
+    "DELETE_FORBIDDEN": [
+      "analyzeUnderwritingRisk()",
+      "risk_score computation",
+      "underwriting_status enum ladder",
+      "CONN-002 coverage gap panel wiring",
+      "CONN-003 returnJudgmentFirstSpeak underwriting draft + keyPanelPriorityJudge",
+      "underwriting_bound_judgment rule",
+      "ONE KEY Runtime S1/S02-4 hand tests",
+      "Existing analysis_jobs historical reason JSON — no migration in FS03-S1"
+    ]
+  },
+  "proposed_fs03_s1_factory_item_shape": {
+    "coverage_label": "암",
+    "coverage_category": "cancer",
+    "underwriting_status": "likely_surcharge",
+    "risk_level": "high",
+    "priority": "high",
+    "uw_reason_codes": ["diabetes_signal", "elevated_health_risk"],
+    "review_step_code": "prepare_health_documents",
+    "evidence_codes": ["memory_confidence_medium"],
+    "required_document_codes": ["health_disclosure", "prescription_record"],
+    "related_health_risk_types": ["diabetes", "medication_history"],
+    "confidence_level": "medium"
+  },
+  "proposed_review_step_codes": [
+    "maintain_standard_path",
+    "review_with_gap_priority",
+    "prepare_health_documents",
+    "check_exclusion_riders",
+    "agent_review_required",
+    "add_health_memory_context"
+  ],
+  "risk_level_vs_fs02": {
+    "same_pattern": "Factory calculates status/score/codes; KEY says enrollment framing without binding verdict",
+    "higher_stakes": "Underwriting factory speak directly implies 가입 가능/거절 — Tom audit flagged as enrollment-bound language"
+  },
+  "regression_gates_for_future_fs03_s1": [
+    "npm run test:factory-speak-03-s1-underwriting (to create)",
+    "npm run test:one-key-core-s02-4-return-judgment (CONN-003)",
+    "npm run test:p7-1",
+    "npm run test:advisor-brain-p1-step2",
+    "scripts/conn-003-b-gap-uw-priority-p5c-hand-unit-test.mjs",
+    "npm run test:factory-speak-01-s1-recommendation (uw_flags consumer)"
+  ],
+  "next_step": "Tom GO on FS03-S1 implementation slice (mirror FS01/FS02 pattern) — not started"
+}

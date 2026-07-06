@@ -111,7 +111,7 @@ export function extractCustomerSituation(workingContext = {}) {
 
   const uwNotes = (workingContext.underwritingResult?.likely_surcharge ?? [])
     .slice(0, 2)
-    .map((item) => item.reason)
+    .map((item) => item.review_step_code ?? (item.uw_reason_codes ?? []).join(","))
     .filter(Boolean);
 
   return {

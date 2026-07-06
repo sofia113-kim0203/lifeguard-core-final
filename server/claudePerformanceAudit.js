@@ -106,7 +106,8 @@ export function buildCompressedAnalysisSummary(workingContext) {
   const uwRisks = (underwritingResult?.likely_surcharge ?? []).slice(0, 3).map((item) => ({
     category: item.coverage_label ?? item.coverage_category,
     status: item.underwriting_status,
-    reason: String(item.reason ?? "").slice(0, 120),
+    uw_reason_codes: item.uw_reason_codes ?? [],
+    review_step_code: item.review_step_code ?? null,
   }));
 
   const top2 = (recommendationResult?.customer_visible_top2 ?? []).slice(0, 2).map((item) => ({
