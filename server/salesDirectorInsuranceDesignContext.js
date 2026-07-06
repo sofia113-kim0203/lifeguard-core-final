@@ -22,7 +22,7 @@ export function extractCustomerVisibleDesign(payload) {
   return null;
 }
 
-export function normalizeDesignForDirector(visible) {
+export function normalizeDesignForDirector(visible, payload = null) {
   if (!isNonEmptyPayload(visible)) {
     return {
       design_title: null,
@@ -33,6 +33,7 @@ export function normalizeDesignForDirector(visible) {
       next_actions: [],
       pre_enrollment_cautions: [],
       disclaimer: null,
+      design_priority: null,
       record_count: 0,
     };
   }
@@ -48,6 +49,9 @@ export function normalizeDesignForDirector(visible) {
     record_count = keep_existing_coverages.length;
   }
 
+  const design_priority =
+    payload?.insurance_design?.design_priority ?? payload?.design_priority ?? null;
+
   return {
     design_title: visible.design_title ?? null,
     design_summary: visible.design_summary ?? null,
@@ -57,13 +61,14 @@ export function normalizeDesignForDirector(visible) {
     next_actions,
     pre_enrollment_cautions,
     disclaimer: visible.disclaimer ?? null,
+    design_priority,
     record_count,
   };
 }
 
 export function buildDesignContextFromPayload(payload, { jobId = null } = {}) {
   const visible = extractCustomerVisibleDesign(payload);
-  const normalized = normalizeDesignForDirector(visible);
+  const normalized = normalizeDesignForDirector(visible, payload);
   const available =
     normalized.record_count > 0 ||
     (visible && countStoredFactoryRecords("design", payload) > 0);
@@ -83,6 +88,7 @@ export function buildDesignContextFromPayload(payload, { jobId = null } = {}) {
     next_actions: normalized.next_actions,
     pre_enrollment_cautions: normalized.pre_enrollment_cautions,
     disclaimer: normalized.disclaimer,
+    design_priority: normalized.design_priority ?? null,
   };
 }
 
@@ -101,6 +107,7 @@ export function buildEmptyDesignContext() {
     next_actions: [],
     pre_enrollment_cautions: [],
     disclaimer: null,
+    design_priority: null,
   };
 }
 

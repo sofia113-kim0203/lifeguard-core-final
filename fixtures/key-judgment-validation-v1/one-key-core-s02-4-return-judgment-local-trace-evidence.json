@@ -1,0 +1,42 @@
+{
+  "schema_version": "one-key-core-s02-4-return-judgment-local-trace-evidence-v1",
+  "slice": "ONE-KEY-CORE-S02-4-return_judgment",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-05T17:40:00.000Z",
+  "unit_test_command": "npm run test:one-key-core-s02-4-return-judgment",
+  "unit_test_result": "7/7 PASS",
+  "response_source": "one_key_core_return_judgment",
+  "work_order_id": null,
+  "work_order_mode": "shadow_only",
+  "factory_explain_invoked": false,
+  "core_steps": [
+    "interpret",
+    "thinking",
+    "judgment",
+    "planner",
+    "work_order",
+    "evidence",
+    "speak",
+    "persona"
+  ],
+  "speak_primitive": "finalizeReturnJudgmentSentence",
+  "conn_chain_preserved": {
+    "conn_002": "buildReturnJudgmentCoverageGapDraft",
+    "conn_003": "resolveKeyPanelPriority + buildReturnJudgmentUnderwritingDraft",
+    "conn_004": "appendReturnJudgmentDesignWeave",
+    "conn_005": "appendReturnJudgmentContinuityWeave"
+  },
+  "gate_skip_verified": {
+    "test": "S02-4-2",
+    "condition": "gap_under_72h",
+    "core_entered": false,
+    "note": "API gate blocks before runOneKeyCoreTurn"
+  },
+  "beat_matrix_local": {
+    "question": "Core (S1 existing)",
+    "document": "Core (S02-1 existing)",
+    "analysis_complete": "Core (S02-2 existing)",
+    "return_judgment": "Core (S02-4 — local unit verified)"
+  },
+  "preview_note": "Preview 4-beat probe requires ONE_KEY_CORE_RETURN_JUDGMENT=1 deploy — pending Preview deploy (Commit/Push forbidden this turn)"
+}

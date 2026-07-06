@@ -1,5 +1,5 @@
 /**
- * ONE KEY Core — feature gates (question S1 · document S02-1 · analysis_complete S02-2).
+ * ONE KEY Core — feature gates (question S1 · document S02-1 · analysis_complete S02-2 · return_judgment S02-4).
  */
 
 export function isOneKeyCoreS1Enabled(env = process.env) {
@@ -14,6 +14,11 @@ export function isOneKeyCoreDocumentEnabled(env = process.env) {
 
 export function isOneKeyCoreAnalysisCompleteEnabled(env = process.env) {
   const raw = String(env.ONE_KEY_CORE_ANALYSIS_COMPLETE ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "active";
+}
+
+export function isOneKeyCoreReturnJudgmentEnabled(env = process.env) {
+  const raw = String(env.ONE_KEY_CORE_RETURN_JUDGMENT ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "active";
 }
 
@@ -47,10 +52,21 @@ export function resolveOneKeyCoreAnalysisCompleteEnv(env = process.env) {
   };
 }
 
+/** S02-4 return_judgment env overlay. */
+export function resolveOneKeyCoreReturnJudgmentEnv(env = process.env) {
+  return {
+    ...env,
+    ONE_KEY_CORE_RETURN_JUDGMENT: "1",
+    SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
+    SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
+  };
+}
+
 export const ONE_KEY_CORE_RESPONSE_SOURCE = {
   QUESTION: "one_key_core_s1",
   DOCUMENT: "one_key_core_document",
   ANALYSIS_COMPLETE: "one_key_core_analysis_complete",
+  RETURN_JUDGMENT: "one_key_core_return_judgment",
 };
 
 export const ONE_KEY_CORE_S1_BLOCKED_PATHS = [
