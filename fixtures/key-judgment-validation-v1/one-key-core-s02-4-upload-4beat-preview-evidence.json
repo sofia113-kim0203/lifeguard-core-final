@@ -1,0 +1,71 @@
+{
+  "schema_version": "one-key-core-s02-4-upload-4beat-preview-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-05T17:58:32.706Z",
+  "preview_base": "https://lifeguard-core-final-ldxb184ar-70sofia113-1918s-projects.vercel.app",
+  "beats": [
+    {
+      "beat": "question",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_s1",
+      "probe_ok": true
+    },
+    {
+      "beat": "document",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_document",
+      "work_order_id": "kwo_38c49578-ad7e-4c63-82d2-20de9f4050d2",
+      "probe_ok": true
+    },
+    {
+      "beat": "analysis_complete",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_analysis_complete",
+      "work_order_id": null,
+      "probe_ok": true
+    },
+    {
+      "beat": "return_judgment_gate_skip",
+      "core_route": "core_not_entered",
+      "response_source": null,
+      "http_status": 422,
+      "return_judgment_skipped": false,
+      "skip_reasons": [],
+      "probe_ok": true,
+      "note": "no session_id — Core not entered"
+    },
+    {
+      "beat": "return_judgment",
+      "core_route": "one_key_core",
+      "response_source": "one_key_core_return_judgment",
+      "work_order_id": null,
+      "work_order_shadow_only": true,
+      "return_judgment_skipped": false,
+      "skip_reasons": [],
+      "return_judgment_sentence_preview": "지난번 함께 확인했던 이후 달라진 부분이 있습니다. 암 보장 쪽부터 먼저 같이 짚어보면 좋겠습니다. 그러니 뇌혈관부터 같이 설계해보겠습니다.",
+      "intake_sentence_matches_api": true,
+      "conn_002_panel_wired": true,
+      "conn_003_panel_wired": false,
+      "conn_004_weave_wired": true,
+      "conn_005_continuity_weave_wired": true,
+      "core_steps": [
+        "interpret",
+        "judgment",
+        "thinking",
+        "planner",
+        "work_order",
+        "evidence",
+        "speak",
+        "persona"
+      ],
+      "gap_simulation": {
+        "sessionId": "s024-rj-probe-1783274332674",
+        "transitionObservedAt": "2026-06-29T18:58:52.674Z",
+        "lastActivityAt": "2026-06-26T17:58:52.674Z",
+        "gapHours": 73
+      },
+      "probe_error": null,
+      "probe_ok": true
+    }
+  ]
+}

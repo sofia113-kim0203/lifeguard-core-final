@@ -116,6 +116,15 @@ export function normalizeCoverageGapForDirector(payload) {
   };
 }
 
+/** CONN-003-B — speak priority from context (0 when no material top_concerns). */
+export function computeGapSpeakScore(coverageGapContext = {}) {
+  const concerns = (coverageGapContext?.top_concerns ?? []).filter(Boolean);
+  if (concerns.length === 0) return 0;
+  const score = Number(coverageGapContext?.gap_score ?? 0);
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(100, score));
+}
+
 export function buildCoverageGapDirectorContextLines(coverageGapContext = null) {
   if (!coverageGapContext?.loaded || !coverageGapContext.signals?.length) return [];
   const lines = [`Gap(내부): ${coverageGapContext.signals.slice(0, 5).join(" | ")}`];

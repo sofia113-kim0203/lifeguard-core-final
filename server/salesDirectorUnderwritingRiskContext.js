@@ -101,10 +101,18 @@ export function normalizeUnderwritingRiskForDirector(payload) {
     .map((item) => item.label);
   const health_topics = [...new Set(items.map((item) => item.label))].slice(0, 5);
 
+  const riskScoreRaw = payload?.risk_score;
+  const risk_score =
+    typeof riskScoreRaw === "number" && Number.isFinite(riskScoreRaw)
+      ? riskScoreRaw
+      : Number(riskScoreRaw) || 0;
+
   return {
     signals,
     review_flags: [...new Set(review_flags)].slice(0, 3),
     health_topics,
+    risk_score,
+    overall_underwriting_risk: payload?.overall_underwriting_risk ?? null,
     overall_severity: payload?.overall_underwriting_risk ?? null,
     record_count:
       items.length ||
@@ -125,6 +133,8 @@ export function buildUnderwritingRiskContextFromPayload(payload, { jobId = null 
     signals: normalized.signals,
     review_flags: normalized.review_flags,
     health_topics: normalized.health_topics,
+    risk_score: normalized.risk_score,
+    overall_underwriting_risk: normalized.overall_underwriting_risk,
     overall_severity: normalized.overall_severity,
   };
 }
@@ -139,6 +149,8 @@ export function buildEmptyUnderwritingRiskContext() {
     signals: [],
     review_flags: [],
     health_topics: [],
+    risk_score: 0,
+    overall_underwriting_risk: null,
     overall_severity: null,
   };
 }

@@ -25,11 +25,13 @@ import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
 import {
   isOneKeyCoreAnalysisCompleteEnabled,
   isOneKeyCoreDocumentEnabled,
+  isOneKeyCoreReturnJudgmentEnabled,
   isOneKeyCoreS1Enabled,
   ONE_KEY_CORE_RESPONSE_SOURCE,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
   resolveOneKeyCoreAnalysisCompleteEnv,
   resolveOneKeyCoreDocumentEnv,
+  resolveOneKeyCoreReturnJudgmentEnv,
   resolveOneKeyCoreS1Env,
 } from "./oneKeyCoreFlags.js";
 import {
@@ -38,13 +40,16 @@ import {
 } from "./oneKeyCoreInterpret.js";
 import { runOneKeyCoreDocumentTurn } from "./oneKeyCoreDocument.js";
 import { runOneKeyCoreAnalysisCompleteTurn } from "./oneKeyCoreAnalysisComplete.js";
+import { runOneKeyCoreReturnJudgmentTurn } from "./oneKeyCoreReturnJudgment.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
   isOneKeyCoreDocumentEnabled,
+  isOneKeyCoreReturnJudgmentEnabled,
   isOneKeyCoreS1Enabled,
   resolveOneKeyCoreAnalysisCompleteEnv,
   resolveOneKeyCoreDocumentEnv,
+  resolveOneKeyCoreReturnJudgmentEnv,
   resolveOneKeyCoreS1Env,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
   ONE_KEY_CORE_RESPONSE_SOURCE,
@@ -214,7 +219,7 @@ function finalizeOneKeyCorePersona({
 }
 
 /**
- * ONE KEY Core turn — routes by event (question · document · analysis_complete).
+ * ONE KEY Core turn — routes by event (question · document · analysis_complete · return_judgment).
  */
 export async function runOneKeyCoreTurn({
   event = "question",
@@ -224,6 +229,9 @@ export async function runOneKeyCoreTurn({
   history = [],
   document = null,
   analysisJob = null,
+  sessionId = null,
+  gapHours = null,
+  gate = { emit: true, reasons: [] },
   transitionObservedAt = null,
   hasAnalysisConsent = false,
   uploadSource = "web",
@@ -253,6 +261,21 @@ export async function runOneKeyCoreTurn({
       userSupabase,
       customerId,
       analysisJob,
+      transitionObservedAt,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
+  if (event === "return_judgment") {
+    return runOneKeyCoreReturnJudgmentTurn({
+      userSupabase,
+      customerId,
+      sessionId,
+      anchorJob: analysisJob,
+      gapHours,
+      gate,
       transitionObservedAt,
       env,
       fetchImpl,
