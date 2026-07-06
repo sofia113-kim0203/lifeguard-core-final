@@ -1,0 +1,86 @@
+{
+  "schema_version": "legacy-s1-local-audit-v1",
+  "audit": "legacy_s1_local",
+  "status": "local_pass · commit_pending",
+  "observed_at": "2026-07-06T13:39:23.862Z",
+  "tom_checks": {
+    "check_1_legacy_string_not_promoted_to_state_path": {
+      "question": "legacy_string entry가 state로 승격되지 않음",
+      "pass": true,
+      "note": "normalize still detects legacy_string for guards; mapper no longer forwards it",
+      "mapper_forwards_prose": false
+    },
+    "check_2_api_strips_claude_explanations": {
+      "question": "result_json.claude_explanations가 API 응답에서 제거됨",
+      "pass": true,
+      "map_analysis_job_wired": true,
+      "has_claude_explanations": false,
+      "engine_preserved": true
+    },
+    "check_3_mapper_empty_claude": {
+      "question": "mapper가 claudeExplanations를 넘기지 않음",
+      "pass": true,
+      "claude_explanations_keys": [],
+      "final_claude": null,
+      "engine_preserved": true
+    },
+    "check_4_panel_apply_null": {
+      "question": "panel state claudeExplanation 항상 null (LEGACY_S1_STRIP)",
+      "pass": true,
+      "has_legacy_s1_strip": true,
+      "apply_uses_resolve_claude_from_job": false
+    },
+    "check_5_engine_payload_preserved": {
+      "question": "KEY voice / panel structured data 유지",
+      "pass": true,
+      "evidence": {
+        "strip_helper": {
+          "pass": true,
+          "stripped_keys": [
+            "coverage_gap",
+            "underwriting_risk",
+            "recommendation",
+            "result_claude",
+            "final_claude",
+            "panel_claude_policy_count"
+          ],
+          "has_claude_explanations": false,
+          "engine_preserved": true
+        },
+        "api_mapper": {
+          "pass": true,
+          "map_analysis_job_wired": true,
+          "has_claude_explanations": false,
+          "engine_preserved": true
+        },
+        "client_mapper": {
+          "pass": true,
+          "claude_explanations_keys": [],
+          "final_claude": null,
+          "engine_preserved": true
+        }
+      }
+    }
+  },
+  "overall_pass": true,
+  "strip_helper": {
+    "pass": true,
+    "stripped_keys": [
+      "coverage_gap",
+      "underwriting_risk",
+      "recommendation",
+      "result_claude",
+      "final_claude",
+      "panel_claude_policy_count"
+    ],
+    "has_claude_explanations": false,
+    "engine_preserved": true
+  },
+  "forbidden": [
+    "db_migration",
+    "final_response_text",
+    "conversational_qa",
+    "advisor",
+    "production_change"
+  ]
+}
