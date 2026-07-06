@@ -24,12 +24,14 @@ import {
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
 import {
   isOneKeyCoreAnalysisCompleteEnabled,
+  isOneKeyCoreBridgeEnabled,
   isOneKeyCoreDocumentEnabled,
   isOneKeyCoreReturnJudgmentEnabled,
   isOneKeyCoreS1Enabled,
   ONE_KEY_CORE_RESPONSE_SOURCE,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
   resolveOneKeyCoreAnalysisCompleteEnv,
+  resolveOneKeyCoreBridgeEnv,
   resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreReturnJudgmentEnv,
   resolveOneKeyCoreS1Env,
@@ -40,14 +42,17 @@ import {
 } from "./oneKeyCoreInterpret.js";
 import { runOneKeyCoreDocumentTurn } from "./oneKeyCoreDocument.js";
 import { runOneKeyCoreAnalysisCompleteTurn } from "./oneKeyCoreAnalysisComplete.js";
+import { runOneKeyCoreBridgeTurn } from "./oneKeyCoreBridge.js";
 import { runOneKeyCoreReturnJudgmentTurn } from "./oneKeyCoreReturnJudgment.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
+  isOneKeyCoreBridgeEnabled,
   isOneKeyCoreDocumentEnabled,
   isOneKeyCoreReturnJudgmentEnabled,
   isOneKeyCoreS1Enabled,
   resolveOneKeyCoreAnalysisCompleteEnv,
+  resolveOneKeyCoreBridgeEnv,
   resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreReturnJudgmentEnv,
   resolveOneKeyCoreS1Env,
@@ -219,7 +224,7 @@ function finalizeOneKeyCorePersona({
 }
 
 /**
- * ONE KEY Core turn — routes by event (question · document · analysis_complete · return_judgment).
+ * ONE KEY Core turn — routes by event (question · document · analysis_complete · bridge · return_judgment).
  */
 export async function runOneKeyCoreTurn({
   event = "question",
@@ -270,6 +275,21 @@ export async function runOneKeyCoreTurn({
 
   if (event === "return_judgment") {
     return runOneKeyCoreReturnJudgmentTurn({
+      userSupabase,
+      customerId,
+      sessionId,
+      anchorJob: analysisJob,
+      gapHours,
+      gate,
+      transitionObservedAt,
+      env,
+      fetchImpl,
+      startedAt,
+    });
+  }
+
+  if (event === "bridge") {
+    return runOneKeyCoreBridgeTurn({
       userSupabase,
       customerId,
       sessionId,

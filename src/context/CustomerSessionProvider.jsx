@@ -9,6 +9,7 @@ import {
 } from "../lib/customerUnifiedState.js";
 import { deriveMemoryStatusFromUnified } from "../lib/memoryStatus.js";
 import { postCustomerSystemMessage } from "../lib/customerConversations.js";
+import { writeEmitterTrace } from "../lib/keyAnalysisCompleteSessionTransition.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const CustomerSessionContext = createContext(null);
@@ -56,6 +57,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
   const [dashboardData, setDashboardData] = useState(null);
   const [unifiedState, setUnifiedState] = useState(null);
   const [activeAnalysisJob, setActiveAnalysisJob] = useState(null);
+  const [trackedAnalysisJobId, setTrackedAnalysisJobId] = useState(null);
   const [memoryStatus, setMemoryStatus] = useState(null);
   const [loading, setLoading] = useState(Boolean(user));
   const [error, setError] = useState("");
@@ -70,6 +72,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         setDashboardData(null);
         setUnifiedState(null);
         setActiveAnalysisJob(null);
+        setTrackedAnalysisJobId(null);
         setMemoryStatus(null);
         setLoading(false);
         setError("");
@@ -129,6 +132,18 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
     [user, authSession, authLoading],
   );
 
+  const trackAnalysisJobFromUpload = useCallback((jobId) => {
+    const trimmed = String(jobId ?? "").trim();
+    if (trimmed) {
+      setTrackedAnalysisJobId(trimmed);
+      writeEmitterTrace({ tracked_job_id: trimmed, track_source: "session_provider" });
+    }
+  }, []);
+
+  const clearTrackedAnalysisJob = useCallback(() => {
+    setTrackedAnalysisJobId(null);
+  }, []);
+
   const notifySystemMessage = useCallback(
     async (message, { metadata = {}, refresh = true } = {}) => {
       if (!user) return null;
@@ -154,6 +169,9 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
       unifiedState,
       activeAnalysisJob,
       setActiveAnalysisJob,
+      trackedAnalysisJobId,
+      trackAnalysisJobFromUpload,
+      clearTrackedAnalysisJob,
       memoryStatus,
       setMemoryStatus,
       loading,
@@ -170,6 +188,9 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
       dashboardData,
       unifiedState,
       activeAnalysisJob,
+      trackedAnalysisJobId,
+      trackAnalysisJobFromUpload,
+      clearTrackedAnalysisJob,
       memoryStatus,
       loading,
       error,

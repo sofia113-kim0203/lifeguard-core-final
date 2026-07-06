@@ -2,17 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
+import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysisCompleteSessionTransition.js";
+import { useKeyBridgeSessionTransition } from "../hooks/useKeyBridgeSessionTransition.js";
+import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudgmentSessionTransition.js";
 import { listDocuments } from "../lib/customerDocuments.js";
 import { fetchHomeBrainFactStream } from "../lib/customerHomeBrainFact.js";
 import {
-  activeSessionStorageKey,
   createLifeguardSessionId,
   listLifeguardRecentSessions,
   loadLifeguardSessionMessages,
+  persistKeyPresenceMessage,
   persistLifeguardChatTurn,
+  readActiveSessionId,
+  resolveActiveLifeguardSessionId,
+  writeActiveSessionId,
 } from "../lib/lifeguardChatSessions.js";
 import { supabase } from "../lib/supabase.js";
-import { buildKeyUploadChatPresenceMessage } from "../lib/keyChatPresenceWire.js";
+import { buildKeyChatPresenceMessage } from "../lib/keyChatPresenceWire.js";
 import { buildLifeguardHomeGreeting } from "../lib/lifeguardGreeting.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import {
@@ -269,41 +275,162 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
   const [thinkingIndex, setThinkingIndex] = useState(0);
+  const [threadRestoreReady, setThreadRestoreReady] = useState(false);
+  const [bridgeSettled, setBridgeSettled] = useState(false);
   const loadDocumentsRef = useRef(async () => {});
 
   const focusChatInputRef = useRef(() => {});
+  const sessionIdRef = useRef(sessionId);
+  const authUserRef = useRef(authUser);
+  const customerIdRef = useRef(customerId);
+  const trackedAnalysisJobIdRef = useRef(session?.trackedAnalysisJobId ?? null);
 
-  const handleKeyChatPresence = useCallback(({ keyFirstSentence = null, keyFollowUpSentence = null } = {}) => {
-    const presenceMessage = buildKeyUploadChatPresenceMessage({
-      keyFirstSentence,
-      keyFollowUpSentence,
-    });
-    if (!presenceMessage) return;
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
-    setPanelView("chat");
-    setSidebarOpen(false);
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (
-        last?.role === "assistant" &&
-        last?.keyPresence === true &&
-        last?.content === presenceMessage.content
-      ) {
-        return prev;
-      }
-      return [...prev, presenceMessage];
-    });
-    focusChatInputRef.current();
-  }, []);
+  useEffect(() => {
+    authUserRef.current = authUser;
+  }, [authUser]);
+
+  useEffect(() => {
+    customerIdRef.current = customerId;
+  }, [customerId]);
+
+  useEffect(() => {
+    trackedAnalysisJobIdRef.current = session?.trackedAnalysisJobId ?? null;
+  }, [session?.trackedAnalysisJobId]);
+
+  const handleKeyChatPresence = useCallback(
+    ({
+      keyFirstSentence = null,
+      keyFollowUpSentence = null,
+      keyInitiativeSentence = null,
+      keyBridgeSentence = null,
+      keyReturnJudgmentSentence = null,
+      anchorJobId = null,
+    } = {}) => {
+      const presenceMessage = buildKeyChatPresenceMessage({
+        keyFirstSentence,
+        keyFollowUpSentence,
+        keyInitiativeSentence,
+        keyBridgeSentence,
+        keyReturnJudgmentSentence,
+      });
+      if (!presenceMessage) return;
+
+      const resolvedAnchorJobId =
+        keyBridgeSentence || keyReturnJudgmentSentence
+          ? anchorJobId
+          : keyInitiativeSentence
+            ? trackedAnalysisJobIdRef.current
+            : null;
+
+      setPanelView("chat");
+      setSidebarOpen(false);
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (
+          last?.role === "assistant" &&
+          last?.keyPresence === true &&
+          last?.content === presenceMessage.content
+        ) {
+          return prev;
+        }
+        const nextMessage = resolvedAnchorJobId
+          ? { ...presenceMessage, anchorJobId: resolvedAnchorJobId }
+          : presenceMessage;
+        return [...prev, nextMessage];
+      });
+      focusChatInputRef.current();
+
+      const user = authUserRef.current;
+      const cid = customerIdRef.current;
+      const sid = sessionIdRef.current;
+      if (!user || !cid || !sid) return;
+
+      void persistKeyPresenceMessage(user, {
+        sessionId: sid,
+        customerId: cid,
+        content: presenceMessage.content,
+        keyPresenceSource: presenceMessage.keyPresenceSource,
+        anchorJobId: resolvedAnchorJobId,
+      })
+        .then(() => {
+          if (presenceMessage.keyPresenceSource === "key_bridge") {
+            setBridgeSettled(true);
+          }
+          writeActiveSessionId(cid, sid);
+          return listLifeguardRecentSessions(user, { customerId: cid });
+        })
+        .then((recent) => {
+          setThreads(recent);
+        })
+        .catch(() => {
+          // UI bubble already shown; persist failure must not block chat
+        });
+    },
+    [],
+  );
+
+  useKeyAnalysisCompleteSessionTransition({
+    trackedAnalysisJobId: session?.trackedAnalysisJobId ?? null,
+    setActiveAnalysisJob: session?.setActiveAnalysisJob,
+    onKeyChatPresence: handleKeyChatPresence,
+    onTrackedJobComplete: session?.clearTrackedAnalysisJob,
+    enabled: Boolean(authUser && (!loadingSession || session?.trackedAnalysisJobId)),
+  });
 
   const uploadFlow = useCustomerDocumentUpload({
     user: authUser,
     refreshSession: session?.refreshSession,
     setActiveAnalysisJob: session?.setActiveAnalysisJob,
+    trackAnalysisJobFromUpload: session?.trackAnalysisJobFromUpload,
     onKeyChatPresence: handleKeyChatPresence,
     onUploadComplete: async () => {
       await loadDocumentsRef.current();
     },
+  });
+
+  const trackedJobStatus =
+    session?.trackedAnalysisJobId &&
+    session?.activeAnalysisJob?.id === session.trackedAnalysisJobId
+      ? session.activeAnalysisJob.status
+      : null;
+
+  useKeyBridgeSessionTransition({
+    sessionId,
+    customerId,
+    messages,
+    threadRestoreReady,
+    panelView,
+    onKeyChatPresence: handleKeyChatPresence,
+    enabled: Boolean(authUser && customerId && !loadingSession),
+    uploadInProgress: uploadFlow.uploading,
+    trackedAnalysisJobStatus: trackedJobStatus,
+  });
+
+  useEffect(() => {
+    if (messages.some((msg) => msg?.keyPresenceSource === "key_bridge")) {
+      setBridgeSettled(true);
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    setBridgeSettled(false);
+  }, [sessionId, customerId, loadingSession]);
+
+  useKeyReturnJudgmentSessionTransition({
+    sessionId,
+    customerId,
+    messages,
+    threadRestoreReady,
+    bridgeSettled,
+    panelView,
+    onKeyChatPresence: handleKeyChatPresence,
+    enabled: Boolean(authUser && customerId && !loadingSession),
+    uploadInProgress: uploadFlow.uploading,
+    trackedAnalysisJobStatus: trackedJobStatus,
   });
 
   const reloadDocuments = useCallback(async () => {
@@ -407,6 +534,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   useEffect(() => {
     if (!authUser || !customerId || loadingSession) return undefined;
     let cancelled = false;
+    setThreadRestoreReady(false);
 
     (async () => {
       try {
@@ -414,19 +542,28 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         if (cancelled) return;
         setThreads(recent);
 
-        const storageKey = activeSessionStorageKey(customerId);
-        const storedSessionId = window.sessionStorage.getItem(storageKey);
-        const activeId = storedSessionId ?? createLifeguardSessionId();
+        const storedSessionId = readActiveSessionId(customerId);
+        const activeId = resolveActiveLifeguardSessionId({
+          recentSessions: recent,
+          storedId: storedSessionId,
+        });
         setSessionId(activeId);
-        window.sessionStorage.setItem(storageKey, activeId);
+        writeActiveSessionId(customerId, activeId);
 
-        if (storedSessionId && recent.some((entry) => entry.id === storedSessionId)) {
-          const restored = await loadLifeguardSessionMessages(authUser, storedSessionId, { customerId });
-          if (!cancelled) setMessages(restored);
+        if (recent.some((entry) => entry.id === activeId)) {
+          const restored = await loadLifeguardSessionMessages(authUser, activeId, { customerId });
+          if (!cancelled && restored.length > 0) {
+            setMessages(restored);
+            setPanelView("chat");
+          }
+        }
+        if (!cancelled) {
+          setThreadRestoreReady(true);
         }
       } catch (err) {
         if (!cancelled) {
           setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
+          setThreadRestoreReady(true);
         }
       }
     })();
@@ -447,7 +584,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
       setSessionId(targetSessionId);
       setError("");
-      window.sessionStorage.setItem(activeSessionStorageKey(customerId), targetSessionId);
+      writeActiveSessionId(customerId, targetSessionId);
+      setThreadRestoreReady(false);
 
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
@@ -456,6 +594,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         setMessages([]);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
+        setThreadRestoreReady(true);
         focusChatInput();
       }
     },
@@ -540,7 +679,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           userMessage: trimmed,
           assistantMessage: finalText,
         });
-        window.sessionStorage.setItem(activeSessionStorageKey(customerId), sessionId);
+        writeActiveSessionId(customerId, sessionId);
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         setThreads(recent);
       }
@@ -570,7 +709,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setPanelView("chat");
     setSidebarOpen(false);
     if (customerId) {
-      window.sessionStorage.setItem(activeSessionStorageKey(customerId), newSessionId);
+      writeActiveSessionId(customerId, newSessionId);
     }
     focusChatInput();
   };
