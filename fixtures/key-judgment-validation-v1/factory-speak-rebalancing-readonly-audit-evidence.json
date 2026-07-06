@@ -1,0 +1,242 @@
+{
+  "schema_version": "factory-speak-rebalancing-readonly-audit-v1",
+  "audit": "factory_speak_rebalancing_readonly",
+  "status": "readonly_complete · implementation_forbidden",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-06T05:45:00.000Z",
+  "git_main_head": "8b4d548",
+  "tom_one_liner": "핵심 4공장의 입은 닫혔다. 전체 0건을 위해 다음은 Rebalancing 공장의 입을 닫는다.",
+  "factory_speak_progress": {
+    "recommendation": "KEY_RECOVERY_COMPLETE — FS01 PR174",
+    "coverage_gap": "KEY_RECOVERY_COMPLETE — FS02 PR175",
+    "underwriting": "KEY_RECOVERY_COMPLETE — FS03 PR176",
+    "design": "KEY_RECOVERY_COMPLETE — FS04 PR177",
+    "rebalancing": "readonly_audit_only — FS05 candidate"
+  },
+  "investigation_targets": [
+    "server/rebalancingEngine.js",
+    "server/customerRebalancingCore.js",
+    "server/salesDirectorRebalancingContext.js",
+    "src/components/AiRecommendationPanel.jsx",
+    "server/keyBrain/returnJudgmentContinuityWeave.js",
+    "server/keyBrain/returnJudgmentFirstSpeak.js",
+    "server/salesDirectorKeyOrchestrator.js",
+    "server/salesDirectorKeyToolRegistry.js",
+    "api/customer-rebalancing.js",
+    "src/lib/customerRebalancing.js"
+  ],
+  "tom_five_findings": {
+    "1_rebalancing_calculation_only_fields": {
+      "verdict": "KEEP_AS_FACTORY — structured signals; mirror FS01–04 code pattern",
+      "evidence": [
+        "buildCustomerRebalancingPlan — keep_items / add_items / reduce_items / review_items with item_type, coverage_category, coverage_label, priority, gap_level, underwriting_status, memory_sources_used, linked_design_id",
+        "reason fields on items — mostly reason_codes joined (codes) but fallback Korean strings remain on keep/add/review builders",
+        "estimated_budget_impact — numeric current_monthly_premium, proposed_monthly_premium, delta_monthly, budget_fit enum",
+        "insurance_design_reference — design_id, design_priority (structured)",
+        "customer_visible_design_reference — design_priority, plan_step_codes",
+        "agent_full_details — policy_comparisons, coverage_comparisons, budget_analysis, legacy_rebalancing_summary (internal)",
+        "analyzeRebalancing legacy — action enum, rebalancing_score, premium_change numeric; monthly_report_summary / kakao_notification_summary Korean but buried in agent_full_details.legacy_rebalancing_summary only"
+      ],
+      "gap": "Same object mixes structured item arrays with customer_visible_rebalancing Korean composite fields"
+    },
+    "2_factory_customer_facing_sentences": {
+      "verdict": "MOVE_TO_KEY — primary FS05 target (same class as FS01–04)",
+      "examples": [
+        "buildPriorityActions action: \"{coverage_label} 보장 보강 검토\"",
+        "buildPriorityActions action: \"{coverage_label} 전환/재검토\"",
+        "buildPriorityActions action: \"{coverage_label|product_name} 유지\"",
+        "buildPriorityActions action: \"가입 전 건강 고지 확인\" with detail warning.message",
+        "buildCustomerVisibleRebalancing.next_actions — verbatim priorityActions.action strings",
+        "buildCustomerVisibleRebalancing.cautions_before_reduction — warning_items.message Korean (당뇨/혈압/감액 caution prose)",
+        "buildEstimatedBudgetImpact.label — \"월 약 N원 수준 증가 가능성…\" / budget unknown Korean",
+        "buildKeepItems fallback reason — \"{insurer} {product}은 현재 보장 구조에서 유지…\"",
+        "buildReviewItems fallback reason — \"{label} 보장은 전환·재검토가 필요합니다.\"",
+        "collectHealthWarnings message — pre-enrollment Korean paragraphs",
+        "analyzeRebalancing actionReason / summarizeForMonthlyReport / summarizeForKakao — legacy Korean (internal unless legacy_summary leaks)"
+      ],
+      "fields_to_remove_or_neutralize": [
+        "customer_visible_rebalancing.next_actions",
+        "customer_visible_rebalancing.cautions_before_reduction (replace with warning_type codes)",
+        "priority_actions[].action (Korean templates)",
+        "estimated_budget_impact.label",
+        "warning_items[].message on customer payload",
+        "keep_items[].reason / add_items[].reason / review_items[].reason Korean fallbacks"
+      ],
+      "proposed_replacement": "rebalancing_action_codes + rebalancing_reason_codes + budget_delta_band_code + caution_warning_codes (mirror designPanelKeyVoice / gapPanelKeyVoice pattern — rebalancingPanelKeyVoice.js proposed)"
+    },
+    "3_claude_explanation": {
+      "verdict": "DELETE_OR_DISABLE — sole remaining live Factory Claude among core panel factories",
+      "active_paths": [
+        "customerRebalancingCore.js handleCustomerRebalancingRequest — claude_explanation when skipClaude=false (lines 205–256)",
+        "buildRebalancingExplanationPrompt — dumps full rebalancing JSON + memory + gap top_gaps to Claude; Required sections in Korean (6 headings)",
+        "api/customer-rebalancing.js — POST returns claude_explanation to client",
+        "src/lib/customerRebalancing.js — maps claudeExplanation to panel state",
+        "AiRecommendationPanel.jsx — \"리밸런싱 Claude 설명\" block renders claudeExplanation verbatim (lines 1395–1404)"
+      ],
+      "skip_claude_behavior": {
+        "job_completion_paths": "finalizeCompletedJobPanels / refreshPanelsFromBackgroundOneShot / completed job apply — loadRebalancingPanel({ skipClaude: true })",
+        "fresh_api_fallback": "loadPanelDataFromApis() default skipClaude=false — Claude LIVE on cold panel load and \"분석 다시 실행\" when no instant job cache",
+        "panelClaudeExplanationHydration": "rebalancing NOT in PANEL_CLAUDE_KEYS — no stored-job hydration path (unlike pre-FS01 rec)"
+      },
+      "fs05_s1_target_meta": "FACTORY_SPEAK_05_S1 blocked (proposed)"
+    },
+    "4_panel_direct_exposure": {
+      "verdict": "MOVE_TO_KEY + DELETE_OR_DISABLE Claude block",
+      "component": "src/components/AiRecommendationPanel.jsx 보험 리밸런싱 card (lines 1349–1409)",
+      "currently_shows_raw_factory": [
+        "customerVisibleRebalancing.keep_insurances — insurer+product or label strings from factory",
+        "customerVisibleRebalancing.strengthen_coverages — coverage_label list",
+        "customerVisibleRebalancing.cautions_before_reduction — factory warning message bullets",
+        "customerVisibleRebalancing.next_actions — factory Korean action strings (e.g. \"암 보장 보강 검토\")",
+        "rebalancingResult.estimated_budget_impact.label — factory budget prose",
+        "claudeExplanation — factory-adjacent Claude prose block"
+      ],
+      "fs_analog": "needs rebalancingPanelKeyVoice.js (expression layer) + remove Claude UI section; mirror FS04 designPanelKeyVoice.js"
+    },
+    "5_key_already_reclaimed_continuity_maintenance_speak": {
+      "verdict": "DELETE_FORBIDDEN — do not break CONN-005 Hand paths",
+      "paths": [
+        {
+          "path": "returnJudgmentContinuityWeave.js appendReturnJudgmentContinuityWeave",
+          "pattern": "Canonical: \"지난번 함께 확인했던 이후 달라진 부분이 있습니다.\" — time+change only; no rebalancing judgment in weave text",
+          "wired_from": "returnJudgmentFirstSpeak.js finalizeWithMaintenanceCompound → CONN-005 before CONN-004 design weave"
+        },
+        {
+          "path": "returnJudgmentContinuityWeave.js buildRebalancingHumanSpeak",
+          "pattern": "KEY Hand templates: \"{label}은 그대로 유지…\" / \"{label} 부분은 새로 보완…\" — NOT factory engine prose",
+          "note": "Clauses stored in rebalancing_human_speak; NOT rendered on panel. Labels only → factBundle rebalancing_*_labels via salesDirectorRebalancingContext"
+        },
+        {
+          "path": "salesDirectorRebalancingContext.js",
+          "pattern": "CONN-005 read-only loader — builds plan via rebalancingEngine then extracts KEY labels + humanSpeak; does NOT expose customer_visible_rebalancing to chat speak directly",
+          "fs05_note": "Loader OK; stop passing customer_visible_rebalancing Korean fields to any future KEY rule quotes"
+        },
+        {
+          "path": "salesDirectorKeyOrchestrator.js factBundle",
+          "pattern": "rebalancing_used / rebalancing_loaded / rebalancing_keep_labels / rebalancing_strengthen_labels / rebalancing_review_labels / rebalancing_reduce_signal / maintenance_return_eligible — structured eligibility only",
+          "note": "Labels consumed for CONN-005 eligibility; no keyJudgmentRules rebalancing prose rules found (grep 0)"
+        },
+        {
+          "path": "salesDirectorKeyToolRegistry.js conn_005_rebalancing_panel_wired",
+          "pattern": "Wiring flag when analysis job has design + gap/uw — enables maintenance return path",
+          "test_ref": "scripts/one-key-core-s02-4-return-judgment-hand-unit-test.mjs S02-4-7 CONN-005 continuity weave regression"
+        }
+      ]
+    }
+  },
+  "classification": {
+    "KEEP_AS_FACTORY": [
+      "keep_items[].item_type / coverage_category / coverage_label / priority / gap_level / underwriting_status / policy_id / monthly_premium",
+      "add_items[].coverage_category / coverage_label / priority / gap_level / linked_design_id",
+      "reduce_items[].coverage_category / reason codes / related_policies structured",
+      "review_items[].review_type / uw_flags / coverage_category",
+      "warning_items[].warning_type / label / requires_agent_review (codes not message)",
+      "estimated_budget_impact.current_monthly_premium / proposed_monthly_premium / delta_monthly / budget_fit",
+      "priority_actions[].priority / detail as reason_codes (post-FS05 neutralize action string)",
+      "insurance_design_reference / customer_visible_design_reference",
+      "memory_sources_used",
+      "agent_full_details (internal/agent)",
+      "analyzeRebalancing action enum / rebalancing_score / premium_change (legacy internal)",
+      "rebalancing_keep_labels / rebalancing_strengthen_labels / rebalancing_review_labels / rebalancing_reduce_signal (structured factBundle)"
+    ],
+    "MOVE_TO_KEY": [
+      "customer_visible_rebalancing.next_actions",
+      "customer_visible_rebalancing.cautions_before_reduction",
+      "customer_visible_rebalancing.keep_insurances / strengthen_coverages presentation framing",
+      "priority_actions[].action Korean templates",
+      "estimated_budget_impact.label",
+      "warning_items[].message on customer-visible payload",
+      "item reason Korean fallbacks in buildKeepItems / buildAddItems / buildReviewItems",
+      "AiRecommendationPanel rebalancing card raw field render"
+    ],
+    "DELETE_OR_DISABLE": [
+      "claude_explanation (customerRebalancingCore API return + panel UI)",
+      "buildRebalancingExplanationPrompt customer-facing Claude generation",
+      "REBALANCING_SYSTEM_RULES live Anthropic call path",
+      "AiRecommendationPanel \"리밸런싱 Claude 설명\" section (lines 1395–1404)",
+      "loadPanelDataFromApis default skipClaude=false for rebalancing (align with FS01–04: always skip or block meta FACTORY_SPEAK_05_S1)"
+    ],
+    "DELETE_FORBIDDEN": [
+      "buildCustomerRebalancingPlan engine (replace speak fields only — same as FS04 design engine rule)",
+      "buildRebalancingContextFromAnalysisJob read path",
+      "runRebalancingTool / KEY_TOOLS.REBALANCING in salesDirectorKeyToolRegistry",
+      "appendReturnJudgmentContinuityWeave (CONN-005)",
+      "buildRebalancingHumanSpeak templates in returnJudgmentContinuityWeave.js",
+      "returnJudgmentFirstSpeak.js maintenance compound finalize chain",
+      "maintenance_return_eligible / conn_005_rebalancing_panel_wired wiring",
+      "analysis_jobs migration / stored job rewrite"
+    ]
+  },
+  "factory_to_customer_path_map": {
+    "panel_direct": {
+      "count": 1,
+      "route": "rebalancingEngine.buildCustomerVisibleRebalancing → POST /api/customer-rebalancing → AiRecommendationPanel.jsx",
+      "speak_types": ["next_actions", "cautions", "budget_label", "claude_explanation"]
+    },
+    "api_claude": {
+      "count": 1,
+      "route": "customerRebalancingCore callAnthropic → claude_explanation JSON field",
+      "trigger": "skipClaude=false (cold loadPanelDataFromApis path)"
+    },
+    "key_chat_direct": {
+      "count": 0,
+      "note": "rebalancing_human_speak.clauses not wired to customer chat output; CONN-005 continuity weave is KEY-owned DELETE_FORBIDDEN"
+    },
+    "conn_005": {
+      "role": "Hand — eligibility + continuity sentence only",
+      "factory_speak_leak": false,
+      "labels_in_factBundle": "structured coverage labels only — not factory next_actions strings"
+    }
+  },
+  "comparison_to_fs04_pattern": {
+    "same_shape": "Engine computes plan → customer_visible_* object with Korean prose → Panel renders raw → optional Claude explanation API",
+    "fs05_mirror_actions": [
+      "Add src/lib/rebalancingPanelKeyVoice.js (proposed)",
+      "Neutralize customer_visible_rebalancing speak fields to codes",
+      "Block claude_explanation with FACTORY_SPEAK_05_S1 meta",
+      "Panel uses KEY voice layer for display",
+      "Preserve CONN-005 / buildRebalancingHumanSpeak / maintenance_return_eligible"
+    ]
+  },
+  "downstream_consumption": {
+    "salesDirectorRebalancingContext.js": {
+      "uses": "buildCustomerRebalancingPlan full output including customer_visible_rebalancing",
+      "fs05_action": "Pass structured items + codes to factBundle; do not quote next_actions in KEY rules"
+    },
+    "salesDirectorKeyOrchestrator.js": {
+      "uses": "rebalancingCtx labels + maintenance_return_eligible",
+      "fs05_action": "No change to CONN-005 wiring; ensure no new factory prose fields added to factBundle"
+    },
+    "intentGateLayer.js": {
+      "uses": "rebalancing_signal → design_request intent routing",
+      "fs05_action": "No speak change — routing only"
+    }
+  },
+  "proposed_fs05_s1_factory_item_shape": {
+    "keep_coverage_categories": ["medical_expense"],
+    "strengthen_coverage_categories": ["cancer", "brain"],
+    "rebalancing_action_codes": ["strengthen_cancer", "review_brain", "keep_medical_expense"],
+    "rebalancing_reason_codes": ["coverage_gap_priority", "memory_duplicate", "uw_review_required"],
+    "caution_warning_codes": ["pre_enrollment_diabetes", "cancellation_caution_cancer"],
+    "budget_delta_band_code": "moderate_increase",
+    "budget_delta_monthly": 15000,
+    "insurance_design_reference": { "design_id": "uuid", "design_priority": "high" }
+  },
+  "proposed_fs05_s1_forbidden_fields": [
+    "customer_visible_rebalancing.next_actions",
+    "customer_visible_rebalancing.cautions_before_reduction",
+    "priority_actions[].action",
+    "estimated_budget_impact.label",
+    "claude_explanation",
+    "warning_items[].message on customer API payload"
+  ],
+  "readonly_constraints_honored": {
+    "implementation": false,
+    "deletion": false,
+    "production_change": false,
+    "advisor_audit": false,
+    "legacy_hydration_audit": false,
+    "commit_push": false
+  },
+  "next_step": "Tom FS05-S1 implementation GO required — mirror FS01→FS04 · rebalancingPanelKeyVoice.js · FACTORY_SPEAK_05_S1 Claude block · Panel rebalancing section"
+}

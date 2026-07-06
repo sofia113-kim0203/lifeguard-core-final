@@ -34,6 +34,15 @@ import {
   buildDesignPanelNextSteps,
   buildDesignPanelSummary,
 } from "../lib/designPanelKeyVoice.js";
+import {
+  buildRebalancingPanelBudgetLine,
+  buildRebalancingPanelCaveat,
+  buildRebalancingPanelCautionLines,
+  buildRebalancingPanelKeepLine,
+  buildRebalancingPanelLead,
+  buildRebalancingPanelNextSteps,
+  buildRebalancingPanelStrengthenLine,
+} from "../lib/rebalancingPanelKeyVoice.js";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadAllCustomerAnalysis } from "../lib/customerAnalysisAll.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
@@ -1353,56 +1362,59 @@ export default function AiRecommendationPanel({
         ) : rebalancingResult?.customerVisibleRebalancing ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <div>
+              <h4 style={{ ...S.sectionTitle, fontSize: "18px", color: "#f8fafc" }}>
+                보험 리밸런싱
+              </h4>
+              <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                {buildRebalancingPanelLead(rebalancingResult.customerVisibleRebalancing)}
+              </div>
+              <div style={{ marginTop: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                {buildRebalancingPanelCaveat()}
+              </div>
+            </div>
+
+            <div>
               <h4 style={S.sectionTitle}>유지할 보험</h4>
               <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
-                {(rebalancingResult.customerVisibleRebalancing.keep_insurances ?? []).join(", ") || "—"}
+                {buildRebalancingPanelKeepLine(rebalancingResult.customerVisibleRebalancing) || "—"}
               </div>
             </div>
 
             <div>
               <h4 style={S.sectionTitle}>보강할 보장</h4>
               <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
-                {(rebalancingResult.customerVisibleRebalancing.strengthen_coverages ?? []).join(", ") || "—"}
+                {buildRebalancingPanelStrengthenLine(rebalancingResult.customerVisibleRebalancing) || "—"}
               </div>
             </div>
 
-            {rebalancingResult.customerVisibleRebalancing.cautions_before_reduction?.length ? (
+            {buildRebalancingPanelCautionLines(rebalancingResult.customerVisibleRebalancing).length ? (
               <div>
                 <h4 style={S.sectionTitle}>줄이기 전 주의사항</h4>
                 <ul style={S.list}>
-                  {rebalancingResult.customerVisibleRebalancing.cautions_before_reduction.map((item) => (
+                  {buildRebalancingPanelCautionLines(rebalancingResult.customerVisibleRebalancing).map((item) => (
                     <li key={item} style={S.listItem}>{item}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
 
+            <div style={S.metricGrid}>
+              <div style={S.metric}>
+                <div style={S.metricLabel}>예산 영향</div>
+                <div style={{ ...S.metricValue, fontSize: "14px" }}>
+                  {buildRebalancingPanelBudgetLine(rebalancingResult.customerVisibleRebalancing)}
+                </div>
+              </div>
+            </div>
+
             <div>
               <h4 style={S.sectionTitle}>다음 행동</h4>
               <ul style={S.list}>
-                {(rebalancingResult.customerVisibleRebalancing.next_actions ?? []).map((action) => (
+                {buildRebalancingPanelNextSteps(rebalancingResult.customerVisibleRebalancing).map((action) => (
                   <li key={action} style={S.listItem}>{action}</li>
                 ))}
               </ul>
             </div>
-
-            {rebalancingResult.rebalancingResult?.estimated_budget_impact?.label ? (
-              <div style={S.muted}>
-                예산 영향: {rebalancingResult.rebalancingResult.estimated_budget_impact.label}
-              </div>
-            ) : null}
-
-            {rebalancingResult.claudeExplanation ? (
-              <div>
-                <h4 style={S.sectionTitle}>리밸런싱 Claude 설명</h4>
-                <div style={S.explanation}>{rebalancingResult.claudeExplanation}</div>
-              </div>
-            ) : (
-              <div style={S.muted}>
-                리밸런싱 Claude 설명을 생성하지 못했습니다.
-                {rebalancingResult.claudeMeta?.reason ? ` (${rebalancingResult.claudeMeta.reason})` : ""}
-              </div>
-            )}
           </div>
         ) : (
           <div style={S.muted}>리밸런싱 결과가 없습니다.</div>

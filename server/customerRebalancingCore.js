@@ -6,8 +6,7 @@ import { buildCustomerRebalancingPlan } from "./rebalancingEngine.js";
 import { buildRebalancingInputFromAnalysis } from "./rebalancingInputBuilder.js";
 import { loadInsuranceDesignAnalysisContext } from "./customerInsuranceDesignCore.js";
 import { loadCoverageAnalysisContext } from "./customerCoverageGapCore.js";
-import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
-import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
+import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
 import { createClient } from "@supabase/supabase-js";
 
 const REBALANCING_SYSTEM_RULES = [
@@ -73,47 +72,6 @@ export function buildRebalancingExplanationPrompt(structuredMemory, rebalancingR
   ].join("\n");
 
   return { system: REBALANCING_SYSTEM_RULES, user };
-}
-
-async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetch }) {
-  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 1600,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      reason: "CLAUDE_API_ERROR",
-      errorMessage: `Claude API error (${response.status})`,
-    };
-  }
-
-  const data = await response.json();
-  const text = Array.isArray(data?.content)
-    ? data.content
-        .filter((block) => block?.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim()
-    : "";
-
-  return {
-    ok: true,
-    answer: text,
-    model: data?.model ?? modelName,
-    provider: "anthropic",
-  };
 }
 
 async function resolveCustomerId(supabase) {
@@ -202,42 +160,13 @@ export async function handleCustomerRebalancingRequest({
 
   const context = await loadRebalancingAnalysisContext(supabase, customerId);
 
-  let claudeExplanation = null;
-  let claudeMeta = { skipped: true, reason: "skipClaude" };
-
-  if (!skipClaude) {
-    const anthropicApiKey = resolveAnthropicApiKey(env);
-    if (!anthropicApiKey) {
-      claudeMeta = { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" };
-    } else {
-      const prompt = buildRebalancingExplanationPrompt(
-        context.structuredMemory,
-        context.rebalancingResult,
-        context,
-      );
-      const claudeResult = await callAnthropic({
-        apiKey: anthropicApiKey,
-        modelName: resolveClaudeModel(env),
-        system: prompt.system,
-        user: prompt.user,
-        fetchImpl,
-      });
-      if (claudeResult.ok) {
-        claudeExplanation = claudeResult.answer;
-        claudeMeta = {
-          skipped: false,
-          model_name: claudeResult.model,
-          provider: claudeResult.provider,
-        };
-      } else {
-        claudeMeta = {
-          skipped: true,
-          reason: claudeResult.reason,
-          error_message: claudeResult.errorMessage,
-        };
-      }
-    }
-  }
+  // FACTORY-SPEAK-05-S1 — rebalancing factory must not speak to customers via Claude explanation.
+  const claudeExplanation = null;
+  const claudeMeta = {
+    skipped: true,
+    reason: "FACTORY_SPEAK_05_S1",
+    explanation_mode: "blocked",
+  };
 
   return {
     ok: true,

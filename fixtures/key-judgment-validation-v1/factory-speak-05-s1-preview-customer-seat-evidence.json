@@ -1,0 +1,97 @@
+{
+  "schema_version": "factory-speak-05-s1-preview-customer-seat-v1",
+  "audit": "factory_speak_05_s1_preview_customer_seat",
+  "note": "Observation only — Tom declares Commit/Push GO. Jerry does not declare PASS.",
+  "tom_one_liner": "Rebalancing 공장도 말하지 않는다. codes만 계산하고, 유지관리 판단은 ONE KEY가 고객에게 말한다.",
+  "preview_base": "https://lifeguard-core-final-bybianoa2-70sofia113-1918s-projects.vercel.app",
+  "git_commit": "8b4d548",
+  "observed_at": "2026-07-06T05:34:20.025Z",
+  "rebalancing_api": {
+    "ok": true,
+    "status": 200,
+    "action_code_count": 6,
+    "budget_delta_band_code": "unknown",
+    "design_reference": "512ff5b8-2de9-4af0-8228-76219f5a40e5"
+  },
+  "tom_checks": {
+    "check_1_no_factory_speak_anywhere": {
+      "question": "공장 문장 0건 — '보장 보강 검토' / '보장을 줄이는…' / '예산을 늘리세요' 등 API·Panel·JSON 어디에도 없는가?",
+      "pass": true,
+      "evidence": {
+        "json_violations": [],
+        "panel_forbidden_hits": [],
+        "panel_factory_hits": [],
+        "api_payload_has_factory_phrase": false
+      }
+    },
+    "check_2_no_claude_explanation_block": {
+      "question": "Claude 설명 — '리밸런싱 Claude 설명' / claude_explanation 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "claude_explanation": null,
+        "claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_05_S1",
+          "explanation_mode": "blocked"
+        },
+        "ai_page_html_has_rebalancing_claude_block": false,
+        "note": "SPA shell may not include panel text in initial HTML — API + panel voice layer primary"
+      }
+    },
+    "check_3_key_voice_present": {
+      "question": "KEY voice — '현재 확인된 자료 기준으로…' + hedged caveat 형태인가?",
+      "pass": true,
+      "evidence": {
+        "lead": "현재 확인된 자료를 기준으로 삼성생명 실손의료비보험은 유지하고, 뇌혈관 축부터 같이 정리하겠습니다.",
+        "keep": "삼성생명 실손의료비보험",
+        "strengthen": "뇌혈관, 암",
+        "budget": "보험료·예산 자료가 아직 충분하지 않아, 등록된 자료를 함께 보면서 범위를 정하겠습니다.",
+        "caveat": "다만 특정 상품 변경·해지·가입 여부는 지금 단정하지 않고, 고객 상황을 보면서 순서를 함께 정하겠습니다.",
+        "next_steps": [
+          "뇌혈관 보장부터 함께 보강",
+          "암 보장부터 함께 보강",
+          "corporate_group부터 함께 재확인",
+          "death부터 함께 재확인"
+        ]
+      }
+    },
+    "check_4_json_structured_only": {
+      "question": "Rebalancing JSON — rebalancing_action_codes / budget_delta_band_code / caution_warning_codes only, no next_actions / cautions_before_reduction / budget label?",
+      "pass": true,
+      "evidence": {
+        "rebalancing_action_codes": [
+          "strengthen_brain",
+          "strengthen_cancer",
+          "review_corporate_group",
+          "review_death",
+          "keep_medical_expense",
+          "keep_medical_expense"
+        ],
+        "budget_delta_band_code": "unknown",
+        "caution_warning_codes": [
+          "underwriting_caution"
+        ],
+        "keep_coverage_labels": [
+          "삼성생명 실손의료비보험"
+        ],
+        "strengthen_coverage_labels": [
+          "뇌혈관",
+          "암"
+        ],
+        "violations": [],
+        "pass": true,
+        "api_claude_explanation": null,
+        "api_claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_05_S1",
+          "explanation_mode": "blocked"
+        },
+        "rebalancing_api_ok": true,
+        "rebalancing_api_status": 200
+      }
+    }
+  },
+  "all_four_pass": true,
+  "status": "awaiting_tom_commit_push_go",
+  "jerry_pass_declaration": "none"
+}

@@ -415,6 +415,14 @@ function buildWarningItems({
   });
 }
 
+function resolveBudgetDeltaBandCode({ delta = null, budgetFit = "unknown" } = {}) {
+  if (delta == null) return "unknown";
+  if (budgetFit === "over") return "over";
+  if (delta > 0) return budgetFit === "within" ? "moderate_increase" : "moderate_increase";
+  if (delta < 0) return "decrease";
+  return "stable";
+}
+
 function buildEstimatedBudgetImpact({ holdings = [], monthlyBudget = null, design = null, addItems = [] } = {}) {
   const currentMonthly = sumHoldingsPremium(holdings);
   const budgetRange = design?.monthly_budget_range ?? {};
@@ -431,22 +439,30 @@ function buildEstimatedBudgetImpact({ holdings = [], monthlyBudget = null, desig
     budgetFit = delta <= 0 ? "within" : delta <= 50000 ? "moderate_increase" : "over";
   }
 
+  const budget_delta_band_code = resolveBudgetDeltaBandCode({ delta, budgetFit });
+
   return {
     current_monthly_premium: currentMonthly || null,
     proposed_monthly_premium: proposedEstimate,
-    proposed_budget_range: budgetRange.label ?? null,
+    proposed_budget_min: budgetRange.min ?? null,
+    proposed_budget_max: budgetRange.max ?? null,
     delta_monthly: delta,
     budget_fit: budgetFit,
+    budget_delta_band_code,
     add_coverage_count: addItems.length,
-    label:
-      delta == null
-        ? "기존 보험료 또는 설계 예산 정보가 부족해 정확한 예산 영향을 계산하지 못했습니다."
-        : delta > 0
-          ? `월 약 ${delta.toLocaleString("ko-KR")}원 수준 증가 가능성이 있습니다.`
-          : delta < 0
-            ? `월 약 ${Math.abs(delta).toLocaleString("ko-KR")}원 수준 절감 여지가 있습니다.`
-            : "현재 보험료 수준과 설계 예산 범위가 유사합니다.",
   };
+}
+
+function warningToCautionCode(warning = {}) {
+  if (warning.warning_type === "pre_enrollment_health") {
+    if (/당뇨/.test(`${warning.label ?? ""}`)) return "pre_enrollment_diabetes";
+    if (/혈압/.test(`${warning.label ?? ""}`)) return "pre_enrollment_hypertension";
+    return "pre_enrollment_health";
+  }
+  if (warning.warning_type === "cancellation_caution") return "cancellation_caution";
+  if (warning.warning_type === "underwriting") return "underwriting_caution";
+  if (warning.warning_type === "agent_review") return "agent_review_caution";
+  return "review_caution";
 }
 
 function buildPriorityActions({ keepItems = [], addItems = [], reviewItems = [], warningItems = [], design = null } = {}) {
@@ -454,55 +470,68 @@ function buildPriorityActions({ keepItems = [], addItems = [], reviewItems = [],
   for (const item of addItems.slice(0, 2)) {
     actions.push({
       priority: actions.length + 1,
-      action: `${item.coverage_label} 보장 보강 검토`,
+      action_code: item.coverage_category ? `strengthen_${item.coverage_category}` : "strengthen_coverage",
       detail: item.reason,
     });
   }
   for (const item of reviewItems.slice(0, 2)) {
     actions.push({
       priority: actions.length + 1,
-      action: `${item.coverage_label} 전환/재검토`,
+      action_code: item.coverage_category ? `review_${item.coverage_category}` : "review_coverage",
       detail: item.reason,
     });
   }
   for (const item of keepItems.slice(0, 2)) {
     actions.push({
       priority: actions.length + 1,
-      action: `${item.coverage_label ?? item.product_name ?? "기존 보험"} 유지`,
+      action_code: item.coverage_category ? `keep_${item.coverage_category}` : "keep_coverage",
       detail: item.reason,
     });
   }
   for (const warning of warningItems.filter((item) => item.warning_type === "pre_enrollment_health").slice(0, 1)) {
     actions.push({
       priority: actions.length + 1,
-      action: "가입 전 건강 고지 확인",
-      detail: warning.message,
+      action_code: "confirm_health_disclosure",
+      detail: warningToCautionCode(warning),
     });
   }
-  for (const step of design?.step_by_step_plan?.slice(0, 2) ?? []) {
+  for (const step of design?.plan_step_codes?.slice(0, 2) ?? design?.step_by_step_plan?.slice(0, 2) ?? []) {
+    const code = typeof step === "string" ? step : step?.plan_step_code ?? step?.action ?? "design_step";
     actions.push({
       priority: actions.length + 1,
-      action: step.plan_step_code ?? step.action ?? "design_step",
-      detail: step.plan_step_code ?? step.detail ?? null,
+      action_code: code === "design_step" ? "design_step" : code,
+      detail: code,
     });
   }
   return actions.slice(0, 6);
 }
 
-function buildCustomerVisibleRebalancing({ keepItems = [], addItems = [], warningItems = [], priorityActions = [] } = {}) {
+function buildCustomerVisibleRebalancing({
+  keepItems = [],
+  addItems = [],
+  warningItems = [],
+  priorityActions = [],
+  estimatedBudgetImpact = {},
+} = {}) {
   return {
-    keep_insurances: uniqueStrings(
+    keep_coverage_categories: uniqueStrings(keepItems.map((item) => item.coverage_category)),
+    keep_coverage_labels: uniqueStrings(
       keepItems.map((item) =>
         item.insurer_name && item.product_name ? `${item.insurer_name} ${item.product_name}` : item.coverage_label,
       ),
     ),
-    strengthen_coverages: uniqueStrings(addItems.map((item) => item.coverage_label)),
-    cautions_before_reduction: uniqueStrings(
+    strengthen_coverage_categories: uniqueStrings(addItems.map((item) => item.coverage_category)),
+    strengthen_coverage_labels: uniqueStrings(addItems.map((item) => item.coverage_label)),
+    rebalancing_action_codes: priorityActions.map((item) => item.action_code).filter(Boolean),
+    caution_warning_codes: uniqueStrings(
       warningItems
-        .filter((item) => ["cancellation_caution", "pre_enrollment_health", "underwriting"].includes(item.warning_type))
-        .map((item) => item.message),
+        .filter((item) =>
+          ["cancellation_caution", "pre_enrollment_health", "underwriting", "agent_review"].includes(item.warning_type),
+        )
+        .map((item) => warningToCautionCode(item)),
     ),
-    next_actions: priorityActions.map((item) => item.action),
+    budget_delta_band_code: estimatedBudgetImpact.budget_delta_band_code ?? "unknown",
+    budget_delta_monthly: estimatedBudgetImpact.delta_monthly ?? null,
   };
 }
 
@@ -613,6 +642,7 @@ export function buildCustomerRebalancingPlan({
     addItems: add_items,
     warningItems: warning_items,
     priorityActions: priority_actions,
+    estimatedBudgetImpact: estimated_budget_impact,
   });
 
   const legacySummary = analyzeRebalancing({

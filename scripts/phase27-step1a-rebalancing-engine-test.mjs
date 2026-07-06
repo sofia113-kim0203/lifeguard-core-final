@@ -68,8 +68,8 @@ const report = {
     warning_count: rebalancing.warning_items.length,
     keep_labels: rebalancing.keep_items.map((item) => item.coverage_label ?? item.product_name),
     add_labels: rebalancing.add_items.map((item) => item.coverage_label),
-    visible_keep: visible.keep_insurances,
-    visible_strengthen: visible.strengthen_coverages,
+    visible_keep: visible.keep_coverage_labels,
+    visible_strengthen: visible.strengthen_coverage_labels,
     design_reference: rebalancing.insurance_design_reference,
   },
   claude: fullResult.claude_explanation
@@ -99,17 +99,18 @@ const report = {
     diabetesWarning: { pass: diabetesWarning },
     customerVisibleShape: {
       pass:
-        Array.isArray(visible.keep_insurances) &&
-        Array.isArray(visible.strengthen_coverages) &&
-        Array.isArray(visible.next_actions) &&
-        visible.next_actions.length >= 1,
+        Array.isArray(visible.keep_coverage_labels) &&
+        Array.isArray(visible.strengthen_coverage_labels) &&
+        Array.isArray(visible.rebalancing_action_codes) &&
+        visible.rebalancing_action_codes.length >= 1 &&
+        Boolean(visible.budget_delta_band_code),
     },
     agentDetailsPresent: {
       pass: Boolean(rebalancing.agent_full_details?.policy_comparisons?.length),
       policy_count: rebalancing.agent_full_details?.policy_comparisons?.length ?? 0,
     },
     budgetImpactPresent: {
-      pass: Boolean(rebalancing.estimated_budget_impact?.label),
+      pass: Boolean(rebalancing.estimated_budget_impact?.budget_delta_band_code),
     },
     fullHandlerOk: {
       pass: fullResult.ok === true,
@@ -117,8 +118,9 @@ const report = {
       insurance_design_used: fullResult.insurance_design_used,
     },
     claudeExplanation: {
-      pass: process.env.ANTHROPIC_API_KEY ? Boolean(fullResult.claude_explanation) : true,
-      skipped: !process.env.ANTHROPIC_API_KEY,
+      pass:
+        fullResult.claude_explanation == null &&
+        fullResult.claude_meta?.reason === "FACTORY_SPEAK_05_S1",
     },
   },
 };

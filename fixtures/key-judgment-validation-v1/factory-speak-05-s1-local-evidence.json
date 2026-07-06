@@ -1,0 +1,37 @@
+{
+  "schema_version": "factory-speak-05-s1-local-evidence-v1",
+  "slice": "factory_speak_05_s1_rebalancing",
+  "status": "local_unit_pass",
+  "observed_at": "2026-07-06T05:55:00.000Z",
+  "tom_one_liner": "Rebalancing 공장도 말하지 않는다. 유지관리 판단은 ONE KEY가 고객에게 말한다.",
+  "changes": {
+    "rebalancingPanelKeyVoice.js": "added — KEY expression layer",
+    "rebalancingEngine.js": "customer_visible_rebalancing structured codes; priority_actions.action_code; budget_delta_band_code",
+    "customerRebalancingCore.js": "claude_explanation blocked FACTORY_SPEAK_05_S1",
+    "AiRecommendationPanel.jsx": "rebalancing card KEY voice only; Claude section removed",
+    "conn_005": "unchanged — DELETE_FORBIDDEN paths preserved"
+  },
+  "forbidden_fields_removed": [
+    "next_actions",
+    "keep_insurances",
+    "strengthen_coverages",
+    "cautions_before_reduction",
+    "estimated_budget_impact.label",
+    "claude_explanation"
+  ],
+  "structured_fields": [
+    "keep_coverage_categories",
+    "keep_coverage_labels",
+    "strengthen_coverage_categories",
+    "strengthen_coverage_labels",
+    "rebalancing_action_codes",
+    "caution_warning_codes",
+    "budget_delta_band_code",
+    "budget_delta_monthly"
+  ],
+  "local_tests": {
+    "test:factory-speak-05-s1-rebalancing": "6/6 PASS"
+  },
+  "preview_audit": "not_run — Tom GO required for preview deploy",
+  "production_change": false
+}
