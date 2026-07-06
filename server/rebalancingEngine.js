@@ -356,7 +356,10 @@ function buildReviewItems({ recommendationResult = {}, underwritingResult = {}, 
       coverage_category: uw.coverage_category,
       coverage_label: uw.coverage_label,
       review_type: "underwriting",
-      reason: uw.reason ?? `${uw.coverage_label} 인수심사 검토가 필요합니다.`,
+      reason:
+        (uw.uw_reason_codes ?? []).join(",") ||
+        uw.review_step_code ||
+        `${uw.coverage_label} 인수심사 검토가 필요합니다.`,
       memory_sources_used: uw.related_memory_sources ?? [],
       linked_design_id: design?.design_id ?? null,
     });

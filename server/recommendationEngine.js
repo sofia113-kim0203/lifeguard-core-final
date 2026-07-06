@@ -397,7 +397,7 @@ export function buildCoverageCategoryRecommendations({
       gap_signals: buildGapSignals(gapItem),
       uw_flags: buildUwFlags(uwItem),
       evidence_codes: buildEvidenceCodes(gapItem, uwItem),
-      required_documents: uwItem?.required_documents ?? [],
+      required_document_codes: uwItem?.required_document_codes ?? uwItem?.required_documents ?? [],
       memory_sources_used: Array.from(
         new Set([
           ...(gapItem?.memory_sources_used ?? []),

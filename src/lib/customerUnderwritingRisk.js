@@ -1,4 +1,5 @@
 import { assertCustomerApiOk, fetchCustomerApi, rethrowCustomerApiError } from "./customerApiAuth.js";
+import { formatRequiredDocumentCodes } from "./underwritingPanelKeyVoice.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const ROUTE_PATH = "/api/customer-underwriting-risk";
@@ -43,7 +44,12 @@ export async function analyzeCustomerUnderwritingRisk({ skipClaude = false } = {
     structuredMemory: payload.structured_memory ?? null,
     coverageGapResult: payload.coverage_gap_result ?? null,
     underwritingResult: payload.underwriting_result ?? null,
-    requiredDocuments: Array.isArray(payload.required_documents) ? payload.required_documents : [],
+    requiredDocumentCodes: Array.isArray(payload.required_document_codes)
+      ? payload.required_document_codes
+      : [],
+    requiredDocuments: formatRequiredDocumentCodes(
+      payload.required_document_codes ?? payload.required_documents ?? [],
+    ),
     claudeExplanation: payload.claude_explanation ?? null,
     claudeMeta: payload.claude_meta ?? null,
   };

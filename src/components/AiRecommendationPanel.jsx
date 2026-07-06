@@ -19,6 +19,12 @@ import {
   buildGapPanelItemLead,
   buildGapPanelItemWhy,
 } from "../lib/gapPanelKeyVoice.js";
+import {
+  buildUnderwritingPanelItemCaveat,
+  buildUnderwritingPanelItemLead,
+  buildUnderwritingPanelItemWhy,
+  getUnderwritingPanelReviewStepLabel,
+} from "../lib/underwritingPanelKeyVoice.js";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadAllCustomerAnalysis } from "../lib/customerAnalysisAll.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
@@ -99,7 +105,12 @@ async function hydrateMissingClaudeExplanations(job, setters) {
     );
   }
 
-  if (panelNeedsClaudeHydration(claude, mapped.underwritingResult, "underwriting")) {
+  // FACTORY-SPEAK-03-S1 — underwriting panel Claude blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_03_S1_BLOCK_UW_CLAUDE = true;
+  if (
+    !FACTORY_SPEAK_03_S1_BLOCK_UW_CLAUDE &&
+    panelNeedsClaudeHydration(claude, mapped.underwritingResult, "underwriting")
+  ) {
     tasks.push(
       analyzeCustomerUnderwritingRisk()
         .then((data) => ({
@@ -329,23 +340,25 @@ function GapListItem({ item }) {
 }
 
 function UnderwritingListItem({ item }) {
+  const why = buildUnderwritingPanelItemWhy(item);
+  const caveat = buildUnderwritingPanelItemCaveat(item);
+  const stepLabel = getUnderwritingPanelReviewStepLabel(item.review_step_code);
   return (
     <li style={S.listItem}>
       <div style={{ marginBottom: "6px" }}>
         <ToneBadge
           toneMap={UW_TONES}
           level={item.underwriting_status}
-          labels={UNDERWRITING_STATUS_LABELS}
+          labels={{ ...UNDERWRITING_STATUS_LABELS, [item.underwriting_status]: stepLabel }}
         />
         <strong style={{ color: "#f1f5f9" }}>{item.coverage_label}</strong>
         <span style={{ marginLeft: "8px", fontSize: "12px", color: "#94a3b8" }}>
           위험 {RISK_LEVEL_LABELS[item.risk_level] ?? item.risk_level}
         </span>
       </div>
-      <div style={S.muted}>{item.reason}</div>
-      <div style={{ marginTop: "6px", fontSize: "13px", color: "#cbd5e1" }}>
-        {item.recommended_next_step}
-      </div>
+      <div style={{ fontSize: "13px", color: "#cbd5e1" }}>{buildUnderwritingPanelItemLead(item)}</div>
+      {why ? <div style={{ ...S.muted, marginTop: "6px" }}>{why}</div> : null}
+      {caveat ? <div style={{ marginTop: "6px", fontSize: "13px", color: "#94a3b8" }}>{caveat}</div> : null}
       {item.related_memory_sources?.length ? (
         <div style={{ marginTop: "6px", fontSize: "12px", color: "#64748b" }}>
           Memory 근거: {item.related_memory_sources.join(", ")}
@@ -1220,17 +1233,6 @@ export default function AiRecommendationPanel({
               ) : null}
             </div>
 
-            {uwResult?.claudeExplanation ? (
-              <div>
-                <h4 style={S.sectionTitle}>인수 위험 Claude 설명</h4>
-                <div style={S.explanation}>{uwResult.claudeExplanation}</div>
-              </div>
-            ) : (
-              <div style={S.muted}>
-                인수 위험 Claude 설명을 생성하지 못했습니다.
-                {uwResult?.claudeMeta?.reason ? ` (${uwResult.claudeMeta.reason})` : ""}
-              </div>
-            )}
           </div>
         ) : (
           <div style={S.muted}>인수 위험 결과가 없습니다.</div>

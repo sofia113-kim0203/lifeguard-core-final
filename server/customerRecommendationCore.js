@@ -129,7 +129,9 @@ export function buildRecommendationFallbackExplanation({
   const docs =
     requiredDocuments.length > 0
       ? requiredDocuments
-      : Array.from(new Set(top2.flatMap((item) => item.required_documents ?? [])));
+      : Array.from(
+          new Set(top2.flatMap((item) => item.required_document_codes ?? item.required_documents ?? [])),
+        );
   if (docs.length) {
     parts.push(`준비 서류 참고: ${docs.slice(0, 4).join(", ")}.`);
   }
@@ -318,7 +320,11 @@ export async function handleCustomerRecommendationRequest({
   };
 
   const requiredDocuments = Array.from(
-    new Set(context.recommendationResult.recommendations.flatMap((item) => item.required_documents ?? [])),
+    new Set(
+      context.recommendationResult.recommendations.flatMap(
+        (item) => item.required_document_codes ?? item.required_documents ?? [],
+      ),
+    ),
   );
 
   // FACTORY-SPEAK-01-S1 — recommendation factory must not speak to customers.

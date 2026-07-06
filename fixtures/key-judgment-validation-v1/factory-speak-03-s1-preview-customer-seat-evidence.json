@@ -1,0 +1,221 @@
+{
+  "schema_version": "factory-speak-03-s1-preview-customer-seat-v1",
+  "audit": "factory_speak_03_s1_preview_customer_seat",
+  "note": "Observation only — Tom declares Commit/Push GO. Jerry does not declare PASS.",
+  "tom_one_liner": "Underwriting 공장은 가입 가능성을 말하지 않는다. 위험 신호만 계산하고, 고객에게는 ONE KEY가 신중하게 말한다.",
+  "preview_base": "https://lifeguard-core-final-f5qrnndq4-70sofia113-1918s-projects.vercel.app",
+  "git_commit": "4c7eaa1",
+  "observed_at": "2026-07-06T04:08:03.795Z",
+  "underwriting_api": {
+    "ok": true,
+    "status": 200,
+    "item_count": 9,
+    "risk_score": 0,
+    "overall_underwriting_risk": "low"
+  },
+  "tom_checks": {
+    "check_1_panel_no_factory_uw_phrases": {
+      "question": "Underwriting 패널 — 공장 단정문(가입 가능/거절/할증/표준체) 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "forbidden_phrase_hits": [],
+        "factory_korean_hits": [],
+        "forbidden_uw_voice_hits": [],
+        "why_lines": [
+          "현재 확인되는 건강 자료가 제한적이어서, 심혈관 보장 관련 자료를 함께 보면서 판단하겠습니다.",
+          "현재 확인되는 건강 자료가 제한적이어서, 수술비 관련 자료를 함께 보면서 판단하겠습니다.",
+          "현재 확인되는 건강 자료가 제한적이어서, 입원비 관련 자료를 함께 보면서 판단하겠습니다.",
+          "현재 확인되는 건강 자료가 제한적이어서, 운전자보험 관련 자료를 함께 보면서 판단하겠습니다."
+        ]
+      }
+    },
+    "check_2_no_claude_explanation_block": {
+      "question": "Claude 설명 — '인수 위험 Claude 설명' / claude_explanation 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "claude_explanation": null,
+        "claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_03_S1",
+          "explanation_mode": "blocked"
+        },
+        "ai_page_html_has_uw_claude_block": false,
+        "note": "SPA shell may not include panel text in initial HTML — API + panel voice layer primary"
+      }
+    },
+    "check_3_key_voice_present": {
+      "question": "KEY voice — 보류형 문장('현재 확인되는…' + '단정하지 않겠습니다') 형태 남았는가?",
+      "pass": true,
+      "evidence": {
+        "why_lines": [
+          "현재 확인되는 건강 자료가 제한적이어서, 심혈관 보장 관련 자료를 함께 보면서 판단하겠습니다.",
+          "현재 확인되는 건강 자료가 제한적이어서, 수술비 관련 자료를 함께 보면서 판단하겠습니다.",
+          "현재 확인되는 건강 자료가 제한적이어서, 입원비 관련 자료를 함께 보면서 판단하겠습니다.",
+          "현재 확인되는 건강 자료가 제한적이어서, 운전자보험 관련 자료를 함께 보면서 판단하겠습니다."
+        ],
+        "caveat_lines": [
+          "다만 현재 자료만으로는 가입 가능 여부를 단정하지 않겠습니다.",
+          "다만 현재 자료만으로는 가입 가능 여부를 단정하지 않겠습니다.",
+          "다만 현재 자료만으로는 가입 가능 여부를 단정하지 않겠습니다.",
+          "다만 현재 자료만으로는 가입 가능 여부를 단정하지 않겠습니다."
+        ]
+      }
+    },
+    "check_4_json_structured_only": {
+      "question": "Underwriting JSON — uw_reason_codes/review_step_code only, no reason/recommended_next_step/claude_explanation?",
+      "pass": true,
+      "evidence": {
+        "risk_score": 0,
+        "overall_underwriting_risk": "low",
+        "item_count": 9,
+        "violations": [],
+        "pass": true,
+        "samples": [
+          {
+            "coverage_label": "심혈관 보장",
+            "underwriting_status": "unknown",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "health_memory_limited"
+            ],
+            "review_step_code": "add_health_memory_context",
+            "evidence_codes": [
+              "memory_confidence_low"
+            ],
+            "required_document_codes": [
+              "additional_health_context"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "수술비",
+            "underwriting_status": "unknown",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "health_memory_limited"
+            ],
+            "review_step_code": "add_health_memory_context",
+            "evidence_codes": [
+              "memory_confidence_low"
+            ],
+            "required_document_codes": [
+              "additional_health_context"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "입원비",
+            "underwriting_status": "unknown",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "health_memory_limited"
+            ],
+            "review_step_code": "add_health_memory_context",
+            "evidence_codes": [
+              "memory_confidence_low"
+            ],
+            "required_document_codes": [
+              "additional_health_context"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "운전자보험",
+            "underwriting_status": "unknown",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "health_memory_limited"
+            ],
+            "review_step_code": "add_health_memory_context",
+            "evidence_codes": [
+              "memory_confidence_low"
+            ],
+            "required_document_codes": [
+              "additional_health_context"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "사망보험",
+            "underwriting_status": "unknown",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "health_memory_limited"
+            ],
+            "review_step_code": "add_health_memory_context",
+            "evidence_codes": [
+              "memory_confidence_low"
+            ],
+            "required_document_codes": [
+              "additional_health_context"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "치매/간병",
+            "underwriting_status": "unknown",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "health_memory_limited"
+            ],
+            "review_step_code": "add_health_memory_context",
+            "evidence_codes": [
+              "memory_confidence_low"
+            ],
+            "required_document_codes": [
+              "additional_health_context"
+            ],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "암보험",
+            "underwriting_status": "likely_standard",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "coverage_gap_priority",
+              "no_elevated_health_signal"
+            ],
+            "review_step_code": "review_with_gap_priority",
+            "evidence_codes": [
+              "memory_confidence_medium"
+            ],
+            "required_document_codes": [],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          },
+          {
+            "coverage_label": "뇌혈관 보장",
+            "underwriting_status": "likely_standard",
+            "risk_level": "low",
+            "uw_reason_codes": [
+              "coverage_gap_priority",
+              "no_elevated_health_signal"
+            ],
+            "review_step_code": "review_with_gap_priority",
+            "evidence_codes": [
+              "memory_confidence_medium"
+            ],
+            "required_document_codes": [],
+            "has_forbidden_reason": false,
+            "has_forbidden_recommended_next_step": false
+          }
+        ],
+        "api_claude_explanation": null,
+        "api_claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_03_S1",
+          "explanation_mode": "blocked"
+        }
+      }
+    }
+  },
+  "all_four_pass": true,
+  "status": "awaiting_tom_commit_push_go",
+  "jerry_pass_declaration": "none"
+}

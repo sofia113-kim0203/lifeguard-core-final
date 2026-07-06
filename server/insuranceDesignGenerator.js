@@ -198,7 +198,7 @@ function buildStepPlan({ requiredDocuments, top2, keepExisting }) {
     steps.push({
       step: steps.length + 1,
       action: `${item.coverage_label} 보장 검토`,
-      detail: item.recommended_next_step ?? item.reason,
+      detail: (item.reason_codes ?? []).join(", ") || item.review_step_code || `${item.coverage_label} 보장 검토`,
     });
   }
   if (keepExisting.length) {
@@ -265,7 +265,7 @@ export function buildCustomerInsuranceDesignPlan({
   );
 
   const required_documents = uniqueStrings(
-    allRecommendations.flatMap((item) => item.required_documents ?? []),
+    allRecommendations.flatMap((item) => item.required_document_codes ?? item.required_documents ?? []),
   );
 
   const memory_sources_used = uniqueStrings(
