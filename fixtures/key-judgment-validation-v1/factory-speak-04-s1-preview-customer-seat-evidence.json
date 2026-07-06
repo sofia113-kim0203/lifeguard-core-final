@@ -1,0 +1,96 @@
+{
+  "schema_version": "factory-speak-04-s1-preview-customer-seat-v1",
+  "audit": "factory_speak_04_s1_preview_customer_seat",
+  "note": "Observation only — Tom declares Commit/Push GO. Jerry does not declare PASS.",
+  "tom_one_liner": "Design 공장은 설계 summary를 말하지 않는다. codes만 계산하고, 고객에게는 ONE KEY가 신중하게 말한다.",
+  "preview_base": "https://lifeguard-core-final-pz6jwgemf-70sofia113-1918s-projects.vercel.app",
+  "git_commit": "67858ff",
+  "observed_at": "2026-07-06T04:47:03.447Z",
+  "design_api": {
+    "ok": true,
+    "status": 200,
+    "design_id": "fdf3e817-0133-4896-9200-54f49525fcdc",
+    "priority_count": 2,
+    "plan_step_count": 5
+  },
+  "tom_checks": {
+    "check_1_panel_no_factory_design_phrases": {
+      "question": "Design 패널 — 공장 summary 문장(고객님은/기존/보강 검토 composite) 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "forbidden_phrase_hits": [],
+        "factory_korean_hits": [],
+        "lead": "현재 확인된 자료를 기준으로 뇌혈관부터 같이 살펴보겠습니다.",
+        "summary": "현재 확인된 자료를 기준으로 뇌혈관과 암 축부터 같이 설계 방향을 보면 됩니다. 유지하고 볼 축은 실손 쪽입니다."
+      }
+    },
+    "check_2_no_claude_explanation_block": {
+      "question": "Claude 설명 — '설계안 Claude 설명' / claude_explanation 없어졌는가?",
+      "pass": true,
+      "evidence": {
+        "claude_explanation": null,
+        "claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_04_S1",
+          "explanation_mode": "blocked"
+        },
+        "ai_page_html_has_design_claude_block": false,
+        "note": "SPA shell may not include panel text in initial HTML — API + panel voice layer primary"
+      }
+    },
+    "check_3_key_voice_present": {
+      "question": "KEY voice — '현재 확인된 자료 기준으로…' + hedged caveat 형태인가?",
+      "pass": true,
+      "evidence": {
+        "lead": "현재 확인된 자료를 기준으로 뇌혈관부터 같이 살펴보겠습니다.",
+        "summary": "현재 확인된 자료를 기준으로 뇌혈관과 암 축부터 같이 설계 방향을 보면 됩니다. 유지하고 볼 축은 실손 쪽입니다.",
+        "budget": "월 예산은 Memory에 아직 충분히 기록되지 않아, 자료를 함께 보면서 범위를 정하겠습니다.",
+        "caveat": "다만 특정 상품 가입이나 보험료·인수 결과는 지금 단정하지 않고, 고객 상황을 보면서 설계 방향을 함께 결정하겠습니다.",
+        "next_steps": [
+          "함께 준비할 자료",
+          "뇌혈관부터 같이 살펴볼 설계",
+          "암부터 같이 살펴볼 설계",
+          "유지하고 볼 보장"
+        ]
+      }
+    },
+    "check_4_json_structured_only": {
+      "question": "Design JSON — plan_step_codes/design_reason_codes/budget_band_code only, no design_summary/next_actions/claude_explanation?",
+      "pass": true,
+      "evidence": {
+        "design_id": "fdf3e817-0133-4896-9200-54f49525fcdc",
+        "design_priority": "high",
+        "plan_step_codes": [
+          "prepare_documents",
+          "review_coverage_brain",
+          "review_coverage_cancer",
+          "confirm_keep_existing",
+          "agent_consultation"
+        ],
+        "design_reason_codes": [
+          "coverage_gap_priority",
+          "keep_existing_held",
+          "memory_budget_unknown",
+          "underwriting_review_signal",
+          "add_coverage_focus"
+        ],
+        "budget_band_code": "budget_unknown",
+        "priority_coverages": [
+          "뇌혈관",
+          "암"
+        ],
+        "violations": [],
+        "pass": true,
+        "api_claude_explanation": null,
+        "api_claude_meta": {
+          "skipped": true,
+          "reason": "FACTORY_SPEAK_04_S1",
+          "explanation_mode": "blocked"
+        }
+      }
+    }
+  },
+  "all_four_pass": true,
+  "status": "awaiting_tom_commit_push_go",
+  "jerry_pass_declaration": "none"
+}

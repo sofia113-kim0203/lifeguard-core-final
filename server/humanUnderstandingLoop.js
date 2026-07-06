@@ -1950,9 +1950,12 @@ export function finalizeHumanSalesDirectorResponse(input = {}) {
             input.customerState.designContext.priority_coverages ?? [],
           design_keep_coverages:
             input.customerState.designContext.keep_existing_coverages ?? [],
-          design_next_actions: input.customerState.designContext.next_actions ?? [],
-          design_title: input.customerState.designContext.design_title ?? null,
-          design_summary: input.customerState.designContext.design_summary ?? null,
+          design_next_actions: (
+            input.customerState.designContext.priority_coverages ?? []
+          ).slice(0, 2),
+          design_reason_codes: input.customerState.designContext.design_reason_codes ?? [],
+          design_plan_step_codes: input.customerState.designContext.plan_step_codes ?? [],
+          design_budget_band_code: input.customerState.designContext.budget_band_code ?? null,
           design_used:
             input.factBundle?.design_used === true ||
             input.customerState.designContext.loaded === true,

@@ -1,0 +1,214 @@
+{
+  "schema_version": "factory-speak-04-readonly-design-audit-v1",
+  "audit": "factory_speak_04_design_readonly",
+  "status": "readonly_complete · implementation_forbidden",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-06T04:22:00.000Z",
+  "git_main_head": "67858ff",
+  "tom_one_liner": "추천, 보장, 인수심사 공장의 입을 닫았다. 다음은 설계 공장의 입을 닫는다.",
+  "factory_speak_progress": {
+    "recommendation_speak": "merged_main_fs01_s1_pr174",
+    "coverage_gap_speak": "merged_main_fs02_s1_pr175",
+    "underwriting_speak": "merged_main_fs03_s1_pr176",
+    "design_speak": "readonly_audit_only"
+  },
+  "investigation_targets": [
+    "server/insuranceDesignGenerator.js",
+    "server/customerInsuranceDesignCore.js",
+    "server/salesDirectorInsuranceDesignContext.js",
+    "server/keyBrain/returnJudgmentFirstSpeak.js",
+    "src/components/AiRecommendationPanel.jsx",
+    "server/panelClaudeExplanationHydration.js",
+    "api/customer-insurance-design.js",
+    "server/rebalancingEngine.js",
+    "server/recommendationEngine.js",
+    "server/keyJudgmentRules.js"
+  ],
+  "tom_five_findings": {
+    "1_factory_structured_plan": {
+      "verdict": "KEEP_AS_FACTORY — plan skeleton exists; needs code-only customer fields",
+      "evidence": [
+        "insuranceDesignGenerator.js buildCustomerInsuranceDesignPlan — design_id, design_priority, confidence_level, insurance_goal",
+        "included_coverages[] — coverage_category, coverage_label, recommendation_type, priority, gap_level, underwriting_status, role keep|new",
+        "monthly_budget_range — min/max numeric + label (label is Korean factory speak)",
+        "recommendation_sources_used — rank/category/type/score structured",
+        "agent_full_details — internal only (coverage_gap_result, underwriting_result, full_recommendation_ranking)",
+        "Legacy path generateInsuranceDesignDraft — design_focus, rationale reason_codes, warnings codes (separate draft API; less used in panel pipeline)"
+      ],
+      "gap": "Structured plan mixed with Korean summary/actions in same customer_visible_design object"
+    },
+    "2_factory_customer_facing_sentences": {
+      "verdict": "MOVE_TO_KEY — primary FS04 target",
+      "examples": [
+        "buildDesignSummary(): \"{name} 고객 · 기존 {keep} 유지 · {new} 보강 검토 · 월 {min}원 ~ {max}원 (Memory 예산 기준)\"",
+        "buildStepPlan action: \"{coverage_label} 보장 검토\"",
+        "buildStepPlan action: \"필요 서류 준비\" + detail joined doc codes/strings",
+        "buildStepPlan action: \"설계사·보험사 심사 상담\" + detail: \"인수심사 결과와 보험료를 확인한 뒤 최종 가입 여부를 결정합니다.\"",
+        "customer_visible_design.next_actions — copied from step_by_step_plan.action (factory Korean)",
+        "customer_visible_design.design_summary — full factory composite sentence",
+        "customer_visible_design.monthly_budget_range — Korean label string on panel",
+        "disclaimer: \"본 설계안은 … 최종 가입·보험료·인수 결과를 확정하지 않습니다.\" (hedged but still factory-authored prose on panel)",
+        "Legacy riskWarnings(): maps health_risk_items with item.reason (pre-FS03 Korean if old jobs)"
+      ],
+      "fields_to_remove_or_neutralize": [
+        "design_summary",
+        "next_actions (Korean action strings)",
+        "step_by_step_plan.action/detail (customer-facing copy)",
+        "monthly_budget_range.label in customer payload (keep min/max codes)",
+        "consultation_points in agent_full_details (detail string echo)"
+      ],
+      "proposed_replacement": "plan_step_codes + design_reason_codes + budget_band_code (mirror FS01/02/03 code pattern)"
+    },
+    "3_claude_explanation": {
+      "verdict": "DELETE_OR_DISABLE — only remaining panel Claude path among Factory Speak 01-04",
+      "active_paths": [
+        "customerInsuranceDesignCore.js handleCustomerInsuranceDesignRequest — claude_explanation when skipClaude=false",
+        "panelClaudeExplanationHydration.js — insurance_design NOT blocked (recommendation FS01, gap FS02, uw FS03 blocked)",
+        "AiRecommendationPanel.jsx — \"설계안 Claude 설명\" block + hydrateMissingClaudeExplanations design path still active",
+        "buildInsuranceDesignExplanationPrompt — dumps full insurance_design + customer_visible_design JSON to Claude"
+      ],
+      "fs04_s1_target_meta": "FACTORY_SPEAK_04_S1 blocked (proposed)"
+    },
+    "4_panel_direct_factory_text": {
+      "verdict": "MOVE_TO_KEY — panel renders customer_visible_design raw",
+      "component": "src/components/AiRecommendationPanel.jsx 보험설계안 card",
+      "currently_shows_raw": [
+        "design_title",
+        "design_summary",
+        "monthly_budget_range (label string)",
+        "priority_coverages (label list only — acceptable if KEY frames)",
+        "keep_existing_coverages",
+        "additional_review_coverages",
+        "pre_enrollment_cautions (uw status strings e.g. likely_surcharge)",
+        "required_documents (codes/strings unmapped)",
+        "next_actions (factory step actions verbatim)"
+      ],
+      "fs_analog": "GapListItem→gapPanelKeyVoice · UnderwritingListItem→underwritingPanelKeyVoice · needs designPanelKeyVoice.js"
+    },
+    "5_key_already_reclaimed_speak": {
+      "verdict": "DELETE_FORBIDDEN — do not break",
+      "paths": [
+        {
+          "path": "returnJudgmentFirstSpeak.js CONN-004 appendReturnJudgmentDesignWeave",
+          "pattern": "KEY action weave only: \"{label}부터 설계안을 같이 살펴보겠습니다.\" — not factory summary passthrough",
+          "note": "CONN-004 wired on main (post conn-004-readonly audit); uses design_next_actions/design_priority_coverages from factBundle"
+        },
+        {
+          "path": "keyJudgmentRules.js design_priority_judgment",
+          "pattern": "저장된 설계 기준으로, 지금 우선 같이 짚을 축은 … — hedged, no product enrollment"
+        },
+        {
+          "path": "keyJudgmentRules.js design_review_judgment",
+          "pattern": "PARTIAL RISK — quotes factBundle.design_summary verbatim (factory sentence into KEY voice)",
+          "fs04_note": "After FS04, design_review_judgment must read codes/labels only, not design_summary prose"
+        },
+        {
+          "path": "salesDirectorInsuranceDesignContext.js",
+          "pattern": "Read-only customer_visible_design loader for KEY; exposes next_actions/pre_enrollment_cautions to factBundle",
+          "fs04_note": "Loader OK; fields should become structured codes before KEY speak"
+        }
+      ]
+    }
+  },
+  "classification": {
+    "KEEP_AS_FACTORY": [
+      "design_id",
+      "design_priority",
+      "confidence_level",
+      "insurance_goal",
+      "included_coverages[].coverage_category",
+      "included_coverages[].coverage_label",
+      "included_coverages[].recommendation_type",
+      "included_coverages[].priority",
+      "included_coverages[].gap_level",
+      "included_coverages[].underwriting_status",
+      "included_coverages[].role",
+      "keep_existing_coverages[] / recommended_new_coverages[] structured objects",
+      "monthly_budget_range.min / max",
+      "recommendation_sources_used",
+      "required_document_codes (aggregate from reco — post-FS03)",
+      "underwriting_warnings as status codes (likely_surcharge etc.)",
+      "agent_full_details (internal/agent only)"
+    ],
+    "MOVE_TO_KEY": [
+      "design_summary",
+      "design_title customer-facing framing (optional keep title template in KEY voice layer)",
+      "customer_visible_design.next_actions",
+      "step_by_step_plan[].action",
+      "step_by_step_plan[].detail",
+      "monthly_budget_range.label",
+      "pre_enrollment_cautions display strings",
+      "panel priority_coverages / keep_existing presentation prose",
+      "buildDesignReviewJudgment summary quote passthrough"
+    ],
+    "DELETE_OR_DISABLE": [
+      "claude_explanation (API + panel hydration + UI block)",
+      "buildInsuranceDesignExplanationPrompt customer-facing generation",
+      "panelClaudeExplanationHydration insurance_design path",
+      "AiRecommendationPanel \"설계안 Claude 설명\" section",
+      "hydrateMissingClaudeExplanations design Claude fetch"
+    ],
+    "DELETE_FORBIDDEN": [
+      "buildCustomerInsuranceDesignPlan engine (replace speak fields only)",
+      "backgroundAnalysisJobRunner insurance_design stage",
+      "CONN-004 design weave in returnJudgmentFirstSpeak.js",
+      "salesDirectorInsuranceDesignContext read path",
+      "keyJudgmentRules design_priority_judgment / design_review_judgment rules (refine speak, do not delete)",
+      "analysis_jobs migration / old job rewrite",
+      "rebalancingEngine design consumption (update field refs only)"
+    ]
+  },
+  "downstream_consumption": {
+    "rebalancingEngine.js": {
+      "uses": [
+        "insurance_design.step_by_step_plan detail in buildPriorityActions",
+        "design.design_summary / design_title in agent_full_details",
+        "design.underwriting_warnings raw strings in buildWarningItems",
+        "design.recommended_new_coverages structured"
+      ],
+      "fs04_action": "Switch priority action detail to plan_step_code / design_reason_codes"
+    },
+    "recommendationEngine.js": {
+      "uses": "Feeds top2/keep_existing into buildCustomerInsuranceDesignPlan — already structured post-FS01/03",
+      "fs04_action": "No factory speak added; design generator is consumer"
+    },
+    "customerConversationalTone.js": {
+      "uses": ["design_title", "next_actions from customer_visible_design"],
+      "fs04_action": "Use structured codes or KEY-generated snippets"
+    },
+    "claudePerformanceAudit.js": {
+      "uses": "design_title, priority_coverages, required_documents in audit bundle",
+      "fs04_action": "Structured fields only in prompt slice"
+    },
+    "salesDirectorKeyOrchestrator.js": {
+      "uses": "design_summary, design_next_actions into factBundle for CONN-004 weave + design_review_judgment",
+      "fs04_action": "factBundle should carry plan_step_codes not factory next_actions strings"
+    }
+  },
+  "proposed_fs04_s1_factory_item_shape": {
+    "design_id": "uuid",
+    "design_priority": "high",
+    "confidence_level": "medium",
+    "design_reason_codes": ["coverage_gap_priority", "budget_band_memory", "keep_existing_held"],
+    "plan_step_codes": ["prepare_documents", "review_coverage_cancer", "review_coverage_brain", "agent_consultation"],
+    "priority_coverage_categories": ["cancer", "brain"],
+    "keep_coverage_categories": ["medical_expense"],
+    "budget_band_code": "memory_budget_mid",
+    "budget_min": 85000,
+    "budget_max": 115000,
+    "required_document_codes": ["health_disclosure"],
+    "underwriting_warning_codes": ["likely_surcharge"],
+    "recommendation_sources_used": []
+  },
+  "proposed_fs04_s1_forbidden_fields": [
+    "design_summary",
+    "next_actions",
+    "step_by_step_plan.action",
+    "step_by_step_plan.detail",
+    "claude_explanation",
+    "consultation_points"
+  ],
+  "preview_audit_baseline_not_run": "FS04-S1 preview audit not started — READ ONLY complete",
+  "next_step": "Tom FS04-S1 implementation GO (mirror FS01→FS03 pattern) · designPanelKeyVoice.js · FACTORY_SPEAK_04_S1 Claude block",
+  "conn_004_status_update": "Repository conn-004-insurance-design-repository-reality-audit-v1.json predates CONN-004 weave merge — returnJudgmentFirstSpeak.js now has appendReturnJudgmentDesignWeave on main; FS04 must not remove weave"
+}

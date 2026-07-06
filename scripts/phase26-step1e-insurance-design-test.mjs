@@ -54,8 +54,10 @@ const report = {
   },
   insurance_design: {
     design_id: design.design_id,
-    design_title: design.design_title,
     design_priority: design.design_priority,
+    design_reason_codes: design.design_reason_codes,
+    plan_step_codes: design.plan_step_codes,
+    budget_band_code: design.budget_band_code,
     keep_existing: design.keep_existing_coverages.map((item) => item.coverage_label),
     recommended_new: design.recommended_new_coverages.map((item) => item.coverage_label),
     step_count: design.step_by_step_plan.length,
@@ -64,7 +66,9 @@ const report = {
   customer_visible_design: {
     priority_coverages: visible.priority_coverages,
     keep_existing: visible.keep_existing_coverages,
-    next_actions: visible.next_actions,
+    plan_step_codes: visible.plan_step_codes,
+    design_reason_codes: visible.design_reason_codes,
+    budget_band_code: visible.budget_band_code,
   },
   claude: fullResult.claude_explanation
     ? { has_explanation: true, preview: fullResult.claude_explanation.slice(0, 200) }
@@ -86,8 +90,12 @@ const report = {
       design_id: design.design_id,
     },
     customerVisibleSimplified: {
-      pass: visible.priority_coverages.length === 2 && visible.next_actions.length >= 1,
+      pass:
+        visible.priority_coverages.length === 2 &&
+        (visible.plan_step_codes?.length ?? 0) >= 1 &&
+        (visible.design_reason_codes?.length ?? 0) >= 1,
       priority_count: visible.priority_coverages.length,
+      plan_step_count: visible.plan_step_codes?.length ?? 0,
     },
     fullDesignPreserved: {
       pass: (design.agent_full_details?.full_recommendation_ranking?.length ?? 0) > 2,
@@ -105,7 +113,9 @@ const report = {
       recommendation_used: fullResult.recommendation_used,
     },
     claudeExplanation: {
-      pass: process.env.ANTHROPIC_API_KEY ? Boolean(fullResult.claude_explanation) : true,
+      pass:
+        fullResult.claude_explanation == null &&
+        fullResult.claude_meta?.reason === "FACTORY_SPEAK_04_S1",
       skipped: !process.env.ANTHROPIC_API_KEY,
     },
   },

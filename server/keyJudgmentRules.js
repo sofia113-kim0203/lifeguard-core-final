@@ -472,8 +472,7 @@ function buildDesignPriorityJudgment({ factBundle = {} } = {}) {
 function buildDesignReviewJudgment({ factBundle = {} } = {}) {
   const hasStored =
     factBundle.design_used === true || factBundle.has_stored_design_analysis === true;
-  const title = factBundle.design_title ?? null;
-  const summary = factBundle.design_summary ?? null;
+  const priority = (factBundle.design_priority_coverages ?? []).filter(Boolean).slice(0, 2);
   const keep = (factBundle.design_keep_coverages ?? []).filter(Boolean).slice(0, 2);
 
   if (!hasStored) {
@@ -481,20 +480,21 @@ function buildDesignReviewJudgment({ factBundle = {} } = {}) {
   }
 
   const parts = [];
-  if (title && summary) {
-    parts.push(`저장된 설계(${title}) 요약은 "${summary}"입니다.`);
-  } else if (summary) {
-    parts.push(`저장된 설계 요약은 "${summary}"입니다.`);
-  } else if (title) {
-    parts.push(`저장된 설계(${title}) 자료는 확인됐어요. 세부 구조는 같이 봐야 합니다.`);
+  if (priority.length >= 2) {
+    parts.push(
+      `저장된 설계 기준으로, ${priority[0]}과 ${priority[1]} 축부터 같이 설계 방향을 보면 됩니다.`,
+    );
+  } else if (priority.length === 1) {
+    parts.push(`저장된 설계 기준으로, ${priority[0]} 축부터 같이 설계 방향을 보면 됩니다.`);
   } else {
-    parts.push("저장된 설계 자료는 확인됐어요. 요약부터 같이 보면 됩니다.");
+    parts.push("저장된 설계 자료는 확인됐어요. 우선순위 축부터 같이 보면 됩니다.");
   }
 
   if (keep.length > 0) {
-    parts.push(`유지 축으로는 ${joinCoverageLabels(keep)} 쪽이 보입니다.`);
+    parts.push(`유지 축으로는 ${joinCoverageLabels(keep)} 쪽을 함께 보면 됩니다.`);
   }
 
+  parts.push("다만 특정 상품 가입이나 보험료·인수 결과는 지금 단정하지 않겠습니다.");
   return parts.join(" ");
 }
 

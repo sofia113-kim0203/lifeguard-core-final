@@ -2,6 +2,7 @@
  * Phase 27 — Customer-facing conversational tone helpers.
  * Friendly, professional Korean insurance advisor style.
  */
+import { buildDesignPanelNextSteps } from "../src/lib/designPanelKeyVoice.js";
 
 function findFact(facts, keyPart) {
   return (facts ?? []).find((fact) => String(fact.fact_key ?? "").includes(keyPart));
@@ -123,8 +124,10 @@ export function extractCustomerSituation(workingContext = {}) {
     gapLabels,
     recommendLabels,
     uwNotes,
-    designTitle: workingContext.designBundle?.customer_visible_design?.design_title ?? null,
-    nextActions: (workingContext.designBundle?.customer_visible_design?.next_actions ?? []).slice(0, 2),
+    designPriorityLabel: (workingContext.designBundle?.customer_visible_design?.priority_coverages ?? [])[0] ?? null,
+    nextActions: buildDesignPanelNextSteps(
+      workingContext.designBundle?.customer_visible_design ?? {},
+    ).slice(0, 2),
   };
 }
 

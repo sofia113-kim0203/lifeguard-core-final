@@ -44,6 +44,9 @@ export async function loadCustomerInsuranceDesign({ skipClaude = false } = {}) {
     usedMemorySources: Array.isArray(payload.used_memory_sources) ? payload.used_memory_sources : [],
     insuranceDesign: payload.insurance_design ?? null,
     customerVisibleDesign: payload.customer_visible_design ?? null,
+    requiredDocumentCodes: Array.isArray(payload.required_document_codes)
+      ? payload.required_document_codes
+      : [],
     requiredDocuments: Array.isArray(payload.required_documents) ? payload.required_documents : [],
     claudeExplanation: payload.claude_explanation ?? null,
     claudeMeta: payload.claude_meta ?? null,

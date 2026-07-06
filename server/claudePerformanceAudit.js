@@ -139,12 +139,18 @@ export function buildCompressedAnalysisSummary(workingContext) {
       keep_existing: keepExisting,
     },
     insurance_design: {
-      design_title: visibleDesign.design_title ?? designBundle?.insurance_design?.design_title,
+      design_priority: visibleDesign.design_priority ?? designBundle?.insurance_design?.design_priority ?? null,
+      design_reason_codes: visibleDesign.design_reason_codes ?? [],
+      plan_step_codes: visibleDesign.plan_step_codes ?? [],
+      budget_band_code: visibleDesign.budget_band_code ?? null,
       priority_coverages: visibleDesign.priority_coverages ?? [],
       keep_existing_coverages: visibleDesign.keep_existing_coverages ?? [],
-      required_documents: (visibleDesign.required_documents ?? designBundle?.insurance_design?.required_documents ?? []).slice(0, 5),
-      next_actions: (visibleDesign.next_actions ?? []).slice(0, 3),
-      pre_enrollment_cautions: (visibleDesign.pre_enrollment_cautions ?? []).slice(0, 3),
+      required_document_codes: (
+        visibleDesign.required_document_codes ??
+        designBundle?.insurance_design?.required_document_codes ??
+        []
+      ).slice(0, 5),
+      pre_enrollment_caution_codes: (visibleDesign.pre_enrollment_caution_codes ?? []).slice(0, 3),
     },
   };
 }

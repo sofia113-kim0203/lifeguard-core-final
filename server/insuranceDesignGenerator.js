@@ -185,46 +185,46 @@ function deriveDesignPriority(top2) {
   return "low";
 }
 
-function buildStepPlan({ requiredDocuments, top2, keepExisting }) {
-  const steps = [];
-  if (requiredDocuments.length) {
-    steps.push({
-      step: steps.length + 1,
-      action: "필요 서류 준비",
-      detail: requiredDocuments.join(", "),
-    });
-  }
-  for (const item of top2) {
-    steps.push({
-      step: steps.length + 1,
-      action: `${item.coverage_label} 보장 검토`,
-      detail: (item.reason_codes ?? []).join(", ") || item.review_step_code || `${item.coverage_label} 보장 검토`,
-    });
-  }
-  if (keepExisting.length) {
-    steps.push({
-      step: steps.length + 1,
-      action: "기존 보장 유지 확인",
-      detail: keepExisting.map((item) => item.coverage_label).join(", "),
-    });
-  }
-  steps.push({
-    step: steps.length + 1,
-    action: "설계사·보험사 심사 상담",
-    detail: "인수심사 결과와 보험료를 확인한 뒤 최종 가입 여부를 결정합니다.",
-  });
-  return steps;
+function deriveBudgetBandCode(monthlyBudget) {
+  if (monthlyBudget == null || Number.isNaN(Number(monthlyBudget))) return "budget_unknown";
+  return "memory_budget_band";
 }
 
-function buildDesignSummary({ customerName, top2, keepExisting, monthlyBudgetRange }) {
-  const newLabels = top2.map((item) => item.coverage_label).join(", ");
-  const keepLabels = keepExisting.map((item) => item.coverage_label).join(", ");
-  const parts = [];
-  if (customerName) parts.push(`${customerName} 고객`);
-  if (keepLabels) parts.push(`기존 ${keepLabels} 유지`);
-  if (newLabels) parts.push(`${newLabels} 보강 검토`);
-  parts.push(monthlyBudgetRange.label);
-  return parts.join(" · ");
+function deriveDesignReasonCodes(top2, keepExisting, monthlyBudget, underwritingWarnings) {
+  const codes = [];
+  if (top2.some((item) => ["critical", "high"].includes(item.coverage_gap_level))) {
+    codes.push("coverage_gap_priority");
+  }
+  if (keepExisting.length > 0) codes.push("keep_existing_held");
+  if (monthlyBudget != null && !Number.isNaN(Number(monthlyBudget))) {
+    codes.push("memory_budget_present");
+  } else {
+    codes.push("memory_budget_unknown");
+  }
+  if (underwritingWarnings.length > 0) codes.push("underwriting_review_signal");
+  if (top2.some((item) => item.recommendation_type === "add_coverage")) {
+    codes.push("add_coverage_focus");
+  }
+  if (top2.length === 0 && keepExisting.length > 0) codes.push("maintain_existing_focus");
+  return codes;
+}
+
+function buildPlanStepCodes({ requiredDocuments, top2, keepExisting }) {
+  const codes = [];
+  if (requiredDocuments.length) codes.push("prepare_documents");
+  for (const item of top2.slice(0, 2)) {
+    if (item.coverage_category) codes.push(`review_coverage_${item.coverage_category}`);
+  }
+  if (keepExisting.length) codes.push("confirm_keep_existing");
+  codes.push("agent_consultation");
+  return codes;
+}
+
+function buildStructuredStepPlan(planStepCodes) {
+  return planStepCodes.map((plan_step_code, index) => ({
+    step: index + 1,
+    plan_step_code,
+  }));
 }
 
 export function buildCustomerInsuranceDesignPlan({
@@ -264,7 +264,7 @@ export function buildCustomerInsuranceDesignPlan({
     ),
   );
 
-  const required_documents = uniqueStrings(
+  const required_document_codes = uniqueStrings(
     allRecommendations.flatMap((item) => item.required_document_codes ?? item.required_documents ?? []),
   );
 
@@ -279,19 +279,35 @@ export function buildCustomerInsuranceDesignPlan({
     recommendation_score: item.recommendation_score,
   }));
 
-  const step_by_step_plan = buildStepPlan({ requiredDocuments: required_documents, top2, keepExisting });
-
-  const design_title = customerName
-    ? `${customerName}님 맞춤 보험 설계안`
-    : "맞춤 보험 설계안";
+  const design_reason_codes = deriveDesignReasonCodes(
+    top2,
+    keepExisting,
+    monthly_budget,
+    underwriting_warnings,
+  );
+  const plan_step_codes = buildPlanStepCodes({
+    requiredDocuments: required_document_codes,
+    top2,
+    keepExisting,
+  });
+  const budget_band_code = deriveBudgetBandCode(monthly_budget);
+  const step_by_step_plan = buildStructuredStepPlan(plan_step_codes);
+  const priority_coverage_categories = top2.map((item) => item.coverage_category).filter(Boolean);
 
   const insurance_design = {
     design_id: randomUUID(),
-    design_title,
-    design_summary: buildDesignSummary({ customerName, top2, keepExisting, monthlyBudgetRange }),
-    target_customer_id: customer_id,
     design_priority: deriveDesignPriority(top2),
-    monthly_budget_range: monthlyBudgetRange,
+    design_reason_codes,
+    plan_step_codes,
+    budget_band_code,
+    budget_min: monthlyBudgetRange.min,
+    budget_max: monthlyBudgetRange.max,
+    target_customer_id: customer_id,
+    monthly_budget_range: {
+      min: monthlyBudgetRange.min,
+      max: monthlyBudgetRange.max,
+      band_code: budget_band_code,
+    },
     insurance_goal: insurance_goal ?? structuredMemory?.profile?.insurance_goal ?? null,
     included_coverages: [
       ...keep_existing_coverages.map((item) => ({ ...item, role: "keep" })),
@@ -299,8 +315,9 @@ export function buildCustomerInsuranceDesignPlan({
     ],
     keep_existing_coverages,
     recommended_new_coverages,
-    underwriting_warnings,
-    required_documents,
+    priority_coverage_categories,
+    underwriting_warning_codes: underwriting_warnings,
+    required_document_codes,
     step_by_step_plan,
     memory_sources_used,
     recommendation_sources_used,
@@ -312,32 +329,34 @@ export function buildCustomerInsuranceDesignPlan({
       underwriting_result: underwritingResult,
       coverage_gap_top_gaps: coverageGapResult.top_gaps ?? [],
       underwriting_surcharge_items: underwritingResult.likely_surcharge ?? [],
-      consultation_points: step_by_step_plan.map((step) => step.detail),
     },
-    disclaimer:
-      "본 설계안은 Customer Memory·보장공백·인수위험·추천 분석 기반 초안이며, 최종 가입·보험료·인수 결과를 확정하지 않습니다.",
   };
 
-  const additional_review = allRecommendations
+  const additional_review_categories = allRecommendations
     .filter(
       (item) =>
         !top2.some((top) => top.coverage_category === item.coverage_category) &&
         ["review_existing", "prepare_documents", "add_coverage"].includes(item.recommendation_type),
     )
     .slice(0, 3)
-    .map((item) => item.coverage_label);
+    .map((item) => item.coverage_category)
+    .filter(Boolean);
 
   const customer_visible_design = {
-    design_title: insurance_design.design_title,
-    design_summary: insurance_design.design_summary,
-    monthly_budget_range: monthlyBudgetRange.label,
+    design_priority: insurance_design.design_priority,
+    design_reason_codes,
+    plan_step_codes,
+    budget_band_code,
+    budget_min: monthlyBudgetRange.min,
+    budget_max: monthlyBudgetRange.max,
+    priority_coverage_categories,
     priority_coverages: top2.map((item) => item.coverage_label),
     keep_existing_coverages: keepExisting.map((item) => item.coverage_label),
-    additional_review_coverages: additional_review,
-    pre_enrollment_cautions: underwriting_warnings.slice(0, 5),
-    required_documents,
-    next_actions: step_by_step_plan.slice(0, 4).map((step) => step.action),
-    disclaimer: insurance_design.disclaimer,
+    keep_coverage_categories: keepExisting.map((item) => item.coverage_category).filter(Boolean),
+    additional_review_coverage_categories: additional_review_categories,
+    pre_enrollment_caution_codes: underwriting_warnings.slice(0, 5),
+    required_document_codes,
+    confidence_level: insurance_design.confidence_level,
   };
 
   return {

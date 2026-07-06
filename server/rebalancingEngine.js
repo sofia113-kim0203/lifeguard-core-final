@@ -377,10 +377,10 @@ function buildWarningItems({
 } = {}) {
   const warnings = [
     ...collectHealthWarnings(memoryFacts, healthProfile),
-    ...(design?.underwriting_warnings ?? []).map((message) => ({
+    ...(design?.underwriting_warning_codes ?? design?.underwriting_warnings ?? []).map((code) => ({
       warning_type: "underwriting",
       label: "인수심사 주의",
-      message,
+      message: code,
       memory_sources_used: design?.memory_sources_used ?? [],
       requires_agent_review: true,
     })),
@@ -482,8 +482,8 @@ function buildPriorityActions({ keepItems = [], addItems = [], reviewItems = [],
   for (const step of design?.step_by_step_plan?.slice(0, 2) ?? []) {
     actions.push({
       priority: actions.length + 1,
-      action: step.action,
-      detail: step.detail,
+      action: step.plan_step_code ?? step.action ?? "design_step",
+      detail: step.plan_step_code ?? step.detail ?? null,
     });
   }
   return actions.slice(0, 6);
@@ -521,8 +521,8 @@ function buildAgentFullDetails({
     design_reference: design
       ? {
           design_id: design.design_id,
-          design_title: design.design_title,
-          design_summary: design.design_summary,
+          design_priority: design.design_priority,
+          plan_step_codes: design.plan_step_codes ?? [],
         }
       : null,
     policy_comparisons: (input.insurance_holdings ?? []).map((policy) => ({
@@ -660,10 +660,13 @@ export function buildCustomerRebalancingPlan({
     customer_visible_rebalancing,
     agent_full_details,
     insurance_design_reference: insurance_design
-      ? { design_id: insurance_design.design_id, design_title: insurance_design.design_title }
+      ? { design_id: insurance_design.design_id, design_priority: insurance_design.design_priority }
       : null,
     customer_visible_design_reference: customer_visible_design
-      ? { design_title: customer_visible_design.design_title }
+      ? {
+          design_priority: customer_visible_design.design_priority,
+          plan_step_codes: customer_visible_design.plan_step_codes ?? [],
+        }
       : null,
     generated_at: generatedAt,
   };

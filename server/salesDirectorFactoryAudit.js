@@ -30,15 +30,15 @@ function isNonEmptyPayload(value) {
 function countDesignStoredRecords(payload = {}) {
   const visible = isNonEmptyPayload(payload.customer_visible_design)
     ? payload.customer_visible_design
-    : payload.design_title || payload.priority_coverages || payload.design_summary
+    : payload.priority_coverages || payload.plan_step_codes || payload.design_reason_codes
       ? payload
       : null;
 
   if (isNonEmptyPayload(visible)) {
     const priorities = (visible.priority_coverages ?? []).filter(Boolean);
     if (priorities.length > 0) return priorities.length;
-    if (visible.design_summary) return 1;
-    if (visible.design_title) return 1;
+    if ((visible.plan_step_codes ?? []).length > 0) return 1;
+    if ((visible.design_reason_codes ?? []).length > 0) return 1;
   }
 
   const plans = payload.plans ?? payload.designs ?? payload.items ?? [];

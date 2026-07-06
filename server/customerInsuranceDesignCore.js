@@ -5,9 +5,7 @@
 import { buildCustomerInsuranceDesignPlan } from "./insuranceDesignGenerator.js";
 import { buildInsuranceDesignInputFromAnalysis } from "./insuranceDesignInputBuilder.js";
 import { loadRecommendationAnalysisContext } from "./customerRecommendationCore.js";
-import { resolveAnthropicApiKey } from "./claudeGroundedExecutionCore.js";
-import { resolveClaudeModel, resolveSupabaseConfig } from "./policyTermsQaCore.js";
-import { attachPolicyMeta, buildPoliciesPromptBlock } from "./panelClaudePoliciesContext.js";
+import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
 import { createClient } from "@supabase/supabase-js";
 
 const DESIGN_SYSTEM_RULES = [
@@ -30,6 +28,50 @@ function createUserSupabaseClient(authHeader, env = process.env) {
   });
 }
 
+export function sanitizeDesignStructuredForPrompt(designBundle = {}) {
+  const pickDesign = (design = {}) => ({
+    design_id: design.design_id ?? null,
+    design_priority: design.design_priority ?? null,
+    design_reason_codes: design.design_reason_codes ?? [],
+    plan_step_codes: design.plan_step_codes ?? [],
+    budget_band_code: design.budget_band_code ?? null,
+    budget_min: design.budget_min ?? design.monthly_budget_range?.min ?? null,
+    budget_max: design.budget_max ?? design.monthly_budget_range?.max ?? null,
+    priority_coverage_categories: design.priority_coverage_categories ?? [],
+    keep_existing_coverages: (design.keep_existing_coverages ?? []).map((item) =>
+      typeof item === "string" ? item : item.coverage_category ?? item.coverage_label,
+    ),
+    recommended_new_coverages: (design.recommended_new_coverages ?? []).map((item) => ({
+      coverage_category: item.coverage_category ?? null,
+      coverage_label: item.coverage_label ?? null,
+      recommendation_type: item.recommendation_type ?? null,
+      priority: item.priority ?? null,
+    })),
+    underwriting_warning_codes: design.underwriting_warning_codes ?? [],
+    required_document_codes: design.required_document_codes ?? [],
+    confidence_level: design.confidence_level ?? null,
+  });
+
+  const visible = designBundle.customer_visible_design ?? {};
+  return {
+    insurance_design: pickDesign(designBundle.insurance_design ?? {}),
+    customer_visible_design: {
+      design_priority: visible.design_priority ?? null,
+      design_reason_codes: visible.design_reason_codes ?? [],
+      plan_step_codes: visible.plan_step_codes ?? [],
+      budget_band_code: visible.budget_band_code ?? null,
+      budget_min: visible.budget_min ?? null,
+      budget_max: visible.budget_max ?? null,
+      priority_coverage_categories: visible.priority_coverage_categories ?? [],
+      priority_coverages: visible.priority_coverages ?? [],
+      keep_existing_coverages: visible.keep_existing_coverages ?? [],
+      pre_enrollment_caution_codes: visible.pre_enrollment_caution_codes ?? [],
+      required_document_codes: visible.required_document_codes ?? [],
+      confidence_level: visible.confidence_level ?? null,
+    },
+  };
+}
+
 export function buildInsuranceDesignExplanationPrompt(
   structuredMemory,
   designBundle,
@@ -37,20 +79,22 @@ export function buildInsuranceDesignExplanationPrompt(
   policies = [],
   countContract = null,
 ) {
+  const structuredDesign = sanitizeDesignStructuredForPrompt(designBundle);
   const user = [
     "Explain the insurance design plan to the customer using only the blocks below.",
     "",
     "A. customer_memory_summary:",
     JSON.stringify(structuredMemory, null, 2),
     "",
-    "B.",
-    buildPoliciesPromptBlock(policies, countContract),
-    "",
     "C. coverage_gap_summary:",
     JSON.stringify(
       {
         overall_risk: context.coverageGapResult?.overall_risk,
-        top_gaps: context.coverageGapResult?.top_gaps,
+        top_gaps: (context.coverageGapResult?.top_gaps ?? []).map((item) => ({
+          coverage_category: item.coverage_category,
+          gap_level: item.gap_level,
+          action_code: item.action_code,
+        })),
       },
       null,
       2,
@@ -60,24 +104,30 @@ export function buildInsuranceDesignExplanationPrompt(
     JSON.stringify(
       {
         overall_underwriting_risk: context.underwritingResult?.overall_underwriting_risk,
-        likely_surcharge: context.underwritingResult?.likely_surcharge?.map((item) => item.coverage_label),
+        likely_surcharge: (context.underwritingResult?.likely_surcharge ?? []).map((item) => ({
+          coverage_category: item.coverage_category,
+          underwriting_status: item.underwriting_status,
+          review_step_code: item.review_step_code,
+        })),
       },
       null,
       2,
     ),
     "",
     "E. recommendation_top2:",
-    JSON.stringify(context.recommendationResult?.customer_visible_top2, null, 2),
-    "",
-    "F. insurance_design:",
     JSON.stringify(
-      {
-        insurance_design: designBundle.insurance_design,
-        customer_visible_design: designBundle.customer_visible_design,
-      },
+      (context.recommendationResult?.customer_visible_top2 ?? []).map((item) => ({
+        coverage_category: item.coverage_category,
+        coverage_label: item.coverage_label,
+        reason_codes: item.reason_codes,
+        recommendation_type: item.recommendation_type,
+      })),
       null,
       2,
     ),
+    "",
+    "F. insurance_design (structured codes only — do not invent binding product enrollment):",
+    JSON.stringify(structuredDesign, null, 2),
     "",
     "Required sections in Korean:",
     "1) 고객 Memory 기준 현재 상황",
@@ -91,47 +141,6 @@ export function buildInsuranceDesignExplanationPrompt(
   ].join("\n");
 
   return { system: DESIGN_SYSTEM_RULES, user };
-}
-
-async function callAnthropic({ apiKey, modelName, system, user, fetchImpl = fetch }) {
-  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 1600,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      reason: "CLAUDE_API_ERROR",
-      errorMessage: `Claude API error (${response.status})`,
-    };
-  }
-
-  const data = await response.json();
-  const text = Array.isArray(data?.content)
-    ? data.content
-        .filter((block) => block?.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim()
-    : "";
-
-  return {
-    ok: true,
-    answer: text,
-    model: data?.model ?? modelName,
-    provider: "anthropic",
-  };
 }
 
 async function resolveCustomerId(supabase) {
@@ -163,7 +172,6 @@ export async function loadInsuranceDesignAnalysisContext(supabase, customerId) {
     structuredMemory: recContext.structuredMemory,
   });
 
-  // enrich input with policies/health from recommendation context's underlying data
   const designBundle = buildCustomerInsuranceDesignPlan({
     customer_id: customerId,
     structuredMemory: recContext.structuredMemory,
@@ -213,11 +221,6 @@ export async function handleAllAnalysisPanelsRequest({
     return { ok: false, reason: "CUSTOMER_ID_REQUIRED", error_message: "customer_id is required." };
   }
 
-  // Single server-side pass: this context cascades coverage -> underwriting -> recommendation
-  // -> insurance design, all via LLM-free engines, so the four recommendation panels are
-  // computed together and returned in ONE response. No analysis_jobs, no per-stage polling,
-  // and no Claude call here (the panel hydrates explanations lazily) -> the screen renders
-  // immediately instead of waiting on a job that polls one stage at a time.
   const context = await loadInsuranceDesignAnalysisContext(supabase, customerId);
 
   return {
@@ -257,63 +260,14 @@ export async function handleCustomerInsuranceDesignRequest({
   }
 
   const context = await loadInsuranceDesignAnalysisContext(supabase, customerId);
-  const countContract = {
-    active_policy_count: context.active_policy_count ?? null,
-    active_policy_count_source: context.active_policy_count_source ?? null,
-    active_policy_ids: context.active_policy_ids ?? null,
-    policy_count: context.policy_count ?? null,
+
+  // FACTORY-SPEAK-04-S1 — design factory must not speak to customers via Claude explanation.
+  const claudeExplanation = null;
+  const claudeMeta = {
+    skipped: true,
+    reason: "FACTORY_SPEAK_04_S1",
+    explanation_mode: "blocked",
   };
-
-  let claudeExplanation = null;
-  let claudeMeta = { skipped: true, reason: "skipClaude" };
-
-  if (!skipClaude) {
-    const anthropicApiKey = resolveAnthropicApiKey(env);
-    if (!anthropicApiKey) {
-      claudeMeta = attachPolicyMeta(
-        { skipped: true, reason: "ANTHROPIC_NOT_CONFIGURED" },
-        context.policies ?? [],
-        countContract,
-      );
-    } else {
-      const prompt = buildInsuranceDesignExplanationPrompt(
-        context.structuredMemory,
-        context.designBundle,
-        context,
-        context.policies ?? [],
-        countContract,
-      );
-      const claudeResult = await callAnthropic({
-        apiKey: anthropicApiKey,
-        modelName: resolveClaudeModel(env),
-        system: prompt.system,
-        user: prompt.user,
-        fetchImpl,
-      });
-      if (claudeResult.ok) {
-        claudeExplanation = claudeResult.answer;
-        claudeMeta = attachPolicyMeta(
-          {
-            skipped: false,
-            model_name: claudeResult.model,
-            provider: claudeResult.provider,
-          },
-          context.policies ?? [],
-          countContract,
-        );
-      } else {
-        claudeMeta = attachPolicyMeta(
-          {
-            skipped: true,
-            reason: claudeResult.reason,
-            error_message: claudeResult.errorMessage,
-          },
-          context.policies ?? [],
-          countContract,
-        );
-      }
-    }
-  }
 
   return {
     ok: true,
@@ -327,7 +281,7 @@ export async function handleCustomerInsuranceDesignRequest({
     used_memory_sources: context.input.memory_sources_used,
     insurance_design: context.designBundle.insurance_design,
     customer_visible_design: context.designBundle.customer_visible_design,
-    required_documents: context.designBundle.insurance_design.required_documents,
+    required_document_codes: context.designBundle.insurance_design.required_document_codes,
     claude_explanation: claudeExplanation,
     claude_meta: claudeMeta,
   };

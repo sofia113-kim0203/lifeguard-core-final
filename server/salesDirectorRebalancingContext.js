@@ -26,7 +26,12 @@ function extractDesignBundle(payload = null) {
       customer_visible_design: nestedVisible ?? payload,
     };
   }
-  if (payload.design_title || payload.priority_coverages || payload.design_summary) {
+  if (
+    payload.priority_coverages ||
+    payload.plan_step_codes ||
+    payload.design_reason_codes ||
+    payload.design_id
+  ) {
     return {
       insurance_design: payload,
       customer_visible_design: payload,
@@ -75,8 +80,8 @@ export function buildRebalancingContextFromAnalysisJob(
   const hasDesignReference =
     Boolean(plan.insurance_design_reference) ||
     Boolean(designBundle.insurance_design?.design_id) ||
-    Boolean(designBundle.insurance_design?.design_title) ||
-    Boolean(designBundle.customer_visible_design?.design_summary) ||
+    (designBundle.insurance_design?.plan_step_codes?.length ?? 0) > 0 ||
+    (designBundle.customer_visible_design?.plan_step_codes?.length ?? 0) > 0 ||
     (designBundle.customer_visible_design?.priority_coverages?.length ?? 0) > 0;
   const loaded = itemCount > 0 && hasDesignReference;
 
