@@ -224,27 +224,30 @@ export async function generatePanelClaudeExplanations({
   }
 
   if (designBundle) {
-    const prompt = buildInsuranceDesignExplanationPrompt(
-      structuredMemory,
-      designBundle,
-      {
-        coverageGapResult,
-        underwritingResult,
-        recommendationResult,
-      },
-      policies,
-      policyFields,
-    );
-    explanations.insurance_design = await generatePanelExplanation({
-      panelKey: "insurance_design",
-      prompt,
-      policies,
-      countContract: policyFields,
-      anthropicApiKey,
-      modelName,
-      fetchImpl,
-      maxTokens: 1600,
-    });
+    const FACTORY_SPEAK_04_S1_BLOCK_DESIGN_CLAUDE = true;
+    if (!FACTORY_SPEAK_04_S1_BLOCK_DESIGN_CLAUDE) {
+      const prompt = buildInsuranceDesignExplanationPrompt(
+        structuredMemory,
+        designBundle,
+        {
+          coverageGapResult,
+          underwritingResult,
+          recommendationResult,
+        },
+        policies,
+        policyFields,
+      );
+      explanations.insurance_design = await generatePanelExplanation({
+        panelKey: "insurance_design",
+        prompt,
+        policies,
+        countContract: policyFields,
+        anthropicApiKey,
+        modelName,
+        fetchImpl,
+        maxTokens: 1600,
+      });
+    }
   }
 
   const policySummary = resolvePanelHydrationPolicySummary(unified);

@@ -1,0 +1,49 @@
+{
+  "slice": "FACTORY-SPEAK-04-S1",
+  "factory": "insurance_design",
+  "captured_at": "2026-07-06T04:30:00.000Z",
+  "branch": "feat/factory-speak-04-s1-design",
+  "tom_go_scope": {
+    "design_summary_removed": true,
+    "next_actions_removed": true,
+    "claude_explanation_blocked": true,
+    "designPanelKeyVoice_added": true,
+    "key_voice_from_structured_codes": true,
+    "design_review_judgment_structured_only": true
+  },
+  "forbidden_customer_fields": [
+    "design_summary",
+    "next_actions",
+    "claude_explanation",
+    "design_title"
+  ],
+  "required_structured_fields": [
+    "design_reason_codes",
+    "plan_step_codes",
+    "budget_band_code",
+    "priority_coverages",
+    "pre_enrollment_caution_codes",
+    "required_document_codes"
+  ],
+  "local_tests": {
+    "factory_speak_04_s1_design_unit": {
+      "command": "npm run test:factory-speak-04-s1-design",
+      "pass": true,
+      "count": "7/7"
+    },
+    "factory_speak_01_s1_recommendation": { "pass": true, "count": "5/5" },
+    "factory_speak_02_s1_coverage_gap": { "pass": true, "count": "7/7" },
+    "factory_speak_03_s1_underwriting": { "pass": true, "count": "7/7" },
+    "conn_004_design_weave": { "pass": true, "count": "8/8" },
+    "conn_005_continuity_rebalancing": { "pass": true, "count": "10/10" }
+  },
+  "claude_block": {
+    "reason": "FACTORY_SPEAK_04_S1",
+    "panel_hydration_blocked": true,
+    "api_claude_explanation": null
+  },
+  "preview_audit": {
+    "status": "pending",
+    "note": "Tom Preview GO 후 deploy + 4-check customer-seat audit 필요"
+  }
+}

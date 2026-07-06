@@ -23,8 +23,17 @@ import {
   buildUnderwritingPanelItemCaveat,
   buildUnderwritingPanelItemLead,
   buildUnderwritingPanelItemWhy,
+  formatRequiredDocumentCodes,
   getUnderwritingPanelReviewStepLabel,
 } from "../lib/underwritingPanelKeyVoice.js";
+import {
+  buildDesignPanelBudgetLine,
+  buildDesignPanelCautionLine,
+  buildDesignPanelCaveat,
+  buildDesignPanelLead,
+  buildDesignPanelNextSteps,
+  buildDesignPanelSummary,
+} from "../lib/designPanelKeyVoice.js";
 import { isCustomerUnauthorizedError } from "../lib/customerApiAuth.js";
 import { loadAllCustomerAnalysis } from "../lib/customerAnalysisAll.js";
 import { loadCustomerInsuranceDesign } from "../lib/customerInsuranceDesign.js";
@@ -150,7 +159,12 @@ async function hydrateMissingClaudeExplanations(job, setters) {
     );
   }
 
-  if (panelNeedsClaudeHydration(claude, mapped.designBundle, "insurance_design")) {
+  // FACTORY-SPEAK-04-S1 — design panel Claude blocked; KEY speaks from structured codes.
+  const FACTORY_SPEAK_04_S1_BLOCK_DESIGN_CLAUDE = true;
+  if (
+    !FACTORY_SPEAK_04_S1_BLOCK_DESIGN_CLAUDE &&
+    panelNeedsClaudeHydration(claude, mapped.designBundle, "insurance_design")
+  ) {
     tasks.push(
       loadCustomerInsuranceDesign()
         .then((data) => ({
@@ -1255,16 +1269,24 @@ export default function AiRecommendationPanel({
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <div>
               <h4 style={{ ...S.sectionTitle, fontSize: "18px", color: "#f8fafc" }}>
-                {designResult.customerVisibleDesign.design_title}
+                보험 설계안
               </h4>
-              <div style={S.muted}>{designResult.customerVisibleDesign.design_summary}</div>
+              <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
+                {buildDesignPanelLead(designResult.customerVisibleDesign)}
+              </div>
+              <div style={{ ...S.muted, marginTop: "8px" }}>
+                {buildDesignPanelSummary(designResult.customerVisibleDesign)}
+              </div>
+              <div style={{ marginTop: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                {buildDesignPanelCaveat()}
+              </div>
             </div>
 
             <div style={S.metricGrid}>
               <div style={S.metric}>
                 <div style={S.metricLabel}>월 예산 범위</div>
                 <div style={{ ...S.metricValue, fontSize: "14px" }}>
-                  {designResult.customerVisibleDesign.monthly_budget_range}
+                  {buildDesignPanelBudgetLine(designResult.customerVisibleDesign)}
                 </div>
               </div>
             </div>
@@ -1283,31 +1305,26 @@ export default function AiRecommendationPanel({
               </div>
             </div>
 
-            {designResult.customerVisibleDesign.additional_review_coverages?.length ? (
-              <div>
-                <h4 style={S.sectionTitle}>추가 검토할 보장</h4>
-                <div style={{ fontSize: "14px", color: "#cbd5e1" }}>
-                  {designResult.customerVisibleDesign.additional_review_coverages.join(", ")}
-                </div>
-              </div>
-            ) : null}
-
-            {designResult.customerVisibleDesign.pre_enrollment_cautions?.length ? (
+            {designResult.customerVisibleDesign.pre_enrollment_caution_codes?.length ? (
               <div>
                 <h4 style={S.sectionTitle}>가입 전 주의사항</h4>
                 <ul style={S.list}>
-                  {designResult.customerVisibleDesign.pre_enrollment_cautions.map((item) => (
-                    <li key={item} style={S.listItem}>{item}</li>
+                  {designResult.customerVisibleDesign.pre_enrollment_caution_codes.map((code) => (
+                    <li key={code} style={S.listItem}>
+                      {buildDesignPanelCautionLine(code)}
+                    </li>
                   ))}
                 </ul>
               </div>
             ) : null}
 
-            {designResult.requiredDocuments?.length ? (
+            {(designResult.requiredDocumentCodes ?? designResult.requiredDocuments ?? []).length ? (
               <div>
                 <h4 style={S.sectionTitle}>필요 서류</h4>
                 <ul style={S.list}>
-                  {designResult.requiredDocuments.map((doc) => (
+                  {formatRequiredDocumentCodes(
+                    designResult.requiredDocumentCodes ?? designResult.requiredDocuments ?? [],
+                  ).map((doc) => (
                     <li key={doc} style={S.listItem}>{doc}</li>
                   ))}
                 </ul>
@@ -1317,23 +1334,11 @@ export default function AiRecommendationPanel({
             <div>
               <h4 style={S.sectionTitle}>다음 행동</h4>
               <ul style={S.list}>
-                {(designResult.customerVisibleDesign.next_actions ?? []).map((action) => (
+                {buildDesignPanelNextSteps(designResult.customerVisibleDesign).map((action) => (
                   <li key={action} style={S.listItem}>{action}</li>
                 ))}
               </ul>
             </div>
-
-            {designResult.claudeExplanation ? (
-              <div>
-                <h4 style={S.sectionTitle}>설계안 Claude 설명</h4>
-                <div style={S.explanation}>{designResult.claudeExplanation}</div>
-              </div>
-            ) : (
-              <div style={S.muted}>
-                설계안 Claude 설명을 생성하지 못했습니다.
-                {designResult.claudeMeta?.reason ? ` (${designResult.claudeMeta.reason})` : ""}
-              </div>
-            )}
           </div>
         ) : (
           <div style={S.muted}>보험설계안이 없습니다.</div>

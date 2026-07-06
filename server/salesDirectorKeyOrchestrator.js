@@ -122,7 +122,7 @@ function buildKeyAgentTurn({
   const rebalancingCtx = toolRun?.rebalancingContext ?? customerContextBundle?.rebalancingContext ?? null;
   const designPriorityCoverages = designCtx?.priority_coverages ?? [];
   const designKeepCoverages = designCtx?.keep_existing_coverages ?? [];
-  const designNextActions = (designCtx?.next_actions ?? []).slice(0, 2);
+  const designNextActions = designPriorityCoverages.slice(0, 2);
   return {
     text: "",
     tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
@@ -198,8 +198,9 @@ function buildKeyAgentTurn({
       design_priority_coverages: designPriorityCoverages,
       design_keep_coverages: designKeepCoverages,
       design_next_actions: designNextActions,
-      design_title: designCtx?.design_title ?? null,
-      design_summary: designCtx?.design_summary ?? null,
+      design_reason_codes: designCtx?.design_reason_codes ?? [],
+      design_plan_step_codes: designCtx?.plan_step_codes ?? [],
+      design_budget_band_code: designCtx?.budget_band_code ?? null,
       design_priority: designCtx?.design_priority ?? null,
       rebalancing_used: toolRun?.rebalancing_used === true,
       rebalancing_loaded: toolRun?.rebalancing_loaded === true,

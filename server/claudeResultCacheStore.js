@@ -22,7 +22,11 @@ export function buildAnalysisFingerprint(workingContext) {
     uw_risk: workingContext?.underwritingResult?.overall_underwriting_risk,
     uw_score: workingContext?.underwritingResult?.risk_score,
     rec_top2: (workingContext?.recommendationResult?.customer_visible_top2 ?? []).map((i) => i.coverage_category),
-    design_title: workingContext?.designBundle?.customer_visible_design?.design_title,
+    design_id: workingContext?.designBundle?.insurance_design?.design_id ?? null,
+    design_plan_steps: (workingContext?.designBundle?.customer_visible_design?.plan_step_codes ?? []).slice(
+      0,
+      3,
+    ),
   };
   return sha256(JSON.stringify(summary));
 }

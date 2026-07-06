@@ -172,7 +172,7 @@ function runDesignTool({ existingDesignContext = null } = {}) {
   if (existingDesignContext?.loaded) {
     const hasPriority = (existingDesignContext.priority_coverages ?? []).length > 0;
     const hasReview =
-      Boolean(existingDesignContext.design_summary) ||
+      (existingDesignContext.plan_step_codes ?? []).length > 0 ||
       (existingDesignContext.keep_existing_coverages ?? []).length > 0;
     return {
       ok: true,
@@ -234,9 +234,9 @@ function analysisJobHasStoredDesign(analysisJob = null) {
   const payload = result?.insurance_design ?? null;
   const ctx = buildDesignContextFromPayload(payload, { jobId: analysisJob.id ?? null });
   if (!ctx.loaded) return false;
-  if ((ctx.next_actions?.length ?? 0) > 0) return true;
+  if ((ctx.plan_step_codes?.length ?? 0) > 0) return true;
   if ((ctx.priority_coverages?.length ?? 0) > 0) return true;
-  if (ctx.design_summary) return true;
+  if ((ctx.design_reason_codes?.length ?? 0) > 0) return true;
   return false;
 }
 
