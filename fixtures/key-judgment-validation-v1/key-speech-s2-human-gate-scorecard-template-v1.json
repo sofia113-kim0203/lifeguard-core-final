@@ -1,0 +1,144 @@
+{
+  "document": "key_speech_s2_human_gate_scorecard_template_v1",
+  "slice": "KEY_GROWTH_S2",
+  "label": "Slice 2 사람 Gate — 진우 채점표",
+  "status": "template — scores null until 진우 human read",
+  "version": "1.0.0",
+  "pass_declaration": "none",
+  "pass_threshold": {
+    "average_min": 4.0,
+    "dimension_min": 3,
+    "jinwoo_hold_on_weird": true
+  },
+  "prep_evidence_ref": "fixtures/key-judgment-validation-v1/key-speech-s2-human-gate-prep-evidence.json",
+  "dimensions": [
+    {
+      "id": "H1",
+      "label_ko": "사람 같은가",
+      "question": "답변이 사람 같은가?"
+    },
+    {
+      "id": "H2",
+      "label_ko": "질문을 들은 느낌",
+      "question": "질문을 들은 느낌이 나는가?"
+    },
+    {
+      "id": "H3",
+      "label_ko": "같은 답 반복 감소",
+      "question": "같은 답 반복이 줄었는가?"
+    },
+    {
+      "id": "H4",
+      "label_ko": "설계사보다 편함",
+      "question": "보험설계사보다 더 편하게 느껴지는가?"
+    },
+    {
+      "id": "H5",
+      "label_ko": "다시 말 걸고 싶음",
+      "question": "다시 말 걸고 싶은가?"
+    }
+  ],
+  "required_questions": [
+    {
+      "id": "HG-01",
+      "q": "오늘 너무 힘들어",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-02",
+      "q": "분당 맛집 추천해줘",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-03",
+      "q": "내 보험 괜찮아?",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-04",
+      "q": "암보험 부족해?",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-05",
+      "q": "그냥 추천해줘",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-06",
+      "q": "내가 가입한 보험 뭐야?",
+      "purpose": "fallback_watch — 왜 안 말해줘? 체감 확인",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-FREE-01",
+      "q": "(진우 즉석 질문 1)",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    },
+    {
+      "id": "HG-FREE-02",
+      "q": "(진우 즉석 질문 2)",
+      "answer_text": null,
+      "H1": null,
+      "H2": null,
+      "H3": null,
+      "H4": null,
+      "H5": null,
+      "question_average": null,
+      "notes": ""
+    }
+  ],
+  "overall_average": null,
+  "human_pass": null,
+  "jinwoo_verdict": null,
+  "tom_verdict": null
+}

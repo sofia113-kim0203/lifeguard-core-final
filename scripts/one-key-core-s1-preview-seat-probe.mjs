@@ -262,6 +262,8 @@ async function probeLocalRuntimeQuestion({ userSupabase, customerId, question, e
   const legacyAudit = assessLegacySpeakBypass(result);
   const traceAudit = assessOneKeyTrace(result.one_key_core_trace);
   const answerQuality = assessAnswerQuality({ answerText, question });
+  const speakStep = result.one_key_core_trace?.steps?.find((row) => row.step === "speak");
+  const personaStep = result.one_key_core_trace?.steps?.find((row) => row.step === "persona");
   const row = {
     mode: "local_runtime",
     question,
@@ -274,6 +276,10 @@ async function probeLocalRuntimeQuestion({ userSupabase, customerId, question, e
     legacy_speak_hits: legacyAudit.legacy_speak_hits,
     answer_quality: answerQuality,
     sales_director_mode: result.sales_director_mode ?? null,
+    speak_draft_preview: speakStep?.payload?.draft_preview ?? null,
+    speech_turn_type: speakStep?.payload?.key_compose_trace?.speech_turn_type ?? null,
+    completeness_guard_applied: personaStep?.payload?.completeness_guard?.applied ?? null,
+    completeness_guard_reason: personaStep?.payload?.completeness_guard?.reason ?? null,
     compose_mode:
       result.sales_director_trace?.finalize_trace?.key_compose_trace?.compose_mode ??
       result.sales_director_trace?.p10_4_key_path_trace?.build_key_structured_response?.compose_mode ??

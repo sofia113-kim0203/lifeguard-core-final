@@ -38,7 +38,13 @@ const HUL_MARKERS = [
   /함께 보면서 정리해 드릴게요/,
 ];
 
-const KEY_MASTER_MARKERS = [/질문 잘 받았습니다/, /반갑습니다/, /KEY가 확인되는 범위/];
+const SPEECH_FORBIDDEN_MARKERS = [/질문\s*잘\s*받았습니다/, /KEY가\s*확인되는\s*범위/];
+
+const PROBE_QUESTIONS = [
+  { question: "보험료 부담", expectMaster: /부담|납입/ },
+  { question: "안녕", expectMaster: /반갑습니다/ },
+  { question: "내 보험 괜찮아?", expectMaster: /괜찮|공백|보장/ },
+];
 
 function readSource(relativePath) {
   return readFileSync(join(ROOT, relativePath), "utf8");
@@ -90,12 +96,6 @@ function buildS1Env() {
     ANTHROPIC_API_KEY: "mock-key",
   };
 }
-
-const PROBE_QUESTIONS = [
-  { question: "보험료 부담", expectMaster: /질문 잘 받았습니다/ },
-  { question: "안녕", expectMaster: /반갑습니다/ },
-  { question: "내 보험 괜찮아?", expectMaster: /질문 잘 받았습니다/ },
-];
 
 let passed = 0;
 let failed = 0;
@@ -193,6 +193,10 @@ for (const probe of PROBE_QUESTIONS) {
     assert.equal(result.key_text_equal, true);
     assert.equal(result.key_speak_original, result.answerText);
     assert.match(result.answerText, probe.expectMaster);
+
+    for (const marker of SPEECH_FORBIDDEN_MARKERS) {
+      assert.doesNotMatch(result.answerText, marker, `Speech Constitution forbidden: ${marker}`);
+    }
 
     for (const marker of HUL_MARKERS) {
       assert.doesNotMatch(result.answerText, marker, `HUL marker leaked: ${marker}`);
