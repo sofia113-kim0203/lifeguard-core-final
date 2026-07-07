@@ -1,0 +1,105 @@
+{
+  "schema_version": "key-master-preview-deploy-evidence-v1",
+  "slice": "KEY_MASTER",
+  "mode": "preflight-only · no deploy",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-07T12:13:08.322Z",
+  "git_short_sha": "f6312ac",
+  "git_status_porcelain": "R  scripts/key-gi-1-bundle-scope-audit-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-bundle-scope-audit-readonly.mjs\nR  scripts/key-gi-1-classification-baseline-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-classification-baseline-readonly.mjs\nR  scripts/key-gi-1-l1-prompt-profile-trace-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-l1-prompt-profile-trace-readonly.mjs\nR  scripts/key-gi-1-live-qa-blocker-audit-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-live-qa-blocker-audit-readonly.mjs\nR  scripts/key-gi-1-r1-delegation-trace-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-r1-delegation-trace-readonly.mjs\nR  scripts/key-gi-1-r1-rc-spot-audit-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-r1-rc-spot-audit-readonly.mjs\nR  scripts/key-gi-1-r2-spot-check-readonly.mjs -> archive/readonly-audit-v1/gi-1/key-gi-1-r2-spot-check-readonly.mjs\nR  scripts/key-utilization-gap-audit-j07-readonly.mjs -> archive/readonly-audit-v1/utilization/key-utilization-gap-audit-j07-readonly.mjs\nR  scripts/key-utilization-gap-audit-j10-readonly.mjs -> archive/readonly-audit-v1/utilization/key-utilization-gap-audit-j10-readonly.mjs\n M package.json\n D scripts/advisor-brain-p1-step2-coverage-gap-test.mjs\n D scripts/advisor-brain-p1-step3-factual-test.mjs\n D scripts/advisor-brain-p1-step4-recommendation-reason-test.mjs\n D scripts/advisor-brain-p1-step5-conversation-test.mjs\n D scripts/advisor-brain-p1-tool-scaffold-unit-test.mjs\n D scripts/advisor-brain-policy-count-sanitize-unit-test.mjs\n D scripts/advisor-s1-local-audit.mjs\n D scripts/central-brain-p0d-coverage-review-test.mjs\n D scripts/central-brain-p2-step1-test.mjs\n D scripts/one-brain-response-layer-unit-test.mjs\n D scripts/p10-1-key-compose-unit-test.mjs\n D scripts/p11-12-final-policy-count-ssot-unit-test.mjs\n D scripts/p11-6-conversationbrain-policy-count-unit-test.mjs\n D scripts/p11-8-output-layer-policy-count-unit-test.mjs\n D scripts/p11-9-remaining-policy-count-unit-test.mjs\n D scripts/p2a-tom-gap-light-path-unit-test.mjs\n D scripts/p3-home-tom-unit-test.mjs\n D scripts/p4-ui-polish-unit-test.mjs\n D scripts/p5-brain-customer-state-aware-unit-test.mjs\n D scripts/p5-brain-live-path-integration-test.mjs\n D scripts/p6-2b-2-sales-director-conversation-brain-unit-test.mjs\n D scripts/p6-2b-3-sales-director-free-thinking-unit-test.mjs\n D scripts/p6-2b-5-sales-director-speed-optimization-unit-test.mjs\n D scripts/p6-2b-6a-ttft-optimization-unit-test.mjs\n D scripts/p7-persona-trusted-advisor-unit-test.mjs\n D scripts/phase-b-slice-1-coverage-adequacy-unit-test.mjs\n D scripts/phase-b-slice-1-preview-wiring-trace-readonly.mjs\n D scripts/phase-b-slice-2-premium-burden-unit-test.mjs\n D scripts/phase-b-slice-2-preview-wiring-trace-readonly.mjs\n D scripts/phase-b-slice-3-delegation-unit-test.mjs\n D scripts/phase-b-slice-3-preview-customer-seat-audit.mjs\n D scripts/phase-b-slice-3-preview-wiring-trace-readonly.mjs\n D scripts/phase-c-slice-1-coverage-care-plan-unit-test.mjs\n D scripts/phase-c-slice-1-preview-customer-seat-audit.mjs\n D scripts/phase-c-slice-1-preview-wiring-trace-readonly.mjs\n D scripts/phase-c-slice-2-premium-care-plan-unit-test.mjs\n D scripts/phase-c-slice-2-preview-customer-seat-audit.mjs\n D scripts/phase-c-slice-2-preview-wiring-trace-readonly.mjs\n D scripts/phase-c-slice-3-delegation-care-plan-unit-test.mjs\n D scripts/phase-c-slice-3-preview-customer-seat-audit.mjs\n D scripts/phase-c-slice-3-preview-wiring-trace-readonly.mjs\n D scripts/phase30b-coverage-review-routing-test.mjs\n D scripts/tom-2a-gap-voice-unit-test.mjs\n D server/casualChatResponseCore.js\n D server/keyPathRuntimeTrace.js\n D server/lifeguardChatCore.js\n D server/p5BrainStateAwareAnswer.js\n D server/salesDirectorConversationBrain.js\n D server/salesDirectorFreeThinking.js\n M server/salesDirectorToolBrain.js\n D server/tomEvidenceLens.js\n?? archive/readonly-audit-v1/README.md\n?? fixtures/key-judgment-validation-v1/key-master-preview-deploy-evidence.json\n?? fixtures/key-judgment-validation-v1/key-master-survival-preview-evidence.json\n?? server/supabaseKeyFingerprint.js",
+  "key_master_required_files": [
+    "server/keyBrain/keySpeak.js",
+    "server/keyCore/keyCustomerMonopoly.js",
+    "server/keyCore/keyCustomerTextSeal.js",
+    "server/keyCore/oneKeyCoreTurn.js",
+    "server/homeBrainFactCore.js"
+  ],
+  "key_master_intake_api_files": [
+    "api/key-document-intake.js",
+    "api/key-analysis-complete-intake.js",
+    "api/key-bridge-intake.js",
+    "api/key-return-judgment-intake.js"
+  ],
+  "intake_preflight": [
+    {
+      "file": "api/key-document-intake.js",
+      "checks": {
+        "runOneKeyCoreTurn": true,
+        "keySpeak_path": true,
+        "forbid_finalizeSalesDirectorResponse": false,
+        "forbid_generateHumanSalesDirectorResponse": false,
+        "forbid_buildKeyStructuredResponse": false,
+        "forbid_finalizeBridgeSentence": false,
+        "forbid_finalizeReturnJudgmentSentence": false,
+        "forbid_resolveAnalysisCompleteInitiativeSentence": false,
+        "legacy_isOneKeyCore flag gate": false,
+        "legacy_SALES_DIRECTOR_KEY_LEGACY_FALLBACK": false,
+        "legacy_finalizeDocumentIntakeFirstSentence": false,
+        "legacy_analysisCompleteFirstSpeak speak import": false,
+        "legacy_bridgeFirstSpeak speak import": false,
+        "legacy_legacy fallback branch": false,
+        "legacy_fake persona outlet": false
+      }
+    },
+    {
+      "file": "api/key-analysis-complete-intake.js",
+      "checks": {
+        "runOneKeyCoreTurn": true,
+        "keySpeak_path": true,
+        "forbid_finalizeSalesDirectorResponse": false,
+        "forbid_generateHumanSalesDirectorResponse": false,
+        "forbid_buildKeyStructuredResponse": false,
+        "forbid_finalizeBridgeSentence": false,
+        "forbid_finalizeReturnJudgmentSentence": false,
+        "forbid_resolveAnalysisCompleteInitiativeSentence": false,
+        "legacy_isOneKeyCore flag gate": false,
+        "legacy_SALES_DIRECTOR_KEY_LEGACY_FALLBACK": false,
+        "legacy_finalizeDocumentIntakeFirstSentence": false,
+        "legacy_analysisCompleteFirstSpeak speak import": false,
+        "legacy_bridgeFirstSpeak speak import": false,
+        "legacy_legacy fallback branch": false,
+        "legacy_fake persona outlet": false
+      }
+    },
+    {
+      "file": "api/key-bridge-intake.js",
+      "checks": {
+        "runOneKeyCoreTurn": true,
+        "keySpeak_path": true,
+        "forbid_finalizeSalesDirectorResponse": false,
+        "forbid_generateHumanSalesDirectorResponse": false,
+        "forbid_buildKeyStructuredResponse": false,
+        "forbid_finalizeBridgeSentence": false,
+        "forbid_finalizeReturnJudgmentSentence": false,
+        "forbid_resolveAnalysisCompleteInitiativeSentence": false,
+        "legacy_isOneKeyCore flag gate": false,
+        "legacy_SALES_DIRECTOR_KEY_LEGACY_FALLBACK": false,
+        "legacy_finalizeDocumentIntakeFirstSentence": false,
+        "legacy_analysisCompleteFirstSpeak speak import": false,
+        "legacy_bridgeFirstSpeak speak import": false,
+        "legacy_legacy fallback branch": false,
+        "legacy_fake persona outlet": false
+      }
+    },
+    {
+      "file": "api/key-return-judgment-intake.js",
+      "checks": {
+        "runOneKeyCoreTurn": true,
+        "keySpeak_path": true,
+        "forbid_finalizeSalesDirectorResponse": false,
+        "forbid_generateHumanSalesDirectorResponse": false,
+        "forbid_buildKeyStructuredResponse": false,
+        "forbid_finalizeBridgeSentence": false,
+        "forbid_finalizeReturnJudgmentSentence": false,
+        "forbid_resolveAnalysisCompleteInitiativeSentence": false,
+        "legacy_isOneKeyCore flag gate": false,
+        "legacy_SALES_DIRECTOR_KEY_LEGACY_FALLBACK": false,
+        "legacy_finalizeDocumentIntakeFirstSentence": false,
+        "legacy_analysisCompleteFirstSpeak speak import": false,
+        "legacy_bridgeFirstSpeak speak import": false,
+        "legacy_legacy fallback branch": false,
+        "legacy_fake persona outlet": false
+      }
+    }
+  ],
+  "preflight": "passed"
+}

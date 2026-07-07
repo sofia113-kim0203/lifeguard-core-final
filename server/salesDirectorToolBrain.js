@@ -3,8 +3,6 @@
  * Allowed: Snapshot, Memory, Gap (via existing Tom gap path only).
  * Forbidden: Search, Claim, Recommendation, Design, Truth Gate expansion.
  */
-import { composeP5BrainStateAwareAnswer } from "./p5BrainStateAwareAnswer.js";
-import { P5_BRAIN_PILOT_KEYS } from "./p5BrainPilotQuestions.js";
 import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 
 export const SALES_DIRECTOR_TOOL_SLICES = {
@@ -166,21 +164,16 @@ function composePremiumBurdenToolAnswer(customerContextBundle, loadedContext, un
     };
   }
 
-  const composed = composeP5BrainStateAwareAnswer(
-    P5_BRAIN_PILOT_KEYS.PREMIUM_BURDEN,
-    "",
-    customerContextBundle,
-  );
   const memoryUsed =
     loadedContext?.memory === "present" && (customerContextBundle?.memoryFactCount ?? 0) > 0;
 
   return {
-    text: composed.ok ? composed.text : "가입된 보험이 있는 것은 확인돼요.",
+    text: "가입된 보험이 있는 것은 확인돼요.",
     policies,
     ...policyFields,
     snapshot_used: true,
     memory_used: memoryUsed,
-    guarded: composed.ok !== true,
+    guarded: true,
   };
 }
 
