@@ -1,15 +1,9 @@
 /**
  * P5-B — POST /api/key-bridge-intake
- * Thread restore settled → gap ≥ 72h → anchor → KEY_ENTRY.BRIDGE → one bridge line.
- * S02-5 — ONE_KEY_CORE_BRIDGE=1 → runOneKeyCoreTurn({ event: "bridge" }).
+ * KEY Master only — runOneKeyCoreTurn({ event: "bridge" }).
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
-import {
-  buildKeyBridgeDraft,
-  finalizeBridgeSentence,
-  scanBridgeSentence,
-} from "../server/keyBrain/bridgeFirstSpeak.js";
 import {
   computeGapHours,
   evaluateBridgeEmitGate,
@@ -21,15 +15,6 @@ import {
 } from "../server/keyBrain/bridgeIntakeGate.js";
 import { buildKeyBridgeIntakeShadowTrace } from "../server/keyBrain/bridgeIntakeShadow.js";
 import {
-  buildLoadedContextFromSnapshot,
-  loadSalesDirectorTurnContext,
-  snapshotToContextBundle,
-} from "../server/customerContextSnapshot.js";
-import {
-  KEY_ENTRY,
-  runSalesDirectorKeyTurn,
-} from "../server/salesDirectorKeyOrchestrator.js";
-import {
   getKeyUploadEntryMode,
   isKeyUploadEntryActiveEnabled,
   KEY_UPLOAD_ENTRY_MODES,
@@ -39,8 +24,9 @@ import {
   readCustomerAuthHeader,
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
+import { KEY_ENTRY } from "../server/salesDirectorKeyOrchestrator.js";
 import {
-  isOneKeyCoreBridgeEnabled,
+  resolveOneKeyCoreBridgeEnv,
   runOneKeyCoreTurn,
 } from "../server/keyCore/oneKeyCoreTurn.js";
 
@@ -68,10 +54,7 @@ function resolveLastActivityAt(sessionRows) {
 }
 
 function sessionHasKeyPresence(sessionRows) {
-  return (sessionRows ?? []).some((row) => {
-    const meta = rowMetadata(row);
-    return meta.key_presence === true;
-  });
+  return (sessionRows ?? []).some((row) => rowMetadata(row).key_presence === true);
 }
 
 async function loadCustomerConversationRows(supabase, customerId, { limit = 500 } = {}) {
@@ -218,7 +201,7 @@ export default async function handler(req, res) {
     uploadEntryActive: activeAuthority,
   });
 
-  let intakeTrace = buildKeyBridgeIntakeShadowTrace({
+  const intakeTrace = buildKeyBridgeIntakeShadowTrace({
     sessionId,
     gapHours,
     anchorJobId,
@@ -248,8 +231,37 @@ export default async function handler(req, res) {
 
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
 
-  if (isOneKeyCoreBridgeEnabled(process.env)) {
-    if (!activeAuthority) {
+  if (!activeAuthority) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: true,
+        mode: responseMode,
+        bridge_skipped: true,
+        skip_reasons: ["upload_entry_inactive"],
+        session_id: sessionId,
+        anchor_job_id: anchorJobId,
+        intake_trace: intakeTrace,
+      }),
+    );
+    return;
+  }
+
+  const coreResult = await runOneKeyCoreTurn({
+    event: "bridge",
+    userSupabase: supabase,
+    customerId: auth.customerId,
+    sessionId,
+    analysisJob: anchorJob,
+    gapHours,
+    gate,
+    transitionObservedAt,
+    env: resolveOneKeyCoreBridgeEnv(process.env),
+  });
+
+  if (!coreResult.ok) {
+    if (coreResult.reason === "forbidden_speech_guard") {
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(
@@ -257,167 +269,23 @@ export default async function handler(req, res) {
           ok: true,
           mode: responseMode,
           bridge_skipped: true,
-          skip_reasons: ["upload_entry_inactive"],
+          skip_reasons: ["forbidden_speech_guard"],
           session_id: sessionId,
           anchor_job_id: anchorJobId,
-          intake_trace: intakeTrace,
+          intake_trace: coreResult.intakeTrace ?? intakeTrace,
         }),
       );
       return;
     }
 
-    const coreResult = await runOneKeyCoreTurn({
-      event: "bridge",
-      userSupabase: supabase,
-      customerId: auth.customerId,
-      sessionId,
-      analysisJob: anchorJob,
-      gapHours,
-      gate,
-      transitionObservedAt,
-      env: process.env,
-    });
-
-    if (!coreResult.ok) {
-      if (coreResult.reason === "forbidden_speech_guard") {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: true,
-            mode: responseMode,
-            bridge_skipped: true,
-            skip_reasons: ["forbidden_speech_guard"],
-            session_id: sessionId,
-            anchor_job_id: anchorJobId,
-            intake_trace: coreResult.intakeTrace ?? intakeTrace,
-          }),
-        );
-        return;
-      }
-
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: false,
-          reason: coreResult.reason ?? "one_key_core_bridge_failed",
-          error_message: coreResult.error_message ?? null,
-          one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
-        }),
-      );
-      return;
-    }
-
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        ok: true,
-        mode: responseMode,
-        subject: "KEY",
-        key_entry: KEY_ENTRY.BRIDGE,
-        session_id: sessionId,
-        anchor_job_id: anchorJobId,
-        gap_hours: gapHours,
-        bridge_sentence: coreResult.bridgeSentence,
-        persona_outlet: coreResult.personaMeta?.persona_outlet ?? null,
-        intake_trace: coreResult.intakeTrace,
-        response_source: coreResult.response_source,
-        one_key_core_event: "bridge",
-        work_order_id: null,
-      }),
-    );
-    return;
-  }
-
-  let contextSnapshot = null;
-  let loadedContext = null;
-  let unifiedState = null;
-  try {
-    const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
-      requestHistory: [],
-    });
-    contextSnapshot = turnContext.snapshot;
-    unifiedState = turnContext.unifiedState;
-    loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
-  } catch {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: false, reason: "context_snapshot_load_failed" }));
-    return;
-  }
-
-  let keyRuntimeEntered = false;
-  let keyTurnResult = null;
-  if (activeAuthority) {
-    const customerContextBundle = snapshotToContextBundle(contextSnapshot) ?? {};
-    const keyTurn = await runSalesDirectorKeyTurn({
-      userSupabase: supabase,
-      customerId: auth.customerId,
-      question: "",
-      keyEntry: KEY_ENTRY.BRIDGE,
-      analysisJob: anchorJob,
-      snapshot: contextSnapshot,
-      unified: unifiedState,
-      loadedContext,
-      customerContextBundle,
-      reconciliationWarning: null,
-      env: process.env,
-    });
-
-    if (!keyTurn?.handled || !keyTurn.result) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: false,
-          reason: "key_runtime_failed",
-          detail: keyTurn?.reason ?? "runSalesDirectorKeyTurn_not_handled",
-        }),
-      );
-      return;
-    }
-    keyTurnResult = keyTurn.result;
-    keyRuntimeEntered = true;
-    intakeTrace = buildKeyBridgeIntakeShadowTrace({
-      sessionId,
-      gapHours,
-      anchorJobId,
-      keyRuntimeEntered: true,
-      keyEntry: KEY_ENTRY.BRIDGE,
-      gate,
-    });
-  }
-
-  let bridgeSentence = null;
-  let personaMeta = null;
-  if (activeAuthority && keyRuntimeEntered) {
-    const staticDraft = buildKeyBridgeDraft();
-    const finalized = finalizeBridgeSentence(staticDraft, {
-      keyTurnResult,
-      gapHours,
-      anchorJobId,
-    });
-    const scan = scanBridgeSentence(finalized?.text ?? "");
-    if (finalized?.text && scan.ok) {
-      bridgeSentence = finalized.text;
-      personaMeta = finalized;
-    }
-  }
-
-  if (!bridgeSentence) {
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
-        ok: true,
-        mode: mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow",
-        bridge_skipped: true,
-        skip_reasons: ["forbidden_speech_guard"],
-        session_id: sessionId,
-        anchor_job_id: anchorJobId,
-        intake_trace: intakeTrace,
+        ok: false,
+        reason: coreResult.reason ?? "one_key_core_bridge_failed",
+        error_message: coreResult.error_message ?? null,
+        one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
       }),
     );
     return;
@@ -434,9 +302,13 @@ export default async function handler(req, res) {
       session_id: sessionId,
       anchor_job_id: anchorJobId,
       gap_hours: gapHours,
-      bridge_sentence: bridgeSentence,
-      persona_outlet: personaMeta?.persona_outlet ?? null,
-      intake_trace: intakeTrace,
+      bridge_sentence: coreResult.bridgeSentence,
+      persona_outlet: "keySpeak(key_master)",
+      key_speak_master: true,
+      intake_trace: coreResult.intakeTrace,
+      response_source: coreResult.response_source,
+      one_key_core_event: "bridge",
+      work_order_id: null,
     }),
   );
 }

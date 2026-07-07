@@ -8,15 +8,12 @@ import {
   snapshotToContextBundle,
 } from "../customerContextSnapshot.js";
 import { buildKeyFirstJudgment } from "../keyBrain/documentFirstJudgment.js";
-import { finalizeSalesDirectorResponse, resolveSalesDirectorJudgmentIntent } from "../salesDirectorFormatter.js";
-import { ONE_BRAIN_SURFACES } from "../oneBrainResponseLayer.js";
-import { polishLifeguardCustomerText } from "../lifeguardOutputGuard.js";
+import { resolveSalesDirectorJudgmentIntent } from "../salesDirectorFormatter.js";
 import {
-  buildBasisTaggedFacts,
-  buildHumanUnderstandingFrame,
-  buildKeyStructuredResponse,
-} from "../humanUnderstandingLoop.js";
-import { computePremiumLookupStats } from "../intentGateLayer.js";
+  finalizeKeyCustomerText,
+  KEY_CUSTOMER_TEXT_PATH,
+} from "./keyCustomerMonopoly.js";
+import { keySpeak } from "../keyBrain/keySpeak.js";
 import {
   KEY_ENTRY,
   runSalesDirectorKeyTurn,
@@ -134,97 +131,77 @@ function buildEvidenceBundle({ factBundle = {}, customerContextBundle = null, to
 
 function buildOneKeySpeakDraft({
   question = "",
-  factBundle = {},
+  keyJudgment = null,
   consultationIntent = null,
-  customerContextBundle = null,
+  contextSnapshot = null,
+  loadedContext = null,
 } = {}) {
-  const classificationIntent = consultationIntent?.intent ?? factBundle.classification_intent ?? "";
-  const resolvedIntent = resolveSalesDirectorJudgmentIntent(classificationIntent, question);
-  const enrichedBundle = {
-    ...factBundle,
+  const speakResult = keySpeak({
+    event: "question",
     question,
-    key_orchestrator: true,
-    one_key_core: true,
-    premium_stats: factBundle.premium_stats ?? computePremiumLookupStats(factBundle.policies ?? []),
-  };
-
-  const basisTaggedFacts = buildBasisTaggedFacts(enrichedBundle, resolvedIntent);
-  const humanFrame = buildHumanUnderstandingFrame({
-    question,
-    intent: resolvedIntent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    conversationContext: { classificationIntent },
-    factBundle: enrichedBundle,
-    basisTaggedFacts,
+    keyFirstJudgment: keyJudgment,
+    contextSnapshot,
+    loadedContext,
+    consultationIntent,
   });
 
-  const speakDraft = buildKeyStructuredResponse(
-    humanFrame,
-    basisTaggedFacts,
-    enrichedBundle,
-    { resolvedIntent },
-    {
-      phaseBCoverageJudgment: null,
-      phaseBPremiumJudgment: null,
-    },
-  );
-
   return {
-    speakDraft,
-    humanFrame,
-    basisTaggedFacts,
-    resolvedIntent,
-    enrichedBundle,
-    customerState: {
-      question,
-      keyOrchestrator: true,
-      coverageGapContext: customerContextBundle?.coverageGapContext ?? null,
-      recommendationContext: customerContextBundle?.recommendationContext ?? null,
-      underwritingRiskContext: customerContextBundle?.underwritingRiskContext ?? null,
-      designContext: customerContextBundle?.designContext ?? null,
-    },
+    speakDraft: speakResult.speakDraft,
+    keyComposeTrace: speakResult.key_compose_trace,
+    keySpeakMaster: true,
   };
 }
 
-function finalizeOneKeyCorePersona({
-  speakDraft = "",
+function buildKeyMonopolyQuestionFailure({
   question = "",
   consultationIntent = null,
-  factBundle = {},
-  customerState = null,
-  resolvedIntent = null,
+  reason = "key_turn_failed",
+  trace = null,
+  startedAt = Date.now(),
 } = {}) {
-  const classificationIntent = consultationIntent?.intent ?? factBundle.classification_intent ?? "";
-  const personaFactBundle = {
-    ...factBundle,
+  const outlet = finalizeKeyCustomerText("", { failureMode: true });
+  const customerText = outlet.keySpeakOriginal;
+  const resolvedIntent = resolveSalesDirectorJudgmentIntent(
+    consultationIntent?.intent ?? "general_consultation",
     question,
-    key_orchestrator: true,
-    one_key_core: true,
-    one_key_core_s1: true,
-    classification_intent: classificationIntent,
-  };
-
-  const finalized = finalizeSalesDirectorResponse({
-    rawText: speakDraft,
-    intent: resolvedIntent ?? resolveSalesDirectorJudgmentIntent(classificationIntent, question),
-    classificationIntent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle: personaFactBundle,
-    customerState: {
-      ...(customerState ?? {}),
-      question,
-      keyOrchestrator: true,
-    },
-    homeBrainIntent: "unsupported",
-    conversationContext: { responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION },
-  });
-
-  const customerText = polishLifeguardCustomerText(finalized.text ?? speakDraft);
-
+  );
   return {
+    ok: true,
     customerText,
-    personaMeta: finalized,
-    generation_mode: finalized.generation_mode ?? "one_key_core_persona_outlet",
+    keySpeakOriginal: customerText,
+    key_monopoly_failure: true,
+    failure_reason: reason,
+    agentTurn: {
+      text: customerText,
+      responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+      consultationIntent: consultationIntent ?? classifyConsultationIntent(question),
+      factBundle: {
+        one_key_core: true,
+        one_key_core_s1: true,
+        key_monopoly_failure: true,
+        question,
+        classification_intent: consultationIntent?.intent ?? null,
+      },
+    },
+    modeDecision: null,
+    loadedContext: null,
+    contextSnapshot: null,
+    unifiedState: null,
+    customerContextBundle: null,
+    salesDirectorTrace: {
+      one_key_core: true,
+      one_key_core_s1: true,
+      key_monopoly_failure: true,
+      failure_reason: reason,
+      one_key_core_trace: trace,
+      legacy_paths_blocked: ONE_KEY_CORE_S1_BLOCKED_PATHS,
+    },
+    truthGate: null,
+    latency: { total_ms: Date.now() - startedAt },
+    loopStartedAt: startedAt,
+    oneKeyCoreTrace: trace,
+    traceComplete: false,
+    resolvedIntent,
   };
 }
 
@@ -357,11 +334,13 @@ async function runOneKeyCoreQuestionTurn({
     loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
     customerContextBundle = snapshotToContextBundle(contextSnapshot) ?? {};
   } catch (error) {
-    return {
-      ok: false,
+    return buildKeyMonopolyQuestionFailure({
+      question,
+      consultationIntent: classifyConsultationIntent(question),
       reason: "context_snapshot_load_failed",
-      error_message: error?.message ?? "snapshot_load_failed",
-    };
+      trace,
+      startedAt,
+    });
   }
 
   const consultationIntent = classifyConsultationIntent(question);
@@ -419,11 +398,13 @@ async function runOneKeyCoreQuestionTurn({
   });
 
   if (!keyTurn?.handled || !keyTurn.result) {
-    return {
-      ok: false,
+    return buildKeyMonopolyQuestionFailure({
+      question,
+      consultationIntent,
       reason: keyTurn?.reason ?? "key_planner_failed",
-      one_key_core_trace: trace,
-    };
+      trace,
+      startedAt,
+    });
   }
 
   const { agentTurn, salesDirectorTrace } = keyTurn.result;
@@ -467,44 +448,40 @@ async function runOneKeyCoreQuestionTurn({
 
   const speakResult = buildOneKeySpeakDraft({
     question,
-    factBundle,
+    keyJudgment,
     consultationIntent,
-    customerContextBundle: keyTurn.result.customerContextBundle,
+    contextSnapshot,
+    loadedContext,
   });
   recordStep("speak", {
     draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
-    resolved_intent: speakResult.resolvedIntent,
-    compose_mode: "buildKeyStructuredResponse",
+    compose_mode: speakResult.keyComposeTrace?.compose_mode ?? "key_master_question",
+    key_speak_master: true,
+    key_compose_trace: speakResult.keyComposeTrace,
   });
 
-  trace.customer_text_path.push(
-    "buildKeyStructuredResponse",
-    "finalizeSalesDirectorResponse(one_key_core_preserve)",
-    "polishLifeguardCustomerText",
-  );
+  trace.customer_text_path.push(...KEY_CUSTOMER_TEXT_PATH);
 
-  const personaResult = finalizeOneKeyCorePersona({
-    speakDraft: speakResult.speakDraft,
-    question,
-    consultationIntent,
-    factBundle,
-    customerState: speakResult.customerState,
-    resolvedIntent: speakResult.resolvedIntent,
-  });
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
   recordStep("persona", {
-    generation_mode: personaResult.generation_mode,
-    text_preview: String(personaResult.customerText ?? "").slice(0, 300),
+    generation_mode: outletResult.generation_mode,
+    persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
+    completeness_guard: outletResult.completeness_guard ?? null,
+    text_preview: String(outletResult.customerText ?? "").slice(0, 300),
   });
+
+  trace.persona_rewrite_blocked = outletResult.persona_rewrite_blocked;
 
   const stepNames = trace.steps.map((row) => row.step);
   const traceComplete = CORE_STEPS.every((name) => stepNames.includes(name));
 
   return {
     ok: true,
-    customerText: personaResult.customerText,
+    customerText: outletResult.customerText,
+    keySpeakOriginal: outletResult.keySpeakOriginal,
     agentTurn: {
       ...agentTurn,
-      text: personaResult.customerText,
+      text: outletResult.customerText,
       responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
       consultationIntent,
       factBundle,
@@ -524,7 +501,8 @@ async function runOneKeyCoreQuestionTurn({
         core_steps_expected: CORE_STEPS,
       },
       legacy_paths_blocked: ONE_KEY_CORE_S1_BLOCKED_PATHS,
-      finalize_trace: personaResult.personaMeta,
+      key_customer_monopoly: true,
+      persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
     },
     truthGate: keyTurn.result.truthGate,
     latency: keyTurn.result.latency,

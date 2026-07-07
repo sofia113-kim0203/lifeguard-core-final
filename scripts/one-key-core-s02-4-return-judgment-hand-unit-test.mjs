@@ -3,7 +3,6 @@
  */
 import assert from "node:assert/strict";
 import { evaluateReturnJudgmentEmitGate } from "../server/keyBrain/returnJudgmentIntakeGate.js";
-import { RETURN_JUDGMENT_CONTINUITY_CANONICAL } from "../server/keyBrain/returnJudgmentContinuityWeave.js";
 import {
   isOneKeyCoreReturnJudgmentEnabled,
   ONE_KEY_CORE_RESPONSE_SOURCE,
@@ -13,6 +12,8 @@ import { runOneKeyCoreTurn } from "../server/keyCore/oneKeyCoreTurn.js";
 import { ONE_KEY_CORE_RETURN_JUDGMENT_STEPS } from "../server/keyCore/oneKeyCoreReturnJudgment.js";
 
 const CUSTOMER_ID = "cust-one-key-core-rj-s024";
+const KEY_MASTER_RETURN_JUDGMENT_SENTENCE =
+  "다시 연결됐습니다. KEY가 확인되는 범위부터 같이 보겠습니다.";
 
 const ANCHOR_JOB_GAP = {
   id: "job-s024-gap",
@@ -110,6 +111,15 @@ async function runCase(name, fn) {
   }
 }
 
+function assertKeyMasterReturnJudgmentSpeak(result) {
+  const speakStep = result.oneKeyCoreTrace?.steps?.find((row) => row.step === "speak");
+  assert.equal(speakStep?.payload?.key_speak_master, true);
+  assert.equal(speakStep?.payload?.compose_mode, "key_master_return_judgment");
+  assert.equal(result.personaMeta?.key_speak_master, true);
+  assert.equal(result.personaMeta?.persona_rewrite_blocked, true);
+  assert.equal(result.returnJudgmentSentence, KEY_MASTER_RETURN_JUDGMENT_SENTENCE);
+}
+
 await runCase("S02-4-1 return_judgment flag gate", () => {
   assert.equal(isOneKeyCoreReturnJudgmentEnabled({ ONE_KEY_CORE_RETURN_JUDGMENT: "1" }), true);
   assert.equal(isOneKeyCoreReturnJudgmentEnabled({ ONE_KEY_CORE_RETURN_JUDGMENT: "0" }), false);
@@ -182,13 +192,13 @@ await runCase("S02-4-4 intake contract fields preserved", async () => {
   assert.ok(result.intakeTrace.one_key_core_trace?.complete === true);
 });
 
-await runCase("S02-4-5 CONN-002 gap panel regression", async () => {
+await runCase("S02-4-5 KEY Master speak — gap panel job", async () => {
   const env = buildEnv();
   const result = await runOneKeyCoreTurn({
     event: "return_judgment",
     userSupabase: buildMockSupabase(),
     customerId: CUSTOMER_ID,
-    sessionId: "sess-s024-conn2",
+    sessionId: "sess-s024-gap",
     analysisJob: ANCHOR_JOB_GAP,
     gapHours: 80,
     gate: EMIT_GATE,
@@ -196,46 +206,7 @@ await runCase("S02-4-5 CONN-002 gap panel regression", async () => {
     fetchImpl: async () => new Response("", { status: 503 }),
   });
   assert.equal(result.ok, true);
-  assert.equal(result.personaMeta?.conn_002_panel_wired, true);
-  assert.ok(String(result.returnJudgmentSentence ?? "").includes("같이"));
-});
-
-await runCase("S02-4-6 CONN-004 design weave regression", async () => {
-  const env = buildEnv();
-  const result = await runOneKeyCoreTurn({
-    event: "return_judgment",
-    userSupabase: buildMockSupabase(),
-    customerId: CUSTOMER_ID,
-    sessionId: "sess-s024-conn4",
-    analysisJob: ANCHOR_JOB_GAP,
-    gapHours: 80,
-    gate: EMIT_GATE,
-    env,
-    fetchImpl: async () => new Response("", { status: 503 }),
-  });
-  assert.equal(result.ok, true);
-  if (result.personaMeta?.conn_004_weave_wired) {
-    assert.ok(String(result.returnJudgmentSentence ?? "").includes("설계"));
-  }
-});
-
-await runCase("S02-4-7 CONN-005 continuity weave regression", async () => {
-  const env = buildEnv();
-  const result = await runOneKeyCoreTurn({
-    event: "return_judgment",
-    userSupabase: buildMockSupabase(),
-    customerId: CUSTOMER_ID,
-    sessionId: "sess-s024-conn5",
-    analysisJob: ANCHOR_JOB_GAP,
-    gapHours: 80,
-    gate: EMIT_GATE,
-    env,
-    fetchImpl: async () => new Response("", { status: 503 }),
-  });
-  assert.equal(result.ok, true);
-  if (result.personaMeta?.conn_005_continuity_weave_wired) {
-    assert.ok(String(result.returnJudgmentSentence ?? "").includes(RETURN_JUDGMENT_CONTINUITY_CANONICAL.replace(/\.$/, "")));
-  }
+  assertKeyMasterReturnJudgmentSpeak(result);
 });
 
 console.log(`\nONE KEY Core S02-4: ${failed > 0 ? "FAILED" : "ALL PASSED"} (${passed}/${passed + failed})`);

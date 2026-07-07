@@ -79,8 +79,8 @@ export default async function handler(req, res) {
         onFirstToken(ttftMs) {
           writeHomeBrainFactSseEvent(res, "ttft", { ttft_ms: ttftMs });
         },
-        onReplace(text) {
-          writeHomeBrainFactSseEvent(res, "replace", { text: String(text ?? "") });
+        onReplace(_text) {
+          // KEY monopoly — post-KEY replace forbidden on customer stream
         },
       };
 

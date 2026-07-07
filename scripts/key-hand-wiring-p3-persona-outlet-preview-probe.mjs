@@ -1,5 +1,5 @@
 /**
- * Hand Wiring Phase 3 — Preview Persona outlet evidence (Tom merge gate).
+ * Hand Wiring Phase 3 — Preview KEY Master speak evidence.
  *
  * Usage:
  *   node scripts/key-hand-wiring-p3-persona-outlet-preview-probe.mjs [preview-url] [--document=<uuid>]
@@ -14,10 +14,7 @@ import {
   resolvePreviewProbeEnv,
 } from "./preview-auth-probe-path.mjs";
 import { resolveBypassSecret } from "./p10-5-preview-curl-helper.mjs";
-import {
-  DOCUMENT_INTAKE_PERSONA_OUTLET,
-  validateKu2cSpeakOrder,
-} from "../server/keyBrain/documentFirstSpeak.js";
+import { validateKu2cSpeakOrder } from "../server/keyBrain/documentFirstSpeak.js";
 
 const FIX = join(import.meta.dirname, "..", "fixtures", "key-judgment-validation-v1");
 const OUT = join(FIX, "key-hand-wiring-p3-persona-outlet-preview-evidence.json");
@@ -26,6 +23,13 @@ function parseArgs(argv) {
   const previewBase = argv[2]?.startsWith("http") ? argv[2].trim() : "";
   const documentId = argv.find((a) => a.startsWith("--document="))?.slice("--document=".length) ?? null;
   return { previewBase, documentId };
+}
+
+function resolveCoreSpeakStep(payload) {
+  return (
+    payload?.intake_trace?.one_key_core_trace?.steps?.find((row) => row?.step === "speak") ??
+    null
+  );
 }
 
 async function resolveAnyDocumentId(admin, email) {
@@ -80,19 +84,13 @@ async function main() {
     },
     body: JSON.stringify({
       document_id: documentId ?? "00000000-0000-0000-0000-000000000000",
-      upload_source: "hand_p3_persona_outlet_preview_probe",
+      upload_source: "hand_p3_key_master_preview_probe",
     }),
   });
   const payload = await res.json().catch(() => ({}));
   const trace = payload?.intake_trace ?? null;
-  const speakStep = (trace?.trace_steps ?? []).find((row) => row?.step === "key_first_speak");
-  const personaOutlet =
-    payload?.persona_outlet ??
-    speakStep?.payload?.persona_outlet ??
-    trace?.persona_outlet ??
-    null;
-  const generationMode = speakStep?.payload?.generation_mode ?? null;
-  const staticDraft = speakStep?.payload?.static_draft ?? null;
+  const speakStep = resolveCoreSpeakStep(payload);
+  const composeMode = speakStep?.payload?.compose_mode ?? null;
   const speakOrder = validateKu2cSpeakOrder(trace?.trace_steps ?? []);
 
   const checks = {
@@ -100,9 +98,9 @@ async function main() {
     intake_mode_active: payload?.mode === "active",
     customer_sentence_present: Boolean(payload?.customer_first_sentence),
     subject_is_key: payload?.subject === "KEY",
-    persona_outlet_finalize: personaOutlet === DOCUMENT_INTAKE_PERSONA_OUTLET,
-    generation_mode_persona: generationMode === "document_intake_persona_outlet",
-    static_draft_on_trace: Boolean(staticDraft),
+    key_speak_master_on_api: payload?.key_speak_master === true,
+    key_speak_master_on_trace: speakStep?.payload?.key_speak_master === true,
+    compose_mode_key_master: /^key_master_/.test(String(composeMode ?? "")),
     speak_trace_order: speakOrder.ok,
     work_order_unchanged: Boolean(payload?.work_order_id),
   };
@@ -110,8 +108,8 @@ async function main() {
   const pass = Object.values(checks).every(Boolean);
 
   const evidence = {
-    schema_version: "key-hand-wiring-p3-persona-outlet-preview-evidence-v1",
-    gate: "HAND-P3-PERSONA-OUTLET",
+    schema_version: "key-hand-wiring-p3-key-master-preview-evidence-v1",
+    gate: "HAND-P3-KEY-MASTER-SPEAK",
     recorded_at: new Date().toISOString(),
     preview_base: resolved.previewBase,
     auth_fingerprint: previewAuthPathFingerprint(resolved),
@@ -119,12 +117,11 @@ async function main() {
     intake_http_status: res.status,
     intake_mode: payload?.mode ?? null,
     customer_first_sentence: payload?.customer_first_sentence ?? null,
-    persona_outlet: personaOutlet,
-    generation_mode: generationMode,
-    static_draft: staticDraft,
+    key_speak_master: payload?.key_speak_master ?? null,
+    compose_mode: composeMode,
     work_order_id: payload?.work_order_id ?? null,
     tom_hand_p3_gate: {
-      question: "Upload 첫 문장이 static template가 아니라 Persona 출구를 통과했는가?",
+      question: "Upload 첫 문장이 KEY Master(keySpeak) 경로를 통과했는가?",
       checks,
       result: pass ? "PASS" : "FAIL",
     },
@@ -132,9 +129,9 @@ async function main() {
   };
 
   writeFileSync(OUT, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
-  console.log("[Hand P3 Persona Outlet Preview]");
-  console.log(`persona_outlet: ${personaOutlet ?? "(null)"}`);
-  console.log(`generation_mode: ${generationMode ?? "(null)"}`);
+  console.log("[Hand P3 KEY Master Preview]");
+  console.log(`key_speak_master: ${payload?.key_speak_master ?? "(null)"}`);
+  console.log(`compose_mode: ${composeMode ?? "(null)"}`);
   console.log(`Tom gate: ${evidence.tom_hand_p3_gate.result}`);
   console.log(`Evidence: ${OUT}`);
   console.log(`Hand P3 Preview pass: ${pass}`);

@@ -9,10 +9,9 @@ import {
   buildKeyAnalysisCompleteIntakeShadowTrace,
   KEY_ANALYSIS_COMPLETE_INTAKE_SCHEMA_VERSION,
 } from "../keyBrain/analysisCompleteIntakeShadow.js";
-import {
-  jobHasStoredRecommendation,
-  resolveAnalysisCompleteInitiativeSentence,
-} from "../keyBrain/analysisCompleteFirstSpeak.js";
+import { jobHasStoredRecommendation } from "../keyBrain/analysisCompleteFirstSpeak.js";
+import { keySpeak, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
 import {
@@ -265,36 +264,33 @@ export async function runOneKeyCoreAnalysisCompleteTurn({
   };
   recordStep("evidence", buildAnalysisCompleteEvidenceBundle({ factBundle, analysisJob }));
 
-  const speakPreview = resolveAnalysisCompleteInitiativeSentence({
-    keyTurnResult: keyTurn.result,
-    analysisJob,
+  const speakResult = keySpeak({
+    event: "analysis_complete",
+    keyFirstJudgment: keyJudgment,
+    contextSnapshot,
     loadedContext,
   });
   recordStep("speak", {
-    compose_mode: "resolveAnalysisCompleteInitiativeSentence",
-    conn_001_panel_wired: speakPreview?.conn_001_panel_wired === true,
-    static_draft_preview: String(speakPreview?.static_draft ?? "").slice(0, 300),
-    text_preview: String(speakPreview?.text ?? "").slice(0, 300),
+    compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_analysis_complete",
+    key_speak_master: true,
+    static_draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
   });
 
-  trace.customer_text_path.push(
-    speakPreview?.conn_001_panel_wired
-      ? "buildAnalysisCompleteRecommendationDraft"
-      : "buildAnalysisCompleteInitiativeDraft",
-    speakPreview?.conn_001_panel_wired
-      ? "finalizeAnalysisCompleteInitiativeFromPanels"
-      : "finalizeAnalysisCompleteInitiativeSentence",
-    "polishLifeguardCustomerText",
-  );
+  trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
 
-  const customerInitiativeSentence = speakPreview?.text ?? null;
-  const personaMeta = speakPreview;
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
+  const customerInitiativeSentence = outletResult.keySpeakOriginal;
+  const personaMeta = {
+    generation_mode: outletResult.generation_mode,
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
+  };
 
   recordStep("persona", {
-    generation_mode: personaMeta?.generation_mode ?? null,
+    generation_mode: personaMeta.generation_mode,
     text_preview: String(customerInitiativeSentence ?? "").slice(0, 300),
-    persona_outlet: personaMeta?.persona_outlet ?? null,
-    conn_001_panel_wired: personaMeta?.conn_001_panel_wired === true,
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
   });
 
   const stepNames = trace.steps.map((row) => row.step);

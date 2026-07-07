@@ -3,7 +3,6 @@
  */
 import assert from "node:assert/strict";
 import { evaluateBridgeEmitGate } from "../server/keyBrain/bridgeIntakeGate.js";
-import { KEY_BRIDGE_DEFAULT_SENTENCE } from "../server/keyBrain/bridgeFirstSpeak.js";
 import {
   isOneKeyCoreBridgeEnabled,
   ONE_KEY_CORE_RESPONSE_SOURCE,
@@ -13,6 +12,8 @@ import { runOneKeyCoreTurn } from "../server/keyCore/oneKeyCoreTurn.js";
 import { ONE_KEY_CORE_BRIDGE_STEPS } from "../server/keyCore/oneKeyCoreBridge.js";
 
 const CUSTOMER_ID = "cust-one-key-core-bridge-s025";
+const KEY_MASTER_BRIDGE_SENTENCE =
+  "지난번 같이 보던 기준으로, 오늘은 이어서 살펴볼게요.";
 
 const ANCHOR_JOB = {
   id: "job-s025-bridge",
@@ -136,10 +137,9 @@ await runCase("S02-5-3 runOneKeyCoreTurn bridge 8-step trace", async () => {
     result.oneKeyCoreTrace.steps.find((r) => r.step === "evidence")?.payload?.factory_explain_invoked,
     false,
   );
-  assert.equal(
-    result.oneKeyCoreTrace.steps.find((r) => r.step === "speak")?.payload?.conn_weave,
-    false,
-  );
+  const speakStep = result.oneKeyCoreTrace.steps.find((r) => r.step === "speak");
+  assert.equal(speakStep?.payload?.key_speak_master, true);
+  assert.equal(speakStep?.payload?.compose_mode, "key_master_bridge");
   assert.ok(String(result.bridgeSentence ?? "").length > 0);
   assert.equal(result.intakeTrace.response_source, ONE_KEY_CORE_RESPONSE_SOURCE.BRIDGE);
 });
@@ -164,7 +164,7 @@ await runCase("S02-5-4 bridge_sentence contract preserved", async () => {
   assert.ok(result.intakeTrace.one_key_core_trace?.complete === true);
 });
 
-await runCase("S02-5-5 template sentence — no CONN weave", async () => {
+await runCase("S02-5-5 KEY Master bridge sentence", async () => {
   const env = buildEnv();
   const result = await runOneKeyCoreTurn({
     event: "bridge",
@@ -178,9 +178,9 @@ await runCase("S02-5-5 template sentence — no CONN weave", async () => {
     fetchImpl: async () => new Response("", { status: 503 }),
   });
   assert.equal(result.ok, true);
-  assert.equal(result.personaMeta?.persona_outlet, "key_bridge_template_only");
-  assert.equal(result.bridgeSentence, KEY_BRIDGE_DEFAULT_SENTENCE);
-  assert.equal(result.personaMeta?.conn_002_panel_wired, undefined);
+  assert.equal(result.personaMeta?.key_speak_master, true);
+  assert.equal(result.personaMeta?.persona_rewrite_blocked, true);
+  assert.equal(result.bridgeSentence, KEY_MASTER_BRIDGE_SENTENCE);
 });
 
 await runCase("S02-5-6 intake trace one_key_core_event", async () => {

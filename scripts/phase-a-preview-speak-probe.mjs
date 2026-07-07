@@ -191,8 +191,9 @@ async function main() {
   const workOrderId = intake.payload?.work_order_id ?? null;
   const judgmentPosture = intake.payload?.key_first_judgment?.posture ?? null;
   const intakeTrace = intake.payload?.intake_trace ?? null;
-  const speakStep = (intakeTrace?.trace_steps ?? []).find((row) => row?.step === "key_first_speak");
-  const staticDraft = speakStep?.payload?.static_draft ?? null;
+  const speakStep = intakeTrace?.one_key_core_trace?.steps?.find((row) => row?.step === "speak");
+  const composeMode = speakStep?.payload?.compose_mode ?? null;
+  const keySpeakMaster = intake.payload?.key_speak_master === true;
   const du1Fusion = intakeTrace?.du1_fusion ?? null;
   const firstAudit = firstSentence
     ? auditForbiddenSpeech(firstSentence)
@@ -239,7 +240,8 @@ async function main() {
     intake_http_status: intake.status,
     intake_reason: intake.payload?.reason ?? null,
     judgment_posture: judgmentPosture,
-    static_draft: staticDraft,
+    key_speak_master: keySpeakMaster,
+    compose_mode: composeMode,
     du1_fusion: du1Fusion,
     work_order_id: workOrderId,
     extract_http_status: extract?.status ?? null,
@@ -249,11 +251,15 @@ async function main() {
       first_sentence_present: Boolean(firstSentence),
       follow_up_present: Boolean(followUpSentence),
       forbidden_word_zero: forbiddenHits.length === 0,
+      key_speak_master: keySpeakMaster,
+      compose_mode_key_master: /^key_master_/.test(String(composeMode ?? "")),
     },
     phase_a_preview_pass:
       Boolean(firstSentence) &&
       Boolean(followUpSentence) &&
-      forbiddenHits.length === 0,
+      forbiddenHits.length === 0 &&
+      keySpeakMaster &&
+      /^key_master_/.test(String(composeMode ?? "")),
   };
 
   writeFileSync(OUT, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");

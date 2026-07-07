@@ -2,7 +2,6 @@
  * ONE KEY Core S02-2 — analysis_complete event hand unit tests (local only · no PASS).
  */
 import assert from "node:assert/strict";
-import { KEY_ANALYSIS_INITIATIVE_PASS_VOICE } from "../server/keyAnalysisInitiativeSpeak.js";
 import {
   isOneKeyCoreAnalysisCompleteEnabled,
   ONE_KEY_CORE_RESPONSE_SOURCE,
@@ -12,6 +11,8 @@ import { runOneKeyCoreTurn } from "../server/keyCore/oneKeyCoreTurn.js";
 import { ONE_KEY_CORE_ANALYSIS_COMPLETE_STEPS } from "../server/keyCore/oneKeyCoreAnalysisComplete.js";
 
 const CUSTOMER_ID = "cust-one-key-core-ac-s022";
+const KEY_MASTER_ANALYSIS_COMPLETE_SENTENCE =
+  "분석이 마무리됐습니다. KEY가 확인되는 범위부터 같이 보겠습니다.";
 
 const JOB_NO_RECO = {
   id: "job-s022-no-reco",
@@ -98,6 +99,15 @@ async function runCase(name, fn) {
   }
 }
 
+function assertKeyMasterAnalysisCompleteSpeak(result) {
+  const speakStep = result.oneKeyCoreTrace?.steps?.find((row) => row.step === "speak");
+  assert.equal(speakStep?.payload?.key_speak_master, true);
+  assert.equal(speakStep?.payload?.compose_mode, "key_master_analysis_complete");
+  assert.equal(result.personaMeta?.key_speak_master, true);
+  assert.equal(result.personaMeta?.persona_rewrite_blocked, true);
+  assert.equal(result.customerInitiativeSentence, KEY_MASTER_ANALYSIS_COMPLETE_SENTENCE);
+}
+
 await runCase("S02-2-1 analysis_complete flag gate", () => {
   assert.equal(isOneKeyCoreAnalysisCompleteEnabled({ ONE_KEY_CORE_ANALYSIS_COMPLETE: "1" }), true);
   assert.equal(isOneKeyCoreAnalysisCompleteEnabled({ ONE_KEY_CORE_ANALYSIS_COMPLETE: "0" }), false);
@@ -136,7 +146,7 @@ await runCase("S02-2-2 runOneKeyCoreTurn analysis_complete 8-step trace", async 
   assert.equal(result.intakeTrace.response_source, ONE_KEY_CORE_RESPONSE_SOURCE.ANALYSIS_COMPLETE);
 });
 
-await runCase("S02-2-3 static fallback regression", async () => {
+await runCase("S02-2-3 KEY Master speak — no reco job", async () => {
   const env = buildEnv();
   const result = await runOneKeyCoreTurn({
     event: "analysis_complete",
@@ -147,12 +157,10 @@ await runCase("S02-2-3 static fallback regression", async () => {
     fetchImpl: async () => new Response("", { status: 503 }),
   });
   assert.equal(result.ok, true);
-  assert.equal(result.personaMeta?.conn_001_panel_wired, false);
-  assert.equal(result.personaMeta?.static_draft, KEY_ANALYSIS_INITIATIVE_PASS_VOICE);
-  assert.ok(String(result.customerInitiativeSentence ?? "").length > 0);
+  assertKeyMasterAnalysisCompleteSpeak(result);
 });
 
-await runCase("S02-2-4 CONN-001 panel branch regression", async () => {
+await runCase("S02-2-4 KEY Master speak — reco job same draft", async () => {
   const env = buildEnv();
   const result = await runOneKeyCoreTurn({
     event: "analysis_complete",
@@ -163,9 +171,8 @@ await runCase("S02-2-4 CONN-001 panel branch regression", async () => {
     fetchImpl: async () => new Response("", { status: 503 }),
   });
   assert.equal(result.ok, true);
-  assert.equal(result.personaMeta?.conn_001_panel_wired, true);
-  assert.ok(result.customerInitiativeSentence.includes("암진단비"));
-  assert.ok(result.customerInitiativeSentence.includes("같이"));
+  assertKeyMasterAnalysisCompleteSpeak(result);
+  assert.doesNotMatch(result.customerInitiativeSentence, /암진단비/);
 });
 
 await runCase("S02-2-5 intake contract fields preserved", async () => {

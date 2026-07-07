@@ -1,11 +1,8 @@
 /**
  * KU-2c — KEY first customer sentence (from key_first_judgment · no coverage/gap/rec).
  * DU-1 — Document + Policies + Memory + Conversation fusion when snapshot present.
- * Hand P3 — Persona outlet via finalizeSalesDirectorResponse (draft preserve).
+ * Customer speak outlet: keySpeak(key_master) → finalizeKeyCustomerText only.
  */
-import { polishLifeguardCustomerText } from "../lifeguardOutputGuard.js";
-import { finalizeSalesDirectorResponse } from "../salesDirectorFormatter.js";
-import { ONE_BRAIN_SURFACES } from "../oneBrainResponseLayer.js";
 import {
   buildDu1CustomerFirstSentence,
   buildDu1InputBundle,
@@ -14,7 +11,7 @@ import {
 } from "./du1DocumentUploadFirstSpeak.js";
 
 export const KEY_FIRST_SPEAK_SCHEMA_VERSION = "key-first-speak-ku2c-v1";
-export const DOCUMENT_INTAKE_PERSONA_OUTLET = "finalizeSalesDirectorResponse";
+export const DOCUMENT_INTAKE_PERSONA_OUTLET = "keySpeak(key_master)";
 
 function resolveJudgmentPosture(keyFirstJudgment = {}) {
   return keyFirstJudgment.posture ?? keyFirstJudgment.orient_speech_planned?.posture ?? null;
@@ -90,49 +87,6 @@ export function buildCustomerFirstSentence(
 }
 
 export { buildDu1InputBundle, DU1_SCHEMA_VERSION };
-
-/**
- * Hand P3 — route upload first sentence through Chat-equivalent Persona outlet.
- * @param {string} draftText — from buildCustomerFirstSentence (semantic draft only)
- * @param {object} [keyTurnResult] — runSalesDirectorKeyTurn result
- * @param {object} [document]
- */
-export function finalizeDocumentIntakeFirstSentence(draftText, { keyTurnResult = null, document = {} } = {}) {
-  const trimmedDraft = String(draftText ?? "").trim();
-  if (!trimmedDraft) return null;
-
-  const agentTurn = keyTurnResult?.agentTurn ?? null;
-  const factBundle = {
-    ...(agentTurn?.factBundle ?? {}),
-    document_intake: true,
-    key_orchestrator: true,
-    document_id: document.id ?? agentTurn?.factBundle?.document_id ?? null,
-    classification_intent: "document_intake",
-  };
-
-  const finalized = finalizeSalesDirectorResponse({
-    rawText: trimmedDraft,
-    intent: "document_intake",
-    classificationIntent: "document_intake",
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle,
-    customerState: {
-      keyOrchestrator: true,
-      question: "",
-    },
-    conversationContext: {},
-  });
-
-  const text = polishLifeguardCustomerText(finalized.text ?? trimmedDraft);
-
-  return {
-    text,
-    static_draft: trimmedDraft,
-    persona_outlet: DOCUMENT_INTAKE_PERSONA_OUTLET,
-    generation_mode: finalized.generation_mode ?? "document_intake_persona_outlet",
-    key_compose_trace: finalized.key_compose_trace ?? null,
-  };
-}
 
 /**
  * @param {object} intakeTrace

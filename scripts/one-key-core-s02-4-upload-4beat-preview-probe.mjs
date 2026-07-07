@@ -209,12 +209,21 @@ async function main() {
       body: { document_id: documentId, upload_source: "s02_4_probe" },
     });
     const source = docProbe.payload?.response_source ?? null;
+    const speakStep = docProbe.payload?.intake_trace?.one_key_core_trace?.steps?.find(
+      (r) => r.step === "speak",
+    );
     report.beats.push({
       beat: "document",
       core_route: isCoreSource(source, "document") ? "one_key_core" : "legacy",
       response_source: source,
       work_order_id: docProbe.payload?.work_order_id ?? null,
-      probe_ok: docProbe.ok && isCoreSource(source, "document"),
+      key_speak_master: docProbe.payload?.key_speak_master === true,
+      compose_mode: speakStep?.payload?.compose_mode ?? null,
+      probe_ok:
+        docProbe.ok &&
+        isCoreSource(source, "document") &&
+        docProbe.payload?.key_speak_master === true &&
+        /^key_master_/.test(String(speakStep?.payload?.compose_mode ?? "")),
     });
   } else {
     report.beats.push({ beat: "document", probe_ok: false, core_route: "unknown" });
@@ -238,12 +247,21 @@ async function main() {
       body: { job_id: jobId },
     });
     const source = acProbe.payload?.response_source ?? acProbe.payload?.intake_trace?.response_source ?? null;
+    const speakStep = acProbe.payload?.intake_trace?.one_key_core_trace?.steps?.find(
+      (r) => r.step === "speak",
+    );
     report.beats.push({
       beat: "analysis_complete",
       core_route: isCoreSource(source, "analysis_complete") ? "one_key_core" : "legacy",
       response_source: source,
       work_order_id: acProbe.payload?.work_order_id ?? null,
-      probe_ok: acProbe.ok && isCoreSource(source, "analysis_complete"),
+      key_speak_master: acProbe.payload?.key_speak_master === true,
+      compose_mode: speakStep?.payload?.compose_mode ?? null,
+      probe_ok:
+        acProbe.ok &&
+        isCoreSource(source, "analysis_complete") &&
+        acProbe.payload?.key_speak_master === true &&
+        /^key_master_/.test(String(speakStep?.payload?.compose_mode ?? "")),
     });
   } else {
     report.beats.push({ beat: "analysis_complete", probe_ok: false, core_route: "unknown" });
@@ -326,6 +344,9 @@ async function main() {
   const woStep = returnCoreProbe?.payload?.intake_trace?.one_key_core_trace?.steps?.find(
     (r) => r.step === "work_order",
   );
+  const speakStep = returnCoreProbe?.payload?.intake_trace?.one_key_core_trace?.steps?.find(
+    (r) => r.step === "speak",
+  );
   const sentence = returnCoreProbe?.payload?.return_judgment_sentence ?? null;
   const intakeSentence = returnCoreProbe?.payload?.intake_trace?.return_judgment_sentence ?? null;
   report.beats.push({
@@ -343,11 +364,8 @@ async function main() {
     return_judgment_sentence_preview: String(sentence ?? "").slice(0, 240),
     intake_sentence_matches_api:
       sentence && intakeSentence ? sentence === intakeSentence : sentence === intakeSentence,
-    conn_002_panel_wired: returnCoreProbe?.payload?.intake_trace?.conn_002_panel_wired === true,
-    conn_003_panel_wired: returnCoreProbe?.payload?.intake_trace?.conn_003_panel_wired === true,
-    conn_004_weave_wired: returnCoreProbe?.payload?.intake_trace?.conn_004_weave_wired === true,
-    conn_005_continuity_weave_wired:
-      returnCoreProbe?.payload?.intake_trace?.conn_005_continuity_weave_wired === true,
+    key_speak_master: returnCoreProbe?.payload?.key_speak_master === true,
+    compose_mode: speakStep?.payload?.compose_mode ?? null,
     core_steps:
       returnCoreProbe?.payload?.intake_trace?.one_key_core_trace?.steps?.map((r) => r.step) ?? [],
     gap_simulation: returnSeed,
@@ -355,7 +373,9 @@ async function main() {
     probe_ok:
       returnCoreProbe?.ok === true &&
       isCoreSource(rSource, "return_judgment") &&
-      returnCoreProbe?.payload?.work_order_id == null,
+      returnCoreProbe?.payload?.work_order_id == null &&
+      returnCoreProbe?.payload?.key_speak_master === true &&
+      /^key_master_/.test(String(speakStep?.payload?.compose_mode ?? "")),
   });
 
   mkdirSync(join(ROOT, "fixtures/key-judgment-validation-v1"), { recursive: true });

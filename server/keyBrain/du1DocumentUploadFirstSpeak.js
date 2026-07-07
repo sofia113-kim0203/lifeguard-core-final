@@ -3,6 +3,10 @@
  * Document / Policies / Memory / Conversation are separate sources with epistemic tiers.
  */
 import { LOOKUP_CATEGORIES, matchPolicyToCategory } from "../intentGateLayer.js";
+import {
+  isKeySocialTurn,
+  resolveKeySocialConversationPattern,
+} from "../keyConversationPatterns.js";
 
 export const DU1_SCHEMA_VERSION = "du-1-document-upload-first-speak-v2";
 
@@ -900,6 +904,146 @@ export function buildPhaseAFollowUpCustomerSpeak({
     segments,
     inputGates,
   };
+}
+
+function buildQuestionJudgmentSegments(question = "", consultationIntent = null) {
+  const intent = consultationIntent?.intent ?? "general_consultation";
+  const segments = [
+    {
+      source: DU1_INPUT_SOURCE.JUDGMENT,
+      tier: DU1_EPISTEMIC_TIER.CERTAIN,
+      text: "질문 잘 받았습니다.",
+    },
+  ];
+
+  if (intent === "design_request") {
+    segments.push({
+      source: DU1_INPUT_SOURCE.JUDGMENT,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "설계 방향은 같이 잡을 수 있어요. 다만 지금 단정할 상품이나 금액은 말씀드리기 어렵고, 보장 구조부터 차례로 보면 됩니다.",
+    });
+    return segments;
+  }
+
+  if (intent === "recommendation_request") {
+    segments.push({
+      source: DU1_INPUT_SOURCE.JUDGMENT,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "지금은 저장된 우선순위 분석이 아직 없어, 보장 구조부터 같이 보면 됩니다.",
+    });
+    return segments;
+  }
+
+  if (/보험료|부담|비싸/.test(String(question ?? ""))) {
+    segments.push({
+      source: DU1_INPUT_SOURCE.JUDGMENT,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "보험료 부담을 보려면 먼저 등록된 계약과 납입 구조를 같이 확인해야 합니다.",
+    });
+    return segments;
+  }
+
+  if (/괜찮|부족|암/.test(String(question ?? ""))) {
+    segments.push({
+      source: DU1_INPUT_SOURCE.JUDGMENT,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "보장 상태를 보려면 등록된 가입 정보를 먼저 같이 확인해야 합니다.",
+    });
+    return segments;
+  }
+
+  segments.push({
+    source: DU1_INPUT_SOURCE.JUDGMENT,
+    tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+    text: "KEY가 확인되는 범위부터 같이 보겠습니다.",
+  });
+  return segments;
+}
+
+/**
+ * Question event — DU-1 epistemic compose (no document intake opener).
+ */
+export function composeQuestionWithEpistemicTrace(
+  bundle,
+  { question = "", consultationIntent = null } = {},
+) {
+  const gates = bundle.inputGates ?? resolveDu1InputGates(bundle.loadedContext, bundle);
+  const segments = [];
+
+  segments.push(...buildQuestionJudgmentSegments(question, consultationIntent));
+
+  if (gates.policiesPresent) {
+    segments.push(...buildPolicySegments(bundle.policies, []));
+  } else {
+    segments.push({
+      source: DU1_INPUT_SOURCE.POLICIES,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "등록된 가입 정보가 아직 없습니다.",
+    });
+  }
+
+  if (gates.memoryPresent) {
+    segments.push(...buildMemorySegments(bundle.memoryFacts));
+  }
+
+  if (gates.conversationPresent) {
+    segments.push(...buildConversationSegments(bundle.conversation));
+  }
+
+  segments.push({
+    source: DU1_INPUT_SOURCE.JUDGMENT,
+    tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+    text: "KEY가 확인되는 범위부터 같이 보겠습니다.",
+  });
+
+  const text = segmentsToCustomerText(segments);
+  return { segments, text, inputGates: gates };
+}
+
+/**
+ * KEY Master — question customer speak (Upload KEY epistemic voice).
+ */
+export function buildQuestionCustomerFirstSentence(
+  keyFirstJudgment,
+  {
+    question = "",
+    contextSnapshot = null,
+    loadedContext = null,
+    consultationIntent = null,
+  } = {},
+) {
+  if (isKeySocialTurn(question)) {
+    const social = resolveKeySocialConversationPattern(question);
+    const text = normalizeText(social?.text ?? "반갑습니다. 천천히 맞춰가면 됩니다.");
+    const speechValidation = validateDu1CustomerSpeech(text);
+    return speechValidation.ok ? text : null;
+  }
+
+  if (!keyFirstJudgment || typeof keyFirstJudgment !== "object") {
+    return null;
+  }
+
+  const bundle = buildDu1InputBundle({
+    document: { id: null, event_type: "question" },
+    contextSnapshot,
+    loadedContext,
+    keyFirstJudgment,
+  });
+
+  if (!assertDu1FourInputsPresent(bundle)) {
+    return null;
+  }
+
+  const { text, segments } = composeQuestionWithEpistemicTrace(bundle, {
+    question,
+    consultationIntent,
+  });
+  const speechValidation = validateDu1CustomerSpeech(text);
+  const segmentValidation = validateDu1EpistemicSegments(segments);
+  if (!speechValidation.ok || !segmentValidation.ok) {
+    return null;
+  }
+  return text;
 }
 
 /**

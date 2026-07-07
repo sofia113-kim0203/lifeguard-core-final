@@ -10,11 +10,9 @@ import {
   KEY_DOCUMENT_INTAKE_SCHEMA_VERSION,
 } from "../keyBrain/documentIntakeShadow.js";
 import { buildKeyFirstJudgment } from "../keyBrain/documentFirstJudgment.js";
-import {
-  appendKeyFirstSpeakTrace,
-  buildCustomerFirstSentence,
-  finalizeDocumentIntakeFirstSentence,
-} from "../keyBrain/documentFirstSpeak.js";
+import { appendKeyFirstSpeakTrace } from "../keyBrain/documentFirstSpeak.js";
+import { keySpeak, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import {
   buildDu1InputBundle,
   resolveDu1InputGates,
@@ -395,40 +393,35 @@ export async function runOneKeyCoreDocumentTurn({
   });
   recordStep("evidence", evidenceBundle);
 
-  const staticDraft = buildCustomerFirstSentence(keyJudgment, {
+  const speakResult = keySpeak({
+    event: "document",
     document,
+    keyFirstJudgment: keyJudgment,
     contextSnapshot,
     loadedContext,
   });
   recordStep("speak", {
-    compose_mode: "buildCustomerFirstSentence",
-    static_draft_preview: String(staticDraft ?? "").slice(0, 300),
+    compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_document",
+    static_draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
     du1: true,
+    key_speak_master: true,
   });
 
-  trace.customer_text_path.push(
-    "buildCustomerFirstSentence",
-    "finalizeDocumentIntakeFirstSentence(document_intake_preserve)",
-    "polishLifeguardCustomerText",
-  );
+  trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
 
-  let customerFirstSentence = null;
-  let personaMeta = null;
-  if (staticDraft) {
-    const finalized = finalizeDocumentIntakeFirstSentence(staticDraft, {
-      keyTurnResult: keyTurn.result,
-      document,
-    });
-    if (finalized?.text) {
-      customerFirstSentence = finalized.text;
-      personaMeta = finalized;
-    }
-  }
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
+  const customerFirstSentence = outletResult.keySpeakOriginal;
+  const personaMeta = {
+    generation_mode: outletResult.generation_mode,
+    persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
+    key_speak_master: true,
+  };
 
   recordStep("persona", {
-    generation_mode: personaMeta?.generation_mode ?? null,
+    generation_mode: personaMeta.generation_mode,
     text_preview: String(customerFirstSentence ?? "").slice(0, 300),
-    persona_outlet: personaMeta?.persona_outlet ?? null,
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
   });
 
   const stepNames = trace.steps.map((row) => row.step);

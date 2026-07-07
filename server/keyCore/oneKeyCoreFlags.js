@@ -89,6 +89,20 @@ export function resolveOneKeyCoreBridgeEnv(env = process.env) {
   };
 }
 
+/** KEY Master Preview — all Core events + S1 on. */
+export function resolveKeyMasterPreviewEnv(env = process.env) {
+  return {
+    ...env,
+    ONE_KEY_CORE_S1: "1",
+    ONE_KEY_CORE_DOCUMENT: "1",
+    ONE_KEY_CORE_ANALYSIS_COMPLETE: "1",
+    ONE_KEY_CORE_RETURN_JUDGMENT: "1",
+    ONE_KEY_CORE_BRIDGE: "1",
+    SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
+    SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
+  };
+}
+
 export const ONE_KEY_CORE_RESPONSE_SOURCE = {
   QUESTION: "one_key_core_s1",
   DOCUMENT: "one_key_core_document",
@@ -98,7 +112,8 @@ export const ONE_KEY_CORE_RESPONSE_SOURCE = {
 };
 
 export const ONE_KEY_CORE_S1_BLOCKED_PATHS = [
-  "legacy_tom_speak",
+  "generateHumanSalesDirectorResponse",
+  "finalizeSalesDirectorResponse",
   "tom_gap_light_voice",
   "conversation_brain_compose",
   "free_thinking_compose",
@@ -111,5 +126,6 @@ export const ONE_KEY_CORE_S1_BLOCKED_PATHS = [
   "home_brain_compose_answer",
   "trusted_advisor_compose",
   "tool_brain_fixed_hul",
+  "buildKeyStructuredResponse",
   "sales_director_loop_legacy_chain",
 ];
