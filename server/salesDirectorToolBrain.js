@@ -5,7 +5,6 @@
  */
 import { composeP5BrainStateAwareAnswer } from "./p5BrainStateAwareAnswer.js";
 import { P5_BRAIN_PILOT_KEYS } from "./p5BrainPilotQuestions.js";
-import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 
 export const SALES_DIRECTOR_TOOL_SLICES = {
@@ -224,7 +223,7 @@ export function runSalesDirectorToolBrainSlice({
     handled: true,
     agentTurn: {
       text: composed.text,
-      tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
+      tomInternalRoute: "chat",
       consultationIntent,
       toolUsed: null,
       responseSource: "sales_director_tool_brain",

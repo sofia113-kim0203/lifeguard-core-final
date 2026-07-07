@@ -1,7 +1,6 @@
 /**
  * P6-2B-2 / P6-2B-3 / P7-PERSONA — Sales Director Conversation + Free Thinking.
  */
-import { TOM_INTERNAL_ROUTES, INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE } from "./homeAgentTom.js";
 import { composeSalesDirectorFreeThinkingAnswer } from "./salesDirectorFreeThinking.js";
 import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { markLatencyMs, mergeFreeThinkingLatency } from "./salesDirectorLatencyAudit.js";
@@ -18,6 +17,9 @@ import {
   inferCustomerIntent,
   violatesMemoryValueRepetition,
 } from "./salesDirectorPersona.js";
+
+const INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE =
+  "그 부분은 지금 바로 숫자로 말씀드리기 어려워요. 보장내역서를 주시면 같이 확인해 볼게요.";
 
 export { CONVERSATION_BRAIN_TOPICS };
 
@@ -173,7 +175,7 @@ export function shouldApplyConversationBrain({
   }
 
   const deferLike =
-    agentTurn?.tomInternalRoute === TOM_INTERNAL_ROUTES.DEFER ||
+    agentTurn?.tomInternalRoute === "defer" ||
     agentTurn?.responseSource === "tom_internal_defer" ||
     isDeadEndDeferResponse(agentTurn?.text);
 
@@ -290,7 +292,7 @@ export async function refineWithConversationBrain({
     agentTurn: {
       ...agentTurn,
       text: composed.text,
-      tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
+      tomInternalRoute: "chat",
       consultationIntent: consultationIntent ?? agentTurn?.consultationIntent,
       responseSource: freeThinking?.text
         ? "sales_director_free_thinking"

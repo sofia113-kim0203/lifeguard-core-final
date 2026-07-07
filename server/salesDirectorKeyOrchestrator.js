@@ -3,7 +3,6 @@
  * Factories = tools; KEY assembles factBundle then exits before Tom/CB/FT/Frame.
  */
 import { classifyConsultationIntent } from "./intentGateLayer.js";
-import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 import { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 import {
   createSalesDirectorLatencyBucket,
@@ -90,7 +89,7 @@ function buildKeyModeDecision(consultationIntent = null, keyEntry = KEY_ENTRY.QU
     key_orchestrator: true,
     key_entry: keyEntry,
     pilotKey: null,
-    tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
+    tomInternalRoute: "chat",
     consultationIntent,
   };
 }
@@ -125,7 +124,7 @@ function buildKeyAgentTurn({
   const designNextActions = designPriorityCoverages.slice(0, 2);
   return {
     text: "",
-    tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
+    tomInternalRoute: "chat",
     consultationIntent,
     toolUsed: null,
     responseSource: "sales_director_key",

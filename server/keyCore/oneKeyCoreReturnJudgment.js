@@ -71,7 +71,7 @@ function buildReturnJudgmentThinkingBundle({
       conn_005_rebalancing: plan?.conn_005_rebalancing_panel_wired === true,
     },
     posture: keyJudgment?.posture ?? null,
-    speak_chain: "finalizeReturnJudgmentSentence (CONN-002~005 preserved)",
+    speak_chain: "keySpeak(key_master_return_judgment)",
   };
 }
 

@@ -1,7 +1,6 @@
 /**
  * P6-1 / P6-2A — Observability contract helpers for customer-home-brain-fact.
  */
-import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 
 export const SALES_DIRECTOR_MODES = {
   PILOT: "sales_director_pilot_mode",
@@ -46,13 +45,13 @@ export function mapSelectedRoute({
   responseSource = null,
 } = {}) {
   if (pilotKey) return "p5_pilot";
-  if (toolUsed === "gap_audit" || tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL) {
+  if (toolUsed === "gap_audit" || tomInternalRoute === "gap_tool") {
     return "gap_audit";
   }
-  if (tomInternalRoute === TOM_INTERNAL_ROUTES.DEFER || responseSource === "tom_internal_defer") {
+  if (tomInternalRoute === "defer" || responseSource === "tom_internal_defer") {
     return "guarded_hold";
   }
-  if (tomInternalRoute === TOM_INTERNAL_ROUTES.CHAT) {
+  if (tomInternalRoute === "chat") {
     return "casual_chat";
   }
   return "unknown";

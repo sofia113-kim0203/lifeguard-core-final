@@ -67,7 +67,7 @@ function buildBridgeJudgment({ anchorJob = null, gapHours = null } = {}) {
     posture: "continuity_bridge",
     anchor_job_id: anchorJob?.id ?? null,
     gap_hours: gapHours,
-    speak_chain: "finalizeBridgeSentence (template only · no CONN weave)",
+    speak_chain: "keySpeak(key_master_bridge)",
   };
 }
 

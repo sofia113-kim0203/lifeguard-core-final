@@ -10,7 +10,8 @@ import {
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import { mapAnalysisJobForClient } from "./conversationalBackgroundAnalysisCore.js";
 import { ensureCustomerMemoryContext } from "./customerMemoryContextSync.js";
-import { buildFastConversationalResponse } from "./fastResponseLayer.js";
+const DOCUMENT_REFRESH_FAST_RESPONSE =
+  "문서를 반영해 보장 상태를 갱신하고 있습니다.";
 import { resolveSupabaseConfig } from "./policyTermsQaCore.js";
 
 const DOCUMENT_REFRESH_QUESTION = "문서 업로드 후 보장·인수·추천·설계를 자동 갱신합니다.";
@@ -143,13 +144,7 @@ export async function handleDocumentPolicyAnalysisRefreshRequest({
     snapshot?.memory_version ?? 0,
   );
 
-  const fastResponse = buildFastConversationalResponse({
-    question: DOCUMENT_REFRESH_QUESTION,
-    memorySnapshot: snapshot,
-    cachePayload,
-    sourceContext: memoryContext.sourceContext ?? {},
-    sourceSummary: memoryContext.sourceSummary ?? {},
-  });
+  const fastResponse = DOCUMENT_REFRESH_FAST_RESPONSE;
 
   const { data: jobRow, error: jobError } = await adminClient
     .from("analysis_jobs")

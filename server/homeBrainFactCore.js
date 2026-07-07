@@ -8,7 +8,6 @@ import {
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
 } from "./homeBrainRouter.js";
-import { TOM_INTERNAL_ROUTES } from "./homeAgentTom.js";
 import {
   buildSalesDirectorFactsUsed,
   buildSalesDirectorLoopObservability,
@@ -29,7 +28,6 @@ export {
   HOME_BRAIN_SUPPORTED_INTENTS,
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
-  TOM_INTERNAL_ROUTES,
 };
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE = HOME_HIGH_STAKES_DEFER_MESSAGE;
@@ -94,18 +92,6 @@ function normalizeQuestion(question) {
   return String(question ?? "").replace(/\s+/g, " ").trim();
 }
 
-function joinLabels(labels) {
-  const list = (labels ?? []).filter(Boolean);
-  if (list.length === 0) return "";
-  if (list.length === 1) return list[0];
-  if (list.length === 2) return `${list[0]}과 ${list[1]}`;
-  return `${list.slice(0, -1).join(", ")}과 ${list[list.length - 1]}`;
-}
-
-function formatWonAmount(amount) {
-  return `${Number(amount).toLocaleString("ko-KR")}`.replace(/,/g, "");
-}
-
 export function applyHomeInventoryHardGuard(text = "") {
   return applyLifeguardCustomerOutputGuard(text);
 }
@@ -131,77 +117,6 @@ export function buildHomeBrainFactsUsed(unified, stats) {
     premiumTotal: stats.premiumTotal,
     memoryStatus: unified?.memory_status ?? null,
     memoryFactCount: unified?.memory_fact_count ?? 0,
-  };
-}
-
-function customerLabel(unified) {
-  const name = unified?.profile?.display_name;
-  return name ? `${name}님` : "고객님";
-}
-
-export function formatHomeBrainAnswer(intent, unified, stats) {
-  const label = customerLabel(unified);
-  const policyCount = resolveHomeBrainPolicyCount(unified);
-
-  if (policyCount === 0 && intent !== "memory_recall_lookup") {
-    return `${label}, 지금은 등록된 가입 보험 정보를 찾지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
-  }
-
-  switch (intent) {
-    case "premium_lookup": {
-      if (stats.premiumKnownCount === 0) {
-        return `${label}, 지금 확인된 납입 보험료가 있는 계약은 없어요.`;
-      }
-      return `확인된 납입 보험료 합계는 ${formatWonAmount(stats.premiumTotal)}원이에요.`;
-    }
-    case "policy_count": {
-      if (typeof policyCount === "number" && policyCount > 0) {
-        return `${label}, 지금 확인된 가입 보험은 ${policyCount}개예요.`;
-      }
-      return `${label}, 지금 가입 보험 개수는 확인 중이에요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
-    }
-    case "insurer_lookup": {
-      const insurers = Array.from(
-        new Set((unified?.policies ?? []).map((policy) => policy.insurer_name).filter(Boolean)),
-      );
-      if (!insurers.length) {
-        return `${label}, 지금은 가입 보험사 정보를 확인하지 못했어요.`;
-      }
-      return `${label}, 가입하신 보험사는 ${joinLabels(insurers)}이에요.`;
-    }
-    case "premium_unknown_lookup":
-      return stats.premiumUnknownCount === 0
-        ? `${label}, 지금 확인된 계약은 모두 납입 보험료가 확인됐어요.`
-        : `${label}, 아직 납입 보험료가 확인되지 않은 계약이 있어요.`;
-    case "memory_recall_lookup":
-      return `${label}, 기억해 둔 정보가 있어요. 필요하시면 말씀해 주세요.`;
-    default:
-      return HOME_HIGH_STAKES_DEFER_MESSAGE;
-  }
-}
-
-/** Legacy compose helper — kept for unit tests; home runtime uses Sales Director Loop. */
-export function composeHomeBrainFactAnswer(unified, question) {
-  const intent = classifyHomeBrainIntent(question);
-  if (!HOME_BRAIN_SUPPORTED_INTENTS.has(intent)) {
-    return {
-      ok: true,
-      answerText: HOME_HIGH_STAKES_DEFER_MESSAGE,
-      intent: "unsupported",
-      factsUsed: buildHomeBrainFactsUsed(unified ?? {}, {
-        premiumKnownCount: 0,
-        premiumUnknownCount: 0,
-        premiumTotal: 0,
-      }),
-    };
-  }
-  const policies = unified?.policies ?? [];
-  const stats = computePremiumLookupStats(policies);
-  return {
-    ok: true,
-    answerText: formatHomeBrainAnswer(intent, unified, stats),
-    intent,
-    factsUsed: buildHomeBrainFactsUsed(unified, stats),
   };
 }
 
