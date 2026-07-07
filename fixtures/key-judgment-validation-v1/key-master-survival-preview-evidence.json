@@ -1,64 +1,64 @@
 {
   "schema_version": "key-master-survival-preview-v1",
-  "preview_base": "https://lifeguard-core-final-kr23jz607-70sofia113-1918s-projects.vercel.app",
-  "probed_at": "2026-07-07T11:38:47.098Z",
+  "preview_base": "https://lifeguard-core-final-n1vn5knky-70sofia113-1918s-projects.vercel.app",
+  "probed_at": "2026-07-07T14:06:59.620Z",
   "probes": [
     {
       "question": "보험료 부담",
-      "key_speak_original": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 현재 확인 가능한 월 보험료는 945,000원입니다. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
-      "final_customerText": "보험료 부담이 크게 느껴지시는 것 같아요. 어디서 부담이 큰지부터 같이 짚어보면, 줄일지 유지할지 순서가 보입니다. 현재 확인 가능한 월 보험료는 945,000원입니다. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 가장 무거운 계약부터 순서를 정리해 보면, 줄일지 유지할지가 보입니다.",
+      "key_speak_original": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
+      "final_customerText": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
       "text_equal": true,
-      "response_source": "sales_director_key",
-      "key_text_equal_api": false,
-      "key_speak_master_trace": false,
-      "compose_mode": null,
+      "response_source": "one_key_core_s1",
+      "key_text_equal_api": true,
+      "key_speak_master_trace": true,
+      "compose_mode": "key_master_question",
       "replace_count": 0,
-      "fake_key_source": true,
+      "fake_key_source": false,
       "fake_compose_mode": false,
       "hul_marker_leak": false,
       "master_voice": false,
-      "rewrite_detected": true
+      "rewrite_detected": false
     },
     {
       "question": "안녕",
       "key_speak_original": "반갑습니다. 천천히 맞춰가면 됩니다.",
       "final_customerText": "반갑습니다. 천천히 맞춰가면 됩니다.",
       "text_equal": true,
-      "response_source": "sales_director_key",
-      "key_text_equal_api": false,
-      "key_speak_master_trace": false,
-      "compose_mode": null,
+      "response_source": "one_key_core_s1",
+      "key_text_equal_api": true,
+      "key_speak_master_trace": true,
+      "compose_mode": "key_master_question",
       "replace_count": 0,
-      "fake_key_source": true,
+      "fake_key_source": false,
       "fake_compose_mode": false,
       "hul_marker_leak": false,
       "master_voice": true,
-      "rewrite_detected": true
+      "rewrite_detected": false
     },
     {
       "question": "내 보험 괜찮아?",
-      "key_speak_original": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 먼저 볼 여지가 있습니다. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
-      "final_customerText": "보장이 걱정되시는 마음은 이해해요. 지금 자료로 확인되는 범위부터 같이 짚어보면, 부족한지 유지할지 순서가 보입니다. 저장된 분석 기준으로 암 쪽은 먼저 볼 여지가 있습니다. 지금 자료로 보면 실손 쪽은 유지하는 축으로 보어, 다른 축을 손볼 때 기준점으로 삼을 수 있습니다. 세부 담보·한도는 이 범위 밖입니다. 걱정되는 축부터 차례로 짚어 보면 됩니다.",
+      "key_speak_original": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
+      "final_customerText": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
       "text_equal": true,
-      "response_source": "sales_director_key",
-      "key_text_equal_api": false,
-      "key_speak_master_trace": false,
-      "compose_mode": null,
+      "response_source": "one_key_core_s1",
+      "key_text_equal_api": true,
+      "key_speak_master_trace": true,
+      "compose_mode": "key_master_question",
       "replace_count": 0,
-      "fake_key_source": true,
+      "fake_key_source": false,
       "fake_compose_mode": false,
       "hul_marker_leak": false,
       "master_voice": false,
-      "rewrite_detected": true
+      "rewrite_detected": false
     }
   ],
   "summary": {
     "probe_count": 3,
     "key_master_voice_count": 1,
-    "key_speak_master_trace_count": 0,
+    "key_speak_master_trace_count": 3,
     "text_equal_count": 3,
-    "fake_key_source_count": 3,
+    "fake_key_source_count": 0,
     "fake_compose_mode_count": 0,
-    "rewrite_count": 3
+    "rewrite_count": 0
   }
 }

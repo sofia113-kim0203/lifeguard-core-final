@@ -1,0 +1,265 @@
+{
+  "schema_version": "key-speech-s2-mechanical-gate-evidence-v1",
+  "slice": "KEY_GROWTH_S2",
+  "mode": "local_runtime · no PASS",
+  "observed_at": "2026-07-07T14:45:51.572Z",
+  "a0_turn_type": {
+    "pass": true,
+    "total": 14,
+    "rows": [
+      {
+        "id": "01",
+        "question": "안녕",
+        "expected": "social",
+        "actual": "social",
+        "pass": true
+      },
+      {
+        "id": "02",
+        "question": "고마워",
+        "expected": "social",
+        "actual": "social",
+        "pass": true
+      },
+      {
+        "id": "03",
+        "question": "보험료 부담돼",
+        "expected": "emotion",
+        "actual": "emotion",
+        "pass": true
+      },
+      {
+        "id": "04",
+        "question": "보험료 얼마야",
+        "expected": "command",
+        "actual": "command",
+        "pass": true
+      },
+      {
+        "id": "05",
+        "question": "추천해줘",
+        "expected": "command",
+        "actual": "command",
+        "pass": true
+      },
+      {
+        "id": "06",
+        "question": "추천해줘야 하나 싶어서요",
+        "expected": "emotion",
+        "actual": "emotion",
+        "pass": true
+      },
+      {
+        "id": "07",
+        "question": "내 보험 괜찮아?",
+        "expected": "assessment",
+        "actual": "assessment",
+        "pass": true
+      },
+      {
+        "id": "08",
+        "question": "암보험 부족해?",
+        "expected": "assessment",
+        "actual": "assessment",
+        "pass": true
+      },
+      {
+        "id": "09",
+        "question": "지난번 얘기 이어서 봐줘",
+        "expected": "continuation",
+        "actual": "continuation",
+        "pass": true
+      },
+      {
+        "id": "10",
+        "question": "아까 말한 거 다시 알려줘",
+        "expected": "repeat",
+        "actual": "repeat",
+        "pass": true
+      },
+      {
+        "id": "11",
+        "question": "오늘 너무 힘들어",
+        "expected": "emotion",
+        "actual": "emotion",
+        "pass": true
+      },
+      {
+        "id": "12",
+        "question": "분당 맛집 추천해줘",
+        "expected": "command",
+        "actual": "command",
+        "pass": true
+      },
+      {
+        "id": "13",
+        "question": "요즘 날씨 왜 이렇게 덥지",
+        "expected": "emotion",
+        "actual": "emotion",
+        "pass": true
+      },
+      {
+        "id": "14",
+        "question": "그냥 심심해서 왔어",
+        "expected": "social",
+        "actual": "social",
+        "pass": true
+      }
+    ]
+  },
+  "a1_forbidden_patterns": {
+    "pass": true,
+    "rows": [
+      {
+        "id": "01",
+        "question": "안녕",
+        "turn_type": "social",
+        "answer_preview": "반갑습니다. 천천히 맞춰가면 됩니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "02",
+        "question": "고마워",
+        "turn_type": "social",
+        "answer_preview": "천만에요. 편하실 때 이어가면 됩니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "03",
+        "question": "보험료 부담돼",
+        "turn_type": "emotion",
+        "answer_preview": "보험료가 부담으로 느껴지시는군요. 납입 구조부터 같이 보면 부담이 어디서 오는지 짚을 수 있어요.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "04",
+        "question": "보험료 얼마야",
+        "turn_type": "command",
+        "answer_preview": "등록된 계약이 있으면 납입 구조부터 짚어볼 수 있어요.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "05",
+        "question": "추천해줘",
+        "turn_type": "command",
+        "answer_preview": "지금은 상품부터 꺼내기보다, 보장 구조부터 같이 보면 순서가 보입니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "06",
+        "question": "추천해줘야 하나 싶어서요",
+        "turn_type": "emotion",
+        "answer_preview": "지금 결정을 서두르기보다, 망설이시는 이유부터 같이 보면 됩니다. 지금 당장 결정보다, 어떤 부분이 막막한지부터 천천히 보면 됩니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "07",
+        "question": "내 보험 괜찮아?",
+        "turn_type": "assessment",
+        "answer_preview": "지금 상태가 궁금하실 때가 있죠. 전체적으로 큰 공백 신호가 있는지부터 짚어볼게요.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "08",
+        "question": "암보험 부족해?",
+        "turn_type": "assessment",
+        "answer_preview": "보장이 걱정되실 수 있어요. 암 담보 축부터 같이 보면, 겹치는 부분과 비는 부분이 보입니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "09",
+        "question": "지난번 얘기 이어서 봐줘",
+        "turn_type": "continuation",
+        "answer_preview": "이전에 나눈 이야기가 있으면 그 흐름에서 이어가면 됩니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "10",
+        "question": "아까 말한 거 다시 알려줘",
+        "turn_type": "repeat",
+        "answer_preview": "아까 말씀드린 내용을 짧게 다시 정리해 드릴게요.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "11",
+        "question": "오늘 너무 힘들어",
+        "turn_type": "emotion",
+        "answer_preview": "오늘 많이 버티셨네요. 잠깐이라도 숨 고를 틈은 있으세요?",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "12",
+        "question": "분당 맛집 추천해줘",
+        "turn_type": "command",
+        "answer_preview": "지금은 상품부터 꺼내기보다, 보장 구조부터 같이 보면 순서가 보입니다.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "13",
+        "question": "요즘 날씨 왜 이렇게 덥지",
+        "turn_type": "emotion",
+        "answer_preview": "요즘 날씨가 많이 힘드시죠. 밖에 나가기도 부담스러울 때가 있어요.",
+        "forbidden_hits": [],
+        "pass": true
+      },
+      {
+        "id": "14",
+        "question": "그냥 심심해서 왔어",
+        "turn_type": "social",
+        "answer_preview": "오셨군요. 오늘은 어떤 이야기든 괜찮아요.",
+        "forbidden_hits": [],
+        "pass": true
+      }
+    ]
+  },
+  "boundary_contrast": {
+    "pass": true,
+    "rows": [
+      {
+        "pair": [
+          "보험료 부담돼",
+          "보험료 얼마야"
+        ],
+        "same_answer": false,
+        "pass": true
+      },
+      {
+        "pair": [
+          "추천해줘",
+          "추천해줘야 하나 싶어서요"
+        ],
+        "same_answer": false,
+        "pass": true
+      },
+      {
+        "pair": [
+          "내 보험 괜찮아?",
+          "암보험 부족해?"
+        ],
+        "same_answer": false,
+        "pass": true
+      },
+      {
+        "pair": [
+          "지난번 얘기 이어서 봐줘",
+          "아까 말한 거 다시 알려줘"
+        ],
+        "same_answer": false,
+        "pass": true
+      }
+    ]
+  },
+  "mechanical_pass": true
+}

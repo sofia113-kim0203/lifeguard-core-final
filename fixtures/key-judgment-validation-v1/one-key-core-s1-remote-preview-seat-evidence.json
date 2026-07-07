@@ -1,0 +1,88 @@
+{
+  "audit": "p0_3_key_preview_baseline_seat_probe",
+  "schema_version": "one-key-core-s1-remote-preview-seat-v1",
+  "pass_declaration": "none",
+  "observed_at": "2026-07-07T14:07:50.491Z",
+  "git_short_sha": "a6e44d0",
+  "preview_base": "https://lifeguard-core-final-n1vn5knky-70sofia113-1918s-projects.vercel.app",
+  "seat_script_note": "one-key-core-s1-preview-seat-probe.mjs blocked: missing server/keyCompanionGuidance.js — inline SSE probe used",
+  "rows": [
+    {
+      "question": "내 보험 괜찮아?",
+      "probe_ok": true,
+      "response_source": "one_key_core_s1",
+      "agent": "one_key_core_s1",
+      "answer_preview": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
+      "one_key_trace": {
+        "trace_present": true,
+        "steps_complete": true,
+        "step_names": [
+          "interpret",
+          "thinking",
+          "judgment",
+          "planner",
+          "work_order",
+          "evidence",
+          "speak",
+          "persona"
+        ],
+        "key_speak_master": true,
+        "compose_mode": "key_master_question"
+      },
+      "verdict": "observe_ok"
+    },
+    {
+      "question": "암보험 부족해?",
+      "probe_ok": true,
+      "response_source": "one_key_core_s1",
+      "agent": "one_key_core_s1",
+      "answer_preview": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
+      "one_key_trace": {
+        "trace_present": true,
+        "steps_complete": true,
+        "step_names": [
+          "interpret",
+          "thinking",
+          "judgment",
+          "planner",
+          "work_order",
+          "evidence",
+          "speak",
+          "persona"
+        ],
+        "key_speak_master": true,
+        "compose_mode": "key_master_question"
+      },
+      "verdict": "observe_ok"
+    },
+    {
+      "question": "그냥 추천해줘",
+      "probe_ok": true,
+      "response_source": "one_key_core_s1",
+      "agent": "one_key_core_s1",
+      "answer_preview": "우선 이번 달에는 가입 정보를 함께 저장하고, 저장 후에는 납입과 보장 구조를 함께 확인해 보면 좋겠습니다.",
+      "one_key_trace": {
+        "trace_present": true,
+        "steps_complete": true,
+        "step_names": [
+          "interpret",
+          "thinking",
+          "judgment",
+          "planner",
+          "work_order",
+          "evidence",
+          "speak",
+          "persona"
+        ],
+        "key_speak_master": true,
+        "compose_mode": "key_master_question"
+      },
+      "verdict": "observe_ok"
+    }
+  ],
+  "summary": {
+    "probe_ok_count": 3,
+    "observe_ok_count": 3,
+    "response_source_one_key_core_s1_count": 3
+  }
+}

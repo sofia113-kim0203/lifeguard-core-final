@@ -2,25 +2,25 @@
   "audit": "one_key_core_s1_preview_seat_probe",
   "schema_version": "one-key-core-s1-preview-seat-v1",
   "pass_declaration": "none — Tom observation only",
-  "observed_at": "2026-07-05T16:13:08.714Z",
-  "mode": "preview_sse",
-  "preview_base": "https://lifeguard-core-final-a72q9m5pn-70sofia113-1918s-projects.vercel.app",
+  "observed_at": "2026-07-07T14:45:51.985Z",
+  "mode": "local_runtime",
+  "preview_base": null,
   "questions": [
     "내 보험 괜찮아?",
     "암보험 부족해?",
     "그냥 추천해줘"
   ],
-  "blocked_paths_expected": 14,
+  "blocked_paths_expected": 16,
   "tom_checks": {
     "one_key_answers_on_screen": "visual_seat_script_required",
     "response_source_one_key_core_s1": true,
     "legacy_61_76_not_hit": true,
     "answer_not_too_weak": true,
-    "key_meets_customer_first": true
+    "key_meets_customer_first": false
   },
   "rows": [
     {
-      "mode": "preview_sse",
+      "mode": "local_runtime",
       "question": "내 보험 괜찮아?",
       "probe_ok": true,
       "probe_error": null,
@@ -40,29 +40,35 @@
           "persona"
         ],
         "factory_explain_invoked": false,
-        "legacy_paths_blocked_count": 14,
+        "legacy_paths_blocked_count": 16,
         "customer_text_path": [
-          "buildKeyStructuredResponse",
-          "finalizeSalesDirectorResponse(one_key_core_preserve)",
-          "polishLifeguardCustomerText"
+          "keySpeak(key_master)",
+          "DU-1_epistemic_compose",
+          "guardKeyCustomerTextCompleteness",
+          "polishLifeguardCustomerText",
+          "sealKeyCustomerText"
         ]
       },
       "legacy_bypass_confirmed": true,
       "legacy_speak_hits": [],
       "answer_quality": {
-        "answer_length": 223,
+        "answer_length": 46,
         "generic_filler": false,
         "too_short": false,
-        "key_meets_first_tone": true,
-        "answer_preview": "지금 확인되는 범위에서는 큰 공백 신호는 보이지 않습니다. 전부 괜찮다고 단정하긴 어렵습니다. 등록된 보험 내용과 현재 확인된 보장 범위 기준입니다. 다만 특약·한도까지는 아직 확인되지 않았기 때문에, 그 부분은 단정하지 않겠습니다. 다만 제가 하나씩 같이 챙겨드리고 싶은 게 있어요. 우선 이번 달에는 등록된 보험 구조부터 확인해 보면 좋겠고, 올해 안에는 암 보장도 같이 점검해 보면 좋겠습니다.",
+        "key_meets_first_tone": false,
+        "answer_preview": "지금 상태가 궁금하실 때가 있죠. 전체적으로 큰 공백 신호가 있는지부터 짚어볼게요.",
         "question": "내 보험 괜찮아?"
       },
       "sales_director_mode": "sales_director_key_mode",
-      "compose_mode": "one_key_core_persona_outlet",
+      "speak_draft_preview": "지금 상태가 궁금하실 때가 있죠. 전체적으로 큰 공백 신호가 있는지부터 짚어볼게요.",
+      "speech_turn_type": "assessment",
+      "completeness_guard_applied": false,
+      "completeness_guard_reason": null,
+      "compose_mode": null,
       "verdict": "observe_ok"
     },
     {
-      "mode": "preview_sse",
+      "mode": "local_runtime",
       "question": "암보험 부족해?",
       "probe_ok": true,
       "probe_error": null,
@@ -82,29 +88,35 @@
           "persona"
         ],
         "factory_explain_invoked": false,
-        "legacy_paths_blocked_count": 14,
+        "legacy_paths_blocked_count": 16,
         "customer_text_path": [
-          "buildKeyStructuredResponse",
-          "finalizeSalesDirectorResponse(one_key_core_preserve)",
-          "polishLifeguardCustomerText"
+          "keySpeak(key_master)",
+          "DU-1_epistemic_compose",
+          "guardKeyCustomerTextCompleteness",
+          "polishLifeguardCustomerText",
+          "sealKeyCustomerText"
         ]
       },
       "legacy_bypass_confirmed": true,
       "legacy_speak_hits": [],
       "answer_quality": {
-        "answer_length": 129,
+        "answer_length": 52,
         "generic_filler": false,
         "too_short": false,
         "key_meets_first_tone": true,
-        "answer_preview": "지금 자료만으로는 암 담보 충분 여부를 단정하기 어렵습니다. 겹치는 곳은 두껍고, 비어 있는 곳은 비어 있을 가능성이 있습니다. 상품명·가입 목록만으로는 세부 담보·한도까지는 확인 전입니다. 지금 걸리는 부분부터 제가 같이 볼게요.",
+        "answer_preview": "보장이 걱정되실 수 있어요. 암 담보 축부터 같이 보면, 겹치는 부분과 비는 부분이 보입니다.",
         "question": "암보험 부족해?"
       },
       "sales_director_mode": "sales_director_key_mode",
-      "compose_mode": "one_key_core_persona_outlet",
+      "speak_draft_preview": "보장이 걱정되실 수 있어요. 암 담보 축부터 같이 보면, 겹치는 부분과 비는 부분이 보입니다.",
+      "speech_turn_type": "assessment",
+      "completeness_guard_applied": false,
+      "completeness_guard_reason": null,
+      "compose_mode": null,
       "verdict": "observe_ok"
     },
     {
-      "mode": "preview_sse",
+      "mode": "local_runtime",
       "question": "그냥 추천해줘",
       "probe_ok": true,
       "probe_error": null,
@@ -124,34 +136,41 @@
           "persona"
         ],
         "factory_explain_invoked": false,
-        "legacy_paths_blocked_count": 14,
+        "legacy_paths_blocked_count": 16,
         "customer_text_path": [
-          "buildKeyStructuredResponse",
-          "finalizeSalesDirectorResponse(one_key_core_preserve)",
-          "polishLifeguardCustomerText"
+          "keySpeak(key_master)",
+          "DU-1_epistemic_compose",
+          "guardKeyCustomerTextCompleteness",
+          "polishLifeguardCustomerText",
+          "sealKeyCustomerText"
         ]
       },
       "legacy_bypass_confirmed": true,
       "legacy_speak_hits": [],
       "answer_quality": {
-        "answer_length": 98,
+        "answer_length": 39,
         "generic_filler": false,
         "too_short": false,
         "key_meets_first_tone": true,
-        "answer_preview": "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 뇌혈관과 암입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다. 특정 상품 가입을 단정하거나 권유드리기는 어렵습니다.",
+        "answer_preview": "지금은 상품부터 꺼내기보다, 보장 구조부터 같이 보면 순서가 보입니다.",
         "question": "그냥 추천해줘"
       },
       "sales_director_mode": "sales_director_key_mode",
-      "compose_mode": "one_key_core_persona_outlet",
+      "speak_draft_preview": "지금은 상품부터 꺼내기보다, 보장 구조부터 같이 보면 순서가 보입니다.",
+      "speech_turn_type": "command",
+      "completeness_guard_applied": false,
+      "completeness_guard_reason": null,
+      "compose_mode": null,
       "verdict": "observe_ok"
     }
   ],
   "blockers": [],
+  "qa_customer_profile_id": "a247a66f-a597-4ccf-9530-761b82518002",
   "summary": {
     "probe_ok_count": 3,
     "observe_ok_count": 3,
     "legacy_route_count": 0,
     "overall": "observe_ok_pending_visual",
-    "note": null
+    "note": "local-runtime validates S1 code path; customer screen still needs visual seat capture"
   }
 }
