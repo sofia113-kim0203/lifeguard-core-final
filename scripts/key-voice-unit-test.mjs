@@ -46,8 +46,18 @@ assert.equal(premiumDirective.answer_mode, "analysis_consulting");
 assert.equal(premiumDirective.schema_version, "key-voice-directive-v3");
 assert.ok(premiumDirective.intimacy_policy?.speak_to_customer_not_report);
 assert.ok(premiumDirective.number_forward_policy?.enabled);
+assert.ok(premiumDirective.number_forward_policy?.separate_premium_from_policy_count);
+assert.ok(premiumDirective.premium_scope_policy?.separation_required);
 assert.equal(premiumDirective.optional_claims.length, 4);
 assert.equal(premiumDirective.facts_to_speak.length, 4);
+
+const overviewDirective = buildKeyVoiceDirective({ question: "내보험 분석해줘", decision: mockDecision });
+assert.equal(overviewDirective.question_focus, "policy_overview");
+assert.ok(overviewDirective.premium_scope_policy?.preferred_phrases?.length >= 3);
+assert.ok(overviewDirective.answer_shape?.some((line) => /scope/.test(line)));
+
+const premiumAnalysisDirective = buildKeyVoiceDirective({ question: "내보험료 분석해줘", decision: mockDecision });
+assert.equal(premiumAnalysisDirective.question_focus, "policy_overview");
 
 const cancerDirective = buildKeyVoiceDirective({ question: "암보험 괜찮아?", decision: mockDecision });
 assert.equal(cancerDirective.answer_mode, "analysis_consulting");
@@ -70,9 +80,18 @@ assert.equal(cancerBadGate.ok, false);
 assert.equal(cancerBadGate.forbidden_fact_violation, true);
 
 const goodAnswer =
-  "보험료가 궁금하시군요. 현재 확인되는 보험은 22건입니다. 삼성생명 실손의료비보험, 월 4만5천 원이 확인됩니다. 22건 전체 월 보험료부터 확인하면 됩니다. 여기부터 같이 보실까요?";
+  "보험료가 궁금하시군요. 등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요. 22건 전체 월 납입 합계는 아직 정리 중이에요. 계약별 납입액이 더 확인되어야 전체 흐름을 정확히 볼 수 있어요.";
 const goodGate = gateKeyVoiceAnswer({ text: goodAnswer, directive: premiumDirective });
 assert.equal(goodGate.ok, true, goodGate.reasons?.join("; "));
+
+const blurAnswer =
+  "보험료가 궁금하시군요. 22건, 월 4만5천 원 기준으로 전체 보험료 흐름을 보면 부담이 크지 않습니다.";
+const blurGate = gateKeyVoiceAnswer({ text: blurAnswer, directive: premiumDirective });
+assert.equal(blurGate.ok, false);
+assert.ok(
+  blurGate.reasons.some((r) => r.startsWith("voice_forbidden:")),
+  blurGate.reasons?.join("; "),
+);
 
 const badAnswer = "보험료는 99만 원입니다. 현대해상 암보험 가입하세요.";
 const badGate = gateKeyVoiceAnswer({ text: badAnswer, directive: premiumDirective });
@@ -83,10 +102,20 @@ const safe = buildKeyVoiceSafeUtterance(greetingDirective);
 assert.ok(/안녕|반갑/.test(safe));
 assert.ok(!/22건/.test(safe));
 
+const safePremium = buildKeyVoiceSafeUtterance(premiumDirective);
+assert.ok(/그중/.test(safePremium));
+assert.ok(/정리 중/.test(safePremium));
+assert.ok(!/22건, 월/.test(safePremium));
+assert.ok(!/기준으로 전체 보험료/.test(safePremium));
+
+const safeOverview = buildKeyVoiceSafeUtterance(overviewDirective);
+assert.ok(/그중|등록된 계약/.test(safeOverview));
+assert.ok(/정리 중|계약별/.test(safeOverview));
+
 const premiumBlocks = buildKeyVoiceVisualBlocks({ directive: premiumDirective });
 assert.ok(premiumBlocks.some((b) => b.type === "premium_summary_table"));
 const premiumText =
-  "삼성생명 실손의료비보험 기준으로 월 4만5천 원이 납입되고 있고요, 등록된 계약은 총 22건이거든요. 제가 순서대로 정리해드릴게요.";
+  "등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요. 22건 전체 월 납입 합계는 아직 정리 중이에요. 제가 순서대로 정리해드릴게요.";
 const premiumBlockGate = gateKeyVoiceVisualBlocks({
   blocks: premiumBlocks,
   text: premiumText,

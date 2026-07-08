@@ -21,6 +21,7 @@ function buildSystemPrompt() {
     "Intimacy (v3): open like talking to the customer — not a report. Warm grounded phrases OK.",
     "Use conversational polite endings (~할게요, ~거든요, ~보면 좋아요). Avoid stiff repetition of '확인해 드리겠습니다'.",
     "Number forward (v3): place question-relevant allowed numbers in the first two sentences with meaning.",
+    "Premium scope: when policy_count > 1, monthly_premium is ONE confirmed representative contract — never read as total for all contracts. Never pair count and premium as 'N건, 월 X 기준' or '월 X 기준으로 전체 보험료'.",
     "Over-familiarity forbidden: no informal speech, emoji, exaggerated reactions, emotion certainty, '무조건', '걱정 마세요', '완벽합니다'.",
     "Follow question_focus in the first sentence.",
     "2-5 complete Korean sentences. Polite endings. No markdown.",
@@ -140,6 +141,23 @@ export function buildKeyVoiceSafeUtterance(directive = {}) {
     ];
     if (factBlock) parts.push(factBlock);
     parts.push("그다음 등록된 다른 계약도 같은 순서로 함께 보겠습니다.");
+    return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  if (focus === "policy_overview") {
+    const parts = ["내보험 현황이 궁금하시군요."];
+    if (factBlock) {
+      parts.push(factBlock);
+    } else if (directive.premium_scope_policy?.preferred_phrases?.length) {
+      parts.push(directive.premium_scope_policy.preferred_phrases[0]);
+    }
+    parts.push(
+      directive.premium_scope_policy?.preferred_phrases?.[2] ??
+        "전체 흐름은 계약별 납입액이 더 확인되어야 정확히 볼 수 있어요.",
+    );
+    if (directive.key_judgment) parts.push(directive.key_judgment);
+    if (move) parts.push(`다음은 ${move.endsWith(".") ? move.slice(0, -1) : move}.`);
+    if (invite) parts.push(invite);
     return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
   }
 

@@ -65,13 +65,18 @@ export function renderFactsSpokenBlock(factsSpoken = [], policies = []) {
     if (count === 1) {
       parts.push("현재 확인되는 보험은 1건입니다.");
     } else if (count > 1) {
-      parts.push(`현재 확인되는 보험은 ${count}건입니다.`);
+      parts.push(`등록된 계약은 ${count}건입니다.`);
     }
   }
 
   if (insurer && product) {
-    const premiumPart = premium ? `, 월 ${premium}` : "";
-    parts.push(`${insurer} ${product}${premiumPart}이 확인됩니다.`);
+    if (count != null && count > 1 && premium) {
+      parts.push(`그중 ${insurer} ${product}의 월 납입액 ${premium}이 확인돼 있어요.`);
+      parts.push(`${count}건 전체 월 납입 합계는 아직 정리 중이에요.`);
+    } else {
+      const premiumPart = premium ? `, 월 ${premium}` : "";
+      parts.push(`${insurer} ${product}${premiumPart}이 확인됩니다.`);
+    }
   } else if (insurer) {
     parts.push(`${insurer} 보험이 확인됩니다.`);
   }

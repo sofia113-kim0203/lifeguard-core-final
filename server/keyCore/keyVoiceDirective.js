@@ -98,6 +98,98 @@ function usesAnalysisConsultingMode(focus) {
 
 
 
+function needsPremiumScopeSeparation(allowedFactTokens = {}) {
+
+  const count = allowedFactTokens.policy_count != null ? Number(allowedFactTokens.policy_count) : null;
+
+  return (
+
+    count != null &&
+
+    Number.isFinite(count) &&
+
+    count > 1 &&
+
+    Boolean(allowedFactTokens.monthly_premium_display)
+
+  );
+
+}
+
+
+
+function buildPremiumScopePolicy(questionFocus, allowedFactTokens = {}) {
+
+  const multiPremiumFocuses = new Set([
+
+    "policy_overview",
+
+    "premium_amount",
+
+    "premium_burden",
+
+    "premium_reduction",
+
+  ]);
+
+  if (!multiPremiumFocuses.has(questionFocus) || !needsPremiumScopeSeparation(allowedFactTokens)) {
+
+    return null;
+
+  }
+
+  const count = Number(allowedFactTokens.policy_count);
+
+  const countLabel = `${count}건`;
+
+  const insurer = String(allowedFactTokens.insurer ?? "").trim();
+
+  const product = String(allowedFactTokens.product ?? "").trim();
+
+  const premium = String(allowedFactTokens.monthly_premium_display ?? "").trim();
+
+  const contractLabel = [insurer, product].filter(Boolean).join(" ") || "대표 확인 계약";
+
+  return {
+
+    separation_required: true,
+
+    policy_count_scope: "등록된 계약 전체",
+
+    premium_scope: "대표 확인 계약 한 건의 월 납입액 (전체 합계 아님)",
+
+    number_pairing_rule:
+
+      "policy_count와 monthly_premium을 같은 문장에서 '기준'으로 묶거나 전체 보험료로 읽히게 하지 않는다.",
+
+    forbidden_readings: [
+
+      `${countLabel}, ${premium} 기준`,
+
+      `${countLabel} 전체를 놓고 보면, ${premium}`,
+
+      `${premium} 기준으로 전체 보험료`,
+
+      `${countLabel} 전체 보험료가 ${premium}`,
+
+    ],
+
+    preferred_phrases: [
+
+      `등록된 계약은 ${countLabel}이고, 그중 ${contractLabel}의 월 납입액 ${premium}이 확인돼 있어요.`,
+
+      `${countLabel} 전체 월 납입 합계는 아직 정리 중이에요.`,
+
+      "전체 흐름은 계약별 납입액이 더 확인되어야 정확히 볼 수 있어요.",
+
+    ],
+
+  };
+
+}
+
+
+
 function buildNumberForwardPolicy(questionFocus, allowedFactTokens = {}, allowedNumbers = []) {
 
   const focusNeedsNumbers = new Set([
@@ -124,6 +216,8 @@ function buildNumberForwardPolicy(questionFocus, allowedFactTokens = {}, allowed
 
   }
 
+  const scopeSeparation = needsPremiumScopeSeparation(allowedFactTokens);
+
   const targets = [];
 
   if (allowedFactTokens.policy_count != null) {
@@ -134,7 +228,9 @@ function buildNumberForwardPolicy(questionFocus, allowedFactTokens = {}, allowed
 
       relevance: "policy_count",
 
-      with_meaning: "등록된 계약 규모",
+      with_meaning: scopeSeparation ? "등록된 계약 전체 건수" : "등록된 계약 규모",
+
+      do_not_pair_with: scopeSeparation ? ["monthly_premium"] : [],
 
     });
 
@@ -154,7 +250,13 @@ function buildNumberForwardPolicy(questionFocus, allowedFactTokens = {}, allowed
 
       relevance: "monthly_premium",
 
-      with_meaning: "확인된 납입액",
+      with_meaning: scopeSeparation
+
+        ? "대표 확인 계약 한 건의 월 납입액 (전체 합계 아님)"
+
+        : "확인된 납입액",
+
+      do_not_pair_with: scopeSeparation ? ["policy_count"] : [],
 
     });
 
@@ -171,6 +273,8 @@ function buildNumberForwardPolicy(questionFocus, allowedFactTokens = {}, allowed
     forbid_unrelated_number_dump: true,
 
     explain_meaning_with_number: true,
+
+    separate_premium_from_policy_count: scopeSeparation,
 
     targets,
 
@@ -697,9 +801,19 @@ function buildUnknownHandling(focus, withheld = []) {
 
   }
 
-  if (focus === "premium_amount" || focus === "premium_burden" || focus === "premium_reduction") {
+  if (
 
-    return "전체 월 보험료 합산은 아직 없으면 대표 건 보험료와 22건 전체 확인 순서를 제시한다.";
+    focus === "premium_amount" ||
+
+    focus === "premium_burden" ||
+
+    focus === "premium_reduction" ||
+
+    focus === "policy_overview"
+
+  ) {
+
+    return "등록 건수와 대표 확인 계약 납입액은 scope를 분리해 말한다. 전체 월 납입 합계는 아직 정리 중이면 합계를 지어내지 않고, 계약별 납입 확인이 더 필요하다고 말한다.";
 
   }
 
@@ -760,6 +874,38 @@ function buildAnswerShape(focus) {
       "3. 사실만 나열하지 말고 점검 순서·의미를 설명한다.",
 
       "4. 고객에게 '어느 쪽부터'처럼 다시 떠넘기지 않는다.",
+
+    ];
+
+  }
+
+  if (focus === "policy_overview") {
+
+    return [
+
+      "1. 내보험 분석·현황 질문임을 먼저 잡는다.",
+
+      "2. 등록 건수와 확인된 월 납입액은 scope를 분리한다 (전체 합계로 읽히게 하지 않는다).",
+
+      "3. 대표 확인 계약 납입만 숫자로 말하고, 전체 월 합계는 아직 정리 중임을 분리해 말한다.",
+
+      "4. KEY가 무엇을 먼저 보겠다고 주체적으로 제시한다.",
+
+    ];
+
+  }
+
+  if (focus === "premium_amount" || focus === "premium_burden" || focus === "premium_reduction") {
+
+    return [
+
+      "1. 보험료 질문 초점을 먼저 잡는다.",
+
+      "2. 등록 건수와 확인된 월 납입액은 scope를 분리한다 (전체 합계로 읽히게 하지 않는다).",
+
+      "3. 대표 확인 계약 납입만 숫자로 말하고, 전체 월 합계는 아직 정리 중임을 분리해 말한다.",
+
+      "4. KEY가 다음 확인 순서를 제시한다.",
 
     ];
 
@@ -839,6 +985,8 @@ export function buildKeyVoiceDirective({
 
   const allowedNumbers = buildAllowedNumbers(optionalFacts);
 
+  const premiumScopePolicy = buildPremiumScopePolicy(questionFocus, allowedFactTokens);
+
 
 
   return {
@@ -863,6 +1011,8 @@ export function buildKeyVoiceDirective({
 
     allowed_numbers: allowedNumbers,
 
+    premium_scope_policy: premiumScopePolicy,
+
     number_policy: {
 
       use_only_allowed_numbers: true,
@@ -882,6 +1032,12 @@ export function buildKeyVoiceDirective({
         "비율",
 
         "N개 계약에서 파생한 다른 숫자",
+
+        "N건, 월 X 기준",
+
+        "월 X 기준으로 전체 보험료",
+
+        "N건 전체를 놓고 보면, 월 X",
 
       ],
 
@@ -943,6 +1099,8 @@ export function buildKeyVoiceDirective({
       "KEY가",
       "확인된 것부터 말씀드리겠습니다",
       "파악하시는 것이 중요합니다",
+      "기준으로 전체 보험료",
+      "전체를 놓고 보면, 월",
     ],
 
     forbidden_claims: [
