@@ -247,17 +247,20 @@ export function assertDu1FourInputsPresent(bundle) {
   return true;
 }
 
-export function validateDu1CustomerSpeech(text = "") {
+export function validateDu1CustomerSpeech(text = "", { policyFactSpeak = false, slice4UnderstandingSpeak = false } = {}) {
   const normalized = normalizeText(text);
   if (!normalized) {
     return { ok: false, reason: "empty_speech" };
   }
-  for (const pattern of OCR_FORBIDDEN_SPEECH_RE) {
+  const speechPatterns = policyFactSpeak
+    ? OCR_FORBIDDEN_SPEECH_RE.filter((_, index) => index !== 1)
+    : OCR_FORBIDDEN_SPEECH_RE;
+  for (const pattern of speechPatterns) {
     if (pattern.test(normalized)) {
       return { ok: false, reason: "ocr_forbidden_speech", pattern: String(pattern) };
     }
   }
-  if (/Gap|추천|청구\s*가능|담보\s*부족/.test(normalized)) {
+  if (!slice4UnderstandingSpeak && /Gap|추천|청구\s*가능|담보\s*부족/.test(normalized)) {
     return { ok: false, reason: "forbidden_product_leap" };
   }
   if (SPECULATION_RE.test(normalized)) {
@@ -718,7 +721,7 @@ function buildFollowUpPolicySegments(
   return segments;
 }
 
-function segmentsToCustomerText(segments = []) {
+export function segmentsToCustomerText(segments = []) {
   const paragraphs = [];
   let buffer = [];
 

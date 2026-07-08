@@ -2,6 +2,7 @@
  * KEY Speech Constitution v1.1 — turn type classification and speak profile.
  * Philosophy layer only: no judgment / factory / memory engine changes.
  */
+import { isGeneralKnowledgeEligible } from "../generalKnowledgeEligibility.js";
 import { isKeySocialTurn } from "../keyConversationPatterns.js";
 
 export const SPEECH_TURN_TYPE = {
@@ -66,18 +67,29 @@ function pickVariant(question, variants = []) {
   return variants[hash];
 }
 
+const DAILY_DOMAIN_RE = /맛집|식당|음식|여행|날씨|심심|브런치|레스토랑/;
+
 export function isInsuranceSpeechTopic(question = "", { consultationIntent = null } = {}) {
   const q = normalizeQuestion(question);
   const intent = consultationIntent?.intent ?? null;
+
+  if (isGeneralKnowledgeEligible(q, consultationIntent)) return false;
+  if (consultationIntent?.general_knowledge === true) return false;
+  if (DAILY_DOMAIN_RE.test(q) && !INSURANCE_TOPIC_RE.test(q)) return false;
+  if (/추천(?:해|해줘|좀)/.test(q) && DAILY_DOMAIN_RE.test(q) && !INSURANCE_TOPIC_RE.test(q)) {
+    return false;
+  }
+
   if (
     intent === "recommendation_request" ||
     intent === "design_request" ||
     intent === "coverage_gap_check" ||
     intent === "coverage_review_request"
   ) {
+    if (DAILY_DOMAIN_RE.test(q) && !INSURANCE_TOPIC_RE.test(q)) return false;
     return true;
   }
-  return INSURANCE_TOPIC_RE.test(q) || /추천(?:해|해줘|좀)/.test(q);
+  return INSURANCE_TOPIC_RE.test(q) || (/추천(?:해|해줘|좀)/.test(q) && INSURANCE_TOPIC_RE.test(q));
 }
 
 export function isCasualSocialTurn(question = "") {
@@ -221,6 +233,15 @@ export function resolveSpeechProfile(turnType, context = {}) {
 }
 
 export function classifyAndResolveSpeechProfile(question = "", context = {}) {
+  if (context.customer_goal) {
+    const hint = deriveSpeechHintFromGoal(context.customer_goal);
+    const profile = resolveSpeechProfile(hint.turnType, {
+      ...context,
+      question,
+      consultationIntent: context.consultationIntent ?? null,
+    });
+    return { turnType: hint.turnType, profile, speech_hint_from_goal: true };
+  }
   const turnType = classifySpeechTurnType(question, context);
   const profile = resolveSpeechProfile(turnType, {
     ...context,
@@ -228,6 +249,29 @@ export function classifyAndResolveSpeechProfile(question = "", context = {}) {
     consultationIntent: context.consultationIntent ?? null,
   });
   return { turnType, profile };
+}
+
+/** Goal → speech turn hint (Slice 4 — Goal SSOT; not independent question classification). */
+export function deriveSpeechHintFromGoal(customerGoal = null) {
+  switch (customerGoal) {
+    case "emotional_space":
+      return { turnType: SPEECH_TURN_TYPE.EMOTION, skipInsuranceStack: true };
+    case "daily_recommendation":
+      return { turnType: SPEECH_TURN_TYPE.COMMAND, skipInsuranceStack: true, insuranceTopic: false };
+    case "social_presence":
+      return { turnType: SPEECH_TURN_TYPE.SOCIAL, skipInsuranceStack: true };
+    case "respect_close":
+      return { turnType: SPEECH_TURN_TYPE.SOCIAL, density: "minimal" };
+    case "premium_burden":
+    case "enrolled_policy_list":
+    case "direction_choice":
+      return { turnType: SPEECH_TURN_TYPE.COMMAND, insuranceTopic: true };
+    case "coverage_assessment_whole":
+    case "coverage_assessment_cancer_axis":
+      return { turnType: SPEECH_TURN_TYPE.ASSESSMENT, insuranceTopic: true };
+    default:
+      return { turnType: SPEECH_TURN_TYPE.COMMAND };
+  }
 }
 
 function buildDailyEmotionLead(question = "") {

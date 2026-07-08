@@ -13,7 +13,8 @@ import {
   finalizeKeyCustomerText,
   KEY_CUSTOMER_TEXT_PATH,
 } from "./keyCustomerMonopoly.js";
-import { keySpeak } from "../keyBrain/keySpeak.js";
+import { keySpeak, keySpeakAsync } from "../keyBrain/keySpeak.js";
+import { isKeyVoiceActive } from "./oneKeyCoreFlags.js";
 import {
   KEY_ENTRY,
   runSalesDirectorKeyTurn,
@@ -129,25 +130,40 @@ function buildEvidenceBundle({ factBundle = {}, customerContextBundle = null, to
   };
 }
 
-function buildOneKeySpeakDraft({
+async function buildOneKeySpeakDraft({
   question = "",
   keyJudgment = null,
   consultationIntent = null,
   contextSnapshot = null,
   loadedContext = null,
+  thinkingFlow = null,
+  evidenceBundle = null,
+  env = process.env,
+  history = [],
+  previousAnswerSummary = "",
 } = {}) {
-  const speakResult = keySpeak({
+  const speakInput = {
     event: "question",
     question,
     keyFirstJudgment: keyJudgment,
     contextSnapshot,
     loadedContext,
     consultationIntent,
-  });
+    thinkingFlow,
+    evidenceBundle,
+    env,
+    history,
+    previousAnswerSummary,
+  };
+
+  const speakResult = isKeyVoiceActive(env)
+    ? await keySpeakAsync(speakInput)
+    : keySpeak(speakInput);
 
   return {
     speakDraft: speakResult.speakDraft,
     keyComposeTrace: speakResult.key_compose_trace,
+    visualBlocks: speakResult.visual_blocks ?? speakResult.key_compose_trace?.visual_blocks ?? [],
     keySpeakMaster: true,
   };
 }
@@ -353,13 +369,23 @@ async function runOneKeyCoreQuestionTurn({
   });
   recordStep("interpret", interpretRecord);
 
-  const thinkingBundle = buildQuestionThinkingBundle({
-    question,
-    contextSnapshot,
-    loadedContext,
-    keyInterprets: interpretRecord,
-  });
+  const thinkingBundle = buildQuestionThinkingBundle(
+    {
+      question,
+      contextSnapshot,
+      loadedContext,
+      keyInterprets: interpretRecord,
+      consultationIntent,
+    },
+    env,
+  );
   recordStep("thinking", thinkingBundle);
+
+  if (thinkingBundle.slice5_enabled) {
+    recordStep("reflection", thinkingBundle.reflection ?? null);
+    recordStep("decision", thinkingBundle.decision ?? null);
+    recordStep("runtime_trace", thinkingBundle.runtime_trace ?? null);
+  }
 
   const keyJudgment = buildKeyFirstJudgment({
     document: { id: null, event_type: "question" },
@@ -446,12 +472,25 @@ async function runOneKeyCoreQuestionTurn({
   });
   recordStep("evidence", evidenceBundle);
 
-  const speakResult = buildOneKeySpeakDraft({
+  const conversationHistory = (history ?? []).map((turn) => ({
+    role: turn.role === "assistant" ? "assistant" : "user",
+    text: String(turn.content ?? turn.text ?? turn.message ?? "").trim(),
+  })).filter((t) => t.text);
+  const previousAnswerSummary = conversationHistory
+    .filter((t) => t.role === "assistant")
+    .slice(-1)[0]?.text ?? "";
+
+  const speakResult = await buildOneKeySpeakDraft({
     question,
     keyJudgment,
     consultationIntent,
     contextSnapshot,
     loadedContext,
+    thinkingFlow: thinkingBundle,
+    evidenceBundle,
+    env: coreEnv,
+    history: conversationHistory,
+    previousAnswerSummary,
   });
   recordStep("speak", {
     draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
@@ -459,6 +498,41 @@ async function runOneKeyCoreQuestionTurn({
     key_speak_master: true,
     key_compose_trace: speakResult.keyComposeTrace,
     speech_turn_type: speakResult.keyComposeTrace?.speech_turn_type ?? null,
+    conversation_intention: speakResult.keyComposeTrace?.conversation_intention ?? null,
+    conversation_elements_used: speakResult.keyComposeTrace?.conversation_elements_used ?? [],
+    facts_used: speakResult.keyComposeTrace?.facts_used ?? [],
+    facts_spoken: speakResult.keyComposeTrace?.facts_spoken ?? [],
+    facts_withheld: speakResult.keyComposeTrace?.facts_withheld ?? [],
+    defer_detected: speakResult.keyComposeTrace?.defer_detected ?? false,
+    element_count: speakResult.keyComposeTrace?.element_count ?? 0,
+    thinking_density: speakResult.keyComposeTrace?.thinking_density ?? null,
+    thinking_ok: speakResult.keyComposeTrace?.thinking_ok ?? thinkingBundle?.thinking_ok ?? null,
+    understanding_ok: speakResult.keyComposeTrace?.understanding_ok ?? thinkingBundle?.understanding_ok ?? null,
+    thinking_flow_applied: speakResult.keyComposeTrace?.thinking_flow_applied ?? false,
+    confidence: speakResult.keyComposeTrace?.confidence ?? thinkingBundle?.customer_understanding?.confidence ?? null,
+    selected_goal: speakResult.keyComposeTrace?.selected_goal ?? thinkingBundle?.customer_understanding?.selected_goal ?? null,
+    rejected_hypotheses:
+      speakResult.keyComposeTrace?.rejected_hypotheses ??
+      thinkingBundle?.customer_understanding?.rejected_hypotheses ??
+      [],
+    confirmation_required:
+      speakResult.keyComposeTrace?.confirmation_required ??
+      thinkingBundle?.customer_understanding?.confirmation_required ??
+      false,
+    fact_selection: thinkingBundle?.fact_selection ?? null,
+    slice5_enabled: speakResult.keyComposeTrace?.slice5_enabled ?? thinkingBundle?.slice5_enabled ?? false,
+    inferred_goal:
+      speakResult.keyComposeTrace?.inferred_goal ?? thinkingBundle?.runtime_trace?.inferred_goal ?? null,
+    direction_type: speakResult.keyComposeTrace?.direction_type ?? null,
+    fact_text_gate: speakResult.keyComposeTrace?.fact_text_gate ?? null,
+    reflection_snapshot: speakResult.keyComposeTrace?.reflection_snapshot ?? thinkingBundle?.reflection ?? null,
+    decision_snapshot: speakResult.keyComposeTrace?.decision_snapshot ?? thinkingBundle?.decision ?? null,
+    compose_mode: speakResult.keyComposeTrace?.compose_mode ?? null,
+    key_voice_enabled: speakResult.keyComposeTrace?.key_voice_enabled ?? false,
+    key_voice_trace: speakResult.keyComposeTrace?.key_voice_trace ?? null,
+    visual_blocks: speakResult.visualBlocks ?? [],
+    visual_blocks_gate:
+      speakResult.keyComposeTrace?.key_voice_trace?.visual_blocks_gate ?? null,
   });
 
   trace.customer_text_path.push(...KEY_CUSTOMER_TEXT_PATH);
@@ -479,6 +553,7 @@ async function runOneKeyCoreQuestionTurn({
   return {
     ok: true,
     customerText: outletResult.customerText,
+    visualBlocks: speakResult.visualBlocks ?? [],
     keySpeakOriginal: outletResult.keySpeakOriginal,
     agentTurn: {
       ...agentTurn,

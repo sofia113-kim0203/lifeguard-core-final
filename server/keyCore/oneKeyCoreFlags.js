@@ -39,6 +39,58 @@ export function isOneKeyCoreBridgeEnabled(env = process.env) {
   return raw === "1" || raw === "true" || raw === "active";
 }
 
+/** Slice 4 Customer Understanding — off | shadow | active. */
+export function getKeyCustomerUnderstandingMode(env = process.env) {
+  const raw = String(env.KEY_CUSTOMER_UNDERSTANDING ?? "").trim().toLowerCase();
+  if (raw === "shadow") return "shadow";
+  if (raw === "active") return "active";
+  return "off";
+}
+
+export function isKeyCustomerUnderstandingActive(env = process.env) {
+  return getKeyCustomerUnderstandingMode(env) === "active";
+}
+
+export function isKeyCustomerUnderstandingShadow(env = process.env) {
+  return getKeyCustomerUnderstandingMode(env) === "shadow";
+}
+
+export function isKeyCustomerUnderstandingEnabled(env = process.env) {
+  const mode = getKeyCustomerUnderstandingMode(env);
+  return mode === "active" || mode === "shadow";
+}
+
+/** Slice 5 Runtime — off | shadow | active (supersedes S4 speak when active). */
+export function getKeyRuntimeS5Mode(env = process.env) {
+  const raw = String(env.KEY_RUNTIME_S5 ?? "").trim().toLowerCase();
+  if (raw === "shadow") return "shadow";
+  if (raw === "active") return "active";
+  return "off";
+}
+
+export function isKeyRuntimeS5Active(env = process.env) {
+  return getKeyRuntimeS5Mode(env) === "active";
+}
+
+export function isKeyRuntimeS5Shadow(env = process.env) {
+  return getKeyRuntimeS5Mode(env) === "shadow";
+}
+
+export function isKeyRuntimeS5Enabled(env = process.env) {
+  const mode = getKeyRuntimeS5Mode(env);
+  return mode === "active" || mode === "shadow";
+}
+
+/** Slice 6 KEY Voice — off | on (Decision 이후 Speak 칸 교체). */
+export function getKeyVoiceMode(env = process.env) {
+  const raw = String(env.KEY_VOICE ?? "").trim().toLowerCase();
+  return raw === "on" || raw === "active" || raw === "1" || raw === "true" ? "on" : "off";
+}
+
+export function isKeyVoiceActive(env = process.env) {
+  return getKeyVoiceMode(env) === "on";
+}
+
 /** S1 env overlay — orchestrator on, legacy speak fallback off. */
 export function resolveOneKeyCoreS1Env(env = process.env) {
   return {
