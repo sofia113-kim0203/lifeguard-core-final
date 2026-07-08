@@ -964,7 +964,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     {msg.role === "assistant" &&
                     Array.isArray(msg.visual_blocks) &&
                     msg.visual_blocks.length > 0 ? (
-                      <KeyVisualBlocks blocks={msg.visual_blocks} />
+                      <KeyVisualBlocks blocks={msg.visual_blocks} variant="home" />
                     ) : null}
                   </div>
                 </div>

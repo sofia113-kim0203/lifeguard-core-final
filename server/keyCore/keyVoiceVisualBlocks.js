@@ -5,7 +5,7 @@ const BLOCK_MAPPING = {
   premium_amount: ["premium_summary_table"],
   premium_burden: ["premium_summary_table", "next_steps_card"],
   premium_reduction: ["premium_summary_table", "next_steps_card"],
-  policy_overview: ["policy_count_summary", "premium_summary_table"],
+  policy_overview: ["policy_count_summary"],
   cancer_coverage: ["coverage_gap_table", "next_steps_card"],
   cancer_direct: ["coverage_gap_table", "next_steps_card"],
   next_step: ["next_steps_card"],
@@ -19,16 +19,35 @@ function tokens(directive) {
   return directive?.allowed_fact_tokens ?? {};
 }
 
+function representativeContractNote(t) {
+  if (t.insurer && t.product) {
+    return `${t.insurer} ${t.product} · 대표 계약 기준`;
+  }
+  return "대표 확인 계약 기준";
+}
+
+function totalPremiumPendingNote(t) {
+  if (t.policy_count != null && Number(t.policy_count) > 1) {
+    return `${t.policy_count}건 합산 · 확인 전`;
+  }
+  return "등록 계약 전체 · 확인 전";
+}
+
+function appendTotalPremiumPendingRow(rows, t) {
+  if (t.policy_count == null || Number(t.policy_count) <= 1) return;
+  rows.push(["전체 월 납입 합계", "아직 정리 중", totalPremiumPendingNote(t)]);
+}
+
 function buildPremiumSummaryTable(directive) {
   const t = tokens(directive);
   const rows = [];
   if (t.policy_count != null) {
-    rows.push(["등록 계약", `${t.policy_count}건`, "확인됨"]);
+    rows.push(["등록 계약 수", `${t.policy_count}건`, "전체 등록 기준"]);
   }
   if (t.monthly_premium_display) {
-    const note = t.insurer && t.product ? `${t.insurer} ${t.product}` : "대표 확인 계약";
-    rows.push(["확인 월 납입액", `월 ${t.monthly_premium_display}`, note]);
+    rows.push(["대표 확인 계약 납입", `월 ${t.monthly_premium_display}`, representativeContractNote(t)]);
   }
+  appendTotalPremiumPendingRow(rows, t);
   if (!rows.length) return null;
   return {
     type: "premium_summary_table",
@@ -41,10 +60,13 @@ function buildPremiumSummaryTable(directive) {
 function buildPolicyCountSummary(directive) {
   const t = tokens(directive);
   const rows = [];
-  if (t.policy_count != null) rows.push(["등록 계약 수", `${t.policy_count}건`, "확인됨"]);
-  if (t.insurer) rows.push(["확인 보험사", t.insurer, "대표 확인"]);
-  if (t.product) rows.push(["확인 상품", t.product, "대표 확인"]);
-  if (t.monthly_premium_display) rows.push(["확인 월 납입액", `월 ${t.monthly_premium_display}`, ""]);
+  if (t.policy_count != null) rows.push(["등록 계약 수", `${t.policy_count}건`, "전체 등록 기준"]);
+  if (t.insurer) rows.push(["확인 보험사", t.insurer, "대표 계약"]);
+  if (t.product) rows.push(["확인 상품", t.product, "대표 계약"]);
+  if (t.monthly_premium_display) {
+    rows.push(["대표 확인 계약 납입", `월 ${t.monthly_premium_display}`, "대표 계약 기준"]);
+  }
+  appendTotalPremiumPendingRow(rows, t);
   if (!rows.length) return null;
   return {
     type: "policy_count_summary",
@@ -54,15 +76,24 @@ function buildPolicyCountSummary(directive) {
   };
 }
 
-function buildCoverageGapTable() {
+function buildCoverageGapTable(directive) {
+  const t = tokens(directive);
+  const target =
+    t.insurer && t.product ? `${t.insurer} ${t.product}` : t.insurer || t.product || "대표 확인 계약";
+  const scopeNote =
+    t.policy_count != null && Number(t.policy_count) > 1
+      ? `${t.policy_count}건 중 대표 계약부터`
+      : "대표 계약부터";
+
   return {
     type: "coverage_gap_table",
     title: "암 보장 점검표",
+    subtitle: `아직 담보별 금액 확인 전 · ${scopeNote}`,
     columns: ["보장 항목", "확인 상태", "다음 확인"],
     rows: [
-      ["암 진단비", "확인 필요", "담보 항목 확인"],
-      ["암 수술비", "확인 필요", "담보 항목 확인"],
-      ["암 치료비", "확인 필요", "담보 항목 확인"],
+      ["암 진단비", "미확인", `${target} · 진단비 담보 확인`],
+      ["암 수술비", "미확인", `${target} · 수술비 담보 확인`],
+      ["암 치료비", "미확인", `${target} · 치료비 담보 확인`],
     ],
   };
 }
