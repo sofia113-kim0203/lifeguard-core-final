@@ -7,7 +7,7 @@ import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysis
 import { useKeyBridgeSessionTransition } from "../hooks/useKeyBridgeSessionTransition.js";
 import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudgmentSessionTransition.js";
 import { listDocuments } from "../lib/customerDocuments.js";
-import { fetchHomeBrainFactStream } from "../lib/customerHomeBrainFact.js";
+import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   createLifeguardSessionId,
   listLifeguardRecentSessions,
@@ -245,6 +245,14 @@ function SidebarNav({
       </div>
     </aside>
   );
+}
+
+function patchLastAssistantMessage(prev, patch) {
+  const copy = [...prev];
+  const last = copy[copy.length - 1];
+  if (last?.role !== "assistant") return prev;
+  copy[copy.length - 1] = { ...last, ...patch };
+  return copy;
 }
 
 export default function LifeguardHomeChat({ layer1Only = true, disabled = false, displayName: displayNameProp }) {
@@ -629,57 +637,51 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       const result = await fetchHomeBrainFactStream(trimmed, history, {
         onAck: (ackText) => {
           const text = String(ackText ?? "").trim() || KEY_WAIT_ACK_FALLBACK;
-          setMessages((prev) => {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            if (last?.role !== "assistant") return prev;
-            copy[copy.length - 1] = { role: "assistant", content: text, thinking: true };
-            return copy;
-          });
+          setMessages((prev) =>
+            patchLastAssistantMessage(prev, { content: text, thinking: true }),
+          );
         },
         onDelta: (chunk) => {
           streamedText += chunk;
           setStreaming(true);
           setLoading(false);
-          setMessages((prev) => {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            if (last?.role !== "assistant") return prev;
-            copy[copy.length - 1] = { role: "assistant", content: streamedText, thinking: false };
-            return copy;
-          });
+          setMessages((prev) =>
+            patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
+          );
         },
         onReplace: (text) => {
           streamedText = String(text ?? "");
           setLoading(false);
           setStreaming(false);
-          setMessages((prev) => {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            if (last?.role !== "assistant") return prev;
-            copy[copy.length - 1] = { role: "assistant", content: streamedText, thinking: false };
-            return copy;
-          });
+          setMessages((prev) =>
+            patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
+          );
+        },
+        onDone: (payload) => {
+          const mapped = mapHomeBrainFactPayload(payload ?? {});
+          const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
+          if (visualBlocks.length === 0) return;
+          setMessages((prev) =>
+            patchLastAssistantMessage(prev, {
+              visual_blocks: visualBlocks,
+              visual_blocks_gate: mapped.visualBlocksGate ?? null,
+              thinking: false,
+            }),
+          );
         },
       });
 
       const finalText = result.answerText || streamedText;
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
       const visualBlocksGate = result.visualBlocksGate ?? null;
-      setMessages((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last?.role === "assistant") {
-          copy[copy.length - 1] = {
-            role: "assistant",
-            content: finalText,
-            thinking: false,
-            visual_blocks: visualBlocks,
-            visual_blocks_gate: visualBlocksGate,
-          };
-        }
-        return copy;
-      });
+      setMessages((prev) =>
+        patchLastAssistantMessage(prev, {
+          content: finalText,
+          thinking: false,
+          visual_blocks: visualBlocks,
+          visual_blocks_gate: visualBlocksGate,
+        }),
+      );
 
       if (authUser && customerId) {
         await persistLifeguardChatTurn(authUser, {
