@@ -79,6 +79,65 @@ function buildKeyCustomerFactReturn({
   };
 }
 
+function resolveVisualBlocksFromCoreResult(coreResult = {}) {
+  const speakStep = coreResult?.oneKeyCoreTrace?.steps?.find((row) => row.step === "speak");
+  const payload = speakStep?.payload ?? {};
+  const visual_blocks = Array.isArray(coreResult.visualBlocks) && coreResult.visualBlocks.length
+    ? coreResult.visualBlocks
+    : Array.isArray(payload.visual_blocks)
+      ? payload.visual_blocks
+      : Array.isArray(payload.key_compose_trace?.visual_blocks)
+        ? payload.key_compose_trace.visual_blocks
+        : [];
+  const gateRaw =
+    payload.visual_blocks_gate ??
+    payload.key_voice_trace?.visual_blocks_gate ??
+    payload.key_compose_trace?.key_voice_trace?.visual_blocks_gate ??
+    null;
+  const visual_blocks_gate = gateRaw
+    ? {
+        accepted_count:
+          typeof gateRaw.accepted_count === "number"
+            ? gateRaw.accepted_count
+            : Array.isArray(gateRaw.accepted)
+              ? gateRaw.accepted.length
+              : visual_blocks.length,
+        omitted_count:
+          typeof gateRaw.omitted_count === "number"
+            ? gateRaw.omitted_count
+            : Array.isArray(gateRaw.omitted)
+              ? gateRaw.omitted.length
+              : 0,
+        omitted: gateRaw.omitted ?? [],
+      }
+    : null;
+  return { visual_blocks, visual_blocks_gate };
+}
+
+/** SSE done + JSON response payload — includes KEY Voice visual_blocks from core turn. */
+export function buildDonePayload({
+  coreResult,
+  answerText,
+  responseSource,
+  keySpeakOriginal,
+  keyTextIntegrity,
+  startedAt,
+  extras = {},
+}) {
+  return {
+    ...buildKeyCustomerFactReturn({
+      coreResult,
+      answerText,
+      responseSource,
+      keySpeakOriginal,
+      keyTextIntegrity,
+      startedAt,
+      extras,
+    }),
+    ...resolveVisualBlocksFromCoreResult(coreResult),
+  };
+}
+
 export const P5_BRAIN_RESPONSE_SOURCES = new Set([
   "p5_brain_customer_state",
   "p5_brain_state_guarded",
@@ -209,7 +268,7 @@ export async function handleHomeBrainFactRequest({
       activeStreamHandlers._emitted = true;
       activeStreamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
     }
-    return buildKeyCustomerFactReturn({
+    return buildDonePayload({
       coreResult: failureEnvelope,
       answerText: keyPass.answerText,
       responseSource: keyPass.responseSource,
@@ -249,7 +308,7 @@ export async function handleHomeBrainFactRequest({
   }
 
   if (coreResult.key_monopoly_failure === true) {
-    return buildKeyCustomerFactReturn({
+    return buildDonePayload({
       coreResult,
       answerText,
       responseSource,
@@ -321,7 +380,7 @@ export async function handleHomeBrainFactRequest({
     },
   });
 
-  return buildKeyCustomerFactReturn({
+  return buildDonePayload({
     coreResult,
     answerText,
     responseSource,
