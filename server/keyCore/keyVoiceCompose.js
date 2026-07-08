@@ -35,12 +35,13 @@ export async function buildKeyVoiceComposeResult(
   let decision = thinkingFlow?.decision ?? null;
   const reflection = thinkingFlow?.reflection ?? null;
   const reality = thinkingFlow?.reality ?? null;
+  const directiveQuestion = question || reflection?.customer_said || "";
 
   if (reflection && reality) {
     decision = buildDecision({
       reflection,
       reality,
-      question: question || reflection.customer_said,
+      question: directiveQuestion,
       evidenceBundle,
     });
   }
@@ -59,7 +60,7 @@ export async function buildKeyVoiceComposeResult(
   });
 
   const directive = buildKeyVoiceDirective({
-    question,
+    question: directiveQuestion,
     decision,
     previousAnswerSummary,
     history,
