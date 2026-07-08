@@ -9,7 +9,7 @@ import {
   fetchLatestAnalysisJob,
   processAnalysisJobUntilComplete,
 } from "../lib/customerConversationalAnalysis.js";
-import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
+import KeyVisualBlocks from "./KeyVisualBlocks.jsx";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const FONT =
@@ -235,6 +235,9 @@ function MessageBubble({ item }) {
   return (
     <div style={style}>
       <div>{item.message}</div>
+      {item.role === "assistant" && Array.isArray(item.metadata?.visual_blocks) ? (
+        <KeyVisualBlocks blocks={item.metadata.visual_blocks} />
+      ) : null}
       <div style={S.meta}>{formatTimestamp(item.createdAt)}</div>
     </div>
   );
@@ -502,16 +505,26 @@ export default function CustomerAiChatPanel({ user, onAnalysisJobUpdate }) {
         },
       ];
       if (fastText) {
-        optimisticRows.push(
-          result.assistantMessage ?? {
+        const visualBlocks =
+          result.assistantMessage?.metadata?.visual_blocks ??
+          result.conversationalResult?.visualBlocks ??
+          [];
+        optimisticRows.push({
+          ...(result.assistantMessage ?? {
             id: `temp-fast-${Date.now()}`,
             customerId,
             role: "assistant",
             message: fastText,
-            metadata: { phase: "phase26-2a-fast", optimistic: true },
             createdAt: now,
+          }),
+          message: fastText,
+          metadata: {
+            ...(result.assistantMessage?.metadata ?? {}),
+            phase: result.assistantMessage?.metadata?.phase ?? "phase26-2a-fast",
+            optimistic: !result.assistantMessage,
+            visual_blocks: visualBlocks,
           },
-        );
+        });
       }
       setMessages((prev) =>
         filterMessagesForDisplay([...prev, ...optimisticRows]),

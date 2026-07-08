@@ -197,6 +197,7 @@ async function resolveKeyMasterConversationalSpeak({
       return {
         ok: true,
         customerText,
+        visualBlocks: coreResult.visualBlocks ?? [],
         keySpeakOriginal: coreResult.keySpeakOriginal ?? customerText,
         trace,
         responseSource: coreResult.agentTurn?.responseSource ?? "one_key_core_s1",
@@ -219,7 +220,30 @@ async function resolveKeyMasterConversationalSpeak({
   };
 }
 
-function buildKeyMasterConversationalMeta({ trace = null, keyMonopolyFailure = false } = {}) {
+function buildVisualBlocksMeta({ trace = null, visualBlocks = [] } = {}) {
+  const speakStep = trace?.steps?.find((row) => row.step === "speak");
+  const gate =
+    speakStep?.visual_blocks_gate ??
+    speakStep?.key_voice_trace?.visual_blocks_gate ??
+    null;
+  const blocks = visualBlocks.length ? visualBlocks : speakStep?.visual_blocks ?? [];
+  return {
+    visual_blocks: blocks,
+    visual_blocks_gate: gate
+      ? {
+          accepted_count: gate.accepted_count ?? blocks.length,
+          omitted_count: gate.omitted_count ?? 0,
+          omitted: gate.omitted ?? [],
+        }
+      : null,
+  };
+}
+
+function buildKeyMasterConversationalMeta({
+  trace = null,
+  keyMonopolyFailure = false,
+  visualBlocks = [],
+} = {}) {
   return {
     one_key_core_s1: true,
     one_key_core_s1_used: true,
@@ -227,6 +251,7 @@ function buildKeyMasterConversationalMeta({ trace = null, keyMonopolyFailure = f
     phase: "key_master_conversational",
     one_key_core_trace: trace ?? null,
     key_monopoly_failure: keyMonopolyFailure === true,
+    ...buildVisualBlocksMeta({ trace, visualBlocks }),
   };
 }
 
@@ -349,9 +374,12 @@ export async function handleConversationalQuestionRequest({
   });
 
   const customerText = keySpeak.customerText;
+  const visualBlocks = keySpeak.visualBlocks ?? [];
+  const visualBlocksMeta = buildVisualBlocksMeta({ trace: keySpeak.trace, visualBlocks });
   const keyMeta = buildKeyMasterConversationalMeta({
     trace: keySpeak.trace,
     keyMonopolyFailure: keySpeak.key_monopoly_failure === true,
+    visualBlocks,
   });
 
   const memoryContext = await ensureCustomerMemoryContext({
@@ -472,6 +500,8 @@ export async function handleConversationalQuestionRequest({
     customer_id: customerId,
     question: trimmedQuestion,
     fast_response: customerText,
+    visual_blocks: visualBlocksMeta.visual_blocks,
+    visual_blocks_gate: visualBlocksMeta.visual_blocks_gate,
     key_speak_original: keySpeak.keySpeakOriginal,
     key_text_equal: keySpeak.keySpeakOriginal === customerText,
     response_source: keySpeak.responseSource,
