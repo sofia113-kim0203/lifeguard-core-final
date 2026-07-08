@@ -3,13 +3,14 @@
  */
 import { buildDecision } from "./keyDecision.js";
 import { assertDecisionFactGate } from "./assertFactTextGate.js";
-import { isKeyVoiceActive } from "./oneKeyCoreFlags.js";
+import { isKeyVoiceActive, isKeyBorrowedSensesShadow } from "./oneKeyCoreFlags.js";
 import { buildKeyVoiceDirective, summarizeKeyVoiceDirective } from "./keyVoiceDirective.js";
 import { speakKeyVoice, buildKeyVoiceSafeUtterance } from "./keyVoiceSpeak.js";
 import { gateKeyVoiceAnswer } from "./keyVoiceGate.js";
 import { composeSpeakFromDecision } from "../keyBrain/keySpeakFromDecision.js";
 import { buildKeyVoiceVisualBlocks } from "./keyVoiceVisualBlocks.js";
 import { gateKeyVoiceVisualBlocks } from "./keyVoiceBlockGate.js";
+import { runBorrowedSensesShadowProbe } from "./keyBorrowedSensesSpeak.js";
 
 function normalizeText(text = "") {
   return String(text ?? "")
@@ -29,6 +30,7 @@ export async function buildKeyVoiceComposeResult(
     env = process.env,
     previousAnswerSummary = "",
     history = [],
+    shadowVisualBlocksOverride = null,
     fetchImpl = fetch,
   } = {},
 ) {
@@ -147,6 +149,21 @@ export async function buildKeyVoiceComposeResult(
       omitted_count: 0,
       skipped: trace.fallback_used ? "fallback_used" : "text_gate_fail",
     };
+  }
+
+  if (isKeyBorrowedSensesShadow(env)) {
+    const visualBlocksForShadow = shadowVisualBlocksOverride ?? visualBlocks;
+    trace.borrowed_senses_shadow = await runBorrowedSensesShadowProbe({
+      question: directiveQuestion,
+      directive,
+      decision,
+      history,
+      previousAnswerSummary,
+      s6FinalAnswer: finalText,
+      visualBlocks: visualBlocksForShadow,
+      env,
+      fetchImpl,
+    });
   }
 
   return {

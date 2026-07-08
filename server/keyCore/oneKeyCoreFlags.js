@@ -91,6 +91,23 @@ export function isKeyVoiceActive(env = process.env) {
   return getKeyVoiceMode(env) === "on";
 }
 
+/** S7-a Borrowed Senses — off | shadow | active (shadow = trace only, S6 final_answer unchanged). */
+export function getKeyBorrowedSensesMode(env = process.env) {
+  const raw = String(env.KEY_BORROWED_SENSES ?? "").trim().toLowerCase();
+  if (raw === "shadow") return "shadow";
+  if (raw === "active") return "active";
+  return "off";
+}
+
+export function isKeyBorrowedSensesShadow(env = process.env) {
+  return getKeyBorrowedSensesMode(env) === "shadow";
+}
+
+export function isKeyBorrowedSensesEnabled(env = process.env) {
+  const mode = getKeyBorrowedSensesMode(env);
+  return mode === "shadow" || mode === "active";
+}
+
 /** S1 env overlay — orchestrator on, legacy speak fallback off. */
 export function resolveOneKeyCoreS1Env(env = process.env) {
   return {

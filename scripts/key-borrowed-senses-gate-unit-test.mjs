@@ -1,0 +1,286 @@
+/**
+ * S7-a Borrowed Senses gate unit tests (no Claude · local only).
+ */
+import { gateBorrowedSensesOutput } from "../server/keyCore/keyBorrowedSensesGate.js";
+
+const directivePremium = {
+  allowed_fact_tokens: {
+    policy_count: "22",
+    insurer: "삼성생명",
+    product: "실손의료비보험",
+    monthly_premium_display: "4만5천 원",
+  },
+  allowed_numbers: ["22", "45000"],
+  facts_to_speak: [
+    { fact_id: "policy_count" },
+    { fact_id: "monthly_premium_representative" },
+  ],
+};
+
+const cases = [
+  {
+    id: "G1_safe_greeting",
+    borrowed: {
+      understanding_hypotheses: ["고객이 가벼운 인사로 대화를 시작하려는 것 같다"],
+      customer_intent: "인사 및 관계 시작",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: null,
+      visual_observation: null,
+      answer_purpose: "S6 인사 답변의 톤을 유지",
+      must_not_assume: ["보험 상담 의사를 단정하지 않음"],
+      used_facts: [],
+      recommendation_basis: null,
+      voice_raw_candidate: "반갑게 맞이하되 부담 없이 대화할 수 있다는 신호를 준다",
+      final_answer_source: "s6",
+    },
+    directive: { allowed_fact_tokens: {}, facts_to_speak: [] },
+    history: [],
+    question: "안녕하세요",
+    expectOk: true,
+  },
+  {
+    id: "G2_premium_scope_safe",
+    borrowed: {
+      understanding_hypotheses: ["전체 보험료가 궁금하지만 아직 합산은 정리 중일 수 있다"],
+      customer_intent: "월 보험료 확인",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: null,
+      visual_observation:
+        "화면 표는 3개 행으로 구성 — 등록 22건, 대표 계약 월 4만5천 원, 전체 합산 아직 정리 중",
+      answer_purpose: "확인된 대표 계약만 먼저 설명",
+      must_not_assume: ["22건 전체 월 납입을 대표 납입과 동일시하지 않음"],
+      used_facts: ["policy_count", "monthly_premium_representative"],
+      recommendation_basis: null,
+      voice_raw_candidate: "대표로 확인된 4만5천 원부터 말하고 전체 합산은 정리 중임을 분리한다",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "내 보험료 얼마야?",
+    expectOk: true,
+  },
+  {
+    id: "G5_must_not_assume_negation_safe",
+    borrowed: {
+      understanding_hypotheses: ["해지 가능 여부를 탐색 중일 수 있음"],
+      customer_intent: "해지 가능 여부 확인",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: null,
+      visual_observation: null,
+      answer_purpose: "해지 전 확인 유도",
+      must_not_assume: [
+        "이전 대화 내용이 있었다고 가정하지 않음",
+        "conversation_history 없음",
+      ],
+      used_facts: ["policy_count"],
+      recommendation_basis: null,
+      voice_raw_candidate: "어떤 계약인지 먼저 짚어보면서 이어가 볼까요?",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "해지해도 돼?",
+    expectOk: true,
+  },
+  {
+    id: "G6_visual_scope_safe",
+    borrowed: {
+      understanding_hypotheses: ["직전 표의 각 행 의미를 확인하려는 것 같다"],
+      customer_intent: "표 해석",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: "직전 보험료 답변의 표를 가리킴",
+      visual_observation:
+        "표에는 등록 계약 수 22건, 대표 확인 계약 납입 월 4만5천 원, 전체 월 납입 합계 아직 정리 중 행이 있음",
+      answer_purpose: "표 행별 의미 설명",
+      must_not_assume: ["대표 납입을 22건 전체 합계로 단정하지 않음"],
+      used_facts: ["policy_count", "monthly_premium_representative"],
+      recommendation_basis: null,
+      voice_raw_candidate: "위쪽은 대표 계약 납입이고 아래 합산 행은 아직 정리 중이라고 설명한다",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [{ role: "user", text: "내보험료 얼마야?" }],
+    question: "표가 무슨 뜻이야?",
+    visualBlocks: [
+      {
+        type: "premium_summary_table",
+        title: "확인된 납입 요약",
+        rows: [
+          ["등록 계약 수", "22건", "전체 등록 기준"],
+          ["대표 확인 계약 납입", "월 4만5천 원", "삼성생명 실손의료비보험 · 대표 계약 기준"],
+          ["전체 월 납입 합계", "아직 정리 중", "22건 합산 · 확인 전"],
+        ],
+      },
+    ],
+    expectOk: true,
+  },
+  {
+    id: "G7_context_carryover_absence_meta_safe",
+    borrowed: {
+      understanding_hypotheses: ["첫 인사일 수 있음"],
+      customer_intent: "인사",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: "이전 대화 이력 없음 (conversation_history: [])",
+      visual_observation: null,
+      answer_purpose: "인사 응대",
+      must_not_assume: ["보험 상담 의사를 단정하지 않음"],
+      used_facts: [],
+      recommendation_basis: null,
+      voice_raw_candidate: "반갑게 맞이한다",
+      final_answer_source: "s6",
+    },
+    directive: { allowed_fact_tokens: {}, facts_to_speak: [] },
+    history: [],
+    question: "안녕하세요",
+    expectOk: true,
+  },
+  {
+    id: "G8_used_facts_colon_format_safe",
+    borrowed: {
+      understanding_hypotheses: ["보험료 확인"],
+      customer_intent: "월 보험료 확인",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: null,
+      visual_observation: "표 3개 행",
+      answer_purpose: "대표 계약 납입 안내",
+      must_not_assume: ["전체 합계로 단정하지 않음"],
+      used_facts: ["policy_count: 22건", "monthly_premium_display: 4만5천 원"],
+      recommendation_basis: null,
+      voice_raw_candidate: "대표 계약 4만5천 원부터",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "내 보험료 얼마야?",
+    expectOk: true,
+  },
+  {
+    id: "G9_descriptive_used_facts_visual_row_safe",
+    borrowed: {
+      understanding_hypotheses: ["보험료 확인"],
+      customer_intent: "월 보험료 확인",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: null,
+      visual_observation: "표 3개 행",
+      answer_purpose: "대표 계약 납입 안내",
+      must_not_assume: ["전체 합계로 단정하지 않음"],
+      used_facts: [
+        "policy_count: 22건",
+        "insurer: 삼성생명",
+        "visual row 3: 전체 월 납입 합계 = 아직 정리 중",
+      ],
+      recommendation_basis: null,
+      voice_raw_candidate: "대표 계약 4만5천 원부터",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "내 보험료 얼마야?",
+    expectOk: true,
+  },
+  {
+    id: "G10_recommendation_negation_basis_safe",
+    borrowed: {
+      understanding_hypotheses: ["고객이 추천을 요청했지만 방향이 없을 수 있음"],
+      customer_intent: "상품 추천 요청",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: null,
+      visual_observation: null,
+      answer_purpose: "추천 대신 방향 질문",
+      must_not_assume: ["특정 상품 적합성을 단정하지 않음"],
+      used_facts: ["policy_count"],
+      recommendation_basis: "특정 상품 추천 불가 — 방향 설정 선행 필요",
+      voice_raw_candidate: "어느 쪽이 더 마음에 걸리세요? 보험료 줄이는 쪽인지, 빠진 보장 확인 쪽인지요.",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "아무거나 추천해줘",
+    expectOk: true,
+  },
+  {
+    id: "G3_blocked_recommendation_push",
+    borrowed: {
+      understanding_hypotheses: ["고객이 선택 부담을 줄이려 추천을 요청한 것 같다"],
+      customer_intent: "상품 추천 요청",
+      emotional_signal: "결정 피로",
+      hesitation_signal: "무엇을 골라야 할지 모르겠다",
+      context_carryover: null,
+      visual_observation: null,
+      answer_purpose: "추천 대신 방향 선택 질문으로 전환",
+      must_not_assume: ["특정 상품이 적합하다고 단정하지 않음"],
+      used_facts: ["policy_count"],
+      recommendation_basis: "지금은 이 상품을 바로 추천하기 어렵다",
+      voice_raw_candidate: "지금은 이 상품 가입을 추천드리기보다 보험료와 보장 중 어디가 먼저인지 같이 정해볼게요",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "아무거나 추천해줘",
+    expectOk: false,
+    expectGates: { unsupported_recommendation: true },
+  },
+  {
+    id: "G4_blocked_context_hallucination",
+    borrowed: {
+      understanding_hypotheses: ["이전 대화를 이어 달라는 요청"],
+      customer_intent: "이전 상담 이어하기",
+      emotional_signal: null,
+      hesitation_signal: null,
+      context_carryover: "지난번에 말씀하신 암보험 부족 이야기를 이어서 본다",
+      visual_observation: null,
+      answer_purpose: "이전 맥락 확인",
+      must_not_assume: [],
+      used_facts: [],
+      recommendation_basis: null,
+      voice_raw_candidate: "지난번 암보험 이야기부터 이어갈게요",
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [
+      { role: "user", text: "내보험 분석해줘" },
+      { role: "assistant", text: "등록된 계약은 22건입니다." },
+    ],
+    question: "지난번에 말한 거 이어서 봐줘",
+    expectOk: false,
+    expectGates: { context_hallucination: true },
+  },
+];
+
+let failed = 0;
+for (const c of cases) {
+  const gate = gateBorrowedSensesOutput({
+    borrowed: c.borrowed,
+    directive: c.directive,
+    history: c.history,
+    question: c.question,
+    visualBlocks: c.visualBlocks ?? [],
+  });
+  const okMatch = gate.ok === c.expectOk;
+  let gatesMatch = true;
+  if (c.expectGates) {
+    for (const [k, v] of Object.entries(c.expectGates)) {
+      if (gate[k] !== v) gatesMatch = false;
+    }
+  }
+  if (!okMatch || !gatesMatch) {
+    failed += 1;
+    console.error("FAIL", c.id, { expectOk: c.expectOk, gate });
+  } else {
+    console.log("PASS", c.id);
+  }
+}
+
+if (failed) {
+  console.error(`${failed} gate test(s) failed`);
+  process.exit(1);
+}
+console.log(`PASS all ${cases.length} S7-a gate tests`);

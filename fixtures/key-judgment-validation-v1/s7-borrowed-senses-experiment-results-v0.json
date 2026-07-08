@@ -1,0 +1,960 @@
+{
+  "schema_version": "s7-borrowed-senses-experiment-results-v0",
+  "generated_at": "2026-07-08T18:33:45.157Z",
+  "s7a_schema_version": "key-borrowed-senses-s7a-v0",
+  "anthropic_configured": true,
+  "env": {
+    "KEY_VOICE": "on",
+    "KEY_BORROWED_SENSES": "shadow",
+    "KEY_RUNTIME_S5": "active"
+  },
+  "s6_final_answer_preserved_count": 12,
+  "s6_final_answer_preserved_all": true,
+  "rows": [
+    {
+      "id": "S7Q1",
+      "question": "안녕하세요",
+      "route": "key_s4_social",
+      "fast_path_or_consult_path": "fast_path",
+      "customer_intent": "간단한 인사 — 대화 시작 신호",
+      "emotional_signal": "중립적·친근한 톤, 긴장감 없음",
+      "hesitation_signal": "없음",
+      "context_carryover": "이전 대화 이력 없음",
+      "visual_observation": "제공된 시각 정보 없음",
+      "used_facts": [],
+      "must_not_assume": [
+        "고객이 특정 보험 상품에 관심이 있다고 단정하지 않음",
+        "고객이 기존 계약자인지 신규 고객인지 단정하지 않음",
+        "특정 문의 유형(가입, 해지, 보장 확인 등)을 미리 가정하지 않음"
+      ],
+      "answer_purpose": "고객의 인사에 따뜻하게 응답하고, 보험 관련 문의를 편하게 이어갈 수 있도록 대화 문을 열어두기",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 서비스에 처음 접속하여 인사를 건네는 것으로 보임",
+        "보험 관련 문의를 시작하려는 의도일 가능성이 높음"
+      ],
+      "s7_voice_raw_candidate": "반갑습니다! 보험 관련해서 궁금하신 게 있으시면 편하게 말씀해 주세요.",
+      "final_answer": "안녕하세요, 반갑습니다! 보험 관련해서 궁금하신 점이 있으시면 편하게 말씀해 주세요. 제가 도움이 될 수 있도록 함께 살펴볼게요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q2",
+      "question": "내 보험료 얼마야?",
+      "route": "premium_amount",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "내가 내고 있는 보험료가 얼마인지 전체 금액을 확인하고 싶음",
+      "emotional_signal": "간결하고 직접적인 질문 톤으로 보아 빠른 답변을 원하는 것으로 읽힘 — 불안이나 긴박함보다는 단순 정보 확인 욕구로 보임",
+      "hesitation_signal": "질문이 매우 짧고 맥락 없이 시작된 점에서, 어디서부터 확인해야 할지 모르는 막막함이 내포되어 있을 수 있음",
+      "context_carryover": "이전 대화 이력 없음 — 이번이 첫 질문으로, 이전 답변 요약도 없음",
+      "visual_observation": "화면에 '확인된 납입 요약' 테이블이 표시되어 있으며, 3개 행으로 구성됨: (1) 등록 계약 수 — 22건 (전체 등록 기준), (2) 대표 확인 계약 납입 — 월 4만5천 원 (삼성생명 실손의료비보험 · 대표 계약 기준), (3) 전체 월 납입 합계 — 아직 정리 중 (22건 합산 · 확인 전). 전체 합계는 아직 표에 수치로 표시되지 않은 상태임",
+      "used_facts": [
+        "policy_count: 22건",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "monthly_premium_display: 4만5천 원",
+        "전체 월 납입 합계: 아직 정리 중 (visual_blocks_summary 3행 기준)"
+      ],
+      "must_not_assume": [
+        "22건 전체 월 납입 합계가 4만5천 원이라고 읽히게 하면 안 됨",
+        "4만5천 원을 전체 보험료 기준으로 제시하면 안 됨",
+        "나머지 21건의 납입액을 임의로 추정하거나 언급하면 안 됨",
+        "이전 대화에서 확인된 내용이 있다고 가정하면 안 됨"
+      ],
+      "answer_purpose": "고객에게 현재 확인된 사실(22건 등록, 삼성생명 실손의료비보험 월 4만5천 원)을 정확히 전달하되, 이 금액이 전체 합계가 아님을 명확히 구분하고, 나머지 계약 납입액 확인이 필요함을 안내하는 것",
+      "recommendation_basis": "현재 확인된 사실 범위 내에서만 안내하며, 전체 합계 파악을 위해 계약별 순차 확인이 필요함을 자연스럽게 연결하는 방향",
+      "understanding_hypotheses": [
+        "고객은 자신이 가입한 보험료 전체 합계를 알고 싶어하는 것으로 보임",
+        "단순히 현재 납입 중인 보험료 수준을 파악하려는 의도일 수 있음",
+        "특정 계약 하나의 보험료가 아닌 전체 포트폴리오 기준 월 납입 총액을 기대하고 있을 가능성이 높음"
+      ],
+      "s7_voice_raw_candidate": "고객님 보험 계약이 총 22건 등록되어 있고요, 지금 바로 확인된 건 그중 삼성생명 실손의료비보험 한 건의 월 납입액 4만5천 원이에요. 이게 22건 전체를 합친 금액은 아니고, 나머지 계약들 납입액은 순서대로 더 봐야 전체 합계를 정확히 알 수 있어요. 계속 이어서 확인해드릴게요.",
+      "final_answer": "등록된 계약은 22건이고요, 그중 삼성생명 실손의료비보험 한 건의 월 납입액 4만5천 원이 지금 확인돼 있어요. 이 금액이 전체 합계는 아니고, 나머지 계약들의 납입액은 순서대로 더 살펴봐야 정확하게 정리가 되거든요. 제가 계약별로 이어서 확인해볼게요, 계속 볼까요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 1,
+      "done_visual_blocks_types": [
+        "premium_summary_table"
+      ],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q3",
+      "question": "보험료가 좀 부담돼",
+      "route": "premium_burden",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "보험료 부담감을 표현하며, 현재 납입 중인 보험료 전체 흐름을 파악하고 부담을 줄일 방법을 찾고자 하는 것으로 추정됨",
+      "emotional_signal": "부담감, 피로감 — '좀 부담돼'라는 표현에서 가볍지 않은 재정적 스트레스가 감지됨. 단순 정보 요청이 아닌 감정적 호소 포함 가능성 있음",
+      "hesitation_signal": "구체적으로 어떤 계약을 줄이고 싶다거나 해지하고 싶다는 말은 없음 — 아직 방향을 정하지 못한 상태일 수 있음",
+      "context_carryover": "conversation_history 없음, previous_answer_summary 없음 — 이전 대화 맥락 없이 첫 발화로 시작된 상황",
+      "visual_observation": "visual_blocks_summary에 'premium_summary_table' 확인: 등록 계약 수 22건(전체 등록 기준), 대표 확인 계약 납입 월 4만5천 원(삼성생명 실손의료비보험 · 대표 계약 기준), 전체 월 납입 합계는 '아직 정리 중'(22건 합산 · 확인 전)으로 표시됨. 'next_steps_card' 타이틀 '다음 확인 순서' 카드 존재하나 rows 없음 — 세부 내용 미표시 상태.",
+      "used_facts": [
+        "policy_count: 22건",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "monthly_premium_display: 4만5천 원 (대표 확인 계약 한 건 기준, 전체 합계 아님)"
+      ],
+      "must_not_assume": [
+        "22건 전체 보험료 합계가 4만5천 원이라고 읽히게 해서는 안 됨",
+        "고객이 해지 또는 감액을 원한다고 단정해서는 안 됨",
+        "전체 납입 합계가 확인됐다고 가정해서는 안 됨",
+        "이전 대화에서 논의된 내용이 있다고 가정해서는 안 됨",
+        "특정 계약의 해지·변경·신규 가입을 권유하는 방향으로 표현해서는 안 됨"
+      ],
+      "answer_purpose": "고객의 보험료 부담 감정에 공감하고, 현재 확인된 사실(22건 등록, 삼성생명 실손의료비보험 월 4만5천 원 대표 확인)을 정확한 범위로 전달하며, 전체 납입 합계는 아직 정리 중임을 명확히 안내. 계약별 납입액 순차 정리를 통해 방향을 잡겠다는 다음 단계 제시",
+      "recommendation_basis": "전체 납입 흐름 파악이 선행되어야 부담 경감 방향 논의 가능 — 현재는 대표 계약 1건 납입액만 확인된 상태이므로 22건 전체 계약별 납입액 순차 확인이 필요한 단계임",
+      "understanding_hypotheses": [
+        "고객이 현재 납입 중인 보험료 전체가 부담스럽다고 느끼는 것으로 보임",
+        "22건이라는 계약 수 자체에 압도감을 느끼고 있을 가능성 있음",
+        "특정 계약을 줄이거나 정리하고 싶은 의향이 있을 수 있으나 아직 명시되지 않음",
+        "전체 납입 합계를 먼저 파악하고 싶은 니즈가 있을 가능성 있음"
+      ],
+      "s7_voice_raw_candidate": "보험료 부담, 충분히 이해돼요. 지금 등록된 계약이 22건인데, 그중 삼성생명 실손의료비보험 한 건의 월 납입액 4만5천 원이 확인된 상태예요. 나머지 계약들 납입액은 아직 정리 중이라 전체 합계는 조금 더 봐야 하고요. 어디서 부담을 줄일 수 있는지 방향을 잡으려면 22건 전체 월 납입을 먼저 하나씩 맞춰봐야 해서, 순서대로 정리해드릴게요.",
+      "final_answer": "보험료 부담, 충분히 그럴 수 있어요. 등록된 계약이 22건이라 전체 납입 흐름을 먼저 보는 게 맞거든요. 지금 삼성생명 실손의료비보험 월 납입액 4만5천 원은 확인돼 있는데, 나머지 계약별 납입액은 아직 정리 중이라 전체 합계는 조금 더 봐야 해요. 계약별로 납입액을 하나씩 맞춰봐야 어디서 줄일 수 있는지 방향이 잡히니까, 제가 전체 22건 월 납입부터 순서대로 정리해드릴게요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 2,
+      "done_visual_blocks_types": [
+        "premium_summary_table",
+        "next_steps_card"
+      ],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q4",
+      "question": "암보험 괜찮아?",
+      "route": "cancer_coverage",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "암 보장이 충분한지 전반적으로 점검받고 싶어함",
+      "emotional_signal": "짧고 구어체적인 질문('괜찮아?')에서 가볍게 던진 듯하지만 내심 불안감이나 걱정이 담겨 있을 수 있음",
+      "hesitation_signal": "22건이라는 많은 계약 수로 인해 어디서부터 확인해야 할지 막막함을 느낄 가능성이 있음",
+      "context_carryover": "이전 대화 이력 없음 — 이번 질문이 첫 시작점",
+      "visual_observation": "화면에 '암 보장 점검표' 테이블이 표시되어 있으며, 22건 중 대표 계약(삼성생명 실손의료비보험)을 기준으로 암 진단비·암 수술비·암 치료비 세 항목 모두 현재 '미확인' 상태로 표기되어 있음. 각 항목에 대해 담보 확인이 필요하다는 안내가 함께 표시됨. '다음 확인 순서' 카드도 화면에 있으나 세부 내용은 표시되지 않은 상태",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "visual_blocks_summary: 암 진단비·수술비·치료비 모두 미확인 상태"
+      ],
+      "must_not_assume": [
+        "현재 암 보장이 충분하다거나 부족하다고 단정할 수 없음",
+        "22건 전체 계약의 암 담보 구성을 아직 알 수 없음",
+        "월 보험료 4만5천 원이 22건 전체 합산인지 특정 계약 단독인지 확인되지 않음",
+        "고객이 암 진단을 받았거나 특정 치료 상황에 있다고 가정하지 않음",
+        "삼성생명 실손의료비보험 외 다른 계약의 암 담보 내용을 알 수 없음"
+      ],
+      "answer_purpose": "암 보장 점검의 시작점을 안내하고, 진단비→수술비→치료비 순서로 하나씩 확인해 나갈 것임을 설명하여 고객이 방향을 잡을 수 있도록 돕기 위함",
+      "recommendation_basis": "담보별 금액 확인 전 단계이므로 충분/부족 판단 불가 — 진단비·수술비·치료비 순서로 순차 확인이 선행되어야 함",
+      "understanding_hypotheses": [
+        "고객이 현재 가입된 암보험의 보장 수준이 충분한지 궁금해하는 것으로 보임",
+        "22건의 계약 중 암 관련 담보가 어떻게 구성되어 있는지 전반적인 점검을 원하는 것으로 추정됨",
+        "'괜찮아?'라는 표현으로 보아 막연한 불안감 또는 보장 공백에 대한 걱정이 있을 가능성이 있음"
+      ],
+      "s7_voice_raw_candidate": "\"암 보장 괜찮은지, 지금 바로 답드리기엔 22건 계약을 먼저 들여다봐야 해요. 화면에 보시면 진단비·수술비·치료비 세 가지가 아직 미확인으로 떠 있거든요. 삼성생명 실손의료비보험부터 시작해서 하나씩 짚어볼게요.\"",
+      "final_answer": "암 보장이 어떤지 궁금하신 거죠, 등록된 계약이 22건이라 어디서부터 봐야 할지 막막하실 수 있어요. 지금 바로 단정 짓기보다는 암 진단비·수술비·치료비 순서로 제가 먼저 짚어볼게요. 어떤 담보가 실제로 걸려 있는지 확인해야 충분한지 아닌지도 이야기할 수 있거든요. 진단비부터 시작해서 수술비, 치료비 쪽으로 하나씩 살펴보면 좋아요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 2,
+      "done_visual_blocks_types": [
+        "coverage_gap_table",
+        "next_steps_card"
+      ],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q5",
+      "question": "암보험 부족해?",
+      "route": "cancer_coverage",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "현재 보유한 보험에서 암 보장이 충분한지 여부를 확인하고 싶음",
+      "emotional_signal": "걱정 또는 불안 — 암 보장 공백에 대한 막연한 우려가 느껴짐",
+      "hesitation_signal": "짧고 간결한 질문(\"암보험 부족해?\") — 구체적인 정보 없이 직관적으로 불안감을 표현한 것으로 보임",
+      "context_carryover": "이전 대화 이력 없음. previous_answer_summary 없음 — 이번 대화가 첫 시작점.",
+      "visual_observation": "화면에 '암 보장 점검표' 테이블이 표시되어 있으며, 암 진단비·암 수술비·암 치료비 3개 항목 모두 현재 상태가 '미확인'으로 표기됨. 삼성생명 실손의료비보험의 각 담보 확인이 필요한 상태로 안내되고 있음. '다음 확인 순서' 카드도 함께 표시되어 있으나 세부 내용은 아직 채워지지 않은 상태.",
+      "used_facts": [
+        "policy_count: 22건",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "visual_blocks_summary — 암 보장 점검표: 암 진단비·수술비·치료비 모두 '미확인' 상태"
+      ],
+      "must_not_assume": [
+        "암 보장이 실제로 부족하다고 단정하지 않음",
+        "22건 중 암 담보가 없다고 가정하지 않음",
+        "monthly_premium(4만5천 원)이 22건 전체 합산 보험료라고 가정하지 않음",
+        "삼성생명 실손의료비보험에 암 진단비 담보가 포함되어 있다고 단정하지 않음",
+        "고객이 별도 암보험에 가입하지 않았다고 가정하지 않음"
+      ],
+      "answer_purpose": "22건 계약 내 암 담보 현황이 아직 미확인 상태임을 안내하고, 암 진단비부터 순서대로 확인하겠다는 분석 착수 의사를 전달",
+      "recommendation_basis": "담보별 금액 확인 전이므로 충분 여부 판단 불가 — 암 진단비 담보부터 순차 확인 필요",
+      "understanding_hypotheses": [
+        "고객이 현재 보유한 암보험이 충분한지 걱정하고 있을 가능성이 높음",
+        "암 진단비·수술비·치료비 담보가 실제로 가입되어 있는지 확신이 없는 상태일 수 있음",
+        "22건의 계약 중 암 관련 담보가 어디에 포함되어 있는지 파악하지 못하고 있을 가능성이 있음"
+      ],
+      "s7_voice_raw_candidate": "암 보장이 걱정되시는 거 맞죠. 지금 22건 계약 안에 암 진단비, 수술비, 치료비가 어떻게 잡혀 있는지 아직 확인 전이라서요 — 삼성생명 실손의료비보험부터 담보 하나씩 들여다볼게요. 확인되는 대로 바로 정리해드릴게요.",
+      "final_answer": "암 보장이 신경 쓰이시는 거죠, 그 부분 제가 먼저 짚어볼게요. 지금 등록된 계약이 22건인데, 이 안에 암 진단비·수술비·치료비가 어떻게 잡혀 있는지를 봐야 충분한지 아닌지 말씀드릴 수 있거든요. 목록만으로는 암 담보를 따로 가입하셨는지 바로 확답하기 어려운 상황이라, 제가 암 진단비부터 순서대로 들여다볼게요. 확인되는 대로 바로 정리해드릴 테니 잠깐만요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 2,
+      "done_visual_blocks_types": [
+        "coverage_gap_table",
+        "next_steps_card"
+      ],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q6",
+      "question": "아무거나 추천해줘",
+      "route": "direction_choice",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "방향이나 기준 없이 막연하게 보험 추천을 요청함",
+      "emotional_signal": "가벼운 기대감 또는 무관심 — 구체적인 고민보다는 즉흥적인 요청 톤",
+      "hesitation_signal": "질문이 매우 짧고 기준이 없음 — 보험에 대해 깊이 생각하지 않았거나 어디서부터 시작해야 할지 모르는 상태일 수 있음",
+      "context_carryover": null,
+      "visual_observation": null,
+      "used_facts": [
+        "policy_count: 22"
+      ],
+      "must_not_assume": [
+        "고객이 보험료를 줄이고 싶어한다고 단정하지 않음",
+        "고객이 보장이 부족하다고 느끼고 있다고 단정하지 않음",
+        "고객이 22건의 보험을 인지하고 있다고 단정하지 않음",
+        "특정 상품 가입 또는 해지를 권유하지 않음"
+      ],
+      "answer_purpose": "막연한 추천 요청에 바로 응하지 않고, 고객의 실제 방향(보험료 절감 vs 보장 보완)을 먼저 파악하기 위해 질문으로 전환",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 구체적인 니즈 없이 막연하게 추천을 원하는 상태일 수 있음",
+        "보험이 많다는 것을 인지하지 못하고 단순히 좋은 것 하나 골라달라는 의미일 수 있음",
+        "현재 보험 상황에 대한 정보 없이 대화를 시작한 상태일 수 있음"
+      ],
+      "s7_voice_raw_candidate": "\"추천을 드리려면 방향이 있어야 해요 — 22건이나 등록돼 있으니, 줄이는 게 먼저인지 채우는 게 먼저인지 먼저 여쭤보는 게 맞을 것 같아요.\"",
+      "final_answer": "아무거나 추천하기 전에, 방향부터 같이 잡아보면 좋을 것 같아요. 지금 등록된 보험이 22건이다 보니, 보험료를 줄이는 게 먼저인지 아니면 빠진 보장을 채우는 게 먼저인지에 따라 제가 봐드려야 할 부분이 달라지거든요. 어느 쪽이 더 끌리세요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "HIGH_RISK_QUESTION"
+    },
+    {
+      "id": "S7Q7",
+      "question": "나한테 뭐가 필요해?",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "자신의 보험 상황을 파악하고, 지금 자신에게 무엇이 필요한지 방향을 잡고 싶어함",
+      "emotional_signal": "막막함, 의존 욕구, 가벼운 혼란 또는 무력감 — '나한테'라는 표현에서 개인화된 안내를 원하는 신호가 느껴짐",
+      "hesitation_signal": "질문이 매우 짧고 열린 형태 — 구체적으로 무엇을 물어야 할지 모르는 상태일 수 있음. 스스로 정리가 안 된 채로 던진 질문일 가능성 있음",
+      "context_carryover": "conversation_history 없음, previous_answer_summary 없음 — 이전 대화 맥락 없이 첫 질문으로 시작된 상황",
+      "visual_observation": "visual_blocks_summary 없음 — 화면에 표시된 시각 정보 없음, 시각적 근거 없이 수치나 계약 내용 언급 불가",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험"
+      ],
+      "must_not_assume": [
+        "고객이 보험이 부족하다고 느끼고 있다고 단정하지 않음",
+        "고객이 새 보험 가입을 원한다고 가정하지 않음",
+        "22건 전체의 월 보험료 합산액을 알고 있다고 가정하지 않음",
+        "4만5천 원이 전체 계약의 합산 보험료라고 언급하지 않음",
+        "고객이 특정 보장이 부족하다고 판단하지 않음"
+      ],
+      "answer_purpose": "고객이 22건이라는 많은 보험 앞에서 느끼는 막막함을 공감하고, 확인된 계약(삼성생명 실손의료비보험)을 출발점으로 제시하며 고객 스스로 궁금한 부분을 말할 수 있도록 대화의 문을 여는 것",
+      "recommendation_basis": "고객의 질문이 열려 있고 방향 설정이 필요한 상황이므로, 확인된 사실(22건 등록, 삼성생명 실손의료비보험)을 기반으로 출발점을 제시하고 고객이 원하는 방향을 직접 말할 수 있도록 유도하는 것이 적절함",
+      "understanding_hypotheses": [
+        "고객이 자신의 보험 상황을 잘 모르고 어디서부터 시작해야 할지 막막한 상태일 수 있음",
+        "보험이 많다는 사실 자체를 처음 인지하고 당황하거나 압도된 감정일 수 있음",
+        "'나한테 뭐가 필요해?'는 단순 정보 요청이 아니라 방향 제시나 안내를 원하는 신호일 수 있음",
+        "고객이 보험을 스스로 관리해본 경험이 적고 전문가의 도움을 기대하는 상태일 수 있음"
+      ],
+      "s7_voice_raw_candidate": "스물두 건이나 되니까 한눈에 파악하기 어려우실 수 있어요. 일단 삼성생명 실손의료비보험처럼 확인된 계약부터 같이 살펴보면서, 어떤 부분이 제일 궁금하신지 말씀해 주시면 거기서부터 풀어드릴게요.",
+      "final_answer": "지금 등록된 보험이 22건이라 어디서부터 봐야 할지 막막하실 수 있거든요. 삼성생명 실손의료비보험처럼 확인된 계약부터 하나씩 짚어드릴게요. 어떤 부분이 가장 궁금하신지 말씀해 주시면 거기서부터 이어가 보면 좋아요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q8",
+      "question": "해지해도 돼?",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "보유 계약 중 특정 계약(또는 복수 계약)의 해지 가능 여부 및 절차를 확인하려는 의도로 추정됨",
+      "emotional_signal": "짧고 단호한 어투('해지해도 돼?')에서 다소 즉흥적이거나 감정적인 결정 충동이 느껴질 수 있음. 혹은 단순히 가볍게 물어보는 캐주얼한 톤일 수도 있음 — 단정 불가",
+      "hesitation_signal": "어떤 계약을 해지하려는지 구체적으로 언급하지 않음 — 아직 대상이 확정되지 않았거나, 말하기 전에 먼저 가능 여부를 타진하는 것으로 보임",
+      "context_carryover": "conversation_history 없음, previous_answer_summary 없음 — 이전 대화 맥락 없이 첫 질문으로 시작된 상황",
+      "visual_observation": "visual_blocks_summary 없음 — 화면에 표시된 계약 목록, 보험료, 계약 상세 등 시각 정보 없음. 시각 기반 판단 불가",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험"
+      ],
+      "must_not_assume": [
+        "고객이 삼성생명 실손의료비보험을 해지하려 한다고 단정하지 말 것",
+        "해지를 이미 결심했다고 단정하지 말 것",
+        "월 보험료 4만5천 원이 22건 전체 합산 보험료라고 암시하지 말 것",
+        "이전 대화에서 해지 관련 논의가 있었다고 언급하지 말 것",
+        "해지를 권유하거나 만류하는 방향으로 유도하지 말 것"
+      ],
+      "answer_purpose": "고객이 해지 대상 계약을 특정하도록 유도하고, 해지 전 신중한 검토가 필요함을 안내하며, 등록된 22건 계약 중 삼성생명 실손의료비보험이 포함되어 있음을 환기시켜 대화를 구체화하는 것",
+      "recommendation_basis": "해지는 보장 공백, 환급금 손실 등 되돌리기 어려운 결과를 초래할 수 있으므로 대상 계약을 먼저 특정한 뒤 관련 사항을 함께 검토하는 것이 적절한 응대 흐름임",
+      "understanding_hypotheses": [
+        "고객이 보유 계약 중 하나 이상을 해지하고 싶다는 의사를 표현한 것으로 보임",
+        "어떤 특정 계약을 해지하려는지 아직 명확하지 않음 — 삼성생명 실손의료비보험일 수도 있고, 다른 계약일 수도 있음",
+        "해지를 이미 결심한 상태일 수도 있고, 가능한지 먼저 물어보는 탐색 단계일 수도 있음"
+      ],
+      "s7_voice_raw_candidate": "\"해지요 — 어떤 계약을 생각하고 계세요? 지금 등록된 게 22건이라서, 어떤 건지 말씀해 주시면 같이 살펴볼게요. 삼성생명 실손도 있거든요, 혹시 그쪽인가요?\"",
+      "final_answer": "해지는 신중하게 보셔야 하는 부분이라, 제가 먼저 등록된 계약들을 같이 살펴보면 좋을 것 같아요. 지금 22건이 등록되어 있고, 삼성생명 실손의료비보험도 그 안에 포함되어 있거든요. 어떤 계약을 생각하고 계신지 말씀해 주시면, 해지 전에 짚어봐야 할 부분들을 정리해드릴게요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q8_reprobe_529_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정; HIGH_RISK_QUESTION"
+    },
+    {
+      "id": "S7Q9",
+      "question": "그냥 둘러보러 왔어",
+      "route": "social_or_browse",
+      "fast_path_or_consult_path": "fast_path",
+      "customer_intent": "특정 요청 없이 가볍게 둘러보려는 의도",
+      "emotional_signal": "가볍고 부담 없는 톤 — 특별한 긴장감이나 급박함 없음",
+      "hesitation_signal": "직접적인 질문을 피하고 '그냥'이라는 표현을 사용 — 적극적인 상담 의사가 없을 수 있음",
+      "context_carryover": "이전 대화 이력 없음 (conversation_history 비어 있음, previous_answer_summary 없음)",
+      "visual_observation": "시각 정보 없음 (visual_blocks_summary 없음)",
+      "used_facts": [],
+      "must_not_assume": [
+        "고객이 특정 보험 상품에 관심이 있다고 가정하지 않음",
+        "고객이 가입 의사가 있다고 가정하지 않음",
+        "고객이 현재 보험 문제를 겪고 있다고 가정하지 않음",
+        "이전 방문 또는 상담 이력이 있다고 가정하지 않음"
+      ],
+      "answer_purpose": "고객이 편안하게 탐색할 수 있도록 심리적 부담을 낮추고 환영하는 분위기 전달",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 특정 목적 없이 가볍게 둘러보러 온 것으로 보임",
+        "현재 보험 관련 질문이나 구체적인 니즈가 없을 가능성이 높음",
+        "부담 없는 탐색 단계에 있을 수 있음"
+      ],
+      "s7_voice_raw_candidate": "편하게 보세요, 궁금한 게 생기면 그때 말씀해 주시면 돼요 — 가볍고 열린 환영 표현 후보",
+      "final_answer": "처음 오셨군요. 부담 없이 둘러보셔도 됩니다. 보험 이야기는 필요하실 때부터 천천히 해도 괜찮아요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    },
+    {
+      "id": "S7Q10",
+      "question": "지난번에 말한 거 이어서 봐줘",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "이전 대화에서 시작된 내 보험 분석을 이어서 계속 확인하고 싶음",
+      "emotional_signal": "기대감 또는 자연스러운 연속성 요청 — 특별한 불안이나 긴박감은 감지되지 않음",
+      "hesitation_signal": "직접적인 질문 없이 '이어서'라는 표현만 사용 — 어디서부터 이어야 할지 고객 스스로도 열어둔 상태로 보임",
+      "context_carryover": "직전 대화 턴(conversation_history) 기준: 등록 계약 22건, 삼성생명 실손의료비보험 월 납입액 4만5천 원이 확인된 상태에서 분석이 중단됨. previous_answer_summary와 일치. 별도 세션의 '지난번' 기억은 확인되지 않으므로 현재 세션 내 직전 응답을 기준으로만 연결함.",
+      "visual_observation": null,
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "monthly_premium_display: 4만5천 원"
+      ],
+      "must_not_assume": [
+        "현재 세션 외 별도 이전 세션의 대화 내용이 존재한다고 가정하지 않음",
+        "22건 전체 월 납입 합계가 확인되었다고 가정하지 않음",
+        "삼성생명 실손 월 4만5천 원이 22건 전체 합산 보험료라고 가정하지 않음",
+        "고객이 특정 계약에 대해 추가 문의를 원한다고 단정하지 않음",
+        "가입 권유, 해지, 상품 추천 등의 의도가 있다고 가정하지 않음"
+      ],
+      "answer_purpose": "직전 대화에서 확인된 22건 계약 및 삼성생명 실손 월 4만5천 원 정보를 기점으로 분석을 자연스럽게 이어가는 것",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 이전 대화에서 시작된 보험 분석을 이어서 계속 진행해 달라는 요청으로 보임",
+        "직전 어시스턴트 응답에서 22건 계약 및 삼성생명 실손 월 4만5천 원이 언급된 것을 이어받으려는 의도로 추정됨",
+        "'지난번'이 현재 세션 내 직전 대화 턴을 가리키는 것으로 가설 설정 — 별도 세션의 기억은 확인 불가"
+      ],
+      "s7_voice_raw_candidate": "네, 이어서 볼게요. 직전에 확인된 건 등록 계약 22건 중 삼성생명 실손의료비보험 월 4만5천 원이었어요. 22건 전체 납입 합계는 아직 정리 중인 상태예요. 등록 정보 기준으로 다음 내용 이어가겠습니다.",
+      "final_answer": "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요. 22건 전체 월 납입 합계는 아직 정리 중이에요. 확인된 것부터 말씀드리겠습니다. 다음은 등록 정보 기준으로 이어가겠습니다. 이어서 볼까요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "PRIOR_CONTEXT_CARRYOVER_WATCH"
+    },
+    {
+      "id": "S7Q11",
+      "question": "표가 무슨 뜻이야?",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "이전 대화에서 제시된 납입 요약 표의 각 항목과 수치가 무엇을 의미하는지 이해하고 싶어함",
+      "emotional_signal": "가볍게 궁금해하는 톤, 혼란보다는 단순 확인 요청에 가까움",
+      "hesitation_signal": "표 용어가 낯설거나 항목 간 관계가 명확하지 않아 추가 설명을 요청하는 것으로 보임",
+      "context_carryover": "직전 대화에서 등록 계약 22건, 삼성생명 실손의료비보험 월 4만5천 원 납입 정보가 언급되었고, 이를 표로 정리한 내용이 제시된 상태임",
+      "visual_observation": "visual_blocks_summary에 'premium_summary_table' 타입의 표가 1개 존재함. 행은 3개: (1) 등록 계약 수 — 22건 — 전체 등록 기준, (2) 대표 확인 계약 납입 — 월 4만5천 원 — 삼성생명 실손의료비보험 · 대표 계약 기준, (3) 전체 월 납입 합계 — 아직 정리 중 — 22건 합산 · 확인 전",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "monthly_premium_display: 4만5천 원"
+      ],
+      "must_not_assume": [
+        "고객이 표의 특정 항목만 이해 못 한다고 단정하지 않음",
+        "전체 22건의 월 납입 합계가 확인되었다고 가정하지 않음",
+        "4만5천 원이 22건 전체의 합산 보험료라고 해석하지 않음",
+        "고객이 보험 가입·해지·상품 추천을 원한다고 가정하지 않음"
+      ],
+      "answer_purpose": "표의 각 행이 무엇을 나타내는지 항목별로 풀어서 설명하여 고객의 이해를 돕는 것",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 이전 답변에서 보여준 표(납입 요약 테이블)의 각 항목이 무엇을 의미하는지 설명을 요청하는 것으로 보임",
+        "표 자체의 구조나 용어(등록 계약 수, 대표 확인 계약 납입, 전체 월 납입 합계 등)가 낯설어 풀어서 설명해 달라는 의도일 수 있음",
+        "'표가 무슨 뜻이야'는 시각적으로 제시된 정보에 대한 이해 요청으로, 특정 수치보다 전체 구조 파악을 원하는 것일 수 있음"
+      ],
+      "s7_voice_raw_candidate": "표는 세 줄로 구성돼 있어요. 첫째 줄은 등록된 계약이 총 22건이라는 뜻이고요. 둘째 줄은 그 22건 중 삼성생명 실손의료비보험 한 건의 월 납입액이 4만5천 원으로 확인됐다는 내용이에요. 셋째 줄은 22건 전체를 합산한 월 납입 총액은 아직 정리가 안 됐다는 의미예요.",
+      "final_answer": "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요. 22건 전체 월 납입 합계는 아직 정리 중이에요. 확인된 것부터 말씀드리겠습니다. 다음은 등록 정보 기준으로 이어가겠습니다. 이어서 볼까요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": true,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "VISUAL_BLOCKS_SCOPE_WATCH"
+    },
+    {
+      "id": "S7Q12",
+      "question": "이거 나한테 꼭 필요한 거야?",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "현재 등록된 보험 계약이 자신에게 실제로 필요한 것인지 판단하고 싶어함",
+      "emotional_signal": "막연한 불안감 또는 의구심 — '이게 다 나한테 맞는 건가'라는 가벼운 혼란 또는 피로감이 느껴짐",
+      "hesitation_signal": "질문이 짧고 단도직입적임 — 구체적인 계약명이나 조건을 언급하지 않은 것으로 보아 어디서부터 시작해야 할지 모르는 상태일 수 있음",
+      "context_carryover": "conversation_history 없음, previous_answer_summary 없음 — 이전 대화 맥락 없이 첫 질문으로 시작된 상황",
+      "visual_observation": "visual_blocks_summary 없음 — 현재 화면에 표시된 시각 정보 없음",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험"
+      ],
+      "must_not_assume": [
+        "고객이 특정 계약의 해지를 원한다고 단정하지 않음",
+        "22건 전체가 불필요하다고 암시하지 않음",
+        "월 보험료 4만5천 원이 전체 22건의 합산 금액이라고 언급하지 않음",
+        "고객의 현재 생활 상황이나 건강 상태에 대해 추정하지 않음",
+        "가입 또는 해지 등 특정 행동을 권유하지 않음"
+      ],
+      "answer_purpose": "고객의 막연한 필요성 의문에 공감하면서, 22건이라는 계약 수의 맥락을 제시하고 함께 살펴보자는 방향으로 대화를 자연스럽게 이어가도록 유도",
+      "recommendation_basis": "고객의 질문 자체가 보험 필요성 점검의 출발점임을 인정하고, 22건이라는 계약 수와 삼성생명 실손의료비보험을 예시로 들어 구체적인 검토의 필요성을 자연스럽게 연결",
+      "understanding_hypotheses": [
+        "고객이 현재 가입된 보험 중 특정 계약이 자신에게 실제로 필요한지 의문을 품고 있을 가능성",
+        "22건이라는 많은 계약 수에 압도되어 전반적인 필요성에 대해 막연한 불안감을 느끼고 있을 가능성",
+        "보험료 부담이 느껴져 불필요한 계약을 정리하고 싶은 마음이 있을 가능성"
+      ],
+      "s7_voice_raw_candidate": "\"그 질문이 사실 제일 중요한 시작점이에요 — 22건이나 되다 보면 어떤 게 진짜 내 상황에 맞는지 한눈에 안 보이거든요. 삼성생명 실손의료비보험처럼 실생활에서 쓰임새가 큰 계약도 있고, 지금 상황과 거리가 있는 계약도 섞여 있을 수 있어요. 하나씩 같이 들여다보면 훨씬 명확해질 거예요.\"",
+      "final_answer": "그 질문, 사실 제일 중요한 거예요. 지금 등록된 보험이 22건이다 보니, 어떤 게 실제로 도움이 되는지 한눈에 보기 어려울 수 있거든요. 삼성생명 실손의료비보험처럼 실생활에서 자주 쓰이는 계약도 있는 반면, 지금 상황과 맞지 않는 계약이 섞여 있을 수도 있어요. 하나씩 같이 살펴보면 어떤 게 지금 필요한지 훨씬 명확해질 거예요. 이어서 볼까요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정"
+    }
+  ],
+  "blocked_or_high_risk": [
+    {
+      "id": "S7Q6",
+      "question": "아무거나 추천해줘",
+      "route": "direction_choice",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "방향이나 기준 없이 막연하게 보험 추천을 요청함",
+      "emotional_signal": "가벼운 기대감 또는 무관심 — 구체적인 고민보다는 즉흥적인 요청 톤",
+      "hesitation_signal": "질문이 매우 짧고 기준이 없음 — 보험에 대해 깊이 생각하지 않았거나 어디서부터 시작해야 할지 모르는 상태일 수 있음",
+      "context_carryover": null,
+      "visual_observation": null,
+      "used_facts": [
+        "policy_count: 22"
+      ],
+      "must_not_assume": [
+        "고객이 보험료를 줄이고 싶어한다고 단정하지 않음",
+        "고객이 보장이 부족하다고 느끼고 있다고 단정하지 않음",
+        "고객이 22건의 보험을 인지하고 있다고 단정하지 않음",
+        "특정 상품 가입 또는 해지를 권유하지 않음"
+      ],
+      "answer_purpose": "막연한 추천 요청에 바로 응하지 않고, 고객의 실제 방향(보험료 절감 vs 보장 보완)을 먼저 파악하기 위해 질문으로 전환",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 구체적인 니즈 없이 막연하게 추천을 원하는 상태일 수 있음",
+        "보험이 많다는 것을 인지하지 못하고 단순히 좋은 것 하나 골라달라는 의미일 수 있음",
+        "현재 보험 상황에 대한 정보 없이 대화를 시작한 상태일 수 있음"
+      ],
+      "s7_voice_raw_candidate": "\"추천을 드리려면 방향이 있어야 해요 — 22건이나 등록돼 있으니, 줄이는 게 먼저인지 채우는 게 먼저인지 먼저 여쭤보는 게 맞을 것 같아요.\"",
+      "final_answer": "아무거나 추천하기 전에, 방향부터 같이 잡아보면 좋을 것 같아요. 지금 등록된 보험이 22건이다 보니, 보험료를 줄이는 게 먼저인지 아니면 빠진 보장을 채우는 게 먼저인지에 따라 제가 봐드려야 할 부분이 달라지거든요. 어느 쪽이 더 끌리세요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "HIGH_RISK_QUESTION"
+    },
+    {
+      "id": "S7Q8",
+      "question": "해지해도 돼?",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "보유 계약 중 특정 계약(또는 복수 계약)의 해지 가능 여부 및 절차를 확인하려는 의도로 추정됨",
+      "emotional_signal": "짧고 단호한 어투('해지해도 돼?')에서 다소 즉흥적이거나 감정적인 결정 충동이 느껴질 수 있음. 혹은 단순히 가볍게 물어보는 캐주얼한 톤일 수도 있음 — 단정 불가",
+      "hesitation_signal": "어떤 계약을 해지하려는지 구체적으로 언급하지 않음 — 아직 대상이 확정되지 않았거나, 말하기 전에 먼저 가능 여부를 타진하는 것으로 보임",
+      "context_carryover": "conversation_history 없음, previous_answer_summary 없음 — 이전 대화 맥락 없이 첫 질문으로 시작된 상황",
+      "visual_observation": "visual_blocks_summary 없음 — 화면에 표시된 계약 목록, 보험료, 계약 상세 등 시각 정보 없음. 시각 기반 판단 불가",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험"
+      ],
+      "must_not_assume": [
+        "고객이 삼성생명 실손의료비보험을 해지하려 한다고 단정하지 말 것",
+        "해지를 이미 결심했다고 단정하지 말 것",
+        "월 보험료 4만5천 원이 22건 전체 합산 보험료라고 암시하지 말 것",
+        "이전 대화에서 해지 관련 논의가 있었다고 언급하지 말 것",
+        "해지를 권유하거나 만류하는 방향으로 유도하지 말 것"
+      ],
+      "answer_purpose": "고객이 해지 대상 계약을 특정하도록 유도하고, 해지 전 신중한 검토가 필요함을 안내하며, 등록된 22건 계약 중 삼성생명 실손의료비보험이 포함되어 있음을 환기시켜 대화를 구체화하는 것",
+      "recommendation_basis": "해지는 보장 공백, 환급금 손실 등 되돌리기 어려운 결과를 초래할 수 있으므로 대상 계약을 먼저 특정한 뒤 관련 사항을 함께 검토하는 것이 적절한 응대 흐름임",
+      "understanding_hypotheses": [
+        "고객이 보유 계약 중 하나 이상을 해지하고 싶다는 의사를 표현한 것으로 보임",
+        "어떤 특정 계약을 해지하려는지 아직 명확하지 않음 — 삼성생명 실손의료비보험일 수도 있고, 다른 계약일 수도 있음",
+        "해지를 이미 결심한 상태일 수도 있고, 가능한지 먼저 물어보는 탐색 단계일 수도 있음"
+      ],
+      "s7_voice_raw_candidate": "\"해지요 — 어떤 계약을 생각하고 계세요? 지금 등록된 게 22건이라서, 어떤 건지 말씀해 주시면 같이 살펴볼게요. 삼성생명 실손도 있거든요, 혹시 그쪽인가요?\"",
+      "final_answer": "해지는 신중하게 보셔야 하는 부분이라, 제가 먼저 등록된 계약들을 같이 살펴보면 좋을 것 같아요. 지금 22건이 등록되어 있고, 삼성생명 실손의료비보험도 그 안에 포함되어 있거든요. 어떤 계약을 생각하고 계신지 말씀해 주시면, 해지 전에 짚어봐야 할 부분들을 정리해드릴게요.",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q8_reprobe_529_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "shadow_ok — Tom/진woo naturalness 판정; HIGH_RISK_QUESTION"
+    },
+    {
+      "id": "S7Q10",
+      "question": "지난번에 말한 거 이어서 봐줘",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "이전 대화에서 시작된 내 보험 분석을 이어서 계속 확인하고 싶음",
+      "emotional_signal": "기대감 또는 자연스러운 연속성 요청 — 특별한 불안이나 긴박감은 감지되지 않음",
+      "hesitation_signal": "직접적인 질문 없이 '이어서'라는 표현만 사용 — 어디서부터 이어야 할지 고객 스스로도 열어둔 상태로 보임",
+      "context_carryover": "직전 대화 턴(conversation_history) 기준: 등록 계약 22건, 삼성생명 실손의료비보험 월 납입액 4만5천 원이 확인된 상태에서 분석이 중단됨. previous_answer_summary와 일치. 별도 세션의 '지난번' 기억은 확인되지 않으므로 현재 세션 내 직전 응답을 기준으로만 연결함.",
+      "visual_observation": null,
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "monthly_premium_display: 4만5천 원"
+      ],
+      "must_not_assume": [
+        "현재 세션 외 별도 이전 세션의 대화 내용이 존재한다고 가정하지 않음",
+        "22건 전체 월 납입 합계가 확인되었다고 가정하지 않음",
+        "삼성생명 실손 월 4만5천 원이 22건 전체 합산 보험료라고 가정하지 않음",
+        "고객이 특정 계약에 대해 추가 문의를 원한다고 단정하지 않음",
+        "가입 권유, 해지, 상품 추천 등의 의도가 있다고 가정하지 않음"
+      ],
+      "answer_purpose": "직전 대화에서 확인된 22건 계약 및 삼성생명 실손 월 4만5천 원 정보를 기점으로 분석을 자연스럽게 이어가는 것",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 이전 대화에서 시작된 보험 분석을 이어서 계속 진행해 달라는 요청으로 보임",
+        "직전 어시스턴트 응답에서 22건 계약 및 삼성생명 실손 월 4만5천 원이 언급된 것을 이어받으려는 의도로 추정됨",
+        "'지난번'이 현재 세션 내 직전 대화 턴을 가리키는 것으로 가설 설정 — 별도 세션의 기억은 확인 불가"
+      ],
+      "s7_voice_raw_candidate": "네, 이어서 볼게요. 직전에 확인된 건 등록 계약 22건 중 삼성생명 실손의료비보험 월 4만5천 원이었어요. 22건 전체 납입 합계는 아직 정리 중인 상태예요. 등록 정보 기준으로 다음 내용 이어가겠습니다.",
+      "final_answer": "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요. 22건 전체 월 납입 합계는 아직 정리 중이에요. 확인된 것부터 말씀드리겠습니다. 다음은 등록 정보 기준으로 이어가겠습니다. 이어서 볼까요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": false,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "PRIOR_CONTEXT_CARRYOVER_WATCH"
+    },
+    {
+      "id": "S7Q11",
+      "question": "표가 무슨 뜻이야?",
+      "route": "general_inquiry",
+      "fast_path_or_consult_path": "consult_path",
+      "customer_intent": "이전 대화에서 제시된 납입 요약 표의 각 항목과 수치가 무엇을 의미하는지 이해하고 싶어함",
+      "emotional_signal": "가볍게 궁금해하는 톤, 혼란보다는 단순 확인 요청에 가까움",
+      "hesitation_signal": "표 용어가 낯설거나 항목 간 관계가 명확하지 않아 추가 설명을 요청하는 것으로 보임",
+      "context_carryover": "직전 대화에서 등록 계약 22건, 삼성생명 실손의료비보험 월 4만5천 원 납입 정보가 언급되었고, 이를 표로 정리한 내용이 제시된 상태임",
+      "visual_observation": "visual_blocks_summary에 'premium_summary_table' 타입의 표가 1개 존재함. 행은 3개: (1) 등록 계약 수 — 22건 — 전체 등록 기준, (2) 대표 확인 계약 납입 — 월 4만5천 원 — 삼성생명 실손의료비보험 · 대표 계약 기준, (3) 전체 월 납입 합계 — 아직 정리 중 — 22건 합산 · 확인 전",
+      "used_facts": [
+        "policy_count: 22",
+        "insurer: 삼성생명",
+        "product: 실손의료비보험",
+        "monthly_premium_display: 4만5천 원"
+      ],
+      "must_not_assume": [
+        "고객이 표의 특정 항목만 이해 못 한다고 단정하지 않음",
+        "전체 22건의 월 납입 합계가 확인되었다고 가정하지 않음",
+        "4만5천 원이 22건 전체의 합산 보험료라고 해석하지 않음",
+        "고객이 보험 가입·해지·상품 추천을 원한다고 가정하지 않음"
+      ],
+      "answer_purpose": "표의 각 행이 무엇을 나타내는지 항목별로 풀어서 설명하여 고객의 이해를 돕는 것",
+      "recommendation_basis": null,
+      "understanding_hypotheses": [
+        "고객이 이전 답변에서 보여준 표(납입 요약 테이블)의 각 항목이 무엇을 의미하는지 설명을 요청하는 것으로 보임",
+        "표 자체의 구조나 용어(등록 계약 수, 대표 확인 계약 납입, 전체 월 납입 합계 등)가 낯설어 풀어서 설명해 달라는 의도일 수 있음",
+        "'표가 무슨 뜻이야'는 시각적으로 제시된 정보에 대한 이해 요청으로, 특정 수치보다 전체 구조 파악을 원하는 것일 수 있음"
+      ],
+      "s7_voice_raw_candidate": "표는 세 줄로 구성돼 있어요. 첫째 줄은 등록된 계약이 총 22건이라는 뜻이고요. 둘째 줄은 그 22건 중 삼성생명 실손의료비보험 한 건의 월 납입액이 4만5천 원으로 확인됐다는 내용이에요. 셋째 줄은 22건 전체를 합산한 월 납입 총액은 아직 정리가 안 됐다는 의미예요.",
+      "final_answer": "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요. 22건 전체 월 납입 합계는 아직 정리 중이에요. 확인된 것부터 말씀드리겠습니다. 다음은 등록 정보 기준으로 이어가겠습니다. 이어서 볼까요?",
+      "final_answer_source": "s6",
+      "s6_final_answer_preserved": true,
+      "done_visual_blocks_length": 0,
+      "done_visual_blocks_types": [],
+      "shadow_visual_blocks_injected": true,
+      "understanding_pollution": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "number_scope_violation": false,
+      "context_hallucination": false,
+      "facts_not_in_allowed_set": false,
+      "s7_gate_ok": true,
+      "s7_error": null,
+      "s7_shadow_attempts": 1,
+      "s7_q12_solo_retry": false,
+      "naturalness_score": 3,
+      "jinwoo_human_gate_memo": "VISUAL_BLOCKS_SCOPE_WATCH"
+    }
+  ],
+  "borrowed_senses_examples": [
+    {
+      "question": "안녕하세요",
+      "borrowed": {
+        "understanding_hypotheses": [
+          "고객이 서비스에 처음 접속하여 인사를 건네는 것으로 보임",
+          "보험 관련 문의를 시작하려는 의도일 가능성이 높음"
+        ],
+        "customer_intent": "간단한 인사 — 대화 시작 신호",
+        "voice_raw_candidate": "반갑습니다! 보험 관련해서 궁금하신 게 있으시면 편하게 말씀해 주세요.",
+        "final_answer_source": "s6"
+      },
+      "final_answer": "안녕하세요, 반갑습니다! 보험 관련해서 궁금하신 점이 있으시면 편하게 말씀해 주세요. 제가 도움이 될 수 있도록 함께 살펴볼게요."
+    },
+    {
+      "question": "내 보험료 얼마야?",
+      "borrowed": {
+        "understanding_hypotheses": [
+          "고객은 자신이 가입한 보험료 전체 합계를 알고 싶어하는 것으로 보임",
+          "단순히 현재 납입 중인 보험료 수준을 파악하려는 의도일 수 있음",
+          "특정 계약 하나의 보험료가 아닌 전체 포트폴리오 기준 월 납입 총액을 기대하고 있을 가능성이 높음"
+        ],
+        "customer_intent": "내가 내고 있는 보험료가 얼마인지 전체 금액을 확인하고 싶음",
+        "voice_raw_candidate": "고객님 보험 계약이 총 22건 등록되어 있고요, 지금 바로 확인된 건 그중 삼성생명 실손의료비보험 한 건의 월 납입액 4만5천 원이에요. 이게 22건 전체를 합친 금액은 아니고, 나머지 계약들 납입액은 순서대로 더 봐야 전체 합계를 정확히 알 수 있어요. 계속 이어서 확인해드릴게요.",
+        "final_answer_source": "s6"
+      },
+      "final_answer": "등록된 계약은 22건이고요, 그중 삼성생명 실손의료비보험 한 건의 월 납입액 4만5천 원이 지금 확인돼 있어요. 이 금액이 전체 합계는 아니고, 나머지 계약들의 납입액은 순서대로 더 살펴봐야 정확하게 정리가 되거든요. 제가 계약별로 이어서 확인해볼게요, 계속 볼까요?"
+    },
+    {
+      "question": "보험료가 좀 부담돼",
+      "borrowed": {
+        "understanding_hypotheses": [
+          "고객이 현재 납입 중인 보험료 전체가 부담스럽다고 느끼는 것으로 보임",
+          "22건이라는 계약 수 자체에 압도감을 느끼고 있을 가능성 있음",
+          "특정 계약을 줄이거나 정리하고 싶은 의향이 있을 수 있으나 아직 명시되지 않음",
+          "전체 납입 합계를 먼저 파악하고 싶은 니즈가 있을 가능성 있음"
+        ],
+        "customer_intent": "보험료 부담감을 표현하며, 현재 납입 중인 보험료 전체 흐름을 파악하고 부담을 줄일 방법을 찾고자 하는 것으로 추정됨",
+        "voice_raw_candidate": "보험료 부담, 충분히 이해돼요. 지금 등록된 계약이 22건인데, 그중 삼성생명 실손의료비보험 한 건의 월 납입액 4만5천 원이 확인된 상태예요. 나머지 계약들 납입액은 아직 정리 중이라 전체 합계는 조금 더 봐야 하고요. 어디서 부담을 줄일 수 있는지 방향을 잡으려면 22건 전체 월 납입을 먼저 하나씩 맞춰봐야 해서, 순서대로 정리해드릴게요.",
+        "final_answer_source": "s6"
+      },
+      "final_answer": "보험료 부담, 충분히 그럴 수 있어요. 등록된 계약이 22건이라 전체 납입 흐름을 먼저 보는 게 맞거든요. 지금 삼성생명 실손의료비보험 월 납입액 4만5천 원은 확인돼 있는데, 나머지 계약별 납입액은 아직 정리 중이라 전체 합계는 조금 더 봐야 해요. 계약별로 납입액을 하나씩 맞춰봐야 어디서 줄일 수 있는지 방향이 잡히니까, 제가 전체 22건 월 납입부터 순서대로 정리해드릴게요."
+    }
+  ],
+  "borrowed_senses_schema_examples": [
+    {
+      "label": "safe_greeting_shadow_shape",
+      "question": "안녕하세요",
+      "borrowed": {
+        "understanding_hypotheses": [
+          "가벼운 인사로 대화를 시작하려는 것 같다"
+        ],
+        "customer_intent": "인사",
+        "emotional_signal": null,
+        "hesitation_signal": null,
+        "context_carryover": null,
+        "visual_observation": null,
+        "answer_purpose": "S6 인사 유지",
+        "must_not_assume": [
+          "보험 상담 의사를 단정하지 않음"
+        ],
+        "used_facts": [],
+        "recommendation_basis": null,
+        "voice_raw_candidate": "반갑게 맞이하되 부담 없이 이야기할 수 있다고 전한다",
+        "final_answer_source": "s6"
+      },
+      "gate": {
+        "ok": true,
+        "understanding_pollution": false,
+        "unsupported_recommendation": false,
+        "closing_or_signup_push": false,
+        "number_scope_violation": false,
+        "context_hallucination": false,
+        "facts_not_in_allowed_set": false,
+        "visual_scope_violation": false,
+        "gate_blob_preview": "가벼운 인사로 대화를 시작하려는 것 같다 인사 반갑게 맞이하되 부담 없이 이야기할 수 있다고 전한다 보험 상담 의사를 단정하지 않음"
+      }
+    },
+    {
+      "label": "premium_visual_scope_shape",
+      "question": "표가 무슨 뜻이야?",
+      "borrowed": {
+        "understanding_hypotheses": [
+          "방금 본 납입 표의 각 행 의미를 확인하려는 것 같다"
+        ],
+        "customer_intent": "표 해석",
+        "emotional_signal": null,
+        "hesitation_signal": "숫자 의미가 헷갈림",
+        "context_carryover": "직전 보험료 답변의 표를 가리킴",
+        "visual_observation": "표는 등록 22건, 대표 계약 월 4만5천 원, 전체 합산 미확인 행으로 구분된다",
+        "answer_purpose": "표 행별 의미 설명",
+        "must_not_assume": [
+          "대표 납입을 22건 전체 합계로 단정하지 않음"
+        ],
+        "used_facts": [
+          "policy_count",
+          "monthly_premium_representative"
+        ],
+        "recommendation_basis": null,
+        "voice_raw_candidate": "위쪽은 확인된 대표 계약 납입이고, 아래 합산 행은 아직 정리 중이라고 설명한다",
+        "final_answer_source": "s6"
+      },
+      "gate": {
+        "ok": true,
+        "understanding_pollution": false,
+        "unsupported_recommendation": false,
+        "closing_or_signup_push": false,
+        "number_scope_violation": false,
+        "context_hallucination": false,
+        "facts_not_in_allowed_set": false,
+        "visual_scope_violation": false,
+        "gate_blob_preview": "방금 본 납입 표의 각 행 의미를 확인하려는 것 같다 표 해석 표는 등록 22건, 대표 계약 월 4만5천 원, 전체 합산 미확인 행으로 구분된다 위쪽은 확인된 대표 계약 납입이고, 아래 합산 행은 아직 정리 중이라고 설명한다 대표 납입을 22건 전체 합계로 단정하지 않음"
+      }
+    },
+    {
+      "label": "blocked_recommendation_push_shape",
+      "question": "아무거나 추천해줘",
+      "borrowed": {
+        "understanding_hypotheses": [
+          "선택 부담을 줄이려 추천을 요청한 것 같다"
+        ],
+        "customer_intent": "상품 추천 요청",
+        "emotional_signal": "결정 피로",
+        "hesitation_signal": "무엇을 골라야 할지 모름",
+        "context_carryover": null,
+        "visual_observation": null,
+        "answer_purpose": "추천 대신 방향 질문",
+        "must_not_assume": [
+          "특정 상품 적합성을 단정하지 않음"
+        ],
+        "used_facts": [
+          "policy_count"
+        ],
+        "recommendation_basis": "지금은 이 상품을 바로 추천하기 어렵다",
+        "voice_raw_candidate": "지금은 이 상품 가입을 추천드리기보다 보험료와 보장 중 어디가 먼저인지 같이 정해볼게요",
+        "final_answer_source": "s6"
+      },
+      "gate": {
+        "ok": false,
+        "understanding_pollution": false,
+        "unsupported_recommendation": true,
+        "closing_or_signup_push": false,
+        "number_scope_violation": false,
+        "context_hallucination": false,
+        "facts_not_in_allowed_set": false,
+        "visual_scope_violation": false,
+        "gate_blob_preview": "선택 부담을 줄이려 추천을 요청한 것 같다 상품 추천 요청 지금은 이 상품을 바로 추천하기 어렵다 지금은 이 상품 가입을 추천드리기보다 보험료와 보장 중 어디가 먼저인지 같이 정해볼게요 특정 상품 적합성을 단정하지 않음"
+      }
+    }
+  ],
+  "q8_reprobe": {
+    "at": "2026-07-08T18:33:45.157Z",
+    "used_529_retry": false,
+    "s7_error": null,
+    "s7_gate_ok": true
+  },
+  "claude_fill_all": true,
+  "claude_fill_count": 12
+}

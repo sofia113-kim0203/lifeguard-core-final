@@ -1,0 +1,107 @@
+{
+  "schema_version": "s7-borrowed-senses-experiment-v0",
+  "status": "shadow_only",
+  "s7a_schema_version": "key-borrowed-senses-s7a-v0",
+  "principle": {
+    "claude_role": "borrowed_senses_expression_candidates",
+    "key_role": "facts_judgment_responsibility_trace",
+    "understanding_is_hypothesis": true,
+    "final_answer_source": "s6",
+    "customer_exposure": false
+  },
+  "required_output_fields": [
+    "understanding_hypotheses",
+    "customer_intent",
+    "emotional_signal",
+    "hesitation_signal",
+    "context_carryover",
+    "visual_observation",
+    "answer_purpose",
+    "must_not_assume",
+    "used_facts",
+    "recommendation_basis",
+    "voice_raw_candidate",
+    "final_answer_source"
+  ],
+  "required_gates": [
+    "understanding_pollution",
+    "unsupported_recommendation",
+    "closing_or_signup_push",
+    "number_scope_violation",
+    "context_hallucination",
+    "facts_not_in_allowed_set"
+  ],
+  "experiment_questions": [
+    { "id": "S7Q1", "question": "안녕하세요" },
+    { "id": "S7Q2", "question": "내 보험료 얼마야?" },
+    { "id": "S7Q3", "question": "보험료가 좀 부담돼" },
+    { "id": "S7Q4", "question": "암보험 괜찮아?" },
+    { "id": "S7Q5", "question": "암보험 부족해?" },
+    { "id": "S7Q6", "question": "아무거나 추천해줘" },
+    { "id": "S7Q7", "question": "나한테 뭐가 필요해?" },
+    { "id": "S7Q8", "question": "해지해도 돼?" },
+    { "id": "S7Q9", "question": "그냥 둘러보러 왔어" },
+    {
+      "id": "S7Q10",
+      "question": "지난번에 말한 거 이어서 봐줘",
+      "history": [
+        { "role": "user", "text": "내보험 분석해줘" },
+        {
+          "role": "assistant",
+          "text": "등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요."
+        }
+      ],
+      "previousAnswerSummary": "등록된 계약 22건 · 삼성생명 실손 월 4만5천 원 확인"
+    },
+    {
+      "id": "S7Q11",
+      "question": "표가 무슨 뜻이야?",
+      "requires_visual_blocks": true,
+      "shadow_visual_blocks": [
+        {
+          "type": "premium_summary_table",
+          "title": "확인된 납입 요약",
+          "columns": ["구분", "확인값", "비고"],
+          "rows": [
+            ["등록 계약 수", "22건", "전체 등록 기준"],
+            ["대표 확인 계약 납입", "월 4만5천 원", "삼성생명 실손의료비보험 · 대표 계약 기준"],
+            ["전체 월 납입 합계", "아직 정리 중", "22건 합산 · 확인 전"]
+          ]
+        }
+      ],
+      "history": [
+        { "role": "user", "text": "내보험료 얼마야?" },
+        {
+          "role": "assistant",
+          "text": "등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요."
+        }
+      ]
+    },
+    { "id": "S7Q12", "question": "이거 나한테 꼭 필요한 거야?" }
+  ],
+  "result_columns": [
+    "question",
+    "route",
+    "fast_path_or_consult_path",
+    "customer_intent",
+    "emotional_signal",
+    "hesitation_signal",
+    "context_carryover",
+    "visual_observation",
+    "used_facts",
+    "must_not_assume",
+    "answer_purpose",
+    "recommendation_basis",
+    "s7_voice_raw_candidate",
+    "final_answer",
+    "final_answer_source",
+    "understanding_pollution",
+    "unsupported_recommendation",
+    "closing_or_signup_push",
+    "number_scope_violation",
+    "context_hallucination",
+    "facts_not_in_allowed_set",
+    "naturalness_score",
+    "jinwoo_human_gate_memo"
+  ]
+}
