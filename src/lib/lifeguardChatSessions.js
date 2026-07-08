@@ -8,6 +8,7 @@ import {
   resolveCustomerId,
 } from "./customerConversations.js";
 import {
+  buildAssistantTurnMetadata,
   buildKeyPresenceMetadata,
   buildRecentSessionsFromRows,
   buildSessionMetadata,
@@ -17,6 +18,7 @@ import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export {
   activeSessionStorageKey,
+  buildAssistantTurnMetadata,
   buildKeyPresenceMetadata,
   buildRecentSessionsFromRows,
   createLifeguardSessionId,
@@ -24,6 +26,7 @@ export {
   LIFEGUARD_HOME_CHAT_PHASE,
   LIFEGUARD_HOME_CHAT_SOURCE,
   mapSessionRowsToChatMessages,
+  mergeRestoredSessionMessages,
   readActiveSessionId,
   resolveActiveLifeguardSessionId,
   writeActiveSessionId,
@@ -151,11 +154,22 @@ export async function persistKeyPresenceMessage(
 
 export async function persistLifeguardChatTurn(
   authUser,
-  { sessionId, customerId: knownCustomerId = null, userMessage, assistantMessage },
+  {
+    sessionId,
+    customerId: knownCustomerId = null,
+    userMessage,
+    assistantMessage,
+    visualBlocks = null,
+    visualBlocksGate = null,
+  },
 ) {
   if (!sessionId) throw new Error("session_id_required");
   const customerId = await resolveCustomerId(authUser, knownCustomerId);
   const metadata = buildSessionMetadata(sessionId);
+  const assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+    visualBlocks,
+    visualBlocksGate,
+  });
   const userRow = await insertLifeguardConversationMessage(customerId, {
     role: "user",
     message: userMessage,
@@ -164,7 +178,7 @@ export async function persistLifeguardChatTurn(
   const assistantRow = await insertLifeguardConversationMessage(customerId, {
     role: "assistant",
     message: assistantMessage,
-    metadata,
+    metadata: assistantMetadata,
   });
   return { userRow, assistantRow };
 }

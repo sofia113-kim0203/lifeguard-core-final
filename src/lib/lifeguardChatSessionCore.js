@@ -96,6 +96,62 @@ export function buildSessionMetadata(sessionId) {
   };
 }
 
+export function buildAssistantTurnMetadata(
+  sessionId,
+  { visualBlocks = null, visualBlocksGate = null } = {},
+) {
+  const metadata = buildSessionMetadata(sessionId);
+  if (Array.isArray(visualBlocks) && visualBlocks.length > 0) {
+    metadata.visual_blocks = visualBlocks;
+  }
+  if (visualBlocksGate && typeof visualBlocksGate === "object") {
+    metadata.visual_blocks_gate = visualBlocksGate;
+  }
+  return metadata;
+}
+
+function sessionMessageIdentityKey(message = {}) {
+  return `${message.role}::${String(message.content ?? "").trim()}`;
+}
+
+/**
+ * Merge DB-restored rows with in-memory messages — preserve visual_blocks when restore omits them
+ * and append in-flight turns that are not yet visible in the restored snapshot.
+ */
+export function mergeRestoredSessionMessages(inMemory = [], restored = []) {
+  if (!Array.isArray(restored) || restored.length === 0) {
+    return Array.isArray(inMemory) ? inMemory : [];
+  }
+  if (!Array.isArray(inMemory) || inMemory.length === 0) {
+    return restored;
+  }
+
+  const memoryByKey = new Map();
+  for (const row of inMemory) {
+    memoryByKey.set(sessionMessageIdentityKey(row), row);
+  }
+
+  const merged = restored.map((restoredMsg) => {
+    const memoryMsg = memoryByKey.get(sessionMessageIdentityKey(restoredMsg));
+    if (!memoryMsg) return restoredMsg;
+
+    const memoryBlocks = Array.isArray(memoryMsg.visual_blocks) ? memoryMsg.visual_blocks : [];
+    const restoredBlocks = Array.isArray(restoredMsg.visual_blocks) ? restoredMsg.visual_blocks : [];
+    if (memoryBlocks.length > 0 && restoredBlocks.length === 0) {
+      return {
+        ...restoredMsg,
+        visual_blocks: memoryBlocks,
+        visual_blocks_gate: memoryMsg.visual_blocks_gate ?? restoredMsg.visual_blocks_gate ?? null,
+      };
+    }
+    return restoredMsg;
+  });
+
+  const restoredKeys = new Set(restored.map(sessionMessageIdentityKey));
+  const trailingInMemory = inMemory.filter((row) => !restoredKeys.has(sessionMessageIdentityKey(row)));
+  return trailingInMemory.length ? [...merged, ...trailingInMemory] : merged;
+}
+
 export function buildKeyPresenceMetadata(
   sessionId,
   { keyPresenceSource, anchorDocumentId = null, anchorJobId = null } = {},
@@ -191,6 +247,12 @@ export function mapSessionRowsToChatMessages(rows, sessionId) {
       if (metadata.key_presence === true) {
         message.keyPresence = true;
         message.keyPresenceSource = metadata.key_presence_source ?? null;
+      }
+      if (Array.isArray(metadata.visual_blocks) && metadata.visual_blocks.length > 0) {
+        message.visual_blocks = metadata.visual_blocks;
+      }
+      if (metadata.visual_blocks_gate && typeof metadata.visual_blocks_gate === "object") {
+        message.visual_blocks_gate = metadata.visual_blocks_gate;
       }
       return message;
     });

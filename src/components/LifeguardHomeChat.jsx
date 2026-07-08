@@ -12,6 +12,7 @@ import {
   createLifeguardSessionId,
   listLifeguardRecentSessions,
   loadLifeguardSessionMessages,
+  mergeRestoredSessionMessages,
   persistKeyPresenceMessage,
   persistLifeguardChatTurn,
   readActiveSessionId,
@@ -468,7 +469,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     () => buildLifeguardHomeGreeting(displayName, session?.unifiedState),
     [displayName, session?.unifiedState],
   );
-  const isDisabled = disabled || loadingSession;
+  const isDisabled = disabled || loadingSession || !threadRestoreReady;
 
   const focusChatInput = useCallback(() => {
     if (focusTimerRef.current) {
@@ -562,7 +563,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         if (recent.some((entry) => entry.id === activeId)) {
           const restored = await loadLifeguardSessionMessages(authUser, activeId, { customerId });
           if (!cancelled && restored.length > 0) {
-            setMessages(restored);
+            setMessages((prev) => mergeRestoredSessionMessages(prev, restored));
             setPanelView("chat");
           }
         }
@@ -612,7 +613,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const submitQuestion = async (value) => {
     const trimmed = String(value ?? "").trim();
-    if (!trimmed || isDisabled || loading) return;
+    if (!trimmed || isDisabled || loading || !threadRestoreReady) return;
 
     setPanelView("chat");
     setSidebarOpen(false);
@@ -689,6 +690,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           customerId,
           userMessage: trimmed,
           assistantMessage: finalText,
+          visualBlocks,
+          visualBlocksGate,
         });
         writeActiveSessionId(customerId, sessionId);
         const recent = await listLifeguardRecentSessions(authUser, { customerId });

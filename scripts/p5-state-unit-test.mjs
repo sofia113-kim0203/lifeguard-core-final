@@ -7,10 +7,12 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import {
+  buildAssistantTurnMetadata,
   buildRecentSessionsFromRows,
   createLifeguardSessionId,
   isLifeguardHomeChatRow,
   mapSessionRowsToChatMessages,
+  mergeRestoredSessionMessages,
   LIFEGUARD_HOME_CHAT_PHASE,
 } from "../src/lib/lifeguardChatSessionCore.js";
 
@@ -111,10 +113,87 @@ async function main() {
       const sessions = readFileSync(join(ROOT, "src/lib/lifeguardChatSessions.js"), "utf8");
       assert.match(sessions, /customer_conversations/);
       assert.match(sessions, /session_id/);
+      assert.match(sessions, /visualBlocks/);
       assert.match(chat, /persistLifeguardChatTurn/);
+      assert.match(chat, /visualBlocks/);
+      assert.match(chat, /mergeRestoredSessionMessages/);
+      assert.match(chat, /threadRestoreReady/);
       assert.match(chat, /listLifeguardRecentSessions/);
       assert.match(chat, /loadLifeguardSessionMessages/);
       assert.match(chat, /createLifeguardSessionId/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T7 visual_blocks — metadata persist + restore roundtrip", () => {
+      const blocks = [
+        {
+          type: "premium_summary_table",
+          title: "확인된 납입 요약",
+          rows: [["등록 계약 수", "22건", "전체 등록 기준"]],
+        },
+      ];
+      const gate = { accepted_count: 1, omitted_count: 0, omitted: [] };
+      const metadata = buildAssistantTurnMetadata("s1", { visualBlocks: blocks, visualBlocksGate: gate });
+      assert.equal(metadata.visual_blocks.length, 1);
+      assert.equal(metadata.visual_blocks_gate.accepted_count, 1);
+
+      const rows = [
+        {
+          id: "u1",
+          role: "user",
+          message: "내보험료 얼마야",
+          metadata: { phase: LIFEGUARD_HOME_CHAT_PHASE, session_id: "s1", source: "lifeguard_home_chat" },
+          createdAt: "2026-06-17T10:00:01.000Z",
+        },
+        {
+          id: "a1",
+          role: "assistant",
+          message: "등록된 계약은 22건입니다.",
+          metadata,
+          createdAt: "2026-06-17T10:00:02.000Z",
+        },
+      ];
+      const restored = mapSessionRowsToChatMessages(rows, "s1");
+      assert.equal(restored.length, 2);
+      assert.equal(restored[1].visual_blocks?.length, 1);
+      assert.equal(restored[1].visual_blocks_gate?.accepted_count, 1);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T8 visual_blocks — merge keeps in-memory blocks when restore omits", () => {
+      const blocks = [{ type: "policy_count_summary", title: "계약 확인 요약", rows: [] }];
+      const inMemory = [
+        { role: "user", content: "내보험 분석해줘" },
+        { role: "assistant", content: "등록된 계약은 22건입니다.", visual_blocks: blocks },
+      ];
+      const restored = [
+        { role: "user", content: "내보험 분석해줘" },
+        { role: "assistant", content: "등록된 계약은 22건입니다." },
+      ];
+      const merged = mergeRestoredSessionMessages(inMemory, restored);
+      assert.equal(merged[1].visual_blocks?.length, 1);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T9 visual_blocks — merge appends in-flight tail not yet in restore", () => {
+      const blocks = [{ type: "premium_summary_table", title: "확인된 납입 요약", rows: [] }];
+      const inMemory = [
+        { role: "user", content: "내보험료 얼마야" },
+        { role: "assistant", content: "월 4만5천 원이 확인돼 있어요.", visual_blocks: blocks },
+      ];
+      const restored = [];
+      const merged = mergeRestoredSessionMessages(inMemory, restored);
+      assert.equal(merged.length, 2);
+      assert.equal(merged[1].visual_blocks?.length, 1);
     })
   ) {
     passed += 1;
