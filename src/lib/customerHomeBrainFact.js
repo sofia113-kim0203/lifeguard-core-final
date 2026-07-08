@@ -34,6 +34,8 @@ export function mapHomeBrainFactPayload(payload) {
     salesDirectorJudgmentAudit: payload.sales_director_judgment_audit ?? null,
     responseLatencyMs: payload.response_latency_ms ?? null,
     ttftMs: payload.sales_director_trace?.latency?.ttft_ms ?? null,
+    visualBlocks: payload.visual_blocks ?? [],
+    visualBlocksGate: payload.visual_blocks_gate ?? null,
   };
 }
 

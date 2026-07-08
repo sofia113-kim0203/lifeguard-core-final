@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
+import KeyVisualBlocks from "./KeyVisualBlocks.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
 import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysisCompleteSessionTransition.js";
@@ -663,11 +664,19 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       });
 
       const finalText = result.answerText || streamedText;
+      const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
+      const visualBlocksGate = result.visualBlocksGate ?? null;
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];
         if (last?.role === "assistant") {
-          copy[copy.length - 1] = { role: "assistant", content: finalText, thinking: false };
+          copy[copy.length - 1] = {
+            role: "assistant",
+            content: finalText,
+            thinking: false,
+            visual_blocks: visualBlocks,
+            visual_blocks_gate: visualBlocksGate,
+          };
         }
         return copy;
       });
@@ -950,6 +959,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     aria-live={msg.thinking ? "polite" : undefined}
                   >
                     {msg.content}
+                    {msg.role === "assistant" &&
+                    Array.isArray(msg.visual_blocks) &&
+                    msg.visual_blocks.length > 0 ? (
+                      <KeyVisualBlocks blocks={msg.visual_blocks} />
+                    ) : null}
                   </div>
                 </div>
               ))
