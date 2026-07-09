@@ -2,7 +2,10 @@
  * S7-a Borrowed Senses gate unit tests (no Claude · local only).
  */
 import { gateBorrowedSensesOutput } from "../server/keyCore/keyBorrowedSensesGate.js";
-import { repairProposalDirection } from "../server/keyCore/keyBorrowedSensesSpeak.js";
+import {
+  repairProposalDirection,
+  repairNextDecisionPoints,
+} from "../server/keyCore/keyBorrowedSensesSpeak.js";
 
 const directivePremium = {
   allowed_fact_tokens: {
@@ -661,6 +664,30 @@ const cases = [
       product_push_as_direction: true,
     },
   },
+  {
+    id: "B17_s7q12_empty_next_decision_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["필요성 판단 요청"],
+      customer_intent: "이 보험이 꼭 필요한지 확인",
+      answer_purpose: "필요성 검토 안내",
+      must_not_assume: ["꼭 필요 단정 금지"],
+      used_facts: ["policy_count"],
+      voice_raw_candidate:
+        "필요성 판단이면 대상 특정과 중복 확인이 먼저 맞아 보입니다. 어떤 계약부터 볼까요?",
+      key_purpose: "필요성 의문을 검토 경로로 전환",
+      leadership_move: "대상 특정과 중복 확인 선택지를 제시",
+      insurance_expertise_angle: ["중복", "보장구성"],
+      proposal_direction:
+        "필요성 판단 목적이라면 대상 특정 후 중복 확인이 먼저 맞아 보임",
+      next_decision_point: [],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "이거 나한테 꼭 필요한 거야?",
+    expectOk: false,
+    expectGates: { missing_next_decision: true },
+  },
 ];
 
 const repairCases = [
@@ -717,6 +744,57 @@ const repairCases = [
           "보험료가 좀 부담돼",
           ["a", "b"],
         ) === existing
+      );
+    },
+  },
+  {
+    id: "R4_s7q12_empty_next_repaired_from_necessity_golden",
+    run: () => {
+      const q = "이거 나한테 꼭 필요한 거야?";
+      const next = repairNextDecisionPoints({ next_decision_point: [] }, q);
+      if (!Array.isArray(next) || next.length < 2) return false;
+      if (!next.some((c) => /특정|중복|유지|조정|보완/.test(String(c)))) return false;
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["필요성 판단"],
+          customer_intent: "꼭 필요한지 확인",
+          answer_purpose: "검토 안내",
+          must_not_assume: ["꼭 필요 단정 금지"],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "대상 특정과 중복 확인이 먼저 맞아 보입니다",
+          key_purpose: "필요성 의문을 검토 경로로",
+          leadership_move: "선택지 제시",
+          insurance_expertise_angle: ["중복", "보장구성"],
+          proposal_direction: "필요성 판단이면 대상 특정·중복 확인이 먼저 맞아 보임",
+          next_decision_point: next,
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: q,
+      });
+      return (
+        gate.ok === true &&
+        gate.missing_next_decision === false &&
+        gate.unsupported_recommendation === false &&
+        gate.product_push_as_direction === false
+      );
+    },
+  },
+  {
+    id: "R5_s7q12_existing_next_kept",
+    run: () => {
+      const existing = ["계약 A부터", "중복 여부부터", "목적 분기부터"];
+      const out = repairNextDecisionPoints(
+        { next_decision_point: existing },
+        "이거 나한테 꼭 필요한 거야?",
+      );
+      return (
+        Array.isArray(out) &&
+        out.length === 3 &&
+        out[0] === existing[0] &&
+        out[1] === existing[1] &&
+        out[2] === existing[2]
       );
     },
   },

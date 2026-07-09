@@ -133,8 +133,11 @@ function buildQuestionLeadershipHint(question = "") {
   if (/암\s*보험|암보험/.test(q)) {
     return "Cancer coverage path: split 진단비·수술비·치료비; no 부족/충분 verdict; MAY assert purpose-fit: 암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다. voice_raw_candidate must not be review-order only. next_decision_point 2-3 choices.";
   }
+  if (/꼭\s*필요|필요한\s*거|필요성/.test(q)) {
+    return "Necessity path (S7Q12): NEVER claim 꼭 필요합니다 as verdict. next_decision_point MUST have 2-3 choices — e.g. (1) 먼저 '이거'가 어떤 계약/보장인지 특정하기 (2) 기존 계약과 중복되는 보장인지 확인하기 (3) 고객 목적 기준으로 유지/조정/보완 후보인지 나눠보기. Never leave next_decision_point empty. Purpose-fit OK: 필요성 판단이면 대상 특정·중복 확인이 먼저 맞아 보입니다.";
+  }
   if (/추천|뭐가\s*필요|필요해/.test(q)) {
-    return "Direction/need path: do NOT refuse all judgment. If purpose unclear, state a fact-based purpose-fit lean (절감→중복 확인 먼저 / 보완→상품군 후보) then ask which purpose fits. Forbidden: purposeless product push or enroll command. voice_raw: purpose → fit → basis/unconfirmed → choice.";
+    return "Direction/need path: do NOT refuse all judgment. If purpose unclear, state a fact-based purpose-fit lean (절감→중복 확인 먼저 / 보완→상품군 후보) then ask which purpose fits. Forbidden: purposeless product push or enroll command. voice_raw: purpose → fit → basis/unconfirmed → choice. next_decision_point 2-3 choices.";
   }
   if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
     return "Table meaning path: next_decision_point MUST have 2-3 choices even if visual_blocks_summary is null (e.g. representative row / total vs unconfirmed / one contract detail). Never leave empty.";
@@ -265,10 +268,17 @@ function goldenNextDecisionFallback(question = "") {
       "진단비·수술비·치료비 중 하나부터 볼지",
     ];
   }
+  if (/꼭\s*필요|필요한\s*거|필요성/.test(q)) {
+    return [
+      "먼저 '이거'가 어떤 계약/보장인지 특정하기",
+      "기존 계약과 중복되는 보장인지 확인하기",
+      "고객 목적 기준으로 유지/조정/보완 후보인지 나눠보기",
+    ];
+  }
   return [];
 }
 
-function repairNextDecisionPoints(parsed = {}, question = "") {
+export function repairNextDecisionPoints(parsed = {}, question = "") {
   const existing = Array.isArray(parsed.next_decision_point)
     ? parsed.next_decision_point.map((s) => String(s).trim()).filter(Boolean)
     : [];
@@ -541,7 +551,7 @@ export async function runBorrowedSensesShadowProbe({
           lastRaw = JSON.stringify(result.parsed, null, 2);
           userPayload.s7b_retry_hint = gate.missing_proposal_direction
             ? "RETRY REQUIRED: proposal_direction is null/empty but this is a consult path. Set ONE non-empty review OR purpose-fit DIRECTION within confirmed facts (NOT enroll/cancel command, NOT purposeless product push). Examples: '줄이기 전에 필수 보장과 겹치는 보장을 먼저 나눈다' OR '절감 목적이면 중복 확인이 먼저 맞아 보입니다'. Keep next_decision_point with 2-3 choices. Never leave proposal_direction null."
-            : "RETRY: next_decision_point must contain 2-3 non-empty customer choices. For 암보험/암 보장: 진단비·수술비·치료비 choices. For 보험료 부담: 납입 큰 계약 / 겹치는 보장 / 필수 보장 choices. Never leave next_decision_point empty.";
+            : "RETRY: next_decision_point must contain 2-3 non-empty customer choices. For 암보험/암 보장: 진단비·수술비·치료비 choices. For 보험료 부담: 납입 큰 계약 / 겹치는 보장 / 필수 보장 choices. For 꼭 필요/필요성 (S7Q12): '이거' 계약·보장 특정하기 / 기존 계약과 중복 여부 확인하기 / 유지·조정·보완 후보로 나눠보기. Never leave next_decision_point empty.";
           continue;
         }
 
