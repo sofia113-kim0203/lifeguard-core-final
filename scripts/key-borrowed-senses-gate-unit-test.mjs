@@ -688,6 +688,30 @@ const cases = [
     expectOk: false,
     expectGates: { missing_next_decision: true },
   },
+  {
+    id: "B18_s7q7_empty_next_decision_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["막연한 필요 질문"],
+      customer_intent: "나한테 뭐가 필요한지 확인",
+      answer_purpose: "목적 분기 안내",
+      must_not_assume: ["특정 상품 필요 단정 금지"],
+      used_facts: ["policy_count"],
+      voice_raw_candidate:
+        "절감이면 중복 확인이 먼저 맞아 보이고, 보완이면 보장 구성부터가 맞아 보입니다.",
+      key_purpose: "막연한 필요 질문을 목적 분기로",
+      leadership_move: "절감/보완/현황 선택지 제시",
+      insurance_expertise_angle: ["중복", "보장구성"],
+      proposal_direction:
+        "절감 목적이라면 중복 확인이 먼저 맞아 보임; 보완이면 구성 파악이 선행",
+      next_decision_point: [],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "나한테 뭐가 필요해?",
+    expectOk: false,
+    expectGates: { missing_next_decision: true },
+  },
 ];
 
 const repairCases = [
@@ -796,6 +820,56 @@ const repairCases = [
         out[1] === existing[1] &&
         out[2] === existing[2]
       );
+    },
+  },
+  {
+    id: "R6_s7q7_empty_next_repaired_from_direction_need_golden",
+    run: () => {
+      const q = "나한테 뭐가 필요해?";
+      const next = repairNextDecisionPoints({ next_decision_point: [] }, q);
+      if (!Array.isArray(next) || next.length < 2) return false;
+      if (!next.some((c) => /절감|중복|보완|현황|구성/.test(String(c)))) return false;
+      if (next.some((c) => /'이거'|이거'가/.test(String(c)))) return false;
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["막연한 필요"],
+          customer_intent: "뭐가 필요한지",
+          answer_purpose: "목적 분기",
+          must_not_assume: ["상품 단정 금지"],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "절감이면 중복 확인이 먼저 맞아 보입니다",
+          key_purpose: "목적 분기로 리드",
+          leadership_move: "절감/보완/현황 선택",
+          insurance_expertise_angle: ["중복", "보장구성"],
+          proposal_direction: "절감이면 중복 확인이 먼저 맞아 보임",
+          next_decision_point: next,
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: q,
+      });
+      return (
+        gate.ok === true &&
+        gate.missing_next_decision === false &&
+        gate.unsupported_recommendation === false &&
+        gate.product_push_as_direction === false
+      );
+    },
+  },
+  {
+    id: "R7_s7q12_necessity_golden_not_direction_need",
+    run: () => {
+      const next = repairNextDecisionPoints(
+        { next_decision_point: [] },
+        "이거 나한테 꼭 필요한 거야?",
+      );
+      if (!Array.isArray(next) || next.length < 2) return false;
+      if (!next.some((c) => /특정|중복|유지|조정|보완/.test(String(c)))) return false;
+      if (next.some((c) => /절감 목적이면|막연하면 전체 계약 현황/.test(String(c)))) {
+        return false;
+      }
+      return true;
     },
   },
 ];
