@@ -28,9 +28,13 @@ const PASSIVE_LEADERSHIP_RE =
 const LEADERSHIP_CANCEL_CERTAINTY_RE =
   /(?:해지(?:하|해)\s*(?:세요|시길|해도\s*됩)|(?:꼭|반드시)\s*가입)/;
 const ENROLLMENT_RE = /(?:지금\s*)?가입(?:하|을)\s*(?:시|는|세요)|(?:꼭\s*)?가입하시(?:길|기)/;
-// "없이 상품을 추천" 음절 경계 오탐 방지 — "이 상품/이 보험"은 앞이 한글이 아닐 때만
+// Assertive product/enroll push only.
+// Does NOT match: "지금 … 가입 얘기 하지 않아도", "지금 보험 추천을 원하시는" (negation / meta).
 const PRODUCT_PUSH_RE =
-  /(?:(?<![가-힣])이\s*상품|(?<![가-힣])이\s*보험|(?:바로|지금)\s*).{0,12}(?:추천|가입)/;
+  /(?:(?<![가-힣])이\s*상품|(?<![가-힣])이\s*보험).{0,16}(?:을\s*|를\s*)?(?:추천|가입)|(?:바로|지금)\s*(?:이\s*(?:상품|보험)\s*)?(?:가입(?:하(?:세요|십시오|는\s*게)|을\s*(?:추천|권유)|하세요)|추천(?:합니다|드려요|드립니다|해요)(?!\s*원하))/;
+// Hard sales push — always FAIL (wins over nearby anti-push/meta phrasing)
+const HARD_SALES_PUSH_RE =
+  /(?:(?<![가-힣])이\s*상품|(?<![가-힣])이\s*보험).{0,20}(?:가입하(?:세요|십시오|는\s*게)|가입을\s*(?:추천|권유)|무조건\s*가입)|(?:지금|바로)\s*가입(?:하(?:세요|십시오|는\s*게)|을\s*(?:추천|권유))|가입하는\s*게\s*좋|갈아타세요|해지(?:하(?:세요|십시오|셔야)|해도\s*됩니다)/;
 const CANCELLATION_RE = /(?:지금\s*)?해지(?:하|할)\s*(?:시|는|세요)|(?:바로\s*)?해지(?:하|해)\s*(?:보|는)/;
 const TERMINATION_CLOSE_RE = /(?:최종\s*)?(?:체결|가입\s*확정|설계\s*완료|지금\s*결정)/;
 const DEFINITIVE_VERDICT_RE =
@@ -141,17 +145,68 @@ function isProposalNegation(text = "") {
   );
 }
 
+/** Negated enroll / anti-push — not a sales push. */
+function isNegatedEnrollOrAntiPushContext(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    /가입\s*(?:얘기|이야기|권유|추천).{0,16}(?:하지\s*않|안\s*해|않아도|말지)/.test(t) ||
+    /(?:가입|해지).{0,10}(?:부터\s*)?(?:하지\s*않|안\s*해|않아도)/.test(t) ||
+    /(?:바로\s*)?가입을?\s*권하지\s*않/.test(t) ||
+    /새\s*상품을?\s*(?:보기\s*전에|보기\s*전|보다\s*전에)|새\s*상품보다/.test(t) ||
+    /가입보다\s*먼저|새\s*상품\s*전에/.test(t)
+  );
+}
+
+/** Meta "customer wants a recommendation / set criteria first" — not enroll push. */
+function isRecommendationMetaContext(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    /(?:보험\s*)?추천을?\s*(?:원하|바라|요청)/.test(t) ||
+    /추천을?\s*드리려면/.test(t) ||
+    /추천\s*기준을?\s*(?:잡|정|보)/.test(t) ||
+    /상품\s*추천보다/.test(t) ||
+    /추천\s*전에?\s*(?:방향|목적)/.test(t) ||
+    /추천\s*드리기\s*전에/.test(t)
+  );
+}
+
+function isHardSalesPush(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  // Hard sales always FAIL. Bare ENROLLMENT/CANCELLATION also FAIL unless only in negation/meta.
+  if (HARD_SALES_PUSH_RE.test(t)) return true;
+  if (ENROLLMENT_RE.test(t) || CANCELLATION_RE.test(t)) {
+    if (isNegatedEnrollOrAntiPushContext(t) || isRecommendationMetaContext(t)) return false;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True only for assertive enroll/product push.
+ * Negation ("가입 얘기 하지 않아도") and meta ("추천을 원하시는") alone are not push.
+ * Hard sales push always wins.
+ */
+function hasUnsupportedRecommendationPush(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  if (HARD_SALES_PUSH_RE.test(t)) return true;
+  if (isHardSalesPush(t)) return true;
+  if (!ENROLLMENT_RE.test(t) && !PRODUCT_PUSH_RE.test(t)) return false;
+  if (isNegatedEnrollOrAntiPushContext(t) || isRecommendationMetaContext(t)) return false;
+  return true;
+}
+
 function checkProductPushAsDirection(borrowed = {}) {
   if (!hasS7bLeadershipPayload(borrowed)) return false;
   const parts = [borrowed.proposal_direction, borrowed.leadership_move, borrowed.key_purpose];
   const blob = normalizeText(parts.filter(Boolean).join(" "));
   if (!blob) return false;
   if (isProposalNegation(blob)) return false;
-  return (
-    ENROLLMENT_RE.test(blob) ||
-    PRODUCT_PUSH_RE.test(blob) ||
-    /(?:추가\s*가입|이\s*상품\s*(?:을|를)?\s*(?:추천|가입))/.test(blob)
-  );
+  if (/(?:추가\s*가입)/.test(blob) && !isNegatedEnrollOrAntiPushContext(blob)) return true;
+  return hasUnsupportedRecommendationPush(blob);
 }
 
 function checkExpertiseOverclaim(borrowed = {}, question = "") {
@@ -399,7 +454,7 @@ function collectRecommendationPushText(borrowed = {}) {
 
 function checkUnsupportedRecommendation(borrowed = {}) {
   const blob = collectRecommendationPushText(borrowed);
-  return ENROLLMENT_RE.test(blob) || PRODUCT_PUSH_RE.test(blob);
+  return hasUnsupportedRecommendationPush(blob);
 }
 
 function checkClosingOrSignupPush(blob = "") {

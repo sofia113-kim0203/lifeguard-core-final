@@ -1318,6 +1318,183 @@ const repairCases = [
       );
     },
   },
+  {
+    id: "B31_browse_negated_enroll_phrase_pass",
+    run: () => {
+      const voice =
+        "지금 딱 결정하거나 가입 얘기를 하지 않아도 괜찮아요. 처음 둘러볼 때 가볍게 시작하기 좋은 지점이 보통 세 가지예요 — 보험료 부담, 큰 보장 빈틈, 중복 보장. 처음이라면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천드려요.";
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["가볍게 둘러보려는 마음이 있을 수 있음"],
+          customer_intent: "부담 없이 둘러보기",
+          answer_purpose: "상담 시작점 추천",
+          must_not_assume: ["가입 의사 단정 금지"],
+          used_facts: ["policy_count"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 둘러보기에서는 가입보다 시작점 확인. 왜 아직 확정 아닌지: 목적 미확인",
+          voice_raw_candidate: voice,
+          key_purpose: "둘러보기 시작점 리드",
+          leadership_move: "보험료·빈틈·중복 선택지",
+          insurance_expertise_angle: ["납입부담", "보장구성", "중복"],
+          proposal_direction:
+            "둘러보기면 가입·해지보다 보험료 부담과 큰 보장 빈틈부터",
+          next_decision_point: [
+            "보험료 부담부터 볼지",
+            "큰 보장 빈틈부터 볼지",
+            "중복 보장부터 볼지",
+          ],
+          final_answer_source: "s6",
+        },
+        directive: {
+          answer_mode: "social",
+          allowed_fact_tokens: { policy_count: "22" },
+          facts_to_speak: [],
+        },
+        history: [],
+        question: "그냥 둘러보러 왔어",
+      });
+      return (
+        gate.ok === true &&
+        gate.unsupported_recommendation === false &&
+        gate.product_push_as_direction === false
+      );
+    },
+  },
+  {
+    id: "B32_recommend_meta_phrase_pass",
+    run: () => {
+      const voice =
+        "지금 보험 추천을 원하시는 경우, 먼저 목적과 보장 기준을 보겠습니다. 절감이면 중복부터, 보완이면 보장 구성부터가 맞아 보여요. 어느 쪽이 더 가까우세요?";
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["추천을 원하지만 목적이 아직 열릴 수 있음"],
+          customer_intent: "보험 추천 요청",
+          answer_purpose: "추천 전 목적·기준 분기",
+          must_not_assume: ["특정 상품 가입 단정 금지"],
+          used_facts: ["policy_count"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 추천은 목적 분기 후. 왜 아직 확정 아닌지: 목적 미확인",
+          voice_raw_candidate: voice,
+          key_purpose: "추천 요청을 목적 분기로 리드",
+          leadership_move: "절감/보완/현황 선택",
+          insurance_expertise_angle: ["중복", "보장구성"],
+          proposal_direction:
+            "보험 추천을 원하시면 먼저 목적과 보장 기준부터 보는 방향이 맞아 보임",
+          next_decision_point: [
+            "보험료 절감 목적이면 기존 중복 보장부터 확인하기",
+            "보장 보완 목적이면 부족한 보장 구성부터 확인하기",
+            "목적이 아직 막연하면 전체 계약 현황부터 정리하기",
+          ],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험 추천해줘",
+      });
+      return (
+        gate.ok === true &&
+        gate.unsupported_recommendation === false &&
+        gate.product_push_as_direction === false
+      );
+    },
+  },
+  {
+    id: "B33_real_enroll_push_fail",
+    run: () => {
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["가입 유도"],
+          customer_intent: "추천",
+          answer_purpose: "가입 권유",
+          must_not_assume: [],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "이 상품 가입하세요. 지금 가입하는 게 좋습니다.",
+          key_purpose: "가입",
+          leadership_move: "즉시 가입",
+          insurance_expertise_angle: ["보장구성"],
+          proposal_direction: "이 상품 가입을 추천합니다",
+          next_decision_point: ["지금 가입하기", "나중에 가입하기"],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험 추천해줘",
+      });
+      return gate.ok === false && gate.unsupported_recommendation === true;
+    },
+  },
+  {
+    id: "B34_real_cancel_push_fail",
+    run: () => {
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["해지 권고"],
+          customer_intent: "유지 여부",
+          answer_purpose: "해지 단정",
+          must_not_assume: [],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "이건 해지해도 됩니다. 지금 해지하세요.",
+          key_purpose: "해지",
+          leadership_move: "즉시 해지",
+          insurance_expertise_angle: ["계약정리"],
+          proposal_direction: "해지해도 됩니다",
+          next_decision_point: ["지금 해지하기", "나중에 해지하기"],
+          final_answer_source: "s6",
+        },
+        directive: {
+          answer_mode: "social",
+          allowed_fact_tokens: { policy_count: "22" },
+          facts_to_speak: [],
+        },
+        history: [],
+        question: "이 보험 유지해야 해?",
+      });
+      return (
+        gate.ok === false &&
+        (gate.unsupported_recommendation === true ||
+          gate.closing_or_signup_push === true ||
+          gate.leadership_cancel_enroll_certainty === true)
+      );
+    },
+  },
+  {
+    id: "B35_anti_push_premium_phrase_pass",
+    run: () => {
+      const voice =
+        "절감 목적이면 새 상품을 보기 전에 기존 중복 보장부터 보겠습니다. 납입 구조와 조정 후보도 같이 열어둘게요.";
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["보험료 절감 목적일 수 있음"],
+          customer_intent: "보험료 줄이기",
+          answer_purpose: "절감 전 기존 계약 검토",
+          must_not_assume: ["새 상품 가입 단정 금지"],
+          used_facts: ["policy_count", "monthly_premium_representative"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 절감이면 기존 중복·납입 확인이 먼저. 왜 아직 확정 아닌지: 합계 미확인",
+          voice_raw_candidate: voice,
+          key_purpose: "절감 목적 검토 리드",
+          leadership_move: "새 상품 전 중복·납입부터",
+          insurance_expertise_angle: ["납입부담", "중복"],
+          proposal_direction:
+            "절감 목적이면 새 상품을 보기 전에 기존 중복·납입 확인이 먼저 맞아 보임",
+          next_decision_point: [
+            "납입 보험료 구조부터 확인할지",
+            "중복 보장부터 확인할지",
+            "줄여도 되는 조정 후보부터 볼지",
+          ],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험료 줄이고 싶어",
+      });
+      return (
+        gate.ok === true &&
+        gate.unsupported_recommendation === false &&
+        gate.product_push_as_direction === false
+      );
+    },
+  },
 ];
 
 let failed = 0;
