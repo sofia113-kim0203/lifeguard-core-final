@@ -160,6 +160,10 @@ function checkHighRisk(id, shadow, answerText) {
       gate.number_scope_violation !== true &&
       (gate.visual_scope_violation !== true || gate.visual_scope_violation == null);
     checks.mentions_table_rows = /22건|4만5천|정리\s*중|대표/.test(blob);
+    const obs = String(borrowed.visual_observation ?? "");
+    checks.shadow_sees_table =
+      /확인된\s*납입\s*요약|premium_summary|대표\s*확인|아직\s*정리\s*중/.test(obs) ||
+      (/22건/.test(obs) && /4만5천/.test(obs) && !/visual_blocks_summary\s*없음/.test(obs));
   }
   if (id === "S7Q12") {
     checks.no_necessity_certainty =
@@ -170,11 +174,15 @@ function checkHighRisk(id, shadow, answerText) {
 }
 
 async function probeQuestion({ previewBase, token, bypass, item }) {
+  const fixtureShadowBlocks = Array.isArray(item.shadow_visual_blocks)
+    ? item.shadow_visual_blocks
+    : null;
   const probe = await fetchBypassSse({
     previewBase,
     token,
     question: item.question,
     history: item.history ?? [],
+    shadowVisualBlocks: fixtureShadowBlocks,
     bypassSecret: bypass,
   });
 
@@ -205,8 +213,19 @@ async function probeQuestion({ previewBase, token, bypass, item }) {
   const shadowPresent = Boolean(shadow);
   const shadowFillOk = shadowPresent && !shadow?.error;
   const gateOk = gate?.ok === true;
+  // Customer-facing blocks from SSE done — must stay unchanged by shadow override.
   const visualBlocks = done.visualBlocks ?? done.visual_blocks ?? [];
+  const shadowOverrideUsed =
+    keyVoiceTrace?.shadow_visual_blocks_override_used === true ||
+    Boolean(fixtureShadowBlocks?.length && !/visual_blocks_summary\s*없음/.test(String(borrowed?.visual_observation ?? "")));
+  const shadowVisualBlocksLength = fixtureShadowBlocks?.length
+    ? fixtureShadowBlocks.length
+    : Number(keyVoiceTrace?.shadow_visual_blocks_override_count ?? 0);
   const highRisk = checkHighRisk(item.id, shadow, answerText);
+
+  const q11ShadowOk =
+    item.id !== "S7Q11" ||
+    (shadowVisualBlocksLength >= 1 && highRisk.shadow_sees_table !== false);
 
   const pass =
     shadowFillOk &&
@@ -214,6 +233,7 @@ async function probeQuestion({ previewBase, token, bypass, item }) {
     finalAnswerSource === "s6" &&
     customerTextChanged === false &&
     gateOk &&
+    q11ShadowOk &&
     Object.values(highRisk).every((v) => v !== false);
 
   return redactObject({
@@ -248,6 +268,9 @@ async function probeQuestion({ previewBase, token, bypass, item }) {
       : null,
     visual_blocks_length: Array.isArray(visualBlocks) ? visualBlocks.length : 0,
     visual_blocks_types: Array.isArray(visualBlocks) ? visualBlocks.map((b) => b.type) : [],
+    shadow_visual_blocks_sent: Boolean(fixtureShadowBlocks?.length),
+    shadow_visual_blocks_length: shadowVisualBlocksLength,
+    shadow_visual_blocks_override_used: shadowOverrideUsed,
     high_risk_checks: highRisk,
   });
 }

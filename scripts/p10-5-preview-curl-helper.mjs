@@ -24,6 +24,7 @@ export async function fetchBypassSse({
   token,
   question,
   history = [],
+  shadowVisualBlocks = null,
   bypassSecret = null,
   env = process.env,
 }) {
@@ -42,7 +43,11 @@ export async function fetchBypassSse({
 
   const baseUrl = `${String(previewBase).replace(/\/$/, "")}/api/customer-home-brain-fact`;
   const url = baseUrl;
-  const body = JSON.stringify({ question, history, stream: true });
+  const payload = { question, history, stream: true };
+  if (Array.isArray(shadowVisualBlocks) && shadowVisualBlocks.length) {
+    payload.shadow_visual_blocks = shadowVisualBlocks;
+  }
+  const body = JSON.stringify(payload);
 
   let httpStatus = null;
   let stdout = "";

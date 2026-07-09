@@ -52,6 +52,7 @@ export async function keySpeakAsync({
   env = process.env,
   history = [],
   previousAnswerSummary = "",
+  shadowVisualBlocksOverride = null,
 } = {}) {
   if (event !== "question") {
     return keySpeak({
@@ -89,6 +90,7 @@ export async function keySpeakAsync({
       env,
       history,
       previousAnswerSummary,
+      shadowVisualBlocksOverride,
     });
   }
 

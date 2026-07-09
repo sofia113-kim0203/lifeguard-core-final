@@ -141,6 +141,7 @@ async function buildOneKeySpeakDraft({
   env = process.env,
   history = [],
   previousAnswerSummary = "",
+  shadowVisualBlocksOverride = null,
 } = {}) {
   const speakInput = {
     event: "question",
@@ -154,6 +155,7 @@ async function buildOneKeySpeakDraft({
     env,
     history,
     previousAnswerSummary,
+    shadowVisualBlocksOverride,
   };
 
   const speakResult = isKeyVoiceActive(env)
@@ -240,6 +242,7 @@ export async function runOneKeyCoreTurn({
   uploadSource = "web",
   categoryKey = null,
   uploadEntryMode = null,
+  shadowVisualBlocksOverride = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -491,12 +494,17 @@ async function runOneKeyCoreQuestionTurn({
     env: coreEnv,
     history: conversationHistory,
     previousAnswerSummary,
+    shadowVisualBlocksOverride,
   });
   recordStep("speak", {
     draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
     compose_mode: speakResult.keyComposeTrace?.compose_mode ?? "key_master_question",
     key_speak_master: true,
     key_compose_trace: speakResult.keyComposeTrace,
+    shadow_visual_blocks_override_used:
+      speakResult.keyComposeTrace?.key_voice_trace?.shadow_visual_blocks_override_used ?? false,
+    shadow_visual_blocks_override_count:
+      speakResult.keyComposeTrace?.key_voice_trace?.shadow_visual_blocks_override_count ?? 0,
     speech_turn_type: speakResult.keyComposeTrace?.speech_turn_type ?? null,
     conversation_intention: speakResult.keyComposeTrace?.conversation_intention ?? null,
     conversation_elements_used: speakResult.keyComposeTrace?.conversation_elements_used ?? [],

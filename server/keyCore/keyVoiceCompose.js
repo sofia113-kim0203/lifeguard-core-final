@@ -152,7 +152,13 @@ export async function buildKeyVoiceComposeResult(
   }
 
   if (isKeyBorrowedSensesShadow(env)) {
-    const visualBlocksForShadow = shadowVisualBlocksOverride ?? visualBlocks;
+    const overrideBlocks = Array.isArray(shadowVisualBlocksOverride)
+      ? shadowVisualBlocksOverride
+      : null;
+    const visualBlocksForShadow = overrideBlocks?.length ? overrideBlocks : visualBlocks;
+    trace.shadow_visual_blocks_override_used = Boolean(overrideBlocks?.length);
+    trace.shadow_visual_blocks_override_count = overrideBlocks?.length ?? 0;
+    // Customer-facing visual_blocks stay `visualBlocks` — override is shadow-only.
     trace.borrowed_senses_shadow = await runBorrowedSensesShadowProbe({
       question: directiveQuestion,
       directive,

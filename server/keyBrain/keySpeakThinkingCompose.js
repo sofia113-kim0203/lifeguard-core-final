@@ -321,6 +321,7 @@ export async function buildQuestionSpeakFromUnderstandingAsync(
     env = process.env,
     history = [],
     previousAnswerSummary = "",
+    shadowVisualBlocksOverride = null,
   } = {},
 ) {
   if (
@@ -334,6 +335,7 @@ export async function buildQuestionSpeakFromUnderstandingAsync(
       env,
       history,
       previousAnswerSummary,
+      shadowVisualBlocksOverride,
     });
     if (voice) return voice;
     return null;
