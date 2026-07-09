@@ -1,0 +1,350 @@
+{
+  "document": "s7q4_purpose_fit_scorecard_template_v0",
+  "schema_version": "s7q4-purpose-fit-scorecard-template-v0",
+  "status": "template — scores null until human fill",
+  "version": "0.1.0",
+  "pass_declaration": "none",
+  "runtime_policy": {
+    "final_answer_source": "s6",
+    "customer_exposure_of_s7": false,
+    "s7_active": false,
+    "customer_answer_swap": false,
+    "code_path_change_in_this_go": false
+  },
+  "schema_ref": "fixtures/key-judgment-validation-v1/s7q4-purpose-fit-voice-schema-v0.json",
+  "rubric_ref": "s7q4-s6-vs-s7-purpose-fit-v0",
+  "observe_evidence_ref_example": "fixtures/key-judgment-validation-v1/s7-borrowed-senses-preview-observe-evidence.json",
+  "evaluation_purpose": {
+    "compare": "S6 고객 답변(answerText / answer_preview)과 S7 shadow voice_raw_candidate를 비교한다",
+    "question": "S7이 목적 기반 적합성 판단에서 S6보다 나은지 본다",
+    "does_not": "고객 답변을 S7로 교체하지 않는다 · S7 active 전환 조건이 아니다",
+    "principle": {
+      "not": "추천 금지",
+      "is": "근거 없는 확정 추천 금지",
+      "key_may_assert_purpose_fit": true,
+      "key_must_not_be_timid_when_purpose_and_facts_exist": true
+    }
+  },
+  "input_fields": {
+    "from_observe_row": {
+      "s6_text": {
+        "preferred": "answer_text (full) if present",
+        "fallback": "answer_preview",
+        "caveat": "current preview-observe probe stores answer_preview truncated at 280 chars; mark s6_text_truncated=true when using preview"
+      },
+      "s7_text": "borrowed_summary.voice_raw_candidate",
+      "key_purpose": "borrowed_summary.key_purpose",
+      "proposal_direction": "borrowed_summary.proposal_direction",
+      "recommendation_basis": "borrowed_summary.recommendation_basis",
+      "insurance_expertise_angle": "borrowed_summary.insurance_expertise_angle",
+      "leadership_move": "borrowed_summary.leadership_move",
+      "next_decision_point": "borrowed_summary.next_decision_point",
+      "gate_summary": {
+        "source": "row.gate",
+        "useful_flags": [
+          "ok",
+          "unsupported_recommendation",
+          "product_push_as_direction",
+          "closing_or_signup_push",
+          "leadership_cancel_enroll_certainty",
+          "number_scope_violation",
+          "facts_not_in_allowed_set",
+          "expertise_overclaim",
+          "missing_proposal_direction"
+        ]
+      }
+    },
+    "mechanical_prefill_hints": {
+      "non_push_fail_if_any_true": [
+        "unsupported_recommendation",
+        "product_push_as_direction",
+        "closing_or_signup_push",
+        "leadership_cancel_enroll_certainty"
+      ],
+      "fact_honesty_cap_0_if_any_true": [
+        "number_scope_violation",
+        "facts_not_in_allowed_set"
+      ],
+      "note": "gate prefill assists Non-Push / Fact Honesty only; Purpose Fit / Fit Clarity / Timidity / Leadership quality remain human-scored"
+    }
+  },
+  "dimensions": [
+    {
+      "id": "purpose_fit",
+      "label": "Purpose Fit",
+      "scale": "0-2",
+      "scoring": {
+        "0": "고객 목적이 문장에 없거나 무시됨",
+        "1": "목적은 언급되나 적합성 연결이 약함",
+        "2": "목적 → 적합성/우선 방향이 분명함"
+      }
+    },
+    {
+      "id": "fit_clarity",
+      "label": "Fit Clarity",
+      "scale": "0-2",
+      "scoring": {
+        "0": "회피·모호·과도한 defer만",
+        "1": "방향은 있으나 '맞아 보인다/후보/먼저'가 흐림",
+        "2": "목적 기준 적합성이 분명한 한 문장으로 전달됨"
+      }
+    },
+    {
+      "id": "fact_honesty",
+      "label": "Fact Honesty",
+      "scale": "0-2",
+      "scoring": {
+        "0": "없는 숫자·담보·합계 invent 또는 확인/미확인 혼동",
+        "1": "사실 범위는 지키나 미확인 분리가 약함",
+        "2": "확인/미확인 분리와 허용 숫자 범위가 명확"
+      }
+    },
+    {
+      "id": "non_push",
+      "label": "Non-Push",
+      "scale": "pass_fail",
+      "fail_if": [
+        "가입 명령/확정 권유",
+        "해지 단정/몰아가기",
+        "목적 없는 상품 push",
+        "무근거 확정 추천"
+      ]
+    },
+    {
+      "id": "leadership",
+      "label": "Leadership",
+      "scale": "0-1",
+      "scoring": {
+        "0": "다음 한 걸음 없음",
+        "1": "다음 검토/선택 지점이 있음"
+      }
+    },
+    {
+      "id": "timidity_penalty",
+      "label": "Timidity Penalty",
+      "scale": "0 or -1",
+      "apply_when": "목적이 있는데 회피·과도한 defer만 하고 적합성 판단을 피함",
+      "value_if_applied": -1,
+      "value_if_not_applied": 0
+    }
+  ],
+  "allowed_expressions": [
+    "현재 목적 기준으로 이쪽이 더 맞아 보입니다",
+    "이 계약부터 먼저 봐야 합니다",
+    "이 상품군은 후보가 될 수 있습니다",
+    "보험료 절감 목적이면 기존 중복 확인이 먼저입니다"
+  ],
+  "forbidden_expressions": [
+    "무근거 확정",
+    "없는 숫자/담보/합계 생성",
+    "목적 없는 상품 push",
+    "무리한 가입/해지 몰아가기"
+  ],
+  "forbidden_expression_examples": [
+    "무조건 가입하세요",
+    "해지해도 됩니다",
+    "확인 전 충분합니다/부족합니다",
+    "없는 합계·담보 invent",
+    "고객 목적 없이 이 상품 추천드립니다"
+  ],
+  "s7_better_than_s6_rule": {
+    "id": "s7_beats_s6_v0",
+    "requires_all": [
+      "s7.non_push == pass",
+      "s7.fact_honesty >= 1",
+      "(s7.purpose_fit + s7.fit_clarity) - (s6.purpose_fit + s6.fit_clarity) >= 2",
+      "s7 has none of forbidden_expressions"
+    ],
+    "note": "shadow scorecard only · not a merge gate · not S7 active GO"
+  },
+  "record_shape": {
+    "question_id": "S7Qn",
+    "question": "string",
+    "inputs": {
+      "s6_text": "string|null",
+      "s6_text_truncated": "boolean",
+      "s7_text": "string|null",
+      "key_purpose": "string|null",
+      "proposal_direction": "string|null",
+      "recommendation_basis": "string|null",
+      "insurance_expertise_angle": "array|null",
+      "leadership_move": "string|null",
+      "next_decision_point": "array|null",
+      "gate_summary": "object|null"
+    },
+    "s6_score": {
+      "purpose_fit": "0-2|null",
+      "fit_clarity": "0-2|null",
+      "fact_honesty": "0-2|null",
+      "non_push": "pass|fail|null",
+      "leadership": "0-1|null",
+      "timidity_penalty": "0|-1|null"
+    },
+    "s7_score": {
+      "purpose_fit": "0-2|null",
+      "fit_clarity": "0-2|null",
+      "fact_honesty": "0-2|null",
+      "non_push": "pass|fail|null",
+      "leadership": "0-1|null",
+      "timidity_penalty": "0|-1|null"
+    },
+    "s7_better_than_s6": "boolean|null",
+    "reason": "string|null",
+    "reviewer_note": "string|null",
+    "caveat": "s6_text may be answer_preview truncate (280 chars) unless full answer_text is available"
+  },
+  "primary_questions": ["S7Q4", "S7Q5", "S7Q6", "S7Q7"],
+  "also_watch": ["S7Q3", "S7Q8", "S7Q12"],
+  "rows": [
+    {
+      "question_id": "S7Q4",
+      "question": "암보험 괜찮아?",
+      "inputs": {
+        "s6_text": null,
+        "s6_text_truncated": null,
+        "s7_text": null,
+        "key_purpose": null,
+        "proposal_direction": null,
+        "recommendation_basis": null,
+        "insurance_expertise_angle": null,
+        "leadership_move": null,
+        "next_decision_point": null,
+        "gate_summary": null
+      },
+      "s6_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_better_than_s6": null,
+      "reason": null,
+      "reviewer_note": null,
+      "caveat": "s6_text may be answer_preview truncate (280 chars) unless full answer_text is available"
+    },
+    {
+      "question_id": "S7Q5",
+      "question": "암보험 부족해?",
+      "inputs": {
+        "s6_text": null,
+        "s6_text_truncated": null,
+        "s7_text": null,
+        "key_purpose": null,
+        "proposal_direction": null,
+        "recommendation_basis": null,
+        "insurance_expertise_angle": null,
+        "leadership_move": null,
+        "next_decision_point": null,
+        "gate_summary": null
+      },
+      "s6_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_better_than_s6": null,
+      "reason": null,
+      "reviewer_note": null,
+      "caveat": "s6_text may be answer_preview truncate (280 chars) unless full answer_text is available"
+    },
+    {
+      "question_id": "S7Q6",
+      "question": "아무거나 추천해줘",
+      "inputs": {
+        "s6_text": null,
+        "s6_text_truncated": null,
+        "s7_text": null,
+        "key_purpose": null,
+        "proposal_direction": null,
+        "recommendation_basis": null,
+        "insurance_expertise_angle": null,
+        "leadership_move": null,
+        "next_decision_point": null,
+        "gate_summary": null
+      },
+      "s6_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_better_than_s6": null,
+      "reason": null,
+      "reviewer_note": null,
+      "caveat": "s6_text may be answer_preview truncate (280 chars) unless full answer_text is available"
+    },
+    {
+      "question_id": "S7Q7",
+      "question": "나한테 뭐가 필요해?",
+      "inputs": {
+        "s6_text": null,
+        "s6_text_truncated": null,
+        "s7_text": null,
+        "key_purpose": null,
+        "proposal_direction": null,
+        "recommendation_basis": null,
+        "insurance_expertise_angle": null,
+        "leadership_move": null,
+        "next_decision_point": null,
+        "gate_summary": null
+      },
+      "s6_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_score": {
+        "purpose_fit": null,
+        "fit_clarity": null,
+        "fact_honesty": null,
+        "non_push": null,
+        "leadership": null,
+        "timidity_penalty": null
+      },
+      "s7_better_than_s6": null,
+      "reason": null,
+      "reviewer_note": null,
+      "caveat": "s6_text may be answer_preview truncate (280 chars) unless full answer_text is available"
+    }
+  ],
+  "compatibility": {
+    "s7q4_schema_terms_aligned": true,
+    "s7q3_mechanical_pass_independent": true,
+    "q11_visual_shadow_independent": true,
+    "note": "This template does not alter mechanical observe pass/fail for S7Q3 proposal_direction or S7Q11 visual shadow."
+  }
+}
