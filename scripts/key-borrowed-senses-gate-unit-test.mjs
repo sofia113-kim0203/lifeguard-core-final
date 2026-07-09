@@ -459,6 +459,104 @@ const cases = [
     expectOk: false,
     expectGates: { number_scope_violation: true },
   },
+  {
+    id: "B10_preview_q6_anti_push_basis_safe",
+    borrowed: {
+      understanding_hypotheses: [
+        "고객이 보험 상품을 막연하게 추천받고 싶어하는 상태일 수 있음",
+        "어떤 보장이 필요한지 스스로 파악이 안 된 상태일 가능성 있음",
+      ],
+      customer_intent: "보험 상품에 대한 구체적 기준 없이 빠른 추천을 원하는 상태 — 방향 미설정",
+      emotional_signal: "막연함, 결정 피로",
+      answer_purpose:
+        "고객이 '아무거나'라는 미결정 상태에서 두 가지 방향(보험료 절감 vs 보장 보완) 중 하나를 스스로 선택하도록 유도하여 상담의 출발점을 확보함",
+      must_not_assume: ["고객이 해지 또는 신규 가입 의사가 있다고 가정하지 않음"],
+      used_facts: ["policy_count"],
+      recommendation_basis:
+        "고객의 현재 보험 등록 건수(22건)를 근거로, 방향 설정 없이 상품을 추천하는 것은 실익이 없으므로 보험료 절감 또는 보장 보완 중 우선 방향을 고객이 선택하도록 유도하는 것이 적절함",
+      voice_raw_candidate:
+        "'아무거나'보다는 방향을 먼저 잡는 게 훨씬 빠를 수 있어요. 지금 등록된 보험이 22건인데, 보험료를 줄이는 쪽이 더 급하신지, 아니면 빠진 보장을 채우는 쪽이 더 필요하신지 — 이 두 방향 중 어느 쪽이 더 마음에 걸리세요?",
+      key_purpose: "방향 미설정 상태의 고객을 두 가지 구체적 선택지로 안내하여 상담 진입점 확보",
+      leadership_move:
+        "고객의 '아무거나' 발화를 수용하되, 즉각 추천 대신 '방향 선택'으로 프레임을 전환하여 고객 스스로 우선순위를 발화하도록 유도",
+      insurance_expertise_angle: ["보장구성", "납입부담", "미확인"],
+      proposal_direction:
+        "고객이 '보험료 절감' 또는 '보장 보완' 중 하나를 선택하면, 해당 방향에 맞는 22건 계약 검토 순서를 안내하는 방향으로 진행",
+      next_decision_point: [
+        "보험료를 줄이는 방향",
+        "빠진 보장을 채우는 방향",
+        "두 방향 모두 확인",
+      ],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "아무거나 추천해줘",
+    expectOk: true,
+    expectGates: { unsupported_recommendation: false },
+  },
+  {
+    id: "B11_preview_q12_empathy_paraphrase_safe",
+    borrowed: {
+      understanding_hypotheses: [
+        "고객이 특정 보험 계약 하나를 가리키며 '이게 나한테 필요한가'를 묻는 것일 수 있음",
+        "22건 전체를 두고 '이 많은 보험이 다 필요한가'를 묻는 것일 수 있음",
+        "보험료 부담을 느끼며 정리 가능성을 타진하는 것일 수 있음",
+        "보험 자체에 대한 신뢰나 효용을 의심하는 감정적 질문일 수 있음",
+      ],
+      customer_intent:
+        "자신이 가입한 보험(들)이 실제로 자신에게 필요한지 여부를 확인하고 싶어함 — 구체적 계약 특정 없이 포괄적 필요성 질문",
+      emotional_signal: "막연한 불안 또는 의구심",
+      answer_purpose:
+        "고객의 막연한 필요성 의문에 공감하며, 22건이라는 계약 수 맥락을 제시하고 함께 살펴보자는 방향으로 대화를 열어두는 것",
+      must_not_assume: ["어떤 계약이 필요하고 불필요한지 지금 단계에서 판단할 수 없음"],
+      used_facts: ["policy_count"],
+      recommendation_basis:
+        "현재 확인된 사실은 등록 계약 22건과 삼성생명 실손의료비보험 1건(월 4만5천 원)뿐 — 필요성 판단을 위해서는 각 계약의 보장 내용과 고객 상황을 함께 검토해야 함",
+      voice_raw_candidate:
+        "\"'꼭 필요한 건지' — 그 질문, 22건이나 되면 당연히 드는 생각이에요. 지금 어떤 계약이 어떤 역할을 하는지 한눈에 보기 어려운 상태거든요. 삼성생명 실손의료비보험처럼 실제 병원비를 돌려받는 구조도 있고, 각 계약마다 역할이 달라요. '이거'가 어떤 계약을 말씀하시는 건지 같이 확인해 보면, 지금 생활에 맞게 작동하고 있는지 바로 볼 수 있어요.\"",
+      key_purpose:
+        "고객의 필요성 의문을 수용하되, '이거'의 지시 대상을 좁혀가며 보장 구성 검토로 자연스럽게 연결하는 것",
+      leadership_move:
+        "모호한 지시어 '이거'를 부드럽게 짚어주며, 22건 맥락에서 각 계약의 역할을 함께 확인하는 방향으로 대화를 구체화하는 프레이밍",
+      insurance_expertise_angle: ["보장구성", "실손", "미확인"],
+      proposal_direction:
+        "확인된 사실(22건, 삼성생명 실손의료비보험) 범위 안에서 — 어떤 계약을 먼저 살펴볼지 고객이 선택할 수 있도록 안내하는 방향. 특정 계약의 가입·해지·정리 권유 아님",
+      next_decision_point: [
+        "'이거'가 어떤 계약인지 먼저 특정",
+        "22건 전체 목록을 보장 종류별로 분류",
+        "삼성생명 실손의료비보험 1건부터 살펴본다",
+      ],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "이거 나한테 꼭 필요한 거야?",
+    expectOk: true,
+    expectGates: { understanding_pollution: false },
+  },
+  {
+    id: "B12_real_necessity_verdict_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["필요 여부 확인"],
+      customer_intent: "필요 여부",
+      answer_purpose: "단정",
+      must_not_assume: [],
+      used_facts: ["policy_count"],
+      voice_raw_candidate: "이 계약은 꼭 필요합니다. 당연히 필요한 보장이에요.",
+      key_purpose: "필요 단정",
+      leadership_move: "가입 유지 권고",
+      insurance_expertise_angle: ["실손"],
+      proposal_direction: "유지",
+      next_decision_point: ["유지", "추가 확인"],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "이거 나한테 꼭 필요한 거야?",
+    expectOk: false,
+    expectGates: { understanding_pollution: true },
+  },
 ];
 
 let failed = 0;

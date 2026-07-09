@@ -232,6 +232,8 @@ async function probeQuestion({ previewBase, token, bypass, item }) {
     borrowed_summary: borrowed
       ? {
           customer_intent: borrowed.customer_intent,
+          emotional_signal: borrowed.emotional_signal ?? null,
+          understanding_hypotheses: borrowed.understanding_hypotheses ?? [],
           voice_raw_candidate: borrowed.voice_raw_candidate,
           answer_purpose: borrowed.answer_purpose,
           recommendation_basis: borrowed.recommendation_basis,

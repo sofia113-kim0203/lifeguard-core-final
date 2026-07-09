@@ -28,7 +28,9 @@ const PASSIVE_LEADERSHIP_RE =
 const LEADERSHIP_CANCEL_CERTAINTY_RE =
   /(?:해지(?:하|해)\s*(?:세요|시길|해도\s*됩)|(?:꼭|반드시)\s*가입)/;
 const ENROLLMENT_RE = /(?:지금\s*)?가입(?:하|을)\s*(?:시|는|세요)|(?:꼭\s*)?가입하시(?:길|기)/;
-const PRODUCT_PUSH_RE = /(?:이\s*상품|이\s*보험|(?:바로|지금)\s*).{0,12}(?:추천|가입)/;
+// "없이 상품을 추천" 음절 경계 오탐 방지 — "이 상품/이 보험"은 앞이 한글이 아닐 때만
+const PRODUCT_PUSH_RE =
+  /(?:(?<![가-힣])이\s*상품|(?<![가-힣])이\s*보험|(?:바로|지금)\s*).{0,12}(?:추천|가입)/;
 const CANCELLATION_RE = /(?:지금\s*)?해지(?:하|할)\s*(?:시|는|세요)|(?:바로\s*)?해지(?:하|해)\s*(?:보|는)/;
 const TERMINATION_CLOSE_RE = /(?:최종\s*)?(?:체결|가입\s*확정|설계\s*완료|지금\s*결정)/;
 const DEFINITIVE_VERDICT_RE =
@@ -40,7 +42,9 @@ const REMAINING_PREMIUM_INVENT_RE = /나머지\s*(?:[\d만천억\s,]{1,20})\s*�
 const REMAINING_BARE_NUMBER_RE = /나머지\s*\d+(?!\d)(?!\s*건)/;
 // "22건 중 15건이 중복" 식 invent — 대표 확인 "22건 중 1건"은 제외
 const POLICY_SUBSET_INVENT_RE = /\d+\s*건\s*중\s*(?!1\s*건|한\s*건)\d+/;
-const HYPOTHESIS_AS_FACT_RE = /(?:분명|확실(?!신)|틀림없|당연히).{0,20}(?:원하|필요|걱정|불안)/;
+// "당연히 드는 생각" 공감 메타 제외 · "당연히 필요하다/부족" 단정은 유지
+const HYPOTHESIS_AS_FACT_RE =
+  /(?:분명|확실(?!신)|틀림없|당연히(?!\s*드는\s*생각)).{0,20}(?:원하|필요(?!성)|걱정|불안)/;
 const PRIOR_MEMORY_CLAIM_RE = /(?:지난번|저번|앞서\s*말(?:씀|한)|전에\s*(?:말|이야기))/;
 const NEGATION_MUST_NOT_RE =
   /(?:하지\s*(?:않|말)|단정하지|가정하지|추정하지|없음|없다고|암시하지|언급하지)/;
@@ -324,24 +328,39 @@ function buildVisualScopeText(visualBlocks = []) {
   return normalizeText(parts.filter(Boolean).join(" "));
 }
 
+function stripNecessityQuestionParaphrase(text = "") {
+  return String(text ?? "")
+    .replace(/꼭\s*필요한?\s*(?:거|건)(?:야|예|지)?/g, "")
+    .replace(/필요한가/g, "")
+    .replace(/필요한지/g, "")
+    .replace(/당연히\s*드는\s*생각/g, "");
+}
+
+function isEmpathyCertaintyMeta(text = "") {
+  return /당연히\s*드는\s*생각|당연한\s*(?:의문|생각|마음|궁금)/.test(String(text ?? ""));
+}
+
 function checkUnderstandingPollution(borrowed = {}, question = "") {
   const blob = collectAssertiveBorrowedText(borrowed);
   const q = normalizeText(question);
-  // 고객 질문 "꼭 필요한 거야?"를 가설에 인용한 것은 단정으로 보지 않음
+  // 고객 질문 재표현("꼭 필요한 건지/필요한가/필요한지")·공감("당연히 드는 생각")은 단정으로 보지 않음
   let verdictBlob = blob;
-  if (/꼭\s*필요/.test(q)) {
-    verdictBlob = verdictBlob.replace(/꼭\s*필요한?\s*거(?:야|예|지)?/g, "");
+  if (/꼭\s*필요|필요(?:한가|한지)/.test(q)) {
+    verdictBlob = stripNecessityQuestionParaphrase(verdictBlob);
   }
   if (DEFINITIVE_VERDICT_RE.test(verdictBlob)) return true;
-  if (HYPOTHESIS_AS_FACT_RE.test(blob)) return true;
+  const hypothesisBlob = stripNecessityQuestionParaphrase(blob);
+  if (HYPOTHESIS_AS_FACT_RE.test(hypothesisBlob)) return true;
   const hypotheses = borrowed.understanding_hypotheses ?? [];
   if (
     hypotheses.some((h) => {
       const text = String(h);
       if (q && text.includes(q)) return false;
-      if (/꼭\s*필요한지/.test(text) && /꼭\s*필요/.test(q)) return false;
+      if (/꼭\s*필요한지|필요한가|필요한지/.test(text) && /꼭\s*필요|필요/.test(q)) return false;
+      if (isEmpathyCertaintyMeta(text)) return false;
       // "확신"은 "확실" substring 오탐 — 확실한/확실히/확실하만 단정 신호
-      return /(?:확실한|확실히|확실하|분명|틀림없|당연)/.test(text);
+      // bare "당연"은 공감 메타와 구분 — "당연히 필요/부족"은 HYPOTHESIS_AS_FACT_RE가 담당
+      return /(?:확실한|확실히|확실하|분명|틀림없)/.test(text);
     })
   ) {
     return true;
@@ -352,7 +371,7 @@ function checkUnderstandingPollution(borrowed = {}, question = "") {
 function isRecommendationNegationBasis(text = "") {
   const t = normalizeText(text);
   if (!t) return false;
-  return /(?:추천\s*(?:불가|보류|없|안(?:\s*함)?|하지\s*않)|방향\s*설정\s*(?:선행|먼저)|무작정\s*추천\s*(?:불|안)|추천\s*대신|추천\s*전\s*방향|방향\s*.*?선행)/.test(
+  return /(?:추천\s*(?:불가|보류|없|안(?:\s*함)?|하지\s*않)|방향\s*설정\s*(?:선행|먼저)|방향\s*설정\s*없이.{0,24}추천|상품을\s*추천하는\s*것은\s*(?:실익이\s*)?없|(?:무작정|바로|아무거나)\s*추천하지\s*않|추천하려면\s*먼저\s*방향|추천\s*대신|추천\s*전\s*방향|방향\s*.*?선행)/.test(
     t,
   );
 }
