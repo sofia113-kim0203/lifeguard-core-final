@@ -603,6 +603,64 @@ const cases = [
     expectOk: true,
     expectGates: { missing_proposal_direction: false },
   },
+  {
+    id: "B15_s7q4_purpose_fit_voice_not_false_positive_push",
+    borrowed: {
+      understanding_hypotheses: ["암 보장 확인 목적"],
+      customer_intent: "암 보장 적합성 확인",
+      answer_purpose: "목적 기반 검토 시작",
+      must_not_assume: ["부족/충분 단정 금지"],
+      used_facts: ["policy_count", "monthly_premium_representative"],
+      recommendation_basis:
+        "왜 맞아 보이는지: 확인 목적에 대표 계약 암 담보가 시작점으로 적합. 왜 아직 확정 아닌지: 담보 금액 미확인",
+      voice_raw_candidate:
+        "암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다. 아직 확정은 아니지만, 지금 확인된 사실로는 이 방향이 목적에 더 가깝습니다. 진단비부터 볼까요?",
+      key_purpose: "암 보장 확인 목적에 맞는 시작점 제시",
+      leadership_move: "대표 계약 암 담보부터 확인하도록 리드",
+      insurance_expertise_angle: ["진단비", "보장구성"],
+      proposal_direction:
+        "암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다",
+      next_decision_point: ["대표 계약 암 담보부터", "진단비만 먼저", "전체 일괄"],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "암보험 괜찮아?",
+    expectOk: true,
+    expectGates: {
+      unsupported_recommendation: false,
+      product_push_as_direction: false,
+      closing_or_signup_push: false,
+      leadership_cancel_enroll_certainty: false,
+      expertise_overclaim: false,
+    },
+  },
+  {
+    id: "B16_s7q4_enroll_push_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["상품 가입 유도"],
+      customer_intent: "추천 요청",
+      answer_purpose: "가입 권유",
+      must_not_assume: [],
+      used_facts: ["policy_count"],
+      recommendation_basis: "이 상품 가입을 추천합니다",
+      voice_raw_candidate: "이 상품을 지금 가입하세요. 추천드립니다.",
+      key_purpose: "가입 유도",
+      leadership_move: "즉시 가입 권유",
+      insurance_expertise_angle: ["보장구성"],
+      proposal_direction: "이 상품 가입을 추천합니다",
+      next_decision_point: ["지금 가입", "나중에"],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "아무거나 추천해줘",
+    expectOk: false,
+    expectGates: {
+      unsupported_recommendation: true,
+      product_push_as_direction: true,
+    },
+  },
 ];
 
 const repairCases = [
