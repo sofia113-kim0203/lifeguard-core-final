@@ -13,6 +13,10 @@
     "q7_browse_preview_url": "https://lifeguard-core-final-jhrvbqocb-70sofia113-1918s-projects.vercel.app",
     "q7_browse_preview_commit": "33557ccbb3fec40f06a0efb2b9fc8f1539630cd7",
     "q7_browse_deployment_id": "dpl_4ZuNJAGcmVbgPUCUTdwBHtkkAUdy",
+    "q8_keep_policy_observe_ref": ".tmp-s7-q8-keep-policy-observe-out.json",
+    "q8_keep_policy_preview_url": "https://lifeguard-core-final-1abq0ir53-70sofia113-1918s-projects.vercel.app",
+    "q8_keep_policy_preview_commit": "f1bbdbe010f44bc6d399ced383d8f3b066e4f771",
+    "q8_keep_policy_deployment_id": "dpl_9At1yQ1bAiwxeMKSKotBRpe89BAg",
     "s7_active": false,
     "customer_swap": "HOLD",
     "production_touched": false,
@@ -237,15 +241,32 @@
       "id": "FULLVOICE_Q8_KEEP_POLICY",
       "maps_to_s7_id": null,
       "question": "이 보험 유지해야 해?",
-      "evidence_question": null,
-      "s6_text": null,
-      "s7_text": null,
-      "evidence_excerpt": null,
-      "checks": null,
-      "s7_vs_s6": "unfilled",
-      "overall_key_full_voice_score": null,
-      "verdict": "UNFILLED_NO_EVIDENCE",
-      "draft_rationale": "12Q evidence에 대응 row 없음. 추측 채점 금지."
+      "evidence_question": "이 보험 유지해야 해?",
+      "note": "12Q 고정 문항 외 seat 확장 — Preview@f1bbdbe solo observe로 채점",
+      "s6_text": "유지할지 말지, 한 번쯤 점검해보고 싶은 마음 자연스러운 거예요. 삼성생명 실손의료비보험을 포함해서 등록된 계약이 22건이다 보니, 전체를 한눈에 보기가 쉽지 않을 수 있거든요. 어떤 보장이 겹치는지, 실제로 쓸 수 있는 구조인지부터 살펴보면 판단이 훨씬 수월해져요. 이어서 같이 들여다볼까요?",
+      "s7_text": "유지할지 말지를 바로 정하기보다, 먼저 '이 보험'이 어떤 계약인지 특정하는 게 맞아 보입니다. 계약이 22건이다 보니 어떤 보험을 가리키는지에 따라 판단이 완전히 달라지거든요. 유지 여부를 판단할 때는 네 가지를 봐야 해요 — ① 이 보험이 어떤 보장 역할을 하는지, ② 보험료 부담이 어느 정도인지, ③ 다른 계약과 겹치는 보장이 있는지, ④ 다른 계약으로 대체가 가능한지. 이 중 역할과 보험료부터 확인하면 유지 후보인지, 조정 후보인지, 아니면 보완이 필요한지 방향이 잡혀요. 어떤 계약인지 먼저 같이 특정해볼까요?",
+      "evidence_excerpt": "'이 보험' 대상 특정 필요성 분리 · 유지 판단 4기준(보장 역할/보험료 부담/중복/대체 가능성) · 유지/조정/보완 후보 3개 · 후속: 어떤 계약인지 먼저 같이 특정 · 대표 실손 단정 없음 · push/invent 없음 · gate ok · Preview@f1bbdbe solo observe PASS",
+      "checks": {
+        "direct_answer": 2,
+        "purpose_understanding": 2,
+        "evidence_based_recommendation": 2,
+        "coverage_limit_grounding": 1,
+        "recommendation_reason": 2,
+        "unverified_items_separated": 2,
+        "insurance_terms_correct": 1,
+        "customer_friendly_explanation": 2,
+        "conversation_continuation": 2,
+        "next_choices_offered": 2,
+        "not_too_timid": 2,
+        "no_product_push": true,
+        "no_unsupported_certainty": true,
+        "no_fake_fact": true
+      },
+      "coverage_limit_grounding_note": "유지 판단 구조·후보만 추천 · 실제 보장한도/해지 손익 invent 없음 → grounding=1",
+      "s7_vs_s6": "better",
+      "overall_key_full_voice_score": 20,
+      "verdict": "PASS",
+      "draft_rationale": "S6는 공감·중복 점검 제안, S7은 대상 특정 분리·4기준·유지/조정/보완 후보·후속 질문이 분명. 유지/해지 단정·상품 push·fake fact 없음. Full Voice 임계 충족. Tom q8_tom_review=PASS 후보 · 전체 tom_signoff는 PENDING."
     },
     {
       "id": "FULLVOICE_Q9_RECOMMEND",
@@ -310,12 +331,12 @@
   ],
   "set_summary": {
     "row_count": 10,
-    "filled_count": 9,
-    "unfilled_no_evidence_count": 1,
-    "pass_count": 9,
+    "filled_count": 10,
+    "unfilled_no_evidence_count": 0,
+    "pass_count": 10,
     "hold_count": 0,
     "fail_count": 0,
-    "s7_better_count": 9,
+    "s7_better_count": 10,
     "s7_equal_count": 0,
     "s7_worse_count": 0,
     "timid_fail": false,
@@ -328,21 +349,18 @@
     "continuation_gap_rows": [],
     "coverage_limit_grounding_gap_count": 0,
     "coverage_limit_grounding_gap_rows": [],
-    "coverage_limit_partial_count": 7,
-    "coverage_limit_partial_note": "여러 PASS row에서 grounding=1 (한도 숫자 미확인·구조만 추천) — gap(0)과 구분; Q7 browse도 시작점 구조만으로 grounding=1",
-    "overall_draft_verdict": "PASS_WITH_UNFILLED",
-    "overall_draft_reason": "filled 9중 PASS 9 · Q7 browse PASS(Preview@33557cc solo observe) · Q8 UNFILLED_NO_EVIDENCE · danger 0 · timid_fail false · Tom signoff PENDING",
+    "coverage_limit_partial_count": 8,
+    "coverage_limit_partial_note": "여러 PASS row에서 grounding=1 (한도 숫자 미확인·구조만 추천) — gap(0)과 구분; Q7 browse·Q8 keep-policy도 구조/후보만으로 grounding=1",
+    "overall_draft_verdict": "PASS_READY_FOR_TOM_REVIEW",
+    "overall_draft_reason": "filled 10중 PASS 10 · Q7 browse PASS(@33557cc) · Q8 keep-policy PASS(@f1bbdbe) · danger 0 · timid_fail false · Jerry draft complete · Tom signoff PENDING",
     "q7_tom_review": "PASS",
+    "q8_tom_review": "PASS",
     "tom_signoff": "PENDING",
     "s7_active": false,
     "customer_swap": "HOLD",
     "production_touched": false
   },
   "tom_review_priority": [
-    {
-      "id": "FULLVOICE_Q8_KEEP_POLICY",
-      "why": "유일한 UNFILLED · evidence 없음 — seat probe 또는 문항 추가 후 채점"
-    },
     {
       "id": "FULLVOICE_Q1_CANCER_GAP",
       "why": "입원비·실제 보장한도 숫자 부재 — grounding 1점이 Tom 기준에 충분한지"
@@ -354,6 +372,10 @@
     {
       "id": "FULLVOICE_Q7_BROWSE",
       "why": "Jerry draft PASS · Preview@33557cc observe 근거 · Tom q7_tom_review 확인만"
+    },
+    {
+      "id": "FULLVOICE_Q8_KEEP_POLICY",
+      "why": "Jerry draft PASS · Preview@f1bbdbe solo observe 근거 · Tom q8_tom_review 확인만"
     }
   ]
 }
