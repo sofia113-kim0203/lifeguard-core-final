@@ -100,7 +100,7 @@ function buildSystemPrompt() {
     "FORBIDDEN: enroll/cancel commands ('무조건 가입하세요', '해지해도 됩니다'); 확인 전 충분/부족 확정; inventing numbers/coverages/totals; product push with no customer purpose.",
     "Safety (gate/facts/system) blocks hard stops — KEY itself must not avoid purpose-fit judgment when purpose+facts exist.",
     "Use ONLY facts from allowed_fact_tokens / allowed_numbers / used_facts inputs.",
-    "For context_carryover: only reference conversation_history or previous_answer_summary — never invent '지난번' memory.",
+    "For context_carryover: only reference conversation_history or previous_answer_summary — never invent '지난번' memory. Carry ONLY topics/numbers explicitly present in history. Prefer '직전 대화에서 확인된 …'. FORBIDDEN in context_carryover: inventing prior 암/사망/진단비/수술비 as if already discussed; '나머지 N건' or other calculated/estimated counts not written in history.",
     "For visual_observation: describe ONLY what is in visual_blocks_summary rows/titles — never invent numbers, contracts, or judgments not shown.",
     "When visual_blocks_summary is present, cite only cell values and row labels from that summary.",
     "For premium scope: when policy_count > 1, never imply monthly_premium is total for all contracts.",
@@ -142,6 +142,9 @@ function buildQuestionLeadershipHint(question = "") {
   }
   if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
     return "Table meaning path: next_decision_point MUST have 2-3 choices even if visual_blocks_summary is null (e.g. representative row / total vs unconfirmed / one contract detail). Never leave empty.";
+  }
+  if (/지난번|저번|이어서|앞서/.test(q)) {
+    return "Continue path (S7Q10): context_carryover MUST use ONLY topics/numbers explicitly in conversation_history / previous_answer_summary. Prefer '직전 대화에서 확인된 …'. GOOD: '직전 대화에서 확인된 22건 계약과 삼성생명 실손, 월 4만5천 원 기준으로 이어볼 수 있음'; next choices among 보장종류/납입/궁금한 영역. BAD: '지난번에 암 보장까지 봤습니다', '지난번에 사망 보장이 부족하다고 봤습니다', '나머지 21건을 보면 됩니다', '이미 암/수술/사망까지 확인했습니다'. Do NOT invent prior 암/사망/진단비/수술비 memory. Do NOT put calculated '나머지 N건' in context_carryover. next_decision_point 2-3 choices. Purpose-fit OK within confirmed facts only.";
   }
   return null;
 }

@@ -776,6 +776,84 @@ const cases = [
     expectOk: false,
     expectGates: { understanding_pollution: true },
   },
+  {
+    id: "B21_s7q10_grounded_carry_not_hallucination",
+    borrowed: {
+      understanding_hypotheses: [
+        "직전 대화의 보험 분석을 이어가고 싶어 하는 마음이 있을 수 있음",
+        "보장 종류와 납입 중 어디부터 볼지 정하고 싶은 상황일 수 있음",
+      ],
+      customer_intent: "이전 분석을 이어서 진행",
+      emotional_signal: "편안한 연속 요청으로 보임",
+      context_carryover:
+        "직전 대화에서 확인된 22건 계약과 삼성생명 실손, 월 4만5천 원 기준으로 이어볼 수 있음",
+      answer_purpose: "확인된 사실 기준으로 다음 방향 선택 안내",
+      must_not_assume: [
+        "history에 없는 암/사망 prior 단정 금지",
+        "나머지 계약 수 추정 금지",
+      ],
+      used_facts: ["policy_count", "monthly_premium_representative"],
+      recommendation_basis:
+        "왜 맞아 보이는지: history에 있는 22건·실손·4만5천만 기준. 왜 아직 확정 아닌지: 나머지 계약 미확인",
+      voice_raw_candidate:
+        "직전 대화에서 확인된 22건과 삼성생명 실손(월 4만5천 원) 기준으로 이어가면 됩니다. 보장종류·납입·궁금한 영역 중 어디부터 볼지 정하면 됩니다.",
+      key_purpose: "확인된 사실로 연속 분석 방향 제시",
+      leadership_move: "보장종류/납입/궁금한 영역 선택지 제시",
+      insurance_expertise_angle: ["보장구성", "실손", "납입부담"],
+      proposal_direction:
+        "직전 확인 사실(22건·실손·4만5천)을 기준으로 보장종류·납입·궁금한 영역 중 어디부터 볼지 정하는 방향",
+      next_decision_point: [
+        "보장 종류부터 볼지",
+        "납입 현황부터 볼지",
+        "궁금한 영역부터 볼지",
+      ],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [
+      { role: "user", text: "내보험 분석해줘" },
+      {
+        role: "assistant",
+        text: "등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.",
+      },
+    ],
+    question: "지난번에 말한 거 이어서 봐줘",
+    expectOk: true,
+    expectGates: {
+      context_hallucination: false,
+      unsupported_recommendation: false,
+      product_push_as_direction: false,
+    },
+  },
+  {
+    id: "B22_s7q10_cancer_prior_invent_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["이전 대화를 이어 달라는 요청"],
+      customer_intent: "이전 상담 이어하기",
+      context_carryover: "지난번에 암보험까지 봤습니다",
+      answer_purpose: "이전 맥락 확인",
+      must_not_assume: [],
+      used_facts: ["policy_count"],
+      voice_raw_candidate: "지난번에 암보험까지 봤으니 이어서 사망도 볼까요",
+      key_purpose: "연속 안내",
+      leadership_move: "다음 영역 제안",
+      insurance_expertise_angle: ["보장구성"],
+      proposal_direction: "이전 암보험 확인에 이어 사망 보장 확인 방향",
+      next_decision_point: ["암보험 이어서", "사망부터"],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [
+      { role: "user", text: "내보험 분석해줘" },
+      {
+        role: "assistant",
+        text: "등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.",
+      },
+    ],
+    question: "지난번에 말한 거 이어서 봐줘",
+    expectOk: false,
+    expectGates: { context_hallucination: true },
+  },
 ];
 
 const repairCases = [
