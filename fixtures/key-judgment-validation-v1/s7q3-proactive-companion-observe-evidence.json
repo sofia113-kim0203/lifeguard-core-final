@@ -1,0 +1,77 @@
+{
+  "schema_version": "s7q3-proactive-companion-observe-v0",
+  "observed_at": "2026-07-09T06:34:39.973Z",
+  "preview_url": "https://lifeguard-core-final-a1jra7xs4-70sofia113-1918s-projects.vercel.app",
+  "deployment_id": "dpl_pf8Xn5XTGLA7Btf525VNiztrma53",
+  "worktree_path": "[REDACTED_LOCAL_PATH]",
+  "commit_expected": "c5fd206",
+  "s7_active": false,
+  "production_touched": false,
+  "event_types": [
+    "ack",
+    "delta",
+    "ttft",
+    "done"
+  ],
+  "probe_ok": true,
+  "http_status": 200,
+  "server_error": false,
+  "error_event": null,
+  "row": {
+    "id": "S7Q3",
+    "question": "보험료가 좀 부담돼",
+    "pass": true,
+    "answer_preview": "보험료 부담, 충분히 그럴 수 있어요. 등록된 계약이 22건이라 한 건만의 문제가 아닐 수 있거든요. 지금 삼성생명 실손의료비보험 월 납입액 4만5천 원은 확인됐는데, 전체 계약별 납입액은 아직 다 정리된 상태가 아니에요. 전체 월 납입 흐름을 먼저 보는 게 맞을 것 같아서, 제가 계약별 납입액부터 순서대로 짚어드릴게요.",
+    "final_answer_source": "s6",
+    "customer_text_changed": false,
+    "s6_final_answer_preserved": true,
+    "borrowed_senses_shadow_present": true,
+    "s7_error": null,
+    "s7_gate_ok": true,
+    "gate": {
+      "ok": true,
+      "missing_proposal_direction": false,
+      "missing_next_decision": false,
+      "product_push_as_direction": false,
+      "unsupported_recommendation": false,
+      "closing_or_signup_push": false,
+      "leadership_cancel_enroll_certainty": false,
+      "passive_leadership": false
+    },
+    "proposal_direction": "전체 22건 계약별 납입액을 먼저 확인한 뒤, 중복 보장이 있는 계약과 필수 보장 구성을 분리하여 납입 부담 경감 가능 영역을 검토하는 방향 — 특정 계약 해지·가입 권유 아님",
+    "next_decision_point": [
+      "납입액이 높은 계약부터 순서대로 확인하기",
+      "중복 보장 가능성이 있는 계약 영역(예: 실손 등) 먼저 살펴보기",
+      "전체 계약 납입 합계 정리 후 필수 보장 구성과 비교 검토하기"
+    ],
+    "leadership_move": "전체 납입 합계가 아직 미확인임을 시각 데이터 기반으로 명시하고, '계약별 납입액 확인 → 중복·필수 보장 분리 검토' 순서를 제시하여 고객이 다음 단계를 선택할 수 있도록 능동적으로 프레이밍",
+    "key_purpose": "보험료 부담 감정 수용 → 전체 납입 흐름 미확인 상태임을 명확히 → 계약별 납입액 확인 단계 진입 유도",
+    "emotional_signal": "부담감·피로감 — 금액 또는 계약 수에 대한 막막함이 내포된 표현",
+    "insurance_expertise_angle": [
+      "납입부담",
+      "중복",
+      "보장구성"
+    ],
+    "customer_visual_blocks_length": 2,
+    "checks": {
+      "proposal_direction_present": true,
+      "proposal_is_review_direction": true,
+      "next_decision_count_ok": true,
+      "leadership_active": true,
+      "burden_acknowledged": true,
+      "expertise_present": true,
+      "s6_preserved": true,
+      "final_answer_source_s6": true,
+      "customer_text_changed_false": true,
+      "missing_proposal_direction_false": true,
+      "product_push_false": true,
+      "unsupported_recommendation_false": true,
+      "closing_or_signup_push_false": true,
+      "leadership_cancel_enroll_false": true,
+      "gate_ok": true,
+      "no_server_error": true,
+      "shadow_present": true
+    }
+  },
+  "gate_fail_rows": []
+}
