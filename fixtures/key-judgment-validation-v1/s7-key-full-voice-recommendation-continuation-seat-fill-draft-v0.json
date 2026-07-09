@@ -1,7 +1,7 @@
 {
   "schema_id": "s7-key-full-voice-recommendation-continuation-seat-fill-draft-v0",
   "extends": "s7-key-full-voice-recommendation-continuation-v0",
-  "status": "DRAFT — Jerry evidence-based fill only; Tom signoff PENDING",
+  "status": "DRAFT — Jerry fill complete; Tom human-gate signoff PASS (not S7 active / not customer swap / not production)",
   "version": "0.1.0",
   "meta": {
     "scorecard_spec_ref": "fixtures/key-judgment-validation-v1/s7-key-full-voice-recommendation-continuation-scorecard-v0.json",
@@ -351,11 +351,21 @@
     "coverage_limit_grounding_gap_rows": [],
     "coverage_limit_partial_count": 8,
     "coverage_limit_partial_note": "여러 PASS row에서 grounding=1 (한도 숫자 미확인·구조만 추천) — gap(0)과 구분; Q7 browse·Q8 keep-policy도 구조/후보만으로 grounding=1",
-    "overall_draft_verdict": "PASS_READY_FOR_TOM_REVIEW",
-    "overall_draft_reason": "filled 10중 PASS 10 · Q7 browse PASS(@33557cc) · Q8 keep-policy PASS(@f1bbdbe) · danger 0 · timid_fail false · Jerry draft complete · Tom signoff PENDING",
+    "overall_draft_verdict": "PASS_WITH_TOM_SIGNOFF",
+    "overall_draft_reason": "filled 10중 PASS 10 · Q7/Q8 observe PASS · danger 0 · timid_fail false · Tom human-gate signoff PASS · S7 active/customer swap/production still HOLD",
     "q7_tom_review": "PASS",
     "q8_tom_review": "PASS",
-    "tom_signoff": "PENDING",
+    "tom_signoff": "PASS",
+    "tom_signoff_scope": {
+      "human_gate_pass": true,
+      "not_s7_active": true,
+      "not_customer_swap": true,
+      "not_production": true
+    },
+    "tom_comments": {
+      "FULLVOICE_Q1_CANCER_GAP": "grounding=1은 보장한도 숫자 부재 상태에서 invent 없이 리드했으므로 허용. 실제 보장한도 데이터가 있으면 금액/한도 근거를 사용해야 함.",
+      "FULLVOICE_Q10_COVERAGE_OK": "암보험 괜찮아 기준 PASS이며 전체 보험 포트폴리오 PASS로 확대 금지."
+    },
     "s7_active": false,
     "customer_swap": "HOLD",
     "production_touched": false
@@ -363,19 +373,19 @@
   "tom_review_priority": [
     {
       "id": "FULLVOICE_Q1_CANCER_GAP",
-      "why": "입원비·실제 보장한도 숫자 부재 — grounding 1점이 Tom 기준에 충분한지"
+      "why": "Tom: grounding=1 허용(한도 invent 없이 리드). 한도 데이터 생기면 금액/한도 근거 사용 필수."
     },
     {
       "id": "FULLVOICE_Q10_COVERAGE_OK",
-      "why": "질문 매핑이 '암보험 괜찮아?'라 '내 보험 괜찮아?' 일반 좌석과 어긋날 수 있음"
+      "why": "Tom: 암보험 괜찮아 기준 PASS만 · 전체 포트폴리오 PASS로 확대 금지."
     },
     {
       "id": "FULLVOICE_Q7_BROWSE",
-      "why": "Jerry draft PASS · Preview@33557cc observe 근거 · Tom q7_tom_review 확인만"
+      "why": "Tom human-gate signoff PASS · Preview@33557cc observe 근거"
     },
     {
       "id": "FULLVOICE_Q8_KEEP_POLICY",
-      "why": "Jerry draft PASS · Preview@f1bbdbe solo observe 근거 · Tom q8_tom_review 확인만"
+      "why": "Tom human-gate signoff PASS · Preview@f1bbdbe solo observe 근거"
     }
   ]
 }
