@@ -917,6 +917,83 @@ const cases = [
       unsupported_recommendation: true,
     },
   },
+  {
+    id: "B25_q8_keep_policy_criteria_candidates_not_verdict",
+    borrowed: {
+      understanding_hypotheses: [
+        "특정 계약 유지 여부를 묻고 있을 수 있음",
+        "아직 어떤 계약인지 특정되지 않았을 수 있음",
+      ],
+      customer_intent: "이 보험을 유지해야 하는지 판단 근거를 원함",
+      emotional_signal: "결정 부담이 느껴질 수 있음",
+      answer_purpose: "유지/해지 단정 없이 판단 기준과 후보를 열어 다음 확인으로 연결",
+      must_not_assume: [
+        "유지·해지 확정 금지",
+        "대상 계약이 대표 실손이라고 단정 금지",
+      ],
+      used_facts: ["policy_count"],
+      recommendation_basis:
+        "왜 맞아 보이는지: 유지 판단은 보장 역할·보험료 부담·중복·대체 가능성 순으로 보는 것이 안전. 왜 아직 확정 아닌지: 어떤 계약인지·담보 금액 미확인",
+      voice_raw_candidate:
+        "유지해야 하는지는 먼저 그 보험이 어떤 역할을 하는지부터 봐야 해요. 바로 유지나 해지로 정하기보다는 네 가지를 같이 보면 됩니다. 첫째 보장 역할, 둘째 보험료 부담, 셋째 중복 여부, 넷째 대체 가능성이에요. 역할이 크고 대체가 어렵다면 유지 후보, 중복이 크거나 보험료 부담이 크다면 조정 후보, 빼면 중요한 보장이 비면 보완 후보로 보는 게 좋아요. 먼저 어떤 보험을 말하는지 잡고, 제가 그 보험의 역할과 보험료 부담부터 같이 확인해볼까요?",
+      key_purpose: "유지 판단을 역할·부담·중복·대체 기준으로 리드",
+      leadership_move: "대상 특정 후 유지/조정/보완 후보로 나눠 다음 확인을 연다",
+      insurance_expertise_angle: ["보장구성", "납입부담", "중복"],
+      proposal_direction:
+        "유지 판단이라면 대상 계약 특정 뒤 보장 역할과 보험료 부담부터 확인하는 방향이 맞아 보임 — 유지·해지 확정 아님",
+      next_decision_point: [
+        "어떤 계약을 말하는지 먼저 특정할지",
+        "그 계약의 보장 역할·보험료 부담부터 볼지",
+        "중복·대체 가능성부터 볼지",
+      ],
+      final_answer_source: "s6",
+    },
+    directive: {
+      answer_mode: "social",
+      allowed_fact_tokens: { policy_count: "22" },
+      facts_to_speak: [],
+    },
+    history: [],
+    question: "이 보험 유지해야 해?",
+    expectOk: true,
+    expectGates: {
+      product_push_as_direction: false,
+      unsupported_recommendation: false,
+      closing_or_signup_push: false,
+      leadership_cancel_enroll_certainty: false,
+      expertise_overclaim: false,
+    },
+  },
+  {
+    id: "B26_q8_keep_policy_cancel_verdict_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["유지 여부 질문"],
+      customer_intent: "해지 가능 여부",
+      answer_purpose: "해지 단정",
+      must_not_assume: [],
+      used_facts: ["policy_count"],
+      voice_raw_candidate: "이 보험은 해지해도 됩니다. 지금 해지하세요.",
+      key_purpose: "해지 권고",
+      leadership_move: "즉시 해지 확정",
+      insurance_expertise_angle: ["계약정리"],
+      proposal_direction: "해지해도 됩니다",
+      next_decision_point: ["지금 해지하기", "나중에 해지하기"],
+      final_answer_source: "s6",
+    },
+    directive: {
+      answer_mode: "social",
+      allowed_fact_tokens: { policy_count: "22" },
+      facts_to_speak: [],
+    },
+    history: [],
+    question: "이 보험 유지해야 해?",
+    expectOk: false,
+    expectGates: {
+      // cancel verdict is blocked via closing_or_signup_push (assertive blob);
+      // leadership_cancel_enroll_certainty may not fire on the same phrasing — gate not weakened
+      closing_or_signup_push: true,
+    },
+  },
 ];
 
 const repairCases = [

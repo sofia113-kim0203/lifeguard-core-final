@@ -113,6 +113,7 @@ function buildSystemPrompt() {
     "proposal_direction may be (a) review direction OR (b) purpose-fit direction within confirmed facts — NOT enroll/cancel command and NOT purposeless product push.",
     "On consult/premium-burden questions: proposal_direction MUST be a non-empty string (never null/empty). Prefer purpose-fit when purpose is clear; otherwise a concrete review path (필수 보장 vs 중복 보장 분리 등).",
     "Greeting-only (안녕하세요) may leave proposal_direction null. Browse-like (둘러보/구경/그냥 왔어/가볍게/처음이야) must NOT end wait-only ('궁금하면 말씀해 주세요'). Lower pressure, recommend 2–3 easy start points (보험료 부담 / 큰 보장 빈틈 / 중복 보장), KEY leans one start, open next_decision 2–3 choices. Consultation-start recommendation OK; enroll/cancel/product push forbidden.",
+    "Keep-policy (이 보험 유지/유지해야/해지해도/없애도): NEVER verdict 유지하세요 or 해지해도 됩니다. Separate that '이 보험' may be unspecified — ask which contract first; do NOT assume 대표 실손 as the target. Present 4 keep-judgment criteria (보장 역할 / 보험료 부담 / 중복 / 대체 가능성), open 유지·조정·보완 candidates, then KEY next action (역할·보험료부터 확인). Consultation-path recommendation OK; enroll/cancel/product push forbidden.",
     "Consult paths must not leave proposal_direction empty.",
     "insurance_expertise_angle: pick 1–3 tags ONLY from insurance_expertise_taxonomy in the payload.",
     "next_decision_point: provide 2–3 concrete choices the customer can decide next (consult path). NEVER leave this array empty on consult questions.",
@@ -149,6 +150,11 @@ function buildQuestionLeadershipHint(question = "") {
   }
   if (/둘러보|구경|그냥\s*왔|가볍게|뭐\s*있는지\s*보|처음이(?:야|에요|예요)/.test(q)) {
     return "Browse-like path (S7Q9 / FULLVOICE browse): NOT wait-only. Do NOT end with only '궁금한 게 생기면 말씀해 주세요' / '필요하면 말씀해 주세요' / '확인해보세요'. (1) Lower pressure: 처음엔 가입이나 해지 얘기부터 하지 않아도 됨 (avoid phrasing '바로 가입' — gate false-positive). (2) Recommend 2–3 easy consultation start points — MUST cover at least two of: 보험료 부담, 큰 보장 빈틈(암·실손·수술비), 중복 보장. (3) KEY leans one start: 처음이면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천. (4) next_decision_point 2-3 choices e.g. 보험료 부담 / 큰 보장 빈틈 / 중복 보장. (5) Continue: 제가 먼저 보험료 부담부터 가볍게 볼까요? GOOD consultation-start recommendation. BAD: 특정 상품 가입하세요, 해지해도 됩니다, invent numbers, 쪽-only vague phrasing, one-sentence end.";
+  }
+  if (
+    /이\s*보험\s*유지|이거\s*유지|유지해야|계속\s*가져|해지해도|없애도|빼도\s*돼/.test(q)
+  ) {
+    return "Keep-policy path (FULLVOICE_Q8 / 유지해야 해?): NEVER 유지하세요 / 해지해도 됩니다 / 가입하세요. (1) Direct: 유지할지 말지는 바로 해지·유지로 정하기보다 그 보험의 역할부터 봐야 함. (2) Separate unspecified target: '이 보험'이 어떤 계약인지 먼저 특정 — do NOT assume 대표 실손/삼성생명 as the spoken target when customer did not name it. (3) Present keep-judgment 4 criteria — MUST cover at least three of: 보장 역할, 보험료 부담, 중복 여부, 대체 가능성. (4) Open 유지/조정/보완 candidates — e.g. 역할 크고 대체 어려우면 유지 후보 · 중복·보험료 부담 크면 조정 후보 · 빠지는 보장 있으면 보완 후보. (5) KEY next action: 제가 먼저 그 보험의 보장 역할과 보험료 부담부터 확인해볼까요? next_decision_point 2-3 choices e.g. 어떤 계약인지 특정 / 역할·보험료부터 / 중복·대체부터. BAD: 중복 확인만으로 끝, 대상 불명확한데 실손부터 보면 됩니다 단정, invent numbers, wait-only 말씀해 주세요.";
   }
   return null;
 }
