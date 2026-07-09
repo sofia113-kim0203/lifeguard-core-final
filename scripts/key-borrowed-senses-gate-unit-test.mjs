@@ -712,6 +712,70 @@ const cases = [
     expectOk: false,
     expectGates: { missing_next_decision: true },
   },
+  {
+    id: "B19_s7q5_soft_hypothesis_not_pollution",
+    borrowed: {
+      understanding_hypotheses: [
+        "암 보장이 부족할까 봐 걱정하는 마음이 있을 수 있음",
+        "암 진단비·수술비·치료비 항목을 확인하고 싶어 하는 상황일 수 있음",
+        "부족/충분을 단정하기보다 항목별 확인을 원할 수 있음",
+      ],
+      customer_intent: "암 보장 항목을 확인하고 싶음",
+      emotional_signal: "걱정이 있어 보임",
+      answer_purpose: "항목별 확인 안내",
+      must_not_assume: ["부족/충분 단정 금지", "가입 필요 단정 금지"],
+      used_facts: ["policy_count"],
+      recommendation_basis:
+        "왜 맞아 보이는지: 확인 목적에 항목 분리가 적합. 왜 아직 확정 아닌지: 담보 금액 미확인",
+      voice_raw_candidate:
+        "암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다. 아직 부족하다·충분하다 말씀드리기는 어렵습니다.",
+      key_purpose: "충분/부족 판단 전 항목별 확인으로 안내",
+      leadership_move: "진단비·수술비·치료비 선택지 제시",
+      insurance_expertise_angle: ["진단비", "수술비", "보장구성"],
+      proposal_direction:
+        "암 보장 확인 목적이라면 진단비·수술비·치료비부터 확인하는 것이 목적에 더 가까운 방향",
+      next_decision_point: [
+        "암 진단비부터 볼지",
+        "세 항목을 한 번에 볼지",
+        "암 담보 포함 계약만 볼지",
+      ],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "암보험 부족해?",
+    expectOk: true,
+    expectGates: {
+      understanding_pollution: false,
+      unsupported_recommendation: false,
+      product_push_as_direction: false,
+      expertise_overclaim: false,
+    },
+  },
+  {
+    id: "B20_s7q5_hard_확실히_hypothesis_still_blocked",
+    borrowed: {
+      understanding_hypotheses: [
+        "보험료 부담을 느끼면서 암 보장만큼은 확실히 챙기고 싶은 심리일 가능성",
+      ],
+      customer_intent: "암 보장 확인",
+      answer_purpose: "안내",
+      must_not_assume: ["부족 단정 금지"],
+      used_facts: ["policy_count"],
+      voice_raw_candidate: "항목별로 확인하는 게 맞아 보입니다",
+      key_purpose: "항목 확인 안내",
+      leadership_move: "진단비부터 제안",
+      insurance_expertise_angle: ["진단비"],
+      proposal_direction: "암 담보 항목부터 확인하는 방향",
+      next_decision_point: ["진단비부터", "세 항목 전체"],
+      final_answer_source: "s6",
+    },
+    directive: directivePremium,
+    history: [],
+    question: "암보험 부족해?",
+    expectOk: false,
+    expectGates: { understanding_pollution: true },
+  },
 ];
 
 const repairCases = [

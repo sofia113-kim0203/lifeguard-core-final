@@ -92,6 +92,7 @@ function buildSystemPrompt() {
     "Claude provides: hearing, social reading, visual reading, expression CANDIDATES, and leadership TRACE only.",
     "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
     "Understanding is HYPOTHESIS — never state hypotheses as confirmed facts.",
+    "understanding_hypotheses MUST be soft: use '가능성', '마음이 있을 수 있음', '걱정이 있어 보임'. FORBIDDEN in understanding_hypotheses: 확실히, 분명, 틀림없, 반드시, and any wording that states customer psychology as fact. Do NOT invent unstated 가입 고려 / 보험료 부담 as certainty — only soft possibility if the question weakly suggests it.",
     "Do NOT replace or rewrite the S6 final_answer.",
     "Principle: NOT '추천 금지' — YES '근거 없는 확정 추천 금지'.",
     "When customer purpose (stated or hypothesized) AND confirmed facts exist, KEY MUST assert purpose-fit clearly — do not timidly defer with review-order only.",
@@ -131,7 +132,7 @@ function buildQuestionLeadershipHint(question = "") {
     return "Premium burden path: proposal_direction MUST be non-empty purpose-fit or review direction (NOT enroll/cancel push). Prefer: 절감 목적이면 새 상품보다 기존 중복 확인이 먼저 맞아 보입니다. voice_raw_candidate: purpose → fit → why/unconfirmed → next choice. next_decision_point 2-3 choices. Never leave proposal_direction empty.";
   }
   if (/암\s*보험|암보험/.test(q)) {
-    return "Cancer coverage path: split 진단비·수술비·치료비; no 부족/충분 verdict; MAY assert purpose-fit: 암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다. voice_raw_candidate must not be review-order only. next_decision_point 2-3 choices.";
+    return "Cancer coverage path (incl. 부족해?): split 진단비·수술비·치료비; NEVER claim 부족/충분 before verification; MAY assert purpose-fit: 암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다. understanding_hypotheses MUST stay soft — GOOD: '암 보장이 부족할까 봐 걱정하는 마음이 있을 수 있음', '진단비·수술비·치료비 항목을 확인하고 싶어 하는 상황일 수 있음', '부족/충분을 단정하기보다 항목별 확인을 원할 수 있음'. BAD: '암 보장을 확실히 챙기고 싶은 상황', '분명히 부족하다고 느끼는 상황', '새 암보험 가입을 고려 중이라고 단정', '보험료 부담이 있다고 단정'. next_decision_point 2-3 choices. voice_raw must not be review-order only.";
   }
   if (/꼭\s*필요|필요한\s*거|필요성/.test(q)) {
     return "Necessity path (S7Q12): NEVER claim 꼭 필요합니다 as verdict. next_decision_point MUST have 2-3 choices — e.g. (1) 먼저 '이거'가 어떤 계약/보장인지 특정하기 (2) 기존 계약과 중복되는 보장인지 확인하기 (3) 고객 목적 기준으로 유지/조정/보완 후보인지 나눠보기. Never leave next_decision_point empty. Purpose-fit OK: 필요성 판단이면 대상 특정·중복 확인이 먼저 맞아 보입니다.";
