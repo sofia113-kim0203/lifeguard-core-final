@@ -174,6 +174,13 @@ function checkMissingNextDecision(borrowed = {}, question = "", directive = null
   return !Array.isArray(choices) || choices.filter((c) => String(c).trim()).length < 2;
 }
 
+/** Consult/burden path: proposal_direction must be a non-empty review direction (not product push). */
+function checkMissingProposalDirection(borrowed = {}, question = "", directive = null) {
+  if (!requiresLeadershipFields(question, directive)) return false;
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  return !String(borrowed.proposal_direction ?? "").trim();
+}
+
 function checkLeadershipCancelEnrollCertainty(borrowed = {}) {
   if (!hasS7bLeadershipPayload(borrowed)) return false;
   const blob = collectLeadershipText(borrowed);
@@ -531,6 +538,7 @@ export function gateBorrowedSensesOutput({
   const product_push_as_direction = checkProductPushAsDirection(borrowed);
   const expertise_overclaim = checkExpertiseOverclaim(borrowed, question);
   const missing_next_decision = checkMissingNextDecision(borrowed, question, directive);
+  const missing_proposal_direction = checkMissingProposalDirection(borrowed, question, directive);
   const leadership_cancel_enroll_certainty = checkLeadershipCancelEnrollCertainty(borrowed);
 
   const gates = {
@@ -546,6 +554,7 @@ export function gateBorrowedSensesOutput({
     product_push_as_direction,
     expertise_overclaim,
     missing_next_decision,
+    missing_proposal_direction,
     leadership_cancel_enroll_certainty,
   };
 

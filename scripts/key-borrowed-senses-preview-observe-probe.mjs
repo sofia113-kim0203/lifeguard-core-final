@@ -136,6 +136,12 @@ function checkHighRisk(id, shadow, answerText) {
     .join(" ");
 
   const checks = {};
+  if (id === "S7Q3") {
+    checks.proposal_direction_present = Boolean(String(borrowed.proposal_direction ?? "").trim());
+    checks.missing_proposal_direction_gate_ok = gate.missing_proposal_direction !== true;
+    const nd = borrowed.next_decision_point ?? [];
+    checks.next_decision_count_ok = Array.isArray(nd) && nd.filter((c) => String(c).trim()).length >= 2;
+  }
   if (id === "S7Q6") {
     checks.no_recommendation_push =
       gate.unsupported_recommendation !== true &&

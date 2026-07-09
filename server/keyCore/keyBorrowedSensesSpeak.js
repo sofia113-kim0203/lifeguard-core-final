@@ -103,7 +103,9 @@ function buildSystemPrompt() {
     "S7-b leadership fields (key_purpose, leadership_move, insurance_expertise_angle, proposal_direction, next_decision_point) are trace-only — never customer-facing.",
     "KEY acts as 보험 주치의: lead the customer to the next safe decision point — soft but not passive.",
     "leadership_move must be an active framing step — never end with only '편하실 때 말씀해 주세요'.",
-    "proposal_direction is a direction within confirmed facts — NOT product push or enroll/cancel instruction.",
+    "proposal_direction is a review/consult DIRECTION within confirmed facts — NOT product recommendation, enroll, or cancel instruction.",
+    "On consult/premium-burden questions: proposal_direction MUST be a non-empty string (never null/empty). Example meaning: which review path to take before cutting cost (필수 보장 vs 중복 보장 분리 등).",
+    "Greeting/browse may leave proposal_direction null; consult paths must not.",
     "insurance_expertise_angle: pick 1–3 tags ONLY from insurance_expertise_taxonomy in the payload.",
     "next_decision_point: provide 2–3 concrete choices the customer can decide next (consult path). NEVER leave this array empty on consult questions.",
     "For 암보험/암 보장 questions: split coverage into 진단비·수술비·치료비; NEVER claim 부족/충분 before verification; next_decision_point MUST offer 2–3 choices among those items or whole-vs-partial review.",
@@ -120,7 +122,7 @@ function buildSystemPrompt() {
 function buildQuestionLeadershipHint(question = "") {
   const q = String(question ?? "").trim();
   if (/보험료.*부담|부담/.test(q)) {
-    return "Premium burden path: next_decision_point MUST have 2-3 choices (e.g. highest-burden contracts first / overlapping coverage review / essential coverage check). Never leave empty.";
+    return "Premium burden path: proposal_direction MUST be a non-empty review direction (NOT product push) — e.g. separate essential vs overlapping coverage before cutting cost. next_decision_point MUST have 2-3 choices (highest-burden contracts / overlapping coverage / essential coverage). Never leave proposal_direction or next_decision_point empty.";
   }
   if (/암\s*보험|암보험/.test(q)) {
     return "Cancer coverage path: split 진단비·수술비·치료비; no 부족/충분 verdict; next_decision_point MUST offer 2-3 choices among those items or whole-vs-partial review.";
@@ -493,11 +495,12 @@ export async function runBorrowedSensesShadowProbe({
           visualBlocks,
         });
 
-        if (gate.missing_next_decision && leadershipRetryCount < 2) {
+        if ((gate.missing_next_decision || gate.missing_proposal_direction) && leadershipRetryCount < 2) {
           leadershipRetryCount += 1;
           lastRaw = JSON.stringify(result.parsed, null, 2);
-          userPayload.s7b_retry_hint =
-            "RETRY: next_decision_point must contain 2-3 non-empty customer choices. For 암보험/암 보장: 진단비·수술비·치료비 choices. For 보험료 부담: 납입 큰 계약 / 겹치는 보장 / 필수 보장 choices. Never leave next_decision_point empty.";
+          userPayload.s7b_retry_hint = gate.missing_proposal_direction
+            ? "RETRY: proposal_direction MUST be a non-empty review direction within confirmed facts (NOT product enroll/cancel). For 보험료 부담: e.g. separate essential vs overlapping coverage before cutting cost. Also keep next_decision_point with 2-3 choices."
+            : "RETRY: next_decision_point must contain 2-3 non-empty customer choices. For 암보험/암 보장: 진단비·수술비·치료비 choices. For 보험료 부담: 납입 큰 계약 / 겹치는 보장 / 필수 보장 choices. Never leave next_decision_point empty.";
           continue;
         }
 
