@@ -274,12 +274,44 @@ function repairNextDecisionPoints(parsed = {}, question = "") {
   return goldenNextDecisionFallback(question);
 }
 
+/** Greeting/browse may leave proposal_direction null; consult-like questions must not. */
+function isConsultLikeQuestion(question = "") {
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  if (/^(?:안녕|반갑|하이|hello)/i.test(q)) return false;
+  if (/그냥\s*둘러/.test(q)) return false;
+  return true;
+}
+
+/**
+ * Stabilize non-deterministic Claude null proposal_direction on consult paths.
+ * Uses next_decision_point as review-direction framing only — never enroll/cancel/product push.
+ * Shadow-only; does not touch S6 final_answer.
+ */
+export function repairProposalDirection(parsed = {}, question = "", nextDecision = []) {
+  const existing = String(parsed.proposal_direction ?? "").trim();
+  if (existing) return existing;
+  if (!isConsultLikeQuestion(question)) return null;
+  const choices = (Array.isArray(nextDecision) ? nextDecision : [])
+    .map((s) => String(s).trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  if (choices.length < 2) return null;
+  if (/보험료.*부담|부담/.test(String(question ?? ""))) {
+    return `확인된 사실 범위에서 ${choices.join(" · ")} 순으로 검토하는 방향 — 특정 상품 가입·해지 권유 아님`;
+  }
+  return `확인된 사실 범위에서 다음 검토 선택지를 기준으로 진행하는 방향: ${choices.join(" / ")} — 상품 가입·해지 권유 아님`;
+}
+
 function normalizeBorrowedOutput(parsed = {}, s6FinalAnswer = "", question = "") {
   const hypotheses = Array.isArray(parsed.understanding_hypotheses)
     ? parsed.understanding_hypotheses.map((h) => String(h).trim()).filter(Boolean)
     : parsed.understanding_hypothesis
       ? [String(parsed.understanding_hypothesis).trim()]
       : [];
+
+  const next_decision_point = repairNextDecisionPoints(parsed, question);
+  const proposal_direction = repairProposalDirection(parsed, question, next_decision_point);
 
   return {
     schema_version: S7_BORROWED_SENSES_SCHEMA_B,
@@ -305,8 +337,8 @@ function normalizeBorrowedOutput(parsed = {}, s6FinalAnswer = "", question = "")
       ? parsed.insurance_expertise_angle.map((s) => String(s).trim()).filter(Boolean)
       : [],
     insurance_expertise_rationale: normalizeNullable(parsed.insurance_expertise_rationale),
-    proposal_direction: normalizeNullable(parsed.proposal_direction),
-    next_decision_point: repairNextDecisionPoints(parsed, question),
+    proposal_direction,
+    next_decision_point,
     final_answer_source: "s6",
     s6_final_answer_snapshot: String(s6FinalAnswer ?? "").trim(),
   };
@@ -495,11 +527,11 @@ export async function runBorrowedSensesShadowProbe({
           visualBlocks,
         });
 
-        if ((gate.missing_next_decision || gate.missing_proposal_direction) && leadershipRetryCount < 2) {
+        if ((gate.missing_next_decision || gate.missing_proposal_direction) && leadershipRetryCount < 3) {
           leadershipRetryCount += 1;
           lastRaw = JSON.stringify(result.parsed, null, 2);
           userPayload.s7b_retry_hint = gate.missing_proposal_direction
-            ? "RETRY: proposal_direction MUST be a non-empty review direction within confirmed facts (NOT product enroll/cancel). For 보험료 부담: e.g. separate essential vs overlapping coverage before cutting cost. Also keep next_decision_point with 2-3 choices."
+            ? "RETRY REQUIRED: proposal_direction is null/empty but this is a consult path. Set proposal_direction to ONE non-empty review DIRECTION within confirmed facts (NOT product recommendation, NOT enroll, NOT cancel). For 보험료 부담 example: '줄이기 전에 필수 보장과 겹치는 보장을 먼저 나눈 뒤 줄일 수 있는 지점을 찾는다'. Keep next_decision_point with 2-3 choices. Never leave proposal_direction null."
             : "RETRY: next_decision_point must contain 2-3 non-empty customer choices. For 암보험/암 보장: 진단비·수술비·치료비 choices. For 보험료 부담: 납입 큰 계약 / 겹치는 보장 / 필수 보장 choices. Never leave next_decision_point empty.";
           continue;
         }

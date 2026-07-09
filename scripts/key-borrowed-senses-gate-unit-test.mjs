@@ -2,6 +2,7 @@
  * S7-a Borrowed Senses gate unit tests (no Claude · local only).
  */
 import { gateBorrowedSensesOutput } from "../server/keyCore/keyBorrowedSensesGate.js";
+import { repairProposalDirection } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 
 const directivePremium = {
   allowed_fact_tokens: {
@@ -604,6 +605,65 @@ const cases = [
   },
 ];
 
+const repairCases = [
+  {
+    id: "R1_s7q3_null_proposal_repaired_from_next_decision",
+    run: () => {
+      const next = ["납입 부담 상위 계약", "중복 보장 영역", "필수 보장 종류 구분"];
+      const out = repairProposalDirection(
+        { proposal_direction: null },
+        "보험료가 좀 부담돼",
+        next,
+      );
+      if (!out || !/검토|방향/.test(out)) return false;
+      if (/가입을\s*추천|지금\s*가입|해지\s*(?:하|해)\s*세요/.test(out)) return false;
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["부담"],
+          customer_intent: "보험료 부담",
+          answer_purpose: "안내",
+          must_not_assume: [],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "부담 이해돼요",
+          key_purpose: "부담 수용",
+          leadership_move: "납입 흐름 확인 후 선택지 제시",
+          insurance_expertise_angle: ["납입부담"],
+          proposal_direction: out,
+          next_decision_point: next,
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험료가 좀 부담돼",
+      });
+      return gate.ok === true && gate.missing_proposal_direction === false;
+    },
+  },
+  {
+    id: "R2_greeting_repair_stays_null",
+    run: () =>
+      repairProposalDirection(
+        { proposal_direction: null },
+        "안녕하세요",
+        ["보장 구성이 궁금한지", "납입 부담이 궁금한지"],
+      ) === null,
+  },
+  {
+    id: "R3_existing_proposal_kept",
+    run: () => {
+      const existing =
+        "줄이기 전에 꼭 필요한 보장과 겹치는 보장을 먼저 나눈 뒤, 줄일 수 있는 지점을 찾는다";
+      return (
+        repairProposalDirection(
+          { proposal_direction: existing },
+          "보험료가 좀 부담돼",
+          ["a", "b"],
+        ) === existing
+      );
+    },
+  },
+];
+
 let failed = 0;
 for (const c of cases) {
   const gate = gateBorrowedSensesOutput({
@@ -628,8 +688,18 @@ for (const c of cases) {
   }
 }
 
+for (const c of repairCases) {
+  const ok = Boolean(c.run());
+  if (!ok) {
+    failed += 1;
+    console.error("FAIL", c.id);
+  } else {
+    console.log("PASS", c.id);
+  }
+}
+
 if (failed) {
   console.error(`${failed} gate test(s) failed`);
   process.exit(1);
 }
-console.log(`PASS all ${cases.length} S7-a + S7-b gate tests`);
+console.log(`PASS all ${cases.length + repairCases.length} S7-a + S7-b gate tests`);
