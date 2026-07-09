@@ -112,13 +112,13 @@ function buildSystemPrompt() {
     "leadership_move must be an active framing step — never end with only '편하실 때 말씀해 주세요'.",
     "proposal_direction may be (a) review direction OR (b) purpose-fit direction within confirmed facts — NOT enroll/cancel command and NOT purposeless product push.",
     "On consult/premium-burden questions: proposal_direction MUST be a non-empty string (never null/empty). Prefer purpose-fit when purpose is clear; otherwise a concrete review path (필수 보장 vs 중복 보장 분리 등).",
-    "Greeting-only (안녕하세요) may leave proposal_direction null. Browse-like (둘러보/구경/그냥 왔어/가볍게/처음이야) must NOT end wait-only ('궁금하면 말씀해 주세요'). Lower pressure, recommend 2–3 easy start points (보험료 부담 / 큰 보장 빈틈 / 중복 보장), KEY leans one start, open next_decision 2–3 choices. Consultation-start recommendation OK; enroll/cancel/product push forbidden.",
-    "Keep-policy (이 보험 유지/유지해야/해지해도/없애도): NEVER verdict 유지하세요 or 해지해도 됩니다. Separate that '이 보험' may be unspecified — ask which contract first; do NOT assume 대표 실손 as the target. Present 4 keep-judgment criteria (보장 역할 / 보험료 부담 / 중복 / 대체 가능성), open 유지·조정·보완 candidates, then KEY next action (역할·보험료부터 확인). Consultation-path recommendation OK; enroll/cancel/product push forbidden.",
+    "Greeting-only (안녕하세요) may leave proposal_direction null. Browse-like (둘러보/구경/그냥 왔어/가볍게/처음이야) must NOT end wait-only ('궁금하면 말씀해 주세요'). Lower pressure, recommend 2–3 easy start points (보험료 부담 / 큰 보장 빈틈 / 중복 보장), KEY leans one start, open next_decision 2–3 choices. Consultation-start recommendation OK; enroll/cancel/product push forbidden. Browse: in ALL shadow fields (understanding_hypotheses, recommendation_basis, voice, leadership) do NOT invent arbitrary % / amounts / counts outside allowed_fact_tokens — confirmed tokens like policy_count 22 OK; inventing '30%' or unverified 월 금액 BAD.",
+    "Keep-policy (이 보험 유지/유지해야/해지해도/없애도): NEVER verdict 유지하세요 or 해지해도 됩니다. Separate that '이 보험' may be unspecified — ask which contract first; do NOT assume 대표 실손 as the target. Present 4 keep-judgment criteria (보장 역할 / 보험료 부담 / 중복 / 대체 가능성), explicitly name 유지 후보 / 조정 후보 / 보완 후보 (at least two), then KEY next action. next_decision_point MUST be 2–3 non-empty choices — NEVER leave empty. Consultation-path recommendation OK; enroll/cancel/product push forbidden.",
     "Consult paths must not leave proposal_direction empty.",
     "insurance_expertise_angle: pick 1–3 tags ONLY from insurance_expertise_taxonomy in the payload.",
-    "next_decision_point: provide 2–3 concrete choices the customer can decide next (consult path). NEVER leave this array empty on consult questions.",
+    "next_decision_point: provide 2–3 concrete choices the customer can decide next (consult path). NEVER leave this array empty on consult questions including 보험료 줄이고/절감 and keep-policy.",
     "For 암보험/암 보장 questions: split coverage into 진단비·수술비·치료비; NEVER claim 부족/충분 before verification; MAY say 대표 계약 암 담보부터 보는 게 맞아 보입니다; next_decision_point MUST offer 2–3 choices among those items or whole-vs-partial review.",
-    "For 보험료/premium burden: NEVER write '22건, 월 X원' as if all 22 contracts share one monthly amount; always separate representative contract (4만5천 원) from unconfirmed total sum; MAY say 절감 목적이면 중복 확인이 먼저 맞아 보입니다.",
+    "For 보험료/premium burden/줄이고/절감: NEVER write '22건, 월 X원' as if all 22 contracts share one monthly amount; always separate representative contract (4만5천 원) from unconfirmed total sum; MAY say 절감 목적이면 새 상품을 보기 전에 기존 중복·납입 확인이 먼저 맞아 보입니다 (anti-push, NOT enroll). next_decision_point MUST list 2–3 choices e.g. 납입 구조 / 중복 보장 / 조정 후보 — NEVER leave empty.",
     "used_facts: cite policy_count and monthly_premium_representative separately — never combine 22건 with a single premium as total.",
     "FORBIDDEN in all shadow fields including voice_raw_candidate: 보장축, 우선순위 축, 암 보장축, 필수축, 축별, 축으로, 축을, 축부터, 축 설정.",
     "Use 보장 구성, 보장 종류, 보장 영역 instead of '축'.",
@@ -130,8 +130,8 @@ function buildSystemPrompt() {
 
 function buildQuestionLeadershipHint(question = "") {
   const q = String(question ?? "").trim();
-  if (/보험료.*부담|부담/.test(q)) {
-    return "Premium burden path: proposal_direction MUST be non-empty purpose-fit or review direction (NOT enroll/cancel push). Prefer: 절감 목적이면 새 상품보다 기존 중복 확인이 먼저 맞아 보입니다. voice_raw_candidate: purpose → fit → why/unconfirmed → next choice. next_decision_point 2-3 choices. Never leave proposal_direction empty.";
+  if (/보험료.*(?:부담|줄이)|줄이고\s*싶|절감|부담/.test(q)) {
+    return "Premium cut/burden path: proposal_direction MUST be non-empty purpose-fit or review direction (NOT enroll/cancel push). Prefer: 절감 목적이면 새 상품을 보기 전에 지금 있는 계약의 중복 보장·납입 부담부터 확인하는 게 먼저 맞아 보입니다 (anti-push phrasing OK — do NOT recommend 새 상품 가입). voice_raw_candidate: purpose → fit → why/unconfirmed → next choice. next_decision_point MUST be 2-3 non-empty choices e.g. (1) 납입 보험료 구조 확인 (2) 중복 보장 확인 (3) 줄여도 되는 조정 후보 확인 — NEVER leave next_decision_point empty. Never leave proposal_direction empty.";
   }
   if (/암\s*보험|암보험/.test(q)) {
     return "Cancer coverage path (incl. 부족해?): split 진단비·수술비·치료비; NEVER claim 부족/충분 before verification; MAY assert purpose-fit: 암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다. understanding_hypotheses MUST stay soft — GOOD: '암 보장이 부족할까 봐 걱정하는 마음이 있을 수 있음', '진단비·수술비·치료비 항목을 확인하고 싶어 하는 상황일 수 있음', '부족/충분을 단정하기보다 항목별 확인을 원할 수 있음'. BAD: '암 보장을 확실히 챙기고 싶은 상황', '분명히 부족하다고 느끼는 상황', '새 암보험 가입을 고려 중이라고 단정', '보험료 부담이 있다고 단정'. next_decision_point 2-3 choices. voice_raw must not be review-order only.";
@@ -149,12 +149,12 @@ function buildQuestionLeadershipHint(question = "") {
     return "Continue path (S7Q10): context_carryover MUST use ONLY topics/numbers explicitly in conversation_history / previous_answer_summary. Prefer '직전 대화에서 확인된 …'. GOOD: '직전 대화에서 확인된 22건 계약과 삼성생명 실손, 월 4만5천 원 기준으로 이어볼 수 있음'; next choices among 보장종류/납입/궁금한 영역. BAD: '지난번에 암 보장까지 봤습니다', '지난번에 사망 보장이 부족하다고 봤습니다', '나머지 21건을 보면 됩니다', '이미 암/수술/사망까지 확인했습니다'. Do NOT invent prior 암/사망/진단비/수술비 memory. Do NOT put calculated '나머지 N건' in context_carryover. next_decision_point 2-3 choices. Purpose-fit OK within confirmed facts only.";
   }
   if (/둘러보|구경|그냥\s*왔|가볍게|뭐\s*있는지\s*보|처음이(?:야|에요|예요)/.test(q)) {
-    return "Browse-like path (S7Q9 / FULLVOICE browse): NOT wait-only. Do NOT end with only '궁금한 게 생기면 말씀해 주세요' / '필요하면 말씀해 주세요' / '확인해보세요'. (1) Lower pressure: 처음엔 가입이나 해지 얘기부터 하지 않아도 됨 (avoid phrasing '바로 가입' — gate false-positive). (2) Recommend 2–3 easy consultation start points — MUST cover at least two of: 보험료 부담, 큰 보장 빈틈(암·실손·수술비), 중복 보장. (3) KEY leans one start: 처음이면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천. (4) next_decision_point 2-3 choices e.g. 보험료 부담 / 큰 보장 빈틈 / 중복 보장. (5) Continue: 제가 먼저 보험료 부담부터 가볍게 볼까요? GOOD consultation-start recommendation. BAD: 특정 상품 가입하세요, 해지해도 됩니다, invent numbers, 쪽-only vague phrasing, one-sentence end.";
+    return "Browse-like path (S7Q9 / FULLVOICE browse): NOT wait-only. Do NOT end with only '궁금한 게 생기면 말씀해 주세요' / '필요하면 말씀해 주세요' / '확인해보세요'. (1) Lower pressure: 처음엔 가입이나 해지 얘기부터 하지 않아도 됨 (avoid phrasing '바로 가입' — gate false-positive). (2) Recommend 2–3 easy consultation start points — MUST cover at least two of: 보험료 부담, 큰 보장 빈틈(암·실손·수술비), 중복 보장. (3) KEY leans one start: 처음이면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천. (4) next_decision_point 2-3 choices e.g. 보험료 부담 / 큰 보장 빈틈 / 중복 보장. (5) Continue: 제가 먼저 보험료 부담부터 가볍게 볼까요? Numbers: confirmed allowed_fact_tokens OK (e.g. policy_count 22); FORBIDDEN in hypotheses/recommendation_basis/voice: inventing arbitrary % (e.g. 30%), unverified 월 금액, or counts not in allowed set. Do NOT weaken start-point leadership. BAD: 특정 상품 가입하세요, 해지해도 됩니다, invent numbers/%, 쪽-only vague phrasing, one-sentence end.";
   }
   if (
     /이\s*보험\s*유지|이거\s*유지|유지해야|계속\s*가져|해지해도|없애도|빼도\s*돼/.test(q)
   ) {
-    return "Keep-policy path (FULLVOICE_Q8 / 유지해야 해?): NEVER 유지하세요 / 해지해도 됩니다 / 가입하세요. (1) Direct: 유지할지 말지는 바로 해지·유지로 정하기보다 그 보험의 역할부터 봐야 함. (2) Separate unspecified target: '이 보험'이 어떤 계약인지 먼저 특정 — do NOT assume 대표 실손/삼성생명 as the spoken target when customer did not name it. (3) Present keep-judgment 4 criteria — MUST cover at least three of: 보장 역할, 보험료 부담, 중복 여부, 대체 가능성. (4) Open 유지/조정/보완 candidates — e.g. 역할 크고 대체 어려우면 유지 후보 · 중복·보험료 부담 크면 조정 후보 · 빠지는 보장 있으면 보완 후보. (5) KEY next action: 제가 먼저 그 보험의 보장 역할과 보험료 부담부터 확인해볼까요? next_decision_point 2-3 choices e.g. 어떤 계약인지 특정 / 역할·보험료부터 / 중복·대체부터. BAD: 중복 확인만으로 끝, 대상 불명확한데 실손부터 보면 됩니다 단정, invent numbers, wait-only 말씀해 주세요.";
+    return "Keep-policy path (FULLVOICE_Q8 / 유지해야 해?): NEVER 유지하세요 / 해지해도 됩니다 / 가입하세요. (1) Direct: 유지할지 말지는 바로 해지·유지로 정하기보다 그 보험의 역할부터 봐야 함. (2) Separate unspecified target: '이 보험'이 어떤 계약인지 먼저 특정 — do NOT assume 대표 실손/삼성생명 as the spoken target when customer did not name it. (3) Present keep-judgment 4 criteria — MUST cover at least three of: 보장 역할, 보험료 부담, 중복 여부, 대체 가능성. (4) Explicitly name at least two of 유지 후보 / 조정 후보 / 보완 후보 (prefer all three). (5) KEY next action: 제가 먼저 그 보험의 보장 역할과 보험료 부담부터 확인해볼까요? next_decision_point MUST be 2-3 non-empty choices e.g. 어떤 계약인지 특정 / 역할·보험료부터 / 유지·조정·보완 후보 판단 — NEVER leave next_decision_point empty. BAD: 중복 확인만으로 끝, 대상 불명확한데 실손부터 보면 됩니다 단정, invent numbers, wait-only 말씀해 주세요.";
   }
   return null;
 }
@@ -260,6 +260,20 @@ function extractSlashChoicesFromText(text = "") {
   return parts.length >= 2 ? parts.slice(0, 3) : [];
 }
 
+/** Extract (1)/(2)/(3) or ①/②/③ style choices from voice/leadership text. */
+function extractNumberedChoicesFromText(text = "") {
+  const raw = String(text ?? "");
+  const circled = [...raw.matchAll(/[①②③④⑤]\s*([^①②③④⑤\n]{4,80})/g)].map((m) =>
+    m[1].replace(/[—–\-·•].*$/, "").trim(),
+  );
+  if (circled.length >= 2) return circled.slice(0, 3);
+  const numbered = [...raw.matchAll(/(?:^|[^\d])\(?([1-3])\)?[.)]\s*([^\n(]{4,80})/g)].map((m) =>
+    m[2].replace(/\s*→.*$/, "").replace(/[—–\-·•].*$/, "").trim(),
+  );
+  if (numbered.length >= 2) return numbered.slice(0, 3);
+  return [];
+}
+
 function goldenNextDecisionFallback(question = "") {
   const q = String(question ?? "").trim();
   if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
@@ -269,11 +283,27 @@ function goldenNextDecisionFallback(question = "") {
       "특정 보험사/계약 하나를 골라 자세히 보기",
     ];
   }
-  if (/보험료.*부담|부담/.test(q)) {
+  if (/보험료.*(?:부담|줄이)|줄이고\s*싶|절감|부담/.test(q)) {
     return [
-      "납입 부담이 큰 계약부터 볼지",
-      "겹치는 보장부터 정리할지",
-      "꼭 필요한 보장만 먼저 확인할지",
+      "납입 보험료 구조부터 확인할지",
+      "중복 보장부터 확인할지",
+      "줄여도 되는 조정 후보부터 볼지",
+    ];
+  }
+  if (
+    /이\s*보험\s*유지|이거\s*유지|유지해야|계속\s*가져|해지해도|없애도|빼도\s*돼/.test(q)
+  ) {
+    return [
+      "어떤 계약인지 먼저 특정할지",
+      "보장 역할과 보험료 부담부터 확인할지",
+      "유지·조정·보완 후보로 나눠 볼지",
+    ];
+  }
+  if (/둘러보|구경|그냥\s*왔|가볍게|뭐\s*있는지\s*보|처음이(?:야|에요|예요)/.test(q)) {
+    return [
+      "보험료 부담부터 가볍게 볼지",
+      "큰 보장 빈틈(암·실손·수술비)부터 볼지",
+      "중복 보장부터 볼지",
     ];
   }
   if (/암\s*보험|암보험/.test(q)) {
@@ -310,6 +340,12 @@ export function repairNextDecisionPoints(parsed = {}, question = "") {
 
   const fromProposal = extractSlashChoicesFromText(parsed.proposal_direction);
   if (fromProposal.length >= 2) return fromProposal;
+
+  const fromVoice = extractNumberedChoicesFromText(parsed.voice_raw_candidate);
+  if (fromVoice.length >= 2) return fromVoice;
+
+  const fromMoveNumbered = extractNumberedChoicesFromText(parsed.leadership_move);
+  if (fromMoveNumbered.length >= 2) return fromMoveNumbered;
 
   return goldenNextDecisionFallback(question);
 }
@@ -623,4 +659,10 @@ export async function runBorrowedSensesShadowProbe({
   }
 }
 
-export { S7_BORROWED_SENSES_SCHEMA, S7_BORROWED_SENSES_SCHEMA_B, summarizeVisualBlocks, buildUserPayload };
+export {
+  S7_BORROWED_SENSES_SCHEMA,
+  S7_BORROWED_SENSES_SCHEMA_B,
+  summarizeVisualBlocks,
+  buildUserPayload,
+  buildQuestionLeadershipHint,
+};

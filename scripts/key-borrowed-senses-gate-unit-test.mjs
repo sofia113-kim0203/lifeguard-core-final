@@ -5,6 +5,7 @@ import { gateBorrowedSensesOutput } from "../server/keyCore/keyBorrowedSensesGat
 import {
   repairProposalDirection,
   repairNextDecisionPoints,
+  buildQuestionLeadershipHint,
 } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 
 const directivePremium = {
@@ -1152,6 +1153,169 @@ const repairCases = [
         return false;
       }
       return true;
+    },
+  },
+  {
+    id: "B27_browse_non_voice_number_invent_forbidden_in_hint",
+    run: () => {
+      const hint = buildQuestionLeadershipHint("그냥 둘러보러 왔어");
+      if (!hint || !/Browse-like|둘러보/.test(hint)) return false;
+      // Must forbid inventing arbitrary % / amounts in non-voice fields too
+      if (!/30%|arbitrary\s*%|inventing\s*arbitrary/.test(hint)) return false;
+      if (!/hypothes|recommendation_basis|allowed/.test(hint)) return false;
+      // Must keep start-point leadership (not timid "no numbers at all")
+      if (!/보험료\s*부담|보장\s*빈틈|중복/.test(hint)) return false;
+      if (!/추천|leans|먼저/.test(hint)) return false;
+      // Confirmed tokens still OK
+      if (!/policy_count|22|confirmed|allowed_fact/.test(hint)) return false;
+      return true;
+    },
+  },
+  {
+    id: "B28_premium_next_decision_repair_pass",
+    run: () => {
+      const q = "보험료 줄이고 싶어";
+      const next = repairNextDecisionPoints({ next_decision_point: [] }, q);
+      if (!Array.isArray(next) || next.length < 2 || next.length > 3) return false;
+      if (!next.some((c) => /납입|구조/.test(String(c)))) return false;
+      if (!next.some((c) => /중복/.test(String(c)))) return false;
+      if (!next.some((c) => /조정|줄여/.test(String(c)))) return false;
+      const hint = buildQuestionLeadershipHint(q);
+      if (!hint || !/next_decision_point MUST|NEVER leave next_decision_point empty/.test(hint)) {
+        return false;
+      }
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["보험료 절감 목적일 수 있음"],
+          customer_intent: "보험료 줄이기",
+          answer_purpose: "절감 전 중복·납입 확인 리드",
+          must_not_assume: ["전체 합계 단정 금지"],
+          used_facts: ["policy_count", "monthly_premium_representative"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 절감이면 새 상품보다 기존 중복·납입부터. 왜 아직 확정 아닌지: 합계·중복 미확인",
+          voice_raw_candidate:
+            "보험료를 줄이고 싶으시다면 새 상품을 보기 전에 지금 있는 계약의 납입 구조와 중복 보장부터 확인하는 게 먼저 맞아 보여요. 제가 납입 구조부터 같이 볼까요?",
+          key_purpose: "절감 목적에 맞는 검토 순서 리드",
+          leadership_move: "납입·중복·조정 후보 선택지 제시",
+          insurance_expertise_angle: ["납입부담", "중복"],
+          proposal_direction:
+            "절감 목적이면 새 상품을 보기 전에 기존 중복·납입 확인이 먼저 맞아 보임",
+          next_decision_point: next,
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: q,
+      });
+      return (
+        gate.ok === true &&
+        gate.missing_next_decision === false &&
+        gate.product_push_as_direction === false &&
+        gate.unsupported_recommendation === false
+      );
+    },
+  },
+  {
+    id: "B29_premium_anti_push_phrase_pass",
+    run: () => {
+      const q = "보험료 줄이고 싶어";
+      const voice =
+        "절감 목적이면 새 상품을 보기 전에 지금 있는 계약의 중복 보장·납입 부담부터 확인하는 게 먼저 맞아 보입니다. 납입 구조부터 볼까요, 중복부터 볼까요?";
+      const proposal =
+        "절감 목적이면 새 상품을 보기 전에 기존 중복·납입 확인이 먼저 맞아 보임 (anti-push, not enroll)";
+      // Stage1 harness anti-push helper — "새 상품을 보기 전에" is NOT product push
+      const blob = `${voice} ${proposal}`;
+      const isAntiPush = /새\s*상품을?\s*(?:보기\s*전에|보기\s*전|보다\s*전에)|새\s*상품보다/.test(blob);
+      if (!isAntiPush) return false;
+      // Real enroll push only (exclude anti-push "보기 전에" context)
+      const enrollPush =
+        /(?:추가\s*가입|지금\s*가입|새\s*상품\s*가입)/.test(blob) &&
+        !/새\s*상품을?\s*(?:보기\s*전에|보기\s*전)/.test(blob);
+      if (enrollPush) return false;
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["보험료 부담을 줄이고 싶어 할 수 있음"],
+          customer_intent: "보험료 절감",
+          answer_purpose: "절감 전 기존 계약 검토",
+          must_not_assume: ["새 상품 가입 단정 금지"],
+          used_facts: ["policy_count", "monthly_premium_representative"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 절감이면 기존 중복·납입 확인이 먼저. 왜 아직 확정 아닌지: 합계 미확인",
+          voice_raw_candidate: voice,
+          key_purpose: "절감 목적 검토 리드",
+          leadership_move: "새 상품 전 중복·납입부터",
+          insurance_expertise_angle: ["납입부담", "중복"],
+          proposal_direction: proposal,
+          next_decision_point: [
+            "납입 보험료 구조부터 확인할지",
+            "중복 보장부터 확인할지",
+            "줄여도 되는 조정 후보부터 볼지",
+          ],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: q,
+      });
+      return (
+        gate.ok === true &&
+        gate.product_push_as_direction === false &&
+        gate.unsupported_recommendation === false &&
+        gate.closing_or_signup_push === false
+      );
+    },
+  },
+  {
+    id: "B30_keep_policy_nd_candidates_pass",
+    run: () => {
+      const q = "이 보험 유지해야 해?";
+      const next = repairNextDecisionPoints({ next_decision_point: [] }, q);
+      if (!Array.isArray(next) || next.length < 2 || next.length > 3) return false;
+      if (!next.some((c) => /특정|계약/.test(String(c)))) return false;
+      if (!next.some((c) => /역할|보험료|부담/.test(String(c)))) return false;
+      if (!next.some((c) => /유지|조정|보완/.test(String(c)))) return false;
+      const hint = buildQuestionLeadershipHint(q);
+      if (!hint || !/유지\s*후보|조정\s*후보|보완\s*후보/.test(hint)) return false;
+      if (!/NEVER leave next_decision_point empty/.test(hint)) return false;
+      const voice =
+        "유지해야 하는지는 바로 유지나 해지로 정하기보다 그 보험이 어떤 계약인지부터 특정해야 해요. 보장 역할, 보험료 부담, 중복, 대체 가능성을 보고 유지 후보·조정 후보·보완 후보로 나눠 보는 게 맞아요. 제가 역할과 보험료 부담부터 확인해볼까요?";
+      if ((voice.match(/유지\s*후보|조정\s*후보|보완\s*후보/g) || []).length < 2) return false;
+      if (/유지하(?:세요|셔야)|해지하(?:세요|셔야)|해지해도\s*됩니다/.test(voice)) return false;
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: [
+            "특정 계약 유지 여부를 묻고 있을 수 있음",
+            "아직 어떤 계약인지 특정되지 않았을 수 있음",
+          ],
+          customer_intent: "유지 여부 판단 근거",
+          answer_purpose: "유지/해지 단정 없이 후보와 다음 확인",
+          must_not_assume: ["유지·해지 확정 금지"],
+          used_facts: ["policy_count"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 역할·부담·중복·대체 기준. 왜 아직 확정 아닌지: 대상 미특정",
+          voice_raw_candidate: voice,
+          key_purpose: "유지 판단을 기준으로 리드",
+          leadership_move: "대상 특정 후 유지/조정/보완 후보",
+          insurance_expertise_angle: ["보장구성", "납입부담", "중복"],
+          proposal_direction:
+            "유지 판단이라면 대상 특정 뒤 역할·보험료부터 — 유지·해지 확정 아님",
+          next_decision_point: next,
+          final_answer_source: "s6",
+        },
+        directive: {
+          answer_mode: "social",
+          allowed_fact_tokens: { policy_count: "22" },
+          facts_to_speak: [],
+        },
+        history: [],
+        question: q,
+      });
+      return (
+        gate.ok === true &&
+        gate.missing_next_decision === false &&
+        gate.leadership_cancel_enroll_certainty === false &&
+        gate.closing_or_signup_push === false
+      );
     },
   },
 ];
