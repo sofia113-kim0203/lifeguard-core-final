@@ -112,7 +112,8 @@ function buildSystemPrompt() {
     "leadership_move must be an active framing step — never end with only '편하실 때 말씀해 주세요'.",
     "proposal_direction may be (a) review direction OR (b) purpose-fit direction within confirmed facts — NOT enroll/cancel command and NOT purposeless product push.",
     "On consult/premium-burden questions: proposal_direction MUST be a non-empty string (never null/empty). Prefer purpose-fit when purpose is clear; otherwise a concrete review path (필수 보장 vs 중복 보장 분리 등).",
-    "Greeting/browse may leave proposal_direction null; consult paths must not.",
+    "Greeting-only (안녕하세요) may leave proposal_direction null. Browse-like (둘러보/구경/그냥 왔어/가볍게/처음이야) must NOT end wait-only ('궁금하면 말씀해 주세요'). Lower pressure, recommend 2–3 easy start points (보험료 부담 / 큰 보장 빈틈 / 중복 보장), KEY leans one start, open next_decision 2–3 choices. Consultation-start recommendation OK; enroll/cancel/product push forbidden.",
+    "Consult paths must not leave proposal_direction empty.",
     "insurance_expertise_angle: pick 1–3 tags ONLY from insurance_expertise_taxonomy in the payload.",
     "next_decision_point: provide 2–3 concrete choices the customer can decide next (consult path). NEVER leave this array empty on consult questions.",
     "For 암보험/암 보장 questions: split coverage into 진단비·수술비·치료비; NEVER claim 부족/충분 before verification; MAY say 대표 계약 암 담보부터 보는 게 맞아 보입니다; next_decision_point MUST offer 2–3 choices among those items or whole-vs-partial review.",
@@ -145,6 +146,9 @@ function buildQuestionLeadershipHint(question = "") {
   }
   if (/지난번|저번|이어서|앞서/.test(q)) {
     return "Continue path (S7Q10): context_carryover MUST use ONLY topics/numbers explicitly in conversation_history / previous_answer_summary. Prefer '직전 대화에서 확인된 …'. GOOD: '직전 대화에서 확인된 22건 계약과 삼성생명 실손, 월 4만5천 원 기준으로 이어볼 수 있음'; next choices among 보장종류/납입/궁금한 영역. BAD: '지난번에 암 보장까지 봤습니다', '지난번에 사망 보장이 부족하다고 봤습니다', '나머지 21건을 보면 됩니다', '이미 암/수술/사망까지 확인했습니다'. Do NOT invent prior 암/사망/진단비/수술비 memory. Do NOT put calculated '나머지 N건' in context_carryover. next_decision_point 2-3 choices. Purpose-fit OK within confirmed facts only.";
+  }
+  if (/둘러보|구경|그냥\s*왔|가볍게|뭐\s*있는지\s*보|처음이(?:야|에요|예요)/.test(q)) {
+    return "Browse-like path (S7Q9 / FULLVOICE browse): NOT wait-only. Do NOT end with only '궁금한 게 생기면 말씀해 주세요' / '필요하면 말씀해 주세요' / '확인해보세요'. (1) Lower pressure: 처음엔 가입이나 해지 얘기부터 하지 않아도 됨 (avoid phrasing '바로 가입' — gate false-positive). (2) Recommend 2–3 easy consultation start points — MUST cover at least two of: 보험료 부담, 큰 보장 빈틈(암·실손·수술비), 중복 보장. (3) KEY leans one start: 처음이면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천. (4) next_decision_point 2-3 choices e.g. 보험료 부담 / 큰 보장 빈틈 / 중복 보장. (5) Continue: 제가 먼저 보험료 부담부터 가볍게 볼까요? GOOD consultation-start recommendation. BAD: 특정 상품 가입하세요, 해지해도 됩니다, invent numbers, 쪽-only vague phrasing, one-sentence end.";
   }
   return null;
 }

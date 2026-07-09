@@ -854,6 +854,69 @@ const cases = [
     expectOk: false,
     expectGates: { context_hallucination: true },
   },
+  {
+    id: "B23_s7q9_browse_start_points_not_push",
+    borrowed: {
+      understanding_hypotheses: [
+        "가볍게 둘러보려는 마음이 있을 수 있음",
+        "아직 목적이 정해지지 않은 진입일 수 있음",
+      ],
+      customer_intent: "부담 없이 보험 현황을 둘러보고 싶음",
+      emotional_signal: "편안한 탐색 톤으로 보임",
+      answer_purpose: "상담 시작점 추천으로 대화 열기",
+      must_not_assume: ["가입 의사 단정 금지", "해지 의사 단정 금지"],
+      used_facts: ["policy_count"],
+      recommendation_basis:
+        "왜 맞아 보이는지: 둘러보기 단계에서는 가입·해지보다 보험료·큰 보장 빈틈·중복 확인이 안전한 시작점. 왜 아직 확정 아닌지: 목적·담보 금액 미확인",
+      voice_raw_candidate:
+        "좋아요. 처음엔 가입이나 해지 얘기부터 하지 않아도 돼요. 가볍게 둘러보는 단계라면 저는 세 가지 중 하나로 시작하는 걸 추천드려요. 첫째 보험료가 너무 무겁지 않은지, 둘째 암·실손·수술비처럼 큰 보장에 빈틈이 있는지, 셋째 비슷한 보장이 겹치는지. 처음이면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천드려요. 제가 먼저 보험료 부담부터 가볍게 볼까요?",
+      key_purpose: "둘러보기 진입을 상담 시작점으로 리드",
+      leadership_move: "보험료·보장 빈틈·중복 중 시작점 선택지 제시",
+      insurance_expertise_angle: ["납입부담", "보장구성", "중복"],
+      proposal_direction:
+        "둘러보기 단계라면 가입·해지보다 보험료 부담과 큰 보장 빈틈 확인부터 시작하는 방향이 맞아 보임",
+      next_decision_point: [
+        "보험료 부담부터 볼지",
+        "큰 보장 빈틈(암·실손·수술비)부터 볼지",
+        "중복 보장부터 볼지",
+      ],
+      final_answer_source: "s6",
+    },
+    directive: { answer_mode: "social", allowed_fact_tokens: { policy_count: "22" }, facts_to_speak: [] },
+    history: [],
+    question: "그냥 둘러보러 왔어",
+    expectOk: true,
+    expectGates: {
+      product_push_as_direction: false,
+      unsupported_recommendation: false,
+      closing_or_signup_push: false,
+      leadership_cancel_enroll_certainty: false,
+    },
+  },
+  {
+    id: "B24_s7q9_browse_enroll_push_still_blocked",
+    borrowed: {
+      understanding_hypotheses: ["둘러보러 온 고객"],
+      customer_intent: "보험 둘러보기",
+      answer_purpose: "상품 가입 유도",
+      must_not_assume: [],
+      used_facts: ["policy_count"],
+      voice_raw_candidate: "둘러보러 오셨으면 이 암보험 상품을 무조건 가입하세요",
+      key_purpose: "상품 가입",
+      leadership_move: "가입 권유",
+      insurance_expertise_angle: ["진단비"],
+      proposal_direction: "지금 바로 이 상품 가입을 추천합니다",
+      next_decision_point: ["지금 가입하기", "나중에 가입하기"],
+      final_answer_source: "s6",
+    },
+    directive: { answer_mode: "social", allowed_fact_tokens: { policy_count: "22" }, facts_to_speak: [] },
+    history: [],
+    question: "그냥 둘러보러 왔어",
+    expectOk: false,
+    expectGates: {
+      unsupported_recommendation: true,
+    },
+  },
 ];
 
 const repairCases = [
