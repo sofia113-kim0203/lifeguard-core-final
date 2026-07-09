@@ -34,8 +34,13 @@ const TERMINATION_CLOSE_RE = /(?:최종\s*)?(?:체결|가입\s*확정|설계\s*�
 const DEFINITIVE_VERDICT_RE =
   /(?:충분합니다|부족합니다|문제\s*없(?:어|습니다)|완벽(?:해|합니다|해요)|틀림없|확실히\s*(?:부족|충분|괜찮)|꼭\s*필요(?:합니다|해요|한\s*거(?:야|예)?))/;
 const PREMIUM_SCOPE_BLUR_RE = /22건,\s*월|기준으로\s*전체\s*보험료|전체\s*보험료\s*=\s*월/;
-const CALCULATED_NUMBER_RE = /나머지\s*\d+|절반|대부분|\d+\s*건\s*중\s*\d+/;
-const HYPOTHESIS_AS_FACT_RE = /(?:분명|확실|틀림없|당연히).{0,20}(?:원하|필요|걱정|불안)/;
+const CALCULATED_PARTIAL_RE = /절반|대부분/;
+const REMAINING_PREMIUM_INVENT_RE = /나머지\s*(?:[\d만천억\s,]{1,20})\s*원/;
+// bare "나머지 45000" invent — but not "나머지 21건" (do not allow \d+ to backtrack into 21→2)
+const REMAINING_BARE_NUMBER_RE = /나머지\s*\d+(?!\d)(?!\s*건)/;
+// "22건 중 15건이 중복" 식 invent — 대표 확인 "22건 중 1건"은 제외
+const POLICY_SUBSET_INVENT_RE = /\d+\s*건\s*중\s*(?!1\s*건|한\s*건)\d+/;
+const HYPOTHESIS_AS_FACT_RE = /(?:분명|확실(?!신)|틀림없|당연히).{0,20}(?:원하|필요|걱정|불안)/;
 const PRIOR_MEMORY_CLAIM_RE = /(?:지난번|저번|앞서\s*말(?:씀|한)|전에\s*(?:말|이야기))/;
 const NEGATION_MUST_NOT_RE =
   /(?:하지\s*(?:않|말)|단정하지|가정하지|추정하지|없음|없다고|암시하지|언급하지)/;
@@ -236,6 +241,8 @@ function isScopeClarifierNumber(text = "", num = "") {
   if (num === "1") {
     return /(?:1|한)\s*건|1건\s*기준|대표\s*(?:확인\s*)?계약\s*(?:1|한)\s*건|(?:1|한)\s*건\s*기준/.test(text);
   }
+  // "나머지 21건" — 미확인 잔여 계약 수 설명 (합산 invent 아님)
+  if (new RegExp(`나머지\\s*${num}\\s*건`).test(text)) return true;
   return new RegExp(`${num}\\s*건(?:\\s*기준)?`).test(text);
 }
 
@@ -319,16 +326,22 @@ function buildVisualScopeText(visualBlocks = []) {
 
 function checkUnderstandingPollution(borrowed = {}, question = "") {
   const blob = collectAssertiveBorrowedText(borrowed);
-  if (DEFINITIVE_VERDICT_RE.test(blob)) return true;
-  if (HYPOTHESIS_AS_FACT_RE.test(blob)) return true;
   const q = normalizeText(question);
+  // 고객 질문 "꼭 필요한 거야?"를 가설에 인용한 것은 단정으로 보지 않음
+  let verdictBlob = blob;
+  if (/꼭\s*필요/.test(q)) {
+    verdictBlob = verdictBlob.replace(/꼭\s*필요한?\s*거(?:야|예|지)?/g, "");
+  }
+  if (DEFINITIVE_VERDICT_RE.test(verdictBlob)) return true;
+  if (HYPOTHESIS_AS_FACT_RE.test(blob)) return true;
   const hypotheses = borrowed.understanding_hypotheses ?? [];
   if (
     hypotheses.some((h) => {
       const text = String(h);
       if (q && text.includes(q)) return false;
       if (/꼭\s*필요한지/.test(text) && /꼭\s*필요/.test(q)) return false;
-      return /(?:확실|분명|틀림없|당연)/.test(text);
+      // "확신"은 "확실" substring 오탐 — 확실한/확실히/확실하만 단정 신호
+      return /(?:확실한|확실히|확실하|분명|틀림없|당연)/.test(text);
     })
   ) {
     return true;
@@ -373,7 +386,11 @@ function checkClosingOrSignupPush(blob = "") {
 
 function checkNumberScopeViolation(blob = "", directive = {}, visualBlocks = []) {
   if (checkPremiumScopeBlur(blob)) return true;
-  if (CALCULATED_NUMBER_RE.test(blob)) return true;
+  // "나머지 21건" (잔여 계약 수) 허용 · "나머지 4만5천 원" / bare 나머지 숫자 금액 invent 차단
+  if (CALCULATED_PARTIAL_RE.test(blob)) return true;
+  if (POLICY_SUBSET_INVENT_RE.test(blob)) return true;
+  if (REMAINING_PREMIUM_INVENT_RE.test(blob)) return true;
+  if (REMAINING_BARE_NUMBER_RE.test(blob)) return true;
   const allowed = buildAllowedNumberSet(directive, visualBlocks);
   if (!allowed.size) return false;
   return filterRogueNumbers(blob, allowed).length > 0;

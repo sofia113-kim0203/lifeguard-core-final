@@ -125,6 +125,9 @@ function buildQuestionLeadershipHint(question = "") {
   if (/암\s*보험|암보험/.test(q)) {
     return "Cancer coverage path: split 진단비·수술비·치료비; no 부족/충분 verdict; next_decision_point MUST offer 2-3 choices among those items or whole-vs-partial review.";
   }
+  if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
+    return "Table meaning path: next_decision_point MUST have 2-3 choices even if visual_blocks_summary is null (e.g. representative row / total vs unconfirmed / one contract detail). Never leave empty.";
+  }
   return null;
 }
 
@@ -218,17 +221,26 @@ function extractParsedFromResponse(data = {}) {
 }
 
 function extractSlashChoicesFromText(text = "") {
-  const paren = String(text ?? "").match(/\(([^)]+)\)/);
-  if (!paren) return [];
-  const parts = paren[1]
+  const raw = String(text ?? "");
+  const paren = raw.match(/\(([^)]+)\)/);
+  const candidate = paren ? paren[1] : raw;
+  if (!candidate.includes("/")) return [];
+  const parts = candidate
     .split(/\s*\/\s*/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+    .map((s) => s.replace(/^[\s—–\-·•]+|[\s—–\-·•]+$/g, "").trim())
+    .filter((s) => s.length >= 2 && s.length <= 80);
   return parts.length >= 2 ? parts.slice(0, 3) : [];
 }
 
 function goldenNextDecisionFallback(question = "") {
   const q = String(question ?? "").trim();
+  if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
+    return [
+      "대표 계약 행부터 보기",
+      "전체 합계와 미확인 항목 구분하기",
+      "특정 보험사/계약 하나를 골라 자세히 보기",
+    ];
+  }
   if (/보험료.*부담|부담/.test(q)) {
     return [
       "납입 부담이 큰 계약부터 볼지",

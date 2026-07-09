@@ -4,7 +4,10 @@
  * Usage:
  *   node scripts/key-borrowed-senses-preview-observe-probe.mjs <preview-url> <worktree-path>
  *
- * Requires pre-exported process.env:
+ * Preferred (allowlist-only env load):
+ *   node scripts/key-borrowed-senses-preview-observe-run.mjs <preview-url> <worktree-path> [--env-dir <dir>]
+ *
+ * Or requires pre-exported process.env:
  *   VERCEL_AUTOMATION_BYPASS_SECRET, VITE_SUPABASE_URL|SUPABASE_URL,
  *   VITE_SUPABASE_ANON_KEY|SUPABASE_ANON_KEY, QA_EMAIL|QA_TEST_EMAIL, QA_PASSWORD|QA_TEST_PASSWORD
  *
@@ -234,6 +237,11 @@ async function probeQuestion({ previewBase, token, bypass, item }) {
           recommendation_basis: borrowed.recommendation_basis,
           must_not_assume: borrowed.must_not_assume,
           visual_observation: borrowed.visual_observation,
+          key_purpose: borrowed.key_purpose ?? null,
+          leadership_move: borrowed.leadership_move ?? null,
+          insurance_expertise_angle: borrowed.insurance_expertise_angle ?? [],
+          proposal_direction: borrowed.proposal_direction ?? null,
+          next_decision_point: borrowed.next_decision_point ?? [],
         }
       : null,
     visual_blocks_length: Array.isArray(visualBlocks) ? visualBlocks.length : 0,
