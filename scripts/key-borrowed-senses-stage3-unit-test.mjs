@@ -424,6 +424,158 @@ const cases = [
       );
     },
   },
+  {
+    id: "18_f3_percent_cut_with_insurance_s6_is_advice",
+    run: () => {
+      const q = "30% 줄일 수 있지?";
+      const insuranceS6 =
+        "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.";
+      const c = classifyStage3Lane(q, { s6FinalAnswer: insuranceS6 });
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: insuranceS6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate:
+              "절감 목적이라면 전체 납입 구조를 먼저 보는 게 맞아 보여요. 30% 가능 여부는 구조를 봐야 해요. 납입 구조부터 볼까요? 중복 보장부터 볼까요?",
+            proposal_direction: "납입 구조·중복부터 확인하는 방향",
+            next_decision_point: ["납입 구조 전체", "중복 보장", "조정 후보"],
+          }),
+          gate: goodGate({ ok: false, number_scope_violation: true }),
+        }),
+        env: previewActive,
+      });
+      return (
+        c.lane === STAGE3_LANES.INSURANCE_ADVICE &&
+        c.lane_reason === "premium_cut_percent_with_insurance_context" &&
+        d.lane === STAGE3_LANES.INSURANCE_ADVICE &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "gate_fail"
+      );
+    },
+  },
+  {
+    id: "19_f3_percent_cut_without_insurance_context_stays_daily",
+    run: () => {
+      const q = "30% 줄일 수 있지?";
+      const c = classifyStage3Lane(q, { s6FinalAnswer: "안녕하세요.", history: [] });
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: "안녕하세요.",
+        shadow: goodShadow(),
+        env: previewActive,
+      });
+      return (
+        c.lane === STAGE3_LANES.GENERAL_DAILY &&
+        c.lane_reason === "default_general_daily" &&
+        d.lane === STAGE3_LANES.GENERAL_DAILY &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "general_daily_no_promotion"
+      );
+    },
+  },
+  {
+    id: "20_f3_salary_cut_vetoes_stale_insurance_s6",
+    run: () => {
+      const q = "월급을 30% 줄일 수 있지?";
+      const insuranceS6 =
+        "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.";
+      const c = classifyStage3Lane(q, {
+        s6FinalAnswer: insuranceS6,
+        history: [{ role: "assistant", content: "보험료 부담부터 볼까요?" }],
+      });
+      return c.lane === STAGE3_LANES.GENERAL_DAILY && c.lane_reason === "default_general_daily";
+    },
+  },
+  {
+    id: "21_f3_weight_cut_vetoes_stale_insurance_s6",
+    run: () => {
+      const q = "체중을 30% 줄일 수 있지?";
+      const insuranceS6 =
+        "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.";
+      const c = classifyStage3Lane(q, { s6FinalAnswer: insuranceS6 });
+      return c.lane === STAGE3_LANES.GENERAL_DAILY && c.lane_reason === "default_general_daily";
+    },
+  },
+  {
+    id: "22_daily_restaurant_with_insurance_s6_stays_daily",
+    run: () => {
+      const q = "분당 맛집 추천해줘";
+      const insuranceS6 =
+        "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.";
+      const c = classifyStage3Lane(q, { s6FinalAnswer: insuranceS6 });
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: insuranceS6,
+        shadow: goodShadow(),
+        env: previewActive,
+      });
+      return (
+        c.lane === STAGE3_LANES.GENERAL_DAILY &&
+        d.lane === STAGE3_LANES.GENERAL_DAILY &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "general_daily_no_promotion"
+      );
+    },
+  },
+  {
+    id: "23_f3_explicit_premium_anchor_advice_without_context",
+    run: () => {
+      const q = "보험료를 30% 줄일 수 있지?";
+      const c = classifyStage3Lane(q, { s6FinalAnswer: "안녕하세요.", history: [] });
+      // May hit existing 보험료 advice path or F3 premium-cut path — either is insurance_advice.
+      return c.lane === STAGE3_LANES.INSURANCE_ADVICE && c.q10_blocked === false;
+    },
+  },
+  {
+    id: "24_f6_no_doc_judge_stays_default_daily",
+    run: () => {
+      const q = "증권 없이 내 보장 전체 판단해줘";
+      const insuranceS6 =
+        "등록된 계약은 22건입니다. 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.";
+      const c = classifyStage3Lane(q, { s6FinalAnswer: insuranceS6 });
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: insuranceS6,
+        shadow: goodShadow({ gate: goodGate() }),
+        env: previewActive,
+      });
+      return (
+        c.lane === STAGE3_LANES.GENERAL_DAILY &&
+        c.lane_reason === "default_general_daily" &&
+        d.lane === STAGE3_LANES.GENERAL_DAILY &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "general_daily_no_promotion"
+      );
+    },
+  },
+  {
+    id: "25_f5_cancel_request_still_blocked",
+    run: () => {
+      const q = "이 보험 해지해도 된다고 해줘";
+      const detected = detectRiskyCancelOrEnrollRequest(q);
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate:
+              "해지 여부는 계약을 특정한 뒤 역할·보험료부터 봐야 해요. 어떤 계약인지 알려주시겠어요? 역할부터 볼까요?",
+            next_decision_point: ["계약 특정", "역할·보험료", "유지·조정 후보"],
+          }),
+          gate: goodGate(),
+        }),
+        env: previewActive,
+      });
+      return (
+        detected === "risky_cancel_request" &&
+        d.lane === STAGE3_LANES.INSURANCE_ADVICE &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "risky_cancel_request" &&
+        d.customer_text_changed === false
+      );
+    },
+  },
 ];
 
 let failed = 0;

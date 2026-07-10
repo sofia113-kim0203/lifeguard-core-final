@@ -99,11 +99,70 @@ function snapshotGate(gate) {
   };
 }
 
+/** Insurance lexical anchors — not bare % / 줄이다. */
+function hasInsuranceLexicalAnchor(text = "") {
+  return /보험|보장|특약|담보|계약|납입|실손|보험료|증권|갱신|면책|감액/.test(String(text ?? ""));
+}
+
+/**
+ * Premium-cut / percent-reduction question shape.
+ * Requires (% + cut verb) OR (보험료 + cut verb). Never treats bare "줄이다" / bare "%" alone as advice.
+ */
+function isPremiumCutPercentQuestion(q = "") {
+  const t = String(q ?? "");
+  if (/보험료/.test(t) && /줄일|줄여|절감|깎/.test(t)) return true;
+  if (/\d+\s*%/.test(t) && /줄일|줄여|절감|깎/.test(t)) return true;
+  return false;
+}
+
+function historyBlob(history = []) {
+  if (!Array.isArray(history) || history.length === 0) return "";
+  return history
+    .map((turn) => {
+      if (turn == null) return "";
+      if (typeof turn === "string") return turn;
+      return [turn.content, turn.text, turn.question, turn.answer, turn.message]
+        .filter(Boolean)
+        .join(" ");
+    })
+    .join(" ");
+}
+
+/**
+ * Insurance conversation context: prior turns, previous summary, or current S6 (KEY seat inventory).
+ */
+function hasInsuranceConversationContext({
+  history = [],
+  previousAnswerSummary = "",
+  s6FinalAnswer = "",
+} = {}) {
+  return (
+    hasInsuranceLexicalAnchor(previousAnswerSummary) ||
+    hasInsuranceLexicalAnchor(s6FinalAnswer) ||
+    hasInsuranceLexicalAnchor(historyBlob(history))
+  );
+}
+
+/**
+ * Explicit non-insurance cut target in the CURRENT question (closed set — not a general classifier).
+ * When present (and question has no insurance lexical anchor), vetoes stale insurance history/s6.
+ */
+function hasExplicitNonInsuranceCutTarget(q = "") {
+  const t = String(q ?? "");
+  // Closed set only. Do not expand into a broad domain taxonomy.
+  const subject = "월급|연봉|급여|체중|몸무게|체지방|월세|렌트|칼로리";
+  return new RegExp(
+    `(?:${subject}).{0,16}(?:\\d+\\s*%|줄일|줄여|절감)|(?:\\d+\\s*%|줄일|줄여|절감).{0,16}(?:${subject})`,
+  ).test(t);
+}
+
 /**
  * Deterministic Stage 3 lane classifier v0.
- * Priority: Q10 block signal → education → advice → general_daily.
+ * Priority: Q10 → education → advice → premium-cut (current intent > stale context) → general_daily.
+ * @param {string} question
+ * @param {{ history?: Array, previousAnswerSummary?: string, s6FinalAnswer?: string }} [context]
  */
-export function classifyStage3Lane(question = "") {
+export function classifyStage3Lane(question = "", context = {}) {
   const q = normalizeQuestion(question);
   if (!q) {
     return { lane: STAGE3_LANES.GENERAL_DAILY, lane_reason: "empty_question", q10_blocked: false };
@@ -152,6 +211,31 @@ export function classifyStage3Lane(question = "") {
       lane_reason: "insurance_advice_or_judgment_intent",
       q10_blocked: false,
     };
+  }
+
+  // F3: percent/premium-cut shape → advice ONLY with insurance anchor in question OR conversation context.
+  // Do NOT treat bare "%" or bare "줄이다" as global advice keywords.
+  // Current-question priority: explicit insurance anchor in q → advice; explicit non-insurance target → daily
+  // (vetoes stale history/s6); ambiguous omitted-target ("30% 줄일 수 있지?") may use insurance context.
+  if (isPremiumCutPercentQuestion(q)) {
+    const qAnchor = hasInsuranceLexicalAnchor(q);
+    if (qAnchor) {
+      return {
+        lane: STAGE3_LANES.INSURANCE_ADVICE,
+        lane_reason: "premium_cut_percent_with_insurance_context",
+        q10_blocked: false,
+      };
+    }
+    // Explicit non-insurance subject in current question beats stale insurance context.
+    if (hasExplicitNonInsuranceCutTarget(q)) {
+      // fall through to general_daily
+    } else if (hasInsuranceConversationContext(context)) {
+      return {
+        lane: STAGE3_LANES.INSURANCE_ADVICE,
+        lane_reason: "premium_cut_percent_with_insurance_context",
+        q10_blocked: false,
+      };
+    }
   }
 
   // General Daily
@@ -235,12 +319,18 @@ export function decideStage3Promotion({
   s6FinalAnswer = "",
   shadow = null,
   env = process.env,
+  history = [],
+  previousAnswerSummary = "",
 } = {}) {
   const s6 = String(s6FinalAnswer ?? "").trim();
   const production = isVercelProductionEnv(env);
   const previewOnly = !production;
   const stage3Flag = isKeyBorrowedSensesStage3Active(env);
-  const classified = classifyStage3Lane(question);
+  const classified = classifyStage3Lane(question, {
+    history,
+    previousAnswerSummary,
+    s6FinalAnswer: s6,
+  });
   const lane = classified.lane;
   const laneReason = classified.lane_reason;
   const q10Blocked = classified.q10_blocked === true;
@@ -437,12 +527,16 @@ export function applyStage3PromotionToCompose({
   s6FinalAnswer = "",
   shadow = null,
   env = process.env,
+  history = [],
+  previousAnswerSummary = "",
 } = {}) {
   const decision = decideStage3Promotion({
     question,
     s6FinalAnswer,
     shadow,
     env,
+    history,
+    previousAnswerSummary,
   });
 
   const stage3Active = {
