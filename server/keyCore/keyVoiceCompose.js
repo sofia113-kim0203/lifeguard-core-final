@@ -3,7 +3,12 @@
  */
 import { buildDecision } from "./keyDecision.js";
 import { assertDecisionFactGate } from "./assertFactTextGate.js";
-import { isKeyVoiceActive, isKeyBorrowedSensesProbeEnabled } from "./oneKeyCoreFlags.js";
+import {
+  isKeyVoiceActive,
+  isKeyBorrowedSensesProbeEnabled,
+  isKeyBorrowedSensesStage2Partial,
+  isKeyBorrowedSensesStage3Active,
+} from "./oneKeyCoreFlags.js";
 import { buildKeyVoiceDirective, summarizeKeyVoiceDirective } from "./keyVoiceDirective.js";
 import { speakKeyVoice, buildKeyVoiceSafeUtterance } from "./keyVoiceSpeak.js";
 import { gateKeyVoiceAnswer } from "./keyVoiceGate.js";
@@ -12,6 +17,7 @@ import { buildKeyVoiceVisualBlocks } from "./keyVoiceVisualBlocks.js";
 import { gateKeyVoiceVisualBlocks } from "./keyVoiceBlockGate.js";
 import { runBorrowedSensesShadowProbe } from "./keyBorrowedSensesSpeak.js";
 import { applyStage2PromotionToCompose } from "./keyBorrowedSensesStage2.js";
+import { applyStage3PromotionToCompose } from "./keyBorrowedSensesStage3.js";
 
 function normalizeText(text = "") {
   return String(text ?? "")
@@ -174,22 +180,46 @@ export async function buildKeyVoiceComposeResult(
     });
     trace.borrowed_senses_shadow = shadow;
 
-    // Stage 2 Preview-only conditional promotion (default remains S6).
-    const stage2 = applyStage2PromotionToCompose({
-      question: directiveQuestion,
-      s6FinalAnswer,
-      shadow,
-      env,
-    });
-    trace.stage2_partial = stage2.stage2_partial;
-    if (shadow && typeof shadow === "object") {
-      shadow.customer_text_changed = stage2.customer_text_changed;
-      shadow.final_answer_source = stage2.final_answer_source;
+    // Stage 2 / Stage 3 promotion are mutually exclusive (default remains S6).
+    // active_partial → Stage 2 only; active → Stage 3 only; shadow → no promote.
+    if (isKeyBorrowedSensesStage2Partial(env) && !isKeyBorrowedSensesStage3Active(env)) {
+      const stage2 = applyStage2PromotionToCompose({
+        question: directiveQuestion,
+        s6FinalAnswer,
+        shadow,
+        env,
+      });
+      trace.stage2_partial = stage2.stage2_partial;
+      if (shadow && typeof shadow === "object") {
+        shadow.customer_text_changed = stage2.customer_text_changed;
+        shadow.final_answer_source = stage2.final_answer_source;
+        shadow.s6_final_answer = s6FinalAnswer;
+        shadow.stage2_partial = stage2.stage2_partial;
+      }
+      if (stage2.customer_text_changed === true && stage2.final_answer_source === "s7") {
+        finalText = String(stage2.finalText ?? "").trim() || s6FinalAnswer;
+      }
+    } else if (isKeyBorrowedSensesStage3Active(env) && !isKeyBorrowedSensesStage2Partial(env)) {
+      const stage3 = applyStage3PromotionToCompose({
+        question: directiveQuestion,
+        s6FinalAnswer,
+        shadow,
+        env,
+      });
+      trace.stage3_active = stage3.stage3_active;
+      if (shadow && typeof shadow === "object") {
+        shadow.customer_text_changed = stage3.customer_text_changed;
+        shadow.final_answer_source = stage3.final_answer_source;
+        shadow.s6_final_answer = s6FinalAnswer;
+        shadow.stage3_active = stage3.stage3_active;
+      }
+      if (stage3.customer_text_changed === true && stage3.final_answer_source === "s7") {
+        finalText = String(stage3.finalText ?? "").trim() || s6FinalAnswer;
+      }
+    } else if (shadow && typeof shadow === "object") {
+      shadow.customer_text_changed = false;
+      shadow.final_answer_source = "s6";
       shadow.s6_final_answer = s6FinalAnswer;
-      shadow.stage2_partial = stage2.stage2_partial;
-    }
-    if (stage2.customer_text_changed === true && stage2.final_answer_source === "s7") {
-      finalText = String(stage2.finalText ?? "").trim() || s6FinalAnswer;
     }
   }
 
