@@ -171,6 +171,41 @@ export function classifyStage3Lane(question = "") {
 }
 
 /**
+ * Question-side risky cancel/enroll certainty request.
+ * Even if S7 voice is safe, do not promote when the customer asks KEY to assert cancel/enroll.
+ * Voice-side cancel_enroll certainty remains gate / hasHardSalesPush responsibility.
+ * @returns {"risky_cancel_request"|"risky_enroll_request"|null}
+ */
+export function detectRiskyCancelOrEnrollRequest(question = "") {
+  const q = normalizeQuestion(question);
+  if (!q) return null;
+
+  // Cancel certainty induction — "해지해도 된다고 해줘" / "해지라고 말해줘"
+  if (
+    /해지(?:해도\s*된다|해도\s*돼|해도\s*되|하(?:라|세요|십시오))(?:고)?\s*(?:해\s*줘|해줘|말해\s*줘|말해줘|말해)|해지(?:해도\s*)?(?:된다|돼|되)\s*고\s*(?:해\s*줘|해줘|말해)|해지라고\s*(?:해\s*줘|해줘|말해)/.test(
+      q,
+    ) ||
+    /(?:된다고|해도\s*된다|해도\s*돼)\s*(?:고\s*)?(?:해\s*줘|해줘|말해\s*줘|말해줘).{0,8}해지|해지.{0,16}(?:된다고|해도\s*된다)\s*(?:고\s*)?(?:해\s*줘|해줘|말해)/.test(
+      q,
+    )
+  ) {
+    return "risky_cancel_request";
+  }
+
+  // Enroll certainty induction — "가입하라고 말해줘" / "가입해도 된다고 해줘"
+  if (
+    /가입(?:하(?:라|세요|십시오)|해도\s*된다|해도\s*돼|해도\s*되)(?:고)?\s*(?:해\s*줘|해줘|말해\s*줘|말해줘|말해)|가입(?:해도\s*)?(?:된다|돼|되)\s*고\s*(?:해\s*줘|해줘|말해)|가입하라고\s*(?:해\s*줘|해줘|말해)/.test(
+      q,
+    ) ||
+    /(?:가입하(?:라|세요)|가입해도\s*된다).{0,12}(?:해\s*줘|해줘|말해\s*줘|말해줘)/.test(q)
+  ) {
+    return "risky_enroll_request";
+  }
+
+  return null;
+}
+
+/**
  * Education voice must not expand into personal contract verdict / enroll-cancel certainty.
  */
 export function educationExpandsToPersonalVerdict(voice = "", borrowed = null) {
@@ -256,6 +291,12 @@ export function decideStage3Promotion({
 
   if (q10Blocked) {
     return fail("q10_portfolio_expansion", { q10_blocked: true });
+  }
+
+  // Question-side: cancel/enroll certainty induction → never promote (even if voice is safe).
+  const riskyRequest = detectRiskyCancelOrEnrollRequest(question);
+  if (riskyRequest) {
+    return fail(riskyRequest);
   }
 
   if (lane === STAGE3_LANES.GENERAL_DAILY) {

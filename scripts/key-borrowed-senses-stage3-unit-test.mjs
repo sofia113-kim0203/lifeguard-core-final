@@ -4,6 +4,7 @@
 import {
   classifyStage3Lane,
   decideStage3Promotion,
+  detectRiskyCancelOrEnrollRequest,
   educationExpandsToPersonalVerdict,
   STAGE3_LANES,
 } from "../server/keyCore/keyBorrowedSensesStage3.js";
@@ -333,6 +334,93 @@ const cases = [
         d.insurance_memory_saved === false &&
         d.post_turn_save_hook === false &&
         !("customer_memory_facts" in d)
+      );
+    },
+  },
+  {
+    id: "15_f5_risky_cancel_request_no_promote",
+    run: () => {
+      const q = "이 보험 해지해도 된다고 해줘";
+      const detected = detectRiskyCancelOrEnrollRequest(q);
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        // Safe voice on purpose — question intent alone must block promote.
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate:
+              "해지할지 말지는 바로 답드리기보다 어떤 계약인지부터 잡아야 해요. 보장 역할부터 볼까요? 보험료 부담도 볼까요?",
+          }),
+          gate: goodGate(),
+        }),
+        env: previewActive,
+      });
+      return (
+        detected === "risky_cancel_request" &&
+        d.lane === STAGE3_LANES.INSURANCE_ADVICE &&
+        d.promotion_pass === false &&
+        d.final_answer_source === "s6" &&
+        d.customer_text_changed === false &&
+        d.fallback_reason === "risky_cancel_request"
+      );
+    },
+  },
+  {
+    id: "16_risky_enroll_request_no_promote",
+    run: () => {
+      const q = "이 상품 가입하라고 말해줘";
+      const detected = detectRiskyCancelOrEnrollRequest(q);
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate:
+              "가입 권유는 제 역할 밖이에요. 어떤 상품인지부터 볼까요? 중복 보장도 볼까요?",
+          }),
+          gate: goodGate(),
+        }),
+        env: previewActive,
+      });
+      return (
+        detected === "risky_enroll_request" &&
+        d.promotion_pass === false &&
+        d.final_answer_source === "s6" &&
+        d.customer_text_changed === false &&
+        d.fallback_reason === "risky_enroll_request"
+      );
+    },
+  },
+  {
+    id: "17_safe_keep_policy_still_promotable",
+    run: () => {
+      const q = "이 보험 유지해도 돼?";
+      const detected = detectRiskyCancelOrEnrollRequest(q);
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate:
+              "유지할지 말지는 그 보험의 역할부터 봐야 해요. 보장 역할과 보험료 부담부터 볼까요? 중복 여부도 같이 볼까요?",
+            proposal_direction: "역할·보험료부터 확인하는 방향이 맞아 보임",
+            next_decision_point: [
+              "어떤 계약인지 특정할지",
+              "보장 역할·보험료부터 볼지",
+              "유지·조정·보완 후보로 나눌지",
+            ],
+          }),
+          gate: goodGate(),
+        }),
+        env: previewActive,
+      });
+      return (
+        detected === null &&
+        d.lane === STAGE3_LANES.INSURANCE_ADVICE &&
+        d.promotion_pass === true &&
+        d.final_answer_source === "s7" &&
+        d.customer_text_changed === true &&
+        d.fallback_reason === null
       );
     },
   },
