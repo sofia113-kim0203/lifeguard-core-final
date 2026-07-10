@@ -1192,6 +1192,31 @@ const repairCases = [
     },
   },
   {
+    id: "B27c_education_no_invent_number_hint",
+    run: () => {
+      const waiting = buildQuestionLeadershipHint("면책기간이 뭐야?");
+      if (!waiting || !/Insurance Education path/.test(waiting)) return false;
+      // Must forbid ungrounded invent while allowing confirmed inputs
+      if (!/FORBIDDEN|invent|90일|ungrounded|근거/.test(waiting)) return false;
+      if (!/allowed_fact_tokens|allowed_numbers|confirmed/.test(waiting)) return false;
+      if (!/상품·담보마다 다름|상품.?담보마다/.test(waiting)) return false;
+      // Must still allow concept education (not refuse / not wait-only only)
+      if (!/Explain the concept|개념/.test(waiting)) return false;
+      if (!/next_decision_point MUST/.test(waiting)) return false;
+      // Must not push personal verdict / enroll-cancel
+      if (!/personal contract verdict|가입하세요|해지해도\s*됩니다/.test(waiting)) return false;
+
+      const renewal = buildQuestionLeadershipHint("갱신형이 무슨 뜻이야?");
+      if (!renewal || !/Insurance Education path/.test(renewal)) return false;
+      if (!/allowed_fact_tokens|allowed_numbers/.test(renewal)) return false;
+
+      // Non-education keep question must NOT get education path
+      const keep = buildQuestionLeadershipHint("이 보험 유지해도 돼?");
+      if (keep && /Insurance Education path/.test(keep)) return false;
+      return true;
+    },
+  },
+  {
     id: "B28_premium_next_decision_repair_pass",
     run: () => {
       const q = "보험료 줄이고 싶어";

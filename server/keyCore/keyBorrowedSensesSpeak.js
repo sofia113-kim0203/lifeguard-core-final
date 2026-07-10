@@ -153,6 +153,14 @@ function buildQuestionLeadershipHint(question = "") {
   if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
     return "Table meaning path: next_decision_point MUST have 2-3 choices even if visual_blocks_summary is null (e.g. representative row / total vs unconfirmed / one contract detail). Never leave empty.";
   }
+  // Insurance Education (면책/갱신형/감액/특약 뜻) — concept OK; inventing ungrounded numbers as fact FORBIDDEN.
+  if (
+    /갱신형|비갱신형|면책\s*기간|감액\s*기간|특약\s*뜻|담보\s*뜻|보험\s*용어/.test(q) ||
+    /(?:갱신형|비갱신형|면책|감액|특약|담보|실손).{0,12}(?:무슨\s*뜻|뭐야|무엇|설명)/.test(q) ||
+    /(?:무슨\s*뜻|뭐야|무엇).{0,12}(?:갱신형|비갱신형|면책|감액|특약|담보)/.test(q)
+  ) {
+    return "Insurance Education path (면책기간/갱신형/감액/특약·담보 뜻): Explain the concept clearly in KEY voice — do NOT refuse education or go wait-only. GOOD: '면책기간은 가입 후 일정 기간 동안 보장이 시작되지 않거나 제한될 수 있는 기간을 뜻해요. 며칠인지는 상품·담보마다 달라요.' OR '갱신형은 일정 주기마다 보험료가 다시 정해질 수 있는 구조예요.' ALLOWED numbers: ONLY values present in allowed_fact_tokens / allowed_numbers / confirmed document facts (e.g. policy_count 22, 확인된 월 4만5천 원). FORBIDDEN as invented fact: ungrounded day counts (e.g. 90일), %, 금액, 한도, '보통 N일', '대개 N%' when not in allowed inputs — say 상품·담보마다 다름 instead of inventing a number. Do NOT expand into personal contract verdict (고객님께 적합/부족/충분, 가입하세요, 해지해도 됩니다). next_decision_point MUST have 2-3 choices — e.g. (1) 개념만 더 보기 (2) 본인 계약 서류 기준으로 확인하기 (3) 비슷한 용어(갱신형↔비갱신형 등)와 비교하기. Never leave next_decision_point empty.";
+  }
   if (/지난번|저번|이어서|앞서/.test(q)) {
     return "Continue path (S7Q10): context_carryover MUST use ONLY topics/numbers explicitly in conversation_history / previous_answer_summary. Prefer '직전 대화에서 확인된 …'. GOOD: '직전 대화에서 확인된 22건 계약과 삼성생명 실손, 월 4만5천 원 기준으로 이어볼 수 있음'; next choices among 보장종류/납입/궁금한 영역. BAD: '지난번에 암 보장까지 봤습니다', '지난번에 사망 보장이 부족하다고 봤습니다', '나머지 21건을 보면 됩니다', '이미 암/수술/사망까지 확인했습니다'. Do NOT invent prior 암/사망/진단비/수술비 memory. Do NOT put calculated '나머지 N건' in context_carryover. next_decision_point 2-3 choices. Purpose-fit OK within confirmed facts only.";
   }
