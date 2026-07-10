@@ -1172,6 +1172,26 @@ const repairCases = [
     },
   },
   {
+    id: "B27b_q9_recommend_tone_hint_direct_speech",
+    run: () => {
+      const q9 = buildQuestionLeadershipHint("보험 추천해줘");
+      if (!q9 || !/Recommend path|FULLVOICE_Q9|S7Q6/.test(q9)) return false;
+      if (!/추천은\s*가능|추천해드릴게요|추천은\s*가능해요/.test(q9)) return false;
+      if (!/고객 목적이 아직 확인되지 않은 상태입니다/.test(q9)) return false; // must forbid by naming BAD
+      if (!/FORBIDDEN|BAD opening/.test(q9)) return false;
+      if (!/절감|보완|현황|막연/.test(q9)) return false;
+      if (!/next_decision_point MUST/.test(q9)) return false;
+      if (/추천은\s*하지\s*않|추천\s*금지|추천은\s*어렵/.test(q9) && !/BAD|FORBIDDEN/.test(q9)) {
+        return false;
+      }
+      // Q2 need path must stay separate (not Recommend path)
+      const q2 = buildQuestionLeadershipHint("나한테 뭐가 필요해?");
+      if (!q2 || !/Direction\/need path|S7Q7|FULLVOICE_Q2/.test(q2)) return false;
+      if (/FULLVOICE_Q9|Recommend path \(FULLVOICE_Q9/.test(q2)) return false;
+      return true;
+    },
+  },
+  {
     id: "B28_premium_next_decision_repair_pass",
     run: () => {
       const q = "보험료 줄이고 싶어";

@@ -106,6 +106,7 @@ function buildSystemPrompt() {
     "For premium scope: when policy_count > 1, never imply monthly_premium is total for all contracts.",
     "voice_raw_candidate is an alternate expression sketch — NOT the customer-facing answer. Prefer clearer purpose-fit than a timid S6 paraphrase.",
     "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice.",
+    "Speak TO the customer in 2nd-person/구어체. FORBIDDEN openings: third-person report tone like '고객 목적이 아직 확인되지 않은 상태입니다', '정보가 부족합니다', '추천은 어렵습니다'. Prefer warm direct speech: '좋아요', '추천해드릴게요', '먼저 목적을 잡으면'.",
     "recommendation_basis MUST separate: why this direction looks fit for the purpose vs why it is not yet a definitive enroll/cancel/verdict.",
     "S7-b leadership fields (key_purpose, leadership_move, insurance_expertise_angle, proposal_direction, next_decision_point) are trace-only — never customer-facing.",
     "KEY acts as 보험 주치의: lead the customer to the next safe decision point — soft but not passive.",
@@ -139,8 +140,15 @@ function buildQuestionLeadershipHint(question = "") {
   if (/꼭\s*필요|필요한\s*거|필요성/.test(q)) {
     return "Necessity path (S7Q12): NEVER claim 꼭 필요합니다 as verdict. next_decision_point MUST have 2-3 choices — e.g. (1) 먼저 '이거'가 어떤 계약/보장인지 특정하기 (2) 기존 계약과 중복되는 보장인지 확인하기 (3) 고객 목적 기준으로 유지/조정/보완 후보인지 나눠보기. Never leave next_decision_point empty. Purpose-fit OK: 필요성 판단이면 대상 특정·중복 확인이 먼저 맞아 보입니다.";
   }
-  if (/추천|뭐가\s*필요|필요해/.test(q)) {
-    return "Direction/need path (S7Q7): do NOT refuse all judgment. If purpose unclear, state a fact-based purpose-fit lean (절감→중복 확인 먼저 / 보완→상품군 후보) then ask which purpose fits. next_decision_point MUST have 2-3 choices — e.g. (1) 보험료 절감 목적이면 기존 중복 보장부터 확인하기 (2) 보장 보완 목적이면 부족한 보장 구성부터 확인하기 (3) 목적이 아직 막연하면 전체 계약 현황부터 정리하기. Never leave next_decision_point empty. Forbidden: purposeless product push or enroll command. Do NOT use S7Q12 '이거' 특정 choices here.";
+  // FULLVOICE_Q9 / S7Q6 recommend — before need-path so "보험 추천해줘" does not share Q2 tone.
+  if (
+    /추천/.test(q) &&
+    !/뭐가\s*필요|필요해|꼭\s*필요|필요한\s*거|필요성/.test(q)
+  ) {
+    return "Recommend path (FULLVOICE_Q9 / S7Q6 보험 추천해줘): Recommendation IS core — first AFFIRM recommendation is possible, then lead purpose/direction. GOOD opening (2nd-person/구어체): '좋아요. 보험 추천은 가능해요. 다만 바로 상품부터 고르기보다, 먼저 목적을 잡으면 훨씬 정확해져요.' OR '추천해드릴게요. 먼저 방향을 잡으면 좋아요. 보험료를 줄이고 싶은지, 빠진 보장을 채우고 싶은지, 지금 보험이 괜찮은지부터 나눠볼 수 있어요.' OR '바로 상품 이름부터 고르기보다, 목적에 맞는 방향부터 잡는 게 추천의 시작이에요.' BAD opening FORBIDDEN: '고객 목적이 아직 확인되지 않은 상태입니다', '정보가 부족합니다', '추천은 어렵습니다', '추천은 하지 않겠습니다', '상담사와 확인하세요', '이 상품 가입하세요'. Do NOT refuse judgment or sound like recommendation-ban. If purpose unclear: warm direct speech → fact-based direction lean (절감→중복 확인 먼저 / 보완→보장 구성 / 막연→현황 정리) → ask which fits. next_decision_point MUST have 2-3 choices — e.g. (1) 보험료 절감 목적이면 기존 중복 보장부터 확인하기 (2) 보장 보완 목적이면 부족한 보장 구성부터 확인하기 (3) 목적이 아직 막연하면 전체 계약 현황부터 정리하기. Never leave next_decision_point empty. Forbidden: purposeless product push or enroll/cancel command.";
+  }
+  if (/뭐가\s*필요|필요해/.test(q)) {
+    return "Direction/need path (S7Q7 / FULLVOICE_Q2): do NOT refuse all judgment. If purpose unclear, speak TO the customer (not third-person report). State a fact-based purpose-fit lean (절감→중복 확인 먼저 / 보완→상품군 후보) then ask which purpose fits. next_decision_point MUST have 2-3 choices — e.g. (1) 보험료 절감 목적이면 기존 중복 보장부터 확인하기 (2) 보장 보완 목적이면 부족한 보장 구성부터 확인하기 (3) 목적이 아직 막연하면 전체 계약 현황부터 정리하기. Never leave next_decision_point empty. Forbidden: purposeless product push or enroll command; FORBIDDEN openings like '고객 목적이 아직 확인되지 않은 상태입니다'. Do NOT use S7Q12 '이거' 특정 choices here.";
   }
   if (/표가|표\s*가|표\s*무슨|표의\s*뜻|표\s*의미/.test(q)) {
     return "Table meaning path: next_decision_point MUST have 2-3 choices even if visual_blocks_summary is null (e.g. representative row / total vs unconfirmed / one contract detail). Never leave empty.";
