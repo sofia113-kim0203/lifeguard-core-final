@@ -133,21 +133,141 @@ function passesFullVoiceMinimum(borrowed = {}, voice = "") {
   return hasLean && hasBasis && continues;
 }
 
-function collectGateSafetyFail(gate = null) {
-  if (!gate || typeof gate !== "object") return "gate_missing";
-  if (gate.ok !== true) return "gate_fail";
-  const flags = [
-    ["unsupported_recommendation", gate.unsupported_recommendation],
-    ["product_push_as_direction", gate.product_push_as_direction],
-    ["closing_or_signup_push", gate.closing_or_signup_push],
-    ["leadership_cancel_enroll_certainty", gate.leadership_cancel_enroll_certainty],
-    ["number_scope_violation", gate.number_scope_violation],
-    ["context_hallucination", gate.context_hallucination],
-    ["expertise_overclaim", gate.expertise_overclaim],
+/** Mid-field blob (not customer answer) — trace/warning only for answer-first approval. */
+export function collectBorrowedMidFieldText(borrowed = {}) {
+  const parts = [
+    borrowed?.customer_intent,
+    ...(Array.isArray(borrowed?.understanding_hypotheses) ? borrowed.understanding_hypotheses : []),
+    borrowed?.proposal_direction,
+    borrowed?.leadership_move,
+    borrowed?.key_purpose,
+    ...(Array.isArray(borrowed?.next_decision_point) ? borrowed.next_decision_point : []),
+    ...(Array.isArray(borrowed?.insurance_expertise_angle) ? borrowed.insurance_expertise_angle : []),
   ];
-  for (const [name, v] of flags) {
-    if (v === true) return name;
+  return parts.map((s) => String(s ?? "").trim()).filter(Boolean).join(" ");
+}
+
+export function isDailyOwnedDecisionFocus(decision = null) {
+  if (!decision || typeof decision !== "object") return false;
+  const priority = String(decision.response_priority ?? "").trim();
+  const situation = String(decision.situation_key ?? "").trim();
+  const dirType = String(decision.direction?.type ?? decision.key_direction?.type ?? "").trim();
+  return (
+    priority === "daily_focus" ||
+    priority === "non_insurance_focus" ||
+    situation === "daily_recommendation" ||
+    situation === "non_insurance_general" ||
+    situation === "emotional_space" ||
+    dirType === "general_daily"
+  );
+}
+
+/** Insurance pollution in the actual customer answer only. */
+export function voiceHasDailyInsurancePollution(voice = "", question = "") {
+  const v = String(voice ?? "");
+  const q = String(question ?? "");
+  if (/보험료|보장|청구|보험금|해지|가입|실손|납입/.test(q)) return false;
+  return (
+    (/보험료|가입하|해지하|보장\s*부족|보장\s*충분|월\s*[\d만천]|22\s*건|빠진\s*보장|보험\s*쪽으로/.test(v) &&
+      !/보험\s*(?:얘기|이야기).{0,8}(?:나중|말고)/.test(v)) ||
+    (/보험료를\s*줄|빠진\s*보장을\s*채|어느\s*쪽이\s*더\s*끌리/.test(v) && !/보험료|보장/.test(q))
+  );
+}
+
+export function voiceHasForbiddenCertainty(voice = "") {
+  const v = String(voice ?? "");
+  return (
+    /보험금\s*(?:받|지급).{0,12}(?:됩니다|가능합니다|확실)/.test(v) ||
+    /(?:지급|청구).{0,8}가능한\s*경우가\s*많/.test(v) ||
+    /충분합니다|부족합니다|해지해도\s*됩니다|가입하세요/.test(v)
+  );
+}
+
+/**
+ * Mid-field insurance drift warnings — never alone veto a safe customer answer.
+ */
+export function collectMidFieldTraceWarnings(borrowed = null, question = "", decision = null) {
+  const warnings = [];
+  if (!borrowed || typeof borrowed !== "object") return warnings;
+  const voice = String(borrowed.voice_raw_candidate ?? "").trim();
+  const mid = collectBorrowedMidFieldText(borrowed);
+  if (
+    isDailyOwnedDecisionFocus(decision) &&
+    !voiceHasDailyInsurancePollution(voice, question) &&
+    /보험료|보장|청구|가입|해지|22\s*건|보험\s*쪽/.test(mid)
+  ) {
+    warnings.push("mid_field_insurance_drift");
   }
+  if (
+    /보험료를\s*줄|빠진\s*보장|가입\s*보험\s*점검|어느\s*쪽이\s*더\s*끌리/.test(mid) &&
+    !/보험료를\s*줄|빠진\s*보장|어느\s*쪽이\s*더\s*끌리/.test(voice)
+  ) {
+    warnings.push("mid_field_leadership_not_adopted");
+  }
+  return warnings;
+}
+
+/**
+ * Answer-first safety — veto only when the customer answer itself is unsafe.
+ * Mid-field Gate flags (proposal/leadership/next_decision) alone do not fail.
+ * Does not globally soften Gate; demotes mid-field-only veto for approval.
+ */
+export function collectAnswerFacingSafetyFail({
+  gate = null,
+  voice = "",
+  question = "",
+  decision = null,
+} = {}) {
+  if (!gate || typeof gate !== "object") return "gate_missing";
+  const v = String(voice ?? "").trim();
+  if (!v) return "empty_voice";
+
+  if (hasHardSalesPush(v)) return "hard_sales_push";
+  if (voiceHasForbiddenCertainty(v)) return "answer_forbidden_certainty";
+  if (isDailyOwnedDecisionFocus(decision) && voiceHasDailyInsurancePollution(v, question)) {
+    return "decision_mismatch_insurance_pollution";
+  }
+
+  // Hard Gate flags only count when the answer text itself carries the risk.
+  const voiceScoped = [
+    [
+      "unsupported_recommendation",
+      gate.unsupported_recommendation,
+      /추천드|가입을\s*추천|이\s*상품|추가\s*가입/,
+    ],
+    [
+      "product_push_as_direction",
+      gate.product_push_as_direction,
+      /가입하(?:세요|십시오)|이\s*상품|추가\s*가입|갈아타/,
+    ],
+    [
+      "closing_or_signup_push",
+      gate.closing_or_signup_push,
+      /가입하(?:세요|십시오)|해지하|마무리|이만\s*줄이/,
+    ],
+    [
+      "leadership_cancel_enroll_certainty",
+      gate.leadership_cancel_enroll_certainty,
+      /해지해도\s*됩니다|가입하세요|무조건\s*가입|갈아타세요/,
+    ],
+    [
+      "expertise_overclaim",
+      gate.expertise_overclaim,
+      /부족합니다|충분합니다|문제\s*없(?:어|습니다)|완벽(?:해|합니다)/,
+    ],
+  ];
+  for (const [name, flagged, re] of voiceScoped) {
+    if (flagged === true && re.test(v)) return name;
+  }
+
+  // Number / hallucination: only when answer text is implicated (Gate already saw assertive blob).
+  if (gate.number_scope_violation === true) {
+    if (/\d/.test(v) || /나머지\s*\d|절반|대부분|비율/.test(v)) return "number_scope_violation";
+  }
+  if (gate.context_hallucination === true) {
+    if (/(지난\s*번|이전\s*세션).*(말씀|논의)/.test(v)) return "context_hallucination";
+  }
+
   return null;
 }
 
@@ -271,7 +391,12 @@ export function decideStage2Promotion({
     return fail("empty_voice", { gate: baseTrace.gate, s7_voice: null, next_decision_point: nd });
   }
 
-  const safetyFail = collectGateSafetyFail(gate);
+  const safetyFail = collectAnswerFacingSafetyFail({
+    gate,
+    voice,
+    question,
+    decision: null,
+  });
   if (safetyFail) {
     return fail(safetyFail, {
       gate: baseTrace.gate,
@@ -375,44 +500,49 @@ export function evaluateBorrowedFastPathCandidate({
     return { ...base, reason: "empty_voice" };
   }
 
-  const safetyFail = collectGateSafetyFail(gate);
+  const midFieldWarnings = collectMidFieldTraceWarnings(borrowed, question, decision);
+  const safetyFail = collectAnswerFacingSafetyFail({
+    gate,
+    voice,
+    question,
+    decision,
+  });
   if (safetyFail) {
-    return { ...base, reason: safetyFail, voice, gate_ok: false };
+    return {
+      ...base,
+      reason: safetyFail,
+      voice,
+      gate_ok: gate?.ok === true,
+      mid_field_warnings: midFieldWarnings,
+      answer_facing_fail: safetyFail,
+    };
   }
 
   if (hasHardSalesPush(voice)) {
-    return { ...base, reason: "hard_sales_push", voice, gate_ok: true };
+    return {
+      ...base,
+      reason: "hard_sales_push",
+      voice,
+      gate_ok: true,
+      mid_field_warnings: midFieldWarnings,
+    };
   }
 
-  // Decision focus / direction alignment — discard on mismatch, never rewrite
+  // Decision focus / direction alignment — answer text only (never mid-field alone)
   const priority = String(decision?.response_priority ?? "").trim();
   const situation = String(decision?.situation_key ?? "").trim();
   const focus = String(directive?.question_focus ?? "").trim();
   const move = String(decision?.key_next_move ?? decision?.direction?.move ?? "").trim();
   const q = String(question ?? "").trim();
 
-  if (
-    priority === "non_insurance_focus" ||
-    priority === "daily_focus" ||
-    situation === "non_insurance_general" ||
-    situation === "daily_recommendation" ||
-    situation === "emotional_space" ||
-    decision?.direction?.type === "general_daily" ||
-    decision?.key_direction?.type === "general_daily"
-  ) {
-    if (
-      (/보험료|가입하|해지하|보장\s*부족|보장\s*충분|월\s*[\d만천]|22\s*건|빠진\s*보장|보험\s*쪽으로/.test(
-        voice,
-      ) &&
-        !/보험료|보장|청구|보험금|해지|가입|실손/.test(q)) ||
-      (/보험료를\s*줄|빠진\s*보장을\s*채|어느\s*쪽이\s*더\s*끌리/.test(voice) &&
-        !/보험료|보장/.test(q))
-    ) {
+  if (isDailyOwnedDecisionFocus(decision)) {
+    if (voiceHasDailyInsurancePollution(voice, q)) {
       return {
         ...base,
         reason: "decision_mismatch_insurance_pollution",
         voice,
         gate_ok: true,
+        mid_field_warnings: midFieldWarnings,
       };
     }
   }
@@ -428,6 +558,7 @@ export function evaluateBorrowedFastPathCandidate({
         reason: "decision_mismatch_emotional_without_facts",
         voice,
         gate_ok: true,
+        mid_field_warnings: midFieldWarnings,
       };
     }
   }
@@ -439,6 +570,7 @@ export function evaluateBorrowedFastPathCandidate({
         reason: "decision_mismatch_unverified_cut_claim",
         voice,
         gate_ok: true,
+        mid_field_warnings: midFieldWarnings,
       };
     }
   }
@@ -450,6 +582,7 @@ export function evaluateBorrowedFastPathCandidate({
         reason: "decision_mismatch_percent_certainty",
         voice,
         gate_ok: true,
+        mid_field_warnings: midFieldWarnings,
       };
     }
   }
@@ -461,6 +594,7 @@ export function evaluateBorrowedFastPathCandidate({
       reason: "decision_mismatch_focus",
       voice,
       gate_ok: true,
+      mid_field_warnings: midFieldWarnings,
     };
   }
 
@@ -476,6 +610,7 @@ export function evaluateBorrowedFastPathCandidate({
       reason: "decision_mismatch_direction",
       voice,
       gate_ok: true,
+      mid_field_warnings: midFieldWarnings,
     };
   }
 
@@ -487,6 +622,8 @@ export function evaluateBorrowedFastPathCandidate({
     customer_text_changed: true,
     aligned_with_decision: true,
     gate_ok: true,
+    mid_field_warnings: midFieldWarnings,
+    answer_facing_fail: null,
   };
 }
 

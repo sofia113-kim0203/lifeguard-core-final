@@ -263,6 +263,13 @@ function classifySituation(question = "", reality = {}, reflection = {}, borrowe
     return "direction_choice";
   }
   if (/심심/.test(q)) return "social_presence";
+  // Explicit claim/payout worry — docs/담보 prep, not inventory dump
+  if (
+    /(?:보험금|청구)/.test(q) &&
+    /(?:걱정|받을\s*수|가능|수술비)/.test(q)
+  ) {
+    return "claim_need_check";
+  }
   if (!INSURANCE_TOPIC_RE.test(q)) return "non_insurance_general";
   return "general_inquiry";
 }
@@ -286,6 +293,8 @@ function buildDirectAnswerHint(question = "", situation = "") {
       return "어떤 분위기가 편하세요?";
     case "non_insurance_general":
       return "그 이야기부터 들을게요.";
+    case "claim_need_check":
+      return "수술비·보험금 걱정이시군요.";
     case "respect_close":
       return "네, 알겠습니다. 고마워요.";
     case "social_presence":
@@ -439,6 +448,23 @@ export function buildDecision({
       invite = { allowed: true, prompt: "조금만 더 말씀해 주실래요?" };
       break;
 
+    case "claim_need_check":
+      factsToWithhold.push(
+        { fact: "policy_count", reason: "claim_prep_withhold_inventory" },
+        { fact: "insurer", reason: "claim_prep_docs_first" },
+        { fact: "product", reason: "claim_prep_docs_first" },
+        { fact: "monthly_premium", reason: "claim_prep_docs_first" },
+        { fact: "insurance_facts", reason: "claim_prep_docs_first" },
+      );
+      keyJudgment =
+        "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요.";
+      direction = {
+        type: "claim_prep",
+        move: "진단서·영수증·진료비 세부내역과 해당 담보부터 확인하겠습니다",
+      };
+      invite = { allowed: true, prompt: "서류부터 볼까요, 담보 확인부터 볼까요?" };
+      break;
+
     case "respect_close":
       factsToWithhold.push({ fact: "insurance_facts", reason: "respect_close" });
       keyJudgment = "오늘은 여기까지 해도 됩니다. 고마워요.";
@@ -529,6 +555,11 @@ export function buildDecision({
     case "non_insurance_general":
       key_situation_judgment = "현재 비보험 요청에 먼저 답한다.";
       response_priority = "non_insurance_focus";
+      break;
+    case "claim_need_check":
+      key_situation_judgment =
+        "고객이 명시한 보험금 걱정을 청구 확인 준비로 본다. 지급 가능 여부는 확인 전 단정하지 않는다.";
+      response_priority = "claim_prep";
       break;
     case "respect_close":
       key_situation_judgment = "대화를 마무리하는 상황으로 본다.";

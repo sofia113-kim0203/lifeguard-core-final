@@ -1204,7 +1204,7 @@ function normalizeComposeText(text = "") {
     assert.ok(decisionD.situation_key !== "daily_recommendation");
   }
 
-  // polluted daily candidate → S6 fallback once, still daily Decision (no insurance force in S6)
+  // polluted daily candidate → constrained regen once (not Decision-meta dump)
   {
     const qP = "분당 맛집 추천해줘";
     const logP = [];
@@ -1238,9 +1238,327 @@ function normalizeComposeText(text = "") {
     assert.equal(logP.filter((x) => x === "s6").length, 1);
     assert.equal(resultP.key_voice_trace.s6_speak_calls, 1);
     assert.equal(resultP.key_voice_trace.fast_path?.ok, false);
+    assert.equal(resultP.key_voice_trace.used_constrained_regen, true);
     assert.equal(resultP.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s6");
     assertNoInsuranceForce(resultP.text);
+    assert.ok(!/말씀하신 것부터 이어갈게요|필요한 맥락을 하나만/.test(resultP.text));
     assert.match(resultP.text, /한식|일식|동행|분위기|선택지/);
+  }
+}
+
+// --- S7-A FINAL-ANSWER-FIRST + one-regeneration (A–G) ---
+{
+  const { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } = await import(
+    "../server/keyCore/keyCustomerMonopoly.js"
+  );
+
+  function dailySafeVoice(overrides = {}) {
+    return goodBorrowedInput({
+      customer_intent: "분당 맛집 추천 — 보험과 무관",
+      understanding_hypotheses: ["일상적인 맛집 추천 요청일 가능성이 높음"],
+      voice_raw_candidate:
+        "분당이면 서현·정자 쪽에 한식·일식 선택지가 많아요. 한식·일식·캐주얼 중 어떤 분위기부터 볼까요? 몇 분이서 가시는지도 알려주시면 좋아요.",
+      proposal_direction: "음식 종류·분위기부터",
+      next_decision_point: ["한식 쪽", "일식·캐주얼 쪽", "동행 인원부터"],
+      recommendation_basis: "취향 확인이 먼저",
+      leadership_move: "분위기·동행부터",
+      key_purpose: "일상 추천",
+      insurance_expertise_angle: [],
+      used_facts: [],
+      ...overrides,
+    });
+  }
+
+  // A. safe answer + leadership-only insurance pollution → approve, regen 0
+  {
+    const q = "분당 맛집 추천해줘";
+    const log = [];
+    const borrowed = dailySafeVoice({
+      proposal_direction:
+        "보험 외 질문임을 안내 후, 보험료 절감 / 보장 보완 중 하나를 선택하도록 유도",
+      next_decision_point: [
+        "보험료를 줄이고 싶다면 — 중복 보장 확인",
+        "빠진 보장을 채우고 싶다면 — 보장 구성",
+      ],
+      leadership_move: "보험 상담 방향으로 전환",
+    });
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed,
+          s6Text: "S6_SHOULD_NOT_RUN_A",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.decision_snapshot?.response_priority, "daily_focus");
+    assert.equal(log.filter((x) => x === "borrowed").length, 1);
+    assert.equal(log.filter((x) => x === "s6").length, 0);
+    assert.equal(result.key_voice_trace.fast_path?.ok, true);
+    assert.equal(result.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s7");
+    assert.match(result.text, /한식|일식|분위기/);
+    assert.ok(!/보험료|22건|보장/.test(result.text));
+    assert.ok((result.key_voice_trace.fast_path?.mid_field_warnings ?? []).length >= 1);
+  }
+
+  // B. answer itself polluted → regen exactly 1
+  {
+    const q = "분당 맛집 추천해줘";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: dailySafeVoice({
+            voice_raw_candidate:
+              "맛집보다 보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.",
+          }),
+          s6Text:
+            "분당 쪽이면 조용한 한식·캐주얼부터 좁혀볼 수 있어요. 동행 인원과 분위기 중 어떤 것부터 맞출까요?",
+          log,
+        }),
+      },
+    );
+    assert.equal(log.filter((x) => x === "borrowed").length, 1);
+    assert.equal(log.filter((x) => x === "s6").length, 1);
+    assert.equal(result.key_voice_trace.used_constrained_regen, true);
+    assert.ok(!/말씀하신 것부터 이어갈게요|필요한 맥락을 하나만/.test(result.text));
+    assert.ok(!/보험료를 줄일지|22건/.test(result.text));
+    assert.match(result.text, /한식|분위기|동행|분당/);
+  }
+
+  // C. parents + surgery cue — meal first
+  {
+    const q = "부모님 모시고 가는데 아버지가 최근 수술하셨어";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        history: [
+          { role: "user", content: "분당 맛집 추천해줘" },
+          { role: "assistant", content: "분당이면 선택지가 많아요. 분위기부터 여쭐게요." },
+        ],
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: dailySafeVoice({
+            customer_intent: "부모님 동행 식사 — 수술은 단서, 보험 요청 아님",
+            understanding_hypotheses: [
+              "가족 식사 장소가 우선일 수 있음",
+              "수술·돌봄 단서가 있으나 즉시 보험 전환은 아님",
+            ],
+            voice_raw_candidate:
+              "아버지 수술 후라면 자극 적고 조용한 곳이 나을 수 있어요. 담백한 한식 위주로 좁혀볼까요? 이동 거리는 어느 정도가 편하세요?",
+            proposal_direction: "조용한 식사 장소부터",
+            next_decision_point: ["담백한 한식", "이동 거리", "예약"],
+          }),
+          s6Text: "S6_C_NO",
+          log,
+        }),
+      },
+    );
+    assert.ok(
+      result.decision_snapshot?.response_priority === "daily_focus" ||
+        result.decision_snapshot?.response_priority === "non_insurance_focus",
+    );
+    assert.equal(log.filter((x) => x === "s6").length, 0);
+    assert.ok(!/보험료|가입하|보장 부족|22건/.test(result.text));
+    assert.match(result.text, /한식|조용|이동/);
+  }
+
+  // D. claim worry
+  {
+    const q = "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야";
+    const decision = buildDecision({
+      reflection: buildReflection({ customerSaid: q, reality: softReality }),
+      reality: softReality,
+      question: q,
+      borrowedUnderstanding: {
+        customer_intent: "수술비·보험금 청구 가능 여부 걱정",
+        understanding_hypotheses: ["청구 니즈가 명확해짐", "지급 단정 금지"],
+      },
+    });
+    assert.equal(decision.situation_key, "claim_need_check");
+    assert.equal(decision.response_priority, "claim_prep");
+    assert.ok(!(decision.fact_selection?.facts_spoken ?? []).some((f) => f.fact_id === "policy_count"));
+
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "수술비·보험금 걱정 — 자료 확인 필요",
+            understanding_hypotheses: ["지급 단정 금지", "서류·담보 확인이 먼저"],
+            voice_raw_candidate:
+              "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 진단서·영수증·해당 담보부터 같이 확인해볼까요?",
+            proposal_direction: "서류·담보 확인",
+            recommendation_basis: "확인 전 지급 단정 금지 · 서류·담보부터",
+            next_decision_point: ["진단서·영수증부터", "담보 목록부터"],
+            used_facts: [],
+            insurance_expertise_angle: [],
+          }),
+          s6Text: "S6_D_SHOULD_NOT_RUN",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.decision_snapshot?.response_priority, "claim_prep");
+    assert.equal(log.filter((x) => x === "borrowed").length, 1);
+    assert.equal(log.filter((x) => x === "s6").length, 0);
+    assert.equal(result.key_voice_trace.fast_path?.ok, true);
+    assert.ok(!/22건|가능한 경우가 많|지급됩니다|받을 수 있습니다/.test(result.text));
+    assert.match(result.text, /진단서|영수증|담보|확인/);
+    assert.match(result.text, /걱정|마음/);
+  }
+
+  // E. premium
+  {
+    const q = "보험료가 이게 맞는 건가 싶어서…";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput(),
+          s6Text: "S6_E_NO",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.decision_snapshot?.response_priority, "premium_adequacy_check");
+    assert.equal(log.filter((x) => x === "borrowed").length, 1);
+    assert.ok(result.text.length > 20);
+  }
+
+  // F. cancer
+  {
+    const q = "암 보험이 충분한지 봐줘";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "암 보장 충분 여부 확인",
+            understanding_hypotheses: ["진단비·수술비·치료비 항목 확인이 먼저"],
+            voice_raw_candidate:
+              "암 보장이 충분한지 확인하고 싶으신 거죠. 지금 바로 충분·부족을 단정하기보다 진단비·수술비·치료비 항목부터 같이 볼게요. 어떤 항목부터 보실까요?",
+            proposal_direction: "암 담보 항목별 확인",
+            next_decision_point: ["진단비부터", "수술비부터", "치료비부터"],
+            used_facts: [],
+          }),
+          s6Text: "S6_F_NO",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.decision_snapshot?.response_priority, "cancer_axis_check");
+    assert.match(result.text, /암|진단비|수술비|치료비/);
+    assert.ok(!/충분합니다|부족합니다/.test(result.text));
+  }
+
+  // G. regen Gate-fail → failureMode once
+  {
+    const q = "분당 맛집 추천해줘";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: dailySafeVoice({
+            voice_raw_candidate:
+              "보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.",
+          }),
+          // Regen answer still unsafe → Gate fail → failureMode (no 2nd Claude call)
+          s6Text:
+            "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.",
+          log,
+        }),
+      },
+    );
+    assert.equal(log.filter((x) => x === "borrowed").length, 1);
+    assert.equal(log.filter((x) => x === "s6").length, 1);
+    assert.equal(result.key_voice_trace.s6_speak_calls, 1);
+    assert.equal(result.key_voice_trace.used_constrained_regen, true);
+    assert.equal(result.key_voice_trace.used_failure_mode, true);
+    assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
   }
 }
 

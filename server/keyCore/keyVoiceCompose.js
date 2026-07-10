@@ -17,9 +17,10 @@ import {
   isVercelProductionEnv,
   getKeyBorrowedSensesMode,
 } from "./oneKeyCoreFlags.js";
-import { buildKeyVoiceDirective, summarizeKeyVoiceDirective } from "./keyVoiceDirective.js";
+import { buildKeyVoiceDirective, summarizeKeyVoiceDirective, buildAnswerRegenerationDirective } from "./keyVoiceDirective.js";
 import { speakKeyVoice, buildKeyVoiceSafeUtterance } from "./keyVoiceSpeak.js";
 import { gateKeyVoiceAnswer } from "./keyVoiceGate.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { composeSpeakFromDecision } from "../keyBrain/keySpeakFromDecision.js";
 import { buildKeyVoiceVisualBlocks } from "./keyVoiceVisualBlocks.js";
 import { gateKeyVoiceVisualBlocks } from "./keyVoiceBlockGate.js";
@@ -38,6 +39,23 @@ function normalizeText(text = "") {
   return String(text ?? "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Borrowed promote KV — keep facts_to_speak/optional_claims contract (DU1 needs them). */
+function gateBorrowedCandidateAnswer(text, directive, s5ReferenceText) {
+  return gateKeyVoiceAnswer({
+    text,
+    directive,
+    s5ReferenceText,
+  });
+}
+
+function onlyOptionalFactGateFail(gateResult) {
+  const reasons = gateResult?.reasons ?? [];
+  return (
+    reasons.length > 0 &&
+    reasons.every((r) => String(r).startsWith("optional_fact_gate:"))
+  );
 }
 
 /**
@@ -178,6 +196,7 @@ export async function buildKeyVoiceComposeResult(
       gate_ok: alignment.gate_ok === true,
       alignment_reason: alignment.reason ?? null,
       observation_only: borrowedMode !== "active",
+      mid_field_warnings: alignment.mid_field_warnings ?? [],
     };
   }
 
@@ -186,6 +205,8 @@ export async function buildKeyVoiceComposeResult(
   let speakResult = { ok: false, error: null };
   let gateResult = { ok: false, reasons: ["pending"] };
   let usedActiveFastPath = false;
+  let usedConstrainedRegen = false;
+  let usedFailureMode = false;
 
   // --- active only: one-call candidate if Stage3 promote + Decision alignment + KEY Voice Gate ---
   // s6FinalAnswer "" is honest absence (not a fabricated S6). Stage3 F3 still uses history/summary.
@@ -206,15 +227,11 @@ export async function buildKeyVoiceComposeResult(
       String(stage3Pre.finalText ?? "").trim()
     ) {
       const candidate = String(stage3Pre.finalText).trim();
-      const kvGate = gateKeyVoiceAnswer({
-        text: candidate,
-        directive,
-        s5ReferenceText: s5Reference,
-      });
-      if (kvGate.ok) {
+      const kvGate = gateBorrowedCandidateAnswer(candidate, directive, s5Reference);
+      if (kvGate.ok || onlyOptionalFactGateFail(kvGate)) {
         voiceRaw = candidate;
         provider = "borrowed_senses_fast_path";
-        gateResult = kvGate;
+        gateResult = kvGate.ok ? kvGate : { ok: true, reasons: [], optional_fact_soft_pass: true };
         usedActiveFastPath = true;
         trace.fast_path = {
           ok: true,
@@ -224,6 +241,7 @@ export async function buildKeyVoiceComposeResult(
           alignment_reason: null,
           observation_only: false,
           stage3_promotion_pass: true,
+          mid_field_warnings: alignment?.mid_field_warnings ?? stage3Pre.stage3_active?.mid_field_warnings ?? [],
         };
       } else {
         trace.fast_path = {
@@ -241,6 +259,7 @@ export async function buildKeyVoiceComposeResult(
         reason: stage3Pre.stage3_active?.fallback_reason ?? "stage3_promotion_blocked",
         observation_only: false,
         stage3_promotion_pass: false,
+        mid_field_warnings: alignment?.mid_field_warnings ?? [],
       };
     }
   } else if (probeOn && shadow && borrowedMode === "shadow") {
@@ -259,10 +278,40 @@ export async function buildKeyVoiceComposeResult(
     };
   }
 
-  // --- S6 Speak when not on active fast path ---
+  // --- S6 Speak / constrained one-regeneration when not on active fast path ---
   if (!voiceRaw) {
-    speakResult = await speakKeyVoice({ directive, env, fetchImpl });
+    const failReasons = [
+      alignment?.reason,
+      trace.fast_path?.reason,
+      ...(Array.isArray(alignment?.mid_field_warnings) ? alignment.mid_field_warnings : []),
+    ].filter(Boolean);
+    const rejectedAnswer = String(shadow?.borrowed?.voice_raw_candidate ?? "").trim();
+    const useConstrainedRegen =
+      stage3Active &&
+      !stage2Partial &&
+      !production &&
+      probeOn &&
+      Boolean(shadow);
+
+    const speakDirective = useConstrainedRegen
+      ? buildAnswerRegenerationDirective({
+          directive,
+          decision,
+          failReasons,
+          rejectedAnswer,
+        })
+      : directive;
+
+    speakResult = await speakKeyVoice({ directive: speakDirective, env, fetchImpl });
     s6SpeakCalls = 1;
+    if (useConstrainedRegen) {
+      usedConstrainedRegen = true;
+      trace.answer_regeneration = {
+        used: true,
+        fail_reasons: failReasons,
+        key_chart: speakDirective?.regeneration?.key_chart ?? null,
+      };
+    }
     if (speakResult.ok) {
       voiceRaw = speakResult.voice_raw;
       provider = speakResult.provider;
@@ -272,7 +321,7 @@ export async function buildKeyVoiceComposeResult(
       ? gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference })
       : { ok: false, reasons: [speakResult.error ?? "speak_failed"] };
 
-    // Probe-off keeps one Gate-fail rewrite retry; probe-on stays at S6=1
+    // Probe-off keeps one Gate-fail rewrite retry; probe-on / constrained regen stays at 1 Speak call
     if (!gateResult.ok && voiceRaw && !probeOn) {
       trace.retry_count = 1;
       const retryDirective = {
@@ -310,12 +359,22 @@ export async function buildKeyVoiceComposeResult(
     trace.fallback_reason = voiceRaw
       ? gateResult.reasons?.join("; ")
       : speakResult.error ?? "speak_failed";
-    finalText = buildKeyVoiceSafeUtterance(directive);
-    outputGate = gateKeyVoiceAnswer({ text: finalText, directive, s5ReferenceText: s5Reference });
+    if (usedConstrainedRegen || (stage3Active && probeOn)) {
+      const failOutlet = finalizeKeyCustomerText("", { failureMode: true });
+      finalText = failOutlet.customerText;
+      usedFailureMode = true;
+      trace.failure_mode_used = true;
+      outputGate = { ok: true, reasons: ["failure_mode"], failure_mode: true };
+    } else {
+      finalText = buildKeyVoiceSafeUtterance(directive);
+      outputGate = gateKeyVoiceAnswer({ text: finalText, directive, s5ReferenceText: s5Reference });
+    }
     trace.safe_gate_result = outputGate;
   }
 
   trace.gate_result = outputGate;
+  trace.used_constrained_regen = usedConstrainedRegen;
+  trace.used_failure_mode = usedFailureMode;
 
   finalText = normalizeText(finalText);
   if (!finalText) return null;
@@ -388,17 +447,13 @@ export async function buildKeyVoiceComposeResult(
         alignment?.ok === true;
       if (mayPromote) {
         const promoted = String(stage3.finalText ?? "").trim() || s6FinalAnswer;
-        const kvGate = gateKeyVoiceAnswer({
-          text: promoted,
-          directive,
-          s5ReferenceText: s5Reference,
-        });
-        if (kvGate.ok) {
+        const kvGate = gateBorrowedCandidateAnswer(promoted, directive, s5Reference);
+        if (kvGate.ok || onlyOptionalFactGateFail(kvGate)) {
           finalText = promoted;
           shadow.customer_text_changed = true;
           shadow.final_answer_source = "s7";
-          outputGate = kvGate;
-          trace.gate_result = kvGate;
+          outputGate = kvGate.ok ? kvGate : { ok: true, reasons: [], optional_fact_soft_pass: true };
+          trace.gate_result = outputGate;
         } else {
           shadow.customer_text_changed = false;
           shadow.final_answer_source = "s6";

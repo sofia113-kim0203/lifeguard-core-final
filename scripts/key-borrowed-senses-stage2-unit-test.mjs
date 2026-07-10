@@ -202,6 +202,8 @@ const cases = [
   {
     id: "S5_gate_fail",
     run: () => {
+      // Answer-facing: gate flag alone is not enough — voice must carry the risk.
+      // goodBorrowed voice includes "추천드려요" → unsupported_recommendation.
       const d = decideStage2Promotion({
         question: qBrowse,
         s6FinalAnswer: s6,
@@ -212,7 +214,7 @@ const cases = [
         d.promotion_pass === false &&
         d.final_answer_source === "s6" &&
         d.customer_text_changed === false &&
-        d.fallback_reason === "gate_fail"
+        (d.fallback_reason === "unsupported_recommendation" || d.fallback_reason === "gate_fail")
       );
     },
   },

@@ -75,6 +75,7 @@ function shouldWithholdFactsForFocus(focus) {
     "emotional_support",
     "daily_recommendation",
     "non_insurance_general",
+    "claim_need_check",
   ]).has(focus);
 
 }
@@ -1182,6 +1183,16 @@ export function buildKeyVoiceDirective({
       "파악하시는 것이 중요합니다",
       "기준으로 전체 보험료",
       "전체를 놓고 보면, 월",
+      ...(decision?.situation_key === "claim_need_check" ||
+      decision?.response_priority === "claim_prep"
+        ? [
+            "가능한 경우가 많",
+            "지급됩니다",
+            "받을 수 있습니다",
+            "청구 가능합니다",
+            "22건",
+          ]
+        : []),
     ],
 
     forbidden_claims: [
@@ -1278,6 +1289,87 @@ export function summarizeKeyVoiceDirective(directive = {}) {
 
   ].join(" | ");
 
+}
+
+/**
+ * Constrained one-regeneration directive — reuses S6 Speak path.
+ * Does NOT paste customer-facing Decision sentences (judgment/move/invite).
+ */
+export function buildAnswerRegenerationDirective({
+  directive = null,
+  decision = null,
+  failReasons = [],
+  rejectedAnswer = "",
+} = {}) {
+  const base = directive && typeof directive === "object" ? { ...directive } : {};
+  const situation = String(decision?.situation_key ?? base.question_focus ?? "").trim();
+  const priority = String(decision?.response_priority ?? base.response_priority ?? "").trim();
+
+  const keyChart =
+    situation === "claim_need_check" || priority === "claim_prep"
+      ? {
+          current_goal: "청구 가능성 확인 준비",
+          allowed: [
+            "걱정 인정",
+            "확인 전 지급 여부는 알 수 없음",
+            "담보·사고 내용·진단서·영수증·진료비 세부내역 확인 필요",
+            "다음 확인 행동 제안",
+          ],
+          withheld: ["전체 계약 수(22건)", "현재 요청과 무관한 보험 목록 dump"],
+          forbidden: [
+            "지급 가능성·확정 단정",
+            "가능한 경우가 많다",
+            "청구 실행(S9)",
+          ],
+        }
+      : isDailyOwnedFocus(situation, priority, base)
+        ? {
+            current_goal: "현재 일상 요청에 실제로 답하기",
+            allowed: ["현재 요청에 대한 자연스러운 답", "맥락 확인 질문 1개"],
+            withheld: ["보험 사실", "계약 수", "보험료·보장 제안"],
+            forbidden: ["보험 판매·가입·해지", "무관한 보험 전환"],
+          }
+        : {
+            current_goal: "현재 고객 요청에 답하되 KEY Hard Direction을 지킨다",
+            allowed: ["검증된 사실만", "다음 확인 행동"],
+            withheld: (base.unknowns ?? []).map((u) => u.fact).filter(Boolean),
+            forbidden: base.forbidden_claims ?? [],
+          };
+
+  return {
+    ...base,
+    // Do not feed Decision customer sentences into regen Speak
+    key_judgment: null,
+    direct_answer_hint: null,
+    key_next_move: null,
+    confirm_question: null,
+    key_direction: {
+      type: base.key_direction?.type ?? decision?.direction?.type ?? null,
+      move: null,
+      invite_allowed: false,
+      invite_prompt: null,
+    },
+    optional_claims: base.optional_claims ?? [],
+    regeneration: {
+      mode: "answer_constrained_once",
+      fail_reasons: (Array.isArray(failReasons) ? failReasons : [failReasons]).filter(Boolean),
+      rejected_answer_preview: String(rejectedAnswer ?? "").slice(0, 280),
+      key_chart: keyChart,
+      instruction:
+        "Regenerate ONE natural Korean customer answer for the current question. Follow key_chart allowed/withheld/forbidden. Do not paste internal Decision fields. Do not invent facts or numbers.",
+    },
+  };
+}
+
+function isDailyOwnedFocus(situation, priority, directive) {
+  return (
+    priority === "daily_focus" ||
+    priority === "non_insurance_focus" ||
+    situation === "daily_recommendation" ||
+    situation === "non_insurance_general" ||
+    directive?.question_focus === "daily_recommendation" ||
+    directive?.key_direction?.type === "general_daily"
+  );
 }
 
 

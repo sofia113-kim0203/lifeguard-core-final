@@ -251,6 +251,41 @@ const cases = [
     },
   },
   {
+    id: "8b2_daily_promote_despite_leadership_insurance_drift",
+    run: () => {
+      const voice =
+        "분당이면 한식·일식 선택지가 많아요. 어떤 분위기부터 볼까요?";
+      const shadow = goodShadow({
+        borrowed: {
+          ...goodBorrowed(),
+          voice_raw_candidate: voice,
+          proposal_direction:
+            "보험료 절감 / 보장 보완 중 하나를 선택하도록 유도",
+          next_decision_point: ["보험료 줄이기", "보장 채우기"],
+          leadership_move: "보험 상담으로 전환",
+        },
+      });
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow,
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "일상 요청" },
+        },
+      });
+      return (
+        d.promotion_pass === true &&
+        d.final_answer_source === "s7" &&
+        d.customer_text === voice &&
+        Array.isArray(d.mid_field_warnings) &&
+        d.mid_field_warnings.includes("mid_field_insurance_drift")
+      );
+    },
+  },
+  {
     id: "8c_daily_polluted_candidate_no_promote",
     run: () => {
       const voice =
@@ -276,7 +311,8 @@ const cases = [
       });
       return (
         d.promotion_pass === false &&
-        d.fallback_reason === "daily_insurance_pollution" &&
+        (d.fallback_reason === "daily_insurance_pollution" ||
+          d.fallback_reason === "decision_mismatch_insurance_pollution") &&
         d.customer_text_changed === false
       );
     },
@@ -523,7 +559,7 @@ const cases = [
         c.lane_reason === "premium_cut_percent_with_insurance_context" &&
         d.lane === STAGE3_LANES.INSURANCE_ADVICE &&
         d.promotion_pass === false &&
-        d.fallback_reason === "gate_fail"
+        (d.fallback_reason === "number_scope_violation" || d.fallback_reason === "gate_fail")
       );
     },
   },
