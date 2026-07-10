@@ -91,10 +91,15 @@ export function isKeyVoiceActive(env = process.env) {
   return getKeyVoiceMode(env) === "on";
 }
 
-/** S7-a Borrowed Senses — off | shadow | active (shadow = trace only, S6 final_answer unchanged). */
+/** S7-a Borrowed Senses — off | shadow | active_partial | active.
+ *  shadow = trace only, S6 final_answer unchanged.
+ *  active_partial = Stage 2 Preview allowlist conditional promotion (NOT Production).
+ *  active = reserved for Stage 3+ (not Stage 2 wire).
+ */
 export function getKeyBorrowedSensesMode(env = process.env) {
   const raw = String(env.KEY_BORROWED_SENSES ?? "").trim().toLowerCase();
   if (raw === "shadow") return "shadow";
+  if (raw === "active_partial" || raw === "partial" || raw === "stage2") return "active_partial";
   if (raw === "active") return "active";
   return "off";
 }
@@ -103,9 +108,42 @@ export function isKeyBorrowedSensesShadow(env = process.env) {
   return getKeyBorrowedSensesMode(env) === "shadow";
 }
 
+/** Stage 2 Preview partial — may promote only when Preview + allowlist + gates pass. */
+export function isKeyBorrowedSensesStage2Partial(env = process.env) {
+  return getKeyBorrowedSensesMode(env) === "active_partial";
+}
+
+/** Run S7 probe (shadow or Stage2 partial). Does not imply customer swap. */
+export function isKeyBorrowedSensesProbeEnabled(env = process.env) {
+  const mode = getKeyBorrowedSensesMode(env);
+  return mode === "shadow" || mode === "active_partial";
+}
+
 export function isKeyBorrowedSensesEnabled(env = process.env) {
   const mode = getKeyBorrowedSensesMode(env);
-  return mode === "shadow" || mode === "active";
+  return mode === "shadow" || mode === "active_partial" || mode === "active";
+}
+
+/** Production hard block for Stage 2 promotion. */
+export function isVercelProductionEnv(env = process.env) {
+  const vercelEnv = String(env.VERCEL_ENV ?? "").trim().toLowerCase();
+  if (vercelEnv === "production") return true;
+  // Extra belt: explicit production markers (never treat preview as production)
+  const nodeEnv = String(env.NODE_ENV ?? "").trim().toLowerCase();
+  const vercelEnvAlt = String(env.VERCEL_ENV ?? "").trim().toLowerCase();
+  if (vercelEnvAlt === "preview" || vercelEnvAlt === "development") return false;
+  // Do NOT treat NODE_ENV=production alone as Vercel Production (local/build often sets it).
+  void nodeEnv;
+  return false;
+}
+
+/**
+ * Stage 2 promotion allowed only when active_partial AND not Production.
+ * Callers must still apply allowlist + gate checks.
+ */
+export function isStage2PromotionEnvAllowed(env = process.env) {
+  if (isVercelProductionEnv(env)) return false;
+  return isKeyBorrowedSensesStage2Partial(env);
 }
 
 /** S1 env overlay — orchestrator on, legacy speak fallback off. */

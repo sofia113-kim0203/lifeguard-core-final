@@ -3,7 +3,7 @@
  */
 import { buildDecision } from "./keyDecision.js";
 import { assertDecisionFactGate } from "./assertFactTextGate.js";
-import { isKeyVoiceActive, isKeyBorrowedSensesShadow } from "./oneKeyCoreFlags.js";
+import { isKeyVoiceActive, isKeyBorrowedSensesProbeEnabled } from "./oneKeyCoreFlags.js";
 import { buildKeyVoiceDirective, summarizeKeyVoiceDirective } from "./keyVoiceDirective.js";
 import { speakKeyVoice, buildKeyVoiceSafeUtterance } from "./keyVoiceSpeak.js";
 import { gateKeyVoiceAnswer } from "./keyVoiceGate.js";
@@ -11,6 +11,7 @@ import { composeSpeakFromDecision } from "../keyBrain/keySpeakFromDecision.js";
 import { buildKeyVoiceVisualBlocks } from "./keyVoiceVisualBlocks.js";
 import { gateKeyVoiceVisualBlocks } from "./keyVoiceBlockGate.js";
 import { runBorrowedSensesShadowProbe } from "./keyBorrowedSensesSpeak.js";
+import { applyStage2PromotionToCompose } from "./keyBorrowedSensesStage2.js";
 
 function normalizeText(text = "") {
   return String(text ?? "")
@@ -151,7 +152,7 @@ export async function buildKeyVoiceComposeResult(
     };
   }
 
-  if (isKeyBorrowedSensesShadow(env)) {
+  if (isKeyBorrowedSensesProbeEnabled(env)) {
     const overrideBlocks = Array.isArray(shadowVisualBlocksOverride)
       ? shadowVisualBlocksOverride
       : null;
@@ -159,17 +160,37 @@ export async function buildKeyVoiceComposeResult(
     trace.shadow_visual_blocks_override_used = Boolean(overrideBlocks?.length);
     trace.shadow_visual_blocks_override_count = overrideBlocks?.length ?? 0;
     // Customer-facing visual_blocks stay `visualBlocks` — override is shadow-only.
-    trace.borrowed_senses_shadow = await runBorrowedSensesShadowProbe({
+    const s6FinalAnswer = finalText;
+    const shadow = await runBorrowedSensesShadowProbe({
       question: directiveQuestion,
       directive,
       decision,
       history,
       previousAnswerSummary,
-      s6FinalAnswer: finalText,
+      s6FinalAnswer,
       visualBlocks: visualBlocksForShadow,
       env,
       fetchImpl,
     });
+    trace.borrowed_senses_shadow = shadow;
+
+    // Stage 2 Preview-only conditional promotion (default remains S6).
+    const stage2 = applyStage2PromotionToCompose({
+      question: directiveQuestion,
+      s6FinalAnswer,
+      shadow,
+      env,
+    });
+    trace.stage2_partial = stage2.stage2_partial;
+    if (shadow && typeof shadow === "object") {
+      shadow.customer_text_changed = stage2.customer_text_changed;
+      shadow.final_answer_source = stage2.final_answer_source;
+      shadow.s6_final_answer = s6FinalAnswer;
+      shadow.stage2_partial = stage2.stage2_partial;
+    }
+    if (stage2.customer_text_changed === true && stage2.final_answer_source === "s7") {
+      finalText = String(stage2.finalText ?? "").trim() || s6FinalAnswer;
+    }
   }
 
   return {
