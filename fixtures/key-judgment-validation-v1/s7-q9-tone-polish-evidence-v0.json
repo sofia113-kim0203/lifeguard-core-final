@@ -1,0 +1,77 @@
+{
+  "schema_id": "s7-q9-tone-polish-evidence-v0",
+  "status": "FROZEN — Q9 tone polish Preview evidence note; NO Stage 3 · NO Production · NO full active · NO allowlist expand · NO commit in this prep GO",
+  "version": "0.1.0",
+  "meta": {
+    "purpose": "Record Q9 recommendation-opening tone polish Preview observe PASS and Q2 regression PASS.",
+    "preview_url": "https://lifeguard-core-final-ec58z250w-70sofia113-1918s-projects.vercel.app",
+    "deployment_id": "dpl_DDW7EricuVm9sAuAgpD7FiCRkfGo",
+    "tone_commit": "d5a1f78517e71b9831f84bc2b5d48e51c93aea52",
+    "tone_commit_short": "d5a1f78",
+    "parent_stage2_evidence_ref": "fixtures/key-judgment-validation-v1/s7-active-stage2-partial-evidence-v0.json",
+    "source_notes": [
+      "tmp q9 tone observe out (local ephemeral; not committed)",
+      "Stage 2 Preview active_partial context"
+    ],
+    "scope": {
+      "preview_only": true,
+      "q9_tone_slice_only": true,
+      "stage3_forbidden": true,
+      "production_forbidden": true,
+      "s7_full_active_forbidden": true,
+      "allowlist_expand_forbidden": true
+    },
+    "production_untouched": true,
+    "KEY_BORROWED_SENSES_preview": "active_partial",
+    "KEY_BORROWED_SENSES_production": "ABSENT"
+  },
+  "q9": {
+    "id": "FULLVOICE_Q9_RECOMMEND",
+    "question": "보험 추천해줘",
+    "verdict": "PASS",
+    "opening": "좋아요, 보험 추천 가능해요.",
+    "final_answer_source": "s7",
+    "customer_text_changed": true,
+    "promotion_pass": true,
+    "gate_ok": true,
+    "danger_fail": 0,
+    "report_tone_removed": true,
+    "no_recommendation_ban_regression": true,
+    "no_enroll_push": true,
+    "no_internal_terms": true,
+    "next_decision_count": 3,
+    "next_decision_point": [
+      "보험료 절감 목적이면 기존 22건 중 중복 보장부터 확인하기",
+      "보장 보완 목적이면 현재 보장 구성에서 빠진 영역부터 확인하기",
+      "목적이 아직 막연하면 22건 전체 계약 현황부터 정리하기"
+    ],
+    "recommend_affirmed": true,
+    "direction_choices_present": true,
+    "conversation_continues": true,
+    "answer_preview": "좋아요, 보험 추천 가능해요. 다만 바로 상품 이름부터 고르기보다, 먼저 방향을 잡으면 훨씬 정확해져요. 지금 등록된 계약이 22건인데, 크게 세 방향 중 어느 쪽이 더 끌리세요? 첫째, 보험료를 줄이고 싶다면 — 새 상품을 보기 전에 기존 중복 보장부터 확인하는 게 먼저 맞아 보여요. 둘째, 빠진 보장을 채우고 싶다면 — 지금 보장 구성에서 어떤 영역이 비어 있는지 먼저 살펴보는 게 맞아 보여요. 셋째, 아직 목적이 막연하다면 — 22건 전체 계약 현황부터 정리해서 뭐가 있는지 파악하는 게 시작이에요. 어느 쪽이 더 가깝게 느껴지세요?"
+  },
+  "q2_regression": {
+    "executed": true,
+    "id": "FULLVOICE_Q2_WHAT_DO_I_NEED",
+    "question": "나한테 뭐가 필요해?",
+    "verdict": "PASS",
+    "final_answer_source": "s7",
+    "customer_text_changed": true,
+    "promotion_pass": true,
+    "gate_ok": true,
+    "next_decision_count": 3,
+    "answer_preview": "좋아요, '나한테 뭐가 필요해?'라는 질문 — 사실 이게 제일 중요한 출발점이에요. 지금 22건이 등록돼 있으니까, 어느 방향으로 보느냐에 따라 시작점이 달라져요. 세 가지 중에 어느 쪽이 더 가까우세요? (1) 보험료를 좀 줄이고 싶다 → 그러면 지금 중복으로 들어간 보장부터 확인하는 게 먼저 맞아 보여요. 새 상품보다 기존 걸 정리하는 게 절감 목적엔 더 가깝거든요. (2) 혹시 빠진 보장이 있을까 걱정된다 → 그러면 지금 어떤 보장 구성이 있는지 큰 그림부터 보는 게 맞아 보여요. (3) 아직 뭐가 문제인지도 모르겠다 → 그러면 22건 전체 계약 현황을 한번 정리해드리는 게 출발점이에요. 삼성생명 실손의료비보험처럼 확인되는 계약부터"
+  },
+  "holds": {
+    "stage3": true,
+    "production": true,
+    "s7_full_active": true,
+    "allowlist_expand": true
+  },
+  "overall": {
+    "q9_tone_evidence_verdict": "PASS",
+    "ready_for_evidence_commit_go": true,
+    "stage3_ready": false,
+    "production_ready": false
+  }
+}
