@@ -1,5 +1,11 @@
 /**
- * Slice 6 — KEY Voice Compose (Directive → Speak → Gate → Safe).
+ * Slice 6 — KEY Voice Compose.
+ * Probe modes may run Borrowed Senses before Decision (hypotheses material).
+ * Customer replacement:
+ *   - off / shadow: never (S6 only; shadow may observe candidate)
+ *   - active_partial: S6 first, then existing Stage2 promote helper
+ *   - active: Stage3+alignment+Gate may use candidate without S6 (honest empty s6 input);
+ *             else S6 once, then existing Stage3 promote helper (still requires alignment)
  */
 import { buildDecision } from "./keyDecision.js";
 import { assertDecisionFactGate } from "./assertFactTextGate.js";
@@ -8,6 +14,8 @@ import {
   isKeyBorrowedSensesProbeEnabled,
   isKeyBorrowedSensesStage2Partial,
   isKeyBorrowedSensesStage3Active,
+  isVercelProductionEnv,
+  getKeyBorrowedSensesMode,
 } from "./oneKeyCoreFlags.js";
 import { buildKeyVoiceDirective, summarizeKeyVoiceDirective } from "./keyVoiceDirective.js";
 import { speakKeyVoice, buildKeyVoiceSafeUtterance } from "./keyVoiceSpeak.js";
@@ -15,8 +23,15 @@ import { gateKeyVoiceAnswer } from "./keyVoiceGate.js";
 import { composeSpeakFromDecision } from "../keyBrain/keySpeakFromDecision.js";
 import { buildKeyVoiceVisualBlocks } from "./keyVoiceVisualBlocks.js";
 import { gateKeyVoiceVisualBlocks } from "./keyVoiceBlockGate.js";
-import { runBorrowedSensesShadowProbe } from "./keyBorrowedSensesSpeak.js";
-import { applyStage2PromotionToCompose } from "./keyBorrowedSensesStage2.js";
+import {
+  runBorrowedSensesShadowProbe,
+  buildEarlyBorrowedFactBoundary,
+} from "./keyBorrowedSensesSpeak.js";
+import { gateBorrowedSensesOutput } from "./keyBorrowedSensesGate.js";
+import {
+  evaluateBorrowedFastPathCandidate,
+  applyStage2PromotionToCompose,
+} from "./keyBorrowedSensesStage2.js";
 import { applyStage3PromotionToCompose } from "./keyBorrowedSensesStage3.js";
 
 function normalizeText(text = "") {
@@ -45,13 +60,52 @@ export async function buildKeyVoiceComposeResult(
   const reflection = thinkingFlow?.reflection ?? null;
   const reality = thinkingFlow?.reality ?? null;
   const directiveQuestion = question || reflection?.customer_said || "";
+  const probeOn = isKeyBorrowedSensesProbeEnabled(env);
+  const production = isVercelProductionEnv(env);
+  const borrowedMode = getKeyBorrowedSensesMode(env);
+  const stage2Partial = isKeyBorrowedSensesStage2Partial(env);
+  const stage3Active = isKeyBorrowedSensesStage3Active(env);
 
+  const overrideBlocks = Array.isArray(shadowVisualBlocksOverride)
+    ? shadowVisualBlocksOverride
+    : null;
+
+  let shadow = null;
+  let borrowedUnderstanding = null;
+  let s6SpeakCalls = 0;
+  let borrowedSensesCalls = 0;
+
+  // --- Early Borrowed Senses (before Decision) when probe enabled — at most 1 call ---
+  if (probeOn) {
+    const factBoundary = buildEarlyBorrowedFactBoundary({
+      reality,
+      question: directiveQuestion,
+    });
+    shadow = await runBorrowedSensesShadowProbe({
+      question: directiveQuestion,
+      directive: null,
+      decision: null,
+      factBoundary,
+      reflection,
+      history,
+      previousAnswerSummary,
+      s6FinalAnswer: "",
+      visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+      env,
+      fetchImpl,
+    });
+    borrowedSensesCalls = 1;
+    borrowedUnderstanding = shadow?.borrowed ?? null;
+  }
+
+  // --- KEY Decision (owns judgment; Claude understanding = material only) ---
   if (reflection && reality) {
     decision = buildDecision({
       reflection,
       reality,
       question: directiveQuestion,
       evidenceBundle,
+      borrowedUnderstanding,
     });
   }
 
@@ -86,37 +140,166 @@ export async function buildKeyVoiceComposeResult(
     provider: null,
     retry_count: 0,
     s5_reference_preview: String(s5Reference ?? "").slice(0, 200),
+    borrowed_senses_calls: borrowedSensesCalls,
+    s6_speak_calls: 0,
+    borrowed_mode: borrowedMode,
+    fast_path: null,
+    call_order: probeOn
+      ? "reality_reflection_borrowed_decision_align_gate"
+      : "decision_directive_s6",
   };
+
+  // Re-gate borrowed output with real Directive (early call had factBoundary only)
+  if (shadow?.borrowed) {
+    shadow.gate = gateBorrowedSensesOutput({
+      borrowed: shadow.borrowed,
+      directive,
+      history,
+      question: directiveQuestion,
+      visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+    });
+    shadow.call_phase = "pre_decision";
+  }
+
+  // Decision alignment — observation for all probe modes; customer use only with Stage3+active
+  let alignment = null;
+  if (probeOn && shadow) {
+    alignment = evaluateBorrowedFastPathCandidate({
+      question: directiveQuestion,
+      decision,
+      directive,
+      shadow,
+      env,
+    });
+    trace.fast_path = {
+      ok: false,
+      reason: null,
+      aligned_with_decision: alignment.aligned_with_decision === true,
+      gate_ok: alignment.gate_ok === true,
+      alignment_reason: alignment.reason ?? null,
+      observation_only: borrowedMode !== "active",
+    };
+  }
 
   let voiceRaw = null;
   let provider = null;
-  const speakResult = await speakKeyVoice({ directive, env, fetchImpl });
-  if (speakResult.ok) {
-    voiceRaw = speakResult.voice_raw;
-    provider = speakResult.provider;
+  let speakResult = { ok: false, error: null };
+  let gateResult = { ok: false, reasons: ["pending"] };
+  let usedActiveFastPath = false;
+
+  // --- active only: one-call candidate if Stage3 promote + Decision alignment + KEY Voice Gate ---
+  // s6FinalAnswer "" is honest absence (not a fabricated S6). Stage3 F3 still uses history/summary.
+  if (stage3Active && !stage2Partial && !production && shadow && alignment?.ok === true) {
+    const stage3Pre = applyStage3PromotionToCompose({
+      question: directiveQuestion,
+      s6FinalAnswer: "",
+      shadow,
+      env,
+      history,
+      previousAnswerSummary,
+    });
+    trace.stage3_active_pre_s6 = stage3Pre.stage3_active;
+    if (
+      stage3Pre.customer_text_changed === true &&
+      stage3Pre.final_answer_source === "s7" &&
+      String(stage3Pre.finalText ?? "").trim()
+    ) {
+      const candidate = String(stage3Pre.finalText).trim();
+      const kvGate = gateKeyVoiceAnswer({
+        text: candidate,
+        directive,
+        s5ReferenceText: s5Reference,
+      });
+      if (kvGate.ok) {
+        voiceRaw = candidate;
+        provider = "borrowed_senses_fast_path";
+        gateResult = kvGate;
+        usedActiveFastPath = true;
+        trace.fast_path = {
+          ok: true,
+          reason: null,
+          aligned_with_decision: true,
+          gate_ok: true,
+          alignment_reason: null,
+          observation_only: false,
+          stage3_promotion_pass: true,
+        };
+      } else {
+        trace.fast_path = {
+          ...(trace.fast_path ?? {}),
+          ok: false,
+          reason: `key_voice_gate:${kvGate.reasons?.join(";") ?? "fail"}`,
+          observation_only: false,
+          stage3_promotion_pass: true,
+        };
+      }
+    } else {
+      trace.fast_path = {
+        ...(trace.fast_path ?? {}),
+        ok: false,
+        reason: stage3Pre.stage3_active?.fallback_reason ?? "stage3_promotion_blocked",
+        observation_only: false,
+        stage3_promotion_pass: false,
+      };
+    }
+  } else if (probeOn && shadow && borrowedMode === "shadow") {
+    trace.fast_path = {
+      ...(trace.fast_path ?? {}),
+      ok: false,
+      reason: "shadow_observation_only",
+      observation_only: true,
+    };
+  } else if (probeOn && shadow && stage2Partial) {
+    trace.fast_path = {
+      ...(trace.fast_path ?? {}),
+      ok: false,
+      reason: "active_partial_requires_s6_then_stage2",
+      observation_only: true,
+    };
+  }
+
+  // --- S6 Speak when not on active fast path ---
+  if (!voiceRaw) {
+    speakResult = await speakKeyVoice({ directive, env, fetchImpl });
+    s6SpeakCalls = 1;
+    if (speakResult.ok) {
+      voiceRaw = speakResult.voice_raw;
+      provider = speakResult.provider;
+    }
+
+    gateResult = voiceRaw
+      ? gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference })
+      : { ok: false, reasons: [speakResult.error ?? "speak_failed"] };
+
+    // Probe-off keeps one Gate-fail rewrite retry; probe-on stays at S6=1
+    if (!gateResult.ok && voiceRaw && !probeOn) {
+      trace.retry_count = 1;
+      const retryDirective = {
+        ...directive,
+        repetition_avoidance_instruction: `${directive.repetition_avoidance_instruction} Gate fail: ${gateResult.reasons.join("; ")}. Rewrite without violating facts/focus.`,
+      };
+      const retrySpeak = await speakKeyVoice({
+        directive: retryDirective,
+        env,
+        fetchImpl,
+        temperature: 0.3,
+      });
+      s6SpeakCalls += 1;
+      if (retrySpeak.ok) {
+        voiceRaw = retrySpeak.voice_raw;
+        provider = retrySpeak.provider;
+        gateResult = gateKeyVoiceAnswer({
+          text: voiceRaw,
+          directive,
+          s5ReferenceText: s5Reference,
+        });
+      }
+    }
   }
 
   trace.voice_raw = voiceRaw;
   trace.provider = provider;
-
-  let gateResult = voiceRaw
-    ? gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference })
-    : { ok: false, reasons: [speakResult.error ?? "speak_failed"] };
-
-  if (!gateResult.ok && voiceRaw) {
-    trace.retry_count = 1;
-    const retryDirective = {
-      ...directive,
-      repetition_avoidance_instruction: `${directive.repetition_avoidance_instruction} Gate fail: ${gateResult.reasons.join("; ")}. Rewrite without violating facts/focus.`,
-    };
-    const retrySpeak = await speakKeyVoice({ directive: retryDirective, env, fetchImpl, temperature: 0.3 });
-    if (retrySpeak.ok) {
-      voiceRaw = retrySpeak.voice_raw;
-      trace.voice_raw = voiceRaw;
-      trace.provider = retrySpeak.provider;
-      gateResult = gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference });
-    }
-  }
+  trace.s6_speak_calls = s6SpeakCalls;
 
   let finalText = voiceRaw;
   let outputGate = gateResult;
@@ -158,31 +341,18 @@ export async function buildKeyVoiceComposeResult(
     };
   }
 
-  if (isKeyBorrowedSensesProbeEnabled(env)) {
-    const overrideBlocks = Array.isArray(shadowVisualBlocksOverride)
-      ? shadowVisualBlocksOverride
-      : null;
-    const visualBlocksForShadow = overrideBlocks?.length ? overrideBlocks : visualBlocks;
+  // --- Post-S6 Stage2 / Stage3 (base HEAD contracts). Never for shadow. Skip if active fast path already used. ---
+  if (shadow && typeof shadow === "object") {
     trace.shadow_visual_blocks_override_used = Boolean(overrideBlocks?.length);
     trace.shadow_visual_blocks_override_count = overrideBlocks?.length ?? 0;
-    // Customer-facing visual_blocks stay `visualBlocks` — override is shadow-only.
-    const s6FinalAnswer = finalText;
-    const shadow = await runBorrowedSensesShadowProbe({
-      question: directiveQuestion,
-      directive,
-      decision,
-      history,
-      previousAnswerSummary,
-      s6FinalAnswer,
-      visualBlocks: visualBlocksForShadow,
-      env,
-      fetchImpl,
-    });
-    trace.borrowed_senses_shadow = shadow;
 
-    // Stage 2 / Stage 3 promotion are mutually exclusive (default remains S6).
-    // active_partial → Stage 2 only; active → Stage 3 only; shadow → no promote.
-    if (isKeyBorrowedSensesStage2Partial(env) && !isKeyBorrowedSensesStage3Active(env)) {
+    if (usedActiveFastPath) {
+      shadow.customer_text_changed = true;
+      shadow.final_answer_source = "s7";
+      shadow.s6_final_answer = "";
+      shadow.fast_path = trace.fast_path;
+    } else if (stage2Partial && !stage3Active) {
+      const s6FinalAnswer = finalText;
       const stage2 = applyStage2PromotionToCompose({
         question: directiveQuestion,
         s6FinalAnswer,
@@ -190,46 +360,91 @@ export async function buildKeyVoiceComposeResult(
         env,
       });
       trace.stage2_partial = stage2.stage2_partial;
-      if (shadow && typeof shadow === "object") {
-        shadow.customer_text_changed = stage2.customer_text_changed;
-        shadow.final_answer_source = stage2.final_answer_source;
-        shadow.s6_final_answer = s6FinalAnswer;
-        shadow.stage2_partial = stage2.stage2_partial;
-      }
+      shadow.customer_text_changed = stage2.customer_text_changed;
+      shadow.final_answer_source = stage2.final_answer_source;
+      shadow.s6_final_answer = s6FinalAnswer;
+      shadow.stage2_partial = stage2.stage2_partial;
       if (stage2.customer_text_changed === true && stage2.final_answer_source === "s7") {
         finalText = String(stage2.finalText ?? "").trim() || s6FinalAnswer;
       }
-    } else if (isKeyBorrowedSensesStage3Active(env) && !isKeyBorrowedSensesStage2Partial(env)) {
+      shadow.fast_path = trace.fast_path;
+    } else if (stage3Active && !stage2Partial) {
+      const s6FinalAnswer = finalText;
       const stage3 = applyStage3PromotionToCompose({
         question: directiveQuestion,
         s6FinalAnswer,
         shadow,
         env,
+        history,
+        previousAnswerSummary,
       });
       trace.stage3_active = stage3.stage3_active;
-      if (shadow && typeof shadow === "object") {
-        shadow.customer_text_changed = stage3.customer_text_changed;
-        shadow.final_answer_source = stage3.final_answer_source;
-        shadow.s6_final_answer = s6FinalAnswer;
-        shadow.stage3_active = stage3.stage3_active;
+      // Decision alignment required for customer swap (GO corrective)
+      const mayPromote =
+        stage3.customer_text_changed === true &&
+        stage3.final_answer_source === "s7" &&
+        alignment?.ok === true;
+      if (mayPromote) {
+        const promoted = String(stage3.finalText ?? "").trim() || s6FinalAnswer;
+        const kvGate = gateKeyVoiceAnswer({
+          text: promoted,
+          directive,
+          s5ReferenceText: s5Reference,
+        });
+        if (kvGate.ok) {
+          finalText = promoted;
+          shadow.customer_text_changed = true;
+          shadow.final_answer_source = "s7";
+          outputGate = kvGate;
+          trace.gate_result = kvGate;
+        } else {
+          shadow.customer_text_changed = false;
+          shadow.final_answer_source = "s6";
+          stage3.stage3_active = {
+            ...stage3.stage3_active,
+            promotion_pass: false,
+            customer_text_changed: false,
+            final_answer_source: "s6",
+            fallback_reason: `key_voice_gate:${kvGate.reasons?.join(";") ?? "fail"}`,
+          };
+        }
+      } else {
+        shadow.customer_text_changed = false;
+        shadow.final_answer_source = "s6";
+        if (stage3.customer_text_changed && alignment?.ok !== true) {
+          stage3.stage3_active = {
+            ...stage3.stage3_active,
+            promotion_pass: false,
+            customer_text_changed: false,
+            final_answer_source: "s6",
+            fallback_reason: alignment?.reason ?? "decision_alignment_blocked",
+          };
+        }
       }
-      if (stage3.customer_text_changed === true && stage3.final_answer_source === "s7") {
-        finalText = String(stage3.finalText ?? "").trim() || s6FinalAnswer;
-      }
-    } else if (shadow && typeof shadow === "object") {
+      shadow.s6_final_answer = s6FinalAnswer;
+      shadow.stage3_active = stage3.stage3_active;
+      trace.stage3_active = stage3.stage3_active;
+      shadow.fast_path = trace.fast_path;
+    } else {
+      // shadow or off-with-probe edge: never replace customer text
       shadow.customer_text_changed = false;
       shadow.final_answer_source = "s6";
-      shadow.s6_final_answer = s6FinalAnswer;
+      shadow.s6_final_answer = finalText;
+      shadow.fast_path = trace.fast_path;
     }
+
+    shadow.borrowed_senses_calls = borrowedSensesCalls;
+    shadow.s6_speak_calls = s6SpeakCalls;
+    trace.borrowed_senses_shadow = shadow;
   }
 
   return {
     text: finalText,
     visual_blocks: visualBlocks,
     segments: [],
-    compose_mode: "key_s6_voice_speak",
+    compose_mode: usedActiveFastPath ? "key_s7_borrowed_fast_path" : "key_s6_voice_speak",
     thinking_flow_applied: true,
-    speak_mode: "key_voice_speak",
+    speak_mode: usedActiveFastPath ? "borrowed_senses_fast_path" : "key_voice_speak",
     facts_spoken: directive.facts_to_speak ?? [],
     facts_withheld: factSelection.facts_withheld ?? [],
     facts_used: (directive.facts_to_speak ?? []).map((f) => f.fact_id),

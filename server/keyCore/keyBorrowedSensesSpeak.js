@@ -3,6 +3,8 @@
  */
 import { resolveAnthropicApiKey } from "../claudeGroundedExecutionCore.js";
 import { gateBorrowedSensesOutput, S7_BORROWED_SENSES_SCHEMA, S7_BORROWED_SENSES_SCHEMA_B, S7B_EXPERTISE_TAXONOMY } from "./keyBorrowedSensesGate.js";
+import { deriveKeyVoiceQuestionFocus } from "./keyVoiceDirective.js";
+import { formatPremiumFromRaw } from "./speakFactRenderer.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_TIMEOUT_MS = 35000;
@@ -93,7 +95,8 @@ function buildSystemPrompt() {
     "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
     "Understanding is HYPOTHESIS — never state hypotheses as confirmed facts.",
     "understanding_hypotheses MUST be soft: use '가능성', '마음이 있을 수 있음', '걱정이 있어 보임'. FORBIDDEN in understanding_hypotheses: 확실히, 분명, 틀림없, 반드시, and any wording that states customer psychology as fact. Do NOT invent unstated 가입 고려 / 보험료 부담 as certainty — only soft possibility if the question weakly suggests it.",
-    "Do NOT replace or rewrite the S6 final_answer.",
+    "S6 final_answer may be empty when this call runs before Speak — that is OK. Do NOT invent an S6 answer. voice_raw_candidate remains a CANDIDATE only.",
+    "Do NOT replace or rewrite a frozen S6 final_answer when one is provided.",
     "Principle: NOT '추천 금지' — YES '근거 없는 확정 추천 금지'.",
     "When customer purpose (stated or hypothesized) AND confirmed facts exist, KEY MUST assert purpose-fit clearly — do not timidly defer with review-order only.",
     "ALLOWED purpose-fit voice (shadow): '현재 목적 기준으로는 이쪽이 더 맞아 보입니다'; '보험료 절감 목적이라면 새 상품보다 기존 중복 확인이 먼저입니다'; '보장 보완 목적이라면 이 상품군은 후보가 될 수 있습니다'; '암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다'; '아직 확정은 아니지만, 지금 확인된 사실로는 이 방향이 목적에 더 가깝습니다'.",
@@ -175,6 +178,80 @@ function buildQuestionLeadershipHint(question = "") {
   return null;
 }
 
+/**
+ * Early fact boundary from Reality only — never invents decision/directive/s6.
+ * Reuses the same verified policy fact ids KEY Decision already trusts.
+ */
+export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" } = {}) {
+  const policies = Array.isArray(reality?.policies) ? reality.policies : [];
+  const p = policies[0] ?? null;
+  const count = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
+  const spoken = [];
+
+  if (count > 0) {
+    spoken.push({ fact_id: "policy_count", value: String(count), source: "factory" });
+    if (p?.insurer_name) {
+      spoken.push({ fact_id: "insurer", value: String(p.insurer_name), source: "factory" });
+    }
+    if (p?.product_name) {
+      spoken.push({ fact_id: "product", value: String(p.product_name), source: "factory" });
+    }
+    const premiumRaw = p?.monthly_premium ?? p?.premium_amount ?? null;
+    if (premiumRaw != null) {
+      spoken.push({ fact_id: "monthly_premium", value: String(premiumRaw), source: "factory" });
+    }
+  }
+
+  const allowed_fact_tokens = {
+    policy_count: null,
+    insurer: null,
+    product: null,
+    monthly_premium_raw: null,
+    monthly_premium_display: null,
+  };
+  const allowed_numbers = new Set();
+
+  for (const f of spoken) {
+    if (f.fact_id === "policy_count") {
+      allowed_fact_tokens.policy_count = f.value;
+      allowed_numbers.add(String(f.value));
+    }
+    if (f.fact_id === "insurer") allowed_fact_tokens.insurer = f.value;
+    if (f.fact_id === "product") allowed_fact_tokens.product = f.value;
+    if (f.fact_id === "monthly_premium") {
+      allowed_fact_tokens.monthly_premium_raw = f.value;
+      const display = formatPremiumFromRaw(f.value);
+      allowed_fact_tokens.monthly_premium_display = display;
+      for (const n of String(f.value).match(/\d+/g) ?? []) allowed_numbers.add(n);
+      for (const n of String(display ?? "").match(/\d+/g) ?? []) allowed_numbers.add(n);
+    }
+  }
+
+  const focus = deriveKeyVoiceQuestionFocus(question, null);
+  const multi = count > 1 && allowed_fact_tokens.monthly_premium_display;
+  const premium_scope_policy = multi
+    ? {
+        separation_required: true,
+        policy_count: count,
+        representative_premium: allowed_fact_tokens.monthly_premium_display,
+        forbid_blur_phrases: ["N건, 월 X", "기준으로 전체 보험료"],
+      }
+    : null;
+
+  return {
+    question_focus: focus,
+    allowed_fact_tokens,
+    allowed_numbers: [...allowed_numbers],
+    facts_to_speak: spoken.map((f) => f.fact_id),
+    facts_spoken: spoken,
+    premium_scope_policy,
+    // Explicit: no fake decision / directive / s6
+    decision: null,
+    directive: null,
+    s6_final_answer: "",
+  };
+}
+
 function buildUserPayload({
   question = "",
   directive = null,
@@ -183,7 +260,17 @@ function buildUserPayload({
   previousAnswerSummary = "",
   s6FinalAnswer = "",
   visualBlocks = [],
+  factBoundary = null,
+  reflection = null,
 } = {}) {
+  const early = factBoundary && typeof factBoundary === "object" ? factBoundary : null;
+  const allowed_fact_tokens =
+    directive?.allowed_fact_tokens ?? early?.allowed_fact_tokens ?? {};
+  const allowed_numbers = directive?.allowed_numbers ?? early?.allowed_numbers ?? [];
+  const facts_to_speak = directive?.facts_to_speak
+    ? (directive.facts_to_speak ?? []).map((f) => (typeof f === "string" ? f : f.fact_id))
+    : early?.facts_to_speak ?? [];
+
   return {
     schema_version: S7_BORROWED_SENSES_SCHEMA_B,
     s7a_schema_version: S7_BORROWED_SENSES_SCHEMA,
@@ -205,16 +292,23 @@ function buildUserPayload({
       text: h.text ?? h.content ?? "",
     })),
     previous_answer_summary: String(previousAnswerSummary ?? "").trim() || null,
+    // Empty string when called before Speak — never invent a fake S6 answer
     s6_final_answer_frozen: String(s6FinalAnswer ?? "").trim(),
-    question_focus: directive?.question_focus ?? null,
+    question_focus: directive?.question_focus ?? early?.question_focus ?? null,
     answer_mode: directive?.answer_mode ?? null,
+    // null when Decision has not run yet — do not invent
     decision_situation_key: decision?.situation_key ?? null,
-    allowed_fact_tokens: directive?.allowed_fact_tokens ?? {},
-    allowed_numbers: directive?.allowed_numbers ?? [],
-    facts_to_speak: (directive?.facts_to_speak ?? []).map((f) => f.fact_id),
-    premium_scope_policy: directive?.premium_scope_policy ?? null,
+    allowed_fact_tokens,
+    allowed_numbers,
+    facts_to_speak,
+    premium_scope_policy: directive?.premium_scope_policy ?? early?.premium_scope_policy ?? null,
+    reflection_situation_reading: Array.isArray(reflection?.situation_reading)
+      ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
+      : null,
+    reflection_reading_confidence: reflection?.reading_confidence ?? null,
     visual_blocks_summary: summarizeVisualBlocks(visualBlocks),
     s7b_question_leadership_hint: buildQuestionLeadershipHint(question),
+    call_phase: decision || directive ? "post_decision" : "pre_decision",
   };
 }
 
@@ -516,6 +610,8 @@ export async function runBorrowedSensesShadowProbe({
   previousAnswerSummary = "",
   s6FinalAnswer = "",
   visualBlocks = [],
+  factBoundary = null,
+  reflection = null,
   env = process.env,
   fetchImpl = fetch,
   timeoutMs = Number(env.KEY_BORROWED_SENSES_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
@@ -534,6 +630,7 @@ export async function runBorrowedSensesShadowProbe({
     gate: null,
     raw: null,
     attempts: 0,
+    call_phase: decision || directive ? "post_decision" : "pre_decision",
   };
 
   if (!apiKey) {
@@ -552,6 +649,8 @@ export async function runBorrowedSensesShadowProbe({
     previousAnswerSummary,
     s6FinalAnswer,
     visualBlocks,
+    factBoundary,
+    reflection,
   });
 
   let lastRaw = null;

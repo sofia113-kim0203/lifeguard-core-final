@@ -50,38 +50,63 @@ function pushSpokenFromIds(ids, reality) {
   return { spoken, withheld };
 }
 
-function classifySituation(question = "", reality = {}, reflection = {}) {
+function classifySituation(question = "", reality = {}, reflection = {}, borrowedUnderstanding = null) {
   const q = normalizeQuestion(question);
   const readings = Array.isArray(reflection?.situation_reading)
     ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
     : [];
+  const claudeHyps = Array.isArray(borrowedUnderstanding?.understanding_hypotheses)
+    ? borrowedUnderstanding.understanding_hypotheses.map((s) => String(s).trim()).filter(Boolean)
+    : [];
   const readingText = readings.join(" ");
+  const claudeText = [...claudeHyps, String(borrowedUnderstanding?.customer_intent ?? "").trim()]
+    .filter(Boolean)
+    .join(" ");
+  const materialText = [readingText, claudeText].filter(Boolean).join(" ");
+  const claudeInsurance = /보험료|보장|납입|가입|해지|절감|실손|암\s*보험/.test(claudeText);
 
-  // Reflection readings first — KEY interprets, does not copy raw soft into Speak
-  if (readingText) {
-    if (/보험료가 이대로 괜찮은지|보험료.*걱정|유지 부담/.test(readingText)) {
+  // Claude understanding can recover ambiguous questions Reflection marked non-insurance
+  if (claudeInsurance) {
+    if (/보험료.*(?:걱정|부담|적정)|적정성|맞는\s*건가|유지 부담/.test(claudeText)) {
       return "premium_burden";
     }
-    if (/보험과 무관한 일반/.test(readingText)) {
+    if (/줄이|절감|방향|우선/.test(claudeText)) {
+      return "direction_choice";
+    }
+    if (/가입된 보험|내 보험|목록|금액 확인|얼마/.test(claudeText)) {
+      return "enrolled_policy_list";
+    }
+  }
+
+  // Reflection + Claude understanding materials — KEY interprets, does not copy raw soft into Speak
+  if (materialText) {
+    if (/보험료가 이대로 괜찮은지|보험료.*걱정|유지 부담|적정성|부담.*맥락|맞는\s*건가/.test(materialText)) {
+      return "premium_burden";
+    }
+    if (
+      (/보험과 무관한 일반|체중|다이어트|운동/.test(materialText) || /체중|다이어트/.test(q)) &&
+      !INSURANCE_TOPIC_RE.test(q) &&
+      !claudeInsurance
+    ) {
       if (/맛집|식당|음식/.test(q)) return "daily_recommendation";
-      if (reality.domain === "emotion" || /감정·컨디션이 먼저/.test(readingText)) {
+      if (reality.domain === "emotion" || /감정·컨디션이 먼저/.test(materialText)) {
         return "emotional_space";
       }
       return "non_insurance_general";
     }
-    if (/가입된 보험이 무엇인지|내 보험에 대해 설명/.test(readingText)) {
+    if (/가입된 보험이 무엇인지|내 보험에 대해 설명/.test(materialText)) {
       return "enrolled_policy_list";
     }
-    if (/전체 보장 상태가 괜찮은지/.test(readingText)) {
+    if (/전체 보장 상태가 괜찮은지/.test(materialText)) {
       return "coverage_assessment_whole";
     }
-    if (/암 보장이 충분한지/.test(readingText)) {
+    if (/암 보장이 충분한지/.test(materialText)) {
       return "coverage_assessment_cancer_axis";
     }
-    if (/추천|방향/.test(readingText)) {
+    if (/추천|방향/.test(materialText)) {
       return "direction_choice";
     }
-    if (/감정·컨디션이 먼저/.test(readingText)) {
+    if (/감정·컨디션이 먼저/.test(materialText)) {
       return "emotional_space";
     }
   }
@@ -90,8 +115,12 @@ function classifySituation(question = "", reality = {}, reflection = {}) {
   if (reality.phase === "closing") return "respect_close";
   if (reality.domain === "emotion" && !INSURANCE_TOPIC_RE.test(q)) return "emotional_space";
   if (/맛집|식당|음식/.test(q) && !INSURANCE_TOPIC_RE.test(q)) return "daily_recommendation";
+  if (/체중|다이어트/.test(q) && !INSURANCE_TOPIC_RE.test(q)) return "non_insurance_general";
   if (/보험료/.test(q) && /얼마/.test(q)) return "enrolled_policy_list";
-  if (/보험료/.test(q) && /부담/.test(q)) return "premium_burden";
+  if (/보험료/.test(q) && /(?:부담|맞는\s*건가|이게\s*맞)/.test(q)) return "premium_burden";
+  if (/줄일\s*수\s*있/.test(q) && (INSURANCE_TOPIC_RE.test(q) || claudeInsurance)) {
+    return "direction_choice";
+  }
   if (/가입한\s*보험|보험\s*뭐|내보험/.test(q)) return "enrolled_policy_list";
   if (/가르쳐|알려/.test(q) && /보험|내보험/.test(q)) return "enrolled_policy_list";
   if (/괜찮/.test(q) && INSURANCE_TOPIC_RE.test(q)) return "coverage_assessment_whole";
@@ -138,9 +167,10 @@ export function buildDecision({
   reality = null,
   question = "",
   evidenceBundle = null,
+  borrowedUnderstanding = null,
 } = {}) {
   const q = normalizeQuestion(question || reflection?.customer_said || "");
-  const situation = classifySituation(q, reality, reflection);
+  const situation = classifySituation(q, reality, reflection, borrowedUnderstanding);
   const facts = policyFactRows(reality ?? {});
   const count = facts.count;
 
@@ -302,10 +332,16 @@ export function buildDecision({
   const readings = Array.isArray(reflection?.situation_reading)
     ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
     : [];
+  const claudeHyps = Array.isArray(borrowedUnderstanding?.understanding_hypotheses)
+    ? borrowedUnderstanding.understanding_hypotheses.map((s) => String(s).trim()).filter(Boolean)
+    : [];
   const readingConfidence = reflection?.reading_confidence ?? null;
 
-  // KEY interprets — never copy raw readings as customer facts
-  const customer_situation_hypothesis = readings.length ? readings.slice(0, 3) : null;
+  // KEY interprets — never copy raw readings/hypotheses as customer facts
+  const customer_situation_hypothesis = (() => {
+    const merged = [...readings, ...claudeHyps].filter(Boolean);
+    return merged.length ? [...new Set(merged)].slice(0, 5) : null;
+  })();
 
   let key_situation_judgment = null;
   let response_priority = null;
@@ -334,7 +370,10 @@ export function buildDecision({
       response_priority = "cancer_axis_check";
       break;
     case "direction_choice":
-      key_situation_judgment = "방향·우선순위를 함께 잡는 상황으로 본다.";
+      key_situation_judgment =
+        /줄일\s*수\s*있|30\s*%/.test(q)
+          ? "보험료 절감 가능성을 잠정 방향으로만 보고, 비율 확정은 하지 않는다."
+          : "방향·우선순위를 함께 잡는 상황으로 본다.";
       response_priority = "direction_choice";
       break;
     case "emotional_space":
@@ -362,6 +401,32 @@ export function buildDecision({
       response_priority = situation || "general";
   }
 
+  // Materials KEY used — not Speak inputs
+  const hypothesis_used = {
+    understanding_hypotheses: claudeHyps.slice(0, 5),
+    customer_intent: borrowedUnderstanding?.customer_intent ?? null,
+    emotional_signal: borrowedUnderstanding?.emotional_signal ?? null,
+    hesitation_signal: borrowedUnderstanding?.hesitation_signal ?? null,
+    context_carryover: borrowedUnderstanding?.context_carryover ?? null,
+    visual_observation: borrowedUnderstanding?.visual_observation ?? null,
+    proposal_direction: borrowedUnderstanding?.proposal_direction ?? null,
+    next_decision_point: Array.isArray(borrowedUnderstanding?.next_decision_point)
+      ? borrowedUnderstanding.next_decision_point
+      : [],
+    confidence: borrowedUnderstanding?.confidence ?? null,
+    reflection_readings: readings.slice(0, 3),
+  };
+
+  const decision_confidence =
+    borrowedUnderstanding?.confidence ??
+    readingConfidence ??
+    (claudeHyps.length || readings.length ? "hypothesis" : "question_classify");
+
+  const key_direction = {
+    type: direction?.type ?? null,
+    move: direction?.move ?? null,
+  };
+
   return {
     schema_version: KEY_DECISION_SCHEMA,
     situation_key: situation,
@@ -378,10 +443,14 @@ export function buildDecision({
     decision_complete: Boolean(keyJudgment && direction.type && direction.move),
     customer_situation_hypothesis,
     key_situation_judgment,
+    customer_situation_judgment: key_situation_judgment,
     response_priority,
     key_next_move,
+    key_direction,
     confirm_question,
     reading_confidence: readingConfidence,
+    decision_confidence,
+    hypothesis_used,
     trace_meta: {
       policy_count: count,
       premium_display: premiumFormatted,

@@ -332,6 +332,153 @@ export function decideStage2Promotion({
 }
 
 /**
+ * Fast-path candidate vs KEY Decision alignment.
+ * Reuses existing Gate safety helpers — does NOT invent a new Guard.
+ * On fail: discard candidate (never rewrite) → caller falls back to S6 Speak.
+ */
+export function evaluateBorrowedFastPathCandidate({
+  question = "",
+  decision = null,
+  directive = null,
+  shadow = null,
+  env = process.env,
+} = {}) {
+  const base = {
+    ok: false,
+    reason: null,
+    voice: null,
+    final_answer_source: "s6",
+    customer_text_changed: false,
+    aligned_with_decision: false,
+    gate_ok: false,
+  };
+
+  if (isVercelProductionEnv(env)) {
+    return { ...base, reason: "production_blocked" };
+  }
+
+  if (!shadow || typeof shadow !== "object") {
+    return { ...base, reason: "shadow_missing" };
+  }
+  if (shadow.error) {
+    return { ...base, reason: String(shadow.error) };
+  }
+
+  const borrowed = shadow.borrowed ?? null;
+  const gate = shadow.gate ?? null;
+  if (!borrowed) {
+    return { ...base, reason: "borrowed_missing" };
+  }
+
+  const voice = String(borrowed.voice_raw_candidate ?? "").trim();
+  if (!voice) {
+    return { ...base, reason: "empty_voice" };
+  }
+
+  const safetyFail = collectGateSafetyFail(gate);
+  if (safetyFail) {
+    return { ...base, reason: safetyFail, voice, gate_ok: false };
+  }
+
+  if (hasHardSalesPush(voice)) {
+    return { ...base, reason: "hard_sales_push", voice, gate_ok: true };
+  }
+
+  // Decision focus / direction alignment — discard on mismatch, never rewrite
+  const priority = String(decision?.response_priority ?? "").trim();
+  const situation = String(decision?.situation_key ?? "").trim();
+  const focus = String(directive?.question_focus ?? "").trim();
+  const move = String(decision?.key_next_move ?? decision?.direction?.move ?? "").trim();
+  const q = String(question ?? "").trim();
+
+  if (
+    priority === "non_insurance_focus" ||
+    situation === "non_insurance_general" ||
+    situation === "daily_recommendation" ||
+    situation === "emotional_space"
+  ) {
+    if (/보험료|가입하|해지하|보장\s*부족|보장\s*충분|월\s*[\d만천]/.test(voice) && !/보험/.test(q)) {
+      return {
+        ...base,
+        reason: "decision_mismatch_insurance_pollution",
+        voice,
+        gate_ok: true,
+      };
+    }
+  }
+
+  if (priority === "fact_lookup" || focus === "premium_amount") {
+    // Reject pure emotional speculation without fact grounding
+    if (
+      /불안|힘드|걱정이\s*크/.test(voice) &&
+      !/월|원|건|보험료|납입/.test(voice)
+    ) {
+      return {
+        ...base,
+        reason: "decision_mismatch_emotional_without_facts",
+        voice,
+        gate_ok: true,
+      };
+    }
+  }
+
+  if (priority === "premium_adequacy_check" || situation === "premium_burden") {
+    if (/30\s*%\s*(?:줄|삭|절감)|무조건\s*줄일\s*수/.test(voice)) {
+      return {
+        ...base,
+        reason: "decision_mismatch_unverified_cut_claim",
+        voice,
+        gate_ok: true,
+      };
+    }
+  }
+
+  if (priority === "direction_choice" && /30\s*%/.test(q)) {
+    if (/30\s*%\s*(?:줄일\s*수\s*있|가능합니다|됩니다)/.test(voice)) {
+      return {
+        ...base,
+        reason: "decision_mismatch_percent_certainty",
+        voice,
+        gate_ok: true,
+      };
+    }
+  }
+
+  // Focus drift: candidate ignores current question topic when Decision has a clear move
+  if (move && focus === "premium_amount" && !/보험료|월|원|납입/.test(voice)) {
+    return {
+      ...base,
+      reason: "decision_mismatch_focus",
+      voice,
+      gate_ok: true,
+    };
+  }
+
+  // Opposite direction: Decision wants space/non-insurance but candidate pushes product
+  if (
+    (decision?.direction?.type === "offer_space" || decision?.direction?.type === "offer_recommendation") &&
+    /이\s*상품|가입하세요|해지해도/.test(voice)
+  ) {
+    return {
+      ...base,
+      reason: "decision_mismatch_direction",
+      voice,
+      gate_ok: true,
+    };
+  }
+
+  return {
+    ok: true,
+    reason: null,
+    voice,
+    final_answer_source: "s7",
+    customer_text_changed: true,
+    aligned_with_decision: true,
+    gate_ok: true,
+  };
+}
+
+/**
  * Apply Stage2 decision onto compose finalText + shadow trace.
  * Never mutates S6 generation — only optionally replaces customer-facing text.
  */
