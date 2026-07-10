@@ -40,7 +40,11 @@ const TERMINATION_CLOSE_RE = /(?:최종\s*)?(?:체결|가입\s*확정|설계\s*�
 const DEFINITIVE_VERDICT_RE =
   /(?:충분합니다|부족합니다|문제\s*없(?:어|습니다)|완벽(?:해|합니다|해요)|틀림없|확실히\s*(?:부족|충분|괜찮)|꼭\s*필요(?:합니다|해요|한\s*거(?:야|예)?))/;
 const PREMIUM_SCOPE_BLUR_RE = /22건,\s*월|기준으로\s*전체\s*보험료|전체\s*보험료\s*=\s*월/;
-const CALCULATED_PARTIAL_RE = /절반|대부분/;
+// Quantitative partial invent only — bare qualitative "대부분/절반의 점검" is NOT number invent.
+// FAIL: "절반이 중복", "대부분을 줄일 수 있", "대부분 30%", "절반 원"
+// PASS: "대부분의 점검에서 이 두 가지가 먼저", "처음이면 … 부터"
+const CALCULATED_PARTIAL_RE =
+  /(?:절반|대부분).{0,16}(?:\d|%|원|건|줄이|합산|합계|중복)|(?:\d+\s*%|\d+\s*건|월\s*[\d만천억,]+\s*원).{0,16}(?:절반|대부분)/;
 const REMAINING_PREMIUM_INVENT_RE = /나머지\s*(?:[\d만천억\s,]{1,20})\s*원/;
 // bare "나머지 45000" invent — but not "나머지 21건" (do not allow \d+ to backtrack into 21→2)
 const REMAINING_BARE_NUMBER_RE = /나머지\s*\d+(?!\d)(?!\s*건)/;

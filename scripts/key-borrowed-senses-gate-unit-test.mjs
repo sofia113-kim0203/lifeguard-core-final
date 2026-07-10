@@ -1495,6 +1495,191 @@ const repairCases = [
       );
     },
   },
+  {
+    id: "B36_qualitative_word_not_number_scope_pass",
+    run: () => {
+      const voice =
+        "처음이면 보험료 부담과 큰 보장 빈틈부터 가볍게 보는 걸 추천드려요. 대부분의 점검에서 이 두 가지가 먼저 윤곽이 잡히는 영역이에요. 중복 보장도 같이 열어둘게요.";
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["가볍게 둘러보려는 마음이 있을 수 있음"],
+          customer_intent: "부담 없이 둘러보기",
+          answer_purpose: "상담 시작점 추천",
+          must_not_assume: ["가입 의사 단정 금지"],
+          used_facts: ["policy_count"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 둘러보기에서는 보험료·빈틈·중복이 안전한 시작점. 왜 아직 확정 아닌지: 목적 미확인",
+          voice_raw_candidate: voice,
+          key_purpose: "둘러보기 시작점 리드",
+          leadership_move: "보험료·빈틈·중복 선택지",
+          insurance_expertise_angle: ["납입부담", "보장구성", "중복"],
+          proposal_direction: "처음이면 보험료 부담과 큰 보장 빈틈부터",
+          next_decision_point: [
+            "보험료 부담부터 볼지",
+            "큰 보장 빈틈부터 볼지",
+            "중복 보장부터 볼지",
+          ],
+          final_answer_source: "s6",
+        },
+        directive: {
+          answer_mode: "social",
+          allowed_fact_tokens: { policy_count: "22" },
+          facts_to_speak: [],
+        },
+        history: [],
+        question: "그냥 둘러보러 왔어",
+      });
+      const hint = buildQuestionLeadershipHint("그냥 둘러보러 왔어");
+      if (!hint || !/처음이면|보험료\s*부담|보장\s*빈틈/.test(hint)) return false;
+      return gate.ok === true && gate.number_scope_violation === false;
+    },
+  },
+  {
+    id: "B37_real_numeric_invent_fail",
+    run: () => {
+      const gatePct = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["절감"],
+          customer_intent: "보험료 줄이기",
+          answer_purpose: "절감 안내",
+          must_not_assume: [],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "보통 30%는 줄일 수 있습니다. 월 5만 원 줄일 수 있습니다.",
+          key_purpose: "절감 수치",
+          leadership_move: "수치 제시",
+          insurance_expertise_angle: ["납입부담"],
+          proposal_direction: "30% 절감 가능",
+          next_decision_point: ["30% 줄이기", "월 5만 원 줄이기"],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험료 줄이고 싶어",
+      });
+      const gateHalf = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["중복"],
+          customer_intent: "중복 확인",
+          answer_purpose: "중복 안내",
+          must_not_assume: [],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "대부분을 줄일 수 있고 절반이 중복입니다.",
+          key_purpose: "중복 비율",
+          leadership_move: "비율 제시",
+          insurance_expertise_angle: ["중복"],
+          proposal_direction: "절반 중복",
+          next_decision_point: ["중복부터", "납입부터"],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험료 줄이고 싶어",
+      });
+      return (
+        gatePct.ok === false &&
+        gatePct.number_scope_violation === true &&
+        gateHalf.ok === false &&
+        gateHalf.number_scope_violation === true
+      );
+    },
+  },
+  {
+    id: "B38_premium_anti_push_harness_pass",
+    run: () => {
+      // Mirror Stage1 harness scoreNoNewProductPush / anti-push rules (local, no Preview)
+      const isAntiPush = (text = "") =>
+        /새\s*상품을?\s*(?:보기\s*전에|보기\s*전|보다\s*전에)|새\s*상품보다/.test(String(text));
+      const hasRealPush = (text = "") => {
+        const t = String(text ?? "");
+        if (/(?:이\s*상품|이\s*보험).{0,20}(?:가입하(?:세요|십시오)|가입을\s*(?:추천|권유)|무조건\s*가입)/.test(t)) {
+          return true;
+        }
+        if (/(?:지금|바로)\s*가입(?:하(?:세요|십시오|는\s*게)|을\s*(?:추천|권유))/.test(t)) return true;
+        if (/가입하세요|해지하(?:세요|셔야)|해지해도\s*됩니다|갈아타세요/.test(t)) return true;
+        const assertive =
+          /(?:추가\s*가입|새\s*상품\s*가입하|지금\s*가입하(?:세요|십시오|는\s*게)|바로\s*가입하|갈아타세요)/.test(
+            t,
+          ) || /새\s*상품\s*가입(?:을\s*)?(?:추천|권유)/.test(t);
+        if (!assertive) return false;
+        if (isAntiPush(t)) return false;
+        return true;
+      };
+      const scoreNoNew = (blob = "") => {
+        if (hasRealPush(blob)) return false;
+        if (/새\s*상품/.test(blob) && !isAntiPush(blob)) return false;
+        return true;
+      };
+      const blob =
+        "절감 목적이라면 새 상품을 보기 전에 지금 있는 22건의 납입 구조와 중복 보장을 먼저 확인하는 게 맞아 보입니다. 새 상품 가입보다 기존 중복부터. 납입 구조 / 중복 보장 / 조정 후보";
+      if (!isAntiPush(blob)) return false;
+      if (scoreNoNew(blob) !== true) return false;
+      // Old buggy partial match must NOT decide FAIL when anti-push present
+      if (/(?:추가\s*가입|지금\s*가입|새\s*상품\s*가입)/.test(blob) && !isAntiPush(blob)) {
+        return false;
+      }
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["보험료 절감 목적일 수 있음"],
+          customer_intent: "보험료 줄이기",
+          answer_purpose: "절감 전 기존 계약 검토",
+          must_not_assume: ["새 상품 가입 단정 금지"],
+          used_facts: ["policy_count", "monthly_premium_representative"],
+          recommendation_basis:
+            "왜 맞아 보이는지: 절감이면 새 상품 가입보다 기존 중복·납입 확인이 먼저. 왜 아직 확정 아닌지: 합계 미확인",
+          voice_raw_candidate:
+            "새 상품을 보기 전에 기존 중복 보장부터 보겠습니다. 납입 구조와 조정 후보도 같이 열어둘게요.",
+          key_purpose: "절감 목적 검토 리드",
+          leadership_move: "새 상품 전 중복·납입부터",
+          insurance_expertise_angle: ["납입부담", "중복"],
+          proposal_direction:
+            "절감 목적이면 새 상품을 보기 전에 기존 중복·납입 확인이 먼저 맞아 보임",
+          next_decision_point: [
+            "납입 보험료 구조부터 확인할지",
+            "중복 보장부터 확인할지",
+            "줄여도 되는 조정 후보부터 볼지",
+          ],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험료 줄이고 싶어",
+      });
+      return (
+        gate.ok === true &&
+        gate.unsupported_recommendation === false &&
+        gate.product_push_as_direction === false &&
+        scoreNoNew(blob) === true
+      );
+    },
+  },
+  {
+    id: "B39_real_enroll_push_still_fail",
+    run: () => {
+      const gate = gateBorrowedSensesOutput({
+        borrowed: {
+          understanding_hypotheses: ["가입 유도"],
+          customer_intent: "추천",
+          answer_purpose: "가입 권유",
+          must_not_assume: [],
+          used_facts: ["policy_count"],
+          voice_raw_candidate: "지금 이 상품 가입하세요. 바로 가입하는 게 좋습니다.",
+          key_purpose: "가입",
+          leadership_move: "즉시 가입",
+          insurance_expertise_angle: ["보장구성"],
+          proposal_direction: "이 상품 가입을 추천합니다",
+          next_decision_point: ["지금 가입하기", "나중에 가입하기"],
+          final_answer_source: "s6",
+        },
+        directive: directivePremium,
+        history: [],
+        question: "보험 추천해줘",
+      });
+      return (
+        gate.ok === false &&
+        (gate.unsupported_recommendation === true || gate.product_push_as_direction === true)
+      );
+    },
+  },
 ];
 
 let failed = 0;
