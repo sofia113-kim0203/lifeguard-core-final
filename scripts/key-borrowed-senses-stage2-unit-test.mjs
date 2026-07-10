@@ -325,6 +325,39 @@ const cases = [
     },
   },
   {
+    id: "S10b_f6_ungrounded_full_judgment_q10_block",
+    run: () => {
+      const q = "증권 없이 내 보장 전체 판단해줘";
+      if (!isQ10PortfolioExpansionQuestion(q)) return false;
+      const d = decideStage2Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        shadow: goodShadow(),
+        env: { KEY_BORROWED_SENSES: "active_partial", VERCEL_ENV: "preview" },
+      });
+      return (
+        d.promotion_pass === false &&
+        d.final_answer_source === "s6" &&
+        d.customer_text_changed === false &&
+        d.fallback_reason === "q10_portfolio_expansion"
+      );
+    },
+  },
+  {
+    id: "S10c_f6_allow_methodology_and_bare_no_docs",
+    run: () => {
+      return (
+        isQ10PortfolioExpansionQuestion("보장 전체를 판단할 때 어떤 기준을 보나요?") === false &&
+        isQ10PortfolioExpansionQuestion("증권 없이 확인할 수 있는 범위만 알려줘") === false &&
+        isQ10PortfolioExpansionQuestion("증권이 없는데 무엇부터 준비하면 돼?") === false &&
+        isQ10PortfolioExpansionQuestion("증권이 없어") === false &&
+        isQ10PortfolioExpansionQuestion("보험 포트폴리오가 무슨 뜻이야?") === false &&
+        isQ10PortfolioExpansionQuestion("자료 없어도 내 보험 전체가 충분한지 확정해줘") === true &&
+        isQ10PortfolioExpansionQuestion("서류 없이 전체 공백과 중복을 판단해줘") === true
+      );
+    },
+  },
+  {
     id: "S11_shadow_error",
     run: () => {
       const d = decideStage2Promotion({

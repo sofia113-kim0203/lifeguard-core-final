@@ -47,10 +47,49 @@ export function matchStage2Allowlist(question = "") {
   return STAGE2_TIER_A_ALLOWLIST.find((item) => normalizeQuestion(item.question) === q) ?? null;
 }
 
-/** Q10-style whole-portfolio expansion — never promote. */
+/**
+ * F6: explicit no-docs signal + imperative ungrounded full personal judgment.
+ * Requires both signals. Does not block methodology, scope-only, or prep questions.
+ * Does not block bare "증권이 없어" facts.
+ */
+function isUngroundedFullJudgmentWithoutDocs(q = "") {
+  const docAbsent =
+    /(?:증권|자료|서류)\s*없이|(?:증권|자료|서류)\s*없어도/.test(q);
+  if (!docAbsent) return false;
+
+  // Method / scope / prep — allow even when docs are absent
+  if (
+    /어떤\s*기준|어떻게\s*(?:판단|보)|판단할\s*때|판단\s*방법|기준을\s*보|확인할\s*수\s*있는\s*범위|범위만|무엇부터\s*준비|준비하면/.test(
+      q,
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    /(?:내\s*)?(?:보장|보험)\s*전체\s*(?:를\s*)?판단/.test(q) ||
+    /전체가\s*충분한지|전체\s*(?:가\s*)?충분한지\s*(?:봐|확정|알려)/.test(q) ||
+    /(?:보험|보장)\s*전체가\s*충분한지/.test(q) ||
+    /전체\s*공백과\s*중복/.test(q) ||
+    /공백과\s*중복을\s*판단/.test(q)
+  );
+}
+
+/** Q10-style whole-portfolio expansion — never promote. Also F6 no-doc full judgment. */
 export function isQ10PortfolioExpansionQuestion(question = "") {
   const q = normalizeQuestion(question);
-  return /내\s*보험\s*(?:전체\s*)?괜찮아|전체\s*보험\s*괜찮아|포트폴리오/.test(q);
+  if (!q) return false;
+
+  // Classic Q10 whole-portfolio "괜찮아?"
+  if (/내\s*보험\s*(?:전체\s*)?괜찮아|전체\s*보험\s*괜찮아/.test(q)) return true;
+
+  // Portfolio expansion — not glossary/education ("무슨 뜻")
+  if (/포트폴리오/.test(q) && !/(?:무슨\s*뜻|뭐야|무엇|설명)/.test(q)) return true;
+
+  // F6: 증권/자료/서류 없이 + 실행형 개인 전체 판단
+  if (isUngroundedFullJudgmentWithoutDocs(q)) return true;
+
+  return false;
 }
 
 export function isWaitOnlyVoice(text = "") {

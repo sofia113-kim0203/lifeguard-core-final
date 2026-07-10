@@ -8,6 +8,7 @@ import {
   educationExpandsToPersonalVerdict,
   STAGE3_LANES,
 } from "../server/keyCore/keyBorrowedSensesStage3.js";
+import { isQ10PortfolioExpansionQuestion } from "../server/keyCore/keyBorrowedSensesStage2.js";
 import {
   getKeyBorrowedSensesMode,
   isKeyBorrowedSensesStage2Partial,
@@ -528,7 +529,7 @@ const cases = [
     },
   },
   {
-    id: "24_f6_no_doc_judge_stays_default_daily",
+    id: "24_f6_no_doc_full_judgment_q10_block",
     run: () => {
       const q = "증권 없이 내 보장 전체 판단해줘";
       const insuranceS6 =
@@ -541,12 +542,105 @@ const cases = [
         env: previewActive,
       });
       return (
-        c.lane === STAGE3_LANES.GENERAL_DAILY &&
-        c.lane_reason === "default_general_daily" &&
-        d.lane === STAGE3_LANES.GENERAL_DAILY &&
+        isQ10PortfolioExpansionQuestion(q) === true &&
+        c.q10_blocked === true &&
+        c.lane_reason === "q10_portfolio_expansion" &&
+        d.q10_blocked === true &&
         d.promotion_pass === false &&
-        d.fallback_reason === "general_daily_no_promotion"
+        d.final_answer_source === "s6" &&
+        d.customer_text_changed === false &&
+        d.fallback_reason === "q10_portfolio_expansion"
       );
+    },
+  },
+  {
+    id: "24a_f6_allow_methodology_not_blocked",
+    run: () => {
+      const q = "보장 전체를 판단할 때 어떤 기준을 보나요?";
+      return (
+        isQ10PortfolioExpansionQuestion(q) === false &&
+        classifyStage3Lane(q).q10_blocked === false
+      );
+    },
+  },
+  {
+    id: "24b_f6_allow_scope_only_with_no_docs",
+    run: () => {
+      const q = "증권 없이 확인할 수 있는 범위만 알려줘";
+      return (
+        isQ10PortfolioExpansionQuestion(q) === false &&
+        classifyStage3Lane(q).q10_blocked === false
+      );
+    },
+  },
+  {
+    id: "24c_f6_allow_prep_when_no_policy",
+    run: () => {
+      const q = "증권이 없는데 무엇부터 준비하면 돼?";
+      return (
+        isQ10PortfolioExpansionQuestion(q) === false &&
+        classifyStage3Lane(q).q10_blocked === false
+      );
+    },
+  },
+  {
+    id: "24d_f6_allow_confirmed_scope_silson",
+    run: () => {
+      const q = "내 실손 보장 구조가 뭔지 알려줘";
+      const c = classifyStage3Lane(q);
+      return isQ10PortfolioExpansionQuestion(q) === false && c.q10_blocked === false;
+    },
+  },
+  {
+    id: "24e_f6_block_no_docs_sufficiency_certainty",
+    run: () => {
+      const q = "자료 없어도 내 보험 전체가 충분한지 확정해줘";
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        shadow: goodShadow({ gate: goodGate() }),
+        env: previewActive,
+      });
+      return (
+        isQ10PortfolioExpansionQuestion(q) === true &&
+        d.q10_blocked === true &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "q10_portfolio_expansion"
+      );
+    },
+  },
+  {
+    id: "24f_f6_block_no_docs_gap_dup_judgment",
+    run: () => {
+      const q = "서류 없이 전체 공백과 중복을 판단해줘";
+      const d = decideStage3Promotion({
+        question: q,
+        s6FinalAnswer: s6,
+        shadow: goodShadow({ gate: goodGate() }),
+        env: previewActive,
+      });
+      return (
+        isQ10PortfolioExpansionQuestion(q) === true &&
+        d.q10_blocked === true &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "q10_portfolio_expansion"
+      );
+    },
+  },
+  {
+    id: "24g_f6_bare_no_policy_fact_not_blocked",
+    run: () => {
+      const q = "증권이 없어";
+      return isQ10PortfolioExpansionQuestion(q) === false;
+    },
+  },
+  {
+    id: "24h_f6_portfolio_glossary_not_blocked",
+    run: () => {
+      const q = "보험 포트폴리오가 무슨 뜻이야?";
+      const c = classifyStage3Lane(q);
+      // Q10 must not block glossary; education vs advice lane is classifier scope (unchanged this Slice).
+      return isQ10PortfolioExpansionQuestion(q) === false && c.q10_blocked === false;
     },
   },
   {
