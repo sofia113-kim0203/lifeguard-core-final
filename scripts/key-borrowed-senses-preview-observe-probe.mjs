@@ -1,8 +1,14 @@
 /**
  * S7-a Borrowed Senses — Preview observe probe ONLY (no deploy · no env file read).
  *
- * Usage:
+ * Usage (default S7Q1–S7Q12 · writes evidence):
  *   node scripts/key-borrowed-senses-preview-observe-probe.mjs <preview-url> <worktree-path>
+ *
+ * Same-session S7-A continuous observe (console only · no new evidence file):
+ *   node scripts/key-borrowed-senses-preview-observe-probe.mjs <preview-url> <worktree-path> --same-session-s7a
+ *
+ * History-accumulation self-check (no Preview · no env):
+ *   node scripts/key-borrowed-senses-preview-observe-probe.mjs --same-session-s7a-selftest
  *
  * Preferred (allowlist-only env load):
  *   node scripts/key-borrowed-senses-preview-observe-run.mjs <preview-url> <worktree-path> [--env-dir <dir>]
@@ -11,10 +17,11 @@
  *   VERCEL_AUTOMATION_BYPASS_SECRET, VITE_SUPABASE_URL|SUPABASE_URL,
  *   VITE_SUPABASE_ANON_KEY|SUPABASE_ANON_KEY, QA_EMAIL|QA_TEST_EMAIL, QA_PASSWORD|QA_TEST_PASSWORD
  *
- * Writes (worktree): fixtures/key-judgment-validation-v1/s7-borrowed-senses-preview-observe-evidence.json
+ * Default mode writes (worktree): fixtures/key-judgment-validation-v1/s7-borrowed-senses-preview-observe-evidence.json
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import {
   fetchBypassSse,
@@ -45,6 +52,13 @@ const PREVIEW_ENV_KEY_NAMES = [
   "CLAUDE_API_KEY",
   "SALES_DIRECTOR_KEY_CUSTOMER_ALLOWLIST",
 ];
+
+/** Explicit same-session S7-A turns — live answers only; never fixture static history. */
+export const SAME_SESSION_S7A_TURNS = Object.freeze([
+  { id: "T1", question: "분당 맛집 추천해줘" },
+  { id: "T2", question: "부모님 모시고 가는데 아버지가 최근 수술하셨어" },
+  { id: "T3", question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야" },
+]);
 
 const SECRET_PATTERNS = [
   /Bearer\s+\S+/gi,
@@ -118,7 +132,264 @@ function extractTrace(done) {
   const speak = trace?.steps?.find((s) => s.step === "speak")?.payload ?? {};
   const keyVoiceTrace = speak.key_voice_trace ?? speak.key_compose_trace?.key_voice_trace ?? null;
   const shadow = keyVoiceTrace?.borrowed_senses_shadow ?? null;
-  return { keyVoiceTrace, shadow };
+  return { keyVoiceTrace, shadow, speakPayload: speak, oneKeyCoreTrace: trace };
+}
+
+/**
+ * Append one completed turn's real customer answer into live history.
+ * Does not rewrite or sanitize answerText.
+ */
+export function appendSameSessionHistory(history = [], question = "", answerText = "") {
+  const q = String(question ?? "");
+  const a = String(answerText ?? "");
+  return [
+    ...(Array.isArray(history) ? history : []),
+    { role: "user", text: q },
+    { role: "assistant", text: a },
+  ];
+}
+
+/** Pure plan of history turn-counts for T1→T3 (mock-friendly). */
+export function planSameSessionHistoryCounts(turnCount = SAME_SESSION_S7A_TURNS.length) {
+  const counts = [];
+  let historyLen = 0;
+  for (let i = 0; i < turnCount; i += 1) {
+    counts.push(historyLen);
+    historyLen += 2; // user + assistant
+  }
+  return counts;
+}
+
+function isKeyMasterTurn({ responseSource = null, speakPayload = null } = {}) {
+  const source = String(responseSource ?? "");
+  const compose = String(speakPayload?.compose_mode ?? "");
+  return (
+    speakPayload?.key_speak_master === true ||
+    /^key_master/.test(compose) ||
+    /^key_master/.test(source) ||
+    source === "one_key_core" ||
+    /key_s[67]|borrowed_senses|key_voice/.test(compose)
+  );
+}
+
+function collectCallCounts(keyVoiceTrace = null, shadow = null) {
+  const borrowedCalls = Number(
+    keyVoiceTrace?.borrowed_senses_calls ?? shadow?.borrowed_senses_calls ?? 0,
+  );
+  const s6Calls = Number(keyVoiceTrace?.s6_speak_calls ?? shadow?.s6_speak_calls ?? 0);
+  const usedRegen = keyVoiceTrace?.used_constrained_regen === true;
+  return {
+    borrowed_senses_calls: Number.isFinite(borrowedCalls) ? borrowedCalls : 0,
+    s6_speak_calls: Number.isFinite(s6Calls) ? s6Calls : 0,
+    regeneration_calls: usedRegen ? 1 : 0,
+    used_constrained_regen: usedRegen,
+  };
+}
+
+/** Observation-only content notes — never rewrite customer text. */
+export function observeSameSessionContentNotes(id = "", answerText = "") {
+  const t = String(answerText ?? "");
+  if (id === "T1") {
+    return {
+      answers_current_request: /맛집|한식|일식|분위기|분당|서현|야탑|추천|식당|음식/.test(t),
+      no_insurance_force:
+        !/보험료|가입하|해지하|22\s*건|보장\s*(부족|충분)|보험\s*쪽으로/.test(t),
+    };
+  }
+  if (id === "T2") {
+    return {
+      meal_first: /부모|식사|모시|한식|조용|이동|분위기|식당|맛집/.test(t),
+      surgery_as_hypothesis_only:
+        !/보험금\s*(?:받|지급).{0,12}(?:됩니다|가능합니다)/.test(t) &&
+        !/가입하세요|해지해도\s*됩니다/.test(t),
+      no_insurance_force_switch: !/보험료|22\s*건|보장\s*(부족|충분)|보험\s*쪽으로/.test(t),
+    };
+  }
+  if (id === "T3") {
+    return {
+      no_payout_certainty:
+        !/지급됩니다|받을\s*수\s*있습니다|청구\s*가능합니다|가능한\s*경우가\s*많/.test(t),
+      no_inventory_dump: !/22\s*건/.test(t),
+      docs_or_coverage_next: /진단서|영수증|담보|진료비|서류|확인/.test(t),
+    };
+  }
+  return {};
+}
+
+function buildSameSessionTurnRow({
+  id,
+  question,
+  historySent,
+  events,
+  done,
+  answerText,
+  keyVoiceTrace,
+  shadow,
+  speakPayload,
+  probeOk,
+  probeError = null,
+}) {
+  const replaces = events.filter((e) => e.type === "replace").map((e) => String(e.data?.text ?? ""));
+  const responseSource = done.response_source ?? null;
+  const keySpeakOriginal = String(done.key_speak_original ?? "").trim();
+  const keyTextEqualApi = done.key_text_equal === true;
+  const keyTextEqualObserved =
+    !keySpeakOriginal || keySpeakOriginal === String(answerText ?? "").trim();
+  const calls = collectCallCounts(keyVoiceTrace, shadow);
+  const finalAnswerSource =
+    shadow?.final_answer_source ??
+    keyVoiceTrace?.borrowed_senses_shadow?.final_answer_source ??
+    null;
+
+  return redactObject({
+    id,
+    question,
+    final_customer_answer: answerText,
+    history_sent_turn_count: Array.isArray(historySent) ? historySent.length : 0,
+    history_sent_preview: (historySent ?? []).map((h) => ({
+      role: h.role,
+      text_len: String(h.text ?? h.content ?? "").length,
+    })),
+    response_source: responseSource,
+    key_master: isKeyMasterTurn({ responseSource, speakPayload }),
+    key_text_equality: {
+      api: keyTextEqualApi,
+      observed: keyTextEqualObserved,
+    },
+    replace_count: replaces.length,
+    customer_output_count: answerText ? 1 : 0,
+    borrowed_senses_calls: calls.borrowed_senses_calls,
+    regeneration_calls: calls.regeneration_calls,
+    used_constrained_regen: calls.used_constrained_regen,
+    s6_speak_calls: calls.s6_speak_calls,
+    final_answer_source: finalAnswerSource,
+    fast_path_ok: keyVoiceTrace?.fast_path?.ok ?? null,
+    mid_field_warnings: keyVoiceTrace?.fast_path?.mid_field_warnings ?? [],
+    trace_paths: {
+      one_key_core_trace: Boolean(done.one_key_core_trace),
+      key_voice_trace: Boolean(keyVoiceTrace),
+      borrowed_senses_shadow: Boolean(shadow),
+      answer_regeneration: keyVoiceTrace?.answer_regeneration ?? null,
+    },
+    content_notes: observeSameSessionContentNotes(id, answerText),
+    probe_ok: probeOk,
+    probe_error: probeError,
+  });
+}
+
+async function runSameSessionS7aObserve({ previewBase, token, bypass }) {
+  /** Live cumulative history — starts empty; fixture static history never used. */
+  let history = [];
+  const turns = [];
+
+  for (const item of SAME_SESSION_S7A_TURNS) {
+    const historySent = history.map((h) => ({ ...h }));
+    const probe = await fetchBypassSse({
+      previewBase,
+      token,
+      question: item.question,
+      history: historySent,
+      bypassSecret: bypass,
+    });
+
+    if (!probe.ok) {
+      turns.push(
+        buildSameSessionTurnRow({
+          id: item.id,
+          question: item.question,
+          historySent,
+          events: [],
+          done: {},
+          answerText: "",
+          keyVoiceTrace: null,
+          shadow: null,
+          speakPayload: null,
+          probeOk: false,
+          probeError: redactString(probe.stderr_preview ?? probe.probe_error ?? "probe_failed"),
+        }),
+      );
+      break;
+    }
+
+    const events = parseSse(probe.stdout);
+    const done = events.find((e) => e.type === "done")?.data ?? {};
+    // Single customer output: done.answerText only (no rewrite / no concat of deltas).
+    const answerText = String(done.answerText ?? "").replace(/\s+/g, " ").trim();
+    const { keyVoiceTrace, shadow, speakPayload } = extractTrace(done);
+
+    turns.push(
+      buildSameSessionTurnRow({
+        id: item.id,
+        question: item.question,
+        historySent,
+        events,
+        done,
+        answerText,
+        keyVoiceTrace,
+        shadow,
+        speakPayload,
+        probeOk: true,
+      }),
+    );
+
+    // Accumulate real final answer for the next turn (unmodified).
+    history = appendSameSessionHistory(history, item.question, answerText);
+  }
+
+  return {
+    mode: "same-session-s7a",
+    schema_version: "s7-borrowed-senses-same-session-observe-v0",
+    observed_at: new Date().toISOString(),
+    preview_url: previewBase,
+    production_touched: false,
+    evidence_file_written: false,
+    same_token: true,
+    same_customer: true,
+    history_source: "live_accumulated_answers",
+    turns,
+    summary: {
+      turn_count: turns.length,
+      probe_ok_count: turns.filter((t) => t.probe_ok).length,
+      history_counts_sent: turns.map((t) => t.history_sent_turn_count),
+      expected_history_counts: planSameSessionHistoryCounts(),
+      single_customer_output_per_turn: turns.every((t) => !t.probe_ok || t.customer_output_count === 1),
+    },
+  };
+}
+
+function runSameSessionS7aSelftest() {
+  const expected = planSameSessionHistoryCounts(3);
+  let history = [];
+  const sentCounts = [];
+  const mockAnswers = ["A1-restaurant", "A2-meal-first", "A3-docs"];
+  SAME_SESSION_S7A_TURNS.forEach((item, i) => {
+    sentCounts.push(history.length);
+    history = appendSameSessionHistory(history, item.question, mockAnswers[i]);
+  });
+  const ok =
+    JSON.stringify(sentCounts) === JSON.stringify(expected) &&
+    expected[0] === 0 &&
+    expected[1] === 2 &&
+    expected[2] === 4 &&
+    history.length === 6 &&
+    history[0].role === "user" &&
+    history[0].text === SAME_SESSION_S7A_TURNS[0].question &&
+    history[1].text === mockAnswers[0] &&
+    history[5].text === mockAnswers[2] &&
+    observeSameSessionContentNotes("T1", "분당 한식 분위기부터 볼까요?").no_insurance_force === true &&
+    observeSameSessionContentNotes("T3", "확인 전 지급 단정 불가. 진단서·담보부터.").no_payout_certainty ===
+      true;
+
+  console.log(
+    JSON.stringify({
+      ok,
+      mode: "same-session-s7a-selftest",
+      expected_history_counts: expected,
+      sent_counts: sentCounts,
+      final_history_len: history.length,
+    }),
+  );
+  return ok;
 }
 
 function checkHighRisk(id, shadow, answerText) {
@@ -282,8 +553,18 @@ async function probeQuestion({ previewBase, token, bypass, item }) {
 }
 
 async function main() {
-  const previewUrl = (process.argv[2] ?? "").replace(/\/$/, "");
-  const worktree = process.argv[3] ?? "";
+  const argv = process.argv.slice(2);
+  const sameSession = argv.includes("--same-session-s7a");
+  const selftest = argv.includes("--same-session-s7a-selftest");
+  const positional = argv.filter((a) => !String(a).startsWith("--"));
+
+  if (selftest) {
+    const ok = runSameSessionS7aSelftest();
+    process.exit(ok ? 0 : 2);
+  }
+
+  const previewUrl = String(positional[0] ?? "").replace(/\/$/, "");
+  const worktree = String(positional[1] ?? "");
 
   if (!previewUrl || !worktree || !existsSync(worktree)) {
     console.log(JSON.stringify({ ok: false, step: "missing_args" }));
@@ -295,6 +576,24 @@ async function main() {
     process.exit(1);
   }
 
+  const bypass = resolveBypassSecret();
+  const token = await mintToken();
+
+  // --- Explicit same-session S7-A mode (console only · no evidence write) ---
+  if (sameSession) {
+    const result = await runSameSessionS7aObserve({
+      previewBase: previewUrl,
+      token,
+      bypass,
+    });
+    console.log(JSON.stringify(redactObject(result), null, 2));
+    const ok =
+      result.summary.probe_ok_count === SAME_SESSION_S7A_TURNS.length &&
+      result.summary.single_customer_output_per_turn === true;
+    process.exit(ok ? 0 : 2);
+  }
+
+  // --- Default mode: S7Q1–S7Q12 (unchanged contract) ---
   const specPath = join(
     worktree,
     "fixtures/key-judgment-validation-v1/s7-borrowed-senses-experiment-v0.json",
@@ -309,8 +608,6 @@ async function main() {
     process.exit(1);
   }
 
-  const bypass = resolveBypassSecret();
-  const token = await mintToken();
   const spec = JSON.parse(readFileSync(specPath, "utf8"));
   const rows = [];
 
@@ -365,4 +662,8 @@ async function main() {
   if (!evidence.summary.all_pass) process.exit(2);
 }
 
-await main();
+const isDirectRun =
+  Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isDirectRun) {
+  await main();
+}
