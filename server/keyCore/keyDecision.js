@@ -2,16 +2,137 @@
  * Slice 5 — Decision (Judgment + Lead 통합 · Runtime 핵심).
  */
 import { formatPremiumFromRaw } from "./speakFactRenderer.js";
+import {
+  classifyStage3Lane,
+  STAGE3_LANES,
+} from "./keyBorrowedSensesStage3.js";
 
 export const KEY_DECISION_SCHEMA = "key-decision-v1";
 
 const INSURANCE_TOPIC_RE =
   /보험|보험료|보장|암|실손|담보|청구|보험금|해지|중복|유지|가입|설계|부족|괜찮|납입|계약/;
 
+/** Active insurance ask in the current question (not mere deferral mention). */
+const ACTIVE_INSURANCE_ASK_RE =
+  /보험료|보장|암\s*보험|가입한\s*보험|내\s*보험|해지|납입|실손|담보|특약/;
+
+/** Existing F3 daily lexical set — reuse only, do not expand into a new detector. */
+const F3_DAILY_LEX_RE = /맛집|심심|날씨|영화|여행|게임|농담|안녕|뭐해|심심해|식당|음식/;
+
 function normalizeQuestion(question = "") {
   return String(question ?? "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function understandingMaterials(reflection = {}, borrowedUnderstanding = null) {
+  const readings = Array.isArray(reflection?.situation_reading)
+    ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  const claudeHyps = Array.isArray(borrowedUnderstanding?.understanding_hypotheses)
+    ? borrowedUnderstanding.understanding_hypotheses.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  const intent = String(borrowedUnderstanding?.customer_intent ?? "").trim();
+  return { readings, claudeHyps, intent };
+}
+
+/**
+ * Mixed current ask: daily + active insurance in the same turn.
+ * Must NOT collapse to general_daily alone.
+ */
+function isMixedInsuranceAndDailyAsk(question = "", borrowedUnderstanding = null) {
+  const q = normalizeQuestion(question);
+  const intent = String(borrowedUnderstanding?.customer_intent ?? "");
+  const dailyInQ = F3_DAILY_LEX_RE.test(q) || /체중|다이어트/.test(q);
+  const insuranceInQ = ACTIVE_INSURANCE_ASK_RE.test(q);
+  if (dailyInQ && insuranceInQ) return true;
+  if (
+    /(?:맛집|일상|식사)/.test(intent) &&
+    /(?:보험료|보장|내\s*보험)/.test(intent) &&
+    /(?:도\s*(?:궁금|봐|확인)|함께|같이|그리고)/.test(`${intent} ${q}`)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Clear general_daily / non-insurance current intent.
+ * Reuses F3 lane + Borrowed customer_intent + Reflection readings — no new classifier.
+ */
+function resolveClearNonInsuranceSituation(
+  question = "",
+  reflection = {},
+  borrowedUnderstanding = null,
+  f3Lane = null,
+) {
+  if (isMixedInsuranceAndDailyAsk(question, borrowedUnderstanding)) return null;
+
+  const q = normalizeQuestion(question);
+  const { readings, claudeHyps, intent } = understandingMaterials(
+    reflection,
+    borrowedUnderstanding,
+  );
+  const material = [...readings, ...claudeHyps, intent].filter(Boolean).join(" ");
+  const claudeBlob = [...claudeHyps, intent].filter(Boolean).join(" ");
+
+  // Borrowed/Claude insurance reading beats weak Reflection "무관" on bare percent-cut questions
+  const claudeSaysInsurance =
+    /보험료|보장|납입|가입|해지|절감|실손|암\s*보험/.test(claudeBlob) &&
+    !/무관|일상(?:적인)?\s*(?:식사|질문|요청)|비보험|맛집|식사 추천/.test(claudeBlob);
+
+  // Strong active insurance ask in current question (without deferral) → not non-insurance
+  const deferredInsurance =
+    /보험\s*(?:얘기|이야기|상담).{0,16}(?:나중|나중에|잠깐|말고)/.test(q) ||
+    /(?:나중|나중에).{0,12}보험/.test(q);
+  if (ACTIVE_INSURANCE_ASK_RE.test(q) && !deferredInsurance) return null;
+  if (claudeSaysInsurance && !deferredInsurance) return null;
+
+  const f3IsDaily = f3Lane?.lane === STAGE3_LANES.GENERAL_DAILY;
+  const understandingNonInsurance =
+    /보험\s*(?:상담과\s*)?무관|보험\s*외(?:\s*질문)?|일상(?:적인)?\s*(?:식사|질문|요청)|보험보다\s*(?:감정|쉬는)|가벼운\s*(?:톤|대화)|보험\s*관련\s*질문\s*이\s*없|비보험/.test(
+      material,
+    ) ||
+    readings.some((r) =>
+      /일상적인 식사 추천|보험과 무관한 일반|가볍게 대화|감정·컨디션이 먼저/.test(r),
+    );
+
+  // Emotion-only signal must not create non-insurance lane by itself
+  const emotionOnly =
+    !f3IsDaily &&
+    !intent &&
+    readings.length > 0 &&
+    readings.every((r) => /감정·컨디션이 먼저/.test(r)) &&
+    !claudeHyps.length;
+
+  if (emotionOnly) return null;
+
+  // F3 general_daily alone is not enough when understanding already points to insurance
+  // (e.g. bare "30% 줄일 수 있지?" → F3 daily without context, but Claude says 보험료 절감)
+  const f3DailyTrusted =
+    f3IsDaily &&
+    (understandingNonInsurance ||
+      F3_DAILY_LEX_RE.test(q) ||
+      /체중|다이어트|월급|연봉|급여|월세|렌트|칼로리/.test(q) ||
+      readings.some((r) => /일상|무관|식사|감정·컨디션|가볍게 대화/.test(r)));
+
+  if (!f3DailyTrusted && !understandingNonInsurance && !deferredInsurance) return null;
+  if (deferredInsurance && !F3_DAILY_LEX_RE.test(q) && !understandingNonInsurance && !f3DailyTrusted) {
+    return null;
+  }
+
+  // Prefer existing daily_recommendation when Reflection/F3 already marked meal/daily chitchat
+  if (
+    readings.some((r) => /일상적인 식사 추천/.test(r)) ||
+    (f3DailyTrusted && F3_DAILY_LEX_RE.test(q)) ||
+    (/식사|맛집|식당|음식/.test(material) && !ACTIVE_INSURANCE_ASK_RE.test(q))
+  ) {
+    return "daily_recommendation";
+  }
+  if (readings.some((r) => /감정·컨디션이 먼저/.test(r)) && !INSURANCE_TOPIC_RE.test(q)) {
+    return "emotional_space";
+  }
+  return "non_insurance_general";
 }
 
 function policyFactRows(reality = {}) {
@@ -52,25 +173,32 @@ function pushSpokenFromIds(ids, reality) {
 
 function classifySituation(question = "", reality = {}, reflection = {}, borrowedUnderstanding = null) {
   const q = normalizeQuestion(question);
-  const readings = Array.isArray(reflection?.situation_reading)
-    ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
-    : [];
-  const claudeHyps = Array.isArray(borrowedUnderstanding?.understanding_hypotheses)
-    ? borrowedUnderstanding.understanding_hypotheses.map((s) => String(s).trim()).filter(Boolean)
-    : [];
+  const { readings, claudeHyps, intent } = understandingMaterials(
+    reflection,
+    borrowedUnderstanding,
+  );
   const readingText = readings.join(" ");
-  const claudeText = [...claudeHyps, String(borrowedUnderstanding?.customer_intent ?? "").trim()]
-    .filter(Boolean)
-    .join(" ");
+  const claudeText = [...claudeHyps, intent].filter(Boolean).join(" ");
   const materialText = [readingText, claudeText].filter(Boolean).join(" ");
   const claudeInsurance = /보험료|보장|납입|가입|해지|절감|실손|암\s*보험/.test(claudeText);
+  // Reuse existing F3 current-intent lane (no new classifier)
+  const f3Lane = classifyStage3Lane(q, {});
+
+  // Clear general_daily / non-insurance current intent beats stale insurance direction_choice
+  const clearNonInsurance = resolveClearNonInsuranceSituation(
+    q,
+    reflection,
+    borrowedUnderstanding,
+    f3Lane,
+  );
+  if (clearNonInsurance) return clearNonInsurance;
 
   // Claude understanding can recover ambiguous questions Reflection marked non-insurance
-  if (claudeInsurance) {
+  if (claudeInsurance && !isMixedInsuranceAndDailyAsk(q, borrowedUnderstanding)) {
     if (/보험료.*(?:걱정|부담|적정)|적정성|맞는\s*건가|유지 부담/.test(claudeText)) {
       return "premium_burden";
     }
-    if (/줄이|절감|방향|우선/.test(claudeText)) {
+    if (/줄이|절감|방향|우선/.test(claudeText) && !/무관|일상|맛집|식사/.test(claudeText)) {
       return "direction_choice";
     }
     if (/가입된 보험|내 보험|목록|금액 확인|얼마/.test(claudeText)) {
@@ -85,10 +213,10 @@ function classifySituation(question = "", reality = {}, reflection = {}, borrowe
     }
     if (
       (/보험과 무관한 일반|체중|다이어트|운동/.test(materialText) || /체중|다이어트/.test(q)) &&
-      !INSURANCE_TOPIC_RE.test(q) &&
+      !ACTIVE_INSURANCE_ASK_RE.test(q) &&
       !claudeInsurance
     ) {
-      if (/맛집|식당|음식/.test(q)) return "daily_recommendation";
+      if (F3_DAILY_LEX_RE.test(q) || /맛집|식당|음식/.test(q)) return "daily_recommendation";
       if (reality.domain === "emotion" || /감정·컨디션이 먼저/.test(materialText)) {
         return "emotional_space";
       }
@@ -103,10 +231,15 @@ function classifySituation(question = "", reality = {}, reflection = {}, borrowe
     if (/암 보장이 충분한지/.test(materialText)) {
       return "coverage_assessment_cancer_axis";
     }
-    if (/추천|방향/.test(materialText)) {
+    // "추천|방향" alone is NOT insurance direction_choice — require insurance context
+    if (
+      /추천|방향/.test(materialText) &&
+      (claudeInsurance || ACTIVE_INSURANCE_ASK_RE.test(q) || /보험|보장|설계|절감/.test(materialText)) &&
+      !/무관|일상(?:적인)?\s*(?:식사|질문)|식사 추천/.test(materialText)
+    ) {
       return "direction_choice";
     }
-    if (/감정·컨디션이 먼저/.test(materialText)) {
+    if (/감정·컨디션이 먼저/.test(materialText) && !ACTIVE_INSURANCE_ASK_RE.test(q)) {
       return "emotional_space";
     }
   }
@@ -114,8 +247,8 @@ function classifySituation(question = "", reality = {}, reflection = {}, borrowe
   // Question-based fallback
   if (reality.phase === "closing") return "respect_close";
   if (reality.domain === "emotion" && !INSURANCE_TOPIC_RE.test(q)) return "emotional_space";
-  if (/맛집|식당|음식/.test(q) && !INSURANCE_TOPIC_RE.test(q)) return "daily_recommendation";
-  if (/체중|다이어트/.test(q) && !INSURANCE_TOPIC_RE.test(q)) return "non_insurance_general";
+  if (F3_DAILY_LEX_RE.test(q) && !ACTIVE_INSURANCE_ASK_RE.test(q)) return "daily_recommendation";
+  if (/체중|다이어트/.test(q) && !ACTIVE_INSURANCE_ASK_RE.test(q)) return "non_insurance_general";
   if (/보험료/.test(q) && /얼마/.test(q)) return "enrolled_policy_list";
   if (/보험료/.test(q) && /(?:부담|맞는\s*건가|이게\s*맞)/.test(q)) return "premium_burden";
   if (/줄일\s*수\s*있/.test(q) && (INSURANCE_TOPIC_RE.test(q) || claudeInsurance)) {
@@ -124,8 +257,11 @@ function classifySituation(question = "", reality = {}, reflection = {}, borrowe
   if (/가입한\s*보험|보험\s*뭐|내보험/.test(q)) return "enrolled_policy_list";
   if (/가르쳐|알려/.test(q) && /보험|내보험/.test(q)) return "enrolled_policy_list";
   if (/괜찮/.test(q) && INSURANCE_TOPIC_RE.test(q)) return "coverage_assessment_whole";
-  if (/암/.test(q) && /부족/.test(q)) return "coverage_assessment_cancer_axis";
-  if (/추천|설계/.test(q)) return "direction_choice";
+  if (/암/.test(q) && /(?:부족|충분)/.test(q)) return "coverage_assessment_cancer_axis";
+  // Insurance recommendation/design only — bare "추천" is not direction_choice
+  if (/추천|설계/.test(q) && (INSURANCE_TOPIC_RE.test(q) || /설계/.test(q))) {
+    return "direction_choice";
+  }
   if (/심심/.test(q)) return "social_presence";
   if (!INSURANCE_TOPIC_RE.test(q)) return "non_insurance_general";
   return "general_inquiry";
@@ -147,9 +283,9 @@ function buildDirectAnswerHint(question = "", situation = "") {
     case "emotional_space":
       return "오늘 많이 버티셨네요.";
     case "daily_recommendation":
-      return "분당 쪽이시면 선택지가 꽤 있어요.";
+      return "어떤 분위기가 편하세요?";
     case "non_insurance_general":
-      return "그 질문부터 볼게요.";
+      return "그 이야기부터 들을게요.";
     case "respect_close":
       return "네, 알겠습니다. 고마워요.";
     case "social_presence":
@@ -285,16 +421,22 @@ export function buildDecision({
 
     case "daily_recommendation":
       factsToWithhold.push({ fact: "insurance_facts", reason: "domain_daily" });
-      keyJudgment = "한식이 편하시면 서현 쪽, 가볍게 혼밥이면 정자 쪽이 무난합니다.";
-      direction = { type: "offer_recommendation", move: "정자역 일대 일식·서현역 근처 한식부터 보시면 됩니다" };
-      invite = { allowed: true, prompt: "더 좁히고 싶으시면 말씀해 주세요." };
+      keyJudgment = "말씀하신 것부터 이어갈게요.";
+      direction = {
+        type: "general_daily",
+        move: "필요한 맥락을 하나만 확인하고 이어갈게요",
+      };
+      invite = { allowed: true, prompt: "조금만 더 알려주실래요?" };
       break;
 
     case "non_insurance_general":
       factsToWithhold.push({ fact: "insurance_facts", reason: "domain_non_insurance" });
-      keyJudgment = "보험 밖 질문으로 보고 그 초점만 다루겠습니다.";
-      direction = { type: "offer_space", move: "지금 질문 초점만 이어서 보겠습니다" };
-      invite = { allowed: true, prompt: "그 방향으로 짧게 이어갈까요?" };
+      keyJudgment = "그 이야기부터 들을게요.";
+      direction = {
+        type: "general_daily",
+        move: "지금 말씀하신 것부터 이어서 볼게요",
+      };
+      invite = { allowed: true, prompt: "조금만 더 말씀해 주실래요?" };
       break;
 
     case "respect_close":
@@ -381,11 +523,11 @@ export function buildDecision({
       response_priority = "emotional_space";
       break;
     case "daily_recommendation":
-      key_situation_judgment = "일상 추천 초점만 다룬다.";
+      key_situation_judgment = "일상 요청에 먼저 답하고 자연스럽게 이어간다.";
       response_priority = "daily_focus";
       break;
     case "non_insurance_general":
-      key_situation_judgment = "보험 밖 질문 초점만 다룬다.";
+      key_situation_judgment = "현재 비보험 요청에 먼저 답한다.";
       response_priority = "non_insurance_focus";
       break;
     case "respect_close":

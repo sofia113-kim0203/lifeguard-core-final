@@ -77,6 +77,44 @@ function collectGateSafetyFail(gate = null) {
   return null;
 }
 
+/** KEY Decision owns general_daily / daily_focus — required before promoting daily candidates. */
+function isDailyOwnedDecision(decision = null) {
+  if (!decision || typeof decision !== "object") return false;
+  const priority = String(decision.response_priority ?? "").trim();
+  const situation = String(decision.situation_key ?? "").trim();
+  const dirType = String(decision.direction?.type ?? decision.key_direction?.type ?? "").trim();
+  return (
+    priority === "daily_focus" ||
+    priority === "non_insurance_focus" ||
+    situation === "daily_recommendation" ||
+    situation === "non_insurance_general" ||
+    dirType === "general_daily"
+  );
+}
+
+/**
+ * Daily candidate must not force-switch into insurance inventory / sales.
+ * Reuses the same pollution signals as Decision alignment — not a new Guard.
+ */
+function hasDailyInsurancePollution(voice = "", question = "") {
+  const v = String(voice ?? "");
+  const q = String(question ?? "");
+  if (/보험료|보장|청구|보험금|해지|가입|실손|납입/.test(q)) return false;
+  return (
+    /보험료를\s*줄|빠진\s*보장|가입\s*보험\s*점검|22\s*건|월\s*[\d만천]|보장\s*(?:부족|충분)|보험\s*쪽으로|보험\s*상담으로|어느\s*쪽이\s*더\s*끌리/.test(
+      v,
+    ) ||
+    (/보험료|보장\s*(?:부족|충분)|해지하|가입하(?:세요|십시오)/.test(v) &&
+      !/보험\s*(?:얘기|이야기).{0,8}(?:나중|말고)/.test(v))
+  );
+}
+
+/** Soft block: asserting unverified personal medical/claim facts in daily lane. */
+function hasUnverifiedCustomerFactClaim(voice = "") {
+  const v = String(voice ?? "");
+  return /수술비는\s*[\d만천]|보험금\s*(?:받|지급).{0,8}(?:됩니다|가능합니다|확실)/.test(v);
+}
+
 function snapshotGate(gate) {
   if (!gate || typeof gate !== "object") return null;
   return {
@@ -313,6 +351,7 @@ export function educationExpandsToPersonalVerdict(voice = "", borrowed = null) {
 
 /**
  * Decide Stage 3 promotion. Default = keep S6.
+ * @param {{ decision?: object|null }} [params] — KEY Decision; required for general_daily promote
  */
 export function decideStage3Promotion({
   question = "",
@@ -321,6 +360,7 @@ export function decideStage3Promotion({
   env = process.env,
   history = [],
   previousAnswerSummary = "",
+  decision = null,
 } = {}) {
   const s6 = String(s6FinalAnswer ?? "").trim();
   const production = isVercelProductionEnv(env);
@@ -334,6 +374,7 @@ export function decideStage3Promotion({
   const lane = classified.lane;
   const laneReason = classified.lane_reason;
   const q10Blocked = classified.q10_blocked === true;
+  const dailyOwned = isDailyOwnedDecision(decision);
 
   const baseTrace = {
     schema_version: STAGE3_SCHEMA,
@@ -389,13 +430,20 @@ export function decideStage3Promotion({
     return fail(riskyRequest);
   }
 
-  if (lane === STAGE3_LANES.GENERAL_DAILY) {
+  // general_daily: only promote when KEY Decision owns daily_focus/general_daily and candidate is clean.
+  // Without Decision ownership, keep legacy general_daily_no_promotion (no blanket discard of all daily).
+  const dailyPromotePath = lane === STAGE3_LANES.GENERAL_DAILY && dailyOwned;
+  if (lane === STAGE3_LANES.GENERAL_DAILY && !dailyOwned) {
     return fail("general_daily_no_promotion", {
       insurance_memory_saved: false,
     });
   }
 
-  if (lane !== STAGE3_LANES.INSURANCE_ADVICE && lane !== STAGE3_LANES.INSURANCE_EDUCATION) {
+  if (
+    !dailyPromotePath &&
+    lane !== STAGE3_LANES.INSURANCE_ADVICE &&
+    lane !== STAGE3_LANES.INSURANCE_EDUCATION
+  ) {
     return fail("lane_not_promotable");
   }
 
@@ -446,11 +494,12 @@ export function decideStage3Promotion({
     });
   }
 
-  if (nd.length < 2) {
-    return fail("missing_next_decision", {
+  if (hasHardSalesPush(voice)) {
+    return fail("hard_sales_push", {
       gate: baseTrace.gate,
       s7_voice: voice,
       next_decision_point: nd,
+      product_push: true,
     });
   }
 
@@ -462,12 +511,44 @@ export function decideStage3Promotion({
     });
   }
 
-  if (hasHardSalesPush(voice)) {
-    return fail("hard_sales_push", {
+  // --- daily_focus / general_daily owned path (reuse Gate; skip insurance Full-Voice minimum) ---
+  if (dailyPromotePath) {
+    if (hasDailyInsurancePollution(voice, question)) {
+      return fail("daily_insurance_pollution", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+      });
+    }
+    if (hasUnverifiedCustomerFactClaim(voice)) {
+      return fail("daily_unverified_customer_fact", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+      });
+    }
+    return {
+      ...baseTrace,
+      promotion_pass: true,
+      fallback_reason: null,
+      customer_text_changed: true,
+      final_answer_source: "s7",
+      s7_voice: voice,
+      customer_text: voice,
+      product_push: false,
+      invent_or_fake_fact: false,
+      cancel_enroll_certainty: false,
+      insurance_memory_saved: false,
+      lane_reason: laneReason || "general_daily_decision_owned_promote",
+    };
+  }
+
+  // --- insurance advice / education path (unchanged contracts) ---
+  if (nd.length < 2) {
+    return fail("missing_next_decision", {
       gate: baseTrace.gate,
       s7_voice: voice,
       next_decision_point: nd,
-      product_push: true,
     });
   }
 
@@ -529,46 +610,48 @@ export function applyStage3PromotionToCompose({
   env = process.env,
   history = [],
   previousAnswerSummary = "",
+  decision = null,
 } = {}) {
-  const decision = decideStage3Promotion({
+  const promo = decideStage3Promotion({
     question,
     s6FinalAnswer,
     shadow,
     env,
     history,
     previousAnswerSummary,
+    decision,
   });
 
   const stage3Active = {
-    schema_version: decision.schema_version,
-    stage: decision.stage,
-    stage3_active: decision.stage3_active,
-    preview_only: decision.preview_only,
-    lane: decision.lane,
-    lane_reason: decision.lane_reason,
-    q10_blocked: decision.q10_blocked,
-    promotion_pass: decision.promotion_pass,
-    fallback_reason: decision.fallback_reason,
-    customer_text_changed: decision.customer_text_changed,
-    final_answer_source: decision.final_answer_source,
-    s6_final_answer: decision.s6_final_answer,
-    s7_voice: decision.s7_voice,
-    next_decision_point: decision.next_decision_point,
-    product_push: decision.product_push,
-    invent_or_fake_fact: decision.invent_or_fake_fact,
-    cancel_enroll_certainty: decision.cancel_enroll_certainty,
+    schema_version: promo.schema_version,
+    stage: promo.stage,
+    stage3_active: promo.stage3_active,
+    preview_only: promo.preview_only,
+    lane: promo.lane,
+    lane_reason: promo.lane_reason,
+    q10_blocked: promo.q10_blocked,
+    promotion_pass: promo.promotion_pass,
+    fallback_reason: promo.fallback_reason,
+    customer_text_changed: promo.customer_text_changed,
+    final_answer_source: promo.final_answer_source,
+    s6_final_answer: promo.s6_final_answer,
+    s7_voice: promo.s7_voice,
+    next_decision_point: promo.next_decision_point,
+    product_push: promo.product_push,
+    invent_or_fake_fact: promo.invent_or_fake_fact,
+    cancel_enroll_certainty: promo.cancel_enroll_certainty,
     production_touched: false,
-    production_blocked: decision.production_blocked,
+    production_blocked: promo.production_blocked,
     insurance_memory_saved: false,
     post_turn_save_hook: false,
-    gate: decision.gate,
+    gate: promo.gate,
   };
 
   return {
-    finalText: decision.customer_text,
-    customer_text_changed: decision.customer_text_changed,
-    final_answer_source: decision.final_answer_source,
+    finalText: promo.customer_text,
+    customer_text_changed: promo.customer_text_changed,
+    final_answer_source: promo.final_answer_source,
     stage3_active: stage3Active,
-    decision,
+    decision: promo,
   };
 }

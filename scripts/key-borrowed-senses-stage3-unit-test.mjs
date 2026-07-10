@@ -210,6 +210,78 @@ const cases = [
     },
   },
   {
+    id: "8b_daily_restaurant_promote_when_decision_owns_daily",
+    run: () => {
+      const voice =
+        "분당이면 서현·정자 쪽에 한식·일식 선택지가 많아요. 가볍게 가시면 캐주얼도 괜찮고요. 한식·일식·캐주얼 중 어떤 분위기부터 볼까요? 몇 분이서 가시는지도 알려주시면 좋아요.";
+      const shadow = goodShadow({
+        borrowed: {
+          ...goodBorrowed(),
+          customer_intent: "분당 맛집 추천 — 보험과 무관한 일상 요청",
+          understanding_hypotheses: ["일상적인 식사 추천 요청일 가능성이 높음"],
+          voice_raw_candidate: voice,
+          proposal_direction: "음식 종류·분위기부터 좁히는 방향",
+          next_decision_point: ["한식 쪽", "일식·캐주얼 쪽", "동행 인원부터"],
+          recommendation_basis: "취향 확인이 먼저",
+          leadership_move: "분위기·동행부터 여쭙기",
+          key_purpose: "일상 추천 이어가기",
+          insurance_expertise_angle: [],
+          used_facts: [],
+        },
+      });
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow,
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "음식 종류부터" },
+        },
+      });
+      return (
+        d.lane === STAGE3_LANES.GENERAL_DAILY &&
+        d.promotion_pass === true &&
+        d.customer_text_changed === true &&
+        d.final_answer_source === "s7" &&
+        d.customer_text === voice &&
+        d.insurance_memory_saved === false
+      );
+    },
+  },
+  {
+    id: "8c_daily_polluted_candidate_no_promote",
+    run: () => {
+      const voice =
+        "맛집은 어렵고, 보험 쪽으로 같이 방향을 잡아볼까요. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.";
+      const shadow = goodShadow({
+        borrowed: {
+          ...goodBorrowed(),
+          voice_raw_candidate: voice,
+          proposal_direction: "보험료 vs 보장",
+          next_decision_point: ["보험료 줄이기", "보장 채우기"],
+        },
+      });
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow,
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "일상 요청" },
+        },
+      });
+      return (
+        d.promotion_pass === false &&
+        d.fallback_reason === "daily_insurance_pollution" &&
+        d.customer_text_changed === false
+      );
+    },
+  },
+  {
     id: "9_q10_block_no_promote",
     run: () => {
       const c = classifyStage3Lane("내 보험 전체 괜찮아?");

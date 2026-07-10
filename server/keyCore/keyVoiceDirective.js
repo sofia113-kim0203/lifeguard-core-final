@@ -68,7 +68,14 @@ export function deriveKeyVoiceQuestionFocus(question = "", decision = null) {
 
 function shouldWithholdFactsForFocus(focus) {
 
-  return new Set(["greeting", "first_visit", "browse", "emotional_support"]).has(focus);
+  return new Set([
+    "greeting",
+    "first_visit",
+    "browse",
+    "emotional_support",
+    "daily_recommendation",
+    "non_insurance_general",
+  ]).has(focus);
 
 }
 

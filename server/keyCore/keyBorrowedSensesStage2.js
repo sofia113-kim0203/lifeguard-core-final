@@ -393,11 +393,21 @@ export function evaluateBorrowedFastPathCandidate({
 
   if (
     priority === "non_insurance_focus" ||
+    priority === "daily_focus" ||
     situation === "non_insurance_general" ||
     situation === "daily_recommendation" ||
-    situation === "emotional_space"
+    situation === "emotional_space" ||
+    decision?.direction?.type === "general_daily" ||
+    decision?.key_direction?.type === "general_daily"
   ) {
-    if (/보험료|가입하|해지하|보장\s*부족|보장\s*충분|월\s*[\d만천]/.test(voice) && !/보험/.test(q)) {
+    if (
+      (/보험료|가입하|해지하|보장\s*부족|보장\s*충분|월\s*[\d만천]|22\s*건|빠진\s*보장|보험\s*쪽으로/.test(
+        voice,
+      ) &&
+        !/보험료|보장|청구|보험금|해지|가입|실손/.test(q)) ||
+      (/보험료를\s*줄|빠진\s*보장을\s*채|어느\s*쪽이\s*더\s*끌리/.test(voice) &&
+        !/보험료|보장/.test(q))
+    ) {
       return {
         ...base,
         reason: "decision_mismatch_insurance_pollution",
@@ -454,9 +464,11 @@ export function evaluateBorrowedFastPathCandidate({
     };
   }
 
-  // Opposite direction: Decision wants space/non-insurance but candidate pushes product
+  // Opposite direction: Decision wants space/non-insurance/daily but candidate pushes product
   if (
-    (decision?.direction?.type === "offer_space" || decision?.direction?.type === "offer_recommendation") &&
+    (decision?.direction?.type === "offer_space" ||
+      decision?.direction?.type === "offer_recommendation" ||
+      decision?.direction?.type === "general_daily") &&
     /이\s*상품|가입하세요|해지해도/.test(voice)
   ) {
     return {

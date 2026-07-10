@@ -197,6 +197,7 @@ export async function buildKeyVoiceComposeResult(
       env,
       history,
       previousAnswerSummary,
+      decision,
     });
     trace.stage3_active_pre_s6 = stage3Pre.stage3_active;
     if (
@@ -377,6 +378,7 @@ export async function buildKeyVoiceComposeResult(
         env,
         history,
         previousAnswerSummary,
+        decision,
       });
       trace.stage3_active = stage3.stage3_active;
       // Decision alignment required for customer swap (GO corrective)
