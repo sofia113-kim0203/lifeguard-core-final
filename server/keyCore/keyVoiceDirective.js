@@ -1300,10 +1300,23 @@ export function buildAnswerRegenerationDirective({
   decision = null,
   failReasons = [],
   rejectedAnswer = "",
+  publicResearchEvidence = null,
 } = {}) {
   const base = directive && typeof directive === "object" ? { ...directive } : {};
   const situation = String(decision?.situation_key ?? base.question_focus ?? "").trim();
   const priority = String(decision?.response_priority ?? base.response_priority ?? "").trim();
+  const researchResults = [
+    ...(Array.isArray(publicResearchEvidence?.results) ? publicResearchEvidence.results : []),
+    ...(Array.isArray(publicResearchEvidence?.citations)
+      ? publicResearchEvidence.citations.map((c) => ({
+          title: c.title,
+          url: c.url,
+          domain: c.domain,
+          cited_text: c.cited_text,
+          claim_or_summary: c.cited_text,
+        }))
+      : []),
+  ].slice(0, 12);
 
   const keyChart =
     situation === "claim_need_check" || priority === "claim_prep"
@@ -1325,9 +1338,36 @@ export function buildAnswerRegenerationDirective({
       : isDailyOwnedFocus(situation, priority, base)
         ? {
             current_goal: "현재 일상 요청에 실제로 답하기",
-            allowed: ["현재 요청에 대한 자연스러운 답", "맥락 확인 질문 1개"],
+            allowed: [
+              "현재 요청에 대한 자연스러운 답",
+              "맥락 확인 질문 1개",
+              ...(researchResults.length
+                ? ["공개 검색 evidence에 있는 장소·사실만 사용"]
+                : ["research_unavailable — 장소명 창작 금지"]),
+            ],
             withheld: ["보험 사실", "계약 수", "보험료·보장 제안"],
-            forbidden: ["보험 판매·가입·해지", "무관한 보험 전환"],
+            forbidden: [
+              "보험 판매·가입·해지",
+              "무관한 보험 전환",
+              "보험 문의 초대",
+              "보험 상담 전환",
+              "출처 없는 평점·영업시간·주차·가격 단정",
+              "evidence에 없는 구체 주소",
+              "evidence에 없는 역 출구·건물·층수",
+              "evidence에 없는 장소 세부 위치",
+              "검색하지 않은 식당명 창작",
+              "재검색",
+            ],
+            public_research_evidence: researchResults.map((r) => ({
+              title: r.title,
+              url: r.url,
+              source: r.source ?? r.domain,
+              page_age: r.page_age ?? null,
+              claim_or_summary: r.claim_or_summary ?? r.cited_text ?? null,
+              customer_specific_fact: false,
+            })),
+            research_status: publicResearchEvidence?.status ?? null,
+            reuse_same_evidence_only: true,
           }
         : {
             current_goal: "현재 고객 요청에 답하되 KEY Hard Direction을 지킨다",
@@ -1356,7 +1396,7 @@ export function buildAnswerRegenerationDirective({
       rejected_answer_preview: String(rejectedAnswer ?? "").slice(0, 280),
       key_chart: keyChart,
       instruction:
-        "Regenerate ONE natural Korean customer answer for the current question. Follow key_chart allowed/withheld/forbidden. Do not paste internal Decision fields. Do not invent facts or numbers.",
+        "Regenerate ONE natural Korean customer answer for the current question. Follow key_chart allowed/withheld/forbidden. Do not paste internal Decision fields. Do not invent facts or numbers. Do not invite insurance when the customer did not ask.",
     },
   };
 }

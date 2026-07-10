@@ -778,6 +778,108 @@ const cases = [
       );
     },
   },
+  {
+    id: "26_unsourced_public_assertion_no_promote",
+    run: () => {
+      const voice =
+        "서현 한정식은 평점 4.9점이고 주차 가능합니다. 영업시간은 오후 10시까지예요.";
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate: voice,
+            proposal_direction: "맛집",
+            next_decision_point: ["한식", "일식"],
+          }),
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "일상 요청" },
+        },
+      });
+      return (
+        d.promotion_pass === false &&
+        d.fallback_reason === "unsourced_public_assertion" &&
+        d.customer_text_changed === false
+      );
+    },
+  },
+  {
+    id: "26b_unsupported_place_claim_no_promote",
+    run: () => {
+      const voice = "분당이면 가짜식당XYZ와 없는집ABC를 추천해요. 분위기부터 볼까요?";
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate: voice,
+            proposal_direction: "맛집",
+            next_decision_point: ["한식", "일식"],
+          }),
+          public_research_evidence: {
+            status: "success",
+            results: [
+              {
+                title: "서현 한정식 A",
+                url: "https://example.com/a",
+                customer_specific_fact: false,
+              },
+            ],
+          },
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "일상 요청" },
+        },
+      });
+      return (
+        d.promotion_pass === false &&
+        d.fallback_reason === "unsupported_place_claim" &&
+        d.customer_text_changed === false
+      );
+    },
+  },
+  {
+    id: "27_claim_missing_next_soft_promote",
+    run: () => {
+      const voice =
+        "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 진단서·영수증·해당 담보부터 같이 확인해볼까요?";
+      const d = decideStage3Promotion({
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: goodBorrowed({
+            voice_raw_candidate: voice,
+            proposal_direction: "서류·담보 확인",
+            recommendation_basis: "확인 전 지급 단정 금지",
+            next_decision_point: [],
+          }),
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "claim_prep",
+          situation_key: "claim_need_check",
+          direction: { type: "claim_prep", move: "서류 확인" },
+        },
+        history: [
+          { role: "user", content: "분당 맛집 추천해줘" },
+          { role: "assistant", content: "분당 쪽 선택지가 많아요." },
+        ],
+      });
+      return (
+        d.promotion_pass === true &&
+        d.final_answer_source === "s7" &&
+        Array.isArray(d.mid_field_warnings) &&
+        d.mid_field_warnings.includes("missing_next_decision")
+      );
+    },
+  },
 ];
 
 let failed = 0;

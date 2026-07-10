@@ -9,8 +9,16 @@ import { formatPremiumFromRaw } from "./speakFactRenderer.js";
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_TIMEOUT_MS = 35000;
 const TIMEOUT_RETRY_MS = 45000;
+const PUBLIC_RESEARCH_TIMEOUT_MS = 60000;
 const DEFAULT_TEMPERATURE = 0.3;
 const MAX_PARSE_RETRIES = 1;
+
+/** Anthropic official built-in web search (Messages API · server tool). */
+export const ANTHROPIC_WEB_SEARCH_TOOL = Object.freeze({
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 3,
+});
 
 const BORROWED_SENSES_TOOL = {
   name: "emit_borrowed_senses",
@@ -88,8 +96,18 @@ function summarizeVisualBlocks(blocks = []) {
   }));
 }
 
-function buildSystemPrompt() {
-  return [
+function buildSystemPrompt({ mode = "emit" } = {}) {
+  if (mode === "research") {
+    return [
+      "You are KEY public research helper (read-only).",
+      "Use the built-in web_search tool when the customer request needs fresh public facts (places, restaurants, travel, current public info).",
+      "Do NOT write a final customer-facing answer.",
+      "Do NOT invent restaurant names, ratings, hours, parking, prices, or addresses.",
+      "Do NOT discuss insurance, contracts, coverage, or claims.",
+      "Search, compare public sources, then stop when you have enough grounded public results (or honestly empty).",
+    ].join(" ");
+  }
+  const lines = [
     "You are KEY Borrowed Senses (S7-a + S7-b shadow layer) for LIFEGUARD.",
     "Claude provides: hearing, social reading, visual reading, expression CANDIDATES, and leadership TRACE only.",
     "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
@@ -129,7 +147,299 @@ function buildSystemPrompt() {
     "Never claim 부족합니다/충분합니다/꼭 필요합니다 as definitive verdict before verification.",
     "You MUST call emit_borrowed_senses exactly once with valid JSON fields.",
     "final_answer_source must always be \"s6\".",
-  ].join(" ");
+  ];
+  if (mode === "emit_with_research") {
+    lines.push(
+      "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
+      "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url).",
+      "For 맛집/장소: when status is success, prefer at least 3 grounded candidates with one concrete reason each; include area or cuisine when present in evidence.",
+      "If status_detail is research_search_not_used or research_insufficient or research_unavailable: do NOT invent restaurant names; say what could not be confirmed or only name confirmed candidates; ask ONE clarifying condition; never mention insurance.",
+      "FORBIDDEN: invent restaurant names; assert rating/hours/parking/price/distance/address/exit/floor/building not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
+    );
+  }
+  return lines.join(" ");
+}
+
+/** Place / venue recommendation that requires real public web_search (not soft context like 부모님 모시 alone). */
+export function isPlacePublicResearchRequest(question = "") {
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  return /맛집|식당|레스토랑|카페|여행지|관광지|장소\s*추천|코스\s*추천|갈\s*만한\s*곳|어디\s*(?:가|좋|먹)|데이트\s*코스/.test(
+    q,
+  );
+}
+
+/** True when current turn may need Anthropic built-in web_search. */
+export function shouldEnablePublicWebSearch({ question = "", decision = null } = {}) {
+  const priority = String(decision?.response_priority ?? "").trim();
+  const situation = String(decision?.situation_key ?? "").trim();
+  if (priority === "claim_prep" || situation === "claim_need_check") return false;
+  if (
+    priority === "premium_adequacy_check" ||
+    priority === "cancer_axis_check" ||
+    situation === "premium_burden" ||
+    situation === "coverage_assessment_cancer_axis" ||
+    priority === "fact_lookup" ||
+    priority === "direction_choice"
+  ) {
+    return false;
+  }
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  if (
+    /보험금|청구|담보|진단서|영수증|보험료|암\s*보장|암\s*보험|가입|해지|보장\s*충분/.test(q) &&
+    !/맛집|식당|여행|관광|부모님\s*모시/.test(q)
+  ) {
+    return false;
+  }
+  if (isPlacePublicResearchRequest(q)) return true;
+  return /여행|관광|부모님\s*모시|외출/.test(q);
+}
+
+/** Distinct grounded place-like titles from research results (for sufficiency). */
+export function countGroundedPlaceCandidates(evidence = null) {
+  const titles = (evidence?.results ?? [])
+    .map((r) => String(r?.title ?? "").trim())
+    .filter((t) => t.length >= 2);
+  return new Set(titles.map((t) => t.toLowerCase().replace(/\s+/g, ""))).size;
+}
+
+/**
+ * Place-request contract on Phase-1 evidence.
+ * Never marks search-not-used or <3 candidates as success.
+ */
+export function applyPlaceResearchContract(evidence = null, question = "") {
+  const base =
+    evidence && typeof evidence === "object"
+      ? { ...evidence }
+      : emptyResearchEvidence({ status: "empty" });
+  if (!isPlacePublicResearchRequest(question)) {
+    base.customer_facing_summary = buildCustomerFacingResearchSummary(base);
+    return base;
+  }
+  const searchCount = Number(base.search_count ?? 0);
+  const resultCount = countGroundedPlaceCandidates(base);
+  if (searchCount <= 0) {
+    base.status = "search_not_used";
+    base.status_detail = "research_search_not_used";
+    base.research_unavailable = true;
+    base.used = false;
+    base.customer_facing_summary = buildCustomerFacingResearchSummary(base);
+    return base;
+  }
+  if (resultCount < 3) {
+    base.status = "insufficient";
+    base.status_detail = "research_insufficient";
+    base.research_unavailable = true;
+    base.customer_facing_summary = buildCustomerFacingResearchSummary(base);
+    return base;
+  }
+  base.status = "success";
+  base.status_detail = null;
+  base.research_unavailable = false;
+  base.customer_facing_summary = buildCustomerFacingResearchSummary(base);
+  return base;
+}
+
+function domainFromUrl(url = "") {
+  try {
+    return new URL(String(url)).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function emptyResearchEvidence(overrides = {}) {
+  return {
+    schema_version: "key-public-research-evidence-v1",
+    status: "skipped",
+    status_detail: null,
+    used: false,
+    search_count: 0,
+    provider_requests: 0,
+    retrieved_at: new Date().toISOString(),
+    stop_reason: null,
+    searches: [],
+    results: [],
+    citations: [],
+    errors: [],
+    customer_facing_summary: {
+      status: "skipped",
+      result_count: 0,
+      domains: [],
+      title_previews: [],
+    },
+    ...overrides,
+  };
+}
+
+function buildCustomerFacingResearchSummary(evidence = {}) {
+  const results = Array.isArray(evidence.results) ? evidence.results : [];
+  return {
+    status: evidence.status ?? "skipped",
+    status_detail: evidence.status_detail ?? null,
+    result_count: results.length,
+    domains: [...new Set(results.map((r) => r.domain).filter(Boolean))].slice(0, 8),
+    title_previews: results.map((r) => r.title).filter(Boolean).slice(0, 8),
+    search_count: evidence.search_count ?? 0,
+    // Never include encrypted_* here
+  };
+}
+
+/** Extract source-bearing public research evidence — full encrypted fields preserved internally. */
+export function extractPublicResearchEvidence(data = {}, { retrievedAt = new Date().toISOString() } = {}) {
+  const content = Array.isArray(data?.content) ? data.content : [];
+  const searches = [];
+  const results = [];
+  const citations = [];
+  const errors = [];
+  const queryByToolId = new Map();
+  let searchCount = 0;
+
+  for (const block of content) {
+    if (block?.type === "server_tool_use" && block?.name === "web_search") {
+      searchCount += 1;
+      const q = String(block?.input?.query ?? "").trim();
+      if (block.id) queryByToolId.set(block.id, q);
+      searches.push({
+        id: block.id ?? null,
+        query: q || null,
+      });
+    }
+  }
+
+  for (const block of content) {
+    if (block?.type !== "web_search_tool_result") continue;
+    const toolUseId = block.tool_use_id ?? null;
+    const query = queryByToolId.get(toolUseId) ?? null;
+    const rawContent = block.content;
+
+    if (rawContent && typeof rawContent === "object" && !Array.isArray(rawContent)) {
+      if (rawContent.type === "web_search_tool_result_error") {
+        errors.push({
+          tool_use_id: toolUseId,
+          error_code: String(rawContent.error_code ?? "unavailable"),
+          query,
+        });
+        continue;
+      }
+    }
+
+    const items = Array.isArray(rawContent) ? rawContent : [];
+    if (items.length === 0 && Array.isArray(rawContent)) {
+      // empty result array — tracked via status later
+      continue;
+    }
+    for (const item of items) {
+      if (item?.type === "web_search_tool_result_error") {
+        errors.push({
+          tool_use_id: toolUseId,
+          error_code: String(item.error_code ?? "unavailable"),
+          query,
+        });
+        continue;
+      }
+      if (item?.type && item.type !== "web_search_result") continue;
+      const url = String(item?.url ?? "").trim();
+      const title = String(item?.title ?? "").trim();
+      if (!url && !title) continue;
+      results.push({
+        tool_use_id: toolUseId,
+        query,
+        title: title || null,
+        url: url || null,
+        source: domainFromUrl(url),
+        domain: domainFromUrl(url),
+        page_age: item?.page_age != null ? String(item.page_age) : null,
+        encrypted_content:
+          item?.encrypted_content != null ? String(item.encrypted_content) : null,
+        retrieved_at: retrievedAt,
+        customer_specific_fact: false,
+      });
+    }
+  }
+
+  for (const block of content) {
+    if (block?.type !== "text" || !Array.isArray(block.citations)) continue;
+    for (const cite of block.citations) {
+      if (cite?.type && cite.type !== "web_search_result_location") continue;
+      const url = String(cite?.url ?? "").trim();
+      if (!url) continue;
+      citations.push({
+        url,
+        title: String(cite?.title ?? "").trim() || null,
+        cited_text: String(cite?.cited_text ?? "").trim() || null,
+        encrypted_index:
+          cite?.encrypted_index != null ? String(cite.encrypted_index) : null,
+        source: domainFromUrl(url),
+        domain: domainFromUrl(url),
+        retrieved_at: retrievedAt,
+        customer_specific_fact: false,
+      });
+    }
+  }
+
+  const usageSearches = Number(data?.usage?.server_tool_use?.web_search_requests ?? 0);
+  const hasEmptyArrayResult = content.some(
+    (b) =>
+      b?.type === "web_search_tool_result" &&
+      Array.isArray(b.content) &&
+      b.content.length === 0,
+  );
+
+  let status = "success";
+  let statusDetail = null;
+  if (errors.length && !results.length) {
+    status = "error";
+    statusDetail = errors[0]?.error_code ?? "unavailable";
+  } else if (!results.length && (searchCount > 0 || usageSearches > 0 || hasEmptyArrayResult)) {
+    status = "empty";
+    statusDetail = "research_empty";
+  } else if (!results.length && searchCount === 0 && usageSearches === 0) {
+    status = "empty";
+    statusDetail = "research_empty";
+  }
+
+  const evidence = {
+    schema_version: "key-public-research-evidence-v1",
+    status,
+    status_detail: statusDetail,
+    used: searchCount > 0 || usageSearches > 0 || results.length > 0 || errors.length > 0,
+    search_count: Math.max(searchCount, usageSearches),
+    provider_requests: 0,
+    retrieved_at: retrievedAt,
+    stop_reason: data?.stop_reason ?? null,
+    searches,
+    results,
+    citations,
+    errors,
+  };
+  evidence.customer_facing_summary = buildCustomerFacingResearchSummary(evidence);
+  return evidence;
+}
+
+/** Detect unresolved server_tool_use (no matching result) — mixed/incomplete contract. */
+export function findUnresolvedServerToolUses(data = {}) {
+  const content = Array.isArray(data?.content) ? data.content : [];
+  const resultIds = new Set(
+    content
+      .filter((b) => b?.type === "web_search_tool_result" && b.tool_use_id)
+      .map((b) => b.tool_use_id),
+  );
+  return content
+    .filter((b) => b?.type === "server_tool_use" && b?.name === "web_search" && b.id)
+    .filter((b) => !resultIds.has(b.id))
+    .map((b) => b.id);
+}
+
+function classifyProviderHttpError(status, bodyText = "") {
+  const t = String(bodyText ?? "");
+  if (status === 400 && /web search|not.*enabled|disabled/i.test(t)) {
+    return "web_search_disabled_400";
+  }
+  if (status === 429 || /rate.?limit|too_many_requests/i.test(t)) return "rate_limit";
+  if (status === 408 || /timeout/i.test(t)) return "timeout";
+  return `provider_error_${status}`;
 }
 
 function buildQuestionLeadershipHint(question = "") {
@@ -539,34 +849,18 @@ function normalizeNullable(value) {
   return t || null;
 }
 
-async function callClaudeBorrowedSenses({
-  model,
-  apiKey,
-  userPayload,
+async function postAnthropicMessages({
   fetchImpl,
   signal,
+  apiKey,
+  model,
+  maxTokens,
   temperature,
-  repairRaw = null,
-  repairReason = "json",
+  system,
+  tools,
+  toolChoice,
+  messages,
 }) {
-  const repairMessage =
-    repairReason === "leadership"
-      ? "Your previous output omitted next_decision_point (need 2-3 choices). Call emit_borrowed_senses again with all required fields including next_decision_point."
-      : "Your previous output was not valid structured JSON. Call emit_borrowed_senses again with all required fields. JSON only via tool call.";
-  const messages = repairRaw
-    ? [
-        { role: "user", content: JSON.stringify(userPayload, null, 2) },
-        {
-          role: "assistant",
-          content: [{ type: "text", text: repairRaw }],
-        },
-        {
-          role: "user",
-          content: repairMessage,
-        },
-      ]
-    : [{ role: "user", content: JSON.stringify(userPayload, null, 2) }];
-
   const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
     method: "POST",
     signal,
@@ -577,26 +871,475 @@ async function callClaudeBorrowedSenses({
     },
     body: JSON.stringify({
       model,
-      max_tokens: 2048,
-      temperature: Math.min(0.45, Math.max(0.15, Number(temperature) || DEFAULT_TEMPERATURE)),
-      system: buildSystemPrompt(),
-      tools: [BORROWED_SENSES_TOOL],
-      tool_choice: { type: "tool", name: "emit_borrowed_senses" },
+      max_tokens: maxTokens,
+      temperature,
+      system,
+      tools,
+      tool_choice: toolChoice,
       messages,
     }),
   });
-
   if (!res.ok) {
-    return { ok: false, error: `CLAUDE_API_${res.status}`, data: null, raw: null };
+    let bodyText = "";
+    try {
+      bodyText = await res.text();
+    } catch {
+      bodyText = "";
+    }
+    return {
+      ok: false,
+      error: classifyProviderHttpError(res.status, bodyText),
+      http_status: res.status,
+      data: null,
+      raw: null,
+    };
+  }
+  const data = await res.json();
+  return { ok: true, data, raw: JSON.stringify(data.content ?? []) };
+}
+
+/**
+ * PHASE 1 — web_search only. Never includes emit_borrowed_senses.
+ * Max 3 provider requests. pause_turn: assistant content unchanged, no user Continue.
+ * Place requests: require real web_search use; refine within max_uses when <3 candidates.
+ */
+async function runPublicResearchPhase({
+  model,
+  apiKey,
+  question,
+  history,
+  fetchImpl,
+  signal,
+  temperature,
+}) {
+  const retrievedAt = new Date().toISOString();
+  const placeRequest = isPlacePublicResearchRequest(question);
+  let messages = [
+    {
+      role: "user",
+      content: JSON.stringify(
+        {
+          task: "public_research_only",
+          question: String(question ?? "").trim(),
+          conversation_history: Array.isArray(history) ? history.slice(-6) : [],
+          instruction: placeRequest
+            ? "This is a place/venue request. You MUST call web_search at least once for current public place facts. Aim for at least 3 distinct grounded place candidates. Do not write a customer answer. Do not invent places. Do not mention insurance."
+            : "Use web_search for fresh public facts if needed. Do not write a customer answer. Do not mention insurance.",
+        },
+        null,
+        2,
+      ),
+    },
+  ];
+  const tools = [ANTHROPIC_WEB_SEARCH_TOOL];
+  const system = buildSystemPrompt({ mode: "research" });
+  const temp = Math.min(0.45, Math.max(0.15, Number(temperature) || DEFAULT_TEMPERATURE));
+  let providerRequests = 0;
+  let lastData = null;
+  let merged = emptyResearchEvidence({ retrieved_at: retrievedAt, status: "empty" });
+  let forcedSearchNudgeUsed = false;
+  let refineNudgeUsed = false;
+
+  for (let turn = 0; turn < 3; turn += 1) {
+    providerRequests += 1;
+    const once = await postAnthropicMessages({
+      fetchImpl,
+      signal,
+      apiKey,
+      model,
+      maxTokens: 4096,
+      temperature: temp,
+      system,
+      tools,
+      toolChoice: { type: "auto" },
+      messages,
+    });
+    if (!once.ok) {
+      return {
+        ok: false,
+        error: once.error,
+        public_research_evidence: emptyResearchEvidence({
+          status: "error",
+          status_detail: once.error,
+          provider_requests: providerRequests,
+          retrieved_at: retrievedAt,
+        }),
+        provider_requests: providerRequests,
+      };
+    }
+    lastData = once.data;
+    const stop = String(once.data?.stop_reason ?? "");
+    if (stop === "refusal") {
+      return {
+        ok: false,
+        error: "research_refusal",
+        public_research_evidence: emptyResearchEvidence({
+          status: "incomplete",
+          status_detail: "research_refusal",
+          provider_requests: providerRequests,
+          stop_reason: stop,
+          retrieved_at: retrievedAt,
+        }),
+        provider_requests: providerRequests,
+      };
+    }
+    if (stop === "max_tokens") {
+      return {
+        ok: false,
+        error: "research_incomplete_max_tokens",
+        public_research_evidence: emptyResearchEvidence({
+          status: "incomplete",
+          status_detail: "research_incomplete_max_tokens",
+          provider_requests: providerRequests,
+          stop_reason: stop,
+          retrieved_at: retrievedAt,
+        }),
+        provider_requests: providerRequests,
+      };
+    }
+
+    // Client tool_use must not appear in research-only phase; treat unresolved server tools as failure.
+    const clientToolUses = (once.data?.content ?? []).filter((b) => b?.type === "tool_use");
+    if (clientToolUses.length > 0) {
+      return {
+        ok: false,
+        error: "research_unexpected_client_tool",
+        public_research_evidence: emptyResearchEvidence({
+          status: "incomplete",
+          status_detail: "research_unexpected_client_tool",
+          provider_requests: providerRequests,
+          stop_reason: stop,
+          retrieved_at: retrievedAt,
+        }),
+        provider_requests: providerRequests,
+      };
+    }
+
+    const unresolved = findUnresolvedServerToolUses(once.data);
+    if (stop === "tool_use" || unresolved.length > 0) {
+      // Research-only phase has no client tools — unresolved server tool / tool_use is contract failure.
+      return {
+        ok: false,
+        error: "research_unresolved_server_tool",
+        public_research_evidence: emptyResearchEvidence({
+          status: "incomplete",
+          status_detail: "research_unresolved_server_tool",
+          provider_requests: providerRequests,
+          stop_reason: stop,
+          retrieved_at: retrievedAt,
+        }),
+        provider_requests: providerRequests,
+      };
+    }
+
+    const piece = extractPublicResearchEvidence(once.data, { retrievedAt });
+    merged = {
+      ...piece,
+      provider_requests: providerRequests,
+      searches: [...(merged.searches ?? []), ...(piece.searches ?? [])].filter(
+        (s, i, arr) => arr.findIndex((x) => x.id === s.id && x.query === s.query) === i,
+      ),
+      results: [...(merged.results ?? []), ...(piece.results ?? [])].filter(
+        (r, i, arr) =>
+          arr.findIndex((x) => x.url === r.url && x.title === r.title && x.tool_use_id === r.tool_use_id) ===
+          i,
+      ),
+      citations: [...(merged.citations ?? []), ...(piece.citations ?? [])].filter(
+        (c, i, arr) =>
+          arr.findIndex((x) => x.url === c.url && x.cited_text === c.cited_text) === i,
+      ),
+      errors: [...(merged.errors ?? []), ...(piece.errors ?? [])],
+      search_count: Math.max(merged.search_count ?? 0, piece.search_count ?? 0),
+      used: Boolean(merged.used || piece.used),
+    };
+    merged.customer_facing_summary = buildCustomerFacingResearchSummary(merged);
+
+    if (stop === "pause_turn") {
+      // Contract: re-send assistant content unchanged — no user Continue text.
+      messages = [...messages, { role: "assistant", content: once.data?.content ?? [] }];
+      continue;
+    }
+
+    // Place request: force one search nudge if Claude ended without web_search.
+    if (
+      placeRequest &&
+      (merged.search_count ?? 0) <= 0 &&
+      !forcedSearchNudgeUsed &&
+      turn < 2
+    ) {
+      forcedSearchNudgeUsed = true;
+      messages = [
+        ...messages,
+        { role: "assistant", content: once.data?.content ?? [] },
+        {
+          role: "user",
+          content:
+            "Contract: you did not use web_search. Call web_search now for this place request. Do not invent places. Do not write a customer answer.",
+        },
+      ];
+      continue;
+    }
+
+    // Place request: refine within max_uses when only 1–2 grounded candidates.
+    const grounded = countGroundedPlaceCandidates(merged);
+    if (
+      placeRequest &&
+      (merged.search_count ?? 0) > 0 &&
+      grounded > 0 &&
+      grounded < 3 &&
+      (merged.search_count ?? 0) < ANTHROPIC_WEB_SEARCH_TOOL.max_uses &&
+      !refineNudgeUsed &&
+      turn < 2
+    ) {
+      refineNudgeUsed = true;
+      messages = [
+        ...messages,
+        { role: "assistant", content: once.data?.content ?? [] },
+        {
+          role: "user",
+          content:
+            "Need at least 3 distinct grounded place candidates. Narrow or complement the web_search query (area + cuisine). Do not invent places. Do not write a customer answer.",
+        },
+      ];
+      continue;
+    }
+
+    // end_turn (or other completion): finalize status
+    if (merged.errors.length && !merged.results.length) {
+      merged.status = "error";
+      merged.status_detail = merged.errors[0]?.error_code ?? "unavailable";
+    } else if (!merged.results.length) {
+      merged.status = "empty";
+      merged.status_detail = "research_empty";
+    } else {
+      merged.status = "success";
+      merged.status_detail = null;
+    }
+    merged = applyPlaceResearchContract(merged, question);
+    merged.provider_requests = providerRequests;
+    merged.customer_facing_summary = buildCustomerFacingResearchSummary(merged);
+    return {
+      ok: true,
+      public_research_evidence: merged,
+      provider_requests: providerRequests,
+      lastData,
+    };
   }
 
-  const data = await res.json();
-  const parsed = extractParsedFromResponse(data);
-  const raw = JSON.stringify(data.content ?? []);
-  if (!parsed) {
-    return { ok: false, error: "CLAUDE_JSON_PARSE_FAIL", data, raw };
+  merged = applyPlaceResearchContract(
+    {
+      ...merged,
+      provider_requests: providerRequests,
+      status: merged.status ?? "incomplete",
+      status_detail: merged.status_detail ?? "research_loop_exhausted",
+    },
+    question,
+  );
+  return {
+    ok: true,
+    public_research_evidence: merged,
+    provider_requests: providerRequests,
+    lastData,
+  };
+}
+
+async function callClaudeBorrowedSenses({
+  model,
+  apiKey,
+  userPayload,
+  fetchImpl,
+  signal,
+  temperature,
+  repairRaw = null,
+  repairReason = "json",
+  publicResearchEnabled = false,
+  // When set, skip Phase 1 (used only for emit repair after research already done)
+  precomputedResearchEvidence = null,
+}) {
+  const repairMessage =
+    repairReason === "leadership"
+      ? "Your previous output omitted next_decision_point (need 2-3 choices). Call emit_borrowed_senses again with all required fields including next_decision_point."
+      : "Your previous output was not valid structured JSON. Call emit_borrowed_senses again with all required fields. JSON only via tool call.";
+  const temp = Math.min(0.45, Math.max(0.15, Number(temperature) || DEFAULT_TEMPERATURE));
+
+  // --- No research: single emit-only request ---
+  if (!publicResearchEnabled) {
+    const messages = repairRaw
+      ? [
+          { role: "user", content: JSON.stringify(userPayload, null, 2) },
+          { role: "assistant", content: [{ type: "text", text: repairRaw }] },
+          { role: "user", content: repairMessage },
+        ]
+      : [{ role: "user", content: JSON.stringify(userPayload, null, 2) }];
+    const once = await postAnthropicMessages({
+      fetchImpl,
+      signal,
+      apiKey,
+      model,
+      maxTokens: 2048,
+      temperature: temp,
+      system: buildSystemPrompt({ mode: "emit" }),
+      tools: [BORROWED_SENSES_TOOL],
+      toolChoice: { type: "tool", name: "emit_borrowed_senses" },
+      messages,
+    });
+    if (!once.ok) return { ...once, public_research_evidence: emptyResearchEvidence() };
+    const parsed = extractParsedFromResponse(once.data);
+    if (!parsed) {
+      return {
+        ok: false,
+        error: "CLAUDE_JSON_PARSE_FAIL",
+        data: once.data,
+        raw: once.raw,
+        public_research_evidence: emptyResearchEvidence(),
+      };
+    }
+    return {
+      ok: true,
+      parsed,
+      data: once.data,
+      raw: once.raw,
+      public_research_evidence: emptyResearchEvidence({ status: "skipped" }),
+      provider_request_trace: [{ phase: "emit", tools: ["emit_borrowed_senses"] }],
+    };
   }
-  return { ok: true, parsed, data, raw };
+
+  // --- PHASE 1: web_search only ---
+  let researchEvidence = precomputedResearchEvidence;
+  let researchProviderRequests = 0;
+  const requestTrace = [];
+  if (!researchEvidence) {
+    const research = await runPublicResearchPhase({
+      model,
+      apiKey,
+      question: userPayload?.customer_question ?? userPayload?.question ?? "",
+      history: userPayload?.conversation_history ?? [],
+      fetchImpl,
+      signal,
+      temperature: temp,
+    });
+    researchProviderRequests = research.provider_requests ?? 0;
+    for (let i = 0; i < researchProviderRequests; i += 1) {
+      requestTrace.push({ phase: "research", tools: ["web_search"] });
+    }
+    if (!research.ok) {
+      // Incomplete research: do not emit / do not invent places
+      return {
+        ok: false,
+        error: research.error,
+        data: null,
+        raw: null,
+        public_research_evidence: research.public_research_evidence,
+        provider_request_trace: requestTrace,
+        research_failed: true,
+      };
+    }
+    researchEvidence = research.public_research_evidence;
+    // empty/error/search_not_used/insufficient: proceed to Phase 2 with unavailable chart (no invented places)
+    if (
+      researchEvidence.status === "empty" ||
+      researchEvidence.status === "error" ||
+      researchEvidence.status === "search_not_used" ||
+      researchEvidence.status === "insufficient" ||
+      researchEvidence.research_unavailable === true
+    ) {
+      researchEvidence = {
+        ...researchEvidence,
+        research_unavailable: true,
+      };
+      researchEvidence.customer_facing_summary = buildCustomerFacingResearchSummary(researchEvidence);
+    }
+  }
+
+  // --- PHASE 2: emit only (never mixed with web_search) ---
+  const researchOk = researchEvidence.status === "success" && researchEvidence.research_unavailable !== true;
+  const emitPayload = {
+    ...userPayload,
+    key_public_research_evidence: {
+      status: researchEvidence.status,
+      status_detail: researchEvidence.status_detail,
+      research_unavailable: researchEvidence.research_unavailable === true,
+      results: (researchEvidence.results ?? []).map((r) => ({
+        title: r.title,
+        url: r.url,
+        domain: r.domain,
+        page_age: r.page_age,
+        query: r.query,
+        // Do not send encrypted blobs to the model prompt if avoidable — titles/urls/cited text enough for grounding
+      })),
+      citations: (researchEvidence.citations ?? []).map((c) => ({
+        title: c.title,
+        url: c.url,
+        cited_text: c.cited_text,
+        domain: c.domain,
+      })),
+      chart: {
+        current_goal: researchOk
+          ? "공개 검색 evidence에 있는 장소·사실만으로 답하기"
+          : researchEvidence.status_detail === "research_search_not_used"
+            ? "research_search_not_used — 구체 장소명 창작 금지, 확인 못 함 + 조건 1개"
+            : researchEvidence.status_detail === "research_insufficient"
+              ? "research_insufficient — 확인된 후보만 말하거나 조건 1개로 다음 검색 연결"
+              : "research_unavailable — 장소명 창작 금지, 확인 못 한 점 솔직히 + 조건 1개",
+        allowed: researchOk
+          ? ["evidence 장소 후보", "식별 가능한 지역·음식 종류", "확인 질문 1개"]
+          : ["확인된 후보만(있을 때)", "확인 못 함 솔직 안내", "조건 1개 질문"],
+        forbidden: [
+          "evidence 없는 식당명",
+          "출처 없는 평점·영업시간·주차·가격·주소·역출구·건물·층수",
+          "보험 언급·보험 초대",
+        ],
+      },
+    },
+  };
+
+  const emitMessages = repairRaw
+    ? [
+        { role: "user", content: JSON.stringify(emitPayload, null, 2) },
+        { role: "assistant", content: [{ type: "text", text: repairRaw }] },
+        { role: "user", content: repairMessage },
+      ]
+    : [{ role: "user", content: JSON.stringify(emitPayload, null, 2) }];
+
+  requestTrace.push({ phase: "emit", tools: ["emit_borrowed_senses"] });
+  const once = await postAnthropicMessages({
+    fetchImpl,
+    signal,
+    apiKey,
+    model,
+    maxTokens: 2048,
+    temperature: temp,
+    system: buildSystemPrompt({ mode: "emit_with_research" }),
+    tools: [BORROWED_SENSES_TOOL],
+    toolChoice: { type: "tool", name: "emit_borrowed_senses" },
+    messages: emitMessages,
+  });
+  if (!once.ok) {
+    return {
+      ...once,
+      public_research_evidence: researchEvidence,
+      provider_request_trace: requestTrace,
+    };
+  }
+  const parsed = extractParsedFromResponse(once.data);
+  if (!parsed) {
+    return {
+      ok: false,
+      error: "CLAUDE_JSON_PARSE_FAIL",
+      data: once.data,
+      raw: once.raw,
+      public_research_evidence: researchEvidence,
+      provider_request_trace: requestTrace,
+    };
+  }
+  return {
+    ok: true,
+    parsed,
+    data: once.data,
+    raw: once.raw,
+    public_research_evidence: researchEvidence,
+    provider_request_trace: requestTrace,
+  };
 }
 
 /**
@@ -641,6 +1384,7 @@ export async function runBorrowedSensesShadowProbe({
   }
 
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
+  const publicResearchEnabled = shouldEnablePublicWebSearch({ question, decision });
   const userPayload = buildUserPayload({
     question,
     directive,
@@ -652,13 +1396,27 @@ export async function runBorrowedSensesShadowProbe({
     factBoundary,
     reflection,
   });
+  if (publicResearchEnabled) {
+    userPayload.public_research = {
+      enabled: true,
+      provider_tool: ANTHROPIC_WEB_SEARCH_TOOL.name,
+      tool_type: ANTHROPIC_WEB_SEARCH_TOOL.type,
+      max_uses: ANTHROPIC_WEB_SEARCH_TOOL.max_uses,
+      note: "Use web_search only when fresh public facts are needed; then emit_borrowed_senses.",
+    };
+  }
 
   let lastRaw = null;
   let lastError = "CLAUDE_JSON_PARSE_FAIL";
+  let lastPublicResearch = emptyResearchEvidence();
+  let cachedResearchEvidence = null;
+  let lastRequestTrace = [];
   let parseRetryUsed = false;
   let leadershipRetryCount = 0;
   let timeoutRetryUsed = false;
-  let activeTimeoutMs = Number(timeoutMs) || DEFAULT_TIMEOUT_MS;
+  let activeTimeoutMs =
+    Number(timeoutMs) ||
+    (publicResearchEnabled ? PUBLIC_RESEARCH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
   let attempts = 0;
   const maxAttempts = 5;
 
@@ -691,6 +1449,8 @@ export async function runBorrowedSensesShadowProbe({
           temperature: attemptTemp,
           repairRaw,
           repairReason,
+          publicResearchEnabled,
+          precomputedResearchEvidence: cachedResearchEvidence,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -703,8 +1463,42 @@ export async function runBorrowedSensesShadowProbe({
         clearTimeout(timer);
       }
 
-      if (!result.ok && result.error?.startsWith("CLAUDE_API_")) {
-        return { ...base, error: result.error, provider: "anthropic", attempts };
+      if (result.public_research_evidence) {
+        lastPublicResearch = result.public_research_evidence;
+        // Cache successful/empty/error research so emit retries do not re-search
+        if (!result.research_failed) {
+          cachedResearchEvidence = result.public_research_evidence;
+        }
+      }
+      if (result.provider_request_trace) {
+        lastRequestTrace = result.provider_request_trace;
+      }
+
+      // Typed research contract failures — do not outer-retry (would duplicate search)
+      if (result.research_failed) {
+        return {
+          ...base,
+          error: result.error,
+          provider: "anthropic",
+          model,
+          attempts,
+          public_research_enabled: publicResearchEnabled,
+          public_research_evidence: lastPublicResearch,
+          provider_request_trace: lastRequestTrace,
+          research_failed: true,
+        };
+      }
+
+      if (!result.ok && (result.error?.startsWith("CLAUDE_API_") || result.error?.startsWith("provider_error") || result.error === "web_search_disabled_400" || result.error === "rate_limit" || result.error === "timeout")) {
+        return {
+          ...base,
+          error: result.error,
+          provider: "anthropic",
+          attempts,
+          public_research_enabled: publicResearchEnabled,
+          public_research_evidence: result.public_research_evidence ?? lastPublicResearch,
+          provider_request_trace: lastRequestTrace,
+        };
       }
 
       lastRaw = result.raw;
@@ -736,6 +1530,9 @@ export async function runBorrowedSensesShadowProbe({
           gate,
           error: null,
           attempts,
+          public_research_enabled: publicResearchEnabled,
+          public_research_evidence: lastPublicResearch,
+          provider_request_trace: lastRequestTrace,
         };
       }
 
@@ -743,7 +1540,7 @@ export async function runBorrowedSensesShadowProbe({
 
       if (lastError === "CLAUDE_TIMEOUT" && !timeoutRetryUsed) {
         timeoutRetryUsed = true;
-        activeTimeoutMs = TIMEOUT_RETRY_MS;
+        activeTimeoutMs = Math.max(TIMEOUT_RETRY_MS, PUBLIC_RESEARCH_TIMEOUT_MS);
         continue;
       }
 
@@ -762,6 +1559,9 @@ export async function runBorrowedSensesShadowProbe({
       provider: "anthropic",
       model,
       attempts,
+      public_research_enabled: publicResearchEnabled,
+      public_research_evidence: lastPublicResearch,
+      provider_request_trace: lastRequestTrace,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -770,6 +1570,9 @@ export async function runBorrowedSensesShadowProbe({
       error: /abort|timeout/i.test(msg) ? "CLAUDE_TIMEOUT" : "CLAUDE_FETCH_ERROR",
       provider: "anthropic",
       attempts,
+      public_research_enabled: publicResearchEnabled,
+      public_research_evidence: lastPublicResearch,
+      provider_request_trace: lastRequestTrace,
     };
   }
 }

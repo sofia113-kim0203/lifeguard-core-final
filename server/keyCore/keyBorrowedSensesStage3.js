@@ -14,6 +14,8 @@ import {
   collectMidFieldTraceWarnings,
   isDailyOwnedDecisionFocus,
   voiceHasDailyInsurancePollution,
+  voiceHasUnsourcedPublicAssertions,
+  voiceHasUnsupportedPlaceClaims,
 } from "./keyBorrowedSensesStage2.js";
 
 export const STAGE3_SCHEMA = "s7-stage3-preview-active-v0";
@@ -446,6 +448,7 @@ export function decideStage3Promotion({
     voice,
     question,
     decision,
+    publicResearchEvidence: shadow?.public_research_evidence ?? null,
   });
   if (safetyFail) {
     return fail(safetyFail, {
@@ -470,12 +473,16 @@ export function decideStage3Promotion({
   }
 
   if (isWaitOnlyVoice(voice)) {
-    return fail("wait_only", {
-      gate: baseTrace.gate,
-      s7_voice: voice,
-      next_decision_point: nd,
-      mid_field_warnings: midFieldWarnings,
-    });
+    // Soft fail: do not veto a useful daily answer; insurance path still blocks wait-only.
+    if (!dailyPromotePath) {
+      return fail("wait_only", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+        mid_field_warnings: midFieldWarnings,
+      });
+    }
+    midFieldWarnings.push("wait_only");
   }
 
   // --- daily_focus / general_daily owned path (answer-first; skip insurance Full-Voice minimum) ---
@@ -488,8 +495,33 @@ export function decideStage3Promotion({
         mid_field_warnings: midFieldWarnings,
       });
     }
+    if (voiceHasUnsourcedPublicAssertions(voice)) {
+      return fail("unsourced_public_assertion", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+        mid_field_warnings: midFieldWarnings,
+      });
+    }
+    if (voiceHasUnsupportedPlaceClaims(voice, shadow?.public_research_evidence ?? null)) {
+      return fail("unsupported_place_claim", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+        mid_field_warnings: midFieldWarnings,
+      });
+    }
     if (hasUnverifiedCustomerFactClaim(voice)) {
       return fail("daily_unverified_customer_fact", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+        mid_field_warnings: midFieldWarnings,
+      });
+    }
+    // Truly wait-only daily answers are not useful — keep soft fail without promote.
+    if (isWaitOnlyVoice(voice)) {
+      return fail("wait_only", {
         gate: baseTrace.gate,
         s7_voice: voice,
         next_decision_point: nd,
@@ -515,11 +547,8 @@ export function decideStage3Promotion({
 
   // --- insurance advice / education path (unchanged contracts) ---
   if (nd.length < 2) {
-    return fail("missing_next_decision", {
-      gate: baseTrace.gate,
-      s7_voice: voice,
-      next_decision_point: nd,
-    });
+    // Answer-first: missing next_decision alone is a soft warning, not a hard veto.
+    midFieldWarnings.push("missing_next_decision");
   }
 
   if (lane === STAGE3_LANES.INSURANCE_EDUCATION && educationExpandsToPersonalVerdict(voice, borrowed)) {
@@ -531,11 +560,21 @@ export function decideStage3Promotion({
   }
 
   if (!passesFullVoiceMinimum(borrowed, voice)) {
-    return fail("full_voice_minimum_fail", {
-      gate: baseTrace.gate,
-      s7_voice: voice,
-      next_decision_point: nd,
-    });
+    // If the only Full-Voice gap is missing next_decision, soft-promote when answer is useful.
+    if (
+      nd.length < 2 &&
+      !isWaitOnlyVoice(voice) &&
+      Boolean(String(borrowed?.recommendation_basis ?? "").trim() || /맞아\s*보이|먼저|확인|서류|담보/.test(voice))
+    ) {
+      // continue to promote below
+    } else {
+      return fail("full_voice_minimum_fail", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+        mid_field_warnings: midFieldWarnings,
+      });
+    }
   }
 
   // Advice: require evidence-based lean / next action (Full Voice already covers most)
@@ -565,6 +604,7 @@ export function decideStage3Promotion({
     invent_or_fake_fact: false,
     cancel_enroll_certainty: false,
     insurance_memory_saved: false,
+    mid_field_warnings: midFieldWarnings,
   };
 }
 

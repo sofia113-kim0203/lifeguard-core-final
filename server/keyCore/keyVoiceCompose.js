@@ -32,6 +32,9 @@ import { gateBorrowedSensesOutput } from "./keyBorrowedSensesGate.js";
 import {
   evaluateBorrowedFastPathCandidate,
   applyStage2PromotionToCompose,
+  canSoftApproveBorrowedVoice,
+  shouldUseConstrainedAnswerRegen,
+  collectAnswerFacingSafetyFail,
 } from "./keyBorrowedSensesStage2.js";
 import { applyStage3PromotionToCompose } from "./keyBorrowedSensesStage3.js";
 
@@ -146,6 +149,31 @@ export async function buildKeyVoiceComposeResult(
     previousAnswerSummary,
     history,
   });
+
+  // Evidence-first: attach research to directive BEFORE first Gate/approval (not regen-only).
+  if (shadow?.public_research_evidence && typeof shadow.public_research_evidence === "object") {
+    const ev = shadow.public_research_evidence;
+    directive.public_research_evidence = {
+      status: ev.status,
+      status_detail: ev.status_detail,
+      research_unavailable: ev.research_unavailable === true,
+      customer_facing_summary: ev.customer_facing_summary ?? null,
+      results: (ev.results ?? []).map((r) => ({
+        title: r.title,
+        url: r.url,
+        domain: r.domain,
+        page_age: r.page_age,
+        query: r.query,
+        // encrypted_* intentionally omitted from directive/trace surfaces
+      })),
+      citations: (ev.citations ?? []).map((c) => ({
+        title: c.title,
+        url: c.url,
+        cited_text: c.cited_text,
+        domain: c.domain,
+      })),
+    };
+  }
 
   const trace = {
     key_voice_enabled: isKeyVoiceActive(env),
@@ -280,10 +308,61 @@ export async function buildKeyVoiceComposeResult(
 
   // --- S6 Speak / constrained one-regeneration when not on active fast path ---
   if (!voiceRaw) {
+    const fallbackReason = String(
+      trace.fast_path?.reason ??
+        trace.stage3_active_pre_s6?.fallback_reason ??
+        alignment?.reason ??
+        "",
+    ).trim();
+    const midFieldWarnings = [
+      ...(Array.isArray(alignment?.mid_field_warnings) ? alignment.mid_field_warnings : []),
+      ...(Array.isArray(trace.stage3_active_pre_s6?.mid_field_warnings)
+        ? trace.stage3_active_pre_s6.mid_field_warnings
+        : []),
+    ];
+    const rejectedAnswer = String(shadow?.borrowed?.voice_raw_candidate ?? "").trim();
+    const softApprove =
+      stage3Active &&
+      !stage2Partial &&
+      !production &&
+      probeOn &&
+      Boolean(shadow) &&
+      canSoftApproveBorrowedVoice({
+        voice: rejectedAnswer,
+        question: directiveQuestion,
+        decision,
+        gate: shadow?.gate,
+        failReason: fallbackReason,
+        midFieldWarnings,
+      });
+
+    if (softApprove) {
+      const kvGate = gateBorrowedCandidateAnswer(rejectedAnswer, directive, s5Reference);
+      if (kvGate.ok || onlyOptionalFactGateFail(kvGate)) {
+        voiceRaw = rejectedAnswer;
+        provider = "borrowed_senses_fast_path";
+        gateResult = kvGate.ok ? kvGate : { ok: true, reasons: [], optional_fact_soft_pass: true };
+        usedActiveFastPath = true;
+        trace.fast_path = {
+          ok: true,
+          reason: null,
+          aligned_with_decision: alignment?.aligned_with_decision === true,
+          gate_ok: true,
+          alignment_reason: null,
+          observation_only: false,
+          stage3_promotion_pass: true,
+          soft_approve: true,
+          mid_field_warnings: midFieldWarnings,
+        };
+      }
+    }
+  }
+
+  if (!voiceRaw) {
     const failReasons = [
       alignment?.reason,
       trace.fast_path?.reason,
-      ...(Array.isArray(alignment?.mid_field_warnings) ? alignment.mid_field_warnings : []),
+      trace.stage3_active_pre_s6?.fallback_reason,
     ].filter(Boolean);
     const rejectedAnswer = String(shadow?.borrowed?.voice_raw_candidate ?? "").trim();
     const useConstrainedRegen =
@@ -291,7 +370,15 @@ export async function buildKeyVoiceComposeResult(
       !stage2Partial &&
       !production &&
       probeOn &&
-      Boolean(shadow);
+      Boolean(shadow) &&
+      shouldUseConstrainedAnswerRegen({
+        failReasons,
+        voice: rejectedAnswer,
+        question: directiveQuestion,
+        decision,
+        gate: shadow?.gate,
+        publicResearchEvidence: shadow?.public_research_evidence ?? null,
+      });
 
     const speakDirective = useConstrainedRegen
       ? buildAnswerRegenerationDirective({
@@ -299,6 +386,7 @@ export async function buildKeyVoiceComposeResult(
           decision,
           failReasons,
           rejectedAnswer,
+          publicResearchEvidence: shadow?.public_research_evidence ?? null,
         })
       : directive;
 
@@ -320,6 +408,20 @@ export async function buildKeyVoiceComposeResult(
     gateResult = voiceRaw
       ? gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference })
       : { ok: false, reasons: [speakResult.error ?? "speak_failed"] };
+
+    // After constrained regen, re-check answer-facing safety once.
+    if (useConstrainedRegen && voiceRaw) {
+      const regenSafety = collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: voiceRaw,
+        question: directiveQuestion,
+        decision,
+        publicResearchEvidence: shadow?.public_research_evidence ?? null,
+      });
+      if (regenSafety && regenSafety !== "gate_missing") {
+        gateResult = { ok: false, reasons: [`answer_facing:${regenSafety}`] };
+      }
+    }
 
     // Probe-off keeps one Gate-fail rewrite retry; probe-on / constrained regen stays at 1 Speak call
     if (!gateResult.ok && voiceRaw && !probeOn) {
