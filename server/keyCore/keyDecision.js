@@ -52,9 +52,45 @@ function pushSpokenFromIds(ids, reality) {
 
 function classifySituation(question = "", reality = {}, reflection = {}) {
   const q = normalizeQuestion(question);
+  const readings = Array.isArray(reflection?.situation_reading)
+    ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  const readingText = readings.join(" ");
+
+  // Reflection readings first — KEY interprets, does not copy raw soft into Speak
+  if (readingText) {
+    if (/보험료가 이대로 괜찮은지|보험료.*걱정|유지 부담/.test(readingText)) {
+      return "premium_burden";
+    }
+    if (/보험과 무관한 일반/.test(readingText)) {
+      if (/맛집|식당|음식/.test(q)) return "daily_recommendation";
+      if (reality.domain === "emotion" || /감정·컨디션이 먼저/.test(readingText)) {
+        return "emotional_space";
+      }
+      return "non_insurance_general";
+    }
+    if (/가입된 보험이 무엇인지|내 보험에 대해 설명/.test(readingText)) {
+      return "enrolled_policy_list";
+    }
+    if (/전체 보장 상태가 괜찮은지/.test(readingText)) {
+      return "coverage_assessment_whole";
+    }
+    if (/암 보장이 충분한지/.test(readingText)) {
+      return "coverage_assessment_cancer_axis";
+    }
+    if (/추천|방향/.test(readingText)) {
+      return "direction_choice";
+    }
+    if (/감정·컨디션이 먼저/.test(readingText)) {
+      return "emotional_space";
+    }
+  }
+
+  // Question-based fallback
   if (reality.phase === "closing") return "respect_close";
   if (reality.domain === "emotion" && !INSURANCE_TOPIC_RE.test(q)) return "emotional_space";
   if (/맛집|식당|음식/.test(q) && !INSURANCE_TOPIC_RE.test(q)) return "daily_recommendation";
+  if (/보험료/.test(q) && /얼마/.test(q)) return "enrolled_policy_list";
   if (/보험료/.test(q) && /부담/.test(q)) return "premium_burden";
   if (/가입한\s*보험|보험\s*뭐|내보험/.test(q)) return "enrolled_policy_list";
   if (/가르쳐|알려/.test(q) && /보험|내보험/.test(q)) return "enrolled_policy_list";
@@ -62,6 +98,7 @@ function classifySituation(question = "", reality = {}, reflection = {}) {
   if (/암/.test(q) && /부족/.test(q)) return "coverage_assessment_cancer_axis";
   if (/추천|설계/.test(q)) return "direction_choice";
   if (/심심/.test(q)) return "social_presence";
+  if (!INSURANCE_TOPIC_RE.test(q)) return "non_insurance_general";
   return "general_inquiry";
 }
 
@@ -82,6 +119,8 @@ function buildDirectAnswerHint(question = "", situation = "") {
       return "오늘 많이 버티셨네요.";
     case "daily_recommendation":
       return "분당 쪽이시면 선택지가 꽤 있어요.";
+    case "non_insurance_general":
+      return "그 질문부터 볼게요.";
     case "respect_close":
       return "네, 알겠습니다. 고마워요.";
     case "social_presence":
@@ -221,6 +260,13 @@ export function buildDecision({
       invite = { allowed: true, prompt: "더 좁히고 싶으시면 말씀해 주세요." };
       break;
 
+    case "non_insurance_general":
+      factsToWithhold.push({ fact: "insurance_facts", reason: "domain_non_insurance" });
+      keyJudgment = "보험 밖 질문으로 보고 그 초점만 다루겠습니다.";
+      direction = { type: "offer_space", move: "지금 질문 초점만 이어서 보겠습니다" };
+      invite = { allowed: true, prompt: "그 방향으로 짧게 이어갈까요?" };
+      break;
+
     case "respect_close":
       factsToWithhold.push({ fact: "insurance_facts", reason: "respect_close" });
       keyJudgment = "오늘은 여기까지 해도 됩니다. 고마워요.";
@@ -253,6 +299,69 @@ export function buildDecision({
   const premiumFormatted =
     facts.premiumRaw != null ? formatPremiumFromRaw(facts.premiumRaw) : null;
 
+  const readings = Array.isArray(reflection?.situation_reading)
+    ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  const readingConfidence = reflection?.reading_confidence ?? null;
+
+  // KEY interprets — never copy raw readings as customer facts
+  const customer_situation_hypothesis = readings.length ? readings.slice(0, 3) : null;
+
+  let key_situation_judgment = null;
+  let response_priority = null;
+  const key_next_move = direction?.move ?? null;
+  const confirm_question = invite?.allowed ? (invite.prompt ?? null) : null;
+
+  switch (situation) {
+    case "premium_burden":
+      key_situation_judgment =
+        "고객이 보험료 적정성·효율을 먼저 확인하고 싶어 하는 상황으로 본다.";
+      response_priority = "premium_adequacy_check";
+      break;
+    case "enrolled_policy_list":
+      key_situation_judgment =
+        /보험료/.test(q) && /얼마/.test(q)
+          ? "보험료 금액 사실 조회가 우선이다."
+          : "등록 보험 사실 조회가 우선이다.";
+      response_priority = "fact_lookup";
+      break;
+    case "coverage_assessment_whole":
+      key_situation_judgment = "전체 보장 상태를 확인된 범위부터 짚는 상황으로 본다.";
+      response_priority = "coverage_assessment";
+      break;
+    case "coverage_assessment_cancer_axis":
+      key_situation_judgment = "암 보장 축을 먼저 확인하는 상황으로 본다.";
+      response_priority = "cancer_axis_check";
+      break;
+    case "direction_choice":
+      key_situation_judgment = "방향·우선순위를 함께 잡는 상황으로 본다.";
+      response_priority = "direction_choice";
+      break;
+    case "emotional_space":
+      key_situation_judgment = "감정·컨디션이 먼저인 상황으로 본다.";
+      response_priority = "emotional_space";
+      break;
+    case "daily_recommendation":
+      key_situation_judgment = "일상 추천 초점만 다룬다.";
+      response_priority = "daily_focus";
+      break;
+    case "non_insurance_general":
+      key_situation_judgment = "보험 밖 질문 초점만 다룬다.";
+      response_priority = "non_insurance_focus";
+      break;
+    case "respect_close":
+      key_situation_judgment = "대화를 마무리하는 상황으로 본다.";
+      response_priority = "respect_close";
+      break;
+    case "social_presence":
+      key_situation_judgment = "가벼운 대화 공간만 연다.";
+      response_priority = "social_presence";
+      break;
+    default:
+      key_situation_judgment = keyJudgment || "확인된 범위부터 이어간다.";
+      response_priority = situation || "general";
+  }
+
   return {
     schema_version: KEY_DECISION_SCHEMA,
     situation_key: situation,
@@ -267,6 +376,12 @@ export function buildDecision({
     direction,
     invite,
     decision_complete: Boolean(keyJudgment && direction.type && direction.move),
+    customer_situation_hypothesis,
+    key_situation_judgment,
+    response_priority,
+    key_next_move,
+    confirm_question,
+    reading_confidence: readingConfidence,
     trace_meta: {
       policy_count: count,
       premium_display: premiumFormatted,

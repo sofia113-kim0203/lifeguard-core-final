@@ -29,6 +29,11 @@ function buildSystemPrompt() {
     "Never use '보장 축', '암 축', or calculated counts like '나머지 21건'.",
     "Never say 'KEY가' — always use '제가'.",
     "Plain text only.",
+    "Follow key_situation_judgment, response_priority, key_next_move, and confirm_question from the directive — these are KEY Decision results.",
+    "customer_situation_hypothesis is a hypothesis label only — never treat it as verified customer emotion or fact.",
+    "Lead with KEY's next move / response_priority; at most one short confirm_question; do not only ask clarifying questions.",
+    "When response_priority is fact_lookup: answer facts first, no emotional speculation.",
+    "Never change numbers, facts, or forbidden claims.",
   ].join(" ");
 }
 

@@ -100,6 +100,16 @@ function buildSituationReading(question = "", reality = {}) {
     return readings;
   }
 
+  if (/보험료/.test(q) && /(?:맞(?:는|은)\s*건가|맞는지|괜찮은지|고민|망설|싶어서)/.test(q)) {
+    readings.push("보험료가 이대로 괜찮은지 마음에 걸릴 수 있음");
+    return readings;
+  }
+
+  if (!INSURANCE_TOPIC_RE.test(q)) {
+    readings.push("보험과 무관한 일반 질문으로 보임");
+    return readings;
+  }
+
   readings.push("보험 상담 맥락에서 추가 확인이 필요함");
   return readings;
 }

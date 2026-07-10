@@ -2,7 +2,13 @@
  * KEY Voice — unit tests (directive, gate, safe utterance; no live Claude).
  */
 import assert from "node:assert/strict";
-import { buildKeyVoiceDirective, deriveKeyVoiceQuestionFocus } from "../server/keyCore/keyVoiceDirective.js";
+import {
+  buildKeyVoiceDirective,
+  buildDirectiveSituationFromDecision,
+  deriveKeyVoiceQuestionFocus,
+} from "../server/keyCore/keyVoiceDirective.js";
+import { buildDecision } from "../server/keyCore/keyDecision.js";
+import { buildReflection } from "../server/keyCore/keyReflection.js";
 import { gateKeyVoiceAnswer } from "../server/keyCore/keyVoiceGate.js";
 import { buildKeyVoiceSafeUtterance } from "../server/keyCore/keyVoiceSpeak.js";
 import { isKeyVoiceActive } from "../server/keyCore/oneKeyCoreFlags.js";
@@ -149,5 +155,155 @@ const badGapBlock = {
 };
 const badGapNeutral = assertCoverageGapNeutral(badGapBlock);
 assert.equal(badGapNeutral.ok, false);
+
+// --- S7-A Decision interprets Reflection (raw soft must NOT reach Speak) ---
+const softReality = {
+  policies_present: true,
+  policy_count: 22,
+  domain: "insurance",
+  policies: [
+    {
+      insurer_name: "삼성생명",
+      product_name: "실손의료비보험",
+      monthly_premium: 45000,
+    },
+  ],
+};
+
+// A. premium worry reflection → Decision premium_burden / adequacy; Directive from Decision fields
+{
+  const qA = "보험료가 이게 맞는 건가 싶어서…";
+  const reflectionA = buildReflection({ customerSaid: qA, reality: softReality });
+  assert.ok(
+    reflectionA.situation_reading.some((r) => /보험료가 이대로 괜찮은지/.test(r)),
+    JSON.stringify(reflectionA.situation_reading),
+  );
+  assert.equal(reflectionA.reading_confidence, "hypothesis");
+
+  const decisionA = buildDecision({
+    reflection: reflectionA,
+    reality: softReality,
+    question: qA,
+  });
+  assert.ok(
+    decisionA.situation_key === "premium_burden" ||
+      decisionA.response_priority === "premium_adequacy_check",
+    JSON.stringify({
+      situation_key: decisionA.situation_key,
+      response_priority: decisionA.response_priority,
+    }),
+  );
+  assert.match(String(decisionA.key_situation_judgment ?? ""), /적정|효율|보험료/);
+  assert.ok(String(decisionA.key_next_move ?? "").trim().length > 0);
+
+  const dirA = buildKeyVoiceDirective({ question: qA, decision: decisionA });
+  assert.ok(String(dirA.key_situation_judgment ?? "").trim().length > 0);
+  assert.ok(String(dirA.key_next_move ?? "").trim().length > 0);
+  assert.equal(dirA.soft_customer_reading, null);
+  assert.deepEqual(dirA.facts_to_speak, decisionA.fact_selection.facts_spoken);
+
+  const sitA = buildDirectiveSituationFromDecision(decisionA);
+  assert.equal(sitA.key_situation_judgment, decisionA.key_situation_judgment);
+  assert.equal(sitA.key_next_move, decisionA.key_next_move);
+}
+
+// B. "내 보험료 얼마야?" → fact_lookup; no emotional soft guidance
+{
+  const qB = "내 보험료 얼마야?";
+  const reflectionB = buildReflection({ customerSaid: qB, reality: softReality });
+  const decisionB = buildDecision({
+    reflection: reflectionB,
+    reality: softReality,
+    question: qB,
+  });
+  assert.ok(
+    decisionB.response_priority === "fact_lookup" ||
+      decisionB.situation_key === "enrolled_policy_list",
+    JSON.stringify({
+      situation_key: decisionB.situation_key,
+      response_priority: decisionB.response_priority,
+    }),
+  );
+  assert.match(String(decisionB.key_situation_judgment ?? ""), /사실|조회|보험료/);
+  const dirB = buildKeyVoiceDirective({ question: qB, decision: decisionB });
+  assert.equal(dirB.response_priority, decisionB.response_priority);
+  assert.equal(dirB.soft_customer_reading, null);
+  assert.equal(dirB.soft_response_guidance, null);
+  assert.ok(!/emotional|soft possibility|MAY gently/i.test(JSON.stringify(dirB)));
+}
+
+// C. low confidence / empty readings: still has key_next_move from question classify
+{
+  const qC = "내 보험료 얼마야?";
+  const decisionC = buildDecision({
+    reflection: { situation_reading: [], reading_confidence: "low" },
+    reality: softReality,
+    question: qC,
+  });
+  assert.ok(
+    String(decisionC.key_next_move ?? decisionC.direction?.move ?? "").trim().length > 0,
+    JSON.stringify(decisionC),
+  );
+  assert.ok(decisionC.decision_complete === true);
+}
+
+// D. Reflection vs facts: premium worry reflection but facts_spoken still from reality
+{
+  const qD = "보험료가 이게 맞는 건가 싶어서…";
+  const reflectionD = buildReflection({ customerSaid: qD, reality: softReality });
+  const decisionD = buildDecision({
+    reflection: reflectionD,
+    reality: softReality,
+    question: qD,
+  });
+  assert.ok(
+    decisionD.fact_selection.facts_spoken.some((f) => f.fact_id === "policy_count"),
+  );
+  assert.ok(
+    decisionD.fact_selection.facts_spoken.some((f) => f.fact_id === "monthly_premium"),
+  );
+  assert.equal(
+    decisionD.fact_selection.facts_spoken.find((f) => f.fact_id === "insurer")?.value,
+    "삼성생명",
+  );
+  assert.ok(!/불안|힘드/.test(String(decisionD.key_judgment ?? "")));
+}
+
+// E. facts_to_speak unchanged when only hypothesis fields differ
+{
+  const qE = "보험료가 이게 맞는 건가 싶어서…";
+  const reflectionE = buildReflection({ customerSaid: qE, reality: softReality });
+  const decisionWithHyp = buildDecision({
+    reflection: reflectionE,
+    reality: softReality,
+    question: qE,
+  });
+  const baseFacts = {
+    ...mockDecision,
+    customer_situation_hypothesis: ["보험료가 이대로 괜찮은지 마음에 걸릴 수 있음"],
+    key_situation_judgment: "고객이 보험료 적정성·효율을 먼저 확인하고 싶어 하는 상황으로 본다.",
+    response_priority: "premium_adequacy_check",
+    key_next_move: mockDecision.direction.move,
+    confirm_question: mockDecision.invite.prompt,
+  };
+  const dirWith = buildKeyVoiceDirective({ question: qE, decision: baseFacts });
+  const dirWithout = buildKeyVoiceDirective({
+    question: qE,
+    decision: {
+      ...mockDecision,
+      customer_situation_hypothesis: null,
+      key_situation_judgment: null,
+      response_priority: null,
+      key_next_move: null,
+      confirm_question: null,
+    },
+  });
+  assert.deepEqual(dirWith.facts_to_speak, dirWithout.facts_to_speak);
+  assert.deepEqual(dirWith.key_judgment, dirWithout.key_judgment);
+  assert.deepEqual(
+    decisionWithHyp.fact_selection.facts_spoken.map((f) => f.fact_id),
+    ["policy_count", "insurer", "product", "monthly_premium"],
+  );
+}
 
 console.log("KEY_VOICE_UNIT_TEST ok=true");

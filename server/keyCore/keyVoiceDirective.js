@@ -919,6 +919,76 @@ function buildAnswerShape(focus) {
 
 /**
 
+ * Decision-owned situation fields for Directive/Speak.
+
+ * Raw Reflection must NOT reach Speak — only KEY Decision interpretation.
+
+ */
+
+export function buildDirectiveSituationFromDecision(decision = null) {
+
+  if (!decision) {
+
+    return {
+
+      customer_situation_hypothesis: null,
+
+      key_situation_judgment: null,
+
+      response_priority: null,
+
+      key_next_move: null,
+
+      confirm_question: null,
+
+    };
+
+  }
+
+  return {
+
+    customer_situation_hypothesis: decision.customer_situation_hypothesis ?? null,
+
+    key_situation_judgment: decision.key_situation_judgment ?? null,
+
+    response_priority: decision.response_priority ?? null,
+
+    key_next_move: decision.key_next_move ?? decision.direction?.move ?? null,
+
+    confirm_question:
+
+      decision.confirm_question ??
+
+      (decision.invite?.allowed ? decision.invite?.prompt : null) ??
+
+      null,
+
+  };
+
+}
+
+
+
+/** @deprecated Use buildDirectiveSituationFromDecision — raw Reflection must not reach Speak. */
+
+export function buildSoftCustomerContextFromReflection() {
+
+  return {
+
+    soft_customer_reading: null,
+
+    soft_reading_confidence: null,
+
+    soft_response_guidance: null,
+
+  };
+
+}
+
+
+
+/**
+
  * @param {object} params
 
  * @param {string} params.question
@@ -986,6 +1056,10 @@ export function buildKeyVoiceDirective({
   const allowedNumbers = buildAllowedNumbers(optionalFacts);
 
   const premiumScopePolicy = buildPremiumScopePolicy(questionFocus, allowedFactTokens);
+
+
+
+  const situationFromDecision = buildDirectiveSituationFromDecision(decision);
 
 
 
@@ -1165,6 +1239,12 @@ export function buildKeyVoiceDirective({
 
     direct_answer_hint: decision?.direct_answer_hint ?? null,
 
+    soft_customer_reading: null,
+
+    soft_response_guidance: null,
+
+    ...situationFromDecision,
+
   };
 
 }
@@ -1184,6 +1264,10 @@ export function summarizeKeyVoiceDirective(directive = {}) {
     `optional=${(directive.optional_claims ?? []).map((c) => c.id).join(",") || "none"}`,
 
     `judgment=${String(directive.key_judgment ?? "").slice(0, 40)}`,
+
+    `priority=${directive.response_priority ?? "none"}`,
+
+    `next=${String(directive.key_next_move ?? "").slice(0, 40)}`,
 
   ].join(" | ");
 
