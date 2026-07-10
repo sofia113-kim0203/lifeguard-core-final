@@ -210,7 +210,7 @@ export function resolveOneKeyCoreBridgeEnv(env = process.env) {
   };
 }
 
-/** KEY Master Preview — all Core events + S1 on. */
+/** KEY Master Preview — all Core events + S1 on. Preview-only S7 active. */
 export function resolveKeyMasterPreviewEnv(env = process.env) {
   return {
     ...env,
@@ -221,6 +221,7 @@ export function resolveKeyMasterPreviewEnv(env = process.env) {
     ONE_KEY_CORE_BRIDGE: "1",
     SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
     SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
+    KEY_BORROWED_SENSES: "active",
   };
 }
 
