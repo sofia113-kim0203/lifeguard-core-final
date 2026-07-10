@@ -1,0 +1,302 @@
+{
+  "schema_id": "s7-active-stage2-partial-design-v0",
+  "status": "FROZEN — Stage 2 active-partial design only; NO wire · NO code · NO deploy · NO observe · NO S7 active · NO S6 customer swap until separate Tom GO",
+  "version": "0.1.0",
+  "meta": {
+    "purpose": "Freeze Stage 2 Preview allowlist conditional promotion design. Does NOT implement wire, enable S7 active, swap customer answers, or touch Production.",
+    "parent_stage_design_ref": "fixtures/key-judgment-validation-v1/s7-active-stage-design-v0.json",
+    "parent_stage_design_commit": "ecf1d97",
+    "tom_signoff_commit": "0ec40db",
+    "tom_signoff_commit_message": "test(key): sign off s7 full voice human gate",
+    "stage1_final_compare_evidence_ref": "fixtures/key-judgment-validation-v1/s7-active-stage1-final-compare-evidence-v0.json",
+    "stage1_evidence_commit": "adb606c",
+    "stage1_final_preview_commit": "51adf916afe228e66fda52d2b5c2aca15a8a3d63",
+    "stage1_final_deployment_id": "dpl_KucjKf7SDZgCLVnmyjTsqy81s64z",
+    "ready_for_stage2_review": true,
+    "runtime_today": {
+      "KEY_BORROWED_SENSES": "shadow",
+      "s7_active": false,
+      "s7_active_partial": false,
+      "customer_swap": "HOLD",
+      "production_touched": false,
+      "customer_text_changed": false,
+      "stage": 1
+    },
+    "principles": {
+      "one_key_only": true,
+      "do_not_reduce_key": true,
+      "recommendation_is_core": true,
+      "not_recommendation_ban": true,
+      "evidence_based_recommendation_allowed": true,
+      "safety_via_gate_system_fact_layers": true,
+      "s6_is_floor_and_fallback": true,
+      "s7_is_smarter_leadership_candidate": true,
+      "preview_only_until_separate_tom_go": true,
+      "production_hold_until_separate_tom_go": true
+    }
+  },
+  "stage2_meaning": {
+    "one_line": "Preview allowlist questions only: when S7 candidate passes gate + Full Voice minimum, promote to customer answer; otherwise keep S6.",
+    "customer_facing_answer": "s7_conditional_on_allowlist_and_gates",
+    "not_full_active": true,
+    "not_production": true,
+    "allowlist_outside": "s6",
+    "failure_or_uncertainty": "s6",
+    "role_split": {
+      "s6": "floor · safety net · persona baseline · fallback owner",
+      "s7": "insurance primary-care leadership candidate on Tier A only when gates pass"
+    }
+  },
+  "environment": {
+    "preview_allowed": true,
+    "production_allowed": false,
+    "production_alias_or_promote": "FORBIDDEN",
+    "env_intent": "Preview-only partial wire — separate Tom GO required before implementation",
+    "KEY_BORROWED_SENSES_on_production": "FORBIDDEN_until_separate_tom_go"
+  },
+  "tier_a_allowlist": {
+    "tier": "A",
+    "purpose": "Stage 2 partial active first allowlist — exact match only",
+    "items": [
+      {
+        "id": "FULLVOICE_Q7_BROWSE",
+        "maps_to_s7_id": "S7Q9",
+        "question": "그냥 둘러보러 왔어",
+        "why": "wait-style to start-point leadership; no push"
+      },
+      {
+        "id": "FULLVOICE_Q4_PREMIUM_CUT",
+        "maps_to_s7_id": "S7Q3",
+        "question": "보험료 줄이고 싶어",
+        "why": "cut path leans duplicate/premium review first; strong grounding"
+      },
+      {
+        "id": "FULLVOICE_Q2_WHAT_DO_I_NEED",
+        "maps_to_s7_id": "S7Q7",
+        "question": "나한테 뭐가 필요해?",
+        "why": "purpose-branch recommendation without product push"
+      },
+      {
+        "id": "FULLVOICE_Q9_RECOMMEND",
+        "maps_to_s7_id": "S7Q6",
+        "question": "보험 추천해줘",
+        "why": "direction recommendation is core; not recommendation ban"
+      },
+      {
+        "id": "FULLVOICE_Q8_KEEP_POLICY",
+        "maps_to_s7_id": null,
+        "question": "이 보험 유지해야 해?",
+        "why": "four keep criteria + keep/adjust/complement candidates; seat-extended item"
+      }
+    ]
+  },
+  "exclusions": {
+    "tier_b_auto_include": "FORBIDDEN",
+    "tier_c": "EXCLUDED",
+    "q10_whole_portfolio_expansion": {
+      "rule": "FORBIDDEN",
+      "note": "FULLVOICE_Q10 / 내 보험 괜찮아? whole-portfolio expansion must keep S6; do not promote",
+      "allowed_scope_only": "암보험 괜찮아? style narrow scope is not Stage 2 Tier A"
+    },
+    "production": "FORBIDDEN",
+    "stage_3_full_preview": "FORBIDDEN_until_stage2_seat_pass_and_separate_tom_go",
+    "recommendation_ban_hotfix": "FORBIDDEN"
+  },
+  "promotion_conditions": {
+    "all_required": true,
+    "logic": "AND",
+    "conditions": [
+      { "id": "preview_only", "rule": "runtime is Preview; Production path must not promote" },
+      { "id": "tier_a_allowlist_match", "rule": "question matches Tier A allowlist exact item" },
+      { "id": "s7_candidate_exists", "rule": "borrowed_senses_shadow / S7 candidate present" },
+      { "id": "voice_non_empty", "rule": "voice_raw_candidate non-empty" },
+      { "id": "gate_ok", "rule": "gate.ok === true" },
+      { "id": "unsupported_recommendation_false", "rule": "unsupported_recommendation === false" },
+      { "id": "product_push_false", "rule": "product_push / product_push_as_direction === false" },
+      { "id": "closing_signup_push_false", "rule": "closing_or_signup_push === false" },
+      { "id": "cancel_enroll_certainty_false", "rule": "leadership_cancel_enroll_certainty === false" },
+      { "id": "number_scope_false", "rule": "number_scope_violation === false" },
+      { "id": "context_hallucination_false", "rule": "context_hallucination === false" },
+      { "id": "expertise_overclaim_false", "rule": "expertise_overclaim === false" },
+      { "id": "no_invent_fake_fact", "rule": "no invent / fake_fact; no amounts/contracts/coverages outside allowed fact set" },
+      { "id": "next_decision_min", "rule": "next_decision_point.length >= 2" },
+      { "id": "full_voice_minimum", "rule": "evidence_based_recommendation >= 1 AND conversation_continuation >= 2 AND next_choices_offered >= 2 AND not_too_timid >= 1 AND safety booleans true" },
+      { "id": "not_wait_only", "rule": "answer is not wait-only (궁금하면 말씀해 주세요 style end)" },
+      { "id": "recommendation_allowed_with_basis", "rule": "recommendation is core and allowed when evidence-based; purposeless product push forbidden" },
+      { "id": "no_enroll_cancel_product_push", "rule": "no enroll/cancel command; no 이 상품 가입하세요 / 해지해도 됩니다 / 갈아타세요" }
+    ],
+    "on_all_pass": {
+      "customer_facing_answer": "s7_voice",
+      "final_answer_source": "s7",
+      "customer_text_changed": true
+    },
+    "on_any_fail": {
+      "customer_facing_answer": "s6",
+      "final_answer_source": "s6",
+      "customer_text_changed": false
+    }
+  },
+  "fallback_to_s6": {
+    "principle": "Any S7 failure or uncertainty → keep S6; never force S7",
+    "triggers": [
+      "allowlist_miss",
+      "gate_fail",
+      "parse_error",
+      "timeout",
+      "shadow_error",
+      "empty_voice_raw_candidate",
+      "wait_only_answer",
+      "q10_portfolio_expansion_attempt",
+      "any_safety_flag_true",
+      "uncertainty"
+    ],
+    "customer_text_changed": false,
+    "final_answer_source": "s6"
+  },
+  "customer_text_changed_policy": {
+    "stage_0": false,
+    "stage_1": false,
+    "stage_2": "true_only_if_allowlist_and_all_promotion_conditions_pass_else_false",
+    "stage_3": "separate_tom_go_required",
+    "stage_4_production": false,
+    "stage_4_note": "Production customer_text_changed forbidden until separate Tom GO",
+    "even_when_true": [
+      "preserve_s6_original_in_trace_for_compare_and_rollback",
+      "no_factory_terms_in_customer_ui",
+      "trace_must_record_final_answer_source"
+    ]
+  },
+  "trace_evidence_fields_required": [
+    "stage=2",
+    "preview_only=true",
+    "allowlist_hit",
+    "promotion_pass",
+    "fallback_reason",
+    "customer_text_changed",
+    "final_answer_source",
+    "s6_final_answer",
+    "s7_voice",
+    "gate_flags_full",
+    "next_decision_point",
+    "product_push",
+    "invent_or_fake_fact",
+    "cancel_enroll_certainty",
+    "production_touched=false",
+    "s7_active_partial"
+  ],
+  "ui_customer_facing_forbidden": [
+    "borrowed senses",
+    "gate id",
+    "Work Order",
+    "internal factory terms",
+    "축 / 보장축 / 우선순위 축",
+    "enroll/cancel commands",
+    "invented numbers / % / amounts outside allowed facts",
+    "추천 금지 regression phrasing"
+  ],
+  "general_common_sense_lane": {
+    "id": "general_common_sense_lane",
+    "principle": "Stage 2 insurance allowlist miss must NOT block everyday / common-sense conversation.",
+    "everyday_chat": "ALLOW by default (S6 or existing social path)",
+    "must_not": [
+      "force insurance judgment",
+      "force recommendation",
+      "force memory write",
+      "force Stage 2 S7 promotion on non-insurance small talk"
+    ],
+    "when_insurance_intent_appears": "switch to Insurance Lane; then apply Tier A allowlist + promotion gates",
+    "note": "Allowlist governs insurance Stage 2 promotion only — not whether KEY may talk."
+  },
+  "failure_injection_test_plan": [
+    {
+      "inject": "invent % / amount (e.g. 30%, 월 5만 원 줄일 수 있습니다)",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "이 상품 가입하세요",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "해지해도 됩니다",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "timeout / parse fail",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "empty voice",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "wait-only",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "allowlist-outside question",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false }
+    },
+    {
+      "inject": "Q10 whole-portfolio expansion",
+      "expect": { "final_answer_source": "s6", "customer_text_changed": false, "promotion_pass": false }
+    },
+    {
+      "inject": "Tier A normal S7 (all promotion conditions pass)",
+      "expect": {
+        "final_answer_source": "s7",
+        "customer_text_changed": true,
+        "promotion_pass": true
+      }
+    }
+  ],
+  "rollback": {
+    "triggers": [
+      "danger_fail",
+      "invent",
+      "enroll_or_cancel_verdict",
+      "wait_only_regression",
+      "trust_damage_vs_s6",
+      "probe_ok_collapse"
+    ],
+    "action": "return_to_stage_0_or_1_immediately",
+    "production_untouched": true
+  },
+  "stage2_pass_criteria": {
+    "preview_only": true,
+    "production_untouched": true,
+    "tier_a_five_questions_promote_when_safe": true,
+    "all_failure_injections_fallback_s6": true,
+    "allowlist_outside_and_q10_expansion_ctc_false": true,
+    "recommendation_ban_regression_count": 0,
+    "product_push_count": 0,
+    "invent_count": 0,
+    "tom_seat_required_before_stage3": true,
+    "stop_before_production": true
+  },
+  "production_forbidden_line": {
+    "KEY_BORROWED_SENSES_active_on_production": "FORBIDDEN_until_separate_tom_go",
+    "production_alias_or_promote": "FORBIDDEN_until_separate_tom_go",
+    "customer_swap_as_production_default_path": "FORBIDDEN",
+    "stage3_full_preview": "FORBIDDEN_until_stage2_seat_pass_and_separate_tom_go",
+    "recommendation_ban_hotfix": "FORBIDDEN",
+    "safety_must_remain_in": ["gate", "system", "fact_layers"]
+  },
+  "implementation_non_goals_this_freeze": [
+    "Do not implement Stage 2 wire in this freeze",
+    "Do not modify Speak/Gate/runtime code in this freeze",
+    "Do not deploy or observe in this freeze",
+    "Do not enable S7 active or s7_active_partial runtime",
+    "Do not change S6 customer answers",
+    "Do not set customer_text_changed=true in runtime",
+    "Do not touch Production",
+    "Do not regress to recommendation ban"
+  ],
+  "next_steps": {
+    "immediate": "Tom GO to commit this design fixture only",
+    "after_tom_go_wire": "S7-ACTIVE-STAGE2-PARTIAL-WIRE — Preview allowlist + gates + fallback; conditional customer_text_changed",
+    "after_wire": "failure-injection observe + Tier A promote observe",
+    "after_mechanical": "Tom seat on Stage 2 Preview",
+    "later": "Stage 3 Preview full consult path after Stage 2 seat PASS — separate Tom GO",
+    "last": "Stage 4 Production — separate Tom GO only"
+  }
+}
