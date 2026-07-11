@@ -152,9 +152,9 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
     lines.push(
       "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
       "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url).",
-      "For 맛집/장소: when status is success, you MUST name at least 3 grounded place candidates with one concrete reason each; a clarifying question alone is NOT a complete answer; include area or cuisine when present in evidence.",
-      "If status_detail is research_search_not_used or research_insufficient or research_unavailable: do NOT invent restaurant names; say what could not be confirmed or only name confirmed candidates; ask ONE clarifying condition; never mention insurance.",
-      "FORBIDDEN: invent restaurant names; end with only '어떤 분위기/음식 종류를 원하세요?' when status is success; assert rating/hours/parking/price/distance/address/exit/floor/building not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
+      "For 맛집/장소: when status is success and grounded candidates exist, present confirmed candidates FIRST (prefer up to 3 when available; if 2 then recommend 2; if 1 then recommend that 1 honestly). A clarifying question alone is NOT a complete answer when candidates exist — ask conditions only AFTER naming candidates.",
+      "If status_detail is research_search_not_used or research_insufficient or research_unavailable or grounded candidates are 0: do NOT invent restaurant names; say what could not be confirmed; ask ONE clarifying condition (cuisine/mood) to connect the next search; never mention insurance.",
+      "FORBIDDEN: invent restaurant names; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert rating/hours/parking/price/distance/address/exit/floor/building not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
     );
   }
   return lines.join(" ");
@@ -208,7 +208,8 @@ export function countGroundedPlaceCandidates(evidence = null) {
 
 /**
  * Place-request contract on Phase-1 evidence.
- * Never marks search-not-used or <3 candidates as success.
+ * Success when search ran and ≥1 grounded candidate exists.
+ * Prefer up to 3 candidates as a quality goal (prompt/refine), not a success Gate.
  */
 export function applyPlaceResearchContract(evidence = null, question = "") {
   const base =
@@ -229,7 +230,7 @@ export function applyPlaceResearchContract(evidence = null, question = "") {
     base.customer_facing_summary = buildCustomerFacingResearchSummary(base);
     return base;
   }
-  if (resultCount < 3) {
+  if (resultCount < 1) {
     base.status = "insufficient";
     base.status_detail = "research_insufficient";
     base.research_unavailable = true;
@@ -903,7 +904,7 @@ async function postAnthropicMessages({
 /**
  * PHASE 1 — web_search only. Never includes emit_borrowed_senses.
  * Max 3 provider requests. pause_turn: assistant content unchanged, no user Continue.
- * Place requests: require real web_search use; refine within max_uses when <3 candidates.
+ * Place requests: require real web_search use; optionally refine toward 3 as preference.
  */
 async function runPublicResearchPhase({
   model,
@@ -925,7 +926,7 @@ async function runPublicResearchPhase({
           question: String(question ?? "").trim(),
           conversation_history: Array.isArray(history) ? history.slice(-6) : [],
           instruction: placeRequest
-            ? "This is a place/venue request. You MUST call web_search at least once for current public place facts. Aim for at least 3 distinct grounded place candidates. Do not write a customer answer. Do not invent places. Do not mention insurance."
+            ? "This is a place/venue request. You MUST call web_search at least once for current public place facts. Prefer up to 3 distinct grounded place candidates when available (quality goal, not a hard stop at fewer). Do not write a customer answer. Do not invent places. Do not mention insurance."
             : "Use web_search for fresh public facts if needed. Do not write a customer answer. Do not mention insurance.",
         },
         null,
@@ -1082,7 +1083,7 @@ async function runPublicResearchPhase({
       continue;
     }
 
-    // Place request: refine within max_uses when only 1–2 grounded candidates.
+    // Place request: optionally refine toward 3 as a quality preference (not a Gate).
     const grounded = countGroundedPlaceCandidates(merged);
     if (
       placeRequest &&
@@ -1100,7 +1101,7 @@ async function runPublicResearchPhase({
         {
           role: "user",
           content:
-            "Need at least 3 distinct grounded place candidates. Narrow or complement the web_search query (area + cuisine). Do not invent places. Do not write a customer answer.",
+            "Prefer up to 3 distinct grounded place candidates when available. Narrow or complement the web_search query (area + cuisine) if useful. Fewer than 3 is acceptable. Do not invent places. Do not write a customer answer.",
         },
       ];
       continue;
@@ -1281,18 +1282,18 @@ async function callClaudeBorrowedSenses({
       chart: {
         current_goal: researchOk
           ? placeRequest
-            ? "evidence grounded 장소 후보 3곳 이상을 반드시 제시하고 각각 이유 1개"
+            ? "확인된 grounded 후보를 먼저 제시(가능하면 상위 3곳 선호; 1~2곳이면 그 수만큼 솔직 추천). 후보 제시 후에만 조건 질문"
             : "공개 검색 evidence에 있는 장소·사실만으로 답하기"
           : researchEvidence.status_detail === "research_search_not_used"
             ? "research_search_not_used — 구체 장소명 창작 금지, 확인 못 함 + 조건 1개"
             : researchEvidence.status_detail === "research_insufficient"
-              ? "research_insufficient — 확인된 후보만 말하거나 조건 1개로 다음 검색 연결"
+              ? "research_insufficient — 장소명 창작 금지, 확인 못 함 + 조건 1개로 다음 검색 연결"
               : "research_unavailable — 장소명 창작 금지, 확인 못 한 점 솔직히 + 조건 1개",
         allowed: researchOk
           ? placeRequest
             ? [
-                "evidence grounded 장소 후보 3곳 이상 필수",
-                "장소별 선택 이유 1개",
+                "evidence grounded 후보 1곳 이상 제시(3곳 선호 목표)",
+                "1곳이면 1곳, 2곳이면 2곳, 3곳 이상이면 상위 3곳 중심",
                 "후보 제시 후 확인 질문 1개(선택)",
               ]
             : ["evidence 장소 후보", "식별 가능한 지역·음식 종류", "확인 질문 1개"]
@@ -1300,7 +1301,7 @@ async function callClaudeBorrowedSenses({
         forbidden: [
           "evidence 없는 식당명",
           ...(placeRequest && researchOk
-            ? ["후보 0~2곳만 제시", "분위기·음식 종류 확인 질문만으로 종료"]
+            ? ["확인된 후보가 있는데 분위기·음식 종류 확인 질문만으로 종료"]
             : []),
           "출처 없는 평점·영업시간·주차·가격·주소·역출구·건물·층수",
           "보험 언급·보험 초대",

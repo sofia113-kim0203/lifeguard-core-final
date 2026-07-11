@@ -1799,9 +1799,9 @@ function normalizeComposeText(text = "") {
     assert.notEqual(notUsed.status, "success");
   }
 
-  // B. <3 candidates → research_insufficient
+  // B. ≥1 grounded candidate → research success (3 is preference, not Gate)
   {
-    const insuf = applyPlaceResearchContract(
+    const twoOk = applyPlaceResearchContract(
       {
         status: "success",
         search_count: 1,
@@ -1810,6 +1810,24 @@ function normalizeComposeText(text = "") {
           { title: "서현 한정식 A", url: "https://example.com/a" },
           { title: "정자 일식 B", url: "https://example.com/b" },
         ],
+        citations: [],
+        errors: [],
+      },
+      "분당 맛집 추천해줘",
+    );
+    assert.equal(twoOk.status, "success");
+    assert.equal(twoOk.research_unavailable, false);
+    assert.equal(twoOk.status_detail, null);
+  }
+
+  // B0. search used but 0 grounded titles → research_insufficient
+  {
+    const insuf = applyPlaceResearchContract(
+      {
+        status: "success",
+        search_count: 1,
+        used: true,
+        results: [],
         citations: [],
         errors: [],
       },
@@ -1875,7 +1893,7 @@ function normalizeComposeText(text = "") {
   assert.equal(voiceHasUnsourcedPublicAssertions("평점 4.8점이에요. 주차 가능합니다."), true);
   assert.equal(voiceHasUnsourcedPublicAssertions("서현 한정식 A가 담백해서 좋아요."), false);
 
-  // Completeness Gate A–D / H–I (final-answer completeness corrective)
+  // Completeness Gate A–I (place answer simplification: grounded ≥1)
   {
     const daily = { response_priority: "daily_focus", situation_key: "daily_recommendation" };
     const successEv = {
@@ -1884,7 +1902,73 @@ function normalizeComposeText(text = "") {
       results: researchEvidence.results,
       citations: researchEvidence.citations,
     };
-    // A. clarifying only → place_request_unanswered + regen
+    const successTwo = {
+      status: "success",
+      research_unavailable: false,
+      results: researchEvidence.results.slice(0, 2),
+      citations: researchEvidence.citations.slice(0, 2),
+    };
+    const successOne = {
+      status: "success",
+      research_unavailable: false,
+      results: researchEvidence.results.slice(0, 1),
+      citations: researchEvidence.citations.slice(0, 1),
+    };
+    const zeroEv = {
+      status: "insufficient",
+      status_detail: "research_insufficient",
+      research_unavailable: true,
+      search_count: 1,
+      results: [],
+      citations: [],
+    };
+    // A. grounded 3 → 3곳 추천 PASS
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice:
+          "서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 추천해요. 담백한 한식·일식·캐주얼 분위기라 고르기 좋아요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successEv,
+      }),
+      null,
+    );
+    // B. grounded 2 → 2곳 추천 PASS
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "서현 한정식 A와 정자 일식 B를 추천해요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successTwo,
+      }),
+      null,
+    );
+    // C. grounded 1 → 1곳 추천 PASS
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "지금은 서현 한정식 A를 추천해요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successOne,
+      }),
+      null,
+    );
+    // D. grounded 0 → 창작 없이 조건 질문 (non-success completeness OK)
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice:
+          "지금은 공개 후보를 확인하지 못했어요. 한식·일식 중 어떤 분위기부터 맞출까요?",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: zeroEv,
+      }),
+      null,
+    );
+    // E. 후보가 있는데 질문만 하고 종료 → FAIL
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
@@ -1906,39 +1990,16 @@ function normalizeComposeText(text = "") {
       }),
       true,
     );
-    // B. 2 grounded candidates → insufficient
+    // F. evidence 없는 장소·주소·평점 → FAIL (covered above + address/rating asserts)
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
-        voice: "서현 한정식 A와 정자 일식 B를 추천해요. 담백한 한식·일식 분위기예요.",
+        voice: "분당이면 가짜식당XYZ를 추천해요.",
         question: "분당 맛집 추천해줘",
         decision: daily,
         publicResearchEvidence: successEv,
       }),
-      "place_candidates_insufficient",
-    );
-    // C. 3 grounded + reasons → PASS
-    assert.equal(
-      collectAnswerFacingSafetyFail({
-        gate: { ok: true },
-        voice:
-          "서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 추천해요. 담백한 한식·일식·캐주얼 분위기라 고르기 좋아요.",
-        question: "분당 맛집 추천해줘",
-        decision: daily,
-        publicResearchEvidence: successEv,
-      }),
-      null,
-    );
-    // D. research success but 0 candidates / clarifying → unanswered
-    assert.equal(
-      collectAnswerFacingSafetyFail({
-        gate: { ok: true },
-        voice: "분당 맛집은 분위기에 따라 달라지거든요. 조용한 곳과 활기찬 곳 중 어디가 편하세요?",
-        question: "분당 맛집 추천해줘",
-        decision: daily,
-        publicResearchEvidence: successEv,
-      }),
-      "place_request_unanswered",
+      "unsupported_place_claim",
     );
     // H. T3 incomplete
     assert.equal(
@@ -2029,7 +2090,7 @@ function normalizeComposeText(text = "") {
     assert.ok(!/보험료|22건/.test(result.text));
   }
 
-  // B compose: insufficient (<3) — no invented third place
+  // B compose: 2 grounded → success; recommend both; no invented third
   {
     const q = "분당 맛집 추천해줘";
     const log = [];
@@ -2068,14 +2129,14 @@ function normalizeComposeText(text = "") {
           borrowed: goodBorrowedInput({
             customer_intent: "분당 맛집 추천",
             voice_raw_candidate:
-              "지금은 서현 한정식 A와 정자 일식 B 정도만 확인됐어요. 음식 종류를 하나 더 알려주시면 후보를 더 찾아볼게요.",
-            proposal_direction: "조건 보완",
+              "지금은 서현 한정식 A와 정자 일식 B를 추천해요. 음식 종류를 하나 더 알려주시면 후보를 더 찾아볼게요.",
+            proposal_direction: "확인 후보 제시",
             next_decision_point: ["한식", "일식"],
-            recommendation_basis: "insufficient",
+            recommendation_basis: "grounded 2",
             insurance_expertise_angle: [],
             used_facts: [],
             key_purpose: "일상 추천",
-            leadership_move: "조건 질문",
+            leadership_move: "후보 제시 후 조건",
           }),
           s6Text: "S6_NO",
           log,
@@ -2083,8 +2144,10 @@ function normalizeComposeText(text = "") {
       },
     );
     const ev = result.key_voice_trace.borrowed_senses_shadow?.public_research_evidence;
-    assert.equal(ev?.status_detail, "research_insufficient");
-    assert.equal(ev?.status, "insufficient");
+    assert.equal(ev?.status, "success");
+    assert.equal(ev?.research_unavailable, false);
+    assert.match(result.text, /한정식 A/);
+    assert.match(result.text, /일식 B/);
     assert.ok(!/캐주얼 C|가짜식당/.test(result.text));
     assert.ok(log.filter((x) => x === "research").length >= 1);
     assert.equal(log.filter((x) => x === "borrowed").length, 1);

@@ -435,9 +435,9 @@ function voiceHasPlaceChoiceReasons(voice = "") {
 }
 
 /**
- * Place-recommend completeness — research success requires ≥3 grounded names in answer.
- * search_not_used / insufficient / empty / error may clarify without 3 names.
- * Missing research object + clarifying-only still fails (blocks bare promote).
+ * Place-recommend completeness — research success + ≥1 grounded name in answer.
+ * "3 candidates" is a prompt quality preference, not a Gate fail reason.
+ * search_not_used / insufficient / empty / error may clarify without inventing names.
  */
 export function collectPlaceRequestCompletenessFail({
   voice = "",
@@ -448,7 +448,7 @@ export function collectPlaceRequestCompletenessFail({
   const v = String(voice ?? "").trim();
   const status = String(publicResearchEvidence?.status ?? "");
 
-  // Explicit non-success research: clarifying / partial confirmed candidates allowed here
+  // Explicit non-success research: clarifying / honest empty allowed here
   // (unsupported invented names still caught by voiceHasUnsupportedPlaceClaims).
   if (
     publicResearchEvidence &&
@@ -466,18 +466,18 @@ export function collectPlaceRequestCompletenessFail({
   }
 
   if (!isResearchSuccess(publicResearchEvidence)) {
-    // No usable success evidence: clarifying-only is not a complete place answer.
+    // No usable success evidence: clarifying-only is not a complete place answer
+    // when the path still claims success-like completeness without evidence.
     if (isPlaceClarifyingOnlyAnswer(v, question, publicResearchEvidence)) {
       return "place_request_unanswered";
     }
-    const mentions = extractMentionedPlaceCandidates(v, { question });
-    if (mentions.length > 0 && mentions.length < 3) return "place_candidates_insufficient";
-    if (mentions.length === 0) return "place_candidates_missing";
+    if (extractMentionedPlaceCandidates(v, { question }).length === 0) {
+      return "place_candidates_missing";
+    }
     return null;
   }
 
   const groundedMentions = countGroundedPlaceMentionsInVoice(v, publicResearchEvidence, question);
-  const evidenceCount = countGroundedPlaceCandidates(publicResearchEvidence);
 
   if (groundedMentions === 0) {
     if (
@@ -488,10 +488,7 @@ export function collectPlaceRequestCompletenessFail({
     }
     return "place_candidates_missing";
   }
-  if (groundedMentions < 3 || (evidenceCount >= 3 && groundedMentions < 3)) {
-    return "place_candidates_insufficient";
-  }
-  if (!voiceHasPlaceChoiceReasons(v)) return "place_candidates_missing";
+  // grounded ≥ 1: complete enough — do not fail for candidate count < 3
   return null;
 }
 
@@ -535,8 +532,8 @@ export function collectClaimPrepCompletenessFail({
 
 /**
  * Stage3 hard-promote gate for explicit place requests.
- * Non-success research / <3 grounded answer mentions → block promote (S6 still allowed).
- * Does not itself force constrained regeneration.
+ * Requires research success + ≥1 grounded candidate in evidence and answer.
+ * Does not require 3 candidates (quality preference only). Does not force regen alone.
  */
 export function placeStage3PromoteBlockReason({
   question = "",
@@ -550,11 +547,11 @@ export function placeStage3PromoteBlockReason({
   if (!success) {
     return "place_promote_requires_research_success";
   }
-  if (countGroundedPlaceCandidates(ev) < 3) {
+  if (countGroundedPlaceCandidates(ev) < 1) {
     return "place_promote_requires_research_success";
   }
   const groundedInAnswer = countGroundedPlaceMentionsInVoice(voice, ev, question);
-  if (groundedInAnswer < 3) {
+  if (groundedInAnswer < 1) {
     return "place_promote_requires_grounded_candidates";
   }
   return null;

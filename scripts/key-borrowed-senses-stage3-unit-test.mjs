@@ -361,6 +361,93 @@ const cases = [
     },
   },
   {
+    id: "8p_place_promote_success_grounded_2",
+    run: () => {
+      const voice = "서현 한정식 A와 정자 일식 B를 추천해요.";
+      const ev = {
+        status: "success",
+        research_unavailable: false,
+        search_count: 1,
+        results: [
+          { title: "서현 한정식 A", url: "https://example.com/a" },
+          { title: "정자 일식 B", url: "https://example.com/b" },
+        ],
+        citations: [],
+      };
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      return (
+        placeStage3PromoteBlockReason({
+          question: "분당 맛집 추천해줘",
+          voice,
+          publicResearchEvidence: ev,
+        }) === null &&
+        countGroundedPlaceMentionsInVoice(voice, ev, "분당 맛집 추천해줘") === 2 &&
+        d.promotion_pass === true &&
+        d.final_answer_source === "s7"
+      );
+    },
+  },
+  {
+    id: "8p_place_promote_success_grounded_1",
+    run: () => {
+      const voice = "지금은 서현 한정식 A를 추천해요.";
+      const ev = {
+        status: "success",
+        research_unavailable: false,
+        search_count: 1,
+        results: [{ title: "서현 한정식 A", url: "https://example.com/a" }],
+        citations: [],
+      };
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      return (
+        placeStage3PromoteBlockReason({
+          question: "분당 맛집 추천해줘",
+          voice,
+          publicResearchEvidence: ev,
+        }) === null &&
+        countGroundedPlaceMentionsInVoice(voice, ev, "분당 맛집 추천해줘") === 1 &&
+        d.promotion_pass === true &&
+        d.final_answer_source === "s7"
+      );
+    },
+  },
+  {
     id: "8p_b_search_not_used_clarifying_no_promote_no_regen",
     run: () => {
       const voice =
@@ -409,19 +496,16 @@ const cases = [
     },
   },
   {
-    id: "8p_c_insufficient_two_no_promote_no_regen",
+    id: "8p_c_insufficient_zero_no_promote_no_regen",
     run: () => {
       const voice =
-        "지금은 서현 한정식 A와 정자 일식 B 정도만 확인됐어요. 음식 종류를 하나 더 알려주시면 더 찾아볼게요.";
+        "지금은 공개 후보를 확인하지 못했어요. 선호 음식 종류를 하나만 알려주시겠어요?";
       const ev = {
         status: "insufficient",
         status_detail: "research_insufficient",
         research_unavailable: true,
         search_count: 1,
-        results: [
-          { title: "서현 한정식 A", url: "https://example.com/a" },
-          { title: "정자 일식 B", url: "https://example.com/b" },
-        ],
+        results: [],
         citations: [],
       };
       const d = decideStage3Promotion({
