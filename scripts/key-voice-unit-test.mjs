@@ -1622,7 +1622,7 @@ function normalizeComposeText(text = "") {
     assert.ok(!/충분합니다|부족합니다/.test(result.text));
   }
 
-  // G. regen Gate-fail → failureMode once
+  // G. regen Gate-fail → KEY safe utterance once (never monopoly wait stub)
   {
     const q = "분당 맛집 추천해줘";
     const log = [];
@@ -1645,7 +1645,7 @@ function normalizeComposeText(text = "") {
             voice_raw_candidate:
               "보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.",
           }),
-          // Regen answer still unsafe → Gate fail → failureMode (no 2nd Claude call)
+          // Regen answer still unsafe → Gate fail → safe utterance (no 2nd Claude call, no wait stub)
           s6Text:
             "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.",
           log,
@@ -1656,8 +1656,10 @@ function normalizeComposeText(text = "") {
     assert.equal(log.filter((x) => x === "s6").length, 1);
     assert.equal(result.key_voice_trace.s6_speak_calls, 1);
     assert.equal(result.key_voice_trace.used_constrained_regen, true);
-    assert.equal(result.key_voice_trace.used_failure_mode, true);
-    assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    assert.equal(result.key_voice_trace.used_failure_mode, false);
+    assert.notEqual(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    assert.ok(!/지금은\s*여기까지\s*확인했어요/.test(result.text));
+    assert.ok(String(result.text ?? "").trim().length > 0);
   }
 }
 
@@ -2764,6 +2766,317 @@ function normalizeComposeText(text = "") {
 
   // T3 incomplete is covered by collectAnswerFacingSafetyFail unit (H) above;
   // compose regen for claim_prep is exercised when Stage3 rejects incomplete voice.
+}
+
+// --- S7-A CURRENT TASK CONTINUITY (A–G) ---
+{
+  const {
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    isKeyMonopolyFailureCustomerText,
+  } = await import("../server/keyCore/keyCustomerMonopoly.js");
+  const {
+    buildOpenCustomerThreadContext,
+    buildUserPayload,
+    isActivePlaceCustomerThread,
+    isClearNewTopicInsuranceAsk,
+    shouldEnablePublicWebSearch,
+  } = await import("../server/keyCore/keyBorrowedSensesSpeak.js");
+  const { isWaitOnlyVoice, canSoftApproveBorrowedVoice, placeNameGroundedInEvidence, voiceHasUnverifiedCustomerCoverageClaim } = await import(
+    "../server/keyCore/keyBorrowedSensesStage2.js"
+  );
+  const { observeSameSessionContentNotes } = await import(
+    "../scripts/key-borrowed-senses-preview-observe-probe.mjs"
+  );
+
+  const placeEv = {
+    status: "success",
+    research_unavailable: false,
+    search_count: 1,
+    results: [
+      {
+        title: "서현 한정식 A",
+        url: "https://example.com/a",
+        snippet: "분당 서현 한정식 A 추천",
+        cited_text: "서현 한정식 A",
+      },
+    ],
+    citations: [{ title: "서현 한정식 A", cited_text: "서현 한정식 A" }],
+    grounded_place_candidates: ["서현 한정식 A"],
+  };
+
+  // A. place evidence present → recommend grounded place, no wait, regen 0
+  {
+    const q = "분당 맛집 추천해줘";
+    const log = [];
+    const voice =
+      "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 먼저 볼 수 있어요. 담백한 한식·일식·캐주얼이라 고르기 좋아요. 어떤 분위기부터 맞출까요?";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 맛집 추천 — 보험과 무관",
+            understanding_hypotheses: ["일상적인 맛집 추천 요청일 가능성이 높음"],
+            voice_raw_candidate: voice,
+            proposal_direction: "음식 종류·분위기부터",
+            next_decision_point: ["한식 쪽", "일식·캐주얼 쪽", "동행 인원부터"],
+            recommendation_basis: "검색된 후보 3곳",
+            leadership_move: "후보 제시 후 분위기·동행 확인",
+            key_purpose: "일상 추천",
+            insurance_expertise_angle: [],
+            used_facts: [],
+          }),
+          s6Text: "S6_CONT_A_NO",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.used_failure_mode, false);
+    assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
+    assert.ok(!isWaitOnlyVoice(result.text));
+    assert.match(result.text, /한정식 A|일식 B|캐주얼 C/);
+    assert.equal(observeSameSessionContentNotes("T1", result.text).answers_current_request, true);
+  }
+
+  // B. place evidence 0 → no invent, clarifying condition, no wait
+  {
+    const emptyEv = {
+      status: "insufficient",
+      status_detail: "research_insufficient",
+      research_unavailable: true,
+      search_count: 1,
+      results: [],
+      citations: [],
+      grounded_place_candidates: [],
+    };
+    const clarify =
+      "지금 바로 확인할 수 있는 분당 식당 후보는 아직 부족해요. 한식·일식 중 어떤 쪽, 또는 서현·정자 중 어느 동네가 편하신지 알려주시면 그에 맞춰 다시 찾아볼게요.";
+    assert.equal(isWaitOnlyVoice(clarify), false);
+    assert.ok(!isKeyMonopolyFailureCustomerText(clarify));
+    assert.ok(!/팔복|은뜸|창작식당/.test(clarify));
+    assert.match(clarify, /한식|일식|서현|정자|동네/);
+    const soft = canSoftApproveBorrowedVoice({
+      voice: clarify,
+      question: "분당 맛집 추천해줘",
+      decision: { response_priority: "daily_focus", situation_key: "daily_recommendation" },
+      gate: { ok: true },
+      failReason: "place_promote_requires_research_success",
+      publicResearchEvidence: emptyEv,
+    });
+    assert.equal(soft, true);
+  }
+
+  // C. same-session T2 keeps restaurant thread — no travel reframe, no insurance
+  {
+    const q = "부모님 모시고 가는데 아버지가 최근 수술하셨어";
+    const history = [
+      { role: "user", text: "분당 맛집 추천해줘" },
+      {
+        role: "assistant",
+        text: "분당이면 서현 한정식 A를 먼저 볼 수 있어요. 담백한 한식이라 고르기 좋아요.",
+      },
+    ];
+    assert.equal(isActivePlaceCustomerThread({ question: q, history }), true);
+    assert.equal(shouldEnablePublicWebSearch({ question: q, history }), true);
+    const thread = buildOpenCustomerThreadContext({ question: q, history });
+    assert.equal(thread.place_thread_open, true);
+    assert.ok(thread.prior_user_asks.includes("분당 맛집 추천해줘"));
+    const payload = buildUserPayload({ question: q, history });
+    assert.equal(payload.open_customer_thread.place_thread_open, true);
+
+    const log = [];
+    const voice =
+      "아버지 수술 후라면 이동이 편한지, 주차나 엘리베이터, 자리 간격이 중요한 조건이 될 수 있어요. 맵거나 질긴 음식은 피하고 조용한 곳이 나을 수도 있고요. 앞서 본 서현 한정식 A를 이 기준으로 볼까요, 아니면 더 가까운 곳부터 좁혀볼까요?";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        history,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 식당 선택 — 부모님 동행·수술 후 배려 조건",
+            understanding_hypotheses: [
+              "직전 분당 맛집 요청을 부모님 동행·수술 후 배려 조건으로 구체화하는 중일 가능성",
+            ],
+            voice_raw_candidate: voice,
+            proposal_direction: "이동·좌석·음식 제한으로 후보 좁히기",
+            next_decision_point: ["이동 편한 곳", "담백한 메뉴"],
+            recommendation_basis: "직전 맛집 요청 유지",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "일상 추천 연속",
+            leadership_move: "배려 조건 확인",
+            context_carryover: "직전 대화의 분당 맛집 추천을 이어감",
+            answer_purpose: "식당 선택 조건 확인",
+          }),
+          s6Text: "S6_CONT_C_NO",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.key_voice_trace.used_constrained_regen, false, result.text);
+    assert.ok(!/여행\s*가시는군요/.test(result.text), result.text);
+    assert.ok(!/보험료|보험금|담보|4만5천|22건/.test(result.text), result.text);
+    assert.match(result.text, /이동|주차|엘리베이터|좌석|맵거나|조용/);
+    assert.equal(observeSameSessionContentNotes("T2", result.text).no_insurance_force_switch, true);
+  }
+
+  // D. same-session T3 switches to insurance check — no payout certainty, no wait, regen 0
+  {
+    const q = "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야";
+    const history = [
+      { role: "user", text: "분당 맛집 추천해줘" },
+      { role: "assistant", text: "서현 한정식 팔복부터 볼 수 있어요." },
+      { role: "user", text: "부모님 모시고 가는데 아버지가 최근 수술하셨어" },
+      {
+        role: "assistant",
+        text: "수술 후라면 이동·좌석·음식 제한부터 맞춰볼까요?",
+      },
+    ];
+    assert.equal(isClearNewTopicInsuranceAsk(q), true);
+    assert.equal(isActivePlaceCustomerThread({ question: q, history }), false);
+    assert.equal(shouldEnablePublicWebSearch({ question: q, history }), false);
+    const log = [];
+    const voice =
+      "수술비 걱정이 크시겠어요. 보험금을 받을 수 있는지는 확인 전에는 단정할 수 없어요. 어떤 수술이셨는지, 가입하신 계약이 있는지만 알려주시면 어디부터 보면 될지 같이 확인할게요.";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        history,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "수술비·보험금 걱정 — 자료 확인 필요",
+            understanding_hypotheses: ["지급 단정 금지", "수술명·계약 확인이 먼저"],
+            voice_raw_candidate: voice,
+            proposal_direction: "서류·담보 확인",
+            recommendation_basis: "확인 전 지급 단정 금지 · 수술명·계약부터",
+            next_decision_point: ["수술명부터", "계약 확인부터"],
+            used_facts: [],
+            insurance_expertise_angle: [],
+            key_purpose: "청구 준비",
+            leadership_move: "확인 경로 제시",
+            answer_purpose: "청구 준비 리드",
+          }),
+          s6Text:
+            "수술비 걱정이 크시겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 가입 계약부터 알려주시면 같이 확인할게요.",
+          log,
+        }),
+      },
+    );
+    assert.equal(log.filter((x) => x === "research").length, 0);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false, result.text);
+    assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
+    assert.ok(!/받을 수 있습니다|지급됩니다/.test(result.text));
+    assert.match(result.text, /수술|계약|확인/);
+    assert.equal(observeSameSessionContentNotes("T3", result.text).no_payout_certainty, true);
+  }
+
+  // E. clear new topic — do not force prior place thread
+  {
+    const q = "내 보험료 부담이 너무 커";
+    const history = [
+      { role: "user", text: "분당 맛집 추천해줘" },
+      { role: "assistant", text: "서현 한정식 팔복부터 볼 수 있어요." },
+    ];
+    assert.equal(isClearNewTopicInsuranceAsk(q), true);
+    assert.equal(isActivePlaceCustomerThread({ question: q, history }), false);
+    assert.equal(shouldEnablePublicWebSearch({ question: q, history }), false);
+  }
+
+  // F. exact generic wait unreachable on normal place/daily/claim compose path
+  {
+    assert.equal(isKeyMonopolyFailureCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
+    assert.equal(isWaitOnlyVoice(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
+    const q = "분당 맛집 추천해줘";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 맛집",
+            voice_raw_candidate:
+              "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다.",
+            proposal_direction: "보험 전환",
+            next_decision_point: ["가입", "해지"],
+            recommendation_basis: "unsafe",
+            insurance_expertise_angle: [],
+            used_facts: [],
+          }),
+          s6Text: "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.key_voice_trace.used_failure_mode, false);
+    assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
+    assert.ok(!/지금은\s*여기까지\s*확인했어요/.test(result.text));
+  }
+
+  // G. grounding / coverage / wait detection regression anchors
+  {
+    assert.equal(
+      placeNameGroundedInEvidence("서현 한정식 A", placeEv),
+      true,
+    );
+    assert.equal(
+      voiceHasUnverifiedCustomerCoverageClaim(
+        "가입하신 보험에 수술비 담보가 있습니다.",
+      ),
+      true,
+    );
+    assert.equal(
+      voiceHasUnverifiedCustomerCoverageClaim(
+        "가입하신 계약에서 수술비 담보가 있는지 확인해 볼게요.",
+      ),
+      false,
+    );
+    assert.equal(isWaitOnlyVoice(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
+  }
 }
 
 // J. Provider smoke — only with explicit --provider-smoke AND key; default unit never calls network.

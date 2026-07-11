@@ -9,6 +9,14 @@ import { ONE_KEY_CORE_RESPONSE_SOURCE } from "./oneKeyCoreFlags.js";
 export const KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT =
   "지금은 여기까지 확인했어요. 잠시 후 다시 말씀해 주시면 KEY가 이어서 볼게요.";
 
+/** True only for the exact monopoly system-failure stub (not normal conversation). */
+export function isKeyMonopolyFailureCustomerText(text = "") {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (t === KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT) return true;
+  return /지금은\s*여기까지\s*확인했어요/.test(t) && /잠시\s*후\s*다시\s*말씀해\s*주시면/.test(t);
+}
+
 export const KEY_CUSTOMER_TEXT_PATH = [
   "keySpeak(key_master)",
   "DU-1_epistemic_compose",

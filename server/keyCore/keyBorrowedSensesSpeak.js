@@ -122,6 +122,8 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
     "Safety (gate/facts/system) blocks hard stops — KEY itself must not avoid purpose-fit judgment when purpose+facts exist.",
     "Use ONLY facts from allowed_fact_tokens / allowed_numbers / used_facts inputs.",
     "For context_carryover: only reference conversation_history or previous_answer_summary — never invent '지난번' memory. Carry ONLY topics/numbers explicitly present in history. Prefer '직전 대화에서 확인된 …'. FORBIDDEN in context_carryover: inventing prior 암/사망/진단비/수술비 as if already discussed; '나머지 N건' or other calculated/estimated counts not written in history.",
+    "CURRENT TASK CONTINUITY: When conversation_history / open_customer_thread shows an unfinished customer request, treat the current message as refining that request until a clear new topic appears. Keep the open purpose fixed in voice_raw_candidate. If the open request is a place/restaurant recommendation, follow-ups about companions, surgery recovery, mobility, seating, or food limits are selection constraints — NOT a new trip/travel topic. FORBIDDEN: '여행 가시는군요' when the open ask was restaurant recommendation. When the customer clearly raises insurance-payout worry, switch to that topic.",
+    "Never end a normal place/daily/claim conversation with a generic wait stub like '지금은 여기까지 확인했어요. 잠시 후 다시 말씀해 주시면…'. If evidence has ≥1 grounded place, name it; if evidence is empty, ask ONE clarifying condition tied to the open request.",
     "For visual_observation: describe ONLY what is in visual_blocks_summary rows/titles — never invent numbers, contracts, or judgments not shown.",
     "When visual_blocks_summary is present, cite only cell values and row labels from that summary.",
     "For premium scope: when policy_count > 1, never imply monthly_premium is total for all contracts.",
@@ -153,8 +155,9 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
       "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
       "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url/claim_or_summary/snippet — full evidence, not only a candidate chart).",
       "For 맛집/장소: when status is success and grounded candidates exist, present confirmed candidates FIRST (prefer up to 3 when available; if 2 then recommend 2; if 1 then recommend that 1 honestly). Soft comparatives like '자주 언급되는 편' are OK. A clarifying question alone is NOT a complete answer when candidates exist — ask conditions only AFTER naming candidates.",
-      "If status_detail is research_search_not_used or research_insufficient or research_unavailable or grounded candidates are 0: do NOT invent restaurant names; say what could not be confirmed; ask ONE clarifying condition (cuisine/mood) to connect the next search; never mention insurance.",
-      "FORBIDDEN: invent restaurant names absent from all evidence text; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert exact rating/hours/parking/price/distance/address/exit/floor/building digits not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
+      "If open_customer_thread.place_thread_open is true, keep restaurant/place selection as the current purpose even when the latest user message only adds companion/surgery/mobility constraints — ask about walking distance, parking/elevator, seating comfort, spicy/tough food limits, or quiet setting to narrow prior candidates. Do not invent a new travel itinerary.",
+      "If status_detail is research_search_not_used or research_insufficient or research_unavailable or grounded candidates are 0: do NOT invent restaurant names; say what could not be confirmed; ask ONE clarifying condition (cuisine/neighborhood) tied to the open request; never mention insurance; never use a generic wait stub.",
+      "FORBIDDEN: invent restaurant names absent from all evidence text; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert exact rating/hours/parking/price/distance/address/exit/floor/building digits not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump; '지금은 여기까지 확인했어요' wait stub.",
     );
   }
   return lines.join(" ");
@@ -169,22 +172,72 @@ export function isPlacePublicResearchRequest(question = "") {
   );
 }
 
+/** Clear new insurance/claim topic — do not keep a prior unfinished place ask. */
+export function isClearNewTopicInsuranceAsk(question = "") {
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  return (
+    /보험금|청구|담보|진단서|영수증|보험료|암\s*보장|암\s*보험|가입|해지|보장\s*충분/.test(q) &&
+    !/맛집|식당|카페|레스토랑/.test(q)
+  );
+}
+
+function historyTurnText(h = null) {
+  return String(h?.text ?? h?.content ?? h?.message ?? "").trim();
+}
+
+/** True when recent user history already opened an unfinished place/venue request. */
+export function historyHasOpenPlaceRequest(history = []) {
+  for (const h of Array.isArray(history) ? history : []) {
+    if (String(h?.role ?? "") !== "user") continue;
+    if (isPlacePublicResearchRequest(historyTurnText(h))) return true;
+  }
+  return false;
+}
+
+/**
+ * Active place customer thread: current place ask, or unfinished place ask in history
+ * unless the customer clearly switched to insurance/claim.
+ * Not a food/travel classifier — continuity of the open request only.
+ */
+export function isActivePlaceCustomerThread({ question = "", history = [] } = {}) {
+  if (isPlacePublicResearchRequest(question)) return true;
+  if (isClearNewTopicInsuranceAsk(question)) return false;
+  return historyHasOpenPlaceRequest(history);
+}
+
+/** Compact open-thread context for Claude (history facts only — no new Memory store). */
+export function buildOpenCustomerThreadContext({ question = "", history = [] } = {}) {
+  const turns = Array.isArray(history) ? history.slice(-6) : [];
+  const prior_user_asks = turns
+    .filter((h) => String(h?.role ?? "") === "user")
+    .map((h) => historyTurnText(h))
+    .filter(Boolean);
+  const prior_assistant_answers = turns
+    .filter((h) => String(h?.role ?? "") === "assistant")
+    .map((h) => historyTurnText(h))
+    .filter(Boolean);
+  const place_thread_open = isActivePlaceCustomerThread({ question, history: turns });
+  return {
+    prior_user_asks,
+    prior_assistant_answers,
+    place_thread_open,
+    continuity_rule:
+      "Until the customer clearly starts a new topic, treat the current message as refining the unfinished request in conversation_history / prior_user_asks. Keep serving that open request. Do not reframe an unfinished place/restaurant ask as a brand-new trip/travel topic. When the customer clearly raises insurance-payout worry or another new topic, switch to that topic.",
+  };
+}
+
 /** True when current turn may need Anthropic built-in web_search. */
-export function shouldEnablePublicWebSearch({ question = "", decision = null } = {}) {
+export function shouldEnablePublicWebSearch({ question = "", decision = null, history = [] } = {}) {
   const priority = String(decision?.response_priority ?? "").trim();
   const situation = String(decision?.situation_key ?? "").trim();
   // T3 claim path: public search stays off.
   if (priority === "claim_prep" || situation === "claim_need_check") return false;
   const q = String(question ?? "").trim();
   if (!q) return false;
-  if (
-    /보험금|청구|담보|진단서|영수증|보험료|암\s*보장|암\s*보험|가입|해지|보장\s*충분/.test(q) &&
-    !/맛집|식당|카페|레스토랑|여행|관광|부모님\s*모시/.test(q)
-  ) {
-    return false;
-  }
-  // Explicit place/venue recommend: search wins over fact_lookup / direction_choice / etc.
-  if (isPlacePublicResearchRequest(q)) return true;
+  if (isClearNewTopicInsuranceAsk(q)) return false;
+  // Explicit place ask OR unfinished place thread in history.
+  if (isActivePlaceCustomerThread({ question: q, history })) return true;
   if (
     priority === "premium_adequacy_check" ||
     priority === "cancer_axis_check" ||
@@ -195,7 +248,7 @@ export function shouldEnablePublicWebSearch({ question = "", decision = null } =
   ) {
     return false;
   }
-  return /여행|관광|부모님\s*모시|외출/.test(q);
+  return /여행|관광|외출/.test(q);
 }
 
 /** Distinct grounded place-like titles from research results (for sufficiency). */
@@ -211,12 +264,12 @@ export function countGroundedPlaceCandidates(evidence = null) {
  * Success when search ran and ≥1 grounded candidate exists.
  * Prefer up to 3 candidates as a quality goal (prompt/refine), not a success Gate.
  */
-export function applyPlaceResearchContract(evidence = null, question = "") {
+export function applyPlaceResearchContract(evidence = null, question = "", history = []) {
   const base =
     evidence && typeof evidence === "object"
       ? { ...evidence }
       : emptyResearchEvidence({ status: "empty" });
-  if (!isPlacePublicResearchRequest(question)) {
+  if (!isActivePlaceCustomerThread({ question, history })) {
     base.customer_facing_summary = buildCustomerFacingResearchSummary(base);
     return base;
   }
@@ -637,6 +690,7 @@ function buildUserPayload({
       role: h.role,
       text: h.text ?? h.content ?? "",
     })),
+    open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
     previous_answer_summary: String(previousAnswerSummary ?? "").trim() || null,
     // Empty string when called before Speak — never invent a fake S6 answer
     s6_final_answer_frozen: String(s6FinalAnswer ?? "").trim(),
@@ -949,7 +1003,7 @@ async function runPublicResearchPhase({
   temperature,
 }) {
   const retrievedAt = new Date().toISOString();
-  const placeRequest = isPlacePublicResearchRequest(question);
+  const placeRequest = isActivePlaceCustomerThread({ question, history });
   let messages = [
     {
       role: "user",
@@ -958,8 +1012,9 @@ async function runPublicResearchPhase({
           task: "public_research_only",
           question: String(question ?? "").trim(),
           conversation_history: Array.isArray(history) ? history.slice(-6) : [],
+          open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
           instruction: placeRequest
-            ? "This is a place/venue request. You MUST call web_search at least once for current public place facts. Prefer up to 3 distinct grounded place candidates when available (quality goal, not a hard stop at fewer). Do not write a customer answer. Do not invent places. Do not mention insurance."
+            ? "This is an active place/venue customer thread (current ask or unfinished place ask in history). You MUST call web_search at least once for current public place/restaurant facts that fit the open request and any new constraints in the latest message. Prefer up to 3 distinct grounded place candidates when available (quality goal, not a hard stop at fewer). Do not write a customer answer. Do not invent places. Do not reframe as a new travel itinerary. Do not mention insurance."
             : "Use web_search for fresh public facts if needed. Do not write a customer answer. Do not mention insurance.",
         },
         null,
@@ -1151,7 +1206,7 @@ async function runPublicResearchPhase({
       merged.status = "success";
       merged.status_detail = null;
     }
-    merged = applyPlaceResearchContract(merged, question);
+    merged = applyPlaceResearchContract(merged, question, history);
     merged = enrichResearchEvidenceForGrounding(merged);
     merged.provider_requests = providerRequests;
     merged.customer_facing_summary = buildCustomerFacingResearchSummary(merged);
@@ -1171,6 +1226,7 @@ async function runPublicResearchPhase({
       status_detail: merged.status_detail ?? "research_loop_exhausted",
     },
     question,
+    history,
   );
   merged = enrichResearchEvidenceForGrounding(merged);
   return {
@@ -1291,9 +1347,10 @@ async function callClaudeBorrowedSenses({
 
   // --- PHASE 2: emit only (never mixed with web_search) ---
   const researchOk = researchEvidence.status === "success" && researchEvidence.research_unavailable !== true;
-  const placeRequest = isPlacePublicResearchRequest(
-    userPayload?.customer_question ?? userPayload?.question ?? "",
-  );
+  const placeRequest = isActivePlaceCustomerThread({
+    question: userPayload?.customer_question ?? userPayload?.question ?? "",
+    history: userPayload?.conversation_history ?? [],
+  });
   const emitPayload = {
     ...userPayload,
     key_public_research_evidence: {
@@ -1440,7 +1497,7 @@ export async function runBorrowedSensesShadowProbe({
   }
 
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
-  const publicResearchEnabled = shouldEnablePublicWebSearch({ question, decision });
+  const publicResearchEnabled = shouldEnablePublicWebSearch({ question, decision, history });
   const userPayload = buildUserPayload({
     question,
     directive,

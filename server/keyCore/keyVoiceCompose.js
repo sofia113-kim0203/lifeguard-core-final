@@ -20,7 +20,6 @@ import {
 import { buildKeyVoiceDirective, summarizeKeyVoiceDirective, buildAnswerRegenerationDirective } from "./keyVoiceDirective.js";
 import { speakKeyVoice, buildKeyVoiceSafeUtterance } from "./keyVoiceSpeak.js";
 import { gateKeyVoiceAnswer } from "./keyVoiceGate.js";
-import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { composeSpeakFromDecision } from "../keyBrain/keySpeakFromDecision.js";
 import { buildKeyVoiceVisualBlocks } from "./keyVoiceVisualBlocks.js";
 import { gateKeyVoiceVisualBlocks } from "./keyVoiceBlockGate.js";
@@ -334,6 +333,7 @@ export async function buildKeyVoiceComposeResult(
         gate: shadow?.gate,
         failReason: fallbackReason,
         midFieldWarnings,
+        publicResearchEvidence: shadow?.public_research_evidence ?? null,
       });
 
     if (softApprove) {
@@ -457,20 +457,16 @@ export async function buildKeyVoiceComposeResult(
   let outputGate = gateResult;
 
   if (!gateResult.ok) {
+    // Normal customer path must never abandon to KEY monopoly wait stub.
+    // Keep KEY-owned safe utterance (existing path) — true system failures stay in oneKeyCoreTurn.
     trace.fallback_used = true;
     trace.fallback_reason = voiceRaw
       ? gateResult.reasons?.join("; ")
       : speakResult.error ?? "speak_failed";
-    if (usedConstrainedRegen || (stage3Active && probeOn)) {
-      const failOutlet = finalizeKeyCustomerText("", { failureMode: true });
-      finalText = failOutlet.customerText;
-      usedFailureMode = true;
-      trace.failure_mode_used = true;
-      outputGate = { ok: true, reasons: ["failure_mode"], failure_mode: true };
-    } else {
-      finalText = buildKeyVoiceSafeUtterance(directive);
-      outputGate = gateKeyVoiceAnswer({ text: finalText, directive, s5ReferenceText: s5Reference });
-    }
+    finalText = buildKeyVoiceSafeUtterance(directive);
+    usedFailureMode = false;
+    trace.failure_mode_used = false;
+    outputGate = gateKeyVoiceAnswer({ text: finalText, directive, s5ReferenceText: s5Reference });
     trace.safe_gate_result = outputGate;
   }
 

@@ -10,6 +10,8 @@ const DEFAULT_TEMPERATURE = 0.4;
 
 function buildSystemPrompt(directive = null) {
   const regen = directive?.regeneration?.mode === "answer_constrained_once";
+  const hasHistory =
+    Array.isArray(directive?.conversation_history) && directive.conversation_history.length > 0;
   const base = [
     "You are the language muscle of KEY (LIFEGUARD).",
     "You render ONE natural Korean customer answer from a frozen KEY directive.",
@@ -26,7 +28,13 @@ function buildSystemPrompt(directive = null) {
     "Never use '보장 축', '암 축', or calculated counts like '나머지 21건'.",
     "Never say 'KEY가' — always use '제가'.",
     "Plain text only.",
+    "Never use the generic wait stub '지금은 여기까지 확인했어요. 잠시 후 다시 말씀해 주시면 KEY가 이어서 볼게요.'",
   ];
+  if (hasHistory) {
+    base.push(
+      "CURRENT TASK CONTINUITY: conversation_history holds the unfinished customer request. Treat the current turn as refining that request unless the customer clearly starts a new topic. If the open ask was a restaurant/place recommendation, companion/surgery/mobility notes are selection constraints — do not reframe as a new trip ('여행 가시는군요'). When the customer clearly raises insurance-payout worry, switch to that topic.",
+    );
+  }
   if (regen) {
     return [
       ...base,

@@ -99,6 +99,13 @@ export function isQ10PortfolioExpansionQuestion(question = "") {
 export function isWaitOnlyVoice(text = "") {
   const t = String(text ?? "").trim();
   if (!t) return true;
+  // Monopoly system-failure stub must never soft-approve as a useful answer.
+  if (
+    /지금은\s*여기까지\s*확인했어요/.test(t) &&
+    /잠시\s*후\s*다시\s*말씀해\s*주시면/.test(t)
+  ) {
+    return true;
+  }
   return (
     /(?:궁금한\s*게\s*생기|필요하면|편하실\s*때).{0,24}말씀해\s*주세요\.?\s*$/.test(t) ||
     (/말씀해\s*주세요/.test(t) && !/추천|볼까요|부터|기준|후보|맞아\s*보이/.test(t))
@@ -730,6 +737,8 @@ export const SOFT_PROMOTION_FAIL_REASONS = new Set([
   "stage3_promotion_blocked",
   "place_promote_requires_research_success",
   "place_promote_requires_grounded_candidates",
+  // Decision ownership lag must not discard a safe daily answer.
+  "general_daily_no_promotion",
 ]);
 
 export function isSoftPromotionFailReason(reason = "") {
