@@ -238,7 +238,8 @@ export function isActivePlaceCustomerThread({ question = "", history = [] } = {}
 
 /** Compact open-thread context for Claude (history facts only — no new Memory store). */
 export function buildOpenCustomerThreadContext({ question = "", history = [] } = {}) {
-  const turns = Array.isArray(history) ? history.slice(-6) : [];
+  // Full session history — no artificial slice(-6).
+  const turns = Array.isArray(history) ? history : [];
   const prior_user_asks = turns
     .filter((h) => String(h?.role ?? "") === "user")
     .map((h) => historyTurnText(h))
@@ -607,15 +608,148 @@ function buildQuestionLeadershipHint(question = "") {
   return null;
 }
 
+/** Policy field keys Claude may read from the verified chart (factory-owned only). */
+const CHART_POLICY_FIELD_KEYS = [
+  "insurer_name",
+  "product_name",
+  "monthly_premium",
+  "premium_amount",
+  "coverages",
+  "coverage_list",
+  "coverage_names",
+  "policy_number",
+  "policy_status",
+  "insured_name",
+  "start_date",
+  "end_date",
+  "payment_cycle",
+  "product_type",
+  "company_name",
+];
+
+/**
+ * Verified customer chart for Claude input — full contract list, no 1-policy stub.
+ * Claude may read/analyze; KEY alone owns chart write/adopt/judgment.
+ * Unverified values are marked unknown — never promoted to chart facts.
+ */
+export function buildVerifiedCustomerChart(reality = null) {
+  const policies = Array.isArray(reality?.policies) ? reality.policies : [];
+  const declaredCount = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
+  const contracts = policies.map((p, index) => {
+    const verified = {};
+    const unknown = [];
+    for (const key of CHART_POLICY_FIELD_KEYS) {
+      const raw = p?.[key];
+      if (raw == null || raw === "") {
+        // skip empty aliases unless the field is a primary label
+        continue;
+      }
+      verified[key] = raw;
+    }
+    // Normalize common unknowns when primary labels absent
+    if (verified.insurer_name == null && verified.company_name == null) unknown.push("insurer_name");
+    if (verified.product_name == null) unknown.push("product_name");
+    if (verified.monthly_premium == null && verified.premium_amount == null) {
+      unknown.push("monthly_premium");
+    }
+    if (
+      verified.coverages == null &&
+      verified.coverage_list == null &&
+      verified.coverage_names == null
+    ) {
+      unknown.push("coverages");
+    }
+    const status =
+      Object.keys(verified).length === 0 ? "unknown" : unknown.length === 0 ? "verified" : "partial";
+    return {
+      index,
+      status,
+      verified_fields: verified,
+      unknown_fields: unknown,
+      source: "factory",
+    };
+  });
+
+  const aggregatesRaw =
+    reality?.factory_aggregates ??
+    reality?.aggregates ??
+    reality?.calculation_aggregates ??
+    null;
+  const factory_aggregates =
+    aggregatesRaw && typeof aggregatesRaw === "object"
+      ? { status: "verified", values: aggregatesRaw }
+      : { status: "unknown", values: null };
+
+  return {
+    schema: "verified_customer_chart_v1",
+    policy_count: {
+      value: declaredCount,
+      status: declaredCount > 0 ? "verified" : "unknown",
+      source: "factory",
+    },
+    contracts,
+    factory_aggregates,
+    chart_completeness: {
+      listed_contracts: contracts.length,
+      declared_policy_count: declaredCount,
+      all_contracts_listed: contracts.length === declaredCount && declaredCount > 0,
+    },
+    ownership:
+      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts.",
+  };
+}
+
+function buildSessionGoalPayload(decision = null, directive = null) {
+  return {
+    situation_key: decision?.situation_key ?? directive?.decision_situation_key ?? null,
+    response_priority: decision?.response_priority ?? directive?.response_priority ?? null,
+    key_next_move:
+      decision?.key_next_move ??
+      decision?.direction?.move ??
+      directive?.key_next_move ??
+      null,
+    key_situation_judgment:
+      decision?.key_situation_judgment ?? directive?.key_situation_judgment ?? null,
+    confirm_question: decision?.confirm_question ?? directive?.confirm_question ?? null,
+    inferred_goal: decision?.situation_key ?? null,
+  };
+}
+
+function buildDecisionPayload(decision = null) {
+  if (!decision || typeof decision !== "object") return null;
+  return {
+    situation_key: decision.situation_key ?? null,
+    response_priority: decision.response_priority ?? null,
+    key_judgment: decision.key_judgment ?? null,
+    key_situation_judgment: decision.key_situation_judgment ?? null,
+    key_next_move: decision.key_next_move ?? decision.direction?.move ?? null,
+    direction: decision.direction ?? null,
+    invite: decision.invite ?? null,
+    direct_answer_hint: decision.direct_answer_hint ?? null,
+    customer_situation_hypothesis: decision.customer_situation_hypothesis ?? null,
+    fact_selection: decision.fact_selection ?? null,
+    decision_complete: decision.decision_complete === true,
+  };
+}
+
+function mapConversationHistory(history = []) {
+  return (Array.isArray(history) ? history : []).map((h) => ({
+    role: h?.role ?? null,
+    text: h?.text ?? h?.content ?? "",
+  }));
+}
+
 /**
  * Early fact boundary from Reality only — never invents decision/directive/s6.
  * Reuses the same verified policy fact ids KEY Decision already trusts.
+ * Also attaches full verified_customer_chart (not a 1-policy stub).
  */
 export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" } = {}) {
   const policies = Array.isArray(reality?.policies) ? reality.policies : [];
   const p = policies[0] ?? null;
   const count = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
   const spoken = [];
+  const verified_customer_chart = buildVerifiedCustomerChart(reality);
 
   if (count > 0) {
     spoken.push({ fact_id: "policy_count", value: String(count), source: "factory" });
@@ -631,6 +765,7 @@ export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" }
     }
   }
 
+  // Allowed speak tokens stay Decision-shaped; full chart is separate for Claude reading.
   const allowed_fact_tokens = {
     policy_count: null,
     insurer: null,
@@ -639,20 +774,39 @@ export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" }
     monthly_premium_display: null,
   };
   const allowed_numbers = new Set();
+  const allowed_entities = new Set();
 
   for (const f of spoken) {
     if (f.fact_id === "policy_count") {
       allowed_fact_tokens.policy_count = f.value;
       allowed_numbers.add(String(f.value));
     }
-    if (f.fact_id === "insurer") allowed_fact_tokens.insurer = f.value;
-    if (f.fact_id === "product") allowed_fact_tokens.product = f.value;
+    if (f.fact_id === "insurer") {
+      allowed_fact_tokens.insurer = f.value;
+      allowed_entities.add(String(f.value));
+    }
+    if (f.fact_id === "product") {
+      allowed_fact_tokens.product = f.value;
+      allowed_entities.add(String(f.value));
+    }
     if (f.fact_id === "monthly_premium") {
       allowed_fact_tokens.monthly_premium_raw = f.value;
       const display = formatPremiumFromRaw(f.value);
       allowed_fact_tokens.monthly_premium_display = display;
       for (const n of String(f.value).match(/\d+/g) ?? []) allowed_numbers.add(n);
       for (const n of String(display ?? "").match(/\d+/g) ?? []) allowed_numbers.add(n);
+    }
+  }
+
+  // Surface verified insurer/product names from the full chart into allowed_entities.
+  for (const c of verified_customer_chart.contracts ?? []) {
+    const v = c.verified_fields ?? {};
+    if (v.insurer_name) allowed_entities.add(String(v.insurer_name));
+    if (v.company_name) allowed_entities.add(String(v.company_name));
+    if (v.product_name) allowed_entities.add(String(v.product_name));
+    const prem = v.monthly_premium ?? v.premium_amount;
+    if (prem != null) {
+      for (const n of String(prem).match(/\d+/g) ?? []) allowed_numbers.add(n);
     }
   }
 
@@ -671,9 +825,11 @@ export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" }
     question_focus: focus,
     allowed_fact_tokens,
     allowed_numbers: [...allowed_numbers],
+    allowed_entities: [...allowed_entities],
     facts_to_speak: spoken.map((f) => f.fact_id),
     facts_spoken: spoken,
     premium_scope_policy,
+    verified_customer_chart,
     // Explicit: no fake decision / directive / s6
     decision: null,
     directive: null,
@@ -691,14 +847,26 @@ function buildUserPayload({
   visualBlocks = [],
   factBoundary = null,
   reflection = null,
+  reality = null,
+  publicResearchEvidence = null,
+  relatedPastJudgments = null,
 } = {}) {
   const early = factBoundary && typeof factBoundary === "object" ? factBoundary : null;
   const allowed_fact_tokens =
     directive?.allowed_fact_tokens ?? early?.allowed_fact_tokens ?? {};
   const allowed_numbers = directive?.allowed_numbers ?? early?.allowed_numbers ?? [];
+  const allowed_entities =
+    directive?.allowed_entities ?? early?.allowed_entities ?? [];
   const facts_to_speak = directive?.facts_to_speak
     ? (directive.facts_to_speak ?? []).map((f) => (typeof f === "string" ? f : f.fact_id))
     : early?.facts_to_speak ?? [];
+  const verified_customer_chart =
+    early?.verified_customer_chart ??
+    directive?.verified_customer_chart ??
+    buildVerifiedCustomerChart(reality);
+  const conversation_history = mapConversationHistory(history);
+  const decisionPayload = buildDecisionPayload(decision);
+  const session_goal = buildSessionGoalPayload(decision, directive);
 
   return {
     schema_version: S7_BORROWED_SENSES_SCHEMA_B,
@@ -715,11 +883,11 @@ function buildUserPayload({
       "축부터",
       "축 설정",
     ],
+    current_user_message: question,
     customer_question: question,
-    conversation_history: (history ?? []).slice(-4).map((h) => ({
-      role: h.role,
-      text: h.text ?? h.content ?? "",
-    })),
+    // Full session history — no artificial slice(-4). Provider output max_tokens still apply downstream.
+    conversation_history,
+    conversation_history_count: conversation_history.length,
     open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
     previous_answer_summary: String(previousAnswerSummary ?? "").trim() || null,
     // Empty string when called before Speak — never invent a fake S6 answer
@@ -728,8 +896,18 @@ function buildUserPayload({
     answer_mode: directive?.answer_mode ?? null,
     // null when Decision has not run yet — do not invent
     decision_situation_key: decision?.situation_key ?? null,
+    decision: decisionPayload,
+    session_goal,
+    related_past_judgments: Array.isArray(relatedPastJudgments)
+      ? relatedPastJudgments
+      : Array.isArray(decision?.related_past_judgments)
+        ? decision.related_past_judgments
+        : null,
+    verified_customer_chart,
+    public_research_evidence: publicResearchEvidence ?? null,
     allowed_fact_tokens,
     allowed_numbers,
+    allowed_entities,
     facts_to_speak,
     premium_scope_policy: directive?.premium_scope_policy ?? early?.premium_scope_policy ?? null,
     reflection_situation_reading: Array.isArray(reflection?.situation_reading)
@@ -739,6 +917,12 @@ function buildUserPayload({
     visual_blocks_summary: summarizeVisualBlocks(visualBlocks),
     s7b_question_leadership_hint: buildQuestionLeadershipHint(question),
     call_phase: decision || directive ? "post_decision" : "pre_decision",
+    provider_input_policy: {
+      history_slice: null,
+      chart_stub_one_policy: false,
+      research_history_slice: null,
+      note: "Full conversation_history and verified_customer_chart are sent. Downstream Anthropic output max_tokens remain (research/emit/speak) — input is not artificially truncated here.",
+    },
   };
 }
 
@@ -1042,7 +1226,7 @@ async function runPublicResearchPhase({
         {
           task: "public_research_only",
           question: String(question ?? "").trim(),
-          conversation_history: Array.isArray(history) ? history.slice(-6) : [],
+          conversation_history: mapConversationHistory(history),
           open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
           suggested_first_query: String(question ?? "").trim(),
           search_before_clarify: forcePublicSearch,
@@ -1393,6 +1577,27 @@ async function callClaudeBorrowedSenses({
   });
   const emitPayload = {
     ...userPayload,
+    public_research_evidence: {
+      status: researchEvidence.status,
+      status_detail: researchEvidence.status_detail,
+      research_unavailable: researchEvidence.research_unavailable === true,
+      results: (researchEvidence.results ?? []).map((r) => ({
+        title: r.title,
+        url: r.url,
+        domain: r.domain,
+        page_age: r.page_age,
+        query: r.query,
+        claim_or_summary: r.claim_or_summary ?? null,
+        cited_text: r.cited_text ?? null,
+      })),
+      citations: (researchEvidence.citations ?? []).map((c) => ({
+        title: c.title,
+        url: c.url,
+        cited_text: c.cited_text,
+        domain: c.domain,
+      })),
+      citation_text_blob: researchEvidence.citation_text_blob ?? null,
+    },
     key_public_research_evidence: {
       status: researchEvidence.status,
       status_detail: researchEvidence.status_detail,
@@ -1508,6 +1713,9 @@ export async function runBorrowedSensesShadowProbe({
   visualBlocks = [],
   factBoundary = null,
   reflection = null,
+  reality = null,
+  publicResearchEvidence = null,
+  relatedPastJudgments = null,
   env = process.env,
   fetchImpl = fetch,
   timeoutMs = Number(env.KEY_BORROWED_SENSES_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
@@ -1548,6 +1756,9 @@ export async function runBorrowedSensesShadowProbe({
     visualBlocks,
     factBoundary,
     reflection,
+    reality,
+    publicResearchEvidence,
+    relatedPastJudgments,
   });
   if (publicResearchEnabled) {
     userPayload.public_research = {
@@ -1737,4 +1948,7 @@ export {
   summarizeVisualBlocks,
   buildUserPayload,
   buildQuestionLeadershipHint,
+  buildSessionGoalPayload,
+  buildDecisionPayload,
+  mapConversationHistory,
 };

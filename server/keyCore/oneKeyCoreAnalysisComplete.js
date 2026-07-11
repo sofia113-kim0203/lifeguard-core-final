@@ -10,7 +10,7 @@ import {
   KEY_ANALYSIS_COMPLETE_INTAKE_SCHEMA_VERSION,
 } from "../keyBrain/analysisCompleteIntakeShadow.js";
 import { jobHasStoredRecommendation } from "../keyBrain/analysisCompleteFirstSpeak.js";
-import { keySpeak, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
+import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
@@ -264,7 +264,7 @@ export async function runOneKeyCoreAnalysisCompleteTurn({
   };
   recordStep("evidence", buildAnalysisCompleteEvidenceBundle({ factBundle, analysisJob }));
 
-  const speakResult = keySpeak({
+  const speakResult = await keySpeakAsync({
     event: "analysis_complete",
     keyFirstJudgment: keyJudgment,
     contextSnapshot,
@@ -274,11 +274,15 @@ export async function runOneKeyCoreAnalysisCompleteTurn({
     compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_analysis_complete",
     key_speak_master: true,
     static_draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
+    ghost_path_reached: speakResult.key_compose_trace?.ghost_path_reached ?? [],
   });
 
   trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
 
-  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft, {
+    failureMode:
+      speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
+  });
   const customerInitiativeSentence = outletResult.keySpeakOriginal;
   const personaMeta = {
     generation_mode: outletResult.generation_mode,

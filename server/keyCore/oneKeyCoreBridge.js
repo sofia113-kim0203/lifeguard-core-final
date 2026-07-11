@@ -2,7 +2,7 @@
  * ONE KEY Core S02-5 — bridge event (continuity template · no CONN weave).
  */
 import { scanBridgeSentence } from "../keyBrain/bridgeFirstSpeak.js";
-import { keySpeak, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
+import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { buildKeyBridgeIntakeShadowTrace } from "../keyBrain/bridgeIntakeShadow.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
@@ -250,16 +250,20 @@ export async function runOneKeyCoreBridgeTurn({
   };
   recordStep("evidence", buildBridgeEvidenceBundle({ factBundle, analysisJob: anchorJob }));
 
-  const speakResult = keySpeak({ event: "bridge" });
+  const speakResult = await keySpeakAsync({ event: "bridge" });
   recordStep("speak", {
     compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_bridge",
     key_speak_master: true,
     text_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
+    ghost_path_reached: speakResult.key_compose_trace?.ghost_path_reached ?? [],
   });
 
   trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
 
-  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft, {
+    failureMode:
+      speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
+  });
   const scan = scanBridgeSentence(outletResult.keySpeakOriginal ?? "");
   const bridgeSentence = scan.ok ? outletResult.keySpeakOriginal : null;
   const personaMeta = bridgeSentence

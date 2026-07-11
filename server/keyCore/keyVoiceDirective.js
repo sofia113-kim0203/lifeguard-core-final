@@ -1019,6 +1019,8 @@ export function buildKeyVoiceDirective({
 
   history = [],
 
+  reality = null,
+
 } = {}) {
 
   const q = normalizeQuestion(question);
@@ -1251,7 +1253,13 @@ export function buildKeyVoiceDirective({
 
     repetition_avoidance_instruction: buildRepetitionAvoidance(previousAnswerSummary),
 
-    conversation_history: history.slice(-4).map((h) => ({ role: h.role, text: h.text })),
+    // Full session history — no artificial slice(-4).
+    conversation_history: (Array.isArray(history) ? history : []).map((h) => ({
+      role: h?.role ?? null,
+      text: h?.text ?? h?.content ?? "",
+    })),
+
+    conversation_history_count: Array.isArray(history) ? history.length : 0,
 
     decision_situation_key: decision?.situation_key ?? null,
 
@@ -1262,6 +1270,15 @@ export function buildKeyVoiceDirective({
     soft_response_guidance: null,
 
     ...situationFromDecision,
+
+    session_goal: {
+      situation_key: decision?.situation_key ?? null,
+      response_priority: decision?.response_priority ?? null,
+      key_next_move:
+        decision?.key_next_move ?? decision?.direction?.move ?? null,
+      key_situation_judgment: decision?.key_situation_judgment ?? null,
+      inferred_goal: decision?.situation_key ?? null,
+    },
 
   };
 

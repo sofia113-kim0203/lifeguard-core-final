@@ -13,8 +13,7 @@ import {
   finalizeKeyCustomerText,
   KEY_CUSTOMER_TEXT_PATH,
 } from "./keyCustomerMonopoly.js";
-import { keySpeak, keySpeakAsync } from "../keyBrain/keySpeak.js";
-import { isKeyVoiceActive } from "./oneKeyCoreFlags.js";
+import { keySpeakAsync } from "../keyBrain/keySpeak.js";
 import {
   KEY_ENTRY,
   runSalesDirectorKeyTurn,
@@ -158,15 +157,14 @@ async function buildOneKeySpeakDraft({
     shadowVisualBlocksOverride,
   };
 
-  const speakResult = isKeyVoiceActive(env)
-    ? await keySpeakAsync(speakInput)
-    : keySpeak(speakInput);
+  const speakResult = await keySpeakAsync(speakInput);
 
   return {
     speakDraft: speakResult.speakDraft,
     keyComposeTrace: speakResult.key_compose_trace,
     visualBlocks: speakResult.visual_blocks ?? speakResult.key_compose_trace?.visual_blocks ?? [],
     keySpeakMaster: true,
+    failureMode: speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
   };
 }
 
@@ -547,12 +545,20 @@ async function runOneKeyCoreQuestionTurn({
 
   trace.customer_text_path.push(...KEY_CUSTOMER_TEXT_PATH);
 
-  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft, {
+    failureMode:
+      speakResult.failureMode === true ||
+      speakResult.keyComposeTrace?.failureMode === true ||
+      speakResult.keyComposeTrace?.key_voice_trace?.used_failure_mode === true ||
+      !String(speakResult.speakDraft ?? "").trim(),
+  });
   recordStep("persona", {
     generation_mode: outletResult.generation_mode,
     persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
     completeness_guard: outletResult.completeness_guard ?? null,
     text_preview: String(outletResult.customerText ?? "").slice(0, 300),
+    rewrite_detected: false,
+    ghost_path_reached: speakResult.keyComposeTrace?.ghost_path_reached ?? [],
   });
 
   trace.persona_rewrite_blocked = outletResult.persona_rewrite_blocked;

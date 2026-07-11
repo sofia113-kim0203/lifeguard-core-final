@@ -8,6 +8,49 @@ const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_TEMPERATURE = 0.4;
 
+/**
+ * Stein Cleanup A corrective — request/turn-scoped ghost ledger only.
+ * No module-global mutable collection (parallel-safe).
+ */
+export function createGhostLedger() {
+  return [];
+}
+
+/**
+ * Append GHOST_PATH_REACHED onto the caller's ledger only.
+ * Import alone never records. Missing ledger → no shared write (entry returned for caller).
+ */
+export function recordGhostPathReached(pathName, meta = {}, ledger = null) {
+  const entry = {
+    alarm: "GHOST_PATH_REACHED",
+    path: String(pathName ?? "unknown"),
+    at: new Date().toISOString(),
+  };
+  if (meta && typeof meta === "object") {
+    for (const [k, v] of Object.entries(meta)) {
+      if (k === "ghost_ledger" || k === "ledger") continue;
+      entry[k] = v;
+    }
+  }
+  if (Array.isArray(ledger)) ledger.push(entry);
+  return entry;
+}
+
+export function peekGhostPathsReached(ledger = null) {
+  return Array.isArray(ledger) ? [...ledger] : [];
+}
+
+/** @deprecated No global ledger — operate on the turn's array via peek/create only. */
+export function drainGhostPathsReached(ledger = null) {
+  if (!Array.isArray(ledger)) return [];
+  return ledger.splice(0, ledger.length);
+}
+
+/** @deprecated No global clear — each turn owns its ledger array. */
+export function clearGhostPathsReached(ledger = null) {
+  if (Array.isArray(ledger)) ledger.length = 0;
+}
+
 function buildSystemPrompt(directive = null) {
   const regen = directive?.regeneration?.mode === "answer_constrained_once";
   const hasHistory =
@@ -132,8 +175,17 @@ export async function speakKeyVoice({
 
 /**
  * KEY-owned safe utterance — 새 사실 생성 금지, legacy lego 금지.
+ * Stein Cleanup A: calling this on a customer path is a ghost alarm (request-scoped ledger).
+ * Return text must NEVER be selected as customerText by compose.
+ * @param {object} directive
+ * @param {Array|null} ghostLedger turn-owned ledger (required for durable alarm)
  */
-export function buildKeyVoiceSafeUtterance(directive = {}) {
+export function buildKeyVoiceSafeUtterance(directive = {}, ghostLedger = null) {
+  recordGhostPathReached(
+    "buildKeyVoiceSafeUtterance",
+    { question_focus: directive?.question_focus ?? null },
+    ghostLedger,
+  );
   const focus = directive.question_focus ?? "general";
   const optionalFacts = directive.facts_to_speak ?? [];
   const factBlock = optionalFacts.length ? renderFactsSpokenBlock(optionalFacts, []) : null;

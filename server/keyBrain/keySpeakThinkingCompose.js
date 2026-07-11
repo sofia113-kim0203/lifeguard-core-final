@@ -24,6 +24,7 @@ import { assertSpeakFactGate } from "../keyCore/keyCustomerUnderstanding.js";
 import { buildQuestionSpeakFromDecision } from "./keySpeakFromDecision.js";
 import { isKeyVoiceActive } from "../keyCore/oneKeyCoreFlags.js";
 import { buildKeyVoiceComposeResult } from "../keyCore/keyVoiceCompose.js";
+import { recordGhostPathReached } from "../keyCore/keyVoiceSpeak.js";
 import { CONVERSATION_INTENTION, isDeferOnlyText } from "../keyCore/keyThinkingFlow.js";
 import { isKeySocialTurn, resolveKeySocialConversationPattern } from "../keyConversationPatterns.js";
 
@@ -39,7 +40,8 @@ function formatPremiumConversational(policy) {
   return raw;
 }
 
-export function buildPolicyFactSpeakText(policies = []) {
+export function buildPolicyFactSpeakText(policies = [], ghostLedger = null) {
+  recordGhostPathReached("buildPolicyFactSpeakText", {}, ghostLedger);
   if (!policies.length) return null;
 
   const parts = [];
@@ -87,7 +89,8 @@ export function buildGapAssessmentSpeakText({
   return "가입 정보가 있으면 그걸 기준으로 상태를 같이 볼 수 있어요. 등록된 보험이 있으신가요?";
 }
 
-function buildDailySpeakText(question = "", conversationIntention = null) {
+function buildDailySpeakText(question = "", conversationIntention = null, ghostLedger = null) {
+  recordGhostPathReached("buildDailySpeakText", {}, ghostLedger);
   const q = normalizeText(question);
   if (/맛집|식당|음식/.test(q)) {
     return "분당이면 판교·정자 쪽 선택지가 많아요. 한식·일식 다 괜찮은 곳이 있어요. 어디 쪽이세요?";
@@ -256,7 +259,8 @@ function buildS4GoalSpeakText({
   }
 }
 
-function buildS4ComposeResult(thinkingFlow, { question = "", evidenceBundle = null } = {}) {
+function buildS4ComposeResult(thinkingFlow, { question = "", evidenceBundle = null, ghostLedger = null } = {}) {
+  recordGhostPathReached("buildS4ComposeResult", {}, ghostLedger);
   const cu = thinkingFlow.customer_understanding ?? {};
   const customerGoal = cu.customer_goal ?? cu.selected_goal;
   const factSelection = thinkingFlow.fact_selection ?? { facts_spoken: [], facts_withheld: [] };
@@ -308,6 +312,7 @@ function buildS4ComposeResult(thinkingFlow, { question = "", evidenceBundle = nu
 
 /**
  * Slice 4 question speak — Customer Goal SSOT drives composition.
+ * Stein A corrective: async customer path uses Claude/KEY Voice only — never S3/S4/S5 retreat.
  */
 export async function buildQuestionSpeakFromUnderstandingAsync(
   keyFirstJudgment,
@@ -322,13 +327,11 @@ export async function buildQuestionSpeakFromUnderstandingAsync(
     history = [],
     previousAnswerSummary = "",
     shadowVisualBlocksOverride = null,
+    ghostLedger = null,
+    fetchImpl = fetch,
   } = {},
 ) {
-  if (
-    isKeyVoiceActive(env) &&
-    thinkingFlow?.slice5_enabled &&
-    (thinkingFlow.decision || thinkingFlow.reflection)
-  ) {
+  if (thinkingFlow?.slice5_enabled && (thinkingFlow.decision || thinkingFlow.reflection)) {
     const voice = await buildKeyVoiceComposeResult(thinkingFlow, {
       question,
       evidenceBundle,
@@ -336,22 +339,21 @@ export async function buildQuestionSpeakFromUnderstandingAsync(
       history,
       previousAnswerSummary,
       shadowVisualBlocksOverride,
+      ghostLedger,
+      fetchImpl,
     });
     if (voice) return voice;
     return null;
   }
 
-  return buildQuestionSpeakFromUnderstanding(keyFirstJudgment, {
-    question,
-    contextSnapshot,
-    loadedContext,
-    consultationIntent,
-    thinkingFlow,
-    evidenceBundle,
-    env,
-  });
+  // Never fall through to S3/S4/S5 compose for customerText.
+  return null;
 }
 
+/**
+ * Sync legacy compose — must not produce customerText (Stein A corrective).
+ * If legacy branches are reached, ghost is recorded on the turn ledger; text is discarded.
+ */
 export function buildQuestionSpeakFromUnderstanding(
   keyFirstJudgment,
   {
@@ -362,52 +364,38 @@ export function buildQuestionSpeakFromUnderstanding(
     thinkingFlow = null,
     evidenceBundle = null,
     env = process.env,
+    ghostLedger = null,
   } = {},
 ) {
+  // Intentional: sync path is blocked from returning legacy customerText.
+  // Callers must use async Claude compose; empty → failureMode.
   if (
-    !isKeyVoiceActive(env) &&
     isKeySocialTurn(question) &&
     !thinkingFlow?.customer_understanding?.customer_goal
   ) {
-    const social = resolveKeySocialConversationPattern(question);
-    const text = normalizeText(social?.text ?? "반갑습니다. 천천히 맞춰가면 됩니다.");
-    const speechValidation = validateDu1CustomerSpeech(text);
-    return speechValidation.ok
-      ? { text, segments: [], compose_mode: "key_s4_social", thinking_flow_applied: true }
-      : null;
+    recordGhostPathReached("s4_social_speak_selection", { blocked_customer_text: true }, ghostLedger);
+    return null;
   }
 
   if (!keyFirstJudgment || !thinkingFlow) return null;
 
   if (thinkingFlow.slice5_enabled && (thinkingFlow.decision || thinkingFlow.reflection)) {
-    const s5 = buildQuestionSpeakFromDecision(keyFirstJudgment, {
-      question,
-      thinkingFlow,
-      evidenceBundle,
-    });
-    if (s5) return s5;
+    // Do not return S5 text — record if Decision compose would have run.
+    recordGhostPathReached(
+      "composeSpeakFromDecision",
+      { blocked_customer_text: true, via: "sync_buildQuestionSpeakFromUnderstanding" },
+      ghostLedger,
+    );
     return null;
   }
 
   if (thinkingFlow.customer_understanding) {
-    const s4 = buildS4ComposeResult(thinkingFlow, { question, evidenceBundle });
-    if (s4) {
-      const speechValidation = validateDu1CustomerSpeech(s4.text, {
-        policyFactSpeak: true,
-        slice4UnderstandingSpeak: true,
-      });
-      if (speechValidation.ok) return s4;
-    }
+    recordGhostPathReached("buildS4ComposeResult", { blocked_customer_text: true }, ghostLedger);
+    return null;
   }
 
-  return buildQuestionSpeakFromThinkingLegacy(keyFirstJudgment, {
-    question,
-    contextSnapshot,
-    loadedContext,
-    consultationIntent,
-    thinkingFlow,
-    evidenceBundle,
-  });
+  recordGhostPathReached("s3_legacy_compose", { blocked_customer_text: true }, ghostLedger);
+  return null;
 }
 
 /** Slice 3 legacy compose path. */
@@ -423,6 +411,7 @@ function buildQuestionSpeakFromThinkingLegacy(
   } = {},
 ) {
   if (isKeySocialTurn(question)) {
+    recordGhostPathReached("s3_social_speak_selection");
     const social = resolveKeySocialConversationPattern(question);
     const text = normalizeText(social?.text ?? "반갑습니다. 천천히 맞춰가면 됩니다.");
     const speechValidation = validateDu1CustomerSpeech(text);

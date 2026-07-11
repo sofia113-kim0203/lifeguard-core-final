@@ -10,6 +10,7 @@ import {
 import { isDeferOnlyText } from "../keyCore/keyThinkingFlow.js";
 import { validateDu1CustomerSpeech } from "./du1DocumentUploadFirstSpeak.js";
 import { scanSpeechForbiddenPatterns } from "./keySpeechTurnType.js";
+import { recordGhostPathReached } from "../keyCore/keyVoiceSpeak.js";
 
 export const SLICE5_BANNED_TEMPLATE_PHRASES = [
   /부담이시라고\s*하셨으니/,
@@ -46,7 +47,9 @@ function scanBannedTemplatePhrases(text = "") {
 export function composeSpeakFromDecision({
   decision = null,
   policies = [],
+  ghostLedger = null,
 } = {}) {
+  recordGhostPathReached("composeSpeakFromDecision", {}, ghostLedger);
   if (!decision?.decision_complete) return null;
 
   const parts = [];

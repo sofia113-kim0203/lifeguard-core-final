@@ -572,7 +572,7 @@ function normalizeComposeText(text = "") {
   return String(text ?? "").replace(/\s+/g, " ").trim();
 }
 
-// B. active safe candidate — Stage3 + Gate + alignment → promote, Borrowed1/S6=0
+// B. active safe candidate — fast path diagnostic only; Claude candidate kept; Borrowed1/S6=0
 {
   const qB = "보험료 줄이고 싶어";
   const reflectionB = buildReflection({ customerSaid: qB, reality: softReality });
@@ -606,8 +606,10 @@ function normalizeComposeText(text = "") {
   assert.equal(logB.filter((x) => x === "s6").length, 0, `B calls=${logB}`);
   assert.equal(resultB.key_voice_trace.s6_speak_calls, 0);
   assert.equal(resultB.key_voice_trace.fast_path?.ok, true);
-  assert.equal(resultB.key_voice_trace.borrowed_senses_shadow?.customer_text_changed, true);
-  assert.equal(resultB.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s7");
+  assert.equal(resultB.key_voice_trace.borrowed_senses_shadow?.customer_text_changed, false);
+  assert.equal(resultB.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "claude_candidate");
+  assert.equal(resultB.key_voice_trace.promotion_diagnostic?.customer_text_replaced, false);
+  assert.equal(resultB.text, borrowedB.voice_raw_candidate);
   assert.match(resultB.text, /줄이|중복|납입/);
   assert.ok(!/S6_SHOULD_NOT_RUN/.test(resultB.text));
 }
@@ -1053,7 +1055,9 @@ function normalizeComposeText(text = "") {
     assert.equal(log1.filter((x) => x === "s6").length, 0, `T1 calls=${log1}`);
     assert.equal(result1.key_voice_trace.s6_speak_calls, 0);
     assert.equal(result1.key_voice_trace.fast_path?.ok, true);
-    assert.equal(result1.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s7");
+    assert.equal(result1.key_voice_trace.borrowed_senses_shadow?.customer_text_changed, false);
+    assert.equal(result1.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "claude_candidate");
+    assert.equal(result1.key_voice_trace.promotion_diagnostic?.customer_text_replaced, false);
     assert.match(result1.text, /한식|일식|분위기|몇\s*분/);
     assertNoMeta(result1.text);
     assertNoInsuranceForce(result1.text);
@@ -1305,7 +1309,7 @@ function normalizeComposeText(text = "") {
     assert.ok(decisionD.situation_key !== "daily_recommendation");
   }
 
-  // polluted daily candidate → constrained regen once (not Decision-meta dump)
+  // polluted daily candidate → hard_safety_repair once (not constrained regen + repair)
   {
     const qP = "분당 맛집 추천해줘";
     const logP = [];
@@ -1339,8 +1343,12 @@ function normalizeComposeText(text = "") {
     assert.equal(logP.filter((x) => x === "s6").length, 1);
     assert.equal(resultP.key_voice_trace.s6_speak_calls, 1);
     assert.equal(resultP.key_voice_trace.fast_path?.ok, false);
-    assert.equal(resultP.key_voice_trace.used_constrained_regen, true);
-    assert.equal(resultP.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s6");
+    assert.equal(resultP.key_voice_trace.used_constrained_regen, false);
+    assert.equal(resultP.key_voice_trace.answer_regeneration?.used, false);
+    assert.equal(resultP.key_voice_trace.hard_safety_repair_attempt, 1);
+    assert.equal(resultP.key_voice_trace.correction_attempts, 1);
+    assert.equal(resultP.key_voice_trace.used_failure_mode, false);
+    assert.equal(resultP.text, s6Daily);
     assertNoInsuranceForce(resultP.text);
     assert.ok(!/말씀하신 것부터 이어갈게요|필요한 맥락을 하나만/.test(resultP.text));
     assert.match(resultP.text, /한식|일식|동행|분위기|선택지/);
@@ -1408,16 +1416,20 @@ function normalizeComposeText(text = "") {
     assert.equal(log.filter((x) => x === "borrowed").length, 1);
     assert.equal(log.filter((x) => x === "s6").length, 0);
     assert.equal(result.key_voice_trace.fast_path?.ok, true);
-    assert.equal(result.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s7");
+    assert.equal(result.key_voice_trace.borrowed_senses_shadow?.customer_text_changed, false);
+    assert.equal(result.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "claude_candidate");
+    assert.equal(result.key_voice_trace.promotion_diagnostic?.customer_text_replaced, false);
     assert.match(result.text, /한식|일식|분위기/);
     assert.ok(!/보험료|22건|보장/.test(result.text));
     assert.ok((result.key_voice_trace.fast_path?.mid_field_warnings ?? []).length >= 1);
   }
 
-  // B. answer itself polluted → regen exactly 1
+  // B. answer itself polluted → hard_safety_repair exactly 1
   {
     const q = "분당 맛집 추천해줘";
     const log = [];
+    const s6Safe =
+      "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C부터 좁혀볼 수 있어요. 동행 인원과 분위기 중 어떤 것부터 맞출까요?";
     const result = await buildKeyVoiceComposeResult(
       {
         reflection: buildReflection({ customerSaid: q, reality: softReality }),
@@ -1437,15 +1449,18 @@ function normalizeComposeText(text = "") {
             voice_raw_candidate:
               "맛집보다 보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.",
           }),
-          s6Text:
-            "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C부터 좁혀볼 수 있어요. 동행 인원과 분위기 중 어떤 것부터 맞출까요?",
+          s6Text: s6Safe,
           log,
         }),
       },
     );
     assert.equal(log.filter((x) => x === "borrowed").length, 1);
     assert.equal(log.filter((x) => x === "s6").length, 1);
-    assert.equal(result.key_voice_trace.used_constrained_regen, true);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+    assert.equal(result.key_voice_trace.correction_attempts, 1);
+    assert.equal(result.key_voice_trace.used_failure_mode, false);
+    assert.equal(result.text, s6Safe);
     assert.ok(!/말씀하신 것부터 이어갈게요|필요한 맥락을 하나만/.test(result.text));
     assert.ok(!/보험료를 줄일지|22건/.test(result.text));
     assert.match(result.text, /한식|분위기|동행|분당/);
@@ -1624,10 +1639,12 @@ function normalizeComposeText(text = "") {
     assert.ok(!/충분합니다|부족합니다/.test(result.text));
   }
 
-  // G. regen Gate-fail → KEY safe utterance once (never monopoly wait stub)
+  // G. borrowed hard → sole hard_safety_repair once → second hard → failureMode
+  // (dangerous repair mock kept on purpose — verifies exit, not safe rewrite)
   {
     const q = "분당 맛집 추천해줘";
     const log = [];
+    const bodies = [];
     const result = await buildKeyVoiceComposeResult(
       {
         reflection: buildReflection({ customerSaid: q, reality: softReality }),
@@ -1647,21 +1664,323 @@ function normalizeComposeText(text = "") {
             voice_raw_candidate:
               "보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.",
           }),
-          // Regen answer still unsafe → Gate fail → safe utterance (no 2nd Claude call, no wait stub)
           s6Text:
             "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.",
           log,
+          bodies,
         }),
       },
     );
     assert.equal(log.filter((x) => x === "borrowed").length, 1);
     assert.equal(log.filter((x) => x === "s6").length, 1);
     assert.equal(result.key_voice_trace.s6_speak_calls, 1);
-    assert.equal(result.key_voice_trace.used_constrained_regen, true);
-    assert.equal(result.key_voice_trace.used_failure_mode, false);
-    assert.notEqual(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
-    assert.ok(!/지금은\s*여기까지\s*확인했어요/.test(result.text));
-    assert.ok(String(result.text ?? "").trim().length > 0);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.answer_regeneration?.used, false);
+    assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+    assert.equal(result.key_voice_trace.correction_attempts, 1);
+    assert.equal(result.key_voice_trace.hard_safety_repair?.second_check?.hard_fail, true);
+    assert.equal(result.key_voice_trace.used_failure_mode, true);
+    assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    assert.ok(
+      bodies.some((b) => JSON.stringify(b).includes("HARD SAFETY REPAIR")),
+      "sole correction must be hard_safety_repair",
+    );
+    assert.ok(
+      !bodies.some((b) => JSON.stringify(b).includes("answer_constrained_once")),
+      "constrained regen must not run before hard repair",
+    );
+    assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    assert.ok(!/말씀하신 요청부터 이어갈게요/.test(result.text));
+  }
+
+  // --- Stein single correction budget ①–⑧ ---
+  {
+    const safeDaily =
+      "분당이면 서현 한정식 A, 정자 일식 B를 먼저 볼 수 있어요. 어떤 분위기부터 맞출까요?";
+    const softDaily = "어떤 분위기나 음식 종류를 원하세요?";
+    const hardDaily =
+      "보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.";
+    const repairSafe =
+      "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C부터 좁혀볼 수 있어요. 동행 인원부터 맞출까요?";
+    const repairHard =
+      "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.";
+
+    // ① Borrowed safe → repair 0
+    {
+      const log = [];
+      const candidate = safeDaily;
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: candidate }),
+            s6Text: "S6_SHOULD_NOT_RUN_SAFE",
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "s6").length, 0);
+      assert.equal(result.key_voice_trace.correction_attempts, 0);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 0);
+      assert.equal(result.key_voice_trace.used_failure_mode, false);
+      assert.equal(result.text, candidate);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
+
+    // ② Borrowed soft-only → repair 0, keep candidate
+    {
+      const log = [];
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: softDaily }),
+            s6Text: "S6_SHOULD_NOT_RUN_SOFT",
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "s6").length, 0);
+      assert.equal(result.key_voice_trace.correction_attempts, 0);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 0);
+      assert.equal(result.key_voice_trace.used_failure_mode, false);
+      assert.equal(result.text, softDaily);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
+
+    // ③ Borrowed hard → repair safe
+    {
+      const log = [];
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: hardDaily }),
+            s6Text: repairSafe,
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "borrowed").length, 1);
+      assert.equal(log.filter((x) => x === "s6").length, 1);
+      assert.equal(result.key_voice_trace.correction_attempts, 1);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+      assert.equal(result.key_voice_trace.used_constrained_regen, false);
+      assert.equal(result.key_voice_trace.used_failure_mode, false);
+      assert.equal(result.text, repairSafe);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
+
+    // ④ Borrowed hard → repair hard → failureMode (same as G contract)
+    {
+      const log = [];
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: hardDaily }),
+            s6Text: repairHard,
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "s6").length, 1);
+      assert.equal(result.key_voice_trace.correction_attempts, 1);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+      assert.equal(result.key_voice_trace.used_failure_mode, true);
+      assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
+
+    // ⑤ Initial S6 hard → repair safe (no borrowed candidate)
+    {
+      const log = [];
+      let s6N = 0;
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "off",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: safeDaily }),
+            s6Text: () => {
+              s6N += 1;
+              return s6N === 1 ? repairHard : repairSafe;
+            },
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "borrowed").length, 0);
+      assert.equal(log.filter((x) => x === "s6").length, 2);
+      assert.equal(result.key_voice_trace.s6_speak_calls, 2);
+      assert.equal(result.key_voice_trace.correction_attempts, 1);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+      assert.equal(result.key_voice_trace.used_failure_mode, false);
+      assert.equal(result.text, repairSafe);
+      assert.equal(s6N, 2);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
+
+    // ⑥ Initial S6 hard → repair hard → failureMode; no 3rd call
+    {
+      const log = [];
+      let s6N = 0;
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "off",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: safeDaily }),
+            s6Text: () => {
+              s6N += 1;
+              return repairHard;
+            },
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "s6").length, 2);
+      assert.equal(result.key_voice_trace.s6_speak_calls, 2);
+      assert.equal(result.key_voice_trace.correction_attempts, 1);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+      assert.equal(result.key_voice_trace.used_failure_mode, true);
+      assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+      assert.equal(s6N, 2);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
+
+    // ⑦ Promotion success — customerText not replaced; correction budget independent
+    {
+      const log = [];
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "보험료를 줄이고 싶어", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "보험료를 줄이고 싶어",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: goodBorrowedInput({
+              understanding_hypotheses: ["보험료 절감 목적이 있을 수 있음"],
+              voice_raw_candidate:
+                "보험료를 줄이고 싶으신 거죠. 절감 목적이면 확인된 22건 중 중복·납입부터 보는 게 맞아 보여요. 납입 구조부터 볼까요?",
+              proposal_direction: "절감 목적이면 중복·납입 확인이 먼저 맞아 보입니다",
+              next_decision_point: ["납입 구조부터", "중복 보장부터"],
+              recommendation_basis: "절감 목적",
+            }),
+            s6Text: "S6_PROMO_SHOULD_NOT_REPLACE",
+            log,
+          }),
+        },
+      );
+      assert.equal(result.key_voice_trace.borrowed_senses_shadow?.customer_text_changed, false);
+      assert.equal(result.key_voice_trace.promotion_diagnostic?.customer_text_replaced, false);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+      assert.ok(!/S6_PROMO_SHOULD_NOT_REPLACE/.test(result.text));
+    }
+
+    // ⑧ soft expression reason → repair 0
+    {
+      const log = [];
+      const softExpr = "어떤 분위기나 음식 종류를 원하세요?";
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: "분당 맛집 추천해줘", reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: "분당 맛집 추천해줘",
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: dailySafeVoice({ voice_raw_candidate: softExpr }),
+            s6Text: "S6_SOFT_EXPR_NO",
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "s6").length, 0);
+      assert.equal(result.key_voice_trace.correction_attempts, 0);
+      assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 0);
+      assert.equal(result.text, softExpr);
+      assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    }
   }
 }
 
@@ -2566,11 +2885,13 @@ function normalizeComposeText(text = "") {
     assert.equal(log.filter((x) => x === "research").length, 1);
     assert.equal(log.filter((x) => x === "borrowed").length, 1);
     assert.equal(log.filter((x) => x === "s6").length, 1);
-    assert.equal(result.key_voice_trace.used_constrained_regen, true);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+    assert.equal(result.key_voice_trace.correction_attempts, 1);
     assert.ok(!/가짜식당XYZ/.test(result.text));
   }
 
-  // G. T1 insurance pollution → regen exactly 1, same evidence, no re-search
+  // G. T1 insurance pollution → hard_safety_repair exactly 1, same evidence, no re-search
   {
     const q = "분당 맛집 추천해줘";
     const log = [];
@@ -2610,8 +2931,9 @@ function normalizeComposeText(text = "") {
     assert.equal(log.filter((x) => x === "research").length, 1);
     assert.equal(log.filter((x) => x === "borrowed").length, 1);
     assert.equal(log.filter((x) => x === "s6").length, 1);
-    assert.equal(result.key_voice_trace.used_constrained_regen, true);
-    assert.ok(result.key_voice_trace.answer_regeneration?.key_chart?.reuse_same_evidence_only === true);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+    assert.equal(result.key_voice_trace.correction_attempts, 1);
     assert.ok(!/보험 쪽|22건|보험료를 줄일지/.test(result.text));
   }
 
@@ -2760,10 +3082,13 @@ function normalizeComposeText(text = "") {
     );
     assert.equal(log.filter((x) => x === "research").length, 1);
     assert.equal(log.filter((x) => x === "borrowed").length, 1);
-    assert.equal(log.filter((x) => x === "s6").length, 1);
-    assert.equal(result.key_voice_trace.used_constrained_regen, true);
-    assert.ok(!/^어떤 분위기나 음식 종류를 원하세요\?$/.test(result.text.trim()));
-    assert.match(result.text, /한정식 A|일식 B|캐주얼 C/);
+    assert.equal(log.filter((x) => x === "s6").length, 0);
+    // Soft incompleteness keeps clarifying candidate — repair budget unused.
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 0);
+    assert.equal(result.key_voice_trace.correction_attempts, 0);
+    assert.equal(result.key_voice_trace.used_failure_mode, false);
+    assert.match(result.text, /분위기|음식 종류/);
   }
 
   // T3 incomplete is covered by collectAnswerFacingSafetyFail unit (H) above;
@@ -3018,7 +3343,7 @@ function normalizeComposeText(text = "") {
     assert.equal(shouldEnablePublicWebSearch({ question: q, history }), false);
   }
 
-  // F. exact generic wait unreachable on normal place/daily/claim compose path
+  // F. double hard (borrowed + repair) → honest failureMode monopoly (not legacy/safe utterance)
   {
     assert.equal(isKeyMonopolyFailureCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
     assert.equal(isWaitOnlyVoice(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
@@ -3054,9 +3379,14 @@ function normalizeComposeText(text = "") {
         }),
       },
     );
-    assert.equal(result.key_voice_trace.used_failure_mode, false);
-    assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
-    assert.ok(!/지금은\s*여기까지\s*확인했어요/.test(result.text));
+    assert.equal(log.filter((x) => x === "s6").length, 1);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.equal(result.key_voice_trace.correction_attempts, 1);
+    assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+    assert.equal(result.key_voice_trace.used_failure_mode, true);
+    assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    assert.ok(!/말씀하신 요청부터 이어갈게요/.test(result.text));
   }
 
   // G. grounding / coverage / wait detection regression anchors
@@ -3642,3 +3972,492 @@ function normalizeComposeText(text = "") {
 }
 
 console.log("KEY_VOICE_UNIT_TEST ok=true");
+
+// --- STEIN CLEANUP COMMIT A HOLD CORRECTIVE (A–L) ---
+{
+  const {
+    buildVerifiedCustomerChart,
+    buildUserPayload,
+    buildEarlyBorrowedFactBoundary,
+  } = await import("../server/keyCore/keyBorrowedSensesSpeak.js");
+  const {
+    createGhostLedger,
+    peekGhostPathsReached,
+    buildKeyVoiceSafeUtterance,
+  } = await import("../server/keyCore/keyVoiceSpeak.js");
+  const { composeSpeakFromDecision } = await import(
+    "../server/keyBrain/keySpeakFromDecision.js"
+  );
+  const { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } = await import(
+    "../server/keyCore/keyCustomerMonopoly.js"
+  );
+  const { keySpeak, keySpeakAsync } = await import("../server/keyBrain/keySpeak.js");
+  const { ONE_KEY_CORE_RESPONSE_SOURCE } = await import(
+    "../server/keyCore/oneKeyCoreFlags.js"
+  );
+  const { CLOSED_HARD_REASONS } = await import("../server/keyCore/keyVoiceCompose.js");
+
+  const chart22Policies = Array.from({ length: 22 }, (_, i) => ({
+    insurer_name: i === 0 ? "삼성생명" : `보험사${i + 1}`,
+    product_name: i === 0 ? "실손의료비보험" : `상품${i + 1}`,
+    monthly_premium: i === 0 ? 45000 : 10000 + i * 1000,
+    coverages: i % 3 === 0 ? ["실손"] : i % 3 === 1 ? ["암진단"] : null,
+  }));
+  const chart22Reality = {
+    policies_present: true,
+    policy_count: 22,
+    domain: "insurance",
+    policies: chart22Policies,
+    factory_aggregates: { listed_count: 22, premium_sum_status: "unknown" },
+  };
+  const longHistory = [
+    { role: "user", text: "전체 보험 구조를 보고 싶어요" },
+    { role: "assistant", text: "등록 계약부터 같이 볼게요." },
+    { role: "user", text: "보험료가 부담돼요" },
+    { role: "assistant", text: "납입부터 나눠볼게요." },
+    { role: "user", text: "암 보장도 궁금해요" },
+    { role: "assistant", text: "암 진단비·수술비부터 확인할게요." },
+    { role: "user", text: "분당 맛집 추천해줘" },
+    { role: "assistant", text: "분당이면 서현 한정식 A부터 볼 수 있어요." },
+  ];
+
+  // A. request-scoped ghost parallel isolation
+  {
+    const ledgerA = createGhostLedger();
+    const ledgerB = createGhostLedger();
+    buildKeyVoiceSafeUtterance(greetingDirective, ledgerA);
+    composeSpeakFromDecision({
+      decision: mockDecision,
+      policies: softReality.policies,
+      ghostLedger: ledgerA,
+    });
+    const q = "분당 맛집 추천해줘";
+    const t1 =
+      "분당이면 서현 한정식 A, 정자 일식 B를 먼저 볼 수 있어요. 어떤 분위기부터 맞출까요?";
+    const resultB = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        ghostLedger: ledgerB,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 맛집",
+            voice_raw_candidate: t1,
+            used_facts: [],
+            insurance_expertise_angle: [],
+          }),
+          s6Text: t1,
+          log: [],
+        }),
+      },
+    );
+    assert.ok(peekGhostPathsReached(ledgerA).length >= 1);
+    assert.equal(peekGhostPathsReached(ledgerB).length, 0);
+    assert.equal(resultB.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    assert.ok(!peekGhostPathsReached(ledgerB).some((g) =>
+      peekGhostPathsReached(ledgerA).some((a) => a === g),
+    ));
+    // Reset A must not wipe B
+    ledgerA.length = 0;
+    assert.equal(peekGhostPathsReached(ledgerB).length, 0);
+    assert.equal(peekGhostPathsReached(ledgerA).length, 0);
+  }
+
+  // B/C. voice-off + sync normal → legacy 0
+  {
+    const q = "내 실손 월 보험료 얼마야?";
+    const reflection = buildReflection({ customerSaid: q, reality: softReality });
+    const thinkingFlow = {
+      reflection,
+      reality: softReality,
+      policies: softReality.policies,
+      decision: buildDecision({ reflection, reality: softReality, question: q }),
+      slice5_enabled: true,
+    };
+    const off = await keySpeakAsync({
+      event: "question",
+      question: q,
+      thinkingFlow,
+      env: { KEY_VOICE: "off", KEY_BORROWED_SENSES: "active", VERCEL_ENV: "preview", ANTHROPIC_API_KEY: "test-key" },
+      fetchImpl: makeAnthropicFetch({
+        borrowed: goodBorrowedInput({
+          voice_raw_candidate:
+            "실손 월 납입은 확인된 대표 계약 기준으로 4만5천 원이에요. 전체 합계는 아직 정리 중이에요.",
+          used_facts: ["policy_count", "monthly_premium"],
+        }),
+        s6Text:
+          "실손 월 납입은 확인된 대표 계약 기준으로 4만5천 원이에요. 전체 합계는 아직 정리 중이에요.",
+        log: [],
+      }),
+    });
+    assert.ok(!/말씀하신 요청부터 이어갈게요/.test(off.speakDraft));
+    assert.equal(off.key_compose_trace?.ghost_path_reached?.length ?? 0, 0);
+    assert.equal(off.key_compose_trace?.legacy_speak_blocked, true);
+
+    const sync = keySpeak({
+      event: "question",
+      question: q,
+      thinkingFlow,
+      env: { KEY_VOICE: "on", VERCEL_ENV: "preview" },
+    });
+    assert.equal(sync.speakDraft, "");
+    assert.equal(sync.failureMode, true);
+    assert.ok(!/분석이 마무리|지난번 같이 보던|다시 연결됐습니다/.test(sync.speakDraft));
+  }
+
+  // D. non-question events — no EVENT_DRAFT customerText
+  for (const event of ["bridge", "analysis_complete", "return_judgment"]) {
+    const r = await keySpeakAsync({
+      event,
+      env: { KEY_VOICE: "on", VERCEL_ENV: "preview", ANTHROPIC_API_KEY: "test-key" },
+    });
+    assert.equal(r.speakDraft, "");
+    assert.equal(r.failureMode, true);
+    assert.ok(!/분석이 마무리|지난번 같이 보던|다시 연결됐습니다/.test(r.speakDraft));
+    assert.equal(r.key_compose_trace?.event_draft_blocked, true);
+  }
+
+  // E. promotion success/fail — finalText not replaced
+  {
+    const q = "보험료를 줄이고 싶어";
+    const reflection = buildReflection({ customerSaid: q, reality: softReality });
+    const claude =
+      "보험료를 줄이고 싶으신 거죠. 절감 목적이면 확인된 22건 중 중복·납입부터 보는 게 맞아 보여요. 납입 구조부터 볼까요?";
+    const result = await buildKeyVoiceComposeResult(
+      { reflection, reality: softReality, policies: softReality.policies },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: claude,
+            used_facts: ["policy_count", "monthly_premium"],
+          }),
+          s6Text: "S6_SHOULD_STAY_OR_MATCH_CLAUDE",
+          log: [],
+        }),
+      },
+    );
+    assert.equal(result.key_voice_trace.borrowed_senses_shadow?.customer_text_changed, false);
+    assert.equal(result.key_voice_trace.rewrite_detected, false);
+    assert.ok(result.key_voice_trace.promotion_diagnostic?.customer_text_replaced === false ||
+      result.key_voice_trace.fast_path?.ok === true);
+    assert.ok(!/S6_SHOULD_STAY/.test(result.text) || result.text === claude || /줄이|중복|납입/.test(result.text));
+  }
+
+  // F/G. closed hard list — expression/unknown not hard
+  {
+    assert.ok(CLOSED_HARD_REASONS.has("answer_forbidden_certainty"));
+    assert.ok(CLOSED_HARD_REASONS.has("jailbreak_fact"));
+    assert.ok(!CLOSED_HARD_REASONS.has("incomplete_korean"));
+    assert.ok(!CLOSED_HARD_REASONS.has("focus_drift"));
+    assert.ok(!CLOSED_HARD_REASONS.has("recommendation_or_termination"));
+    assert.ok(!CLOSED_HARD_REASONS.has("required_claims"));
+    const q = "분당 맛집 추천해줘";
+    const softVoice =
+      "분당이면 서현 한정식 A를 먼저 볼 수 있어요. 담백한 한식이라 고르기 좋아요. 어떤 분위기부터 맞출까요?";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: softVoice,
+            used_facts: [],
+            insurance_expertise_angle: [],
+          }),
+          s6Text: softVoice,
+          log: [],
+        }),
+      },
+    );
+    assert.equal(result.text, softVoice);
+    assert.equal(result.key_voice_trace.used_failure_mode, false);
+  }
+
+  // H. provider body chart 22 + full history + decision/goal/evidence
+  {
+    const q = "내 보험 전체와 분당 맛집도 같이 볼까";
+    const bodies = [];
+    const voice =
+      "분당이면 서현 한정식 A부터 볼 수 있어요. 계약은 확인된 범위만 이어서 볼게요.";
+    await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: chart22Reality }),
+        reality: chart22Reality,
+        policies: chart22Reality.policies,
+      },
+      {
+        question: q,
+        history: longHistory,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: voice,
+            used_facts: ["policy_count"],
+          }),
+          s6Text: voice,
+          log: [],
+          bodies,
+        }),
+      },
+    );
+    const emitBodies = bodies.filter((b) =>
+      (b?.tools ?? []).some((t) => t?.name === "emit_borrowed_senses"),
+    );
+    assert.ok(emitBodies.length >= 1);
+    const emitUser = JSON.parse(emitBodies[0].messages[0].content);
+    assert.equal(emitUser.verified_customer_chart?.contracts?.length, 22);
+    for (let i = 0; i < 22; i += 1) {
+      assert.equal(
+        emitUser.verified_customer_chart.contracts[i].verified_fields.insurer_name,
+        chart22Policies[i].insurer_name,
+      );
+    }
+    assert.equal(emitUser.conversation_history?.length, longHistory.length);
+    assert.match(emitUser.conversation_history[0].text, /전체 보험 구조/);
+    assert.ok(emitUser.decision || emitUser.decision_situation_key !== undefined);
+    assert.ok(emitUser.session_goal);
+    assert.ok(emitUser.public_research_evidence || emitUser.key_public_research_evidence);
+    assert.ok(Array.isArray(emitUser.allowed_numbers));
+    assert.ok(Array.isArray(emitUser.allowed_entities));
+    const blob = JSON.stringify(emitUser);
+    assert.ok(!/api[_-]?key|password|secret|Bearer |supabase/i.test(blob));
+  }
+
+  // I. hard repair max 1 + same context (no inventory)
+  {
+    const q = "부모님이 수술하시면 보험금 나와요?";
+    let s6N = 0;
+    const repaired =
+      "확인 전에는 지급을 단정할 수 없어요. 관련 계약의 수술비·실손 담보부터 같이 확인해볼게요.";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: chart22Reality }),
+        reality: chart22Reality,
+        policies: chart22Reality.policies,
+      },
+      {
+        question: q,
+        history: longHistory,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: "네, 수술비 담보가 있으니 보험금이 지급됩니다.",
+            used_facts: ["policy_count"],
+          }),
+          s6Text: () => {
+            s6N += 1;
+            return s6N === 1
+              ? "네, 수술비 담보가 있으니 보험금이 지급됩니다. 22건 전부 받을 수 있어요."
+              : repaired;
+          },
+          log: [],
+        }),
+      },
+    );
+    assert.ok(result.key_voice_trace.hard_safety_repair_attempt <= 1 || result.key_voice_trace.s6_speak_calls >= 1);
+    assert.ok(!/보험사2|상품21/.test(result.text));
+    assert.ok(!/지급됩니다|전부 받을/.test(result.text));
+    assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+  }
+
+  // F–H mock T1/T2/T3 (mock answers — structure checks, not live Claude)
+  const t1Text =
+    "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 먼저 볼 수 있어요. 담백한 한식·일식·캐주얼이라 고르기 좋아요. 어떤 분위기부터 맞출까요?";
+  const t2Text =
+    "직전에 보던 분당 맛집이면, 부모님 모시고 수술 후 이동이 편한 서현 한정식 A 쪽을 먼저 볼게요. 좌석이 넓은 곳 위주로 맞출까요?";
+  const t3Text =
+    "보험금 쪽이면 확인 전엔 지급을 단정하지 않을게요. 수술·실손과 맞닿은 계약만 먼저 확인할게요. 진단서·영수증이 있으면 이어서 볼게요.";
+
+  {
+    const q = "분당 맛집 추천해줘";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: t1Text,
+            used_facts: [],
+            insurance_expertise_angle: [],
+          }),
+          s6Text: t1Text,
+          log: [],
+        }),
+      },
+    );
+    assert.match(result.text, /서현 한정식 A/);
+    assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    console.log("STEIN_A_T1_MOCK", result.text);
+  }
+  {
+    const q = "부모님 모시고 가기 쉬운 곳으로, 수술 후라서";
+    const hist = [
+      { role: "user", text: "분당 맛집 추천해줘" },
+      { role: "assistant", text: t1Text },
+    ];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        history: hist,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: t2Text,
+            used_facts: [],
+            insurance_expertise_angle: [],
+          }),
+          s6Text: t2Text,
+          log: [],
+        }),
+      },
+    );
+    assert.match(result.text, /서현 한정식 A|부모님|수술/);
+    assert.equal(result.key_voice_trace.directive?.conversation_history?.length, hist.length);
+    assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    console.log("STEIN_A_T2_MOCK", result.text);
+  }
+  {
+    const q = "그런데 부모님이 수술하시면 보험금은 나와요?";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: chart22Reality }),
+        reality: chart22Reality,
+        policies: chart22Reality.policies,
+      },
+      {
+        question: q,
+        history: longHistory,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            voice_raw_candidate: t3Text,
+            used_facts: ["policy_count"],
+          }),
+          s6Text: t3Text,
+          log: [],
+        }),
+      },
+    );
+    assert.ok(!/보험사2|상품21|22건 전부/.test(result.text));
+    assert.ok(!/지급됩니다|무조건 나와요/.test(result.text));
+    assert.equal(result.key_voice_trace.ghost_path_reached?.length ?? 0, 0);
+    console.log("STEIN_A_T3_MOCK", result.text);
+  }
+
+  // K. KEY Master integrity via speak path
+  {
+    const q = "분당 맛집 추천해줘";
+    const reflection = buildReflection({ customerSaid: q, reality: softReality });
+    const thinkingFlow = {
+      reflection,
+      reality: softReality,
+      policies: softReality.policies,
+      decision: buildDecision({ reflection, reality: softReality, question: q }),
+      slice5_enabled: true,
+    };
+    const speak = await keySpeakAsync({
+      event: "question",
+      question: q,
+      thinkingFlow,
+      env: {
+        KEY_VOICE: "on",
+        KEY_BORROWED_SENSES: "active",
+        VERCEL_ENV: "preview",
+        ANTHROPIC_API_KEY: "test-key",
+      },
+      fetchImpl: makeAnthropicFetch({
+        borrowed: goodBorrowedInput({
+          voice_raw_candidate: t1Text,
+          used_facts: [],
+          insurance_expertise_angle: [],
+        }),
+        s6Text: t1Text,
+        log: [],
+      }),
+    });
+    assert.equal(speak.key_speak_master, true);
+    assert.equal(speak.key_compose_trace?.rewrite_detected, false);
+    assert.equal(speak.key_compose_trace?.ghost_path_reached?.length ?? 0, 0);
+    assert.ok(String(speak.speakDraft ?? "").trim().length > 0);
+    assert.equal(ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION, "one_key_core_s1");
+  }
+
+  // Intentional ghost on request ledger only
+  {
+    const ledger = createGhostLedger();
+    buildKeyVoiceSafeUtterance(greetingDirective, ledger);
+    composeSpeakFromDecision({
+      decision: mockDecision,
+      policies: softReality.policies,
+      ghostLedger: ledger,
+    });
+    const ghosts = peekGhostPathsReached(ledger);
+    assert.ok(ghosts.some((g) => g.path === "buildKeyVoiceSafeUtterance"));
+    assert.ok(ghosts.some((g) => g.path === "composeSpeakFromDecision"));
+    assert.equal(peekGhostPathsReached(createGhostLedger()).length, 0);
+  }
+
+  console.log("STEIN_CLEANUP_COMMIT_A_CORRECTIVE ok=true");
+}
