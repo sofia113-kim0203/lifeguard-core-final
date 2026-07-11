@@ -8,7 +8,13 @@ import {
   educationExpandsToPersonalVerdict,
   STAGE3_LANES,
 } from "../server/keyCore/keyBorrowedSensesStage3.js";
-import { isQ10PortfolioExpansionQuestion } from "../server/keyCore/keyBorrowedSensesStage2.js";
+import {
+  isQ10PortfolioExpansionQuestion,
+  shouldUseConstrainedAnswerRegen,
+  collectAnswerFacingSafetyFail,
+  placeStage3PromoteBlockReason,
+  countGroundedPlaceMentionsInVoice,
+} from "../server/keyCore/keyBorrowedSensesStage2.js";
 import {
   getKeyBorrowedSensesMode,
   isKeyBorrowedSensesStage2Partial,
@@ -213,7 +219,7 @@ const cases = [
     id: "8b_daily_restaurant_promote_when_decision_owns_daily",
     run: () => {
       const voice =
-        "분당이면 서현·정자 쪽에 한식·일식 선택지가 많아요. 가볍게 가시면 캐주얼도 괜찮고요. 한식·일식·캐주얼 중 어떤 분위기부터 볼까요? 몇 분이서 가시는지도 알려주시면 좋아요.";
+        "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 먼저 볼 수 있어요. 담백한 한식·일식·캐주얼이라 고르기 좋아요. 어떤 분위기부터 맞출까요?";
       const shadow = goodShadow({
         borrowed: {
           ...goodBorrowed(),
@@ -222,11 +228,22 @@ const cases = [
           voice_raw_candidate: voice,
           proposal_direction: "음식 종류·분위기부터 좁히는 방향",
           next_decision_point: ["한식 쪽", "일식·캐주얼 쪽", "동행 인원부터"],
-          recommendation_basis: "취향 확인이 먼저",
-          leadership_move: "분위기·동행부터 여쭙기",
+          recommendation_basis: "검색된 후보 3곳",
+          leadership_move: "후보 제시 후 분위기 확인",
           key_purpose: "일상 추천 이어가기",
           insurance_expertise_angle: [],
           used_facts: [],
+        },
+        public_research_evidence: {
+          status: "success",
+          research_unavailable: false,
+          search_count: 1,
+          results: [
+            { title: "서현 한정식 A", url: "https://example.com/a" },
+            { title: "정자 일식 B", url: "https://example.com/b" },
+            { title: "미금 캐주얼 C", url: "https://example.com/c" },
+          ],
+          citations: [],
         },
       });
       const d = decideStage3Promotion({
@@ -254,7 +271,7 @@ const cases = [
     id: "8b2_daily_promote_despite_leadership_insurance_drift",
     run: () => {
       const voice =
-        "분당이면 한식·일식 선택지가 많아요. 어떤 분위기부터 볼까요?";
+        "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 추천해요. 담백한 한식·일식·캐주얼 분위기예요. 어떤 쪽부터 볼까요?";
       const shadow = goodShadow({
         borrowed: {
           ...goodBorrowed(),
@@ -263,6 +280,17 @@ const cases = [
             "보험료 절감 / 보장 보완 중 하나를 선택하도록 유도",
           next_decision_point: ["보험료 줄이기", "보장 채우기"],
           leadership_move: "보험 상담으로 전환",
+        },
+        public_research_evidence: {
+          status: "success",
+          research_unavailable: false,
+          search_count: 1,
+          results: [
+            { title: "서현 한정식 A", url: "https://example.com/a" },
+            { title: "정자 일식 B", url: "https://example.com/b" },
+            { title: "미금 캐주얼 C", url: "https://example.com/c" },
+          ],
+          citations: [],
         },
       });
       const d = decideStage3Promotion({
@@ -284,6 +312,278 @@ const cases = [
         d.mid_field_warnings.includes("mid_field_insurance_drift")
       );
     },
+  },
+  {
+    id: "8p_place_promote_success_grounded_3",
+    run: () => {
+      const voice =
+        "서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 추천해요. 담백한 한식·일식·캐주얼이라 고르기 좋아요.";
+      const ev = {
+        status: "success",
+        research_unavailable: false,
+        search_count: 1,
+        results: [
+          { title: "서현 한정식 A", url: "https://example.com/a" },
+          { title: "정자 일식 B", url: "https://example.com/b" },
+          { title: "미금 캐주얼 C", url: "https://example.com/c" },
+        ],
+        citations: [],
+      };
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      return (
+        placeStage3PromoteBlockReason({
+          question: "분당 맛집 추천해줘",
+          voice,
+          publicResearchEvidence: ev,
+        }) === null &&
+        countGroundedPlaceMentionsInVoice(voice, ev, "분당 맛집 추천해줘") >= 3 &&
+        d.promotion_pass === true &&
+        d.final_answer_source === "s7"
+      );
+    },
+  },
+  {
+    id: "8p_b_search_not_used_clarifying_no_promote_no_regen",
+    run: () => {
+      const voice =
+        "분당 쪽 공개 후보를 아직 충분히 못 모았어요. 한식·일식 중 어떤 분위기부터 맞출까요?";
+      const ev = {
+        status: "search_not_used",
+        status_detail: "research_search_not_used",
+        research_unavailable: true,
+        search_count: 0,
+        results: [],
+      };
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      const regen = shouldUseConstrainedAnswerRegen({
+        failReasons: [d.fallback_reason],
+        voice,
+        question: "분당 맛집 추천해줘",
+        decision: { response_priority: "daily_focus", situation_key: "daily_recommendation" },
+        gate: { ok: true },
+        publicResearchEvidence: ev,
+      });
+      return (
+        d.promotion_pass === false &&
+        d.fallback_reason === "place_promote_requires_research_success" &&
+        d.final_answer_source === "s6" &&
+        d.customer_text_changed === false &&
+        regen === false
+      );
+    },
+  },
+  {
+    id: "8p_c_insufficient_two_no_promote_no_regen",
+    run: () => {
+      const voice =
+        "지금은 서현 한정식 A와 정자 일식 B 정도만 확인됐어요. 음식 종류를 하나 더 알려주시면 더 찾아볼게요.";
+      const ev = {
+        status: "insufficient",
+        status_detail: "research_insufficient",
+        research_unavailable: true,
+        search_count: 1,
+        results: [
+          { title: "서현 한정식 A", url: "https://example.com/a" },
+          { title: "정자 일식 B", url: "https://example.com/b" },
+        ],
+        citations: [],
+      };
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      const regen = shouldUseConstrainedAnswerRegen({
+        failReasons: [d.fallback_reason],
+        voice,
+        question: "분당 맛집 추천해줘",
+        decision: { response_priority: "daily_focus", situation_key: "daily_recommendation" },
+        gate: { ok: true },
+        publicResearchEvidence: ev,
+      });
+      return (
+        d.promotion_pass === false &&
+        d.fallback_reason === "place_promote_requires_research_success" &&
+        regen === false
+      );
+    },
+  },
+  {
+    id: "8p_d_empty_clarifying_no_promote_no_invent",
+    run: () => {
+      const voice =
+        "지금은 공개 후보를 확인하지 못했어요. 선호 음식 종류를 하나만 알려주시겠어요?";
+      const ev = {
+        status: "empty",
+        status_detail: "research_empty",
+        research_unavailable: true,
+        search_count: 1,
+        results: [],
+      };
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      return (
+        d.promotion_pass === false &&
+        d.fallback_reason === "place_promote_requires_research_success" &&
+        !/한정식|가짜식당|캐주얼 C/.test(voice)
+      );
+    },
+  },
+  {
+    id: "8p_e_success_zero_candidates_unanswered_regen",
+    run: () => {
+      const voice = "어떤 분위기나 음식 종류를 원하세요?";
+      const ev = {
+        status: "success",
+        research_unavailable: false,
+        search_count: 1,
+        results: [
+          { title: "서현 한정식 A", url: "https://example.com/a" },
+          { title: "정자 일식 B", url: "https://example.com/b" },
+          { title: "미금 캐주얼 C", url: "https://example.com/c" },
+        ],
+      };
+      const safety = collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice,
+        question: "분당 맛집 추천해줘",
+        decision: { response_priority: "daily_focus", situation_key: "daily_recommendation" },
+        publicResearchEvidence: ev,
+      });
+      const d = decideStage3Promotion({
+        question: "분당 맛집 추천해줘",
+        s6FinalAnswer: s6,
+        shadow: goodShadow({
+          borrowed: {
+            ...goodBorrowed(),
+            voice_raw_candidate: voice,
+            insurance_expertise_angle: [],
+            used_facts: [],
+          },
+          public_research_evidence: ev,
+        }),
+        env: previewActive,
+        decision: {
+          response_priority: "daily_focus",
+          situation_key: "daily_recommendation",
+          direction: { type: "general_daily", move: "맛집" },
+        },
+      });
+      const regen = shouldUseConstrainedAnswerRegen({
+        failReasons: [d.fallback_reason],
+        voice,
+        question: "분당 맛집 추천해줘",
+        decision: { response_priority: "daily_focus", situation_key: "daily_recommendation" },
+        gate: { ok: true },
+        publicResearchEvidence: ev,
+      });
+      return (
+        safety === "place_request_unanswered" &&
+        d.promotion_pass === false &&
+        d.fallback_reason === "place_request_unanswered" &&
+        regen === true
+      );
+    },
+  },
+  {
+    id: "8p_g_bundang_only_not_grounded_candidate",
+    run: () => {
+      const voice = "분당이면 분위기에 따라 달라요. 어떤 곳이 편하세요?";
+      const ev = {
+        status: "success",
+        research_unavailable: false,
+        results: [
+          { title: "서현 한정식 A", url: "https://example.com/a" },
+          { title: "정자 일식 B", url: "https://example.com/b" },
+          { title: "미금 캐주얼 C", url: "https://example.com/c" },
+        ],
+      };
+      return (
+        countGroundedPlaceMentionsInVoice(voice, ev, "분당 맛집 추천해줘") === 0 &&
+        placeStage3PromoteBlockReason({
+          question: "분당 맛집 추천해줘",
+          voice,
+          publicResearchEvidence: ev,
+        }) === "place_promote_requires_grounded_candidates"
+      );
+    },
+  },
+  {
+    id: "8p_h_t2_parents_meal_not_place_promote_block",
+    run: () =>
+      placeStage3PromoteBlockReason({
+        question: "부모님 모시고 가는데 아버지가 최근 수술하셨어",
+        voice:
+          "아버지 수술 후라면 자극 적고 조용한 곳이 나을 수 있어요. 이동 거리는 어느 정도가 편하세요?",
+        publicResearchEvidence: null,
+      }) === null,
   },
   {
     id: "8c_daily_polluted_candidate_no_promote",
@@ -312,7 +612,8 @@ const cases = [
       return (
         d.promotion_pass === false &&
         (d.fallback_reason === "daily_insurance_pollution" ||
-          d.fallback_reason === "decision_mismatch_insurance_pollution") &&
+          d.fallback_reason === "decision_mismatch_insurance_pollution" ||
+          d.fallback_reason === "place_promote_requires_research_success") &&
         d.customer_text_changed === false
       );
     },
@@ -849,7 +1150,7 @@ const cases = [
     id: "27_claim_missing_next_soft_promote",
     run: () => {
       const voice =
-        "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 진단서·영수증·해당 담보부터 같이 확인해볼까요?";
+        "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 진단명을 알려주시면, 진단서·수술확인서·영수증·진료비 세부내역·해당 담보부터 같이 확인해볼까요?";
       const d = decideStage3Promotion({
         question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
         s6FinalAnswer: s6,

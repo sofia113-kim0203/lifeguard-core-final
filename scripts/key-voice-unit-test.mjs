@@ -999,11 +999,11 @@ function normalizeComposeText(text = "") {
       ],
       emotional_signal: "가벼운 톤",
       voice_raw_candidate:
-        "분당이면 서현·정자 쪽에 한식·일식 선택지가 많아요. 가볍게 가시면 캐주얼도 괜찮고요. 한식·일식·캐주얼 중 어떤 분위기부터 볼까요? 몇 분이서 가시는지도 알려주시면 좋아요.",
+        "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 먼저 볼 수 있어요. 담백한 한식·일식·캐주얼이라 고르기 좋아요. 어떤 분위기부터 맞출까요? 몇 분이서 가시는지도 알려주시면 좋아요.",
       proposal_direction: "음식 종류·분위기부터 좁히는 방향",
       next_decision_point: ["한식 쪽", "일식·캐주얼 쪽", "동행 인원부터"],
-      recommendation_basis: "취향·동행 확인이 먼저",
-      leadership_move: "분위기·동행부터 여쭙기",
+      recommendation_basis: "검색된 후보 3곳",
+      leadership_move: "후보 제시 후 분위기·동행 확인",
       key_purpose: "일상 추천 이어가기",
       insurance_expertise_angle: [],
       used_facts: [],
@@ -1129,7 +1129,7 @@ function normalizeComposeText(text = "") {
         "지급 가능 여부는 자료 확인 전 단정하면 안 됨",
       ],
       voice_raw_candidate:
-        "수술비와 보험금이 걱정되시는군요. 지금 단정하긴 어렵고, 진단서·영수증·증권상 해당 담보부터 같이 확인하는 게 맞아요. 서류부터 볼까요, 아니면 가입하신 담보 목록부터 볼까요?",
+        "수술비와 보험금이 걱정되시는군요. 지금 단정하긴 어렵고, 수술명이나 진단명을 알려주시면 진단서·수술확인서·영수증·진료비 세부내역·증권상 해당 담보부터 같이 확인하는 게 맞아요. 서류부터 볼까요, 아니면 가입하신 담보 목록부터 볼까요?",
       proposal_direction: "청구 가능 여부 단정 없이 서류·담보 확인부터",
       next_decision_point: ["진단서·영수증부터", "증권 담보 목록부터", "청구 절차 안내부터"],
       recommendation_basis: "지급 확정 전 자료 확인이 먼저",
@@ -1162,7 +1162,7 @@ function normalizeComposeText(text = "") {
         fetchImpl: makeAnthropicFetch({
           borrowed: borrowed3,
           s6Text:
-            "수술비와 보험금이 걱정되시는군요. 지금 단정하긴 어렵고, 진단서·영수증·증권상 해당 담보부터 같이 확인하는 게 맞아요. 서류부터 볼까요?",
+            "수술비와 보험금이 걱정되시는군요. 지금 단정하긴 어렵고, 수술명이나 진단명을 알려주시면 진단서·수술확인서·영수증·진료비 세부내역·증권상 해당 담보부터 같이 확인하는 게 맞아요. 서류부터 볼까요?",
           log: log3,
         }),
       },
@@ -1314,7 +1314,7 @@ function normalizeComposeText(text = "") {
       next_decision_point: ["보험료 줄이기", "보장 채우기"],
     });
     const s6Daily =
-      "분당이면 서현·정자 쪽에 한식·일식 선택지가 많아요. 한식·일식 중 어떤 쪽부터 볼까요? 동행 인원도 알려주시면 좋아요.";
+      "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C부터 볼 수 있어요. 담백한 한식·일식·캐주얼 중 어떤 쪽부터 맞출까요? 동행 인원도 알려주시면 좋아요.";
     const resultP = await buildKeyVoiceComposeResult(
       {
         reflection: buildReflection({ customerSaid: qP, reality: softReality }),
@@ -1356,11 +1356,11 @@ function normalizeComposeText(text = "") {
       customer_intent: "분당 맛집 추천 — 보험과 무관",
       understanding_hypotheses: ["일상적인 맛집 추천 요청일 가능성이 높음"],
       voice_raw_candidate:
-        "분당이면 서현·정자 쪽에 한식·일식 선택지가 많아요. 한식·일식·캐주얼 중 어떤 분위기부터 볼까요? 몇 분이서 가시는지도 알려주시면 좋아요.",
+        "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 먼저 볼 수 있어요. 담백한 한식·일식·캐주얼이라 고르기 좋아요. 어떤 분위기부터 맞출까요? 몇 분이서 가시는지도 알려주시면 좋아요.",
       proposal_direction: "음식 종류·분위기부터",
       next_decision_point: ["한식 쪽", "일식·캐주얼 쪽", "동행 인원부터"],
-      recommendation_basis: "취향 확인이 먼저",
-      leadership_move: "분위기·동행부터",
+      recommendation_basis: "검색된 후보 3곳",
+      leadership_move: "후보 제시 후 분위기·동행 확인",
       key_purpose: "일상 추천",
       insurance_expertise_angle: [],
       used_facts: [],
@@ -1436,7 +1436,7 @@ function normalizeComposeText(text = "") {
               "맛집보다 보험 쪽으로 보죠. 22건 기준으로 보험료를 줄일지 빠진 보장을 채울지 정하면 됩니다.",
           }),
           s6Text:
-            "분당 쪽이면 조용한 한식·캐주얼부터 좁혀볼 수 있어요. 동행 인원과 분위기 중 어떤 것부터 맞출까요?",
+            "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C부터 좁혀볼 수 있어요. 동행 인원과 분위기 중 어떤 것부터 맞출까요?",
           log,
         }),
       },
@@ -1533,7 +1533,7 @@ function normalizeComposeText(text = "") {
             customer_intent: "수술비·보험금 걱정 — 자료 확인 필요",
             understanding_hypotheses: ["지급 단정 금지", "서류·담보 확인이 먼저"],
             voice_raw_candidate:
-              "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 진단서·영수증·해당 담보부터 같이 확인해볼까요?",
+              "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 진단명을 알려주시면, 진단서·수술확인서·영수증·진료비 세부내역·해당 담보부터 같이 확인해볼까요?",
             proposal_direction: "서류·담보 확인",
             recommendation_basis: "확인 전 지급 단정 금지 · 서류·담보부터",
             next_decision_point: ["진단서·영수증부터", "담보 목록부터"],
@@ -1691,6 +1691,28 @@ function normalizeComposeText(text = "") {
   );
   assert.equal(isPlacePublicResearchRequest("분당 맛집 추천해줘"), true);
   assert.equal(shouldEnablePublicWebSearch({ question: "분당 맛집 추천해줘" }), true);
+  // E. place request wins over fact_lookup / direction_choice
+  assert.equal(
+    shouldEnablePublicWebSearch({
+      question: "분당 맛집 추천해줘",
+      decision: { response_priority: "fact_lookup" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldEnablePublicWebSearch({
+      question: "근처 조용한 식당 찾아줘",
+      decision: { response_priority: "direction_choice", situation_key: "direction_choice" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldEnablePublicWebSearch({
+      question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+      decision: { response_priority: "claim_prep", situation_key: "claim_need_check" },
+    }),
+    false,
+  );
   assert.equal(ANTHROPIC_WEB_SEARCH_TOOL.type, "web_search_20250305");
   assert.equal(ANTHROPIC_WEB_SEARCH_TOOL.name, "web_search");
 
@@ -1853,15 +1875,110 @@ function normalizeComposeText(text = "") {
   assert.equal(voiceHasUnsourcedPublicAssertions("평점 4.8점이에요. 주차 가능합니다."), true);
   assert.equal(voiceHasUnsourcedPublicAssertions("서현 한정식 A가 담백해서 좋아요."), false);
 
+  // Completeness Gate A–D / H–I (final-answer completeness corrective)
+  {
+    const daily = { response_priority: "daily_focus", situation_key: "daily_recommendation" };
+    const successEv = {
+      status: "success",
+      research_unavailable: false,
+      results: researchEvidence.results,
+      citations: researchEvidence.citations,
+    };
+    // A. clarifying only → place_request_unanswered + regen
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "어떤 분위기나 음식 종류를 원하세요?",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successEv,
+      }),
+      "place_request_unanswered",
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: ["place_request_unanswered"],
+        voice: "어떤 분위기나 음식 종류를 원하세요?",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        gate: { ok: true },
+        publicResearchEvidence: successEv,
+      }),
+      true,
+    );
+    // B. 2 grounded candidates → insufficient
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "서현 한정식 A와 정자 일식 B를 추천해요. 담백한 한식·일식 분위기예요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successEv,
+      }),
+      "place_candidates_insufficient",
+    );
+    // C. 3 grounded + reasons → PASS
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice:
+          "서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 추천해요. 담백한 한식·일식·캐주얼 분위기라 고르기 좋아요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successEv,
+      }),
+      null,
+    );
+    // D. research success but 0 candidates / clarifying → unanswered
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "분당 맛집은 분위기에 따라 달라지거든요. 조용한 곳과 활기찬 곳 중 어디가 편하세요?",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: successEv,
+      }),
+      "place_request_unanswered",
+    );
+    // H. T3 incomplete
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "수술명과 보험이 뭔지 알려주세요.",
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: { response_priority: "claim_prep", situation_key: "claim_need_check" },
+      }),
+      "claim_prep_incomplete",
+    );
+    // I. T3 complete categories
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice:
+          "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 진단명을 알려주시면, 진단서·수술확인서·영수증·진료비 세부내역·해당 담보부터 같이 확인해볼게요.",
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: { response_priority: "claim_prep", situation_key: "claim_need_check" },
+      }),
+      null,
+    );
+  }
+
   assert.equal(isSoftPromotionFailReason("wait_only"), true);
   assert.equal(isSoftPromotionFailReason("daily_insurance_pollution"), false);
   assert.equal(
     shouldUseConstrainedAnswerRegen({
       failReasons: ["wait_only", "mid_field_insurance_drift"],
-      voice: "분당이면 한식·일식 선택지가 많아요. 분위기부터 볼까요?",
+      voice: "분당 쪽 공개 후보를 아직 충분히 못 모았어요. 한식·일식 중 어떤 분위기부터 맞출까요?",
       question: "분당 맛집 추천해줘",
       decision: { response_priority: "daily_focus", situation_key: "daily_recommendation" },
       gate: { ok: true },
+      publicResearchEvidence: {
+        status: "search_not_used",
+        status_detail: "research_search_not_used",
+        research_unavailable: true,
+        search_count: 0,
+        results: [],
+      },
     }),
     false,
   );
@@ -2203,7 +2320,7 @@ function normalizeComposeText(text = "") {
             customer_intent: "수술비·보험금 걱정 — 자료 확인 필요",
             understanding_hypotheses: ["지급 단정 금지", "서류·담보 확인이 먼저"],
             voice_raw_candidate:
-              "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 진단서·수술확인서·영수증·진료비 세부내역·해당 담보부터 같이 확인해볼까요?",
+              "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 진단명을 알려주시면, 진단서·수술확인서·영수증·진료비 세부내역·해당 담보부터 같이 확인해볼까요?",
             proposal_direction: "서류·담보 확인",
             recommendation_basis: "확인 전 지급 단정 금지 · 서류·담보부터",
             next_decision_point: ["진단서·영수증부터", "담보 목록부터"],
@@ -2224,6 +2341,53 @@ function normalizeComposeText(text = "") {
     assert.ok(!/받을 수 있습니다|지급됩니다/.test(result.text));
     assert.match(result.text, /진단서|담보|확인/);
   }
+
+  // Completeness compose: success evidence + clarifying-only → regen ≤1
+  {
+    const q = "분당 맛집 추천해줘";
+    const log = [];
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 맛집 추천",
+            voice_raw_candidate: "어떤 분위기나 음식 종류를 원하세요?",
+            proposal_direction: "조건 확인",
+            next_decision_point: ["한식", "일식"],
+            recommendation_basis: "clarifying only",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "일상 추천",
+            leadership_move: "조건 질문",
+          }),
+          s6Text:
+            "분당이면 서현 한정식 A, 정자 일식 B, 미금 캐주얼 C부터 볼 수 있어요. 담백한 한식·일식·캐주얼 중 어떤 분위기부터 맞출까요?",
+          log,
+        }),
+      },
+    );
+    assert.equal(log.filter((x) => x === "research").length, 1);
+    assert.equal(log.filter((x) => x === "borrowed").length, 1);
+    assert.equal(log.filter((x) => x === "s6").length, 1);
+    assert.equal(result.key_voice_trace.used_constrained_regen, true);
+    assert.ok(!/^어떤 분위기나 음식 종류를 원하세요\?$/.test(result.text.trim()));
+    assert.match(result.text, /한정식 A|일식 B|캐주얼 C/);
+  }
+
+  // T3 incomplete is covered by collectAnswerFacingSafetyFail unit (H) above;
+  // compose regen for claim_prep is exercised when Stage3 rejects incomplete voice.
 }
 
 // J. Provider smoke — only with explicit --provider-smoke AND key; default unit never calls network.

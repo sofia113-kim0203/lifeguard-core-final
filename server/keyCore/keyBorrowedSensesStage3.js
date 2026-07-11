@@ -16,6 +16,7 @@ import {
   voiceHasDailyInsurancePollution,
   voiceHasUnsourcedPublicAssertions,
   voiceHasUnsupportedPlaceClaims,
+  placeStage3PromoteBlockReason,
 } from "./keyBorrowedSensesStage2.js";
 
 export const STAGE3_SCHEMA = "s7-stage3-preview-active-v0";
@@ -505,6 +506,19 @@ export function decideStage3Promotion({
     }
     if (voiceHasUnsupportedPlaceClaims(voice, shadow?.public_research_evidence ?? null)) {
       return fail("unsupported_place_claim", {
+        gate: baseTrace.gate,
+        s7_voice: voice,
+        next_decision_point: nd,
+        mid_field_warnings: midFieldWarnings,
+      });
+    }
+    const placePromoteBlock = placeStage3PromoteBlockReason({
+      question,
+      voice,
+      publicResearchEvidence: shadow?.public_research_evidence ?? null,
+    });
+    if (placePromoteBlock) {
+      return fail(placePromoteBlock, {
         gate: baseTrace.gate,
         s7_voice: voice,
         next_decision_point: nd,

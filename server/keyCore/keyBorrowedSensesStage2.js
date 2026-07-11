@@ -3,6 +3,10 @@
  * Pure decision helpers. Does not call Claude. Does not soften gate.
  */
 import { isKeyBorrowedSensesStage2Partial, isVercelProductionEnv } from "./oneKeyCoreFlags.js";
+import {
+  isPlacePublicResearchRequest,
+  countGroundedPlaceCandidates,
+} from "./keyBorrowedSensesSpeak.js";
 
 export const STAGE2_SCHEMA = "s7-active-stage2-partial-v0";
 
@@ -349,6 +353,213 @@ export function voiceHasForbiddenCertainty(voice = "") {
   );
 }
 
+function isResearchSuccess(publicResearch = null) {
+  if (!publicResearch || typeof publicResearch !== "object") return false;
+  return (
+    String(publicResearch.status ?? "") === "success" &&
+    publicResearch.research_unavailable !== true
+  );
+}
+
+function placeNameGroundedInEvidence(name = "", publicResearch = null) {
+  const key = normalizePlaceKey(name);
+  if (key.length < 2) return false;
+  const grounded = buildGroundedPlaceBlob(publicResearch);
+  if (grounded.includes(key)) return true;
+  const results = Array.isArray(publicResearch?.results) ? publicResearch.results : [];
+  const titleTokens = results
+    .map((r) => normalizePlaceKey(r.title ?? ""))
+    .filter((t) => t.length >= 2);
+  if (titleTokens.some((t) => key.includes(t) || t.includes(key))) return true;
+  const citedTokens = (publicResearch?.citations ?? [])
+    .map((c) => normalizePlaceKey(c.cited_text ?? c.title ?? ""))
+    .filter((t) => t.length >= 2);
+  return citedTokens.some((t) => t.includes(key) || key.includes(t));
+}
+
+/** Grounded venue names actually present in the customer answer. */
+export function countGroundedPlaceMentionsInVoice(voice = "", publicResearch = null, question = "") {
+  const raw = String(voice ?? "");
+  const compactVoice = normalizePlaceKey(raw);
+  const hit = new Set();
+  const results = Array.isArray(publicResearch?.results) ? publicResearch.results : [];
+
+  for (const r of results) {
+    const title = String(r?.title ?? "").trim();
+    if (title.length < 2) continue;
+    const key = normalizePlaceKey(title);
+    if (key.length >= 2 && compactVoice.includes(key)) {
+      hit.add(key);
+      continue;
+    }
+    const parts = title.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const head = normalizePlaceKey(parts.slice(0, 2).join(" "));
+      if (head.length >= 4 && compactVoice.includes(head)) hit.add(key);
+    }
+  }
+  // Prefer evidence-title hits so compound extractions cannot inflate the count.
+  if (hit.size > 0) return hit.size;
+
+  for (const c of publicResearch?.citations ?? []) {
+    const title = String(c?.title ?? "").trim();
+    const key = normalizePlaceKey(title);
+    if (key.length >= 2 && compactVoice.includes(key)) hit.add(key);
+  }
+  if (hit.size > 0) return hit.size;
+
+  for (const name of extractMentionedPlaceCandidates(raw, { question })) {
+    if (placeNameGroundedInEvidence(name, publicResearch)) {
+      hit.add(normalizePlaceKey(name));
+    }
+  }
+  return hit.size;
+}
+
+function isPlaceClarifyingOnlyAnswer(voice = "", question = "", publicResearch = null) {
+  const v = String(voice ?? "").trim();
+  if (!v) return true;
+  if (countGroundedPlaceMentionsInVoice(v, publicResearch, question) > 0) return false;
+  if (extractMentionedPlaceCandidates(v, { question }).length > 0) return false;
+  return (
+    /원하(?:시|세)|있으신가요|어떤\s*(?:분위기|음식|곳|종류)|말씀해\s*주|알려\s*주|좁혀|맞출까요|볼까요/.test(
+      v,
+    ) || /지도에서\s*직접|네이버|카카오.{0,8}직접\s*찾아/.test(v)
+  );
+}
+
+function voiceHasPlaceChoiceReasons(voice = "") {
+  return /추천|담백|조용|편하|좋|한식|일식|중식|양식|캐주얼|분위기|이동|자리|자극|가족|부모|예약/.test(
+    String(voice ?? ""),
+  );
+}
+
+/**
+ * Place-recommend completeness — research success requires ≥3 grounded names in answer.
+ * search_not_used / insufficient / empty / error may clarify without 3 names.
+ * Missing research object + clarifying-only still fails (blocks bare promote).
+ */
+export function collectPlaceRequestCompletenessFail({
+  voice = "",
+  question = "",
+  publicResearchEvidence = null,
+} = {}) {
+  if (!isPlacePublicResearchRequest(question)) return null;
+  const v = String(voice ?? "").trim();
+  const status = String(publicResearchEvidence?.status ?? "");
+
+  // Explicit non-success research: clarifying / partial confirmed candidates allowed here
+  // (unsupported invented names still caught by voiceHasUnsupportedPlaceClaims).
+  if (
+    publicResearchEvidence &&
+    typeof publicResearchEvidence === "object" &&
+    !isResearchSuccess(publicResearchEvidence) &&
+    (status === "search_not_used" ||
+      status === "insufficient" ||
+      status === "empty" ||
+      status === "error" ||
+      status === "incomplete" ||
+      status === "skipped" ||
+      status === "unavailable")
+  ) {
+    return null;
+  }
+
+  if (!isResearchSuccess(publicResearchEvidence)) {
+    // No usable success evidence: clarifying-only is not a complete place answer.
+    if (isPlaceClarifyingOnlyAnswer(v, question, publicResearchEvidence)) {
+      return "place_request_unanswered";
+    }
+    const mentions = extractMentionedPlaceCandidates(v, { question });
+    if (mentions.length > 0 && mentions.length < 3) return "place_candidates_insufficient";
+    if (mentions.length === 0) return "place_candidates_missing";
+    return null;
+  }
+
+  const groundedMentions = countGroundedPlaceMentionsInVoice(v, publicResearchEvidence, question);
+  const evidenceCount = countGroundedPlaceCandidates(publicResearchEvidence);
+
+  if (groundedMentions === 0) {
+    if (
+      isPlaceClarifyingOnlyAnswer(v, question, publicResearchEvidence) ||
+      /[?？]|까요|세요|원하|분위기|음식\s*종류/.test(v)
+    ) {
+      return "place_request_unanswered";
+    }
+    return "place_candidates_missing";
+  }
+  if (groundedMentions < 3 || (evidenceCount >= 3 && groundedMentions < 3)) {
+    return "place_candidates_insufficient";
+  }
+  if (!voiceHasPlaceChoiceReasons(v)) return "place_candidates_missing";
+  return null;
+}
+
+export function isClaimPrepRequest({ question = "", decision = null } = {}) {
+  const priority = String(decision?.response_priority ?? "").trim();
+  const situation = String(decision?.situation_key ?? "").trim();
+  if (priority === "claim_prep" || situation === "claim_need_check") return true;
+  const q = String(question ?? "");
+  return /보험금|청구/.test(q) && /수술|걱정|받을\s*수|지급/.test(q);
+}
+
+/**
+ * Claim-prep completeness — category coverage, not fixed phrase list.
+ * Requires: (진단서|수술확인서) + (영수증|세부내역서) + (담보|계약 확인) signal,
+ * and surgery/diagnosis name check (ask or state).
+ */
+export function collectClaimPrepCompletenessFail({
+  voice = "",
+  question = "",
+  decision = null,
+} = {}) {
+  if (!isClaimPrepRequest({ question, decision })) return null;
+  // T2-style parent meal context without payout worry — skip
+  if (
+    isPlacePublicResearchRequest(question) ||
+    (/부모|모시|식사|맛집|식당/.test(String(question ?? "")) && !/보험금|청구/.test(String(question ?? "")))
+  ) {
+    return null;
+  }
+  const v = String(voice ?? "");
+  const hasDxOrSurgeryDoc = /진단서|수술확인서/.test(v);
+  const hasReceiptOrDetail = /영수증|세부내역서|진료비\s*세부/.test(v);
+  const hasCoverageOrContract = /담보|계약/.test(v);
+  const hasSurgeryOrDxCheck =
+    /수술명|진단명|어떤\s*수술|무슨\s*수술|수술\s*종류|진단\s*종류|수술이셨|어떤\s*진단/.test(v);
+  if (hasDxOrSurgeryDoc && hasReceiptOrDetail && hasCoverageOrContract && hasSurgeryOrDxCheck) {
+    return null;
+  }
+  return "claim_prep_incomplete";
+}
+
+/**
+ * Stage3 hard-promote gate for explicit place requests.
+ * Non-success research / <3 grounded answer mentions → block promote (S6 still allowed).
+ * Does not itself force constrained regeneration.
+ */
+export function placeStage3PromoteBlockReason({
+  question = "",
+  voice = "",
+  publicResearchEvidence = null,
+} = {}) {
+  if (!isPlacePublicResearchRequest(question)) return null;
+  const ev = publicResearchEvidence && typeof publicResearchEvidence === "object" ? publicResearchEvidence : null;
+  const status = String(ev?.status ?? "");
+  const success = Boolean(ev) && status === "success" && ev.research_unavailable !== true;
+  if (!success) {
+    return "place_promote_requires_research_success";
+  }
+  if (countGroundedPlaceCandidates(ev) < 3) {
+    return "place_promote_requires_research_success";
+  }
+  const groundedInAnswer = countGroundedPlaceMentionsInVoice(voice, ev, question);
+  if (groundedInAnswer < 3) {
+    return "place_promote_requires_grounded_candidates";
+  }
+  return null;
+}
+
 /** Soft promotion fails — never alone force constrained regeneration. */
 export const SOFT_PROMOTION_FAIL_REASONS = new Set([
   "wait_only",
@@ -424,6 +635,20 @@ export function collectAnswerFacingSafetyFail({
     return "unsupported_place_claim";
   }
 
+  const placeCompleteness = collectPlaceRequestCompletenessFail({
+    voice: v,
+    question,
+    publicResearchEvidence,
+  });
+  if (placeCompleteness) return placeCompleteness;
+
+  const claimCompleteness = collectClaimPrepCompletenessFail({
+    voice: v,
+    question,
+    decision,
+  });
+  if (claimCompleteness) return claimCompleteness;
+
   // Hard Gate flags only count when the answer text itself carries the risk.
   const voiceScoped = [
     [
@@ -488,6 +713,10 @@ export function shouldUseConstrainedAnswerRegen({
     "unsourced_public_assertion",
     "unsupported_place_claim",
     "unsupported_public_research_claim",
+    "place_request_unanswered",
+    "place_candidates_missing",
+    "place_candidates_insufficient",
+    "claim_prep_incomplete",
     "unsupported_recommendation",
     "product_push_as_direction",
     "closing_or_signup_push",
@@ -522,10 +751,21 @@ export function canSoftApproveBorrowedVoice({
   gate = null,
   failReason = "",
   midFieldWarnings = [],
+  publicResearchEvidence = null,
 } = {}) {
   const v = String(voice ?? "").trim();
   if (!v) return false;
   if (isWaitOnlyVoice(v)) return false;
+  // Never soft-promote incomplete place / claim-prep answers (Compose may omit evidence arg).
+  if (isPlacePublicResearchRequest(question)) {
+    const placeBlock = placeStage3PromoteBlockReason({
+      question,
+      voice: v,
+      publicResearchEvidence,
+    });
+    if (placeBlock) return false;
+  }
+  if (collectClaimPrepCompletenessFail({ voice: v, question, decision })) return false;
   const soft =
     isSoftPromotionFailReason(failReason) ||
     (Array.isArray(midFieldWarnings) &&
@@ -538,6 +778,7 @@ export function canSoftApproveBorrowedVoice({
     voice: v,
     question,
     decision,
+    publicResearchEvidence,
   });
   return safety == null || safety === "gate_missing";
 }

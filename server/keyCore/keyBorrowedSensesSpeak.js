@@ -152,9 +152,9 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
     lines.push(
       "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
       "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url).",
-      "For 맛집/장소: when status is success, prefer at least 3 grounded candidates with one concrete reason each; include area or cuisine when present in evidence.",
+      "For 맛집/장소: when status is success, you MUST name at least 3 grounded place candidates with one concrete reason each; a clarifying question alone is NOT a complete answer; include area or cuisine when present in evidence.",
       "If status_detail is research_search_not_used or research_insufficient or research_unavailable: do NOT invent restaurant names; say what could not be confirmed or only name confirmed candidates; ask ONE clarifying condition; never mention insurance.",
-      "FORBIDDEN: invent restaurant names; assert rating/hours/parking/price/distance/address/exit/floor/building not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
+      "FORBIDDEN: invent restaurant names; end with only '어떤 분위기/음식 종류를 원하세요?' when status is success; assert rating/hours/parking/price/distance/address/exit/floor/building not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
     );
   }
   return lines.join(" ");
@@ -173,7 +173,18 @@ export function isPlacePublicResearchRequest(question = "") {
 export function shouldEnablePublicWebSearch({ question = "", decision = null } = {}) {
   const priority = String(decision?.response_priority ?? "").trim();
   const situation = String(decision?.situation_key ?? "").trim();
+  // T3 claim path: public search stays off.
   if (priority === "claim_prep" || situation === "claim_need_check") return false;
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  if (
+    /보험금|청구|담보|진단서|영수증|보험료|암\s*보장|암\s*보험|가입|해지|보장\s*충분/.test(q) &&
+    !/맛집|식당|카페|레스토랑|여행|관광|부모님\s*모시/.test(q)
+  ) {
+    return false;
+  }
+  // Explicit place/venue recommend: search wins over fact_lookup / direction_choice / etc.
+  if (isPlacePublicResearchRequest(q)) return true;
   if (
     priority === "premium_adequacy_check" ||
     priority === "cancer_axis_check" ||
@@ -184,15 +195,6 @@ export function shouldEnablePublicWebSearch({ question = "", decision = null } =
   ) {
     return false;
   }
-  const q = String(question ?? "").trim();
-  if (!q) return false;
-  if (
-    /보험금|청구|담보|진단서|영수증|보험료|암\s*보장|암\s*보험|가입|해지|보장\s*충분/.test(q) &&
-    !/맛집|식당|여행|관광|부모님\s*모시/.test(q)
-  ) {
-    return false;
-  }
-  if (isPlacePublicResearchRequest(q)) return true;
   return /여행|관광|부모님\s*모시|외출/.test(q);
 }
 
@@ -1253,6 +1255,9 @@ async function callClaudeBorrowedSenses({
 
   // --- PHASE 2: emit only (never mixed with web_search) ---
   const researchOk = researchEvidence.status === "success" && researchEvidence.research_unavailable !== true;
+  const placeRequest = isPlacePublicResearchRequest(
+    userPayload?.customer_question ?? userPayload?.question ?? "",
+  );
   const emitPayload = {
     ...userPayload,
     key_public_research_evidence: {
@@ -1275,19 +1280,31 @@ async function callClaudeBorrowedSenses({
       })),
       chart: {
         current_goal: researchOk
-          ? "공개 검색 evidence에 있는 장소·사실만으로 답하기"
+          ? placeRequest
+            ? "evidence grounded 장소 후보 3곳 이상을 반드시 제시하고 각각 이유 1개"
+            : "공개 검색 evidence에 있는 장소·사실만으로 답하기"
           : researchEvidence.status_detail === "research_search_not_used"
             ? "research_search_not_used — 구체 장소명 창작 금지, 확인 못 함 + 조건 1개"
             : researchEvidence.status_detail === "research_insufficient"
               ? "research_insufficient — 확인된 후보만 말하거나 조건 1개로 다음 검색 연결"
               : "research_unavailable — 장소명 창작 금지, 확인 못 한 점 솔직히 + 조건 1개",
         allowed: researchOk
-          ? ["evidence 장소 후보", "식별 가능한 지역·음식 종류", "확인 질문 1개"]
+          ? placeRequest
+            ? [
+                "evidence grounded 장소 후보 3곳 이상 필수",
+                "장소별 선택 이유 1개",
+                "후보 제시 후 확인 질문 1개(선택)",
+              ]
+            : ["evidence 장소 후보", "식별 가능한 지역·음식 종류", "확인 질문 1개"]
           : ["확인된 후보만(있을 때)", "확인 못 함 솔직 안내", "조건 1개 질문"],
         forbidden: [
           "evidence 없는 식당명",
+          ...(placeRequest && researchOk
+            ? ["후보 0~2곳만 제시", "분위기·음식 종류 확인 질문만으로 종료"]
+            : []),
           "출처 없는 평점·영업시간·주차·가격·주소·역출구·건물·층수",
           "보험 언급·보험 초대",
+          "지도/네이버/카카오에서 직접 찾아보세요 책임 전가",
         ],
       },
     },
