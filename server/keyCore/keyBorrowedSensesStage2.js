@@ -180,11 +180,33 @@ export function voiceHasDailyInsurancePollution(voice = "", question = "") {
   );
 }
 
-/** Unverified public-detail assertions (rating / hours / parking / price / distance) — answer-facing fail. */
-export function voiceHasUnsourcedPublicAssertions(voice = "") {
+/**
+ * Exact unsourced public-detail assertions (rating digits / hours / parking / price / distance).
+ * Soft comparatives like "높은 평점", "자주 언급되는 편" are NOT fails.
+ * Rating digits present in a single evidence segment are allowed.
+ */
+export function voiceHasUnsourcedPublicAssertions(voice = "", publicResearch = null) {
   const v = String(voice ?? "");
+  const segments = collectEvidenceTextSegments(publicResearch);
+  const ratingRe = /평점\s*([\d.]+)|별점\s*([\d.]+)|([\d.]+)\s*점(?:이에요|입니다|예요)/g;
+  let m;
+  while ((m = ratingRe.exec(v)) !== null) {
+    const num = String(m[1] || m[2] || m[3] || "").trim();
+    if (!num) continue;
+    const compact = normalizePlaceKey(num);
+    const inEvidence = segments.some((seg) => {
+      const s = normalizePlaceKey(seg);
+      return (
+        s.includes(compact) ||
+        s.includes(`평점${compact}`) ||
+        s.includes(`별점${compact}`) ||
+        String(seg).includes(num)
+      );
+    });
+    if (inEvidence) continue;
+    return true;
+  }
   return (
-    /평점\s*[\d.]+|별점\s*[\d.]+|[\d.]+\s*점(?:이에요|입니다|예요)/.test(v) ||
     /영업\s*시간(?:은|이)?\s*(?:오전|오후|\d)|오늘\s*(?:도\s*)?영업|까지\s*영업/.test(v) ||
     /주차\s*(?:가능|불가|무료|편하|쉽)/.test(v) ||
     /(?:가격|금액).{0,8}(?:원|만\s*원)/.test(v) ||
@@ -196,29 +218,150 @@ function normalizePlaceKey(s = "") {
   return String(s ?? "")
     .toLowerCase()
     .replace(/\s+/g, "")
-    .replace(/[.,·]/g, "");
+    .replace(/[.,·★☆*]/g, "");
 }
 
-function buildGroundedPlaceBlob(publicResearch = null) {
-  const parts = [];
+function normalizeSegmentSpacing(s = "") {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[.,·★☆*「」『』"'“”‘’]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Independent evidence text segments — never join across field/result/citation boundaries.
+ */
+export function collectEvidenceTextSegments(publicResearch = null) {
+  if (!publicResearch || typeof publicResearch !== "object") return [];
+  const segments = [];
+  const push = (value) => {
+    const t = String(value ?? "").trim();
+    if (t.length >= 1) segments.push(t);
+  };
   for (const r of publicResearch?.results ?? []) {
-    parts.push(r.title, r.url, r.page_age, r.claim_or_summary);
+    push(r?.title);
+    push(r?.snippet);
+    push(r?.cited_text);
+    push(r?.claim_or_summary);
+    push(r?.summary);
+    push(r?.text);
   }
   for (const c of publicResearch?.citations ?? []) {
-    parts.push(c.title, c.cited_text, c.url);
+    push(c?.title);
+    push(c?.cited_text);
+    push(c?.claim_or_summary);
+    push(c?.snippet);
+    push(c?.summary);
+    push(c?.text);
+  }
+  // citation_text_blob may itself concatenate citations — split on newlines only (same-source lines)
+  if (publicResearch?.citation_text_blob) {
+    for (const line of String(publicResearch.citation_text_blob).split(/\n+/)) push(line);
   }
   const summary = publicResearch?.customer_facing_summary;
   if (summary && typeof summary === "object") {
-    for (const t of summary.title_previews ?? []) parts.push(t);
+    for (const t of summary.title_previews ?? []) push(t);
   }
-  return normalizePlaceKey(parts.filter(Boolean).join(" "));
+  for (const name of publicResearch?.grounded_place_candidates ?? []) push(name);
+  for (const name of publicResearch?.extracted_place_candidates ?? []) push(name);
+  return segments;
+}
+
+const PLACE_NAME_PARTICLES =
+  "은|는|이|가|을|를|도|만|부터|까지|에서|으로|로|와|과|의|에|께|한테|이나|나";
+
+/**
+ * True when place name appears as an independent lexical unit inside ONE segment.
+ * Allows trailing Korean particles. Forbids cross-field join and reverse substring.
+ */
+export function placeNameAppearsInSegment(name = "", segment = "") {
+  const rawName = String(name ?? "").trim();
+  const rawSeg = String(segment ?? "").trim();
+  if (rawName.length < 2 || !rawSeg) return false;
+  const nameKey = normalizePlaceKey(rawName);
+  if (nameKey.length < 2) return false;
+
+  // Exact equality against a candidate-name segment
+  if (normalizePlaceKey(rawSeg) === nameKey) return true;
+
+  const seg = normalizeSegmentSpacing(rawSeg);
+  const nameSpaced = normalizeSegmentSpacing(rawName);
+  if (!seg || !nameSpaced) return false;
+
+  const escaped = nameSpaced.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*");
+  const re = new RegExp(
+    `(^|[^0-9A-Za-z가-힣])${escaped}(?:${PLACE_NAME_PARTICLES})?(?=$|[^0-9A-Za-z가-힣])`,
+    "i",
+  );
+  return re.test(seg);
+}
+
+function listExplicitGroundedCandidateNames(publicResearch = null) {
+  const names = [];
+  for (const name of publicResearch?.grounded_place_candidates ?? []) {
+    if (String(name ?? "").trim()) names.push(String(name).trim());
+  }
+  for (const name of publicResearch?.extracted_place_candidates ?? []) {
+    if (String(name ?? "").trim()) names.push(String(name).trim());
+  }
+  return [...new Set(names)];
+}
+
+/**
+ * Place grounded iff exact candidate match OR independent appearance in one evidence segment.
+ * Never uses a globally joined blob. Never uses key.includes(text).
+ */
+export function placeNameGroundedInEvidence(name = "", publicResearch = null) {
+  const rawName = String(name ?? "").trim();
+  if (rawName.length < 2) return false;
+  const nameKey = normalizePlaceKey(rawName);
+  if (nameKey.length < 2) return false;
+
+  for (const cand of listExplicitGroundedCandidateNames(publicResearch)) {
+    if (normalizePlaceKey(cand) === nameKey) return true;
+  }
+  for (const seg of collectEvidenceTextSegments(publicResearch)) {
+    if (placeNameAppearsInSegment(rawName, seg)) return true;
+  }
+  return false;
 }
 
 const BROAD_AREA_ONLY =
   /^(분당|정자|정자동|서현|미금|판교|야탑|수내|오리|강남|서울|경기|인근|근처|쪽|한식|일식|중식|양식|분위기|동행)$/;
 
-/** Concrete venue-like mentions (suffix / quoted) — not bare common nouns or broad areas. */
-export function extractMentionedPlaceCandidates(voice = "", { question = "" } = {}) {
+const NON_VENUE_PARTICLE_NAME =
+  /^(지금|방금|오늘|내일|여기|저기|그것|이것|현재|언급|언급되|아버지|어머니|부모님|부모|수술|보험|보험금|분당|정자|정자동|서현|미금|판교|야탑|수내|오리|강남|서울|경기|쪽|곳|리스트|현지인|추천|조합|평점|다이닝|코드|스시|중식|한식|일식|양식|모임|장소|음식|종류|동네|후보|분위기|이동|식사|외출|걱정|계약|담보|진단서|영수증|선호|하나만|공개|확인)$/;
+
+function looksLikeVenueName(name = "") {
+  const c = String(name ?? "").replace(/\s+/g, "");
+  if (c.length < 2 || c.length > 16) return false;
+  if (NON_VENUE_PARTICLE_NAME.test(c) || BROAD_AREA_ONLY.test(c)) return false;
+  // Bare category nouns are not concrete venues.
+  if (/^(맛집|식당|카페|레스토랑|스시|한식|일식|중식|양식|인원|지원|회원|정원|병원|의원)$/.test(c)) {
+    return false;
+  }
+  if (
+    /(?:점|정|관|옥|루|향|당|촌|각|헌|식당|카페|스시|한정식|일식|중식|양식|베이커리|뷔페|캐주얼|브런치)$/.test(
+      c,
+    )
+  ) {
+    return true;
+  }
+  // "...원" restaurant names (윤밀원) — exclude common non-venue 원 words
+  if (/원$/.test(c) && !/^(인원|지원|회원|정원|기원|차원|병원|의원|공원|학원)$/.test(c)) {
+    return true;
+  }
+  // Mixed Korean + Latin/digit labels like "한정식 A"
+  if (/[가-힣]/.test(c) && /[A-Za-z0-9]/.test(c)) return true;
+  return false;
+}
+
+/** Concrete venue-like mentions (suffix / quoted / topic particle) — not bare common nouns or broad areas. */
+export function extractMentionedPlaceCandidates(
+  voice = "",
+  { question = "", publicResearch = null } = {},
+) {
   const v = String(voice ?? "");
   const qNorm = normalizePlaceKey(question);
   const found = [];
@@ -226,7 +369,9 @@ export function extractMentionedPlaceCandidates(voice = "", { question = "" } = 
     /(?:^|[\s·,/"“‘'])([가-힣A-Za-z0-9]+(?:\s+[가-힣A-Za-z0-9]+){0,3}(?:한정식|일식|중식|양식|식당|카페|레스토랑|고기집|국밥|스시|베이커리|뷔페|캐주얼|브런치|맛집))/g;
   const quotedRe = /[「『"“‘']([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{1,24})[」』"”’']/g;
   const recommendRe =
-    /([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{1,24}?)\s*(?:을|를)?\s*(?:추천(?:해|한|합|드)|먼저\s*볼\s*수)/g;
+    /([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]{0,20}?)\s*(?:을|를)?\s*(?:추천(?:해|한|합|드)|먼저\s*볼\s*수)/g;
+  // "윤밀원은", "은뜸이", "팔복도" — only keep if venue-like or grounded in full evidence
+  const particleRe = /([가-힣][가-힣A-Za-z0-9]{1,11})(?:은|는|이|가|도)(?:\s|[,，·]|$)/g;
   for (const re of [suffixRe, quotedRe, recommendRe]) {
     let m;
     while ((m = re.exec(v)) !== null) {
@@ -234,11 +379,32 @@ export function extractMentionedPlaceCandidates(voice = "", { question = "" } = 
       if (name.length < 2) continue;
       const compact = name.replace(/\s+/g, "");
       if (BROAD_AREA_ONLY.test(compact)) continue;
-      if (/^(한식|일식|중식|양식|캐주얼|브런치|분위기|동행|선택지)$/.test(compact)) continue;
+      if (/^(한식|일식|중식|양식|캐주얼|브런치|분위기|동행|선택지|지금|맛집|식당|카페|인원)$/.test(compact)) continue;
+      if (NON_VENUE_PARTICLE_NAME.test(compact)) continue;
+      // Prefer the venue tail when recommendRe swallowed a long lead-in ("지금은 서현 한정식 A")
+      if (re === recommendRe && /\s/.test(name)) {
+        const parts = name.split(/\s+/).filter(Boolean);
+        const tail = parts.slice(-2).join(" ");
+        if (looksLikeVenueName(tail) || /(?:한정식|일식|중식|양식|식당|카페|맛집)/.test(tail)) {
+          found.push(tail);
+          continue;
+        }
+      }
       const key = normalizePlaceKey(name);
       if (qNorm && key.length <= 4 && qNorm.includes(key) && BROAD_AREA_ONLY.test(key)) continue;
       found.push(name);
     }
+  }
+  let pm;
+  while ((pm = particleRe.exec(v)) !== null) {
+    const name = String(pm[1] ?? "").trim();
+    if (name.length < 2) continue;
+    const compact = name.replace(/\s+/g, "");
+    if (BROAD_AREA_ONLY.test(compact) || NON_VENUE_PARTICLE_NAME.test(compact)) continue;
+    const grounded =
+      publicResearch && placeNameGroundedInEvidence(name, publicResearch);
+    if (!grounded && !looksLikeVenueName(name)) continue;
+    found.push(name);
   }
   return [...new Set(found)];
 }
@@ -289,12 +455,18 @@ export function voiceHasUnsupportedAddressClaims(voice = "", publicResearch = nu
   if (isResearchUnavailable(publicResearch) && !(publicResearch.results ?? []).length) {
     return true;
   }
-  const grounded = buildGroundedPlaceBlob(publicResearch);
-  if (!grounded) return true;
+  const segments = collectEvidenceTextSegments(publicResearch);
+  if (!segments.length) return true;
   return claims.some((claim) => {
-    const key = normalizePlaceKey(claim);
-    if (key.length < 2) return false;
-    return !grounded.includes(key);
+    const c = String(claim ?? "").trim();
+    if (c.length < 2) return false;
+    return !segments.some((seg) => {
+      if (String(seg).includes(c)) return true;
+      const key = normalizePlaceKey(c);
+      const segKey = normalizePlaceKey(seg);
+      // Within a single segment only — never across joined fields.
+      return key.length >= 4 && segKey.includes(key);
+    });
   });
 }
 
@@ -307,11 +479,11 @@ export function voiceHasUnsupportedPlaceClaims(voice = "", publicResearch = null
   if (voiceHasUnsupportedAddressClaims(voice, publicResearch)) return true;
   const status = String(publicResearch.status ?? "");
   const results = Array.isArray(publicResearch.results) ? publicResearch.results : [];
-  const mentioned = extractMentionedPlaceCandidates(voice, { question });
+  const mentioned = extractMentionedPlaceCandidates(voice, { question, publicResearch });
   if (!mentioned.length) return false;
 
   // No grounded candidates at all → any concrete venue mention fails.
-  if (!results.length) {
+  if (!results.length && collectEvidenceTextSegments(publicResearch).length === 0) {
     return (
       publicResearch.research_unavailable === true ||
       status === "empty" ||
@@ -325,23 +497,8 @@ export function voiceHasUnsupportedPlaceClaims(voice = "", publicResearch = null
     );
   }
 
-  // success / insufficient with partial results: only ungrounded names fail (confirmed candidates OK).
-  const grounded = buildGroundedPlaceBlob(publicResearch);
-  if (!grounded) return mentioned.length > 0;
-  return mentioned.some((name) => {
-    const key = normalizePlaceKey(name);
-    if (key.length < 2) return false;
-    if (grounded.includes(key)) return false;
-    const titleTokens = results
-      .map((r) => normalizePlaceKey(r.title ?? ""))
-      .filter((t) => t.length >= 2);
-    if (titleTokens.some((t) => key.includes(t) || t.includes(key))) return false;
-    const citedTokens = (publicResearch.citations ?? [])
-      .map((c) => normalizePlaceKey(c.cited_text ?? c.title ?? ""))
-      .filter((t) => t.length >= 2);
-    if (citedTokens.some((t) => t.includes(key) || key.includes(t))) return false;
-    return true;
-  });
+  // Only ungrounded names fail — segment-grounded names OK.
+  return mentioned.some((name) => !placeNameGroundedInEvidence(name, publicResearch));
 }
 
 export function voiceHasForbiddenCertainty(voice = "") {
@@ -353,6 +510,33 @@ export function voiceHasForbiddenCertainty(voice = "") {
   );
 }
 
+/**
+ * Customer-specific coverage/contract assertions without verified contract evidence.
+ * Checklist gaps are NOT fails — only affirming the customer's actual holdings/payout.
+ */
+export function voiceHasUnverifiedCustomerCoverageClaim(voice = "") {
+  const v = String(voice ?? "").trim();
+  if (!v) return false;
+  // Natural check / ask paths stay allowed.
+  if (
+    /확인(?:해|해\s*볼|해야|하(?:면|고|겠))|봐야\s*(?:합|알)|있는지\s*(?:함께|확인)|단정할\s*수\s*없/.test(
+      v,
+    ) &&
+    !/담보가\s*있습니다|보장됩니다|가입되어\s*있습니다|받을\s*수\s*있습니다/.test(v)
+  ) {
+    return false;
+  }
+  return (
+    /가입하신\s*보험에.{0,24}담보가\s*있습니다/.test(v) ||
+    /가입하신\s*(?:보험|계약).{0,24}(?:담보가\s*있습|보장됩니다)/.test(v) ||
+    /고객님\s*계약에서.{0,24}보장됩니다/.test(v) ||
+    /고객님(?:의)?\s*(?:보험|계약|담보).{0,24}(?:있습니다|보장됩니다|가입되어)/.test(v) ||
+    /현재\s*보험으로\s*보험금(?:을\s*)?받을\s*수\s*있습니다/.test(v) ||
+    /[가-힣]{2,6}님은.{0,28}(?:가입되어\s*있습니다|담보가\s*있습니다)/.test(v) ||
+    /수술비는\s*[\d만천]/.test(v)
+  );
+}
+
 function isResearchSuccess(publicResearch = null) {
   if (!publicResearch || typeof publicResearch !== "object") return false;
   return (
@@ -361,56 +545,35 @@ function isResearchSuccess(publicResearch = null) {
   );
 }
 
-function placeNameGroundedInEvidence(name = "", publicResearch = null) {
-  const key = normalizePlaceKey(name);
-  if (key.length < 2) return false;
-  const grounded = buildGroundedPlaceBlob(publicResearch);
-  if (grounded.includes(key)) return true;
-  const results = Array.isArray(publicResearch?.results) ? publicResearch.results : [];
-  const titleTokens = results
-    .map((r) => normalizePlaceKey(r.title ?? ""))
-    .filter((t) => t.length >= 2);
-  if (titleTokens.some((t) => key.includes(t) || t.includes(key))) return true;
-  const citedTokens = (publicResearch?.citations ?? [])
-    .map((c) => normalizePlaceKey(c.cited_text ?? c.title ?? ""))
-    .filter((t) => t.length >= 2);
-  return citedTokens.some((t) => t.includes(key) || key.includes(t));
-}
-
 /** Grounded venue names actually present in the customer answer. */
 export function countGroundedPlaceMentionsInVoice(voice = "", publicResearch = null, question = "") {
   const raw = String(voice ?? "");
-  const compactVoice = normalizePlaceKey(raw);
   const hit = new Set();
-  const results = Array.isArray(publicResearch?.results) ? publicResearch.results : [];
+  const add = (name) => {
+    const key = normalizePlaceKey(name);
+    if (key.length < 2) return;
+    for (const existing of [...hit]) {
+      if (existing === key) return;
+      // Prefer the longer venue key when one contains the other (counting only).
+      if (existing.includes(key)) return;
+      if (key.includes(existing)) hit.delete(existing);
+    }
+    hit.add(key);
+  };
 
-  for (const r of results) {
+  for (const name of extractMentionedPlaceCandidates(raw, { question, publicResearch })) {
+    if (placeNameGroundedInEvidence(name, publicResearch)) add(name);
+  }
+  for (const cand of listExplicitGroundedCandidateNames(publicResearch)) {
+    if (placeNameAppearsInSegment(cand, raw) && placeNameGroundedInEvidence(cand, publicResearch)) {
+      add(cand);
+    }
+  }
+  for (const r of publicResearch?.results ?? []) {
     const title = String(r?.title ?? "").trim();
-    if (title.length < 2) continue;
-    const key = normalizePlaceKey(title);
-    if (key.length >= 2 && compactVoice.includes(key)) {
-      hit.add(key);
-      continue;
-    }
-    const parts = title.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      const head = normalizePlaceKey(parts.slice(0, 2).join(" "));
-      if (head.length >= 4 && compactVoice.includes(head)) hit.add(key);
-    }
-  }
-  // Prefer evidence-title hits so compound extractions cannot inflate the count.
-  if (hit.size > 0) return hit.size;
-
-  for (const c of publicResearch?.citations ?? []) {
-    const title = String(c?.title ?? "").trim();
-    const key = normalizePlaceKey(title);
-    if (key.length >= 2 && compactVoice.includes(key)) hit.add(key);
-  }
-  if (hit.size > 0) return hit.size;
-
-  for (const name of extractMentionedPlaceCandidates(raw, { question })) {
-    if (placeNameGroundedInEvidence(name, publicResearch)) {
-      hit.add(normalizePlaceKey(name));
+    if (title.length < 2 || title.length > 40) continue;
+    if (placeNameAppearsInSegment(title, raw) && placeNameGroundedInEvidence(title, publicResearch)) {
+      add(title);
     }
   }
   return hit.size;
@@ -420,7 +583,7 @@ function isPlaceClarifyingOnlyAnswer(voice = "", question = "", publicResearch =
   const v = String(voice ?? "").trim();
   if (!v) return true;
   if (countGroundedPlaceMentionsInVoice(v, publicResearch, question) > 0) return false;
-  if (extractMentionedPlaceCandidates(v, { question }).length > 0) return false;
+  if (extractMentionedPlaceCandidates(v, { question, publicResearch }).length > 0) return false;
   return (
     /원하(?:시|세)|있으신가요|어떤\s*(?:분위기|음식|곳|종류)|말씀해\s*주|알려\s*주|좁혀|맞출까요|볼까요/.test(
       v,
@@ -471,7 +634,7 @@ export function collectPlaceRequestCompletenessFail({
     if (isPlaceClarifyingOnlyAnswer(v, question, publicResearchEvidence)) {
       return "place_request_unanswered";
     }
-    if (extractMentionedPlaceCandidates(v, { question }).length === 0) {
+    if (extractMentionedPlaceCandidates(v, { question, publicResearch: publicResearchEvidence }).length === 0) {
       return "place_candidates_missing";
     }
     return null;
@@ -501,9 +664,9 @@ export function isClaimPrepRequest({ question = "", decision = null } = {}) {
 }
 
 /**
- * Claim-prep completeness — category coverage, not fixed phrase list.
- * Requires: (진단서|수술확인서) + (영수증|세부내역서) + (담보|계약 확인) signal,
- * and surgery/diagnosis name check (ask or state).
+ * Claim-prep checklist coverage — diagnostic only.
+ * Missing docs/surgery-name items are NOT answer-facing hard fails or regen triggers.
+ * Dangerous payout certainty / fake contract facts remain blocked elsewhere.
  */
 export function collectClaimPrepCompletenessFail({
   voice = "",
@@ -527,6 +690,7 @@ export function collectClaimPrepCompletenessFail({
   if (hasDxOrSurgeryDoc && hasReceiptOrDetail && hasCoverageOrContract && hasSurgeryOrDxCheck) {
     return null;
   }
+  // Soft diagnostic signal only — callers must not hard-fail or regen on this alone.
   return "claim_prep_incomplete";
 }
 
@@ -564,6 +728,8 @@ export const SOFT_PROMOTION_FAIL_REASONS = new Set([
   "mid_field_leadership_not_adopted",
   "mid_field_insurance_drift",
   "stage3_promotion_blocked",
+  "place_promote_requires_research_success",
+  "place_promote_requires_grounded_candidates",
 ]);
 
 export function isSoftPromotionFailReason(reason = "") {
@@ -616,10 +782,11 @@ export function collectAnswerFacingSafetyFail({
 
   if (hasHardSalesPush(v)) return "hard_sales_push";
   if (voiceHasForbiddenCertainty(v)) return "answer_forbidden_certainty";
+  if (voiceHasUnverifiedCustomerCoverageClaim(v)) return "unverified_customer_coverage_claim";
   if (isDailyOwnedDecisionFocus(decision) && voiceHasDailyInsurancePollution(v, question)) {
     return "decision_mismatch_insurance_pollution";
   }
-  if (isDailyOwnedDecisionFocus(decision) && voiceHasUnsourcedPublicAssertions(v)) {
+  if (isDailyOwnedDecisionFocus(decision) && voiceHasUnsourcedPublicAssertions(v, publicResearchEvidence)) {
     return "unsourced_public_assertion";
   }
   if (isDailyOwnedDecisionFocus(decision) && voiceHasUnsupportedAddressClaims(v, publicResearchEvidence)) {
@@ -639,12 +806,7 @@ export function collectAnswerFacingSafetyFail({
   });
   if (placeCompleteness) return placeCompleteness;
 
-  const claimCompleteness = collectClaimPrepCompletenessFail({
-    voice: v,
-    question,
-    decision,
-  });
-  if (claimCompleteness) return claimCompleteness;
+  // claim_prep checklist gaps are soft diagnostics only — do not hard-fail useful answers.
 
   // Hard Gate flags only count when the answer text itself carries the risk.
   const voiceScoped = [
@@ -713,7 +875,7 @@ export function shouldUseConstrainedAnswerRegen({
     "place_request_unanswered",
     "place_candidates_missing",
     "place_candidates_insufficient",
-    "claim_prep_incomplete",
+    "unverified_customer_coverage_claim",
     "unsupported_recommendation",
     "product_push_as_direction",
     "closing_or_signup_push",
@@ -753,16 +915,10 @@ export function canSoftApproveBorrowedVoice({
   const v = String(voice ?? "").trim();
   if (!v) return false;
   if (isWaitOnlyVoice(v)) return false;
-  // Never soft-promote incomplete place / claim-prep answers (Compose may omit evidence arg).
-  if (isPlacePublicResearchRequest(question)) {
-    const placeBlock = placeStage3PromoteBlockReason({
-      question,
-      voice: v,
-      publicResearchEvidence,
-    });
-    if (placeBlock) return false;
-  }
-  if (collectClaimPrepCompletenessFail({ voice: v, question, decision })) return false;
+  // Missing gate is not a safe answer — never soft-approve.
+  if (!gate || typeof gate !== "object") return false;
+  // Place incompleteness / invent / pollution still veto via answer-facing safety below.
+  // Internal place-promote thresholds and claim-prep checklists alone do not block soft-approve.
   const soft =
     isSoftPromotionFailReason(failReason) ||
     (Array.isArray(midFieldWarnings) &&
@@ -771,13 +927,14 @@ export function canSoftApproveBorrowedVoice({
       (!failReason || isSoftPromotionFailReason(failReason)));
   if (!soft) return false;
   const safety = collectAnswerFacingSafetyFail({
-    gate: gate && typeof gate === "object" ? gate : { ok: true },
+    gate,
     voice: v,
     question,
     decision,
     publicResearchEvidence,
   });
-  return safety == null || safety === "gate_missing";
+  // gate_missing / hard safety fails never soft-approve.
+  return safety == null;
 }
 
 /**

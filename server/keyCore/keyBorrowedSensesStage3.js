@@ -16,6 +16,7 @@ import {
   voiceHasDailyInsurancePollution,
   voiceHasUnsourcedPublicAssertions,
   voiceHasUnsupportedPlaceClaims,
+  voiceHasUnverifiedCustomerCoverageClaim,
   placeStage3PromoteBlockReason,
 } from "./keyBorrowedSensesStage2.js";
 
@@ -72,8 +73,7 @@ function passesFullVoiceMinimum(borrowed = {}, voice = "") {
 
 /** Soft block: asserting unverified personal medical/claim facts in daily lane. */
 function hasUnverifiedCustomerFactClaim(voice = "") {
-  const v = String(voice ?? "");
-  return /수술비는\s*[\d만천]|보험금\s*(?:받|지급).{0,8}(?:됩니다|가능합니다|확실)/.test(v);
+  return voiceHasUnverifiedCustomerCoverageClaim(voice);
 }
 
 function snapshotGate(gate) {
@@ -496,7 +496,7 @@ export function decideStage3Promotion({
         mid_field_warnings: midFieldWarnings,
       });
     }
-    if (voiceHasUnsourcedPublicAssertions(voice)) {
+    if (voiceHasUnsourcedPublicAssertions(voice, shadow?.public_research_evidence ?? null)) {
       return fail("unsourced_public_assertion", {
         gate: baseTrace.gate,
         s7_voice: voice,

@@ -1675,6 +1675,10 @@ function normalizeComposeText(text = "") {
     voiceHasUnsourcedPublicAssertions,
     voiceHasUnsupportedPlaceClaims,
     voiceHasUnsupportedAddressClaims,
+    voiceHasUnverifiedCustomerCoverageClaim,
+    placeNameGroundedInEvidence,
+    placeNameAppearsInSegment,
+    extractMentionedPlaceCandidates,
     shouldUseConstrainedAnswerRegen,
     canSoftApproveBorrowedVoice,
     isSoftPromotionFailReason,
@@ -1892,60 +1896,128 @@ function normalizeComposeText(text = "") {
   );
   assert.equal(voiceHasUnsourcedPublicAssertions("평점 4.8점이에요. 주차 가능합니다."), true);
   assert.equal(voiceHasUnsourcedPublicAssertions("서현 한정식 A가 담백해서 좋아요."), false);
+  assert.equal(
+    voiceHasUnsourcedPublicAssertions("윤밀원은 다이닝코드에서도 높은 평점을 유지하고 있어요."),
+    false,
+  );
 
-  // Completeness Gate A–I (place answer simplification: grounded ≥1)
+  // Over-gating relaxation A–J
   {
     const daily = { response_priority: "daily_focus", situation_key: "daily_recommendation" };
-    const successEv = {
+    const claimDec = { response_priority: "claim_prep", situation_key: "claim_need_check" };
+    // A. full evidence has 윤밀원·은뜸·팔복; candidate chart titles only list pages / 윤밀원
+    const chartNarrowEv = {
       status: "success",
       research_unavailable: false,
-      results: researchEvidence.results,
-      citations: researchEvidence.citations,
+      grounded_place_candidates: ["윤밀원"],
+      results: [
+        {
+          title: "분당 맛집 추천 TOP 5, 현지인 강추 리스트",
+          url: "https://example.com/list",
+          claim_or_summary:
+            "야들야들한 족발과 막국수의 윤밀원, 서현 스시 은뜸, 수내 중식 팔복이 자주 언급됩니다.",
+        },
+        { title: "분당 맛집 Top100 - 다이닝코드", url: "https://diningcode.example/bundang" },
+      ],
+      citations: [
+        {
+          title: "분당 맛집 추천 베스트",
+          url: "https://example.com/list",
+          cited_text: "윤밀원 · 은뜸 · 팔복이 리스트에 꾸준히 오릅니다.",
+        },
+      ],
+    };
+    const voiceThree =
+      "분당이면 윤밀원은 족발·막국수로 자주 언급되는 편이고, 서현 쪽 은뜸이, 수내 팔복도 후보로 볼 만해요. 어떤 음식 종류가 편하세요?";
+    assert.equal(
+      voiceHasUnsupportedPlaceClaims(voiceThree, chartNarrowEv, "분당 맛집 추천해줘"),
+      false,
+    );
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: voiceThree,
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      null,
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: [],
+        voice: voiceThree,
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        gate: { ok: true },
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      false,
+    );
+
+    // B. place name absent from all evidence → hard fail + regen
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "분당이면 가짜식당XYZ를 추천해요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      "unsupported_place_claim",
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: ["unsupported_place_claim"],
+        voice: "분당이면 가짜식당XYZ를 추천해요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        gate: { ok: true },
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      true,
+    );
+
+    // C. place in evidence; exact rating digits not in evidence → rating fails, place name OK
+    assert.equal(
+      voiceHasUnsupportedPlaceClaims(
+        "윤밀원을 추천해요. 평점 4.8점이에요.",
+        chartNarrowEv,
+        "분당 맛집 추천해줘",
+      ),
+      false,
+    );
+    assert.equal(
+      voiceHasUnsourcedPublicAssertions("윤밀원을 추천해요. 평점 4.8점이에요.", chartNarrowEv),
+      true,
+    );
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "윤밀원을 추천해요. 평점 4.8점이에요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      "unsourced_public_assertion",
+    );
+
+    const successOne = {
+      status: "success",
+      research_unavailable: false,
+      results: [{ title: "서현 한정식 A", url: "https://example.com/a" }],
+      citations: [],
     };
     const successTwo = {
       status: "success",
       research_unavailable: false,
-      results: researchEvidence.results.slice(0, 2),
-      citations: researchEvidence.citations.slice(0, 2),
-    };
-    const successOne = {
-      status: "success",
-      research_unavailable: false,
-      results: researchEvidence.results.slice(0, 1),
-      citations: researchEvidence.citations.slice(0, 1),
-    };
-    const zeroEv = {
-      status: "insufficient",
-      status_detail: "research_insufficient",
-      research_unavailable: true,
-      search_count: 1,
-      results: [],
+      results: [
+        { title: "서현 한정식 A", url: "https://example.com/a" },
+        { title: "정자 일식 B", url: "https://example.com/b" },
+      ],
       citations: [],
     };
-    // A. grounded 3 → 3곳 추천 PASS
-    assert.equal(
-      collectAnswerFacingSafetyFail({
-        gate: { ok: true },
-        voice:
-          "서현 한정식 A, 정자 일식 B, 미금 캐주얼 C를 추천해요. 담백한 한식·일식·캐주얼 분위기라 고르기 좋아요.",
-        question: "분당 맛집 추천해줘",
-        decision: daily,
-        publicResearchEvidence: successEv,
-      }),
-      null,
-    );
-    // B. grounded 2 → 2곳 추천 PASS
-    assert.equal(
-      collectAnswerFacingSafetyFail({
-        gate: { ok: true },
-        voice: "서현 한정식 A와 정자 일식 B를 추천해요.",
-        question: "분당 맛집 추천해줘",
-        decision: daily,
-        publicResearchEvidence: successTwo,
-      }),
-      null,
-    );
-    // C. grounded 1 → 1곳 추천 PASS
+    // D. 1곳 PASS · regen 0
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
@@ -1956,26 +2028,36 @@ function normalizeComposeText(text = "") {
       }),
       null,
     );
-    // D. grounded 0 → 창작 없이 조건 질문 (non-success completeness OK)
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: [],
+        voice: "지금은 서현 한정식 A를 추천해요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        gate: { ok: true },
+        publicResearchEvidence: successOne,
+      }),
+      false,
+    );
+    // E. 2곳 PASS · regen 0
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
-        voice:
-          "지금은 공개 후보를 확인하지 못했어요. 한식·일식 중 어떤 분위기부터 맞출까요?",
+        voice: "서현 한정식 A와 정자 일식 B를 추천해요.",
         question: "분당 맛집 추천해줘",
         decision: daily,
-        publicResearchEvidence: zeroEv,
+        publicResearchEvidence: successTwo,
       }),
       null,
     );
-    // E. 후보가 있는데 질문만 하고 종료 → FAIL
+    // F. candidates exist but clarifying only → incomplete + regen
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
         voice: "어떤 분위기나 음식 종류를 원하세요?",
         question: "분당 맛집 추천해줘",
         decision: daily,
-        publicResearchEvidence: successEv,
+        publicResearchEvidence: chartNarrowEv,
       }),
       "place_request_unanswered",
     );
@@ -1986,41 +2068,272 @@ function normalizeComposeText(text = "") {
         question: "분당 맛집 추천해줘",
         decision: daily,
         gate: { ok: true },
-        publicResearchEvidence: successEv,
+        publicResearchEvidence: chartNarrowEv,
       }),
       true,
     );
-    // F. evidence 없는 장소·주소·평점 → FAIL (covered above + address/rating asserts)
+
+    // G. T2 parents meal — PASS · no insurance · regen 0
+    const t2Voice =
+      "아버지 수술 후라면 자극 적고 조용한 곳이 나을 수 있어요. 이동 거리는 어느 정도가 편하세요?";
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: t2Voice,
+        question: "부모님 모시고 가는데 아버지가 최근 수술하셨어",
+        decision: daily,
+      }),
+      null,
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: [],
+        voice: t2Voice,
+        question: "부모님 모시고 가는데 아버지가 최근 수술하셨어",
+        decision: daily,
+        gate: { ok: true },
+      }),
+      false,
+    );
+
+    // H. T3 natural claim ask without full checklist → PASS · no claim_prep_incomplete block · regen 0
+    const t3Natural =
+      "수술비가 많이 들어서 걱정이 크시겠어요. 지금 당장 보험금이 나온다고 단정할 수는 없어요. 수술명이나 진단명, 그리고 가입하신 계약부터 알려주시면 어디부터 확인하면 될지 같이 볼게요.";
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: t3Natural,
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
+      }),
+      null,
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: ["claim_prep_incomplete"],
+        voice: t3Natural,
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
+        gate: { ok: true },
+      }),
+      false,
+    );
+    console.log(
+      JSON.stringify({
+        T3_NATURAL_ANSWER_SAMPLE: t3Natural,
+        claim_prep_incomplete_blocks: false,
+        regen: 0,
+      }),
+    );
+
+    // I. T3 payout certainty → hard fail + regen
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: "이번 수술비는 보험금이 지급됩니다. 걱정 마세요.",
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
+      }),
+      "answer_forbidden_certainty",
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: ["answer_forbidden_certainty"],
+        voice: "이번 수술비는 보험금이 지급됩니다. 걱정 마세요.",
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
+        gate: { ok: true },
+      }),
+      true,
+    );
+
+    // J. safe place answer not discarded for internal promote soft-fail alone
+    assert.equal(isSoftPromotionFailReason("place_promote_requires_research_success"), true);
+    assert.equal(
+      canSoftApproveBorrowedVoice({
+        voice: voiceThree,
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        gate: { ok: true },
+        failReason: "place_promote_requires_research_success",
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      true,
+    );
+
+    // --- Precise grounding boundary A–M ---
+    // A. cross-field join must not invent 은뜸
+    const crossFieldEv = {
+      status: "success",
+      research_unavailable: false,
+      results: [
+        { title: "분당 추천은", url: "https://example.com/a", snippet: "뜸배 맛집 리스트" },
+      ],
+      citations: [],
+    };
+    assert.equal(placeNameGroundedInEvidence("은뜸", crossFieldEv), false);
+    assert.equal(placeNameAppearsInSegment("은뜸", "분당 추천은"), false);
+    assert.equal(placeNameAppearsInSegment("은뜸", "뜸배 맛집 리스트"), false);
+
+    // B. different results must not join
+    const crossResultEv = {
+      status: "success",
+      research_unavailable: false,
+      results: [
+        { title: "서현 한", url: "https://example.com/1" },
+        { title: "정식 A 추천", url: "https://example.com/2" },
+      ],
+      citations: [],
+    };
+    assert.equal(placeNameGroundedInEvidence("한정식", crossResultEv), false);
+
+    // C. reverse / partial substring of unrelated long string
+    const partialEv = {
+      status: "success",
+      research_unavailable: false,
+      results: [{ title: "분당맛집추천베스트십선", url: "https://example.com/x" }],
+      citations: [],
+    };
+    assert.equal(placeNameGroundedInEvidence("십선", partialEv), false);
+    assert.equal(placeNameGroundedInEvidence("맛집추", partialEv), false);
+
+    // D. particle forms of real short venue
+    const palbokEv = {
+      status: "success",
+      research_unavailable: false,
+      results: [
+        {
+          title: "수내 맛집 리스트",
+          url: "https://example.com/p",
+          claim_or_summary: "수내 팔복은 모임 장소로 자주 언급됩니다.",
+        },
+      ],
+      citations: [{ title: "list", url: "https://example.com/p", cited_text: "팔복도 추천된다" }],
+    };
+    assert.equal(placeNameGroundedInEvidence("팔복", palbokEv), true);
+    assert.equal(placeNameAppearsInSegment("팔복", "수내 팔복은 모임 장소로"), true);
+    assert.equal(placeNameAppearsInSegment("팔복", "팔복에서 식사"), true);
+    assert.equal(placeNameAppearsInSegment("팔복", "팔복도 추천된다"), true);
+    assert.equal(placeNameAppearsInSegment("팔복", "무관한긴단어팔복글자만"), false);
+
+    // E. cited_text only
+    const citedOnlyEv = {
+      status: "success",
+      research_unavailable: false,
+      results: [{ title: "분당 맛집 TOP", url: "https://example.com/c" }],
+      citations: [
+        {
+          title: "분당 맛집 TOP",
+          url: "https://example.com/c",
+          cited_text: "은뜸이 서현에서 자주 언급됩니다.",
+        },
+      ],
+    };
+    assert.equal(placeNameGroundedInEvidence("은뜸", citedOnlyEv), true);
+
+    // F. general particles are not place candidates
+    const generalVoice = "지금은 언급되는 추천이 분당에도 많아요. 확인해 주세요.";
+    assert.deepEqual(
+      extractMentionedPlaceCandidates(generalVoice, {
+        question: "분당 맛집 추천해줘",
+        publicResearch: chartNarrowEv,
+      }),
+      [],
+    );
+
+    // G. nowhere in evidence
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
         voice: "분당이면 가짜식당XYZ를 추천해요.",
         question: "분당 맛집 추천해줘",
         decision: daily,
-        publicResearchEvidence: successEv,
+        publicResearchEvidence: chartNarrowEv,
       }),
       "unsupported_place_claim",
     );
-    // H. T3 incomplete
+
+    // H. place ok, exact rating missing
+    assert.equal(placeNameGroundedInEvidence("윤밀원", chartNarrowEv), true);
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
-        voice: "수술명과 보험이 뭔지 알려주세요.",
-        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
-        decision: { response_priority: "claim_prep", situation_key: "claim_need_check" },
+        voice: "윤밀원을 추천해요. 평점 4.8점이에요.",
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        publicResearchEvidence: chartNarrowEv,
       }),
-      "claim_prep_incomplete",
+      "unsourced_public_assertion",
     );
-    // I. T3 complete categories
+
+    // I. unverified customer coverage affirmation
+    assert.equal(
+      voiceHasUnverifiedCustomerCoverageClaim("가입하신 보험에 수술비 담보가 있습니다."),
+      true,
+    );
     assert.equal(
       collectAnswerFacingSafetyFail({
         gate: { ok: true },
-        voice:
-          "걱정되시는 마음 알겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 진단명을 알려주시면, 진단서·수술확인서·영수증·진료비 세부내역·해당 담보부터 같이 확인해볼게요.",
+        voice: "가입하신 보험에 수술비 담보가 있습니다.",
         question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
-        decision: { response_priority: "claim_prep", situation_key: "claim_need_check" },
+        decision: claimDec,
+      }),
+      "unverified_customer_coverage_claim",
+    );
+
+    // J. coverage check request PASS · regen 0
+    const coverageAsk = "가입하신 계약에서 수술비 담보가 있는지 확인해 볼게요.";
+    assert.equal(voiceHasUnverifiedCustomerCoverageClaim(coverageAsk), false);
+    assert.equal(
+      collectAnswerFacingSafetyFail({
+        gate: { ok: true },
+        voice: coverageAsk,
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
       }),
       null,
+    );
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: [],
+        voice: coverageAsk,
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
+        gate: { ok: true },
+      }),
+      false,
+    );
+
+    // K. T3 natural (already covered as H above) — restate regen 0
+    assert.equal(
+      shouldUseConstrainedAnswerRegen({
+        failReasons: ["claim_prep_incomplete"],
+        voice: t3Natural,
+        question: "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야",
+        decision: claimDec,
+        gate: { ok: true },
+      }),
+      false,
+    );
+    console.log(
+      JSON.stringify({
+        T3_NATURAL_ANSWER_SAMPLE: t3Natural,
+        regen: 0,
+        precise_grounding: true,
+      }),
+    );
+
+    // L. gate_missing → soft-approve false
+    assert.equal(
+      canSoftApproveBorrowedVoice({
+        voice: voiceThree,
+        question: "분당 맛집 추천해줘",
+        decision: daily,
+        gate: null,
+        failReason: "place_promote_requires_research_success",
+        publicResearchEvidence: chartNarrowEv,
+      }),
+      false,
     );
   }
 

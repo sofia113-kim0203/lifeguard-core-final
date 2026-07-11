@@ -151,10 +151,10 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
   if (mode === "emit_with_research") {
     lines.push(
       "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
-      "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url).",
-      "For 맛집/장소: when status is success and grounded candidates exist, present confirmed candidates FIRST (prefer up to 3 when available; if 2 then recommend 2; if 1 then recommend that 1 honestly). A clarifying question alone is NOT a complete answer when candidates exist — ask conditions only AFTER naming candidates.",
+      "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url/claim_or_summary/snippet — full evidence, not only a candidate chart).",
+      "For 맛집/장소: when status is success and grounded candidates exist, present confirmed candidates FIRST (prefer up to 3 when available; if 2 then recommend 2; if 1 then recommend that 1 honestly). Soft comparatives like '자주 언급되는 편' are OK. A clarifying question alone is NOT a complete answer when candidates exist — ask conditions only AFTER naming candidates.",
       "If status_detail is research_search_not_used or research_insufficient or research_unavailable or grounded candidates are 0: do NOT invent restaurant names; say what could not be confirmed; ask ONE clarifying condition (cuisine/mood) to connect the next search; never mention insurance.",
-      "FORBIDDEN: invent restaurant names; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert rating/hours/parking/price/distance/address/exit/floor/building not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
+      "FORBIDDEN: invent restaurant names absent from all evidence text; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert exact rating/hours/parking/price/distance/address/exit/floor/building digits not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump.",
     );
   }
   return lines.join(" ");
@@ -286,6 +286,39 @@ function buildCustomerFacingResearchSummary(evidence = {}) {
     title_previews: results.map((r) => r.title).filter(Boolean).slice(0, 8),
     search_count: evidence.search_count ?? 0,
     // Never include encrypted_* here
+  };
+}
+
+/**
+ * Preserve citation / snippet text on results so Gate grounding can see the same
+ * public evidence Claude used — not only a narrow title/candidate chart.
+ */
+export function enrichResearchEvidenceForGrounding(evidence = null) {
+  if (!evidence || typeof evidence !== "object") return evidence;
+  const citations = Array.isArray(evidence.citations) ? evidence.citations : [];
+  const citation_text_blob = citations
+    .map((c) => [c?.title, c?.cited_text, c?.claim_or_summary].filter(Boolean).join(" "))
+    .filter(Boolean)
+    .join("\n");
+  const results = (Array.isArray(evidence.results) ? evidence.results : []).map((r) => {
+    const related = citations.filter(
+      (c) =>
+        (c?.url && r?.url && String(c.url) === String(r.url)) ||
+        (c?.title && r?.title && String(c.title) === String(r.title)),
+    );
+    const texts = related.map((c) => c?.cited_text || c?.claim_or_summary).filter(Boolean);
+    const claim = [r?.claim_or_summary, r?.cited_text, ...texts].filter(Boolean).join("\n");
+    return {
+      ...r,
+      claim_or_summary: claim || r?.claim_or_summary || null,
+      cited_text: texts.join("\n") || r?.cited_text || null,
+    };
+  });
+  return {
+    ...evidence,
+    results,
+    citation_text_blob: citation_text_blob || evidence.citation_text_blob || null,
+    customer_facing_summary: buildCustomerFacingResearchSummary({ ...evidence, results }),
   };
 }
 
@@ -1119,6 +1152,7 @@ async function runPublicResearchPhase({
       merged.status_detail = null;
     }
     merged = applyPlaceResearchContract(merged, question);
+    merged = enrichResearchEvidenceForGrounding(merged);
     merged.provider_requests = providerRequests;
     merged.customer_facing_summary = buildCustomerFacingResearchSummary(merged);
     return {
@@ -1138,6 +1172,7 @@ async function runPublicResearchPhase({
     },
     question,
   );
+  merged = enrichResearchEvidenceForGrounding(merged);
   return {
     ok: true,
     public_research_evidence: merged,
@@ -1271,6 +1306,8 @@ async function callClaudeBorrowedSenses({
         domain: r.domain,
         page_age: r.page_age,
         query: r.query,
+        claim_or_summary: r.claim_or_summary ?? null,
+        cited_text: r.cited_text ?? null,
         // Do not send encrypted blobs to the model prompt if avoidable — titles/urls/cited text enough for grounding
       })),
       citations: (researchEvidence.citations ?? []).map((c) => ({
@@ -1279,6 +1316,7 @@ async function callClaudeBorrowedSenses({
         cited_text: c.cited_text,
         domain: c.domain,
       })),
+      citation_text_blob: researchEvidence.citation_text_blob ?? null,
       chart: {
         current_goal: researchOk
           ? placeRequest
