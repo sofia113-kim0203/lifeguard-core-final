@@ -8,8 +8,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { resolveKeyMasterPreviewEnv } from "../server/keyCore/oneKeyCoreFlags.js";
 
@@ -171,6 +171,55 @@ function assertKeyMasterIntakeApis() {
   return intakeResults;
 }
 
+function stripJsCommentsForPreflight(source = "") {
+  return String(source ?? "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+/**
+ * Stein Commit A — oneKeyCoreTurn must use the approved async customer speak path.
+ * PASS only when keySpeakAsync is imported from keySpeak.js AND actually called,
+ * and finalizeKeyCustomerText remains on the KEY Master outlet.
+ * FAIL: missing call, comment-only, import-only, or legacy keySpeak(...) alone.
+ */
+export function evaluateOneKeyCoreTurnSpeakPath(turnSource = "") {
+  const code = stripJsCommentsForPreflight(turnSource);
+  const importsAsync = /import\s*\{[^}]*\bkeySpeakAsync\b[^}]*\}\s*from\s*["'][^"']*keySpeak\.js["']/.test(
+    code,
+  );
+  const callsAsync = /(?:^|[^.\w])(?:await\s+)?keySpeakAsync\s*\(/.test(code);
+  const callsLegacySync = /(?:^|[^.\w])keySpeak\s*\(/.test(code);
+  const callsFinalize = /\bfinalizeKeyCustomerText\s*\(/.test(code);
+
+  if (!callsAsync) {
+    if (callsLegacySync) {
+      return {
+        ok: false,
+        reason:
+          "oneKeyCoreTurn.js calls legacy keySpeak only — approved path is keySpeakAsync",
+      };
+    }
+    return {
+      ok: false,
+      reason: "oneKeyCoreTurn.js does not call keySpeakAsync",
+    };
+  }
+  if (!importsAsync) {
+    return {
+      ok: false,
+      reason: "oneKeyCoreTurn.js must import keySpeakAsync from keySpeak.js",
+    };
+  }
+  if (!callsFinalize) {
+    return {
+      ok: false,
+      reason: "oneKeyCoreTurn.js must call finalizeKeyCustomerText on KEY Master outlet",
+    };
+  }
+  return { ok: true, reason: null };
+}
+
 function assertKeyMasterPreflight() {
   const missing = KEY_MASTER_REQUIRED_FILES.filter((rel) => !existsSync(join(ROOT, rel)));
   if (missing.length) {
@@ -178,8 +227,9 @@ function assertKeyMasterPreflight() {
   }
 
   const turnSource = readFileSync(join(ROOT, "server/keyCore/oneKeyCoreTurn.js"), "utf8");
-  if (!/keySpeak\(/.test(turnSource)) {
-    throw new Error("KEY Master preflight failed — oneKeyCoreTurn.js does not call keySpeak");
+  const speakPath = evaluateOneKeyCoreTurnSpeakPath(turnSource);
+  if (!speakPath.ok) {
+    throw new Error(`KEY Master preflight failed — ${speakPath.reason}`);
   }
   if (/generateHumanSalesDirectorResponse/.test(turnSource)) {
     throw new Error("KEY Master preflight failed — HUL still referenced in oneKeyCoreTurn.js");
@@ -192,7 +242,7 @@ function assertKeyMasterPreflight() {
   }
 
   const intakeApis = assertKeyMasterIntakeApis();
-  return { intakeApis };
+  return { intakeApis, turn_speak_path: speakPath };
 }
 
 async function resolveQaCustomerId() {
@@ -319,4 +369,9 @@ async function main() {
   console.log(`Next: node scripts/key-master-survival-preview-probe.mjs ${deploy.preview_url}`);
 }
 
-await main();
+const isDirectRun =
+  Boolean(process.argv[1]) &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (isDirectRun) {
+  await main();
+}
