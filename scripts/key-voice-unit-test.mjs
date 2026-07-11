@@ -370,9 +370,11 @@ function makeAnthropicFetch({
   log,
   researchResults = null,
   skipWebSearch = false,
+  bodies = null,
 }) {
   return async (_url, opts = {}) => {
     const body = JSON.parse(String(opts.body ?? "{}"));
+    if (Array.isArray(bodies)) bodies.push(body);
     const tools = Array.isArray(body.tools) ? body.tools : [];
     const isBorrowed = tools.length > 0;
     const isResearchOnly =
@@ -3076,6 +3078,495 @@ function normalizeComposeText(text = "") {
       false,
     );
     assert.equal(isWaitOnlyVoice(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
+  }
+}
+
+// --- S7-A FORCED RESEARCH CONTRACT CORRECTIVE (A–M) ---
+{
+  const {
+    shouldEnablePublicWebSearch,
+    needsFreshPublicFacts,
+    isPlacePublicResearchRequest,
+    ANTHROPIC_WEB_SEARCH_TOOL,
+  } = await import("../server/keyCore/keyBorrowedSensesSpeak.js");
+  const {
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    isKeyMonopolyFailureCustomerText,
+  } = await import("../server/keyCore/keyCustomerMonopoly.js");
+  const { isWaitOnlyVoice, placeNameGroundedInEvidence, voiceHasUnverifiedCustomerCoverageClaim } =
+    await import("../server/keyCore/keyBorrowedSensesStage2.js");
+  const { observeSameSessionContentNotes } = await import(
+    "../scripts/key-borrowed-senses-preview-observe-probe.mjs"
+  );
+
+  function assertResearchProviderPayload(body) {
+    assert.ok(body && typeof body === "object");
+    assert.equal(body.tools.length, 1);
+    assert.equal(body.tools[0].type, "web_search_20250305");
+    assert.equal(body.tools[0].name, "web_search");
+    assert.equal(body.tools[0].max_uses, 3);
+    assert.deepEqual(body.tool_choice, { type: "any" });
+  }
+
+  function assertEmitProviderPayload(body) {
+    assert.ok(body && typeof body === "object");
+    assert.equal(body.tools.length, 1);
+    assert.equal(body.tools[0].name, "emit_borrowed_senses");
+    assert.deepEqual(body.tool_choice, {
+      type: "tool",
+      name: "emit_borrowed_senses",
+    });
+  }
+
+  // A + B + C. T1 provider payload + place-first answer (mock Anthropic)
+  {
+    const q = "분당 맛집 추천해줘";
+    assert.equal(needsFreshPublicFacts({ question: q }), true);
+    assert.equal(shouldEnablePublicWebSearch({ question: q }), true);
+    const log = [];
+    const bodies = [];
+    const voice =
+      "분당이면 서현 한정식 A를 먼저 볼 수 있어요. 담백한 한식이라 고르기 좋아요. 한식·일식 중 어떤 분위기부터 맞출까요?";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 맛집 추천",
+            understanding_hypotheses: ["지역 맛집 공개 검색이 필요한 요청"],
+            voice_raw_candidate: voice,
+            proposal_direction: "확인된 후보 제시 후 조건 확인",
+            next_decision_point: ["한식", "일식"],
+            recommendation_basis: "검색 근거 후보",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "일상 추천",
+            leadership_move: "후보 먼저 제시",
+          }),
+          s6Text: "S6_PR_A_NO",
+          log,
+          bodies,
+        }),
+      },
+    );
+    const researchBodies = bodies.filter(
+      (b) => Array.isArray(b.tools) && b.tools[0]?.name === "web_search",
+    );
+    const emitBodies = bodies.filter(
+      (b) => Array.isArray(b.tools) && b.tools[0]?.name === "emit_borrowed_senses",
+    );
+    assert.ok(researchBodies.length >= 1);
+    assertResearchProviderPayload(researchBodies[0]);
+    assert.ok(emitBodies.length >= 1);
+    assertEmitProviderPayload(emitBodies[0]);
+    assert.ok(log.filter((x) => x === "research").length >= 1);
+    assert.equal(log.filter((x) => x === "mixed").length, 0);
+    const ev = result.key_voice_trace.borrowed_senses_shadow?.public_research_evidence;
+    assert.ok((ev?.search_count ?? 0) >= 1);
+    assert.ok((ev?.results?.length ?? 0) >= 1);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
+    assert.match(result.text, /한정식 A|일식 B|캐주얼 C/);
+    assert.ok(!/^어떤 분위기나 음식 종류/.test(result.text.trim()));
+    assert.equal(observeSameSessionContentNotes("T1", result.text).answers_current_request, true);
+    console.log(
+      JSON.stringify({
+        T1_MOCK_ANSWER: result.text,
+        T1_search_count: ev?.search_count ?? 0,
+        T1_evidence: ev?.results?.length ?? 0,
+        T1_regen: 0,
+      }),
+    );
+  }
+
+  // D. travel destination recommend ON
+  {
+    const q = "부산 여행지 추천해줘";
+    assert.equal(isPlacePublicResearchRequest(q), true);
+    assert.equal(needsFreshPublicFacts({ question: q }), true);
+    assert.equal(shouldEnablePublicWebSearch({ question: q }), true);
+    const log = [];
+    const bodies = [];
+    await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "부산 여행지",
+            understanding_hypotheses: ["공개 여행지 검색"],
+            voice_raw_candidate:
+              "부산이면 해운대 해변 산책로부터 볼 수 있어요. 바다 산책이 편하시면 그쪽으로 맞춰볼까요?",
+            proposal_direction: "여행지 후보",
+            next_decision_point: ["해운대", "광안리"],
+            recommendation_basis: "검색",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "일상",
+            leadership_move: "후보",
+          }),
+          s6Text: "S6_D",
+          log,
+          bodies,
+          researchResults: [
+            {
+              type: "web_search_result",
+              url: "https://example.com/haeundae",
+              title: "해운대 해변 산책로",
+              encrypted_content: "encFULL_HAE_CONTENT_VALUE_DO_NOT_TRUNCATE",
+              page_age: "2026",
+            },
+          ],
+        }),
+      },
+    );
+    assert.ok(log.filter((x) => x === "research").length >= 1);
+    assertResearchProviderPayload(
+      bodies.find((b) => b.tools?.[0]?.name === "web_search"),
+    );
+  }
+
+  // E. soft travel feeling OFF
+  {
+    const q = "부모님과 여행 가고 싶어";
+    assert.equal(needsFreshPublicFacts({ question: q }), false);
+    assert.equal(shouldEnablePublicWebSearch({ question: q }), false);
+    const log = [];
+    await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "여행 감정",
+            understanding_hypotheses: ["공개 검색 불필요"],
+            voice_raw_candidate:
+              "부모님과 함께 떠나고 싶은 마음이 느껴져요. 가까운 당일치기인지, 며칠 일정인지부터 맞춰볼까요?",
+            proposal_direction: "일정 범위",
+            next_decision_point: ["당일", "1박"],
+            recommendation_basis: "감정 대화",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "일상",
+            leadership_move: "범위 확인",
+          }),
+          s6Text: "S6_E",
+          log,
+        }),
+      },
+    );
+    assert.equal(log.filter((x) => x === "research").length, 0);
+  }
+
+  // F + G + H. rewrite / bare recommend / emotion / summary / premium — research OFF
+  {
+    const offs = [
+      "이 문장을 더 자연스럽게 고쳐줘",
+      "추천해줘",
+      "오늘 기분이 안 좋은데 뭐 하면 좋을까?",
+      "내 보험료가 부담스러운데 어떻게 정리할까?",
+      "아까 답변을 짧게 요약해줘",
+      "외출하기가 조금 두려워",
+      "지난 여행 이야기를 정리해줘",
+      "여행 계획을 세울 때 뭘 생각해야 해?",
+    ];
+    for (const q of offs) {
+      assert.equal(needsFreshPublicFacts({ question: q }), false, q);
+      assert.equal(shouldEnablePublicWebSearch({ question: q }), false, q);
+      const log = [];
+      await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: q, reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: q,
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            borrowed: goodBorrowedInput({
+              customer_intent: "non_public",
+              understanding_hypotheses: ["검색 불필요"],
+              voice_raw_candidate:
+                "말씀하신 요청부터 같이 볼게요. 어떤 쪽을 먼저 맞출까요?",
+              proposal_direction: "요청 확인",
+              next_decision_point: ["짧게", "자세히"],
+              recommendation_basis: "대화",
+              insurance_expertise_angle: [],
+              used_facts: [],
+              key_purpose: "일상",
+              leadership_move: "확인",
+            }),
+            s6Text: "S6_OFF",
+            log,
+          }),
+        },
+      );
+      assert.equal(log.filter((x) => x === "research").length, 0, q);
+    }
+  }
+
+  // I. search empty + search_not_used on production compose path
+  {
+    const q = "분당 맛집 추천해줘";
+    // empty results after web_search call
+    {
+      const log = [];
+      const clarify =
+        "지금 바로 확인할 수 있는 분당 식당 후보는 아직 부족해요. 한식·일식 중 어떤 쪽, 또는 서현·정자 중 어느 동네가 편하신지 알려주시면 다시 찾아볼게요.";
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: q, reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: q,
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            researchResults: [],
+            borrowed: goodBorrowedInput({
+              customer_intent: "분당 맛집",
+              understanding_hypotheses: ["검색 empty"],
+              voice_raw_candidate: clarify,
+              proposal_direction: "조건 1개",
+              next_decision_point: ["한식", "서현"],
+              recommendation_basis: "empty",
+              insurance_expertise_angle: [],
+              used_facts: [],
+              key_purpose: "일상",
+              leadership_move: "조건 질문",
+            }),
+            s6Text: "S6_EMPTY",
+            log,
+          }),
+        },
+      );
+      const ev = result.key_voice_trace.borrowed_senses_shadow?.public_research_evidence;
+      assert.ok(log.filter((x) => x === "research").length >= 1);
+      assert.ok(["empty", "insufficient", "search_not_used"].includes(String(ev?.status)));
+      assert.ok(!/한정식 A|일식 B|캐주얼 C|가짜식당|팔복/.test(result.text));
+      assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
+      assert.equal(isWaitOnlyVoice(result.text), false);
+      assert.ok(!/충분히\s*찾았|검색\s*완료|바로\s*추천/.test(result.text));
+      assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    }
+    // search_not_used
+    {
+      const log = [];
+      const clarify =
+        "분당 쪽 공개 후보를 아직 충분히 못 모았어요. 한식·일식 중 어떤 분위기부터 맞출까요?";
+      const result = await buildKeyVoiceComposeResult(
+        {
+          reflection: buildReflection({ customerSaid: q, reality: softReality }),
+          reality: softReality,
+          policies: softReality.policies,
+        },
+        {
+          question: q,
+          env: {
+            KEY_VOICE: "on",
+            KEY_BORROWED_SENSES: "active",
+            VERCEL_ENV: "preview",
+            ANTHROPIC_API_KEY: "test-key",
+          },
+          fetchImpl: makeAnthropicFetch({
+            skipWebSearch: true,
+            borrowed: goodBorrowedInput({
+              customer_intent: "분당 맛집",
+              understanding_hypotheses: ["search not used"],
+              voice_raw_candidate: clarify,
+              proposal_direction: "조건 확인",
+              next_decision_point: ["한식", "일식"],
+              recommendation_basis: "search_not_used",
+              insurance_expertise_angle: [],
+              used_facts: [],
+              key_purpose: "일상",
+              leadership_move: "조건 질문",
+            }),
+            s6Text: "S6_NOT_USED",
+            log,
+          }),
+        },
+      );
+      const ev = result.key_voice_trace.borrowed_senses_shadow?.public_research_evidence;
+      assert.equal(ev?.status, "search_not_used");
+      assert.ok(!/한정식 A|가짜식당/.test(result.text));
+      assert.ok(!isKeyMonopolyFailureCustomerText(result.text));
+      assert.equal(isWaitOnlyVoice(result.text), false);
+      assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    }
+  }
+
+  // J. same-session T2 place continuity
+  {
+    const q = "부모님 모시고 가는데 아버지가 최근 수술하셨어";
+    const history = [
+      { role: "user", text: "분당 맛집 추천해줘" },
+      {
+        role: "assistant",
+        text: "분당이면 서현 한정식 A를 먼저 볼 수 있어요.",
+      },
+    ];
+    assert.equal(shouldEnablePublicWebSearch({ question: q, history }), true);
+    const log = [];
+    const voice =
+      "아버지 수술 후라면 이동·주차·엘리베이터·좌석 편의가 중요할 수 있어요. 맵거나 질긴 음식은 피하고 조용한 곳이 나을 수도 있고요. 앞서 본 서현 한정식 A를 이 기준으로 볼까요?";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        history,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "분당 식당 선택 — 수술 후 배려 조건",
+            understanding_hypotheses: ["직전 맛집 요청을 배려 조건으로 구체화"],
+            voice_raw_candidate: voice,
+            proposal_direction: "이동·좌석·음식 제한으로 후보 좁히기",
+            next_decision_point: ["이동 편한 곳", "담백한 메뉴"],
+            recommendation_basis: "직전 맛집 요청 유지",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "일상 추천 연속",
+            leadership_move: "배려 조건 확인",
+            answer_purpose: "식당 선택 조건",
+          }),
+          s6Text: "S6_PR_J_NO",
+          log,
+        }),
+      },
+    );
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.ok(!/여행\s*가시는군요/.test(result.text));
+    assert.ok(!/보험료|보험금|담보/.test(result.text));
+    assert.match(result.text, /이동|주차|엘리베이터|좌석|맵거나|조용/);
+  }
+
+  // K. same-session T3 — insurance switch, research 0
+  {
+    const q = "수술비도 많이 들었고 보험금 받을 수 있을지 걱정이야";
+    const history = [
+      { role: "user", text: "분당 맛집 추천해줘" },
+      { role: "assistant", text: "서현 한정식 A부터 볼 수 있어요." },
+      { role: "user", text: "부모님 모시고 가는데 아버지가 최근 수술하셨어" },
+      { role: "assistant", text: "이동·좌석 편의부터 맞춰볼까요?" },
+    ];
+    assert.equal(shouldEnablePublicWebSearch({ question: q, history }), false);
+    const log = [];
+    const voice =
+      "수술비 걱정이 크시겠어요. 보험금을 받을 수 있는지는 확인 전에는 단정할 수 없어요. 어떤 수술이셨는지, 가입하신 계약이 있는지만 알려주시면 어디부터 보면 될지 같이 확인할게요.";
+    const result = await buildKeyVoiceComposeResult(
+      {
+        reflection: buildReflection({ customerSaid: q, reality: softReality }),
+        reality: softReality,
+        policies: softReality.policies,
+      },
+      {
+        question: q,
+        history,
+        env: {
+          KEY_VOICE: "on",
+          KEY_BORROWED_SENSES: "active",
+          VERCEL_ENV: "preview",
+          ANTHROPIC_API_KEY: "test-key",
+        },
+        fetchImpl: makeAnthropicFetch({
+          borrowed: goodBorrowedInput({
+            customer_intent: "수술비·보험금 걱정",
+            understanding_hypotheses: ["지급 단정 금지"],
+            voice_raw_candidate: voice,
+            proposal_direction: "수술명·계약 확인",
+            next_decision_point: ["수술명부터", "계약 확인부터"],
+            recommendation_basis: "확인 전 지급 단정 금지",
+            insurance_expertise_angle: [],
+            used_facts: [],
+            key_purpose: "청구 준비",
+            leadership_move: "확인 경로",
+            answer_purpose: "청구 준비",
+          }),
+          s6Text:
+            "수술비 걱정이 크시겠어요. 확인 전에는 지급 여부를 단정할 수 없어요. 수술명이나 가입 계약부터 알려주시면 같이 확인할게요.",
+          log,
+        }),
+      },
+    );
+    assert.equal(log.filter((x) => x === "research").length, 0);
+    assert.equal(result.key_voice_trace.used_constrained_regen, false);
+    assert.ok(!/받을 수 있습니다|지급됩니다/.test(result.text));
+    assert.match(result.text, /수술|계약|확인/);
+    assert.equal(observeSameSessionContentNotes("T3", result.text).no_payout_certainty, true);
+  }
+
+  // L. grounding / coverage / wait / KEY Master anchors
+  {
+    const placeEv = {
+      status: "success",
+      research_unavailable: false,
+      search_count: 1,
+      results: [{ title: "서현 한정식 A", url: "https://example.com/a", cited_text: "서현 한정식 A" }],
+      citations: [{ title: "서현 한정식 A", cited_text: "서현 한정식 A" }],
+      grounded_place_candidates: ["서현 한정식 A"],
+    };
+    assert.equal(placeNameGroundedInEvidence("서현 한정식 A", placeEv), true);
+    assert.equal(
+      voiceHasUnverifiedCustomerCoverageClaim("가입하신 보험에 수술비 담보가 있습니다."),
+      true,
+    );
+    assert.equal(isWaitOnlyVoice(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT), true);
+    assert.equal(ANTHROPIC_WEB_SEARCH_TOOL.max_uses, 3);
+    assert.equal(needsFreshPublicFacts({ question: "제주에서 부모님 모시기 좋은 관광지 찾아줘" }), true);
+    assert.equal(needsFreshPublicFacts({ question: "이번 주말 서울에서 갈 만한 곳 검색해줘" }), true);
   }
 }
 

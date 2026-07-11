@@ -100,7 +100,8 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
   if (mode === "research") {
     return [
       "You are KEY public research helper (read-only).",
-      "Use the built-in web_search tool when the customer request needs fresh public facts (places, restaurants, travel, current public info).",
+      "When the request needs fresh public facts, you MUST call the built-in web_search tool before finishing.",
+      "For explicit local recommend / find requests (area + 맛집·식당·카페·병원·시설, or 찾아줘/검색해줘/추천해줘), search FIRST using the stated area and request — do NOT wait for cuisine/mood preference.",
       "Do NOT write a final customer-facing answer.",
       "Do NOT invent restaurant names, ratings, hours, parking, prices, or addresses.",
       "Do NOT discuss insurance, contracts, coverage, or claims.",
@@ -154,7 +155,8 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
     lines.push(
       "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
       "voice_raw_candidate MUST name only places grounded in that evidence (title/cited_text/url/claim_or_summary/snippet — full evidence, not only a candidate chart).",
-      "For 맛집/장소: when status is success and grounded candidates exist, present confirmed candidates FIRST (prefer up to 3 when available; if 2 then recommend 2; if 1 then recommend that 1 honestly). Soft comparatives like '자주 언급되는 편' are OK. A clarifying question alone is NOT a complete answer when candidates exist — ask conditions only AFTER naming candidates.",
+      "For 맛집/장소/시설 추천·찾기: when status is success and grounded candidates exist, present confirmed candidates FIRST (prefer up to 3 when available; if 2 then recommend 2; if 1 then recommend that 1 honestly). Soft comparatives like '자주 언급되는 편' are OK. A clarifying question alone is NOT a complete answer when candidates exist — ask conditions only AFTER naming candidates.",
+      "When public_research.search_before_clarify is true OR open_customer_thread.place_thread_open is true with success evidence: NEVER open with only preference questions (한식/일식/분위기). Name grounded candidates first.",
       "If open_customer_thread.place_thread_open is true, keep restaurant/place selection as the current purpose even when the latest user message only adds companion/surgery/mobility constraints — ask about walking distance, parking/elevator, seating comfort, spicy/tough food limits, or quiet setting to narrow prior candidates. Do not invent a new travel itinerary.",
       "If status_detail is research_search_not_used or research_insufficient or research_unavailable or grounded candidates are 0: do NOT invent restaurant names; say what could not be confirmed; ask ONE clarifying condition (cuisine/neighborhood) tied to the open request; never mention insurance; never use a generic wait stub.",
       "FORBIDDEN: invent restaurant names absent from all evidence text; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert exact rating/hours/parking/price/distance/address/exit/floor/building digits not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump; '지금은 여기까지 확인했어요' wait stub.",
@@ -167,9 +169,37 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
 export function isPlacePublicResearchRequest(question = "") {
   const q = String(question ?? "").trim();
   if (!q) return false;
-  return /맛집|식당|레스토랑|카페|여행지|관광지|장소\s*추천|코스\s*추천|갈\s*만한\s*곳|어디\s*(?:가|좋|먹)|데이트\s*코스/.test(
+  return /맛집|식당|레스토랑|카페|여행지|관광지|병원|검진\s*센터|약국|장소\s*추천|코스\s*추천|갈\s*만한\s*곳|어디\s*(?:가|좋|먹)|데이트\s*코스|시설\s*추천|서비스\s*추천/.test(
     q,
   );
+}
+
+/**
+ * True when the current ask needs fresh public facts (not insurance portfolio facts).
+ * General KEY→Claude web_search ability — not a restaurant-only feature or new classifier.
+ */
+export function needsFreshPublicFacts({ question = "", history = [] } = {}) {
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  if (isActivePlaceCustomerThread({ question: q, history })) return true;
+
+  const asksLookup =
+    /(?:찾아(?:봐|줘|주세요|볼까)|검색해(?:줘|주세요|봐)|추천해(?:줘|주세요|봐)|알려(?:줘|주세요)|어디(?:가|가\s*좋)|뭐\s*먹)/.test(
+      q,
+    );
+  const publicSubject =
+    /맛집|식당|카페|레스토랑|병원|검진|약국|시설|센터|관광지|여행지|갈\s*만한\s*곳|영업\s*시간|운영\s*(?:시간|여부)|휴무|접수\s*방법|신청\s*방법|공개\s*자료|제도|분당|서울|근처|지역|동네/.test(
+      q,
+    );
+  if (asksLookup && publicSubject) return true;
+
+  if (/영업\s*시간|운영\s*(?:시간|여부)|지금\s*열|몇\s*시까지|오늘\s*휴무/.test(q)) return true;
+  if (/최신|접수\s*방법|신청\s*방법|공개\s*자료/.test(q) && /확인|알려|찾|검색|어떻게/.test(q)) {
+    return true;
+  }
+  // Do NOT force on bare 여행/관광/외출 nouns — need lookup intent + public subject
+  // (or place thread / isPlacePublicResearchRequest above). Soft travel feelings stay off.
+  return false;
 }
 
 /** Clear new insurance/claim topic — do not keep a prior unfinished place ask. */
@@ -178,7 +208,7 @@ export function isClearNewTopicInsuranceAsk(question = "") {
   if (!q) return false;
   return (
     /보험금|청구|담보|진단서|영수증|보험료|암\s*보장|암\s*보험|가입|해지|보장\s*충분/.test(q) &&
-    !/맛집|식당|카페|레스토랑/.test(q)
+    !/맛집|식당|카페|레스토랑|병원|약국/.test(q)
   );
 }
 
@@ -236,8 +266,8 @@ export function shouldEnablePublicWebSearch({ question = "", decision = null, hi
   const q = String(question ?? "").trim();
   if (!q) return false;
   if (isClearNewTopicInsuranceAsk(q)) return false;
-  // Explicit place ask OR unfinished place thread in history.
-  if (isActivePlaceCustomerThread({ question: q, history })) return true;
+  // Explicit public-fact need (place/facility/hours/lookup) or unfinished place thread.
+  if (needsFreshPublicFacts({ question: q, history })) return true;
   if (
     priority === "premium_adequacy_check" ||
     priority === "cancer_axis_check" ||
@@ -248,7 +278,7 @@ export function shouldEnablePublicWebSearch({ question = "", decision = null, hi
   ) {
     return false;
   }
-  return /여행|관광|외출/.test(q);
+  return false;
 }
 
 /** Distinct grounded place-like titles from research results (for sufficiency). */
@@ -1004,6 +1034,7 @@ async function runPublicResearchPhase({
 }) {
   const retrievedAt = new Date().toISOString();
   const placeRequest = isActivePlaceCustomerThread({ question, history });
+  const forcePublicSearch = needsFreshPublicFacts({ question, history });
   let messages = [
     {
       role: "user",
@@ -1013,8 +1044,12 @@ async function runPublicResearchPhase({
           question: String(question ?? "").trim(),
           conversation_history: Array.isArray(history) ? history.slice(-6) : [],
           open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
-          instruction: placeRequest
-            ? "This is an active place/venue customer thread (current ask or unfinished place ask in history). You MUST call web_search at least once for current public place/restaurant facts that fit the open request and any new constraints in the latest message. Prefer up to 3 distinct grounded place candidates when available (quality goal, not a hard stop at fewer). Do not write a customer answer. Do not invent places. Do not reframe as a new travel itinerary. Do not mention insurance."
+          suggested_first_query: String(question ?? "").trim(),
+          search_before_clarify: forcePublicSearch,
+          instruction: forcePublicSearch
+            ? placeRequest
+              ? "This is an explicit public place/venue/facility request (or unfinished place thread). You MUST call web_search at least once NOW using the stated area and request. Do NOT ask cuisine/mood preference before searching. Prefer up to 3 distinct grounded place candidates when available (quality goal, not a hard stop at fewer). Do not write a customer answer. Do not invent places. Do not reframe as a new travel itinerary. Do not mention insurance."
+              : "This request needs fresh public facts. You MUST call web_search at least once NOW for current public information. Do not write a customer answer. Do not invent facts. Do not mention insurance."
             : "Use web_search for fresh public facts if needed. Do not write a customer answer. Do not mention insurance.",
         },
         null,
@@ -1033,6 +1068,11 @@ async function runPublicResearchPhase({
 
   for (let turn = 0; turn < 3; turn += 1) {
     providerRequests += 1;
+    // First turn on explicit public-fact requests: require a tool call (web_search is the only tool).
+    const toolChoice =
+      forcePublicSearch && turn === 0 && !forcedSearchNudgeUsed
+        ? { type: "any" }
+        : { type: "auto" };
     const once = await postAnthropicMessages({
       fetchImpl,
       signal,
@@ -1042,7 +1082,7 @@ async function runPublicResearchPhase({
       temperature: temp,
       system,
       tools,
-      toolChoice: { type: "auto" },
+      toolChoice,
       messages,
     });
     if (!once.ok) {
@@ -1151,9 +1191,9 @@ async function runPublicResearchPhase({
       continue;
     }
 
-    // Place request: force one search nudge if Claude ended without web_search.
+    // Explicit public-fact request: force one search nudge if Claude ended without web_search.
     if (
-      placeRequest &&
+      forcePublicSearch &&
       (merged.search_count ?? 0) <= 0 &&
       !forcedSearchNudgeUsed &&
       turn < 2
@@ -1165,7 +1205,7 @@ async function runPublicResearchPhase({
         {
           role: "user",
           content:
-            "Contract: you did not use web_search. Call web_search now for this place request. Do not invent places. Do not write a customer answer.",
+            "Contract: you did not use web_search. Call web_search now for this public-fact request (use the stated area/request; do not wait for preference questions). Do not invent places. Do not write a customer answer.",
         },
       ];
       continue;
@@ -1515,7 +1555,8 @@ export async function runBorrowedSensesShadowProbe({
       provider_tool: ANTHROPIC_WEB_SEARCH_TOOL.name,
       tool_type: ANTHROPIC_WEB_SEARCH_TOOL.type,
       max_uses: ANTHROPIC_WEB_SEARCH_TOOL.max_uses,
-      note: "Use web_search only when fresh public facts are needed; then emit_borrowed_senses.",
+      search_before_clarify: needsFreshPublicFacts({ question, history }),
+      note: "Search first when fresh public facts are needed; then emit_borrowed_senses. Do not ask preference-only questions before searching on explicit recommend/find requests.",
     };
   }
 
