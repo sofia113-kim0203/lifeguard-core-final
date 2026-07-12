@@ -82,6 +82,10 @@ export function buildPersistableLatencyMarks(latencyMarks = null) {
           borrowed_provider_call_count:
             Number(latencyMarks.provider.borrowed_provider_call_count) || 0,
           s6_provider_call_count: Number(latencyMarks.provider.s6_provider_call_count) || 0,
+          claude_call_count: Number(latencyMarks.provider.claude_call_count) || 0,
+          s6_call_count: Number(latencyMarks.provider.s6_call_count) || 0,
+          focused_correction_count:
+            Number(latencyMarks.provider.focused_correction_count) || 0,
           error_types: Array.isArray(latencyMarks.provider.error_types)
             ? latencyMarks.provider.error_types
                 .map((e) => sanitizeLatencyErrorType(e))
@@ -90,6 +94,55 @@ export function buildPersistableLatencyMarks(latencyMarks = null) {
             : [],
         }
       : null;
+    const providerSpeed =
+      latencyMarks.provider_speed && typeof latencyMarks.provider_speed === "object"
+        ? {
+            context_pack_ms:
+              typeof latencyMarks.provider_speed.context_pack_ms === "number"
+                ? latencyMarks.provider_speed.context_pack_ms
+                : null,
+            provider_request_start_ms:
+              typeof latencyMarks.provider_speed.provider_request_start_ms === "number"
+                ? latencyMarks.provider_speed.provider_request_start_ms
+                : null,
+            provider_request_complete_ms:
+              typeof latencyMarks.provider_speed.provider_request_complete_ms === "number"
+                ? latencyMarks.provider_speed.provider_request_complete_ms
+                : null,
+            provider_duration_ms:
+              typeof latencyMarks.provider_speed.provider_duration_ms === "number"
+                ? latencyMarks.provider_speed.provider_duration_ms
+                : null,
+            ttft_ms:
+              typeof latencyMarks.provider_speed.ttft_ms === "number"
+                ? latencyMarks.provider_speed.ttft_ms
+                : null,
+            input_bytes:
+              typeof latencyMarks.provider_speed.input_bytes === "number"
+                ? latencyMarks.provider_speed.input_bytes
+                : null,
+            input_tokens:
+              typeof latencyMarks.provider_speed.input_tokens === "number"
+                ? latencyMarks.provider_speed.input_tokens
+                : null,
+            output_tokens:
+              typeof latencyMarks.provider_speed.output_tokens === "number"
+                ? latencyMarks.provider_speed.output_tokens
+                : null,
+            attempt_count:
+              typeof latencyMarks.provider_speed.attempt_count === "number"
+                ? latencyMarks.provider_speed.attempt_count
+                : null,
+            retry_count:
+              typeof latencyMarks.provider_speed.retry_count === "number"
+                ? latencyMarks.provider_speed.retry_count
+                : null,
+            research_tool_round_count:
+              typeof latencyMarks.provider_speed.research_tool_round_count === "number"
+                ? latencyMarks.provider_speed.research_tool_round_count
+                : null,
+          }
+        : null;
     const s6 = latencyMarks.s6_speak && typeof latencyMarks.s6_speak === "object"
       ? {
           ...pickSpan(latencyMarks.s6_speak),
@@ -103,6 +156,7 @@ export function buildPersistableLatencyMarks(latencyMarks = null) {
       finalize: pickSpan(latencyMarks.finalize),
       seal: pickSpan(latencyMarks.seal),
       provider,
+      provider_speed: providerSpeed,
     };
     return out;
   } catch {

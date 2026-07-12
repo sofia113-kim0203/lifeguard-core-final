@@ -1,10 +1,13 @@
 /**
  * S7-a + S7-b — Borrowed Senses shadow speak (Claude 1-call structured JSON · trace only).
+ * Claude-Full v1.1: answerMode=claude_full treats voice_raw_candidate as KEY-verified customer answer.
  */
 import { resolveAnthropicApiKey } from "../claudeGroundedExecutionCore.js";
 import { gateBorrowedSensesOutput, S7_BORROWED_SENSES_SCHEMA, S7_BORROWED_SENSES_SCHEMA_B, S7B_EXPERTISE_TAXONOMY } from "./keyBorrowedSensesGate.js";
 import { deriveKeyVoiceQuestionFocus } from "./keyVoiceDirective.js";
 import { formatPremiumFromRaw } from "./speakFactRenderer.js";
+import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
+import { relMs } from "./keyLatencyMarks.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_TIMEOUT_MS = 35000;
@@ -96,7 +99,7 @@ function summarizeVisualBlocks(blocks = []) {
   }));
 }
 
-function buildSystemPrompt({ mode = "emit" } = {}) {
+function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {}) {
   if (mode === "research") {
     return [
       "You are KEY public research helper (read-only).",
@@ -108,31 +111,46 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
       "Search, compare public sources, then stop when you have enough grounded public results (or honestly empty).",
     ].join(" ");
   }
+  const claudeFull = answerMode === "claude_full";
   const lines = [
-    "You are KEY Borrowed Senses (S7-a + S7-b shadow layer) for LIFEGUARD.",
-    "Claude provides: hearing, social reading, visual reading, expression CANDIDATES, and leadership TRACE only.",
-    "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
+    claudeFull
+      ? "You are KEY Claude-Full single-pass work for LIFEGUARD. In one response: understand, analyze, answer, table/next-action hints, and leadership fields."
+      : "You are KEY Borrowed Senses (S7-a + S7-b shadow layer) for LIFEGUARD.",
+    claudeFull
+      ? "Claude performs understanding, emotion/context reading, inference, comparison, search use, customer answer, and next-action suggestions. KEY later verifies facts, permissions, contradictions, and safety only — do NOT wait for KEY to draft the answer."
+      : "Claude provides: hearing, social reading, visual reading, expression CANDIDATES, and leadership TRACE only.",
+    claudeFull
+      ? "KEY owns verified facts, chart ownership, memory SSOT, permissions, final insurance judgment, contradiction resolution, safety, execution approval, finalize/seal, and responsibility."
+      : "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
     "Understanding is HYPOTHESIS — never state hypotheses as confirmed facts.",
     "understanding_hypotheses MUST be soft: use '가능성', '마음이 있을 수 있음', '걱정이 있어 보임'. FORBIDDEN in understanding_hypotheses: 확실히, 분명, 틀림없, 반드시, and any wording that states customer psychology as fact. Do NOT invent unstated 가입 고려 / 보험료 부담 as certainty — only soft possibility if the question weakly suggests it.",
-    "S6 final_answer may be empty when this call runs before Speak — that is OK. Do NOT invent an S6 answer. voice_raw_candidate remains a CANDIDATE only.",
-    "Do NOT replace or rewrite a frozen S6 final_answer when one is provided.",
+    claudeFull
+      ? "voice_raw_candidate IS the full natural Korean customer answer KEY will verify and may seal. Write complete customer-facing prose. Do NOT write internal reasoning, chain-of-thought, or hidden scratchpads into any field."
+      : "S6 final_answer may be empty when this call runs before Speak — that is OK. Do NOT invent an S6 answer. voice_raw_candidate remains a CANDIDATE only.",
+    claudeFull
+      ? "Do NOT invent KEY Decision, Session Goal, or answer drafts that were not provided. Prefer customer question + verified chart + conversation pack + public evidence only."
+      : "Do NOT replace or rewrite a frozen S6 final_answer when one is provided.",
     "Principle: NOT '추천 금지' — YES '근거 없는 확정 추천 금지'.",
     "When customer purpose (stated or hypothesized) AND confirmed facts exist, KEY MUST assert purpose-fit clearly — do not timidly defer with review-order only.",
     "ALLOWED purpose-fit voice (shadow): '현재 목적 기준으로는 이쪽이 더 맞아 보입니다'; '보험료 절감 목적이라면 새 상품보다 기존 중복 확인이 먼저입니다'; '보장 보완 목적이라면 이 상품군은 후보가 될 수 있습니다'; '암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다'; '아직 확정은 아니지만, 지금 확인된 사실로는 이 방향이 목적에 더 가깝습니다'.",
     "FORBIDDEN: enroll/cancel commands ('무조건 가입하세요', '해지해도 됩니다'); 확인 전 충분/부족 확정; inventing numbers/coverages/totals; product push with no customer purpose.",
     "Safety (gate/facts/system) blocks hard stops — KEY itself must not avoid purpose-fit judgment when purpose+facts exist.",
     "Use ONLY facts from allowed_fact_tokens / allowed_numbers / used_facts inputs.",
-    "For context_carryover: only reference conversation_history or previous_answer_summary — never invent '지난번' memory. Carry ONLY topics/numbers explicitly present in history. Prefer '직전 대화에서 확인된 …'. FORBIDDEN in context_carryover: inventing prior 암/사망/진단비/수술비 as if already discussed; '나머지 N건' or other calculated/estimated counts not written in history.",
+    "For context_carryover: only reference conversation_history, recent_conversation_originals, older_conversation_summary, retained_past_originals, or previous_answer_summary — never invent '지난번' memory. Carry ONLY topics/numbers explicitly present in history. Prefer '직전 대화에서 확인된 …'. FORBIDDEN in context_carryover: inventing prior 암/사망/진단비/수술비 as if already discussed; '나머지 N건' or other calculated/estimated counts not written in history.",
     "CURRENT TASK CONTINUITY: When conversation_history / open_customer_thread shows an unfinished customer request, treat the current message as refining that request until a clear new topic appears. Keep the open purpose fixed in voice_raw_candidate. If the open request is a place/restaurant recommendation, follow-ups about companions, surgery recovery, mobility, seating, or food limits are selection constraints — NOT a new trip/travel topic. FORBIDDEN: '여행 가시는군요' when the open ask was restaurant recommendation. When the customer clearly raises insurance-payout worry, switch to that topic.",
     "Never end a normal place/daily/claim conversation with a generic wait stub like '지금은 여기까지 확인했어요. 잠시 후 다시 말씀해 주시면…'. If evidence has ≥1 grounded place, name it; if evidence is empty, ask ONE clarifying condition tied to the open request.",
     "For visual_observation: describe ONLY what is in visual_blocks_summary rows/titles — never invent numbers, contracts, or judgments not shown.",
     "When visual_blocks_summary is present, cite only cell values and row labels from that summary.",
     "For premium scope: when policy_count > 1, never imply monthly_premium is total for all contracts.",
-    "voice_raw_candidate is an alternate expression sketch — NOT the customer-facing answer. Prefer clearer purpose-fit than a timid S6 paraphrase.",
-    "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice.",
+    claudeFull
+      ? "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice. Prefer clearer purpose-fit than timid deferral."
+      : "voice_raw_candidate is an alternate expression sketch — NOT the customer-facing answer. Prefer clearer purpose-fit than a timid S6 paraphrase.",
+    !claudeFull
+      ? "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice."
+      : null,
     "Speak TO the customer in 2nd-person/구어체. FORBIDDEN openings: third-person report tone like '고객 목적이 아직 확인되지 않은 상태입니다', '정보가 부족합니다', '추천은 어렵습니다'. Prefer warm direct speech: '좋아요', '추천해드릴게요', '먼저 목적을 잡으면'.",
     "recommendation_basis MUST separate: why this direction looks fit for the purpose vs why it is not yet a definitive enroll/cancel/verdict.",
-    "S7-b leadership fields (key_purpose, leadership_move, insurance_expertise_angle, proposal_direction, next_decision_point) are trace-only — never customer-facing.",
+    "S7-b leadership fields (key_purpose, leadership_move, insurance_expertise_angle, proposal_direction, next_decision_point) are KEY-internal — never dump them as a separate customer appendix; weave next action into voice_raw_candidate naturally.",
     "KEY acts as 보험 주치의: lead the customer to the next safe decision point — soft but not passive.",
     "leadership_move must be an active framing step — never end with only '편하실 때 말씀해 주세요'.",
     "proposal_direction may be (a) review direction OR (b) purpose-fit direction within confirmed facts — NOT enroll/cancel command and NOT purposeless product push.",
@@ -149,8 +167,10 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
     "Use 보장 구성, 보장 종류, 보장 영역 instead of '축'.",
     "Never claim 부족합니다/충분합니다/꼭 필요합니다 as definitive verdict before verification.",
     "You MUST call emit_borrowed_senses exactly once with valid JSON fields.",
-    "final_answer_source must always be \"s6\".",
-  ];
+    claudeFull
+      ? 'final_answer_source must be "s6" in the tool schema (legacy field); KEY seals the customer answer separately.'
+      : 'final_answer_source must always be "s6".',
+  ].filter(Boolean);
   if (mode === "emit_with_research") {
     lines.push(
       "PUBLIC RESEARCH EVIDENCE is provided in the user payload (key_public_research_evidence).",
@@ -162,7 +182,39 @@ function buildSystemPrompt({ mode = "emit" } = {}) {
       "FORBIDDEN: invent restaurant names absent from all evidence text; end with only '어떤 분위기/음식 종류를 원하세요?' when grounded candidates exist; assert exact rating/hours/parking/price/distance/address/exit/floor/building digits not present in evidence; insurance invite; '네이버/카카오에서 직접 검색하세요' dump; '지금은 여기까지 확인했어요' wait stub.",
     );
   }
+  if (mode === "focused_correction") {
+    lines.push(
+      "FOCUSED CORRECTION (once): Rewrite voice_raw_candidate to fix ONLY the listed CLOSED_HARD violations and failed claims.",
+      "Keep the same conversation pack, verified_customer_chart, public evidence, allowed_numbers, and allowed_entities.",
+      "Do not invent facts. Do not re-search. Do not shrink the chart. Do not emit internal reasoning text.",
+    );
+  }
   return lines.join(" ");
+}
+
+/** Strip Anthropic thinking / redacted_thinking blocks — never persist reasoning prose. */
+function stripReasoningFromProviderData(data = null) {
+  if (!data || typeof data !== "object") return { data, stripped: false };
+  const content = Array.isArray(data.content) ? data.content : null;
+  if (!content) return { data, stripped: false };
+  const filtered = content.filter(
+    (b) => b?.type !== "thinking" && b?.type !== "redacted_thinking",
+  );
+  if (filtered.length === content.length) return { data, stripped: false };
+  return {
+    data: { ...data, content: filtered },
+    stripped: true,
+  };
+}
+
+function extractUsageMetrics(data = null) {
+  const usage = data?.usage && typeof data.usage === "object" ? data.usage : null;
+  return {
+    input_tokens: Number.isFinite(Number(usage?.input_tokens)) ? Number(usage.input_tokens) : null,
+    output_tokens: Number.isFinite(Number(usage?.output_tokens))
+      ? Number(usage.output_tokens)
+      : null,
+  };
 }
 
 /** Place / venue recommendation that requires real public web_search (not soft context like 부모님 모시 alone). */
@@ -850,6 +902,9 @@ function buildUserPayload({
   reality = null,
   publicResearchEvidence = null,
   relatedPastJudgments = null,
+  answerMode = "shadow_sketch",
+  focusedCorrection = null,
+  contextPack = null,
 } = {}) {
   const early = factBoundary && typeof factBoundary === "object" ? factBoundary : null;
   const allowed_fact_tokens =
@@ -864,9 +919,23 @@ function buildUserPayload({
     early?.verified_customer_chart ??
     directive?.verified_customer_chart ??
     buildVerifiedCustomerChart(reality);
-  const conversation_history = mapConversationHistory(history);
-  const decisionPayload = buildDecisionPayload(decision);
-  const session_goal = buildSessionGoalPayload(decision, directive);
+  const pack =
+    contextPack && typeof contextPack === "object"
+      ? contextPack
+      : buildClaudeFullContextPack({
+          history,
+          previousAnswerSummary,
+          question,
+        }).pack;
+  const conversation_history = Array.isArray(pack.conversation_history_full)
+    ? pack.conversation_history_full
+    : mapConversationHistory(history);
+  // Claude-Full: KEY Decision / Session Goal are NOT answer drafts for Claude.
+  // Shadow sketch may still receive post-decision payloads when provided.
+  const decisionPayload =
+    answerMode === "claude_full" ? null : buildDecisionPayload(decision);
+  const session_goal =
+    answerMode === "claude_full" ? null : buildSessionGoalPayload(decision, directive);
 
   return {
     schema_version: S7_BORROWED_SENSES_SCHEMA_B,
@@ -888,21 +957,37 @@ function buildUserPayload({
     // Full session history — no artificial slice(-4). Provider output max_tokens still apply downstream.
     conversation_history,
     conversation_history_count: conversation_history.length,
+    recent_conversation_originals: pack.recent_conversation_originals ?? conversation_history,
+    recent_conversation_count:
+      pack.recent_conversation_count ?? conversation_history.length,
+    older_conversation_summary: pack.older_conversation_summary ?? null,
+    retained_past_originals: pack.retained_past_originals ?? [],
+    retained_past_original_count: pack.retained_past_original_count ?? 0,
     open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
-    previous_answer_summary: String(previousAnswerSummary ?? "").trim() || null,
+    previous_answer_summary:
+      pack.previous_answer_summary ??
+      (String(previousAnswerSummary ?? "").trim() || null),
     // Empty string when called before Speak — never invent a fake S6 answer
     s6_final_answer_frozen: String(s6FinalAnswer ?? "").trim(),
-    question_focus: directive?.question_focus ?? early?.question_focus ?? null,
-    answer_mode: directive?.answer_mode ?? null,
+    // Claude-Full: strip KEY pre-classification / answer-direction fields.
+    question_focus:
+      answerMode === "claude_full"
+        ? null
+        : directive?.question_focus ?? early?.question_focus ?? null,
+    answer_mode: answerMode === "claude_full" ? "claude_full" : directive?.answer_mode ?? null,
     // null when Decision has not run yet — do not invent
-    decision_situation_key: decision?.situation_key ?? null,
+    decision_situation_key:
+      answerMode === "claude_full" ? null : decision?.situation_key ?? null,
     decision: decisionPayload,
     session_goal,
-    related_past_judgments: Array.isArray(relatedPastJudgments)
-      ? relatedPastJudgments
-      : Array.isArray(decision?.related_past_judgments)
-        ? decision.related_past_judgments
-        : null,
+    related_past_judgments:
+      answerMode === "claude_full"
+        ? null
+        : Array.isArray(relatedPastJudgments)
+          ? relatedPastJudgments
+          : Array.isArray(decision?.related_past_judgments)
+            ? decision.related_past_judgments
+            : null,
     verified_customer_chart,
     public_research_evidence: publicResearchEvidence ?? null,
     allowed_fact_tokens,
@@ -910,18 +995,40 @@ function buildUserPayload({
     allowed_entities,
     facts_to_speak,
     premium_scope_policy: directive?.premium_scope_policy ?? early?.premium_scope_policy ?? null,
-    reflection_situation_reading: Array.isArray(reflection?.situation_reading)
-      ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
-      : null,
-    reflection_reading_confidence: reflection?.reading_confidence ?? null,
+    // Claude-Full: Reflection situation_reading is KEY pre-interpretation — do not feed as answer direction.
+    reflection_situation_reading:
+      answerMode === "claude_full"
+        ? null
+        : Array.isArray(reflection?.situation_reading)
+          ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
+          : null,
+    reflection_reading_confidence:
+      answerMode === "claude_full" ? null : reflection?.reading_confidence ?? null,
     visual_blocks_summary: summarizeVisualBlocks(visualBlocks),
-    s7b_question_leadership_hint: buildQuestionLeadershipHint(question),
+    // Claude-Full: leadership hint is KEY answer-structure direction — omit.
+    s7b_question_leadership_hint:
+      answerMode === "claude_full" ? null : buildQuestionLeadershipHint(question),
     call_phase: decision || directive ? "post_decision" : "pre_decision",
+    focused_correction:
+      focusedCorrection && typeof focusedCorrection === "object"
+        ? {
+            attempt: 1,
+            violations: focusedCorrection.violations ?? [],
+            failed_claims_preview: String(
+              focusedCorrection.failed_claims_preview ?? "",
+            ).slice(0, 400),
+            previous_voice_raw_candidate: String(
+              focusedCorrection.previous_voice_raw_candidate ?? "",
+            ).slice(0, 2000),
+          }
+        : null,
     provider_input_policy: {
       history_slice: null,
       chart_stub_one_policy: false,
       research_history_slice: null,
       note: "Full conversation_history and verified_customer_chart are sent. Downstream Anthropic output max_tokens remain (research/emit/speak) — input is not artificially truncated here.",
+      claude_full_no_key_answer_draft: answerMode === "claude_full",
+      claude_full_no_key_preinterpretation: answerMode === "claude_full",
     },
   };
 }
@@ -1164,7 +1271,21 @@ async function postAnthropicMessages({
   tools,
   toolChoice,
   messages,
+  startedAt = null,
 }) {
+  const bodyStr = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    temperature,
+    system,
+    tools,
+    tool_choice: toolChoice,
+    messages,
+  });
+  const input_bytes = Buffer.byteLength(bodyStr, "utf8");
+  const provider_request_start_ms =
+    startedAt != null ? relMs(startedAt) : null;
+  const wallStart = Date.now();
   const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
     method: "POST",
     signal,
@@ -1173,15 +1294,7 @@ async function postAnthropicMessages({
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      system,
-      tools,
-      tool_choice: toolChoice,
-      messages,
-    }),
+    body: bodyStr,
   });
   if (!res.ok) {
     let bodyText = "";
@@ -1190,16 +1303,46 @@ async function postAnthropicMessages({
     } catch {
       bodyText = "";
     }
+    const provider_request_complete_ms =
+      startedAt != null ? relMs(startedAt) : null;
     return {
       ok: false,
       error: classifyProviderHttpError(res.status, bodyText),
       http_status: res.status,
       data: null,
       raw: null,
+      provider_timing: {
+        provider_request_start_ms,
+        provider_request_complete_ms,
+        provider_duration_ms: Math.max(0, Date.now() - wallStart),
+        ttft_ms: null,
+        input_bytes,
+        input_tokens: null,
+        output_tokens: null,
+      },
     };
   }
-  const data = await res.json();
-  return { ok: true, data, raw: JSON.stringify(data.content ?? []) };
+  const dataRaw = await res.json();
+  const { data, stripped } = stripReasoningFromProviderData(dataRaw);
+  const usage = extractUsageMetrics(data);
+  const provider_request_complete_ms =
+    startedAt != null ? relMs(startedAt) : null;
+  return {
+    ok: true,
+    data,
+    raw: JSON.stringify(data.content ?? []),
+    reasoning_stripped: stripped === true,
+    provider_timing: {
+      provider_request_start_ms,
+      provider_request_complete_ms,
+      provider_duration_ms: Math.max(0, Date.now() - wallStart),
+      // Non-streaming Messages API — TTFT not measurable
+      ttft_ms: null,
+      input_bytes,
+      input_tokens: usage.input_tokens,
+      output_tokens: usage.output_tokens,
+    },
+  };
 }
 
 /**
@@ -1215,6 +1358,7 @@ async function runPublicResearchPhase({
   fetchImpl,
   signal,
   temperature,
+  startedAt = null,
 }) {
   const retrievedAt = new Date().toISOString();
   const placeRequest = isActivePlaceCustomerThread({ question, history });
@@ -1268,6 +1412,7 @@ async function runPublicResearchPhase({
       tools,
       toolChoice,
       messages,
+      startedAt,
     });
     if (!once.ok) {
       return {
@@ -1473,12 +1618,23 @@ async function callClaudeBorrowedSenses({
   publicResearchEnabled = false,
   // When set, skip Phase 1 (used only for emit repair after research already done)
   precomputedResearchEvidence = null,
+  answerMode = "shadow_sketch",
+  startedAt = null,
+  focusedCorrection = null,
 }) {
   const repairMessage =
     repairReason === "leadership"
       ? "Your previous output omitted next_decision_point (need 2-3 choices). Call emit_borrowed_senses again with all required fields including next_decision_point."
-      : "Your previous output was not valid structured JSON. Call emit_borrowed_senses again with all required fields. JSON only via tool call.";
+      : repairReason === "focused_correction"
+        ? "FOCUSED CORRECTION: Call emit_borrowed_senses again. Fix ONLY the listed CLOSED_HARD violations in voice_raw_candidate. Do not invent facts. Do not emit internal reasoning."
+        : "Your previous output was not valid structured JSON. Call emit_borrowed_senses again with all required fields. JSON only via tool call.";
   const temp = Math.min(0.45, Math.max(0.15, Number(temperature) || DEFAULT_TEMPERATURE));
+  const emitMode = focusedCorrection
+    ? "focused_correction"
+    : publicResearchEnabled
+      ? "emit_with_research"
+      : "emit";
+  const system = buildSystemPrompt({ mode: emitMode, answerMode });
 
   // --- No research: single emit-only request ---
   if (!publicResearchEnabled) {
@@ -1496,12 +1652,25 @@ async function callClaudeBorrowedSenses({
       model,
       maxTokens: 2048,
       temperature: temp,
-      system: buildSystemPrompt({ mode: "emit" }),
+      system,
       tools: [BORROWED_SENSES_TOOL],
       toolChoice: { type: "tool", name: "emit_borrowed_senses" },
       messages,
+      startedAt,
     });
-    if (!once.ok) return { ...once, public_research_evidence: emptyResearchEvidence() };
+    if (!once.ok) {
+      return {
+        ...once,
+        public_research_evidence: emptyResearchEvidence(),
+        provider_request_trace: [
+          {
+            phase: "emit",
+            tools: ["emit_borrowed_senses"],
+            ...(once.provider_timing ?? {}),
+          },
+        ],
+      };
+    }
     const parsed = extractParsedFromResponse(once.data);
     if (!parsed) {
       return {
@@ -1510,6 +1679,14 @@ async function callClaudeBorrowedSenses({
         data: once.data,
         raw: once.raw,
         public_research_evidence: emptyResearchEvidence(),
+        provider_request_trace: [
+          {
+            phase: "emit",
+            tools: ["emit_borrowed_senses"],
+            ...(once.provider_timing ?? {}),
+          },
+        ],
+        provider_timing: once.provider_timing ?? null,
       };
     }
     return {
@@ -1518,7 +1695,15 @@ async function callClaudeBorrowedSenses({
       data: once.data,
       raw: once.raw,
       public_research_evidence: emptyResearchEvidence({ status: "skipped" }),
-      provider_request_trace: [{ phase: "emit", tools: ["emit_borrowed_senses"] }],
+      provider_request_trace: [
+        {
+          phase: focusedCorrection ? "focused_correction" : "emit",
+          tools: ["emit_borrowed_senses"],
+          ...(once.provider_timing ?? {}),
+        },
+      ],
+      provider_timing: once.provider_timing ?? null,
+      reasoning_stripped: once.reasoning_stripped === true,
     };
   }
 
@@ -1535,6 +1720,7 @@ async function callClaudeBorrowedSenses({
       fetchImpl,
       signal,
       temperature: temp,
+      startedAt,
     });
     researchProviderRequests = research.provider_requests ?? 0;
     for (let i = 0; i < researchProviderRequests; i += 1) {
@@ -1659,7 +1845,10 @@ async function callClaudeBorrowedSenses({
       ]
     : [{ role: "user", content: JSON.stringify(emitPayload, null, 2) }];
 
-  requestTrace.push({ phase: "emit", tools: ["emit_borrowed_senses"] });
+  requestTrace.push({
+    phase: focusedCorrection ? "focused_correction" : "emit",
+    tools: ["emit_borrowed_senses"],
+  });
   const once = await postAnthropicMessages({
     fetchImpl,
     signal,
@@ -1667,16 +1856,21 @@ async function callClaudeBorrowedSenses({
     model,
     maxTokens: 2048,
     temperature: temp,
-    system: buildSystemPrompt({ mode: "emit_with_research" }),
+    system,
     tools: [BORROWED_SENSES_TOOL],
     toolChoice: { type: "tool", name: "emit_borrowed_senses" },
     messages: emitMessages,
+    startedAt,
   });
+  if (once.provider_timing && requestTrace.length > 0) {
+    Object.assign(requestTrace[requestTrace.length - 1], once.provider_timing);
+  }
   if (!once.ok) {
     return {
       ...once,
       public_research_evidence: researchEvidence,
       provider_request_trace: requestTrace,
+      provider_timing: once.provider_timing ?? null,
     };
   }
   const parsed = extractParsedFromResponse(once.data);
@@ -1688,6 +1882,7 @@ async function callClaudeBorrowedSenses({
       raw: once.raw,
       public_research_evidence: researchEvidence,
       provider_request_trace: requestTrace,
+      provider_timing: once.provider_timing ?? null,
     };
   }
   return {
@@ -1697,11 +1892,15 @@ async function callClaudeBorrowedSenses({
     raw: once.raw,
     public_research_evidence: researchEvidence,
     provider_request_trace: requestTrace,
+    provider_timing: once.provider_timing ?? null,
+    reasoning_stripped: once.reasoning_stripped === true,
   };
 }
 
 /**
- * Shadow-only borrowed senses probe — never mutates S6 final_answer.
+ * Borrowed / Claude-Full probe.
+ * shadow_sketch: observation candidate (S6 may still speak for customer).
+ * claude_full: customer-answer candidate for KEY safety-pin verify + finalize/seal.
  */
 export async function runBorrowedSensesShadowProbe({
   question = "",
@@ -1716,6 +1915,9 @@ export async function runBorrowedSensesShadowProbe({
   reality = null,
   publicResearchEvidence = null,
   relatedPastJudgments = null,
+  answerMode = "shadow_sketch",
+  focusedCorrection = null,
+  startedAt = null,
   env = process.env,
   fetchImpl = fetch,
   timeoutMs = Number(env.KEY_BORROWED_SENSES_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
@@ -1724,7 +1926,7 @@ export async function runBorrowedSensesShadowProbe({
   const apiKey = resolveAnthropicApiKey(env);
   const base = {
     schema_version: S7_BORROWED_SENSES_SCHEMA_B,
-    shadow_only: true,
+    shadow_only: answerMode !== "claude_full",
     customer_text_changed: false,
     final_answer_source: "s6",
     s6_final_answer: String(s6FinalAnswer ?? "").trim(),
@@ -1735,6 +1937,8 @@ export async function runBorrowedSensesShadowProbe({
     raw: null,
     attempts: 0,
     call_phase: decision || directive ? "post_decision" : "pre_decision",
+    answer_mode: answerMode,
+    focused_correction_used: Boolean(focusedCorrection),
   };
 
   if (!apiKey) {
@@ -1745,7 +1949,14 @@ export async function runBorrowedSensesShadowProbe({
   }
 
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
-  const publicResearchEnabled = shouldEnablePublicWebSearch({ question, decision, history });
+  // Focused correction never re-runs public research.
+  const publicResearchEnabled =
+    !focusedCorrection && shouldEnablePublicWebSearch({ question, decision, history });
+  const { pack: contextPack, context_pack_ms } = buildClaudeFullContextPack({
+    history,
+    previousAnswerSummary,
+    question,
+  });
   const userPayload = buildUserPayload({
     question,
     directive,
@@ -1759,6 +1970,9 @@ export async function runBorrowedSensesShadowProbe({
     reality,
     publicResearchEvidence,
     relatedPastJudgments,
+    answerMode,
+    focusedCorrection,
+    contextPack,
   });
   if (publicResearchEnabled) {
     userPayload.public_research = {
@@ -1776,6 +1990,7 @@ export async function runBorrowedSensesShadowProbe({
   let lastPublicResearch = emptyResearchEvidence();
   let cachedResearchEvidence = null;
   let lastRequestTrace = [];
+  let lastProviderTiming = null;
   let parseRetryUsed = false;
   let leadershipRetryCount = 0;
   let timeoutRetryUsed = false;
@@ -1783,7 +1998,8 @@ export async function runBorrowedSensesShadowProbe({
     Number(timeoutMs) ||
     (publicResearchEnabled ? PUBLIC_RESEARCH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
   let attempts = 0;
-  const maxAttempts = 5;
+  const maxAttempts = focusedCorrection ? 1 : 5;
+  let reasoningStripped = false;
 
   try {
     while (attempts < maxAttempts) {
@@ -1795,7 +2011,11 @@ export async function runBorrowedSensesShadowProbe({
 
       let repairRaw = null;
       let repairReason = "json";
-      if (parseRetryUsed && lastRaw) {
+      if (focusedCorrection) {
+        repairRaw =
+          String(focusedCorrection.previous_voice_raw_candidate ?? "").trim() || null;
+        repairReason = "focused_correction";
+      } else if (parseRetryUsed && lastRaw) {
         repairRaw = lastRaw;
         repairReason = "json";
       } else if (leadershipRetryCount > 0 && lastRaw) {
@@ -1816,6 +2036,9 @@ export async function runBorrowedSensesShadowProbe({
           repairReason,
           publicResearchEnabled,
           precomputedResearchEvidence: cachedResearchEvidence,
+          answerMode,
+          startedAt,
+          focusedCorrection,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1838,6 +2061,10 @@ export async function runBorrowedSensesShadowProbe({
       if (result.provider_request_trace) {
         lastRequestTrace = result.provider_request_trace;
       }
+      if (result.provider_timing) {
+        lastProviderTiming = result.provider_timing;
+      }
+      if (result.reasoning_stripped === true) reasoningStripped = true;
 
       // Typed research contract failures — do not outer-retry (would duplicate search)
       if (result.research_failed) {
@@ -1851,6 +2078,16 @@ export async function runBorrowedSensesShadowProbe({
           public_research_evidence: lastPublicResearch,
           provider_request_trace: lastRequestTrace,
           research_failed: true,
+          provider_speed: buildProviderSpeedSummary({
+            context_pack_ms,
+            attempts,
+            parseRetryUsed,
+            leadershipRetryCount,
+            timeoutRetryUsed,
+            lastRequestTrace,
+            lastProviderTiming,
+            focusedCorrection,
+          }),
         };
       }
 
@@ -1863,6 +2100,16 @@ export async function runBorrowedSensesShadowProbe({
           public_research_enabled: publicResearchEnabled,
           public_research_evidence: result.public_research_evidence ?? lastPublicResearch,
           provider_request_trace: lastRequestTrace,
+          provider_speed: buildProviderSpeedSummary({
+            context_pack_ms,
+            attempts,
+            parseRetryUsed,
+            leadershipRetryCount,
+            timeoutRetryUsed,
+            lastRequestTrace,
+            lastProviderTiming,
+            focusedCorrection,
+          }),
         };
       }
 
@@ -1877,7 +2124,11 @@ export async function runBorrowedSensesShadowProbe({
           visualBlocks,
         });
 
-        if ((gate.missing_next_decision || gate.missing_proposal_direction) && leadershipRetryCount < 3) {
+        if (
+          !focusedCorrection &&
+          (gate.missing_next_decision || gate.missing_proposal_direction) &&
+          leadershipRetryCount < 3
+        ) {
           leadershipRetryCount += 1;
           lastRaw = JSON.stringify(result.parsed, null, 2);
           userPayload.s7b_retry_hint = gate.missing_proposal_direction
@@ -1890,7 +2141,8 @@ export async function runBorrowedSensesShadowProbe({
           ...base,
           provider: "anthropic",
           model,
-          raw: result.raw,
+          // Never persist raw provider blobs that may contain thinking — tool JSON only
+          raw: null,
           borrowed,
           gate,
           error: null,
@@ -1898,18 +2150,29 @@ export async function runBorrowedSensesShadowProbe({
           public_research_enabled: publicResearchEnabled,
           public_research_evidence: lastPublicResearch,
           provider_request_trace: lastRequestTrace,
+          reasoning_stripped: reasoningStripped,
+          provider_speed: buildProviderSpeedSummary({
+            context_pack_ms,
+            attempts,
+            parseRetryUsed,
+            leadershipRetryCount,
+            timeoutRetryUsed,
+            lastRequestTrace,
+            lastProviderTiming,
+            focusedCorrection,
+          }),
         };
       }
 
       lastError = result.error ?? "CLAUDE_JSON_PARSE_FAIL";
 
-      if (lastError === "CLAUDE_TIMEOUT" && !timeoutRetryUsed) {
+      if (!focusedCorrection && lastError === "CLAUDE_TIMEOUT" && !timeoutRetryUsed) {
         timeoutRetryUsed = true;
         activeTimeoutMs = Math.max(TIMEOUT_RETRY_MS, PUBLIC_RESEARCH_TIMEOUT_MS);
         continue;
       }
 
-      if (lastError === "CLAUDE_JSON_PARSE_FAIL" && !parseRetryUsed) {
+      if (!focusedCorrection && lastError === "CLAUDE_JSON_PARSE_FAIL" && !parseRetryUsed) {
         parseRetryUsed = true;
         continue;
       }
@@ -1920,13 +2183,23 @@ export async function runBorrowedSensesShadowProbe({
     return {
       ...base,
       error: lastError,
-      raw: lastRaw,
+      raw: null,
       provider: "anthropic",
       model,
       attempts,
       public_research_enabled: publicResearchEnabled,
       public_research_evidence: lastPublicResearch,
       provider_request_trace: lastRequestTrace,
+      provider_speed: buildProviderSpeedSummary({
+        context_pack_ms,
+        attempts,
+        parseRetryUsed,
+        leadershipRetryCount,
+        timeoutRetryUsed,
+        lastRequestTrace,
+        lastProviderTiming,
+        focusedCorrection,
+      }),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1938,8 +2211,51 @@ export async function runBorrowedSensesShadowProbe({
       public_research_enabled: publicResearchEnabled,
       public_research_evidence: lastPublicResearch,
       provider_request_trace: lastRequestTrace,
+      provider_speed: buildProviderSpeedSummary({
+        context_pack_ms,
+        attempts,
+        parseRetryUsed,
+        leadershipRetryCount,
+        timeoutRetryUsed,
+        lastRequestTrace,
+        lastProviderTiming,
+        focusedCorrection,
+      }),
     };
   }
+}
+
+function buildProviderSpeedSummary({
+  context_pack_ms = null,
+  attempts = 0,
+  parseRetryUsed = false,
+  leadershipRetryCount = 0,
+  timeoutRetryUsed = false,
+  lastRequestTrace = [],
+  lastProviderTiming = null,
+  focusedCorrection = null,
+} = {}) {
+  const researchRounds = (Array.isArray(lastRequestTrace) ? lastRequestTrace : []).filter(
+    (t) => t?.phase === "research",
+  ).length;
+  const retry_count =
+    (parseRetryUsed ? 1 : 0) +
+    Number(leadershipRetryCount || 0) +
+    (timeoutRetryUsed ? 1 : 0);
+  return {
+    context_pack_ms: typeof context_pack_ms === "number" ? context_pack_ms : null,
+    provider_request_start_ms: lastProviderTiming?.provider_request_start_ms ?? null,
+    provider_request_complete_ms: lastProviderTiming?.provider_request_complete_ms ?? null,
+    provider_duration_ms: lastProviderTiming?.provider_duration_ms ?? null,
+    ttft_ms: lastProviderTiming?.ttft_ms ?? null,
+    input_bytes: lastProviderTiming?.input_bytes ?? null,
+    input_tokens: lastProviderTiming?.input_tokens ?? null,
+    output_tokens: lastProviderTiming?.output_tokens ?? null,
+    attempt_count: Number(attempts) || 0,
+    retry_count,
+    research_tool_round_count: researchRounds,
+    focused_correction: Boolean(focusedCorrection),
+  };
 }
 
 export {

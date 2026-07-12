@@ -204,6 +204,8 @@ export async function buildKeyVoiceComposeResult(
   const borrowedMode = getKeyBorrowedSensesMode(env);
   const stage2Partial = isKeyBorrowedSensesStage2Partial(env);
   const stage3Active = isKeyBorrowedSensesStage3Active(env);
+  // Claude-Full v1.1 — Preview active only (no new env flag). Default Preview stays shadow.
+  const claudeFullSinglePass = stage3Active && !stage2Partial && !production;
 
   // Turn-owned ghost ledger (never module-global).
   const turnGhostLedger = Array.isArray(ghostLedger) ? ghostLedger : createGhostLedger();
@@ -216,6 +218,7 @@ export async function buildKeyVoiceComposeResult(
   let borrowedUnderstanding = null;
   let s6SpeakCalls = 0;
   let borrowedSensesCalls = 0;
+  let focusedCorrectionCount = 0;
   let borrowedShadowProbeMark = null;
   let s6SpeakEnterMs = null;
   let s6SpeakExitMs = null;
@@ -225,6 +228,7 @@ export async function buildKeyVoiceComposeResult(
   let gateDurationSum = 0;
   const providerErrorTypes = [];
   let s6ProviderCallCount = 0;
+  let claudeCallCount = 0;
 
   const markGate = (fn) => {
     const span = startSpan(startedAt);
@@ -252,7 +256,7 @@ export async function buildKeyVoiceComposeResult(
     return result;
   };
 
-  // --- Early Borrowed Senses (before Decision) when probe enabled — at most 1 call ---
+  // --- Early Borrowed / Claude-Full (before Decision) when probe enabled — at most 1 call ---
   if (probeOn) {
     const factBoundary = buildEarlyBorrowedFactBoundary({
       reality,
@@ -271,6 +275,8 @@ export async function buildKeyVoiceComposeResult(
         previousAnswerSummary,
         s6FinalAnswer: "",
         visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+        answerMode: claudeFullSinglePass ? "claude_full" : "shadow_sketch",
+        startedAt,
         env,
         fetchImpl,
       });
@@ -278,6 +284,7 @@ export async function buildKeyVoiceComposeResult(
       borrowedShadowProbeMark = probeSpan.end();
     }
     borrowedSensesCalls = 1;
+    claudeCallCount = 1;
     borrowedUnderstanding = shadow?.borrowed ?? null;
     const borrowedErr = sanitizeLatencyErrorType(shadow?.error);
     if (borrowedErr) providerErrorTypes.push(borrowedErr);
@@ -412,12 +419,85 @@ export async function buildKeyVoiceComposeResult(
   let speakResult = { ok: false, error: null };
   let gateResult = { ok: false, reasons: ["pending"] };
   let usedActiveFastPath = false;
+  let usedClaudeFullSinglePass = false;
   let usedConstrainedRegen = false;
   let usedFailureMode = false;
 
-  // --- active only: one-call candidate if Stage3 promote + Decision alignment + KEY Voice Gate ---
-  // s6FinalAnswer "" is honest absence (not a fabricated S6). Stage3 F3 still uses history/summary.
-  if (stage3Active && !stage2Partial && !production && shadow && alignment?.ok === true) {
+  // --- Claude-Full v1.1 (Preview active): adopt Claude after existing safety pins; S6 never ---
+  if (claudeFullSinglePass && shadow) {
+    const candidate = String(shadow?.borrowed?.voice_raw_candidate ?? "").trim();
+    const researchEv = shadow?.public_research_evidence ?? null;
+    if (!candidate || shadow?.error) {
+      usedFailureMode = true;
+      voiceRaw = null;
+      gateResult = {
+        ok: false,
+        reasons: [shadow?.error ?? "claude_full_empty_candidate"],
+      };
+      trace.fast_path = {
+        ok: false,
+        reason: shadow?.error ?? "claude_full_empty_candidate",
+        observation_only: false,
+        claude_full_single_pass: true,
+      };
+      trace.initial_candidate_source = "claude_full_failed";
+    } else {
+      const kvGate = markGate(() =>
+        gateBorrowedCandidateAnswer(candidate, directive, s5Reference),
+      );
+      const partition = markGate(() =>
+        partitionCustomerTextSafety({
+          gateResult: kvGate,
+          voice: candidate,
+          question: directiveQuestion,
+          decision,
+          publicResearchEvidence: researchEv,
+        }),
+      );
+      if (!partition.hardFail) {
+        voiceRaw = candidate;
+        provider = "claude_full_single_pass";
+        gateResult = kvGate.ok
+          ? kvGate
+          : {
+              ok: true,
+              reasons: partition.soft.length ? partition.soft : (kvGate.reasons ?? []),
+              soft_pass: true,
+            };
+        usedClaudeFullSinglePass = true;
+        usedActiveFastPath = true;
+        trace.fast_path = {
+          ok: true,
+          reason: null,
+          aligned_with_decision: alignment?.aligned_with_decision === true,
+          gate_ok: true,
+          alignment_reason: null,
+          observation_only: false,
+          claude_full_single_pass: true,
+          mid_field_warnings: alignment?.mid_field_warnings ?? [],
+        };
+        trace.initial_candidate_source = "claude_full";
+        trace.answer_regeneration = { used: false };
+      } else {
+        // Concrete CLOSED_HARD violation only — focused Claude correction max 1 (no S6).
+        voiceRaw = candidate;
+        provider = "claude_full_candidate";
+        gateResult = {
+          ok: false,
+          reasons: [...partition.hard, ...partition.soft],
+        };
+        trace.initial_candidate_source = "claude_full";
+        trace.fast_path = {
+          ok: false,
+          reason: partition.hard.join(";") || "claude_full_hard_safety",
+          observation_only: false,
+          claude_full_single_pass: true,
+          initial_claude_hard: true,
+        };
+      }
+    }
+  } else if (stage3Active && !stage2Partial && !production && shadow && alignment?.ok === true) {
+    // Legacy Stage3 promote path retained (unreachable when claudeFullSinglePass mirrors stage3Active).
     const stage3Pre = applyStage3PromotionToCompose({
       question: directiveQuestion,
       s6FinalAnswer: "",
@@ -499,14 +579,12 @@ export async function buildKeyVoiceComposeResult(
   }
 
   // --- Stein single correction budget (Compose lifetime max 1) ---
-  // Borrowed voice_raw_candidate is the initial Claude candidate when present.
-  // Never run answer_constrained_once then hard_safety_repair on the same lifecycle.
-  // Corrections are only hard_safety_repair (once). Initial S6 speak is not a correction.
+  // Claude-Full: focused Claude correction only (no S6). Legacy: hard_safety_repair via S6.
   let correctionAttempts = 0;
   const researchEvForSafety = () =>
     shadow?.public_research_evidence ?? directive.public_research_evidence ?? null;
 
-  if (!voiceRaw) {
+  if (!claudeFullSinglePass && !voiceRaw) {
     const fallbackReason = String(
       trace.fast_path?.reason ??
         trace.stage3_active_pre_s6?.fallback_reason ??
@@ -542,7 +620,6 @@ export async function buildKeyVoiceComposeResult(
       );
 
       if (borrowedPartition.hardFail) {
-        // Initial candidate = borrowed; sole correction later = hard_safety_repair.
         voiceRaw = rejectedAnswer;
         provider = "borrowed_senses_candidate";
         gateResult = {
@@ -571,8 +648,6 @@ export async function buildKeyVoiceComposeResult(
           midFieldWarnings,
           publicResearchEvidence: researchEv,
         });
-        // Soft expression / soft place incompleteness keep candidate (repair 0).
-        // Hard Stage3 refusals (F5 risky, Q10, Decision mismatch, …) fall through to initial S6.
         const softKeep =
           !borrowedPartition.hardFail &&
           (softApprove ||
@@ -614,8 +689,8 @@ export async function buildKeyVoiceComposeResult(
     }
   }
 
-  // Initial S6 speak only when no candidate exists yet (not a correction).
-  if (!voiceRaw) {
+  // Initial S6 speak only when Claude-Full is OFF and no candidate exists yet.
+  if (!claudeFullSinglePass && !voiceRaw) {
     speakResult = await runS6Speak({ directive, env, fetchImpl });
     usedConstrainedRegen = false;
     trace.answer_regeneration = { used: false };
@@ -632,6 +707,8 @@ export async function buildKeyVoiceComposeResult(
   trace.voice_raw = voiceRaw;
   trace.provider = provider;
   trace.s6_speak_calls = s6SpeakCalls;
+  trace.claude_call_count = claudeCallCount;
+  trace.focused_correction_count = focusedCorrectionCount;
 
   let finalText = voiceRaw;
   let outputGate = gateResult;
@@ -654,7 +731,6 @@ export async function buildKeyVoiceComposeResult(
   };
 
   if (safetyPartition.softOnly || (gateResult?.ok === false && !safetyPartition.hardFail && voiceRaw)) {
-    // Expression / promotion soft diagnostics — keep Claude customerText. Repair budget unused.
     trace.soft_gate_diagnostics = safetyPartition.soft;
     trace.fallback_used = false;
     trace.fallback_reason = null;
@@ -667,7 +743,6 @@ export async function buildKeyVoiceComposeResult(
       soft_pass: true,
     };
   } else if (safetyPartition.hardFail && voiceRaw && correctionAttempts < 1) {
-    // Sole Compose correction: hard_safety_repair once. Same chart/history/Decision/evidence.
     correctionAttempts = 1;
     hardSafetyRepairAttempt = 1;
     const failedClaimsPreview = String(voiceRaw).slice(0, 400);
@@ -676,77 +751,171 @@ export async function buildKeyVoiceComposeResult(
       violations: safetyPartition.hard,
       failed_claims_preview: failedClaimsPreview,
     };
-    const repairDirective = {
-      ...directive,
-      hard_safety_repair: {
-        attempt: 1,
-        violations: safetyPartition.hard,
-        failed_claims_preview: failedClaimsPreview,
-        instruction:
-          "HARD SAFETY REPAIR (once — sole correction): Rewrite the full natural Korean customer answer. Fix only the listed CLOSED_HARD violations and the failed claims. Keep the same conversation_history, verified_customer_chart, Decision, Session Goal, related_past_judgments, public_research_evidence, allowed_numbers, and allowed_entities. Do not invent facts. Do not re-search. Do not shrink the chart. Do not use legacy/safe-utterance templates.",
-      },
-      repetition_avoidance_instruction: `${directive.repetition_avoidance_instruction ?? ""} Hard safety fail (${safetyPartition.hard.join("; ")}). Failed claims: ${failedClaimsPreview}. Repair once without legacy templates.`,
-    };
-    const repairSpeak = await runS6Speak({
-      directive: repairDirective,
-      env,
-      fetchImpl,
-      temperature: 0.3,
-    });
-    trace.s6_speak_calls = s6SpeakCalls;
-    if (repairSpeak.ok && repairSpeak.voice_raw) {
-      voiceRaw = repairSpeak.voice_raw;
-      provider = repairSpeak.provider;
-      finalText = voiceRaw;
-      const repairGate = markGate(() =>
-        gateKeyVoiceAnswer({
-          text: voiceRaw,
-          directive,
-          s5ReferenceText: s5Reference,
-        }),
-      );
-      const repairPartition = markGate(() =>
-        partitionCustomerTextSafety({
-          gateResult: repairGate,
-          voice: voiceRaw,
-          question: directiveQuestion,
-          decision,
-          publicResearchEvidence: researchEvForSafety(),
-        }),
-      );
-      trace.hard_safety_repair.second_check = {
-        hard: repairPartition.hard,
-        soft: repairPartition.soft,
-        hard_fail: repairPartition.hardFail,
+
+    if (claudeFullSinglePass) {
+      // Focused Claude correction once — never S6 / S3–S5 / legacy speak.
+      focusedCorrectionCount = 1;
+      const factBoundary = buildEarlyBorrowedFactBoundary({
+        reality,
+        question: directiveQuestion,
+      });
+      const repairProbe = await runBorrowedSensesShadowProbe({
+        question: directiveQuestion,
+        directive: null,
+        decision: null,
+        factBoundary,
+        reflection,
+        reality,
+        history,
+        previousAnswerSummary,
+        s6FinalAnswer: "",
+        visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+        publicResearchEvidence: researchEvForSafety(),
+        answerMode: "claude_full",
+        focusedCorrection: {
+          violations: safetyPartition.hard,
+          failed_claims_preview: failedClaimsPreview,
+          previous_voice_raw_candidate: voiceRaw,
+        },
+        startedAt,
+        env,
+        fetchImpl,
+      });
+      borrowedSensesCalls += 1;
+      claudeCallCount += 1;
+      trace.focused_correction_count = focusedCorrectionCount;
+      trace.claude_call_count = claudeCallCount;
+      const repaired = String(repairProbe?.borrowed?.voice_raw_candidate ?? "").trim();
+      if (repairProbe?.error || !repaired) {
+        finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+        usedFailureMode = true;
+        usedClaudeFullSinglePass = false;
+        trace.fallback_used = true;
+        trace.fallback_reason = repairProbe?.error ?? "focused_correction_failed";
+        trace.failure_mode_used = true;
+        outputGate = {
+          ok: false,
+          reasons: [trace.fallback_reason],
+          hard_safety_failure_mode: true,
+        };
+      } else {
+        voiceRaw = repaired;
+        provider = "claude_full_focused_correction";
+        finalText = voiceRaw;
+        const repairGate = markGate(() =>
+          gateBorrowedCandidateAnswer(voiceRaw, directive, s5Reference),
+        );
+        const repairPartition = markGate(() =>
+          partitionCustomerTextSafety({
+            gateResult: repairGate,
+            voice: voiceRaw,
+            question: directiveQuestion,
+            decision,
+            publicResearchEvidence: researchEvForSafety(),
+          }),
+        );
+        trace.hard_safety_repair.second_check = {
+          hard: repairPartition.hard,
+          soft: repairPartition.soft,
+          hard_fail: repairPartition.hardFail,
+        };
+        if (repairPartition.hardFail) {
+          finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+          usedFailureMode = true;
+          usedClaudeFullSinglePass = false;
+          trace.fallback_used = true;
+          trace.fallback_reason = repairPartition.hard.join("; ");
+          trace.failure_mode_used = true;
+          outputGate = {
+            ok: false,
+            reasons: repairPartition.hard,
+            hard_safety_failure_mode: true,
+          };
+        } else {
+          usedFailureMode = false;
+          usedClaudeFullSinglePass = true;
+          usedActiveFastPath = true;
+          trace.fallback_used = false;
+          outputGate = {
+            ...repairGate,
+            ok: true,
+            reasons: repairPartition.soft,
+            soft_pass: repairPartition.soft.length > 0,
+          };
+        }
+      }
+    } else {
+      const repairDirective = {
+        ...directive,
+        hard_safety_repair: {
+          attempt: 1,
+          violations: safetyPartition.hard,
+          failed_claims_preview: failedClaimsPreview,
+          instruction:
+            "HARD SAFETY REPAIR (once — sole correction): Rewrite the full natural Korean customer answer. Fix only the listed CLOSED_HARD violations and the failed claims. Keep the same conversation_history, verified_customer_chart, Decision, Session Goal, related_past_judgments, public_research_evidence, allowed_numbers, and allowed_entities. Do not invent facts. Do not re-search. Do not shrink the chart. Do not use legacy/safe-utterance templates.",
+        },
+        repetition_avoidance_instruction: `${directive.repetition_avoidance_instruction ?? ""} Hard safety fail (${safetyPartition.hard.join("; ")}). Failed claims: ${failedClaimsPreview}. Repair once without legacy templates.`,
       };
-      if (repairPartition.hardFail) {
-        // Repair also hard → honest monopoly failure (not S3/S4/S5/safe/inventory). No 2nd repair.
+      const repairSpeak = await runS6Speak({
+        directive: repairDirective,
+        env,
+        fetchImpl,
+        temperature: 0.3,
+      });
+      trace.s6_speak_calls = s6SpeakCalls;
+      if (repairSpeak.ok && repairSpeak.voice_raw) {
+        voiceRaw = repairSpeak.voice_raw;
+        provider = repairSpeak.provider;
+        finalText = voiceRaw;
+        const repairGate = markGate(() =>
+          gateKeyVoiceAnswer({
+            text: voiceRaw,
+            directive,
+            s5ReferenceText: s5Reference,
+          }),
+        );
+        const repairPartition = markGate(() =>
+          partitionCustomerTextSafety({
+            gateResult: repairGate,
+            voice: voiceRaw,
+            question: directiveQuestion,
+            decision,
+            publicResearchEvidence: researchEvForSafety(),
+          }),
+        );
+        trace.hard_safety_repair.second_check = {
+          hard: repairPartition.hard,
+          soft: repairPartition.soft,
+          hard_fail: repairPartition.hardFail,
+        };
+        if (repairPartition.hardFail) {
+          finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+          usedFailureMode = true;
+          trace.fallback_used = true;
+          trace.fallback_reason = repairPartition.hard.join("; ");
+          trace.failure_mode_used = true;
+          outputGate = { ok: false, reasons: repairPartition.hard, hard_safety_failure_mode: true };
+        } else {
+          usedFailureMode = false;
+          trace.fallback_used = false;
+          outputGate = {
+            ...repairGate,
+            ok: true,
+            reasons: repairPartition.soft,
+            soft_pass: repairPartition.soft.length > 0,
+          };
+        }
+      } else {
         finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
         usedFailureMode = true;
         trace.fallback_used = true;
-        trace.fallback_reason = repairPartition.hard.join("; ");
+        trace.fallback_reason = repairSpeak.error ?? "hard_safety_repair_speak_failed";
         trace.failure_mode_used = true;
-        outputGate = { ok: false, reasons: repairPartition.hard, hard_safety_failure_mode: true };
-      } else {
-        usedFailureMode = false;
-        trace.fallback_used = false;
-        outputGate = {
-          ...repairGate,
-          ok: true,
-          reasons: repairPartition.soft,
-          soft_pass: repairPartition.soft.length > 0,
-        };
+        outputGate = { ok: false, reasons: [trace.fallback_reason], hard_safety_failure_mode: true };
       }
-    } else {
-      finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-      usedFailureMode = true;
-      trace.fallback_used = true;
-      trace.fallback_reason = repairSpeak.error ?? "hard_safety_repair_speak_failed";
-      trace.failure_mode_used = true;
-      outputGate = { ok: false, reasons: [trace.fallback_reason], hard_safety_failure_mode: true };
     }
   } else if (!gateResult?.ok && !voiceRaw) {
-    // Speak failed with no candidate — honest failure, never safe utterance / legacy compose.
+    // Claude-Full / Speak failed with no candidate — honest failure, never S3/S4/S5 / safe utterance.
     finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
     usedFailureMode = true;
     trace.fallback_used = true;
@@ -756,6 +925,10 @@ export async function buildKeyVoiceComposeResult(
   }
 
   trace.correction_attempts = correctionAttempts;
+  trace.s6_speak_calls = s6SpeakCalls;
+  trace.borrowed_senses_calls = borrowedSensesCalls;
+  trace.claude_call_count = claudeCallCount;
+  trace.focused_correction_count = focusedCorrectionCount;
 
   // Absolute ban: legacy safe utterance / S5 compose must never become customerText.
   trace.ghost_path_reached = peekGhostPathsReached(turnGhostLedger);
@@ -797,16 +970,18 @@ export async function buildKeyVoiceComposeResult(
     trace.shadow_visual_blocks_override_count = overrideBlocks?.length ?? 0;
     const frozenCustomerText = finalText;
 
-    if (usedActiveFastPath) {
-      // Fast path already selected Claude borrowed candidate as voiceRaw before freeze.
+    if (usedClaudeFullSinglePass || usedActiveFastPath) {
+      // Claude-Full / fast path already selected Claude candidate as voiceRaw before freeze.
       shadow.customer_text_changed = false;
       shadow.final_answer_source = "claude_candidate";
       shadow.s6_final_answer = frozenCustomerText;
       shadow.fast_path = trace.fast_path;
       trace.promotion_diagnostic = {
-        stage: "pre_s6_fast_path",
+        stage: usedClaudeFullSinglePass ? "claude_full_single_pass" : "pre_s6_fast_path",
         customer_text_replaced: false,
-        note: "Claude borrowed candidate was the initial voiceRaw; promotion does not rewrite after safety.",
+        note: usedClaudeFullSinglePass
+          ? "Claude-Full candidate sealed after KEY safety pins; no rewrite."
+          : "Claude borrowed candidate was the initial voiceRaw; promotion does not rewrite after safety.",
       };
     } else if (stage2Partial && !stage3Active) {
       const s6FinalAnswer = frozenCustomerText;
@@ -883,6 +1058,7 @@ export async function buildKeyVoiceComposeResult(
   }
 
   const borrowedProviderCallCount = countBorrowedProviderCalls(shadow);
+  const providerSpeed = shadow?.provider_speed ?? null;
   trace.latency_marks = {
     borrowed_shadow_probe: borrowedShadowProbeMark,
     s6_speak:
@@ -911,17 +1087,43 @@ export async function buildKeyVoiceComposeResult(
       provider_call_count: borrowedProviderCallCount + s6ProviderCallCount,
       borrowed_provider_call_count: borrowedProviderCallCount,
       s6_provider_call_count: s6ProviderCallCount,
+      claude_call_count: claudeCallCount,
+      s6_call_count: s6SpeakCalls,
+      focused_correction_count: focusedCorrectionCount,
       error_types: [...new Set(providerErrorTypes)].slice(0, 8),
     },
+    provider_speed: providerSpeed
+      ? {
+          context_pack_ms: providerSpeed.context_pack_ms ?? null,
+          provider_request_start_ms: providerSpeed.provider_request_start_ms ?? null,
+          provider_request_complete_ms: providerSpeed.provider_request_complete_ms ?? null,
+          provider_duration_ms: providerSpeed.provider_duration_ms ?? null,
+          ttft_ms: providerSpeed.ttft_ms ?? null,
+          input_bytes: providerSpeed.input_bytes ?? null,
+          input_tokens: providerSpeed.input_tokens ?? null,
+          output_tokens: providerSpeed.output_tokens ?? null,
+          attempt_count: providerSpeed.attempt_count ?? null,
+          retry_count: providerSpeed.retry_count ?? null,
+          research_tool_round_count: providerSpeed.research_tool_round_count ?? null,
+        }
+      : null,
   };
 
   return {
     text: finalText,
     visual_blocks: visualBlocks,
     segments: [],
-    compose_mode: usedActiveFastPath ? "key_s7_borrowed_fast_path" : "key_s6_voice_speak",
+    compose_mode: usedClaudeFullSinglePass
+      ? "key_claude_full_single_pass"
+      : usedActiveFastPath
+        ? "key_s7_borrowed_fast_path"
+        : "key_s6_voice_speak",
     thinking_flow_applied: true,
-    speak_mode: usedActiveFastPath ? "borrowed_senses_fast_path" : "key_voice_speak",
+    speak_mode: usedClaudeFullSinglePass
+      ? "claude_full_single_pass"
+      : usedActiveFastPath
+        ? "borrowed_senses_fast_path"
+        : "key_voice_speak",
     facts_spoken: directive.facts_to_speak ?? [],
     facts_withheld: factSelection.facts_withheld ?? [],
     facts_used: (directive.facts_to_speak ?? []).map((f) => f.fact_id),
