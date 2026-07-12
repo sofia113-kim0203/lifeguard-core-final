@@ -1,12 +1,21 @@
 /**
  * S7-a + S7-b — Borrowed Senses shadow speak (Claude 1-call structured JSON · trace only).
- * Claude-Full v1.1: answerMode=claude_full treats voice_raw_candidate as KEY-verified customer answer.
+ * Claude-Full talent-open: answerMode=claude_full uses emit_claude_full (customer_answer) + free prompt.
+ * Shadow S7 emit_borrowed_senses path is retained (no physical delete).
  */
 import { resolveAnthropicApiKey } from "../claudeGroundedExecutionCore.js";
 import { gateBorrowedSensesOutput, S7_BORROWED_SENSES_SCHEMA, S7_BORROWED_SENSES_SCHEMA_B, S7B_EXPERTISE_TAXONOMY } from "./keyBorrowedSensesGate.js";
 import { deriveKeyVoiceQuestionFocus } from "./keyVoiceDirective.js";
 import { formatPremiumFromRaw } from "./speakFactRenderer.js";
 import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
+import {
+  CLAUDE_FULL_EMIT_TOOL,
+  buildClaudeFullSystemPrompt,
+  normalizeClaudeFullOutput,
+  extractClaudeFullParsedFromResponse,
+  permissionCheckProposedToolActions,
+  normalizeDocumentEvidence,
+} from "./keyClaudeFullEmit.js";
 import { relMs } from "./keyLatencyMarks.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -100,6 +109,17 @@ function summarizeVisualBlocks(blocks = []) {
 }
 
 function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {}) {
+  // Claude-Full: safety-only free prompt (no S7 structure/tone/choice mandates).
+  if (answerMode === "claude_full") {
+    return buildClaudeFullSystemPrompt({
+      mode:
+        mode === "focused_correction"
+          ? "focused_correction"
+          : mode === "emit_with_tools" || mode === "emit_with_research"
+            ? "emit_with_tools"
+            : "emit",
+    });
+  }
   if (mode === "research") {
     return [
       "You are KEY public research helper (read-only).",
@@ -111,25 +131,14 @@ function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {})
       "Search, compare public sources, then stop when you have enough grounded public results (or honestly empty).",
     ].join(" ");
   }
-  const claudeFull = answerMode === "claude_full";
   const lines = [
-    claudeFull
-      ? "You are KEY Claude-Full single-pass work for LIFEGUARD. In one response: understand, analyze, answer, table/next-action hints, and leadership fields."
-      : "You are KEY Borrowed Senses (S7-a + S7-b shadow layer) for LIFEGUARD.",
-    claudeFull
-      ? "Claude performs understanding, emotion/context reading, inference, comparison, search use, customer answer, and next-action suggestions. KEY later verifies facts, permissions, contradictions, and safety only — do NOT wait for KEY to draft the answer."
-      : "Claude provides: hearing, social reading, visual reading, expression CANDIDATES, and leadership TRACE only.",
-    claudeFull
-      ? "KEY owns verified facts, chart ownership, memory SSOT, permissions, final insurance judgment, contradiction resolution, safety, execution approval, finalize/seal, and responsibility."
-      : "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
+    "You are KEY Borrowed Senses (S7-a + S7-b shadow layer) for LIFEGUARD.",
+    "Claude provides: hearing, social reading, visual reading, expression CANDIDATES, and leadership TRACE only.",
+    "KEY owns facts, judgment, responsibility, and the frozen S6 final_answer.",
     "Understanding is HYPOTHESIS — never state hypotheses as confirmed facts.",
     "understanding_hypotheses MUST be soft: use '가능성', '마음이 있을 수 있음', '걱정이 있어 보임'. FORBIDDEN in understanding_hypotheses: 확실히, 분명, 틀림없, 반드시, and any wording that states customer psychology as fact. Do NOT invent unstated 가입 고려 / 보험료 부담 as certainty — only soft possibility if the question weakly suggests it.",
-    claudeFull
-      ? "voice_raw_candidate IS the full natural Korean customer answer KEY will verify and may seal. Write complete customer-facing prose. Do NOT write internal reasoning, chain-of-thought, or hidden scratchpads into any field."
-      : "S6 final_answer may be empty when this call runs before Speak — that is OK. Do NOT invent an S6 answer. voice_raw_candidate remains a CANDIDATE only.",
-    claudeFull
-      ? "Do NOT invent KEY Decision, Session Goal, or answer drafts that were not provided. Prefer customer question + verified chart + conversation pack + public evidence only."
-      : "Do NOT replace or rewrite a frozen S6 final_answer when one is provided.",
+    "S6 final_answer may be empty when this call runs before Speak — that is OK. Do NOT invent an S6 answer. voice_raw_candidate remains a CANDIDATE only.",
+    "Do NOT replace or rewrite a frozen S6 final_answer when one is provided.",
     "Principle: NOT '추천 금지' — YES '근거 없는 확정 추천 금지'.",
     "When customer purpose (stated or hypothesized) AND confirmed facts exist, KEY MUST assert purpose-fit clearly — do not timidly defer with review-order only.",
     "ALLOWED purpose-fit voice (shadow): '현재 목적 기준으로는 이쪽이 더 맞아 보입니다'; '보험료 절감 목적이라면 새 상품보다 기존 중복 확인이 먼저입니다'; '보장 보완 목적이라면 이 상품군은 후보가 될 수 있습니다'; '암 보장 확인 목적이라면 대표 계약의 암 담보부터 보는 게 맞아 보입니다'; '아직 확정은 아니지만, 지금 확인된 사실로는 이 방향이 목적에 더 가깝습니다'.",
@@ -142,12 +151,8 @@ function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {})
     "For visual_observation: describe ONLY what is in visual_blocks_summary rows/titles — never invent numbers, contracts, or judgments not shown.",
     "When visual_blocks_summary is present, cite only cell values and row labels from that summary.",
     "For premium scope: when policy_count > 1, never imply monthly_premium is total for all contracts.",
-    claudeFull
-      ? "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice. Prefer clearer purpose-fit than timid deferral."
-      : "voice_raw_candidate is an alternate expression sketch — NOT the customer-facing answer. Prefer clearer purpose-fit than a timid S6 paraphrase.",
-    !claudeFull
-      ? "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice."
-      : null,
+    "voice_raw_candidate is an alternate expression sketch — NOT the customer-facing answer. Prefer clearer purpose-fit than a timid S6 paraphrase.",
+    "voice_raw_candidate structure on consult paths: (1) customer purpose (2) purpose-fit assertion (맞아 보입니다/후보/먼저) (3) why it fits + what is still unconfirmed (4) next choice.",
     "Speak TO the customer in 2nd-person/구어체. FORBIDDEN openings: third-person report tone like '고객 목적이 아직 확인되지 않은 상태입니다', '정보가 부족합니다', '추천은 어렵습니다'. Prefer warm direct speech: '좋아요', '추천해드릴게요', '먼저 목적을 잡으면'.",
     "recommendation_basis MUST separate: why this direction looks fit for the purpose vs why it is not yet a definitive enroll/cancel/verdict.",
     "S7-b leadership fields (key_purpose, leadership_move, insurance_expertise_angle, proposal_direction, next_decision_point) are KEY-internal — never dump them as a separate customer appendix; weave next action into voice_raw_candidate naturally.",
@@ -167,9 +172,7 @@ function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {})
     "Use 보장 구성, 보장 종류, 보장 영역 instead of '축'.",
     "Never claim 부족합니다/충분합니다/꼭 필요합니다 as definitive verdict before verification.",
     "You MUST call emit_borrowed_senses exactly once with valid JSON fields.",
-    claudeFull
-      ? 'final_answer_source must be "s6" in the tool schema (legacy field); KEY seals the customer answer separately.'
-      : 'final_answer_source must always be "s6".',
+    'final_answer_source must always be "s6".',
   ].filter(Boolean);
   if (mode === "emit_with_research") {
     lines.push(
@@ -902,6 +905,8 @@ function buildUserPayload({
   reality = null,
   publicResearchEvidence = null,
   relatedPastJudgments = null,
+  relatedPastOriginals = null,
+  documentEvidence = null,
   answerMode = "shadow_sketch",
   focusedCorrection = null,
   contextPack = null,
@@ -926,68 +931,78 @@ function buildUserPayload({
           history,
           previousAnswerSummary,
           question,
+          documentEvidence,
+          relatedPastOriginals:
+            relatedPastOriginals ??
+            (answerMode === "claude_full" ? relatedPastJudgments : null),
         }).pack;
-  const conversation_history = Array.isArray(pack.conversation_history_full)
-    ? pack.conversation_history_full
-    : mapConversationHistory(history);
-  // Claude-Full: KEY Decision / Session Goal are NOT answer drafts for Claude.
-  // Shadow sketch may still receive post-decision payloads when provided.
-  const decisionPayload =
-    answerMode === "claude_full" ? null : buildDecisionPayload(decision);
-  const session_goal =
-    answerMode === "claude_full" ? null : buildSessionGoalPayload(decision, directive);
+  const claudeFull = answerMode === "claude_full";
+  // Claude-Full: avoid duplicate full-history attach when recent + older summary + retained cover the thread.
+  const conversation_history = claudeFull
+    ? null
+    : Array.isArray(pack.conversation_history_full)
+      ? pack.conversation_history_full
+      : mapConversationHistory(history);
+  const decisionPayload = claudeFull ? null : buildDecisionPayload(decision);
+  const session_goal = claudeFull ? null : buildSessionGoalPayload(decision, directive);
+  const document_evidence =
+    Array.isArray(pack.document_evidence) && pack.document_evidence.length
+      ? pack.document_evidence
+      : normalizeDocumentEvidence(Array.isArray(documentEvidence) ? documentEvidence : []);
+  const related_past_originals = Array.isArray(pack.related_past_originals)
+    ? pack.related_past_originals
+    : [];
 
   return {
-    schema_version: S7_BORROWED_SENSES_SCHEMA_B,
-    s7a_schema_version: S7_BORROWED_SENSES_SCHEMA,
-    insurance_expertise_taxonomy: S7B_EXPERTISE_TAXONOMY,
-    forbidden_axis_terms: [
-      "보장축",
-      "우선순위 축",
-      "암 보장축",
-      "필수축",
-      "축별",
-      "축으로",
-      "축을",
-      "축부터",
-      "축 설정",
-    ],
+    schema_version: claudeFull ? "claude_full_emit_v1" : S7_BORROWED_SENSES_SCHEMA_B,
+    s7a_schema_version: claudeFull ? null : S7_BORROWED_SENSES_SCHEMA,
+    insurance_expertise_taxonomy: claudeFull ? null : S7B_EXPERTISE_TAXONOMY,
+    forbidden_axis_terms: claudeFull
+      ? null
+      : [
+          "보장축",
+          "우선순위 축",
+          "암 보장축",
+          "필수축",
+          "축별",
+          "축으로",
+          "축을",
+          "축부터",
+          "축 설정",
+        ],
     current_user_message: question,
     customer_question: question,
-    // Full session history — no artificial slice(-4). Provider output max_tokens still apply downstream.
     conversation_history,
-    conversation_history_count: conversation_history.length,
-    recent_conversation_originals: pack.recent_conversation_originals ?? conversation_history,
+    conversation_history_count: conversation_history?.length ?? 0,
+    recent_conversation_originals: pack.recent_conversation_originals ?? mapConversationHistory(history),
     recent_conversation_count:
-      pack.recent_conversation_count ?? conversation_history.length,
+      pack.recent_conversation_count ?? (Array.isArray(history) ? history.length : 0),
     older_conversation_summary: pack.older_conversation_summary ?? null,
     retained_past_originals: pack.retained_past_originals ?? [],
     retained_past_original_count: pack.retained_past_original_count ?? 0,
+    related_past_originals,
+    related_past_original_count: related_past_originals.length,
+    document_evidence,
+    document_evidence_count: document_evidence.length,
     open_customer_thread: buildOpenCustomerThreadContext({ question, history }),
     previous_answer_summary:
       pack.previous_answer_summary ??
       (String(previousAnswerSummary ?? "").trim() || null),
-    // Empty string when called before Speak — never invent a fake S6 answer
-    s6_final_answer_frozen: String(s6FinalAnswer ?? "").trim(),
-    // Claude-Full: strip KEY pre-classification / answer-direction fields.
-    question_focus:
-      answerMode === "claude_full"
-        ? null
-        : directive?.question_focus ?? early?.question_focus ?? null,
-    answer_mode: answerMode === "claude_full" ? "claude_full" : directive?.answer_mode ?? null,
-    // null when Decision has not run yet — do not invent
-    decision_situation_key:
-      answerMode === "claude_full" ? null : decision?.situation_key ?? null,
+    s6_final_answer_frozen: claudeFull ? "" : String(s6FinalAnswer ?? "").trim(),
+    question_focus: claudeFull
+      ? null
+      : directive?.question_focus ?? early?.question_focus ?? null,
+    answer_mode: claudeFull ? "claude_full" : directive?.answer_mode ?? null,
+    decision_situation_key: claudeFull ? null : decision?.situation_key ?? null,
     decision: decisionPayload,
     session_goal,
-    related_past_judgments:
-      answerMode === "claude_full"
-        ? null
-        : Array.isArray(relatedPastJudgments)
-          ? relatedPastJudgments
-          : Array.isArray(decision?.related_past_judgments)
-            ? decision.related_past_judgments
-            : null,
+    related_past_judgments: claudeFull
+      ? null
+      : Array.isArray(relatedPastJudgments)
+        ? relatedPastJudgments
+        : Array.isArray(decision?.related_past_judgments)
+          ? decision.related_past_judgments
+          : null,
     verified_customer_chart,
     public_research_evidence: publicResearchEvidence ?? null,
     allowed_fact_tokens,
@@ -995,19 +1010,14 @@ function buildUserPayload({
     allowed_entities,
     facts_to_speak,
     premium_scope_policy: directive?.premium_scope_policy ?? early?.premium_scope_policy ?? null,
-    // Claude-Full: Reflection situation_reading is KEY pre-interpretation — do not feed as answer direction.
-    reflection_situation_reading:
-      answerMode === "claude_full"
-        ? null
-        : Array.isArray(reflection?.situation_reading)
-          ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
-          : null,
-    reflection_reading_confidence:
-      answerMode === "claude_full" ? null : reflection?.reading_confidence ?? null,
-    visual_blocks_summary: summarizeVisualBlocks(visualBlocks),
-    // Claude-Full: leadership hint is KEY answer-structure direction — omit.
-    s7b_question_leadership_hint:
-      answerMode === "claude_full" ? null : buildQuestionLeadershipHint(question),
+    reflection_situation_reading: claudeFull
+      ? null
+      : Array.isArray(reflection?.situation_reading)
+        ? reflection.situation_reading.map((s) => String(s).trim()).filter(Boolean)
+        : null,
+    reflection_reading_confidence: claudeFull ? null : reflection?.reading_confidence ?? null,
+    visual_blocks_summary: claudeFull ? null : summarizeVisualBlocks(visualBlocks),
+    s7b_question_leadership_hint: claudeFull ? null : buildQuestionLeadershipHint(question),
     call_phase: decision || directive ? "post_decision" : "pre_decision",
     focused_correction:
       focusedCorrection && typeof focusedCorrection === "object"
@@ -1017,8 +1027,15 @@ function buildUserPayload({
             failed_claims_preview: String(
               focusedCorrection.failed_claims_preview ?? "",
             ).slice(0, 400),
+            previous_customer_answer: String(
+              focusedCorrection.previous_customer_answer ??
+                focusedCorrection.previous_voice_raw_candidate ??
+                "",
+            ).slice(0, 2000),
             previous_voice_raw_candidate: String(
-              focusedCorrection.previous_voice_raw_candidate ?? "",
+              focusedCorrection.previous_voice_raw_candidate ??
+                focusedCorrection.previous_customer_answer ??
+                "",
             ).slice(0, 2000),
           }
         : null,
@@ -1026,9 +1043,12 @@ function buildUserPayload({
       history_slice: null,
       chart_stub_one_policy: false,
       research_history_slice: null,
-      note: "Full conversation_history and verified_customer_chart are sent. Downstream Anthropic output max_tokens remain (research/emit/speak) — input is not artificially truncated here.",
-      claude_full_no_key_answer_draft: answerMode === "claude_full",
-      claude_full_no_key_preinterpretation: answerMode === "claude_full",
+      note: claudeFull
+        ? "Claude-Full: customer question + recent originals + older summary + retained past + related past + verified chart + evidence + documents. Full history is not duplicate-attached."
+        : "Full conversation_history and verified_customer_chart are sent. Downstream Anthropic output max_tokens remain (research/emit/speak) — input is not artificially truncated here.",
+      claude_full_no_key_answer_draft: claudeFull,
+      claude_full_no_key_preinterpretation: claudeFull,
+      claude_full_talent_open: claudeFull,
     },
   };
 }
@@ -1066,6 +1086,8 @@ function parseJsonFromText(raw = "") {
 }
 
 function extractParsedFromResponse(data = {}) {
+  const claudeFull = extractClaudeFullParsedFromResponse(data);
+  if (claudeFull) return claudeFull;
   for (const block of data.content ?? []) {
     if (block?.type === "tool_use" && block?.name === "emit_borrowed_senses" && block?.input) {
       return block.input;
@@ -1606,6 +1628,216 @@ async function runPublicResearchPhase({
   };
 }
 
+/**
+ * Claude-Full talent-open call: offer policy-allowed web_search + emit_claude_full.
+ * Claude chooses whether to search. No forced research-by-question-type.
+ * Focused correction: emit only.
+ */
+async function callClaudeFullEmitPass({
+  model,
+  apiKey,
+  userPayload,
+  fetchImpl,
+  signal,
+  temperature,
+  repairRaw = null,
+  repairReason = "json",
+  offerWebSearch = true,
+  startedAt = null,
+  focusedCorrection = null,
+}) {
+  const repairMessage =
+    repairReason === "focused_correction"
+      ? "FOCUSED CORRECTION: Call emit_claude_full again. Fix ONLY the listed CLOSED_HARD violations in customer_answer. Do not invent facts. Do not emit internal reasoning."
+      : "Your previous output was not valid structured JSON. Call emit_claude_full again with at least customer_answer. JSON only via tool call.";
+  const temp = Math.min(0.45, Math.max(0.15, Number(temperature) || DEFAULT_TEMPERATURE));
+  const system = buildSystemPrompt({
+    mode: focusedCorrection
+      ? "focused_correction"
+      : offerWebSearch
+        ? "emit_with_tools"
+        : "emit",
+    answerMode: "claude_full",
+  });
+  const tools = focusedCorrection || !offerWebSearch
+    ? [CLAUDE_FULL_EMIT_TOOL]
+    : [ANTHROPIC_WEB_SEARCH_TOOL, CLAUDE_FULL_EMIT_TOOL];
+  let messages = repairRaw
+    ? [
+        { role: "user", content: JSON.stringify(userPayload, null, 2) },
+        { role: "assistant", content: [{ type: "text", text: repairRaw }] },
+        { role: "user", content: repairMessage },
+      ]
+    : [{ role: "user", content: JSON.stringify(userPayload, null, 2) }];
+
+  const requestTrace = [];
+  let lastProviderTiming = null;
+  let researchEvidence = emptyResearchEvidence({ status: "skipped" });
+  let lastData = null;
+  let lastRaw = null;
+  let reasoningStripped = false;
+
+  for (let turn = 0; turn < 4; turn += 1) {
+    const toolChoice = focusedCorrection
+      ? { type: "tool", name: "emit_claude_full" }
+      : turn === 0 && repairRaw
+        ? { type: "tool", name: "emit_claude_full" }
+        : { type: "auto" };
+    const once = await postAnthropicMessages({
+      fetchImpl,
+      signal,
+      apiKey,
+      model,
+      maxTokens: 4096,
+      temperature: temp,
+      system,
+      tools,
+      toolChoice,
+      messages,
+      startedAt,
+    });
+    requestTrace.push({
+      phase: focusedCorrection
+        ? "focused_correction"
+        : turn === 0
+          ? "claude_full_emit"
+          : `claude_full_turn_${turn + 1}`,
+      tools: tools.map((t) => t.name),
+      ...(once.provider_timing ?? {}),
+    });
+    if (once.provider_timing) lastProviderTiming = once.provider_timing;
+    if (once.reasoning_stripped === true) reasoningStripped = true;
+    if (!once.ok) {
+      return {
+        ...once,
+        public_research_evidence: researchEvidence,
+        provider_request_trace: requestTrace,
+        provider_timing: lastProviderTiming,
+      };
+    }
+    lastData = once.data;
+    lastRaw = once.raw;
+
+    const parsed = extractClaudeFullParsedFromResponse(once.data);
+    if (parsed) {
+      let piece = extractPublicResearchEvidence(once.data, {
+        retrievedAt: new Date().toISOString(),
+      });
+      if (piece?.used || (piece?.results?.length ?? 0) > 0 || piece?.status === "search_not_used") {
+        piece = applyPlaceResearchContract(
+          piece,
+          userPayload?.customer_question ?? userPayload?.question ?? "",
+          userPayload?.recent_conversation_originals ??
+            userPayload?.conversation_history ??
+            [],
+        );
+        piece = enrichResearchEvidenceForGrounding(piece);
+        researchEvidence = {
+          ...piece,
+          status: piece.status ?? "success",
+        };
+        researchEvidence.customer_facing_summary =
+          buildCustomerFacingResearchSummary(researchEvidence);
+      }
+      return {
+        ok: true,
+        parsed,
+        data: once.data,
+        raw: once.raw,
+        public_research_evidence: researchEvidence,
+        provider_request_trace: requestTrace,
+        provider_timing: lastProviderTiming,
+        reasoning_stripped: reasoningStripped,
+      };
+    }
+
+    const piece = extractPublicResearchEvidence(once.data, {
+      retrievedAt: new Date().toISOString(),
+    });
+    if (piece?.used || (piece?.results?.length ?? 0) > 0 || (piece?.search_count ?? 0) > 0 || piece?.status === "search_not_used" || piece?.status === "empty") {
+      let mergedPiece = {
+        ...researchEvidence,
+        ...piece,
+        searches: [...(researchEvidence.searches ?? []), ...(piece.searches ?? [])],
+        results: [...(researchEvidence.results ?? []), ...(piece.results ?? [])],
+        citations: [...(researchEvidence.citations ?? []), ...(piece.citations ?? [])],
+        used: Boolean(researchEvidence.used || piece.used),
+        search_count: Math.max(researchEvidence.search_count ?? 0, piece.search_count ?? 0),
+        status: piece.status ?? researchEvidence.status ?? "success",
+        status_detail: piece.status_detail ?? researchEvidence.status_detail ?? null,
+      };
+      mergedPiece = applyPlaceResearchContract(
+        mergedPiece,
+        userPayload?.customer_question ?? userPayload?.question ?? "",
+        userPayload?.recent_conversation_originals ??
+          userPayload?.conversation_history ??
+          [],
+      );
+      mergedPiece = enrichResearchEvidenceForGrounding(mergedPiece);
+      researchEvidence = mergedPiece;
+      researchEvidence.customer_facing_summary =
+        buildCustomerFacingResearchSummary(researchEvidence);
+      messages = [
+        ...messages,
+        { role: "assistant", content: once.data?.content ?? [] },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              note: "Search results are available. Call emit_claude_full now with customer_answer grounded in verified chart + these public results. Do not invent facts.",
+              public_research_evidence: {
+                status: researchEvidence.status,
+                status_detail: researchEvidence.status_detail,
+                results: (researchEvidence.results ?? []).slice(0, 8).map((r) => ({
+                  title: r.title,
+                  url: r.url,
+                  claim_or_summary: r.claim_or_summary ?? null,
+                  cited_text: r.cited_text ?? null,
+                })),
+              },
+            },
+            null,
+            2,
+          ),
+        },
+      ];
+      continue;
+    }
+
+    const stop = String(once.data?.stop_reason ?? "");
+    if (stop === "pause_turn") {
+      messages = [...messages, { role: "assistant", content: once.data?.content ?? [] }];
+      continue;
+    }
+
+    // No emit and no useful search — nudge once toward emit.
+    if (turn < 3) {
+      messages = [
+        ...messages,
+        { role: "assistant", content: once.data?.content ?? [] },
+        {
+          role: "user",
+          content:
+            "Call emit_claude_full now with at least customer_answer. Optional fields only if useful.",
+        },
+      ];
+      continue;
+    }
+    break;
+  }
+
+  return {
+    ok: false,
+    error: "CLAUDE_JSON_PARSE_FAIL",
+    data: lastData,
+    raw: lastRaw,
+    public_research_evidence: researchEvidence,
+    provider_request_trace: requestTrace,
+    provider_timing: lastProviderTiming,
+    reasoning_stripped: reasoningStripped,
+  };
+}
+
 async function callClaudeBorrowedSenses({
   model,
   apiKey,
@@ -1622,6 +1854,21 @@ async function callClaudeBorrowedSenses({
   startedAt = null,
   focusedCorrection = null,
 }) {
+  if (answerMode === "claude_full") {
+    return callClaudeFullEmitPass({
+      model,
+      apiKey,
+      userPayload,
+      fetchImpl,
+      signal,
+      temperature,
+      repairRaw,
+      repairReason,
+      offerWebSearch: !focusedCorrection,
+      startedAt,
+      focusedCorrection,
+    });
+  }
   const repairMessage =
     repairReason === "leadership"
       ? "Your previous output omitted next_decision_point (need 2-3 choices). Call emit_borrowed_senses again with all required fields including next_decision_point."
@@ -1915,6 +2162,8 @@ export async function runBorrowedSensesShadowProbe({
   reality = null,
   publicResearchEvidence = null,
   relatedPastJudgments = null,
+  relatedPastOriginals = null,
+  documentEvidence = null,
   answerMode = "shadow_sketch",
   focusedCorrection = null,
   startedAt = null,
@@ -1925,10 +2174,11 @@ export async function runBorrowedSensesShadowProbe({
 } = {}) {
   const apiKey = resolveAnthropicApiKey(env);
   const base = {
-    schema_version: S7_BORROWED_SENSES_SCHEMA_B,
+    schema_version:
+      answerMode === "claude_full" ? "claude_full_emit_v1" : S7_BORROWED_SENSES_SCHEMA_B,
     shadow_only: answerMode !== "claude_full",
     customer_text_changed: false,
-    final_answer_source: "s6",
+    final_answer_source: answerMode === "claude_full" ? "claude_candidate" : "s6",
     s6_final_answer: String(s6FinalAnswer ?? "").trim(),
     provider: null,
     error: null,
@@ -1949,13 +2199,19 @@ export async function runBorrowedSensesShadowProbe({
   }
 
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
-  // Focused correction never re-runs public research.
+  // Claude-Full: offer search; Claude chooses. Shadow: KEY may still pre-enable by question type.
   const publicResearchEnabled =
-    !focusedCorrection && shouldEnablePublicWebSearch({ question, decision, history });
+    answerMode === "claude_full"
+      ? !focusedCorrection
+      : !focusedCorrection && shouldEnablePublicWebSearch({ question, decision, history });
   const { pack: contextPack, context_pack_ms } = buildClaudeFullContextPack({
     history,
     previousAnswerSummary,
     question,
+    documentEvidence,
+    relatedPastOriginals:
+      relatedPastOriginals ??
+      (answerMode === "claude_full" ? relatedPastJudgments : null),
   });
   const userPayload = buildUserPayload({
     question,
@@ -1970,6 +2226,8 @@ export async function runBorrowedSensesShadowProbe({
     reality,
     publicResearchEvidence,
     relatedPastJudgments,
+    relatedPastOriginals,
+    documentEvidence,
     answerMode,
     focusedCorrection,
     contextPack,
@@ -1980,8 +2238,13 @@ export async function runBorrowedSensesShadowProbe({
       provider_tool: ANTHROPIC_WEB_SEARCH_TOOL.name,
       tool_type: ANTHROPIC_WEB_SEARCH_TOOL.type,
       max_uses: ANTHROPIC_WEB_SEARCH_TOOL.max_uses,
-      search_before_clarify: needsFreshPublicFacts({ question, history }),
-      note: "Search first when fresh public facts are needed; then emit_borrowed_senses. Do not ask preference-only questions before searching on explicit recommend/find requests.",
+      search_before_clarify:
+        answerMode === "claude_full" ? false : needsFreshPublicFacts({ question, history }),
+      claude_chooses_search: answerMode === "claude_full",
+      note:
+        answerMode === "claude_full"
+          ? "web_search is available. Claude chooses whether to use it. KEY does not pre-lock search by question type alone."
+          : "Search first when fresh public facts are needed; then emit_borrowed_senses. Do not ask preference-only questions before searching on explicit recommend/find requests.",
     };
   }
 
@@ -1998,8 +2261,9 @@ export async function runBorrowedSensesShadowProbe({
     Number(timeoutMs) ||
     (publicResearchEnabled ? PUBLIC_RESEARCH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
   let attempts = 0;
-  const maxAttempts = focusedCorrection ? 1 : 5;
+  const maxAttempts = focusedCorrection ? 1 : answerMode === "claude_full" ? 3 : 5;
   let reasoningStripped = false;
+  let toolPermissionCheck = null;
 
   try {
     while (attempts < maxAttempts) {
@@ -2013,12 +2277,16 @@ export async function runBorrowedSensesShadowProbe({
       let repairReason = "json";
       if (focusedCorrection) {
         repairRaw =
-          String(focusedCorrection.previous_voice_raw_candidate ?? "").trim() || null;
+          String(
+            focusedCorrection.previous_customer_answer ??
+              focusedCorrection.previous_voice_raw_candidate ??
+              "",
+          ).trim() || null;
         repairReason = "focused_correction";
       } else if (parseRetryUsed && lastRaw) {
         repairRaw = lastRaw;
         repairReason = "json";
-      } else if (leadershipRetryCount > 0 && lastRaw) {
+      } else if (answerMode !== "claude_full" && leadershipRetryCount > 0 && lastRaw) {
         repairRaw = lastRaw;
         repairReason = "leadership";
       }
@@ -2034,7 +2302,7 @@ export async function runBorrowedSensesShadowProbe({
           temperature: attemptTemp,
           repairRaw,
           repairReason,
-          publicResearchEnabled,
+          publicResearchEnabled: answerMode === "claude_full" ? false : publicResearchEnabled,
           precomputedResearchEvidence: cachedResearchEvidence,
           answerMode,
           startedAt,
@@ -2115,7 +2383,17 @@ export async function runBorrowedSensesShadowProbe({
 
       lastRaw = result.raw;
       if (result.ok && result.parsed) {
-        const borrowed = normalizeBorrowedOutput(result.parsed, s6FinalAnswer, question);
+        const borrowed =
+          answerMode === "claude_full"
+            ? normalizeClaudeFullOutput(result.parsed)
+            : normalizeBorrowedOutput(result.parsed, s6FinalAnswer, question);
+        if (answerMode === "claude_full") {
+          toolPermissionCheck = permissionCheckProposedToolActions({
+            proposed: borrowed.proposed_tool_actions,
+            env,
+          });
+          borrowed.tool_permission_check = toolPermissionCheck;
+        }
         const gate = gateBorrowedSensesOutput({
           borrowed,
           directive,
@@ -2124,7 +2402,9 @@ export async function runBorrowedSensesShadowProbe({
           visualBlocks,
         });
 
+        // Claude-Full: never retry for leadership / next_decision / tone / table absence.
         if (
+          answerMode !== "claude_full" &&
           !focusedCorrection &&
           (gate.missing_next_decision || gate.missing_proposal_direction) &&
           leadershipRetryCount < 3
@@ -2151,6 +2431,7 @@ export async function runBorrowedSensesShadowProbe({
           public_research_evidence: lastPublicResearch,
           provider_request_trace: lastRequestTrace,
           reasoning_stripped: reasoningStripped,
+          tool_permission_check: toolPermissionCheck,
           provider_speed: buildProviderSpeedSummary({
             context_pack_ms,
             attempts,

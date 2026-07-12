@@ -1,8 +1,11 @@
 /**
  * Claude-Full v1.1 — conversation context pack (D2).
  * Recent turns as originals; older turns summarized; retain past originals when referenced.
+ * Document evidence reuses existing Upload/OCR/RAG chunk assets (no new parser).
  * Numbers/status only in metrics — no reasoning text stored here.
  */
+
+import { normalizeDocumentEvidence } from "./keyClaudeFullEmit.js";
 
 const DEFAULT_RECENT_TURN_COUNT = 12;
 const OLDER_SUMMARY_MAX_CHARS = 1800;
@@ -68,13 +71,22 @@ function selectRetainedPastOriginals(older = [], question = "") {
 }
 
 /**
- * @param {{ history?: Array, previousAnswerSummary?: string, recentTurnCount?: number, question?: string }} opts
+ * @param {{
+ *   history?: Array,
+ *   previousAnswerSummary?: string,
+ *   recentTurnCount?: number,
+ *   question?: string,
+ *   documentEvidence?: Array,
+ *   relatedPastOriginals?: Array,
+ * }} opts
  */
 export function buildClaudeFullContextPack({
   history = [],
   previousAnswerSummary = "",
   recentTurnCount = DEFAULT_RECENT_TURN_COUNT,
   question = "",
+  documentEvidence = null,
+  relatedPastOriginals = null,
 } = {}) {
   const started = Date.now();
   const mapped = (Array.isArray(history) ? history : []).map(mapTurn).filter((t) => t.text);
@@ -84,6 +96,29 @@ export function buildClaudeFullContextPack({
   const older_conversation_summary = summarizeOlderTurns(older);
   const retained_past_originals = selectRetainedPastOriginals(older, question);
   const previous_answer_summary = String(previousAnswerSummary ?? "").trim() || null;
+  const document_evidence = normalizeDocumentEvidence(
+    Array.isArray(documentEvidence) ? documentEvidence : [],
+  );
+  const related_past_originals = Array.isArray(relatedPastOriginals)
+    ? relatedPastOriginals
+        .map((item) => {
+          if (typeof item === "string") {
+            const text = item.trim();
+            return text ? { text } : null;
+          }
+          if (item && typeof item === "object") {
+            const text = String(item.text ?? item.content ?? item.excerpt ?? "").trim();
+            if (!text) return null;
+            return {
+              text,
+              source: item.source ?? null,
+              ref: item.ref ?? null,
+            };
+          }
+          return null;
+        })
+        .filter(Boolean)
+    : [];
 
   const pack = {
     recent_conversation_originals: recent,
@@ -92,7 +127,12 @@ export function buildClaudeFullContextPack({
     retained_past_originals,
     retained_past_original_count: retained_past_originals.length,
     previous_answer_summary,
-    // Full mapped history remains available for callers that still need SSOT access
+    related_past_originals,
+    related_past_original_count: related_past_originals.length,
+    document_evidence,
+    document_evidence_count: document_evidence.length,
+    // Full mapped history for SSOT callers — Claude-Full payload should not duplicate-attach this
+    // when recent + older summary + retained already cover the thread.
     conversation_history_full: mapped,
     conversation_history_full_count: mapped.length,
   };

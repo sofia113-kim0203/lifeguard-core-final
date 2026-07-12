@@ -190,6 +190,8 @@ export async function buildKeyVoiceComposeResult(
     previousAnswerSummary = "",
     history = [],
     shadowVisualBlocksOverride = null,
+    documentEvidence = null,
+    relatedPastOriginals = null,
     fetchImpl = fetch,
     ghostLedger = null,
     startedAt = Date.now(),
@@ -275,6 +277,8 @@ export async function buildKeyVoiceComposeResult(
         previousAnswerSummary,
         s6FinalAnswer: "",
         visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+        documentEvidence,
+        relatedPastOriginals,
         answerMode: claudeFullSinglePass ? "claude_full" : "shadow_sketch",
         startedAt,
         env,
@@ -425,8 +429,15 @@ export async function buildKeyVoiceComposeResult(
 
   // --- Claude-Full v1.1 (Preview active): adopt Claude after existing safety pins; S6 never ---
   if (claudeFullSinglePass && shadow) {
-    const candidate = String(shadow?.borrowed?.voice_raw_candidate ?? "").trim();
+    const candidate = String(
+      shadow?.borrowed?.customer_answer ?? shadow?.borrowed?.voice_raw_candidate ?? "",
+    ).trim();
     const researchEv = shadow?.public_research_evidence ?? null;
+    if (shadow?.tool_permission_check) {
+      trace.tool_permission_check = shadow.tool_permission_check;
+    } else if (shadow?.borrowed?.tool_permission_check) {
+      trace.tool_permission_check = shadow.borrowed.tool_permission_check;
+    }
     if (!candidate || shadow?.error) {
       usedFailureMode = true;
       voiceRaw = null;
@@ -775,8 +786,11 @@ export async function buildKeyVoiceComposeResult(
         focusedCorrection: {
           violations: safetyPartition.hard,
           failed_claims_preview: failedClaimsPreview,
+          previous_customer_answer: voiceRaw,
           previous_voice_raw_candidate: voiceRaw,
         },
+        documentEvidence,
+        relatedPastOriginals,
         startedAt,
         env,
         fetchImpl,
@@ -785,7 +799,11 @@ export async function buildKeyVoiceComposeResult(
       claudeCallCount += 1;
       trace.focused_correction_count = focusedCorrectionCount;
       trace.claude_call_count = claudeCallCount;
-      const repaired = String(repairProbe?.borrowed?.voice_raw_candidate ?? "").trim();
+      const repaired = String(
+        repairProbe?.borrowed?.customer_answer ??
+          repairProbe?.borrowed?.voice_raw_candidate ??
+          "",
+      ).trim();
       if (repairProbe?.error || !repaired) {
         finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
         usedFailureMode = true;
@@ -944,15 +962,32 @@ export async function buildKeyVoiceComposeResult(
 
   let visualBlocks = [];
   if (outputGate.ok && !trace.fallback_used) {
-    const candidates = buildKeyVoiceVisualBlocks({ directive });
-    const blockGate = gateKeyVoiceVisualBlocks({
-      blocks: candidates,
-      text: finalText,
-      directive,
-    });
-    visualBlocks = blockGate.accepted;
-    trace.visual_blocks_candidates = candidates.map((b) => b.type);
-    trace.visual_blocks_gate = blockGate;
+    if (usedClaudeFullSinglePass) {
+      // Claude-Full: Claude emits visual_blocks; KEY only gates format/facts/safety — no KEY rebuild.
+      const fromClaude = Array.isArray(shadow?.borrowed?.visual_blocks)
+        ? shadow.borrowed.visual_blocks
+        : [];
+      const blockGate = gateKeyVoiceVisualBlocks({
+        blocks: fromClaude,
+        text: finalText,
+        directive,
+      });
+      visualBlocks = blockGate.accepted;
+      trace.visual_blocks_candidates = fromClaude.map((b) => b?.type ?? null);
+      trace.visual_blocks_gate = blockGate;
+      trace.visual_blocks_source = "claude_emit";
+    } else {
+      const candidates = buildKeyVoiceVisualBlocks({ directive });
+      const blockGate = gateKeyVoiceVisualBlocks({
+        blocks: candidates,
+        text: finalText,
+        directive,
+      });
+      visualBlocks = blockGate.accepted;
+      trace.visual_blocks_candidates = candidates.map((b) => b.type);
+      trace.visual_blocks_gate = blockGate;
+      trace.visual_blocks_source = "key_rebuild";
+    }
   } else {
     trace.visual_blocks_gate = {
       ok: true,

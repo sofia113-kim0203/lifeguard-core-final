@@ -377,16 +377,48 @@ function makeAnthropicFetch({
     if (Array.isArray(bodies)) bodies.push(body);
     const tools = Array.isArray(body.tools) ? body.tools : [];
     const isBorrowed = tools.length > 0;
+    const hasEmitBorrowed = tools.some((t) => t?.name === "emit_borrowed_senses");
+    const hasEmitFull = tools.some((t) => t?.name === "emit_claude_full");
+    const hasSearch = tools.some((t) => t?.name === "web_search");
     const isResearchOnly =
-      tools.length === 1 && tools[0]?.name === "web_search" && !tools.some((t) => t?.name === "emit_borrowed_senses");
-    const isEmitOnly =
-      tools.some((t) => t?.name === "emit_borrowed_senses") && !tools.some((t) => t?.name === "web_search");
-    const isMixed =
-      tools.some((t) => t?.name === "web_search") && tools.some((t) => t?.name === "emit_borrowed_senses");
+      tools.length === 1 && hasSearch && !hasEmitBorrowed && !hasEmitFull;
+    const isEmitOnly = (hasEmitBorrowed || hasEmitFull) && !hasSearch;
+    // Shadow path still forbids mixed borrowed+search; Claude-Full may offer both.
+    const isMixedShadow = hasSearch && hasEmitBorrowed;
+    const isClaudeFullOffer = hasEmitFull;
 
     if (isBorrowed) {
-      log.push(isResearchOnly ? "research" : isEmitOnly ? "borrowed" : isMixed ? "mixed" : "borrowed");
-      if (isMixed) {
+      const messageCount = Array.isArray(body.messages) ? body.messages.length : 0;
+      let customerQ = "";
+      try {
+        const raw0 = body.messages?.[0]?.content;
+        const payload0 = typeof raw0 === "string" ? JSON.parse(raw0) : null;
+        customerQ = String(
+          payload0?.customer_question ?? payload0?.current_user_message ?? "",
+        );
+      } catch {
+        customerQ = "";
+      }
+      const looksLikePublicPlaceAsk =
+        /(맛집|식당|카페|병원|시설|명소|여행지|관광|핫플)/.test(customerQ) &&
+        /(추천|찾아|검색|어디)/.test(customerQ);
+      // Claude-Full offers search always; mock only auto-searches first on place/public asks
+      // (or skipWebSearch contract tests). Insurance paths emit without forced research.
+      const claudeFullSearchFirst =
+        isClaudeFullOffer &&
+        hasSearch &&
+        messageCount <= 1 &&
+        (looksLikePublicPlaceAsk || skipWebSearch);
+      log.push(
+        isResearchOnly || claudeFullSearchFirst
+          ? "research"
+          : isEmitOnly || isClaudeFullOffer
+            ? "borrowed"
+            : isMixedShadow
+              ? "mixed"
+              : "borrowed",
+      );
+      if (isMixedShadow) {
         return {
           ok: false,
           status: 400,
@@ -398,7 +430,7 @@ function makeAnthropicFetch({
           },
         };
       }
-      if (isResearchOnly) {
+      if (isResearchOnly || claudeFullSearchFirst) {
         if (skipWebSearch) {
           return {
             ok: true,
@@ -470,6 +502,16 @@ function makeAnthropicFetch({
           },
         };
       }
+      const input =
+        typeof borrowed === "function" ? borrowed(body) : borrowed;
+      const toolName = hasEmitFull ? "emit_claude_full" : "emit_borrowed_senses";
+      let emitInput = input;
+      if (hasEmitFull && input && typeof input === "object") {
+        const answer = String(
+          input.customer_answer ?? input.voice_raw_candidate ?? "",
+        ).trim();
+        emitInput = { ...input, customer_answer: answer || input.customer_answer };
+      }
       return {
         ok: true,
         async json() {
@@ -477,8 +519,8 @@ function makeAnthropicFetch({
             content: [
               {
                 type: "tool_use",
-                name: "emit_borrowed_senses",
-                input: typeof borrowed === "function" ? borrowed(body) : borrowed,
+                name: toolName,
+                input: emitInput,
               },
             ],
           };
@@ -1426,7 +1468,8 @@ function normalizeComposeText(text = "") {
     assert.equal(result.key_voice_trace.promotion_diagnostic?.customer_text_replaced, false);
     assert.match(result.text, /한식|일식|분위기/);
     assert.ok(!/보험료|22건|보장/.test(result.text));
-    assert.ok((result.key_voice_trace.fast_path?.mid_field_warnings ?? []).length >= 1);
+    // Claude-Full talent-open: leadership mid-fields are not force-filled — mid_field_warnings optional.
+    assert.equal(result.compose_mode, "key_claude_full_single_pass");
   }
 
   // B. answer itself polluted → focused Claude correction exactly 1
@@ -3494,21 +3537,40 @@ function normalizeComposeText(text = "") {
 
   function assertResearchProviderPayload(body) {
     assert.ok(body && typeof body === "object");
-    assert.equal(body.tools.length, 1);
-    assert.equal(body.tools[0].type, "web_search_20250305");
-    assert.equal(body.tools[0].name, "web_search");
-    assert.equal(body.tools[0].max_uses, 3);
-    assert.deepEqual(body.tool_choice, { type: "any" });
+    const search = (body.tools ?? []).find((t) => t?.name === "web_search");
+    assert.ok(search, "web_search tool required");
+    assert.equal(search.type, "web_search_20250305");
+    assert.equal(search.name, "web_search");
+    assert.equal(search.max_uses, 3);
+    const hasClaudeFullEmit = (body.tools ?? []).some((t) => t?.name === "emit_claude_full");
+    if (hasClaudeFullEmit) {
+      // Claude-Full talent-open: web_search offered alongside emit_claude_full; Claude chooses.
+      assert.ok(body.tools.length >= 1);
+    } else {
+      assert.equal(body.tools.length, 1);
+      assert.deepEqual(body.tool_choice, { type: "any" });
+    }
   }
 
   function assertEmitProviderPayload(body) {
     assert.ok(body && typeof body === "object");
-    assert.equal(body.tools.length, 1);
-    assert.equal(body.tools[0].name, "emit_borrowed_senses");
-    assert.deepEqual(body.tool_choice, {
-      type: "tool",
-      name: "emit_borrowed_senses",
-    });
+    const emitFull = (body.tools ?? []).find((t) => t?.name === "emit_claude_full");
+    const emitBorrowed = (body.tools ?? []).find((t) => t?.name === "emit_borrowed_senses");
+    if (emitFull) {
+      assert.equal(emitFull.name, "emit_claude_full");
+      assert.ok(
+        body.tool_choice?.type === "auto" ||
+          body.tool_choice?.name === "emit_claude_full" ||
+          body.tool_choice?.type === "tool",
+      );
+    } else {
+      assert.equal(body.tools.length, 1);
+      assert.equal(emitBorrowed?.name, "emit_borrowed_senses");
+      assert.deepEqual(body.tool_choice, {
+        type: "tool",
+        name: "emit_borrowed_senses",
+      });
+    }
   }
 
   // A + B + C. T1 provider payload + place-first answer (mock Anthropic)
@@ -3554,15 +3616,23 @@ function normalizeComposeText(text = "") {
       },
     );
     const researchBodies = bodies.filter(
-      (b) => Array.isArray(b.tools) && b.tools[0]?.name === "web_search",
+      (b) => Array.isArray(b.tools) && b.tools.some((t) => t?.name === "web_search"),
     );
     const emitBodies = bodies.filter(
-      (b) => Array.isArray(b.tools) && b.tools[0]?.name === "emit_borrowed_senses",
+      (b) =>
+        Array.isArray(b.tools) &&
+        b.tools.some(
+          (t) => t?.name === "emit_borrowed_senses" || t?.name === "emit_claude_full",
+        ) &&
+        // Prefer emit-only turn when Claude-Full searched first; else any emit-bearing body.
+        (!b.tools.some((t) => t?.name === "web_search") ||
+          b.tools.some((t) => t?.name === "emit_claude_full")),
     );
     assert.ok(researchBodies.length >= 1);
     assertResearchProviderPayload(researchBodies[0]);
     assert.ok(emitBodies.length >= 1);
-    assertEmitProviderPayload(emitBodies[0]);
+    const emitOnly = emitBodies.find((b) => !b.tools.some((t) => t?.name === "web_search")) ?? emitBodies[0];
+    assertEmitProviderPayload(emitOnly);
     assert.ok(log.filter((x) => x === "research").length >= 1);
     assert.equal(log.filter((x) => x === "mixed").length, 0);
     const ev = result.key_voice_trace.borrowed_senses_shadow?.public_research_evidence;
@@ -4296,7 +4366,9 @@ console.log("KEY_VOICE_UNIT_TEST ok=true");
       },
     );
     const emitBodies = bodies.filter((b) =>
-      (b?.tools ?? []).some((t) => t?.name === "emit_borrowed_senses"),
+      (b?.tools ?? []).some(
+        (t) => t?.name === "emit_borrowed_senses" || t?.name === "emit_claude_full",
+      ),
     );
     assert.ok(emitBodies.length >= 1);
     const emitUser = JSON.parse(emitBodies[0].messages[0].content);
@@ -4307,8 +4379,15 @@ console.log("KEY_VOICE_UNIT_TEST ok=true");
         chart22Policies[i].insurer_name,
       );
     }
-    assert.equal(emitUser.conversation_history?.length, longHistory.length);
-    assert.match(emitUser.conversation_history[0].text, /전체 보험 구조/);
+    // Claude-Full talent-open: avoid duplicate full-history attach; recent originals carry the thread.
+    if (emitUser.answer_mode === "claude_full") {
+      assert.equal(emitUser.conversation_history, null);
+      assert.ok(Array.isArray(emitUser.recent_conversation_originals));
+      assert.ok(emitUser.recent_conversation_originals.length >= 1);
+    } else {
+      assert.equal(emitUser.conversation_history?.length, longHistory.length);
+      assert.match(emitUser.conversation_history[0].text, /전체 보험 구조/);
+    }
     // Claude-Full v1.1: KEY Decision / Session Goal are not pre-drafted into Claude input.
     assert.equal(emitUser.answer_mode, "claude_full");
     assert.equal(emitUser.decision, null);
