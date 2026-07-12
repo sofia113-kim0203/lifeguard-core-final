@@ -3,7 +3,6 @@
  * Committed sentences are never replaced (KEY monopoly / no onReplace).
  * Hard-lite only: enroll / cancel / close-push. Gate body untouched.
  */
-import { recommendationOrTerminationRisk } from "./keyVoiceGate.js";
 
 const DEFAULT_SAFETY_BUFFER = 8;
 
@@ -12,16 +11,17 @@ export const SENTENCE_COMMIT_ABORT_CLOSER =
   "이 부분은 여기서 잠시 마무리할게요. 이어서 궁금한 점 있으시면 편하게 말씀해 주세요.";
 
 /**
- * Hard-lite for sentence commit — enroll / cancel / close only.
- * Does not treat definitive-verdict-alone as a block (aligns with Monopoly A).
+ * Hard-lite for sentence commit — strong enroll / cancel / close only.
+ * Avoids explanatory phrases like "가입 시점" (false positive on 특약 Q).
+ * Gate body untouched — call-site stream policy only.
  */
 export function sentenceHardLiteBlocks(text = "") {
-  const risk = recommendationOrTerminationRisk(text);
-  return (
-    risk.enrollment_push === true ||
-    risk.cancellation_push === true ||
-    risk.termination_close_risk === true
-  );
+  const t = String(text ?? "");
+  if (!t.trim()) return false;
+  if (/(?:지금\s*)?가입(?:하세요|하시길|하는\s*게\s*좋|하십|[을를]\s*권)/.test(t)) return true;
+  if (/(?:지금\s*)?해지(?:하세요|하시길|하는\s*게\s*좋|하십|[을를]\s*권)/.test(t)) return true;
+  if (/(?:최종\s*)?(?:체결|가입\s*확정|설계\s*완료|지금\s*결정)/.test(t)) return true;
+  return false;
 }
 
 /**

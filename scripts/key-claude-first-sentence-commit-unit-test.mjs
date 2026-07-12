@@ -8,6 +8,7 @@ import {
 
 assert.equal(sentenceHardLiteBlocks("지금 가입하세요."), true);
 assert.equal(sentenceHardLiteBlocks("확인된 22건을 같이 보면 좋겠어요."), false);
+assert.equal(sentenceHardLiteBlocks("- **가입 시점 및 약관**: 확인이 필요합니다."), false);
 
 const commits = [];
 const stream = createSentenceCommitStream({

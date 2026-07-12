@@ -171,18 +171,26 @@ export function buildSystemPrompt() {
     "Materials may include verified_customer_chart, conversation originals, and an attached original PDF when present. Use them when helpful; do not invent policy facts that contradict them.",
     "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
     "If a PDF is attached, you may read and analyze it directly.",
-    "Prefer calling emit_claude_full with customer_answer as the full customer-facing reply. Plain text answers are also acceptable.",
+    "Delivery order (required for speed): write the full customer-facing reply as plain Korean text first. Do NOT wrap the main answer in emit_claude_full. Plain text streams to the customer immediately.",
+    "emit_claude_full is only for optional visual_blocks AFTER the plain-text answer when a chart/table is useful. Never put the main prose only inside the tool.",
     "Do not push enrollment, cancellation, or definitive '충분/부족합니다' / '문제 없습니다' verdicts without basis.",
     "Do not invent restaurant/place names or policy numbers that are not grounded in materials or search results.",
     "Tone (required): warm, respectful, and clear. Open with a short caring acknowledgment when helpful. Soften uncertainty without sounding cold or accusing. Do not call the customer's records '오류' or '가짜' — say what is confirmed vs not yet confirmed.",
     "When the customer asks whether riders/특약을 can be added: explain the concept kindly, clarify you cannot enroll or change the policy here, and invite sharing the 증권 for a concrete review. Do not use '지금 가입하세요' style language.",
-    "Charts: when the customer asks for a chart/table/현황 정리, or when an insurance status summary benefits from a table, include visual_blocks on emit_claude_full (coverage_status_card, policy_count_summary, premium_summary_table, or coverage_gap_table) using ONLY verified_customer_chart facts. Omit visual_blocks for pure daily chit-chat.",
+    "Charts: when the customer asks for a chart/table/현황 정리, or when an insurance status summary benefits from a table, emit visual_blocks later via emit_claude_full (coverage_status_card, policy_count_summary, premium_summary_table, or coverage_gap_table) using ONLY verified_customer_chart facts. Omit visual_blocks for pure daily chit-chat.",
     "Customer-facing presentation (required):",
     "- No emoji, emoticons, or decorative pictographs.",
-    "- No HTML or citation markup in customer_answer (never output <cite> or other tags).",
+    "- No HTML or citation markup (never output <cite> or other tags).",
     "- Clean readable Korean: short paragraphs, ## headings when helpful, - bullet lists, **bold** sparingly for key phrases.",
     "- Prefer clear structure over decoration. --- separators are ok when they help scanning.",
   ].join("\n");
+}
+
+export function wantsClaudeFirstVisualBlocks(question = "") {
+  const q = String(question ?? "");
+  return /차트|표\s*로|표로\s*보여|현황|내\s*보험은\s*괜찮아|보험\s*어때|계약\s*요약/.test(
+    q,
+  );
 }
 
 function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = null }) {
@@ -210,7 +218,7 @@ function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = n
         }
       : { attached: false, note: "No PDF attached for this turn." },
     guidance:
-      "Answer warmly and clearly in Korean. Insurance materials are optional context, not a mandate to steer every topic back to insurance. No emoji/<cite>/HTML. Prefer headings and lists. If a chart/table is requested for insurance status, also emit visual_blocks from verified_customer_chart only.",
+      "Answer warmly in plain Korean text first (not inside emit_claude_full). Insurance materials are optional context. No emoji/<cite>/HTML. Prefer headings and lists. Charts/visual_blocks come in a later step if needed.",
   };
 }
 
@@ -588,7 +596,6 @@ async function callClaudeFirstDirect({
     pdfMeta,
   });
   const system = buildSystemPrompt();
-  const tools = [ANTHROPIC_WEB_SEARCH_TOOL, CLAUDE_FIRST_DIRECT_EMIT_TOOL];
   const userContent = buildClaudeFullUserContentWithPdf({
     userPayload,
     pdfBase64,
@@ -606,17 +613,16 @@ async function callClaudeFirstDirect({
   };
   let streamedAnswer = "";
 
+  // Phase A — plain text (+ optional web_search). No emit tool so prose streams early.
+  const answerTools = [ANTHROPIC_WEB_SEARCH_TOOL];
   for (let turn = 0; turn < 4; turn += 1) {
-    const forceEmit = turn > 0 && !lastPicked.customer_answer;
     const body = {
       model,
       max_tokens: 4096,
       temperature: 0.4,
       system,
-      tools,
-      tool_choice: forceEmit
-        ? { type: "tool", name: "emit_claude_full" }
-        : { type: "auto" },
+      tools: answerTools,
+      tool_choice: { type: "auto" },
       messages,
       stream: true,
     };
@@ -650,16 +656,24 @@ async function callClaudeFirstDirect({
     if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
 
     const picked = pickCustomerAnswer(streamed.dataRaw);
-    if (picked.customer_answer) {
-      lastPicked = picked;
-      onAnswerProgress?.(picked.customer_answer);
-      break;
-    }
-
-    // Continue after web_search / intermediate tool use — ask Claude to emit the answer.
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
+    const hasToolUse = assistantContent.some((b) => b?.type === "tool_use");
+
+    if (picked.customer_answer && !hasToolUse) {
+      lastPicked = { ...picked, source: picked.source || "plain_text" };
+      onAnswerProgress?.(picked.customer_answer);
+      messages = [...messages, { role: "assistant", content: assistantContent }];
+      break;
+    }
+
+    if (picked.customer_answer && hasToolUse) {
+      // Unusual mix — prefer plain text progress already streamed.
+      lastPicked = { ...picked, source: picked.source || "plain_text" };
+      onAnswerProgress?.(picked.customer_answer);
+    }
+
     if (!assistantContent.length) break;
     messages = [
       ...messages,
@@ -667,22 +681,72 @@ async function callClaudeFirstDirect({
       {
         role: "user",
         content:
-          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 따뜻하고 존중하는 톤으로, 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요. 차트/표가 필요하면 visual_blocks도 함께 넣으세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요.",
+          "이제 고객에게 보여줄 최종 한국어 답변을 일반 텍스트로만 작성해 주세요. emit_claude_full 도구는 사용하지 마세요. 따뜻하고 존중하는 톤으로, 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요. 보험으로 억지 전환하지 말고 현재 질문 자체에 답하세요.",
       },
     ];
+
+    if (picked.customer_answer && !hasToolUse) break;
   }
 
   const customer_answer = String(
     lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
 
+  // Phase B — optional charts after prose (does not stream customer prose again).
+  let visual_blocks = Array.isArray(lastPicked.visual_blocks) ? lastPicked.visual_blocks : [];
+  if (
+    customer_answer &&
+    wantsClaudeFirstVisualBlocks(question) &&
+    visual_blocks.length === 0
+  ) {
+    const chartMessages = [
+      ...messages,
+      {
+        role: "user",
+        content:
+          "Plain-text answer already delivered to the customer. Now call emit_claude_full with visual_blocks only (policy_count_summary / premium_summary_table / coverage_status_card / coverage_gap_table) using verified_customer_chart facts only. Set customer_answer to a single short line like '현황 표입니다.' — do not rewrite the full answer.",
+      },
+    ];
+    const chartBody = {
+      model,
+      max_tokens: 2048,
+      temperature: 0.2,
+      system,
+      tools: [CLAUDE_FIRST_DIRECT_EMIT_TOOL],
+      tool_choice: { type: "tool", name: "emit_claude_full" },
+      messages: chartMessages,
+      stream: true,
+    };
+    const chartRes = await fetchImpl(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(chartBody),
+    });
+    if (chartRes.ok) {
+      const chartStreamed = await readAnthropicSseWithAnswerStream({
+        res: chartRes,
+        startedAt,
+        onFirstContent: null,
+        onAnswerProgress: null,
+      });
+      const chartPicked = pickCustomerAnswer(chartStreamed.dataRaw);
+      if (Array.isArray(chartPicked.visual_blocks) && chartPicked.visual_blocks.length) {
+        visual_blocks = chartPicked.visual_blocks;
+      }
+    }
+  }
+
   return {
     ok: Boolean(customer_answer),
     customer_answer,
-    visual_blocks: lastPicked.visual_blocks,
+    visual_blocks,
     decision: lastPicked.decision,
     session_goal: lastPicked.session_goal,
-    answer_source: lastPicked.source,
+    answer_source: lastPicked.source || (customer_answer ? "plain_text" : null),
     ttft_ms: lastTtft,
     chart,
     allowlist,

@@ -48,8 +48,9 @@ assert.match(prompt, /No emoji/i);
 assert.match(prompt, /cite/i);
 assert.match(prompt, /Clean readable Korean/i);
 assert.match(prompt, /Tone \(required\)/i);
-assert.match(prompt, /visual_blocks/i);
+assert.match(prompt, /plain Korean text first/i);
 assert.match(prompt, /warm/i);
+assert.match(prompt, /emit_claude_full is only for optional visual_blocks/i);
 
 // Monopoly A: definitive-only wording must not monopoly-replace.
 const definitiveOnly = selectReplacingHardReasons(
