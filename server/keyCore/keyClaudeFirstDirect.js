@@ -30,6 +30,10 @@ import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
 import { CLAUDE_FULL_VISUAL_BLOCK_TYPES } from "./keyClaudeFullEmit.js";
+import {
+  createSentenceCommitStream,
+  SENTENCE_COMMIT_ABORT_CLOSER,
+} from "./keyClaudeFirstSentenceCommit.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -214,14 +218,17 @@ async function readAnthropicSseWithAnswerStream({
   res,
   startedAt,
   onFirstContent = null,
+  onAnswerProgress = null,
 }) {
   const reader = res.body?.getReader?.();
   if (!reader) {
     const dataRaw = await res.json();
+    const picked = pickCustomerAnswer(dataRaw);
+    if (picked.customer_answer) onAnswerProgress?.(picked.customer_answer);
     return {
       dataRaw,
       ttft_ms: startedAt != null ? relMs(startedAt) : null,
-      streamed_answer: "",
+      streamed_answer: picked.customer_answer || "",
       answer_complete_before_end: false,
     };
   }
@@ -243,6 +250,15 @@ async function readAnthropicSseWithAnswerStream({
         onFirstContent?.(ttft_ms);
       }
     }
+  };
+
+  const publishProgress = () => {
+    const textParts = contentBlocks
+      .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
+      .map((b) => String(b.text));
+    const fromText = textParts.join("\n\n").trim();
+    const progress = streamedAnswer || fromText;
+    if (progress) onAnswerProgress?.(progress);
   };
 
   while (true) {
@@ -285,6 +301,7 @@ async function readAnthropicSseWithAnswerStream({
         if (!contentBlocks[idx]) contentBlocks[idx] = { type: "text", text: "" };
         if (delta.type === "text_delta") {
           contentBlocks[idx].text = `${contentBlocks[idx].text ?? ""}${delta.text ?? ""}`;
+          publishProgress();
         } else if (delta.type === "input_json_delta") {
           contentBlocks[idx].input_json =
             `${contentBlocks[idx].input_json ?? ""}${delta.partial_json ?? ""}`;
@@ -292,6 +309,7 @@ async function readAnthropicSseWithAnswerStream({
           const partial = extractPartialCustomerAnswer(contentBlocks[idx].input_json ?? "");
           if (partial.text.length > streamedAnswer.length) {
             streamedAnswer = partial.text;
+            publishProgress();
           }
           if (partial.complete) answerComplete = true;
         }
@@ -546,6 +564,7 @@ async function callClaudeFirstDirect({
   fetchImpl = fetch,
   startedAt = Date.now(),
   onFirstContent = null,
+  onAnswerProgress = null,
   pdfBase64 = null,
   pdfMediaType = null,
   pdfMeta = null,
@@ -625,6 +644,7 @@ async function callClaudeFirstDirect({
       res,
       startedAt,
       onFirstContent: turn === 0 ? onFirstContent : null,
+      onAnswerProgress,
     });
     if (streamed.ttft_ms != null && lastTtft == null) lastTtft = streamed.ttft_ms;
     if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
@@ -632,6 +652,7 @@ async function callClaudeFirstDirect({
     const picked = pickCustomerAnswer(streamed.dataRaw);
     if (picked.customer_answer) {
       lastPicked = picked;
+      onAnswerProgress?.(picked.customer_answer);
       break;
     }
 
@@ -646,7 +667,7 @@ async function callClaudeFirstDirect({
       {
         role: "user",
         content:
-          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요. 따뜻하고 존중하는 톤으로, 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요. 차트/표가 필요하면 visual_blocks도 함께 넣으세요.",
+          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 따뜻하고 존중하는 톤으로, 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요. 차트/표가 필요하면 visual_blocks도 함께 넣으세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요.",
       },
     ];
   }
@@ -703,6 +724,20 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
 
   let firstTokenMs = null;
+  let sentenceStreamAborted = false;
+  let sentenceAbortReason = null;
+  const commitStream = createSentenceCommitStream({
+    onCommit(sentence) {
+      if (!streamHandlers?.onDelta) return;
+      streamHandlers.onDelta(sentence);
+      streamHandlers._emitted = true;
+      if (firstTokenMs == null) {
+        firstTokenMs = relMs(startedAt);
+        streamHandlers.onFirstToken?.(firstTokenMs);
+      }
+    },
+  });
+
   const claude = await callClaudeFirstDirect({
     question,
     history,
@@ -711,13 +746,25 @@ export async function runClaudeFirstDirectQuestionTurn({
     fetchImpl,
     startedAt,
     onFirstContent: (ms) => {
-      firstTokenMs = ms;
+      if (firstTokenMs == null) firstTokenMs = ms;
+    },
+    onAnswerProgress: (text) => {
+      const result = commitStream.pushAnswerText(text);
+      if (result?.aborted) {
+        sentenceStreamAborted = true;
+        sentenceAbortReason = commitStream.getAbortReason();
+      }
     },
     pdfBase64: pdf.pdfBase64,
     pdfMediaType: pdf.mediaType,
     pdfMeta: pdf.meta,
   });
   const emitMark = span.end();
+  commitStream.flush();
+  if (commitStream.isAborted()) {
+    sentenceStreamAborted = true;
+    sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
+  }
 
   if (!claude.ok || !claude.customer_answer) {
     const sealed = sealKeyCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
@@ -782,23 +829,42 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
   const replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
 
-  let finalText = claude.customer_answer;
+  // E: sentence commit stream — committed text is never replaced.
+  const alreadyCommitted = Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
+  let finalText = commitStream.getCommitted() || claude.customer_answer;
   let usedFailure = false;
   let failureReason = null;
-  if (!String(finalText ?? "").trim()) {
+
+  if (sentenceStreamAborted && commitStream.getCommitted()) {
+    // Keep committed sentences; append soft closer once (also commit to stream if needed).
+    if (!String(finalText).includes(SENTENCE_COMMIT_ABORT_CLOSER)) {
+      const closer = `\n\n${SENTENCE_COMMIT_ABORT_CLOSER}`;
+      finalText = `${finalText.trimEnd()}${closer}`;
+      if (streamHandlers?.onDelta) {
+        streamHandlers.onDelta(closer);
+        streamHandlers._emitted = true;
+      }
+    }
+    usedFailure = false;
+    failureReason = sentenceAbortReason;
+  } else if (!String(finalText ?? "").trim()) {
     finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
     usedFailure = true;
     failureReason = "empty_answer";
-  } else if (replacingHard.length > 0) {
+  } else if (replacingHard.length > 0 && !alreadyCommitted) {
+    // Only monopoly-replace when nothing was already shown to the customer.
     finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
     usedFailure = true;
     failureReason = replacingHard.join(";") || "closed_hard";
+  } else if (replacingHard.length > 0 && alreadyCommitted) {
+    // E: keep committed text; do not yank.
+    failureReason = `committed_no_replace:${replacingHard.join(";")}`;
   }
 
   // As-is delivery (no polish rewrite). Seal only.
   const sealed = sealKeyCustomerText(finalText);
 
-  // Emit after hard check so we never paint then yank; TTFT measured at Claude first byte.
+  // If nothing was sentence-committed (e.g. tiny answer without boundary), emit once.
   if (streamHandlers?.onDelta && !streamHandlers._emitted) {
     streamHandlers.onDelta(sealed.key_speak_original);
     streamHandlers._emitted = true;
@@ -849,6 +915,13 @@ export async function runClaudeFirstDirectQuestionTurn({
           jailbreak_detail: safety.jailbreak_detail,
           answer_source: claude.answer_source ?? null,
           pdf_attached: claude.pdf_attached === true,
+          sentence_commit: {
+            mode: "sentence_unit_e",
+            aborted: sentenceStreamAborted,
+            abort_reason: sentenceAbortReason,
+            committed_len: String(commitStream.getCommitted() ?? "").length,
+            already_committed: alreadyCommitted,
+          },
           latency_marks: {
             claude_full_emit: emitMark,
             ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
@@ -877,6 +950,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             answer_source: claude.answer_source ?? null,
             pdf_attached: claude.pdf_attached === true,
             answer_preview: String(claude.customer_answer).slice(0, 300),
+            sentence_commit_aborted: sentenceStreamAborted,
+            sentence_commit_abort_reason: sentenceAbortReason,
           },
         },
         {
