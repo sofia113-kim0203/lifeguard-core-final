@@ -222,6 +222,8 @@ export function resolveKeyMasterPreviewEnv(env = process.env) {
     SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
     SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
     KEY_BORROWED_SENSES: "shadow",
+    // Preview Claude-first direct answer (never Production).
+    KEY_CLAUDE_FIRST_DIRECT: env.KEY_CLAUDE_FIRST_DIRECT ?? "1",
   };
 }
 

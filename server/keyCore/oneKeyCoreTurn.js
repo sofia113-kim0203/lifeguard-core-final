@@ -47,6 +47,10 @@ import {
   resolveKeyFirstDecision,
 } from "../keyBrain/keyFirstDecision.js";
 import { startSpan } from "./keyLatencyMarks.js";
+import {
+  isClaudeFirstDirectPreview,
+  runClaudeFirstDirectQuestionTurn,
+} from "./keyClaudeFirstDirect.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
@@ -246,6 +250,7 @@ export async function runOneKeyCoreTurn({
   shadowVisualBlocksOverride = null,
   customerQuestion = "",
   injectedPdfBytes = null,
+  streamHandlers = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -316,6 +321,7 @@ export async function runOneKeyCoreTurn({
     question,
     history,
     shadowVisualBlocksOverride,
+    streamHandlers,
     env,
     fetchImpl,
     startedAt,
@@ -331,6 +337,7 @@ async function runOneKeyCoreQuestionTurn({
   question,
   history = [],
   shadowVisualBlocksOverride = null,
+  streamHandlers = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -371,6 +378,29 @@ async function runOneKeyCoreQuestionTurn({
       reason: "context_snapshot_load_failed",
       trace,
       startedAt,
+    });
+  }
+
+  // Preview Claude-first: question + history + verified raw → Claude answer as-is.
+  // No intent/Decision/Goal/planner/S3–S6 before Claude. Production never enters.
+  if (isClaudeFirstDirectPreview(coreEnv)) {
+    const conversationHistory = (history ?? [])
+      .map((turn) => ({
+        role: turn.role === "assistant" ? "assistant" : "user",
+        text: String(turn.content ?? turn.text ?? turn.message ?? "").trim(),
+      }))
+      .filter((t) => t.text);
+    return runClaudeFirstDirectQuestionTurn({
+      question,
+      history: conversationHistory,
+      loadedContext,
+      customerContextBundle,
+      unifiedState,
+      contextSnapshot,
+      env: coreEnv,
+      fetchImpl,
+      startedAt,
+      streamHandlers,
     });
   }
 

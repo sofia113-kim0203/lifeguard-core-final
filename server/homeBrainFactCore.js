@@ -254,6 +254,7 @@ export async function handleHomeBrainFactRequest({
     question: trimmedQuestion,
     history,
     shadowVisualBlocksOverride,
+    streamHandlers: activeStreamHandlers,
     env: keyEnv,
     fetchImpl,
     startedAt,
