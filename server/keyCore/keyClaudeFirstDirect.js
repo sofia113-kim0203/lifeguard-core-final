@@ -21,10 +21,15 @@ import {
   buildClaudeFullUserContentWithPdf,
   verifyAndFetchCustomerPdfOriginal,
 } from "./keyClaudeFullDocumentDirect.js";
-import { gateKeyVoiceAnswer, jailbreakAudit } from "./keyVoiceGate.js";
+import {
+  gateKeyVoiceAnswer,
+  jailbreakAudit,
+  recommendationOrTerminationRisk,
+} from "./keyVoiceGate.js";
 import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
+import { CLAUDE_FULL_VISUAL_BLOCK_TYPES } from "./keyClaudeFullEmit.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -45,6 +50,8 @@ export const CLAUDE_FIRST_DIRECT_EMIT_TOOL = Object.freeze({
       },
       visual_blocks: {
         type: "array",
+        description:
+          "Optional customer UI charts. Prefer when customer asks for a chart/table or insurance status summary. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, coverage_status_card, next_steps_card. Use only verified chart facts; never invent coverages.",
         items: { type: "object", additionalProperties: true },
       },
       decision: {
@@ -161,8 +168,11 @@ export function buildSystemPrompt() {
     "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
     "If a PDF is attached, you may read and analyze it directly.",
     "Prefer calling emit_claude_full with customer_answer as the full customer-facing reply. Plain text answers are also acceptable.",
-    "Do not push enrollment, cancellation, or definitive '충분/부족합니다' verdicts without basis.",
+    "Do not push enrollment, cancellation, or definitive '충분/부족합니다' / '문제 없습니다' verdicts without basis.",
     "Do not invent restaurant/place names or policy numbers that are not grounded in materials or search results.",
+    "Tone (required): warm, respectful, and clear. Open with a short caring acknowledgment when helpful. Soften uncertainty without sounding cold or accusing. Do not call the customer's records '오류' or '가짜' — say what is confirmed vs not yet confirmed.",
+    "When the customer asks whether riders/특약을 can be added: explain the concept kindly, clarify you cannot enroll or change the policy here, and invite sharing the 증권 for a concrete review. Do not use '지금 가입하세요' style language.",
+    "Charts: when the customer asks for a chart/table/현황 정리, or when an insurance status summary benefits from a table, include visual_blocks on emit_claude_full (coverage_status_card, policy_count_summary, premium_summary_table, or coverage_gap_table) using ONLY verified_customer_chart facts. Omit visual_blocks for pure daily chit-chat.",
     "Customer-facing presentation (required):",
     "- No emoji, emoticons, or decorative pictographs.",
     "- No HTML or citation markup in customer_answer (never output <cite> or other tags).",
@@ -196,7 +206,7 @@ function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = n
         }
       : { attached: false, note: "No PDF attached for this turn." },
     guidance:
-      "Answer the customer's current question with your own judgment. Insurance materials are optional context, not a mandate to steer every topic back to insurance. Keep customer_answer free of emoji and <cite>/HTML tags; use clean Korean paragraphs, headings, and lists.",
+      "Answer warmly and clearly in Korean. Insurance materials are optional context, not a mandate to steer every topic back to insurance. No emoji/<cite>/HTML. Prefer headings and lists. If a chart/table is requested for insurance status, also emit visual_blocks from verified_customer_chart only.",
   };
 }
 
@@ -324,6 +334,39 @@ async function readAnthropicSseWithAnswerStream({
   };
 }
 
+function sanitizeClaudeFirstVisualBlocks(raw) {
+  if (!Array.isArray(raw)) return [];
+  const allowed = new Set(CLAUDE_FULL_VISUAL_BLOCK_TYPES);
+  return raw
+    .filter((b) => b && typeof b === "object")
+    .map((b) => {
+      const type = String(b.type ?? "").trim();
+      if (!allowed.has(type)) return null;
+      const out = { type };
+      if (b.title != null) out.title = String(b.title);
+      if (b.subtitle != null) out.subtitle = String(b.subtitle);
+      if (Array.isArray(b.columns)) {
+        out.columns = b.columns.map((c) => String(c ?? ""));
+      }
+      if (Array.isArray(b.rows)) {
+        out.rows = b.rows.map((row) =>
+          (Array.isArray(row) ? row : []).map((c) => String(c ?? "")),
+        );
+      }
+      if (Array.isArray(b.steps)) {
+        out.steps = b.steps
+          .filter((s) => s && typeof s === "object")
+          .map((s, idx) => ({
+            order: Number.isFinite(Number(s.order)) ? Number(s.order) : idx + 1,
+            label: String(s.label ?? ""),
+            move: String(s.move ?? ""),
+          }));
+      }
+      return out;
+    })
+    .filter(Boolean);
+}
+
 function pickCustomerAnswer(dataRaw) {
   const blocks = Array.isArray(dataRaw?.content) ? dataRaw.content : [];
   for (const b of blocks) {
@@ -332,7 +375,7 @@ function pickCustomerAnswer(dataRaw) {
       if (answer) {
         return {
           customer_answer: answer,
-          visual_blocks: Array.isArray(b.input?.visual_blocks) ? b.input.visual_blocks : [],
+          visual_blocks: sanitizeClaudeFirstVisualBlocks(b.input?.visual_blocks),
           decision: b.input?.decision ?? null,
           session_goal: b.input?.session_goal ?? null,
           source: "emit_claude_full",
@@ -360,6 +403,37 @@ function pickCustomerAnswer(dataRaw) {
     session_goal: null,
     source: null,
   };
+}
+
+/**
+ * Monopoly A — call-site only (gate body unchanged).
+ * Do not monopoly-replace recommendation_or_termination for definitive-verdict-only /
+ * explanatory wording. Still replace real enroll / cancel / close-push.
+ */
+export function selectReplacingHardReasons(hardReasons = [], text = "") {
+  const REPLACE_HARD = new Set([
+    "recommendation_or_termination",
+    "empty_answer",
+    "empty_voice",
+    "hard_sales_push",
+    "closing_or_signup_push",
+    "product_push_as_direction",
+    "leadership_cancel_enroll_certainty",
+    "unsupported_recommendation",
+  ]);
+  const risk = recommendationOrTerminationRisk(text);
+  return (hardReasons ?? []).filter((r) => {
+    const key = String(r).replace(/^answer_facing:/, "");
+    if (!REPLACE_HARD.has(key) && !REPLACE_HARD.has(String(r))) return false;
+    if (key === "recommendation_or_termination" || r === "recommendation_or_termination") {
+      return (
+        risk.enrollment_push === true ||
+        risk.cancellation_push === true ||
+        risk.termination_close_risk === true
+      );
+    }
+    return true;
+  });
 }
 
 function latestDocumentIdFromContext(loadedContext = null) {
@@ -572,7 +646,7 @@ async function callClaudeFirstDirect({
       {
         role: "user",
         content:
-          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요. 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요.",
+          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요. 따뜻하고 존중하는 톤으로, 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요. 차트/표가 필요하면 visual_blocks도 함께 넣으세요.",
       },
     ];
   }
@@ -705,20 +779,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Native Claude-first: do not replace a real answer with monopoly for jailbreak_fact alone
   // (citations / derived math / place names from web_search). Gate body unchanged —
   // call-site only chooses which CLOSED reasons may swap customer text.
-  const REPLACE_HARD = new Set([
-    "recommendation_or_termination",
-    "empty_answer",
-    "empty_voice",
-    "hard_sales_push",
-    "closing_or_signup_push",
-    "product_push_as_direction",
-    "leadership_cancel_enroll_certainty",
-    "unsupported_recommendation",
-  ]);
-  const replacingHard = (safety.hard ?? []).filter((r) => {
-    const key = String(r).replace(/^answer_facing:/, "");
-    return REPLACE_HARD.has(key) || REPLACE_HARD.has(String(r));
-  });
+  // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
+  const replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
 
   let finalText = claude.customer_answer;
   let usedFailure = false;
