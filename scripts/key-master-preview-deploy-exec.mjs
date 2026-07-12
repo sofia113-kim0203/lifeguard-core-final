@@ -337,7 +337,12 @@ async function resolveQaCustomerId() {
 }
 
 function deployPreview() {
-  const proc = spawnSync("npx", ["vercel", "deploy", "--yes", "--scope", TEAM], {
+  const sha =
+    spawnSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout?.trim() || "";
+  const deployArgs = ["vercel", "deploy", "--yes", "--scope", TEAM];
+  // Deployment-scoped only (not project env upsert). Feeds resolveDeployIdentity GIT_COMMIT_SHA.
+  if (sha) deployArgs.push("--env", `GIT_COMMIT_SHA=${sha}`);
+  const proc = spawnSync("npx", deployArgs, {
     cwd: ROOT,
     encoding: "utf8",
     shell: true,

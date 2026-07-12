@@ -645,6 +645,69 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.match(result.text, /22건|4만5천/);
 }
 
+// 10) jailbreak_fact false-positive: verified tallies + list-marker strip (gate logic unchanged)
+{
+  const q = "암보험 괜찮아?";
+  const log = [];
+  const policies = [];
+  for (let i = 0; i < 21; i += 1) {
+    policies.push({
+      insurer_name: "삼성생명",
+      product_name: "실손의료비보험",
+      monthly_premium: 45000,
+    });
+  }
+  policies.push({
+    insurer_name: "QA테스트손보",
+    product_name: "QA종합보장A",
+    monthly_premium: null,
+  });
+  const reality = { policy_count: 22, policies };
+  const answer =
+    "총 22건이 등록돼 있어요. 그중 21건은 삼성생명 실손(월 4만5천 원), 1건은 QA테스트손보예요.\n\n" +
+    "암 진단금은 아직 확인 전이라 충분/부족은 말씀드리기 어렵습니다.\n\n" +
+    "다음으로 보면 좋아요:\n1. 암 특약 세부\n2. 중복 여부\n3. QA 계약 내용\n\n어느 쪽부터 볼까요?";
+  const result = await buildKeyVoiceComposeResult(
+    {
+      reflection: buildReflection({ customerSaid: q, reality }),
+      reality,
+      policies,
+    },
+    {
+      question: q,
+      env: {
+        KEY_VOICE: "on",
+        KEY_BORROWED_SENSES: "shadow",
+        VERCEL_ENV: "preview",
+        ANTHROPIC_API_KEY: "test-key",
+      },
+      fetchImpl: makeFetch({
+        borrowed: goodClaudeFull({
+          customer_answer: answer,
+          session_goal: "암 보장 확인",
+          decision: {
+            situation_key: "coverage_assessment_cancer_axis",
+            key_judgment: "계약은 확인됐지만 암 담보 세부는 아직",
+            key_next_move: "특약·중복부터",
+            direction: { type: "lead", move: "특약 확인" },
+          },
+        }),
+        log,
+      }),
+    },
+  );
+  assert.equal(log.filter((x) => x === "borrowed").length, 1);
+  assert.equal(log.filter((x) => x === "s6").length, 0);
+  assert.equal(result.compose_mode, "key_claude_full_single_pass");
+  assert.equal(result.key_voice_trace.focused_correction_count, 0);
+  assert.equal(result.key_voice_trace.hard_safety_repair_attempt ?? 0, 0);
+  assert.equal(result.key_voice_trace.claude_call_count, 1);
+  assert.equal(result.key_voice_trace.fallback_used, false);
+  assert.ok(!String(result.key_voice_trace.fallback_reason ?? "").includes("jailbreak_fact"));
+  assert.match(result.text, /22건/);
+  assert.match(result.text, /21건/);
+}
+
 // Chart builder: map coverage_summary.detected_coverages (no invent)
 {
   const chart = buildVerifiedCustomerChart({

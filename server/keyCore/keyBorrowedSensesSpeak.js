@@ -5,7 +5,10 @@
  */
 import { resolveAnthropicApiKey } from "../claudeGroundedExecutionCore.js";
 import { gateBorrowedSensesOutput, S7_BORROWED_SENSES_SCHEMA, S7_BORROWED_SENSES_SCHEMA_B, S7B_EXPERTISE_TAXONOMY } from "./keyBorrowedSensesGate.js";
-import { deriveKeyVoiceQuestionFocus } from "./keyVoiceDirective.js";
+import {
+  deriveKeyVoiceQuestionFocus,
+  collectVerifiedSpeakAllowlistFromReality,
+} from "./keyVoiceDirective.js";
 import { formatPremiumFromRaw } from "./speakFactRenderer.js";
 import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
 import {
@@ -904,6 +907,12 @@ export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" }
       for (const n of String(display ?? "").match(/\d+/g) ?? []) allowed_numbers.add(n);
     }
   }
+
+  const realityAllowlist = collectVerifiedSpeakAllowlistFromReality(reality);
+  for (const n of realityAllowlist.allowed_numbers) allowed_numbers.add(String(n));
+  for (const e of realityAllowlist.allowed_entities) allowed_entities.add(String(e));
+  verified_customer_chart.insurer_counts = realityAllowlist.insurer_counts;
+  verified_customer_chart.product_counts = realityAllowlist.product_counts;
 
   // Surface verified insurer/product names from the full chart into allowed_entities.
   for (const c of verified_customer_chart.contracts ?? []) {

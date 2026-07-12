@@ -149,6 +149,12 @@ function partitionCustomerTextSafety({
 }
 
 /** Borrowed promote KV — keep facts_to_speak/optional_claims contract (DU1 needs them). */
+function stripArabicListMarkersForNumberLock(text = "") {
+  // Presentation-only: "1. item" → "- item" so extractNumbers does not treat list ordinals as claims.
+  // Does not alter mid-sentence counts like "1건".
+  return String(text ?? "").replace(/(^|\n)([ \t]*)\d{1,2}\.\s+/g, "$1$2- ");
+}
+
 function gateBorrowedCandidateAnswer(text, directive, s5ReferenceText) {
   return gateKeyVoiceAnswer({
     text,
@@ -510,9 +516,10 @@ export async function buildKeyVoiceComposeResult(
 
   // --- Claude-Full v1.1 (Preview active): adopt Claude after existing safety pins; S6 never ---
   if (claudeFullSinglePass && shadow) {
-    const candidate = String(
+    const candidateRaw = String(
       shadow?.borrowed?.customer_answer ?? shadow?.borrowed?.voice_raw_candidate ?? "",
     ).trim();
+    const candidate = stripArabicListMarkersForNumberLock(candidateRaw);
     const researchEv = shadow?.public_research_evidence ?? null;
     if (shadow?.tool_permission_check) {
       trace.tool_permission_check = shadow.tool_permission_check;
@@ -882,11 +889,13 @@ export async function buildKeyVoiceComposeResult(
       claudeCallCount += 1;
       trace.focused_correction_count = focusedCorrectionCount;
       trace.claude_call_count = claudeCallCount;
-      const repaired = String(
-        repairProbe?.borrowed?.customer_answer ??
-          repairProbe?.borrowed?.voice_raw_candidate ??
-          "",
-      ).trim();
+      const repaired = stripArabicListMarkersForNumberLock(
+        String(
+          repairProbe?.borrowed?.customer_answer ??
+            repairProbe?.borrowed?.voice_raw_candidate ??
+            "",
+        ).trim(),
+      );
       if (repairProbe?.error || !repaired) {
         finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
         usedFailureMode = true;

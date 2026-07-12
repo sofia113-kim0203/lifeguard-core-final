@@ -374,6 +374,46 @@ function buildOverFamiliarityBoundary() {
 
 
 
+
+/**
+ * Verified speak allowlist from factory reality — counts/entities Claude+Gate may use.
+ * Does not invent; only tallies existing policies.
+ */
+export function collectVerifiedSpeakAllowlistFromReality(reality = null) {
+  const numbers = new Set();
+  const entities = new Set();
+  const policies = Array.isArray(reality?.policies) ? reality.policies : [];
+  const declared = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
+  if (declared > 0) numbers.add(String(declared));
+  if (policies.length > 0) numbers.add(String(policies.length));
+  const byInsurer = new Map();
+  const byProduct = new Map();
+  for (const p of policies) {
+    const insurer = String(p?.insurer_name ?? p?.company_name ?? "").trim();
+    const product = String(p?.product_name ?? "").trim();
+    if (insurer) {
+      entities.add(insurer);
+      byInsurer.set(insurer, (byInsurer.get(insurer) || 0) + 1);
+    }
+    if (product) {
+      entities.add(product);
+      byProduct.set(product, (byProduct.get(product) || 0) + 1);
+    }
+    const prem = p?.monthly_premium ?? p?.premium_amount;
+    if (prem != null) {
+      for (const n of String(prem).match(/\d+/g) ?? []) numbers.add(n);
+    }
+  }
+  for (const c of byInsurer.values()) numbers.add(String(c));
+  for (const c of byProduct.values()) numbers.add(String(c));
+  return {
+    allowed_numbers: [...numbers],
+    allowed_entities: [...entities],
+    insurer_counts: Object.fromEntries(byInsurer),
+    product_counts: Object.fromEntries(byProduct),
+  };
+}
+
 function buildAllowedFactTokens(facts = []) {
 
   const tokens = {
@@ -1064,6 +1104,19 @@ export function buildKeyVoiceDirective({
   const allowedFactTokens = buildAllowedFactTokens(optionalFacts);
 
   const allowedNumbers = buildAllowedNumbers(optionalFacts);
+  const realityAllow = collectVerifiedSpeakAllowlistFromReality(reality);
+  for (const n of realityAllow.allowed_numbers) allowedNumbers.push(n);
+  const _seenN = new Set();
+  const allowedNumbersDedup = [];
+  for (const n of allowedNumbers) {
+    const k = String(n);
+    if (_seenN.has(k)) continue;
+    _seenN.add(k);
+    allowedNumbersDedup.push(n);
+  }
+  allowedNumbers.length = 0;
+  allowedNumbers.push(...allowedNumbersDedup);
+
 
   const premiumScopePolicy = buildPremiumScopePolicy(questionFocus, allowedFactTokens);
 
