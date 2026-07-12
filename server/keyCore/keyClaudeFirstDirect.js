@@ -697,13 +697,35 @@ export async function runClaudeFirstDirectQuestionTurn({
     allowed_entities: claude.allowlist?.allowed_entities ?? [],
   });
 
+  // Native Claude-first: do not replace a real answer with monopoly for jailbreak_fact alone
+  // (citations / derived math / place names from web_search). Gate body unchanged —
+  // call-site only chooses which CLOSED reasons may swap customer text.
+  const REPLACE_HARD = new Set([
+    "recommendation_or_termination",
+    "empty_answer",
+    "empty_voice",
+    "hard_sales_push",
+    "closing_or_signup_push",
+    "product_push_as_direction",
+    "leadership_cancel_enroll_certainty",
+    "unsupported_recommendation",
+  ]);
+  const replacingHard = (safety.hard ?? []).filter((r) => {
+    const key = String(r).replace(/^answer_facing:/, "");
+    return REPLACE_HARD.has(key) || REPLACE_HARD.has(String(r));
+  });
+
   let finalText = claude.customer_answer;
   let usedFailure = false;
   let failureReason = null;
-  if (safety.hard_fail) {
+  if (!String(finalText ?? "").trim()) {
     finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
     usedFailure = true;
-    failureReason = safety.hard.join(";") || "closed_hard";
+    failureReason = "empty_answer";
+  } else if (replacingHard.length > 0) {
+    finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+    usedFailure = true;
+    failureReason = replacingHard.join(";") || "closed_hard";
   }
 
   // As-is delivery (no polish rewrite). Seal only.
@@ -756,7 +778,10 @@ export async function runClaudeFirstDirectQuestionTurn({
           s6_speak_calls: 0,
           soft_reasons_ignored: safety.soft,
           hard_reasons: safety.hard,
+          replacing_hard_reasons: replacingHard,
           jailbreak_detail: safety.jailbreak_detail,
+          answer_source: claude.answer_source ?? null,
+          pdf_attached: claude.pdf_attached === true,
           latency_marks: {
             claude_full_emit: emitMark,
             ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
