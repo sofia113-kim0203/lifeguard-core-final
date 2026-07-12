@@ -22,6 +22,8 @@ export {
   buildKeyPresenceMetadata,
   buildPersistableTurnTraceSummary,
   buildRecentSessionsFromRows,
+  chatSnapshotStorageKey,
+  clearLifeguardChatSnapshot,
   createLifeguardSessionId,
   isLifeguardHomeChatRow,
   LIFEGUARD_HOME_CHAT_PHASE,
@@ -29,8 +31,11 @@ export {
   mapSessionRowsToChatMessages,
   mergeRestoredSessionMessages,
   readActiveSessionId,
+  readLifeguardChatSnapshot,
   resolveActiveLifeguardSessionId,
+  sanitizeMessagesForChatSnapshot,
   writeActiveSessionId,
+  writeLifeguardChatSnapshot,
 } from "./lifeguardChatSessionCore.js";
 
 const RECENT_SCAN_LIMIT = 400;

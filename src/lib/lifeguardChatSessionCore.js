@@ -34,11 +34,91 @@ export function writeActiveSessionId(customerId, sessionId) {
   }
 }
 
-export function resolveActiveLifeguardSessionId({ recentSessions = [], storedId = null } = {}) {
+export function resolveActiveLifeguardSessionId({
+  recentSessions = [],
+  storedId = null,
+  snapshotSessionId = null,
+} = {}) {
   const ids = new Set((recentSessions ?? []).map((entry) => String(entry.id)));
+  // sessionStorage is per-tab — prefer in-flight snapshot so remount before DB
+  // recent-index does not drop the just-completed turn.
+  if (snapshotSessionId) return String(snapshotSessionId);
   if (storedId && ids.has(String(storedId))) return String(storedId);
   if (recentSessions.length > 0) return String(recentSessions[0].id);
   return createLifeguardSessionId();
+}
+
+/** sessionStorage key for in-flight chat snapshot (remount survival). */
+export function chatSnapshotStorageKey(customerId) {
+  return `lifeguard_chat_snapshot:${customerId}`;
+}
+
+export function sanitizeMessagesForChatSnapshot(messages = []) {
+  return (Array.isArray(messages) ? messages : [])
+    .filter((row) => row && row.thinking !== true)
+    .map((row) => {
+      const out = {
+        role: row.role,
+        content: String(row.content ?? ""),
+      };
+      if (row.id) out.id = row.id;
+      if (row.keyPresence === true) {
+        out.keyPresence = true;
+        out.keyPresenceSource = row.keyPresenceSource ?? null;
+      }
+      if (Array.isArray(row.visual_blocks) && row.visual_blocks.length > 0) {
+        out.visual_blocks = row.visual_blocks;
+      }
+      if (row.visual_blocks_gate && typeof row.visual_blocks_gate === "object") {
+        out.visual_blocks_gate = row.visual_blocks_gate;
+      }
+      return out;
+    })
+    .filter((row) => row.role === "user" || row.role === "assistant");
+}
+
+export function readLifeguardChatSnapshot(customerId) {
+  if (typeof window === "undefined" || !customerId) return null;
+  try {
+    const raw = window.sessionStorage.getItem(chatSnapshotStorageKey(customerId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.sessionId || !Array.isArray(parsed.messages)) return null;
+    return {
+      sessionId: String(parsed.sessionId),
+      messages: sanitizeMessagesForChatSnapshot(parsed.messages),
+      updatedAt: parsed.updatedAt ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeLifeguardChatSnapshot(customerId, { sessionId, messages } = {}) {
+  if (typeof window === "undefined" || !customerId || !sessionId) return;
+  const sanitized = sanitizeMessagesForChatSnapshot(messages);
+  if (sanitized.length === 0) return;
+  try {
+    window.sessionStorage.setItem(
+      chatSnapshotStorageKey(customerId),
+      JSON.stringify({
+        sessionId: String(sessionId),
+        messages: sanitized,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // ignore quota / privacy errors
+  }
+}
+
+export function clearLifeguardChatSnapshot(customerId) {
+  if (typeof window === "undefined" || !customerId) return;
+  try {
+    window.sessionStorage.removeItem(chatSnapshotStorageKey(customerId));
+  } catch {
+    // ignore
+  }
 }
 
 /**

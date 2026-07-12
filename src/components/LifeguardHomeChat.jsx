@@ -9,6 +9,7 @@ import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudg
 import { listDocuments } from "../lib/customerDocuments.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
+  clearLifeguardChatSnapshot,
   createLifeguardSessionId,
   listLifeguardRecentSessions,
   loadLifeguardSessionMessages,
@@ -16,8 +17,10 @@ import {
   persistKeyPresenceMessage,
   persistLifeguardChatTurn,
   readActiveSessionId,
+  readLifeguardChatSnapshot,
   resolveActiveLifeguardSessionId,
   writeActiveSessionId,
+  writeLifeguardChatSnapshot,
 } from "../lib/lifeguardChatSessions.js";
 import { supabase } from "../lib/supabase.js";
 import { buildKeyChatPresenceMessage } from "../lib/keyChatPresenceWire.js";
@@ -548,6 +551,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
     (async () => {
       try {
+        const snapshot = readLifeguardChatSnapshot(customerId);
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         if (cancelled) return;
         setThreads(recent);
@@ -556,20 +560,36 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         const activeId = resolveActiveLifeguardSessionId({
           recentSessions: recent,
           storedId: storedSessionId,
+          snapshotSessionId: snapshot?.sessionId ?? null,
         });
         setSessionId(activeId);
         writeActiveSessionId(customerId, activeId);
 
+        const seed =
+          snapshot?.sessionId && String(snapshot.sessionId) === String(activeId)
+            ? snapshot.messages
+            : [];
+
+        let restored = [];
         if (recent.some((entry) => entry.id === activeId)) {
-          const restored = await loadLifeguardSessionMessages(authUser, activeId, { customerId });
-          if (!cancelled && restored.length > 0) {
-            setMessages((prev) => mergeRestoredSessionMessages(prev, restored));
-            setPanelView("chat");
-          }
+          restored = await loadLifeguardSessionMessages(authUser, activeId, { customerId });
         }
-        if (!cancelled) {
-          setThreadRestoreReady(true);
+
+        if (cancelled) return;
+
+        if (restored.length > 0) {
+          setMessages((prev) => {
+            const base = seed.length > 0 ? seed : prev;
+            return mergeRestoredSessionMessages(base, restored);
+          });
+          setPanelView("chat");
+        } else if (seed.length > 0) {
+          // Remount before DB indexed the just-completed turn — keep local snapshot.
+          setMessages(seed);
+          setPanelView("chat");
         }
+
+        setThreadRestoreReady(true);
       } catch (err) {
         if (!cancelled) {
           setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
@@ -600,8 +620,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
         setMessages(restored);
+        writeLifeguardChatSnapshot(customerId, {
+          sessionId: targetSessionId,
+          messages: restored,
+        });
       } catch (err) {
         setMessages([]);
+        clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
         setThreadRestoreReady(true);
@@ -633,6 +658,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         ...nextMessages,
         { role: "assistant", content: THINKING_PROGRESS_MESSAGES[0], thinking: true },
       ]);
+      if (customerId) {
+        writeLifeguardChatSnapshot(customerId, {
+          sessionId,
+          messages: nextMessages,
+        });
+      }
 
       let streamedText = "";
       const result = await fetchHomeBrainFactStream(trimmed, history, {
@@ -675,14 +706,23 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       const finalText = result.answerText || streamedText;
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
       const visualBlocksGate = result.visualBlocksGate ?? null;
-      setMessages((prev) =>
-        patchLastAssistantMessage(prev, {
+      const completedMessages = [
+        ...nextMessages,
+        {
+          role: "assistant",
           content: finalText,
           thinking: false,
           visual_blocks: visualBlocks,
           visual_blocks_gate: visualBlocksGate,
-        }),
-      );
+        },
+      ];
+      setMessages(completedMessages);
+      if (customerId) {
+        writeLifeguardChatSnapshot(customerId, {
+          sessionId,
+          messages: completedMessages,
+        });
+      }
 
       if (authUser && customerId) {
         await persistLifeguardChatTurn(authUser, {
@@ -697,6 +737,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
         });
         writeActiveSessionId(customerId, sessionId);
+        writeLifeguardChatSnapshot(customerId, {
+          sessionId,
+          messages: completedMessages,
+        });
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         setThreads(recent);
       }
@@ -727,6 +771,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setSidebarOpen(false);
     if (customerId) {
       writeActiveSessionId(customerId, newSessionId);
+      clearLifeguardChatSnapshot(customerId);
     }
     focusChatInput();
   };

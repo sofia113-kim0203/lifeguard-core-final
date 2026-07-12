@@ -14,6 +14,8 @@ import {
   isLifeguardHomeChatRow,
   mapSessionRowsToChatMessages,
   mergeRestoredSessionMessages,
+  resolveActiveLifeguardSessionId,
+  sanitizeMessagesForChatSnapshot,
   LIFEGUARD_HOME_CHAT_PHASE,
 } from "../src/lib/lifeguardChatSessionCore.js";
 
@@ -122,6 +124,8 @@ async function main() {
       assert.match(chat, /listLifeguardRecentSessions/);
       assert.match(chat, /loadLifeguardSessionMessages/);
       assert.match(chat, /createLifeguardSessionId/);
+      assert.match(chat, /writeLifeguardChatSnapshot/);
+      assert.match(chat, /readLifeguardChatSnapshot/);
       assert.match(chat, /oneKeyCoreTraceSummary/);
       assert.match(chat, /composeMode/);
     })
@@ -276,6 +280,30 @@ async function main() {
       assert.equal(meta.response_latency_ms, 12345);
       assert.equal(meta.one_key_core_trace_summary.web_search_result_count, 2);
       assert.equal(Object.prototype.hasOwnProperty.call(meta, "one_key_core_trace"), false);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T11 session snapshot — resolve prefers snapshot; merge keeps seed", () => {
+      const active = resolveActiveLifeguardSessionId({
+        recentSessions: [{ id: "old" }],
+        storedId: "old",
+        snapshotSessionId: "inflight",
+      });
+      assert.equal(active, "inflight");
+
+      const sanitized = sanitizeMessagesForChatSnapshot([
+        { role: "user", content: "분당 맛집 추천해줘" },
+        { role: "assistant", content: "thinking…", thinking: true },
+        { role: "assistant", content: "어떤 분위기를 원하세요?" },
+      ]);
+      assert.equal(sanitized.length, 2);
+      assert.equal(sanitized[1].content, "어떤 분위기를 원하세요?");
+
+      const merged = mergeRestoredSessionMessages(sanitized, []);
+      assert.equal(merged.length, 2);
     })
   ) {
     passed += 1;
