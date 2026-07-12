@@ -37,6 +37,7 @@ import {
   scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
 } from "../lib/lifeguardChatScroll.js";
+import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
 
 const EXAMPLE_QUESTIONS = [
   "보험료 너무 비싼가?",
@@ -1083,14 +1084,22 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                       fontSize: msg.role === "user" ? "15px" : "16px",
                       fontWeight: msg.role === "user" ? 400 : 450,
                       lineHeight: 1.75,
-                      whiteSpace: "pre-wrap",
+                      whiteSpace: msg.role === "assistant" && !msg.thinking ? "normal" : "pre-wrap",
                       background: "transparent",
                       border: "none",
                       boxShadow: "none",
                     }}
                     aria-live={msg.thinking ? "polite" : undefined}
                   >
-                    {msg.content}
+                    {msg.role === "assistant" && !msg.thinking ? (
+                      <LifeguardAssistantMarkdown
+                        text={msg.content}
+                        muted={false}
+                        fontFamily={LG.sans}
+                      />
+                    ) : (
+                      msg.content
+                    )}
                     {msg.role === "assistant" &&
                     Array.isArray(msg.visual_blocks) &&
                     msg.visual_blocks.length > 0 ? (
