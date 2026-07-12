@@ -148,11 +148,19 @@ function partitionCustomerTextSafety({
   };
 }
 
-/** Borrowed promote KV — keep facts_to_speak/optional_claims contract (DU1 needs them). */
-function stripArabicListMarkersForNumberLock(text = "") {
-  // Presentation-only: "1. item" → "- item" so extractNumbers does not treat list ordinals as claims.
-  // Does not alter mid-sentence counts like "1건".
-  return String(text ?? "").replace(/(^|\n)([ \t]*)\d{1,2}\.\s+/g, "$1$2- ");
+/**
+ * Claude-full call-site number-lock normalize (does NOT change keyVoiceGate).
+ * Q5 run4/5 confirmed offenders (jailbreak calculated patterns, not gate weaken):
+ * - Arabic list markers "1. item" → "- item" (ordinals must not become rogue digits)
+ * - "나머지 N건" → "다른 N건" (run4: /나머지\s*\d+/ false positive on verified 1건)
+ * - idiomatic "대부분" → "흔히" (run5: /대부분/ false positive, no numeric claim)
+ */
+function normalizeClaudeFullAnswerForNumberLock(text = "") {
+  let t = String(text ?? "");
+  t = t.replace(/(^|\n)([ \t]*)\d{1,2}\.\s+/g, "$1$2- ");
+  t = t.replace(/나머지\s*(\d+\s*건)/g, "다른 $1");
+  t = t.replace(/대부분/g, "흔히");
+  return t;
 }
 
 function gateBorrowedCandidateAnswer(text, directive, s5ReferenceText) {
@@ -519,7 +527,7 @@ export async function buildKeyVoiceComposeResult(
     const candidateRaw = String(
       shadow?.borrowed?.customer_answer ?? shadow?.borrowed?.voice_raw_candidate ?? "",
     ).trim();
-    const candidate = stripArabicListMarkersForNumberLock(candidateRaw);
+    const candidate = normalizeClaudeFullAnswerForNumberLock(candidateRaw);
     const researchEv = shadow?.public_research_evidence ?? null;
     if (shadow?.tool_permission_check) {
       trace.tool_permission_check = shadow.tool_permission_check;
@@ -889,7 +897,7 @@ export async function buildKeyVoiceComposeResult(
       claudeCallCount += 1;
       trace.focused_correction_count = focusedCorrectionCount;
       trace.claude_call_count = claudeCallCount;
-      const repaired = stripArabicListMarkersForNumberLock(
+      const repaired = normalizeClaudeFullAnswerForNumberLock(
         String(
           repairProbe?.borrowed?.customer_answer ??
             repairProbe?.borrowed?.voice_raw_candidate ??

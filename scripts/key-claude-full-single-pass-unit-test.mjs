@@ -708,6 +708,222 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.match(result.text, /21건/);
 }
 
+// 11) Q5 live run4 original — calculated false-positive "나머지 N건" (gate unchanged; call-site normalize)
+{
+  const q = "암보험 괜찮아?";
+  const log = [];
+  const policies = [];
+  for (let i = 0; i < 21; i += 1) {
+    policies.push({
+      insurer_name: "삼성생명",
+      product_name: "실손의료비보험",
+      monthly_premium: 45000,
+    });
+  }
+  policies.push({
+    insurer_name: "QA테스트손보",
+    product_name: "QA종합보장A",
+    monthly_premium: null,
+  });
+  const reality = { policy_count: 22, policies };
+  const answer =
+    "고객님 계약 현황을 먼저 확인해 드릴게요.\n\n" +
+    "**현재 확인된 계약 현황**\n\n" +
+    "- 총 계약 수: **22건**\n" +
+    "- 삼성생명 실손의료비보험: **21건** (각 월 보험료 4만5천 원, 보장 항목에 실손·암 포함)\n" +
+    "- QA테스트손보 QA종합보장A: **1건** (월 보험료·보장 내역 미확인)\n\n" +
+    "---\n\n" +
+    "**암보험 관련해서 말씀드릴 수 있는 것**\n\n" +
+    "삼성생명 실손의료비보험 21건에는 **암 보장 항목이 포함**되어 있는 것으로 계약 정보에 기재되어 있어요.\n\n" +
+    "다만, \"암보험 괜찮아?\"라는 질문은 여러 의미일 수 있어서 어떤 부분이 궁금하신지 확인이 필요해요:\n\n" +
+    "- **중복 여부** — 같은 상품이 21건이나 있는데, 암 보장이 실제로 중복 지급되는지 확인이 필요한가요?\n" +
+    "- **보장 금액·내용** — 각 계약의 암 진단금, 치료비 한도 등 세부 내용이 충분한지 궁금하신가요?\n" +
+    "- **QA종합보장A** — 나머지 1건에도 암 보장이 있는지 확인이 필요하신가요?\n\n" +
+    "어떤 부분이 가장 궁금하신지 알려주시면 더 정확하게 살펴볼 수 있어요.";
+  const result = await buildKeyVoiceComposeResult(
+    {
+      reflection: buildReflection({ customerSaid: q, reality }),
+      reality,
+      policies,
+    },
+    {
+      question: q,
+      env: {
+        KEY_VOICE: "on",
+        KEY_BORROWED_SENSES: "shadow",
+        VERCEL_ENV: "preview",
+        ANTHROPIC_API_KEY: "test-key",
+      },
+      fetchImpl: makeFetch({
+        borrowed: goodClaudeFull({
+          customer_answer: answer,
+          session_goal: "암 보장 확인",
+          decision: {
+            situation_key: "coverage_assessment_cancer_axis",
+            key_judgment: "계약은 확인됐지만 암 담보 세부는 아직",
+            key_next_move: "특약·중복부터",
+            direction: { type: "lead", move: "특약 확인" },
+          },
+        }),
+        log,
+      }),
+    },
+  );
+  assert.equal(log.filter((x) => x === "borrowed").length, 1);
+  assert.equal(log.filter((x) => x === "s6").length, 0);
+  assert.equal(result.compose_mode, "key_claude_full_single_pass");
+  assert.equal(result.key_voice_trace.focused_correction_count, 0);
+  assert.equal(result.key_voice_trace.hard_safety_repair_attempt ?? 0, 0);
+  assert.equal(result.key_voice_trace.fallback_used, false);
+  assert.ok(!String(result.text).includes("나머지 1건"));
+  assert.match(result.text, /다른 1건|1건/);
+}
+
+// 12) Q5 live run5 original — calculated false-positive idiomatic "대부분"
+{
+  const q = "암보험 괜찮아?";
+  const log = [];
+  const policies = [];
+  for (let i = 0; i < 21; i += 1) {
+    policies.push({
+      insurer_name: "삼성생명",
+      product_name: "실손의료비보험",
+      monthly_premium: 45000,
+    });
+  }
+  policies.push({
+    insurer_name: "QA테스트손보",
+    product_name: "QA종합보장A",
+    monthly_premium: null,
+  });
+  const reality = { policy_count: 22, policies };
+  const answer =
+    "고객님 계약 현황을 확인했어요.\n\n" +
+    "현재 총 **22건** 계약이 등록되어 있고, 그 중 **삼성생명 실손의료비보험이 21건**, **QA테스트손보 QA종합보장A가 1건**입니다.\n\n" +
+    "---\n\n" +
+    "**암보험 관련해서 확인된 사항:**\n\n" +
+    "- 삼성생명 실손의료비보험 21건에는 **암(癌) 보장 항목이 포함**된 것으로 계약 데이터에 기재되어 있어요.\n" +
+    "- QA테스트손보 QA종합보장A (1건)는 **보장 내용이 아직 확인되지 않은 상태**입니다.\n\n" +
+    "---\n\n" +
+    "**그런데 한 가지 중요한 점이 있어요.**\n\n" +
+    "삼성생명 실손의료비보험이 **21건**으로 동일 상품이 중복 가입된 상태입니다. 실손보험은 실제 의료비를 보상하는 구조라, 동일 상품을 여러 건 보유해도 **중복 보상이 되지 않는 경우**가 대부분이에요. 암 보장도 마찬가지로, 각 계약의 구체적인 보장 금액·조건을 확인해야 실제로 충분한지 판단할 수 있어요.\n\n" +
+    "---\n\n" +
+    "**정확한 판단을 위해 확인이 필요한 것들:**\n\n" +
+    "- 각 계약의 **암 진단비 금액** (얼마를 지급하는지)\n" +
+    "- **암 보장 범위** (일반암 / 소액암 / 유사암 구분 여부)\n" +
+    "- 21건 중복 계약의 **실제 보장 중복 여부**\n" +
+    "- QA종합보장A의 **보장 내용**\n\n" +
+    "증권이나 계약서를 첨부해 주시면 더 구체적으로 살펴볼 수 있어요. 어떤 부분이 가장 궁금하신가요?";
+  const result = await buildKeyVoiceComposeResult(
+    {
+      reflection: buildReflection({ customerSaid: q, reality }),
+      reality,
+      policies,
+    },
+    {
+      question: q,
+      env: {
+        KEY_VOICE: "on",
+        KEY_BORROWED_SENSES: "shadow",
+        VERCEL_ENV: "preview",
+        ANTHROPIC_API_KEY: "test-key",
+      },
+      fetchImpl: makeFetch({
+        borrowed: goodClaudeFull({
+          customer_answer: answer,
+          session_goal: "암 보장 확인",
+          decision: {
+            situation_key: "coverage_assessment_cancer_axis",
+            key_judgment: "계약은 확인됐지만 암 담보 세부는 아직",
+            key_next_move: "특약·중복부터",
+            direction: { type: "lead", move: "특약 확인" },
+          },
+        }),
+        log,
+      }),
+    },
+  );
+  assert.equal(log.filter((x) => x === "borrowed").length, 1);
+  assert.equal(log.filter((x) => x === "s6").length, 0);
+  assert.equal(result.compose_mode, "key_claude_full_single_pass");
+  assert.equal(result.key_voice_trace.focused_correction_count, 0);
+  assert.equal(result.key_voice_trace.hard_safety_repair_attempt ?? 0, 0);
+  assert.equal(result.key_voice_trace.fallback_used, false);
+  assert.ok(!String(result.text).includes("대부분"));
+  assert.match(result.text, /흔히/);
+}
+
+// 13) Intentional false number — gate still hard; focused correction once (do not weaken)
+{
+  const q = "암보험 괜찮아?";
+  const log = [];
+  const policies = [];
+  for (let i = 0; i < 21; i += 1) {
+    policies.push({
+      insurer_name: "삼성생명",
+      product_name: "실손의료비보험",
+      monthly_premium: 45000,
+    });
+  }
+  policies.push({
+    insurer_name: "QA테스트손보",
+    product_name: "QA종합보장A",
+    monthly_premium: null,
+  });
+  const reality = { policy_count: 22, policies };
+  const invented = "확인된 계약은 99건입니다. 암 보장은 충분합니다.";
+  const repaired =
+    "확인된 22건 기준으로 암 담보 세부는 증권에서 같이 보면 좋겠어요.";
+  const result = await buildKeyVoiceComposeResult(
+    {
+      reflection: buildReflection({ customerSaid: q, reality }),
+      reality,
+      policies,
+    },
+    {
+      question: q,
+      env: {
+        KEY_VOICE: "on",
+        KEY_BORROWED_SENSES: "shadow",
+        VERCEL_ENV: "preview",
+        ANTHROPIC_API_KEY: "test-key",
+      },
+      fetchImpl: makeFetch({
+        borrowed: (_body, n) =>
+          n === 1
+            ? goodClaudeFull({
+                customer_answer: invented,
+                session_goal: "암 보장 확인",
+                decision: {
+                  situation_key: "coverage_assessment_cancer_axis",
+                  key_judgment: "계약은 확인됐지만 암 담보 세부는 아직",
+                  key_next_move: "특약·중복부터",
+                  direction: { type: "lead", move: "특약 확인" },
+                },
+              })
+            : goodClaudeFull({
+                customer_answer: repaired,
+                session_goal: "암 보장 확인",
+                decision: {
+                  situation_key: "coverage_assessment_cancer_axis",
+                  key_judgment: "계약은 확인됐지만 암 담보 세부는 아직",
+                  key_next_move: "특약·중복부터",
+                  direction: { type: "lead", move: "특약 확인" },
+                },
+              }),
+        log,
+      }),
+    },
+  );
+  assert.equal(log.filter((x) => x === "borrowed").length, 2);
+  assert.equal(log.filter((x) => x === "s6").length, 0);
+  assert.equal(result.key_voice_trace.focused_correction_count, 1);
+  assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
+  assert.equal(result.key_voice_trace.used_failure_mode, false);
+  assert.equal(result.text, repaired);
+  assert.ok(!String(result.text).includes("99건"));
+}
+
 // Chart builder: map coverage_summary.detected_coverages (no invent)
 {
   const chart = buildVerifiedCustomerChart({

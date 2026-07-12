@@ -62,16 +62,23 @@ export function countBorrowedProviderCalls(shadow = null) {
   }
 }
 
+import { KEY_DEPLOY_IDENTITY } from "./keyDeployIdentity.js";
+
 /**
  * Persistable subset for SSE summary + metadata_json.
- * Always includes deploy identity when env provides it (no secrets).
+ * Always includes deploy identity when env / deploy stamp provides it (no secrets).
  */
 export function resolveDeployIdentity(env = process.env) {
   try {
-    const git_commit_sha =
+    const fromEnv =
       String(env.VERCEL_GIT_COMMIT_SHA ?? env.GIT_COMMIT_SHA ?? "")
         .trim()
         .slice(0, 40) || null;
+    const fromStamp =
+      String(KEY_DEPLOY_IDENTITY?.git_commit_sha ?? "")
+        .trim()
+        .slice(0, 40) || null;
+    const git_commit_sha = fromEnv || fromStamp || null;
     const deployment_id =
       String(env.VERCEL_DEPLOYMENT_ID ?? env.DEPLOYMENT_ID ?? "")
         .trim()

@@ -336,26 +336,54 @@ async function resolveQaCustomerId() {
   return profile?.id ?? KNOWN_QA_CUSTOMER_ID;
 }
 
+function stampDeployIdentity(sha) {
+  const stampPath = join(ROOT, "server/keyCore/keyDeployIdentity.js");
+  const body = `/**
+ * Preview deploy identity stamp — values filled at deploy from \`git rev-parse HEAD\`.
+ * Do not hand-edit with a fake sha. Local default stays null until stamped for upload.
+ */
+export const KEY_DEPLOY_IDENTITY = {
+  git_commit_sha: ${JSON.stringify(sha || null)},
+  source: ${JSON.stringify(sha ? "git_rev_parse_at_preview_deploy" : null)},
+};
+`;
+  writeFileSync(stampPath, body);
+}
+
+function restoreDeployIdentity() {
+  stampDeployIdentity(null);
+}
+
 function deployPreview() {
   const sha =
     spawnSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout?.trim() || "";
-  const deployArgs = ["vercel", "deploy", "--yes", "--scope", TEAM];
-  // Deployment-scoped only (not project env upsert). Feeds resolveDeployIdentity GIT_COMMIT_SHA.
-  if (sha) deployArgs.push("--env", `GIT_COMMIT_SHA=${sha}`);
-  const proc = spawnSync("npx", deployArgs, {
-    cwd: ROOT,
-    encoding: "utf8",
-    shell: true,
-    maxBuffer: 16 * 1024 * 1024,
-    timeout: 600000,
-  });
-  const text = `${proc.stdout ?? ""}\n${proc.stderr ?? ""}`;
+  stampDeployIdentity(sha || null);
+  let proc;
+  try {
+    // shell:false so --env is not mangled on Windows; stamp file is the primary sha path.
+    const deployArgs = ["vercel", "deploy", "--yes", "--scope", TEAM];
+    if (sha) {
+      deployArgs.push("--env", `GIT_COMMIT_SHA=${sha}`);
+      deployArgs.push("--build-env", `GIT_COMMIT_SHA=${sha}`);
+    }
+    proc = spawnSync("npx", deployArgs, {
+      cwd: ROOT,
+      encoding: "utf8",
+      shell: false,
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 600000,
+    });
+  } finally {
+    restoreDeployIdentity();
+  }
+  const text = `${proc?.stdout ?? ""}\n${proc?.stderr ?? ""}`;
   const urls = text.match(/https:\/\/lifeguard-core-final[^\s]+/g) ?? [];
   return {
-    ok: proc.status === 0,
-    exit_code: proc.status,
+    ok: proc?.status === 0,
+    exit_code: proc?.status ?? 1,
     preview_url: urls[urls.length - 1] ?? null,
     log_tail: text.slice(-2000),
+    git_commit_sha: sha || null,
   };
 }
 
