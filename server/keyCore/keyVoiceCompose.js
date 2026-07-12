@@ -7,7 +7,7 @@
  *   - active: Stage3+alignment+Gate may use candidate without S6 (honest empty s6 input);
  *             else S6 once, then existing Stage3 promote helper (still requires alignment)
  */
-import { buildDecision } from "./keyDecision.js";
+import { buildDecision, validateAndRecordClaudeDecision } from "./keyDecision.js";
 import { assertDecisionFactGate } from "./assertFactTextGate.js";
 import {
   isKeyVoiceActive,
@@ -309,15 +309,23 @@ export async function buildKeyVoiceComposeResult(
     }
   }
 
-  // --- KEY Decision (owns judgment; Claude understanding = material only) ---
+  // --- KEY Decision: Claude may propose; KEY validates/records (D2) ---
   if (reflection && reality) {
-    decision = buildDecision({
-      reflection,
-      reality,
-      question: directiveQuestion,
-      evidenceBundle,
-      borrowedUnderstanding,
-    });
+    decision = claudeFullSinglePass
+      ? validateAndRecordClaudeDecision({
+          reflection,
+          reality,
+          question: directiveQuestion,
+          evidenceBundle,
+          borrowedUnderstanding,
+        })
+      : buildDecision({
+          reflection,
+          reality,
+          question: directiveQuestion,
+          evidenceBundle,
+          borrowedUnderstanding,
+        });
   }
 
   if (!decision?.decision_complete) {

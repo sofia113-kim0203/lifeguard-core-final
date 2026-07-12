@@ -964,9 +964,23 @@ function buildUserPayload({
     : [];
 
   return {
-    schema_version: claudeFull ? "claude_full_emit_v1" : S7_BORROWED_SENSES_SCHEMA_B,
+    schema_version: claudeFull ? "claude_full_emit_v2" : S7_BORROWED_SENSES_SCHEMA_B,
     s7a_schema_version: claudeFull ? null : S7_BORROWED_SENSES_SCHEMA,
     insurance_expertise_taxonomy: claudeFull ? null : S7B_EXPERTISE_TAXONOMY,
+    // Material pack — tools & forbidden list (D2). Not Decision/Goal drafts.
+    available_tools: claudeFull
+      ? ["web_search", "emit_claude_full", "document_lookup", "memory_candidate"]
+      : null,
+    forbidden_behaviors: claudeFull
+      ? [
+          "invent_facts",
+          "contradict_verified_chart",
+          "ungrounded_enroll_cancel_recommend",
+          "out_of_permission_execution",
+          "clear_danger",
+          "pretend_decision_already_sealed",
+        ]
+      : null,
     forbidden_axis_terms: claudeFull
       ? null
       : [
@@ -1004,6 +1018,7 @@ function buildUserPayload({
       : directive?.question_focus ?? early?.question_focus ?? null,
     answer_mode: claudeFull ? "claude_full" : directive?.answer_mode ?? null,
     decision_situation_key: claudeFull ? null : decision?.situation_key ?? null,
+    // D2: Decision / Session Goal are Claude OUTPUT only — never input drafts.
     decision: decisionPayload,
     session_goal,
     related_past_judgments: claudeFull

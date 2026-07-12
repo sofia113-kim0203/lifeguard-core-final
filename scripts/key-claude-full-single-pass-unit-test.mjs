@@ -193,6 +193,12 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(payload.decision, null);
   assert.equal(payload.session_goal, null);
   assert.equal(payload.answer_mode, "claude_full");
+  assert.equal(payload.schema_version, "claude_full_emit_v2");
+  assert.ok(Array.isArray(payload.available_tools) && payload.available_tools.includes("emit_claude_full"));
+  assert.ok(
+    Array.isArray(payload.forbidden_behaviors) &&
+      payload.forbidden_behaviors.includes("invent_facts"),
+  );
   assert.equal(payload.reflection_situation_reading, null);
   assert.equal(payload.conversation_history, null);
   assert.equal(payload.document_evidence_count, 1);
@@ -214,6 +220,60 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.deepEqual(n.visual_blocks, []);
   assert.deepEqual(n.proposed_next_actions, []);
   assert.equal(n.extensions, null);
+}
+
+// D2: decision + session_goal are Claude OUTPUT (normalized); KEY validates separately
+{
+  const n = normalizeClaudeFullOutput({
+    customer_answer: "확인된 범위부터 말씀드릴게요.",
+    session_goal: "암 보장 확인",
+    decision: {
+      situation_key: "coverage_assessment_cancer_axis",
+      key_judgment: "암 보장부터 확인하는 편이 맞습니다.",
+      key_situation_judgment: "암 축 우선 확인",
+      key_next_move: "암 보장부터 볼지 정하기",
+      direction: { type: "offer_direction", move: "암 보장부터 볼지 정하면 됩니다" },
+      confirm_question: "어느 쪽부터 볼까요?",
+    },
+  });
+  assert.equal(n.session_goal, "암 보장 확인");
+  assert.equal(n.decision?.situation_key, "coverage_assessment_cancer_axis");
+  assert.ok(n.decision?.key_judgment.includes("암"));
+  assert.equal(n.decision?.direction?.type, "offer_direction");
+}
+
+{
+  const { validateAndRecordClaudeDecision } = await import("../server/keyCore/keyDecision.js");
+  const reality = {
+    policy_count: 2,
+    policies: [
+      { insurer: "테스트생명", product_name: "실손", monthly_premium: 45000 },
+      { insurer: "테스트화재", product_name: "암", monthly_premium: 30000 },
+    ],
+  };
+  const reflection = buildReflection({
+    customerSaid: "암보험 괜찮아?",
+    reality,
+  });
+  const validated = validateAndRecordClaudeDecision({
+    reflection,
+    reality,
+    question: "암보험 괜찮아?",
+    borrowedUnderstanding: {
+      customer_answer: "확인된 범위부터요.",
+      session_goal: "암 보장 확인",
+      decision: {
+        situation_key: "coverage_assessment_cancer_axis",
+        key_judgment: "암 보장부터 확인하는 편이 맞습니다.",
+        direction: { type: "offer_direction", move: "암 보장부터 볼지 정하면 됩니다" },
+        confirm_question: "어느 쪽부터 볼까요?",
+      },
+    },
+  });
+  assert.equal(validated.hypothesis_used?.decision_source, "claude_proposal_validated");
+  assert.equal(validated.hypothesis_used?.claude_session_goal, "암 보장 확인");
+  assert.ok(validated.fact_selection);
+  assert.equal(validated.key_judgment.includes("암"), true);
 }
 
 // Internal reasoning bags stripped from understanding / extensions / proposed_* before store/trace

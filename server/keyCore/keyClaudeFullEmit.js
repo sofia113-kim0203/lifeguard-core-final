@@ -3,7 +3,7 @@
  * Shadow S7 emit_borrowed_senses remains elsewhere; this path does not delete it.
  */
 
-export const CLAUDE_FULL_EMIT_SCHEMA_VERSION = "claude_full_emit_v1";
+export const CLAUDE_FULL_EMIT_SCHEMA_VERSION = "claude_full_emit_v2";
 
 /** Allowed visual block types KEY will validate (format · facts · safety). */
 export const CLAUDE_FULL_VISUAL_BLOCK_TYPES = Object.freeze([
@@ -110,7 +110,30 @@ export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
       },
       session_goal: {
         type: ["string", "null"],
-        description: "Optional session goal Claude proposes; KEY decides persistence.",
+        description:
+          "Optional session goal Claude proposes in output. Not an input draft — KEY records/validates only.",
+      },
+      decision: {
+        type: ["object", "null"],
+        additionalProperties: false,
+        description:
+          "Optional Decision proposal Claude emits. KEY validates and records; never treat as sealed judgment.",
+        properties: {
+          situation_key: { type: ["string", "null"] },
+          response_priority: { type: ["string", "null"] },
+          key_judgment: { type: ["string", "null"] },
+          key_situation_judgment: { type: ["string", "null"] },
+          key_next_move: { type: ["string", "null"] },
+          direction: {
+            type: ["object", "null"],
+            additionalProperties: true,
+            properties: {
+              type: { type: ["string", "null"] },
+              move: { type: ["string", "null"] },
+            },
+          },
+          confirm_question: { type: ["string", "null"] },
+        },
       },
       extensions: {
         type: ["object", "null"],
@@ -131,7 +154,8 @@ export function buildClaudeFullSystemPrompt({ mode = "emit", documentDirect = fa
     "You are KEY Claude-Full work for LIFEGUARD — the single customer-facing intelligence path.",
     "You decide how to answer: greet or not, ask or explain, compare, make a table, suggest next steps, length, and tone.",
     "Do NOT follow fixed consult templates, stock fit-assertion phrases, insurance-type writing templates, forced colloquial openings, forbidden-opening lists, answer-length quotas, choice-count quotas, or mandatory next-action generation.",
-    "KEY later verifies facts, permissions, chart contradictions, and CLOSED_HARD safety — then finalize/seal. Do not invent KEY Decision drafts.",
+    "KEY later verifies facts, permissions, chart contradictions, and CLOSED_HARD safety — then finalize/seal.",
+    "Do not receive Decision or Session Goal as input drafts. If useful, emit optional decision and session_goal for KEY to record and validate — never treat them as already sealed.",
   ];
   if (documentDirect) {
     lines.push(
@@ -151,7 +175,7 @@ export function buildClaudeFullSystemPrompt({ mode = "emit", documentDirect = fa
     "- No out-of-permission execution claims — propose tools via proposed_tool_actions; KEY decides execution.",
     "- No clear danger (jailbreak, fraud, illegal instructions).",
     "When unsure, say what is confirmed vs unconfirmed and what you would check — do not fabricate.",
-    "Optional fields (understanding, uncertainty, document_findings, evidence_references, visual_blocks, proposed_next_actions, proposed_tool_actions, memory_candidates, session_goal, extensions): include only when useful; omit or empty when not. Never force-fill.",
+    "Optional fields (understanding, uncertainty, document_findings, evidence_references, visual_blocks, proposed_next_actions, proposed_tool_actions, memory_candidates, session_goal, decision, extensions): include only when useful; omit or empty when not. Never force-fill.",
     "visual_blocks: emit only when a table/card helps; otherwise omit or []. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, next_steps_card. Cell values must match verified facts or PDF-visible values.",
     "You MUST call emit_claude_full exactly once with at least customer_answer.",
     "Do not write internal chain-of-thought into customer_answer or optional fields.",
@@ -284,6 +308,49 @@ export function normalizeClaudeFullOutput(parsed = {}) {
     parsed.extensions && typeof parsed.extensions === "object"
       ? stripInternalReasoningFields(parsed.extensions)
       : null;
+  const decisionRaw =
+    parsed.decision && typeof parsed.decision === "object" ? parsed.decision : null;
+  const decision = decisionRaw
+    ? stripInternalReasoningFields({
+        situation_key:
+          decisionRaw.situation_key != null
+            ? String(decisionRaw.situation_key).trim() || null
+            : null,
+        response_priority:
+          decisionRaw.response_priority != null
+            ? String(decisionRaw.response_priority).trim() || null
+            : null,
+        key_judgment:
+          decisionRaw.key_judgment != null
+            ? String(decisionRaw.key_judgment).trim() || null
+            : null,
+        key_situation_judgment:
+          decisionRaw.key_situation_judgment != null
+            ? String(decisionRaw.key_situation_judgment).trim() || null
+            : null,
+        key_next_move:
+          decisionRaw.key_next_move != null
+            ? String(decisionRaw.key_next_move).trim() || null
+            : null,
+        direction:
+          decisionRaw.direction && typeof decisionRaw.direction === "object"
+            ? {
+                type:
+                  decisionRaw.direction.type != null
+                    ? String(decisionRaw.direction.type).trim() || null
+                    : null,
+                move:
+                  decisionRaw.direction.move != null
+                    ? String(decisionRaw.direction.move).trim() || null
+                    : null,
+              }
+            : null,
+        confirm_question:
+          decisionRaw.confirm_question != null
+            ? String(decisionRaw.confirm_question).trim() || null
+            : null,
+      })
+    : null;
 
   return {
     schema_version: CLAUDE_FULL_EMIT_SCHEMA_VERSION,
@@ -300,6 +367,7 @@ export function normalizeClaudeFullOutput(parsed = {}) {
     proposed_tool_actions,
     memory_candidates,
     session_goal,
+    decision,
     extensions,
     // Soft placeholders so legacy mid-field readers do not invent leadership retries
     understanding_hypotheses: understanding?.hypotheses

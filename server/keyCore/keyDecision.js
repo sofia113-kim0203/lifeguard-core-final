@@ -631,6 +631,106 @@ export function buildDecision({
   };
 }
 
+/**
+ * D2 — Claude may emit decision/session_goal; KEY validates and records.
+ * fact_selection always stays KEY-owned (from buildDecision baseline).
+ */
+export function validateAndRecordClaudeDecision({
+  reflection = null,
+  reality = null,
+  question = "",
+  evidenceBundle = null,
+  borrowedUnderstanding = null,
+} = {}) {
+  const keyBaseline = buildDecision({
+    reflection,
+    reality,
+    question,
+    evidenceBundle,
+    borrowedUnderstanding,
+  });
+  const proposal =
+    borrowedUnderstanding?.decision && typeof borrowedUnderstanding.decision === "object"
+      ? borrowedUnderstanding.decision
+      : null;
+  const sessionGoal =
+    borrowedUnderstanding?.session_goal != null
+      ? String(borrowedUnderstanding.session_goal).trim() || null
+      : null;
+
+  if (!proposal) {
+    return {
+      ...keyBaseline,
+      hypothesis_used: {
+        ...(keyBaseline.hypothesis_used ?? {}),
+        claude_decision_proposal: null,
+        claude_session_goal: sessionGoal,
+        decision_source: "key_fallback",
+      },
+    };
+  }
+
+  const situation_key =
+    String(proposal.situation_key ?? "").trim() || keyBaseline.situation_key;
+  const key_judgment =
+    String(proposal.key_judgment ?? "").trim() || keyBaseline.key_judgment;
+  const key_situation_judgment =
+    String(proposal.key_situation_judgment ?? "").trim() ||
+    keyBaseline.key_situation_judgment;
+  const response_priority =
+    String(proposal.response_priority ?? "").trim() || keyBaseline.response_priority;
+  const key_next_move =
+    String(proposal.key_next_move ?? "").trim() || keyBaseline.key_next_move;
+
+  let direction = keyBaseline.direction;
+  if (proposal.direction && typeof proposal.direction === "object") {
+    const type = String(proposal.direction.type ?? "").trim() || direction?.type || null;
+    const move = String(proposal.direction.move ?? "").trim() || direction?.move || "";
+    if (type && move) direction = { type, move };
+  }
+
+  let invite = keyBaseline.invite;
+  const confirm_question =
+    proposal.confirm_question != null
+      ? String(proposal.confirm_question).trim() || null
+      : keyBaseline.confirm_question;
+  if (confirm_question) {
+    invite = { allowed: true, prompt: confirm_question };
+  }
+
+  const decision_complete = Boolean(key_judgment && direction?.type && direction?.move);
+
+  return {
+    ...keyBaseline,
+    situation_key,
+    key_judgment,
+    key_situation_judgment,
+    customer_situation_judgment: key_situation_judgment,
+    response_priority,
+    key_next_move,
+    direction,
+    key_direction: {
+      type: direction?.type ?? null,
+      move: direction?.move ?? null,
+    },
+    invite,
+    confirm_question,
+    // KEY vault — never delegated to Claude
+    fact_selection: keyBaseline.fact_selection,
+    facts_to_speak: keyBaseline.facts_to_speak,
+    facts_to_withhold: keyBaseline.facts_to_withhold,
+    decision_complete,
+    hypothesis_used: {
+      ...(keyBaseline.hypothesis_used ?? {}),
+      claude_decision_proposal: proposal,
+      claude_session_goal: sessionGoal,
+      decision_source: decision_complete
+        ? "claude_proposal_validated"
+        : "key_fallback_incomplete_proposal",
+    },
+  };
+}
+
 export function isDecisionComplete(decision = {}) {
   return decision.decision_complete === true;
 }
