@@ -173,6 +173,7 @@ export function buildPersistableLatencyMarks(latencyMarks = null, env = process.
     const identity = resolveDeployIdentity(env);
     const out = {
       borrowed_shadow_probe: pickSpan(latencyMarks.borrowed_shadow_probe),
+      claude_full_emit: pickSpan(latencyMarks.claude_full_emit),
       s6_speak: s6,
       gate: pickSpan(latencyMarks.gate),
       finalize: pickSpan(latencyMarks.finalize),

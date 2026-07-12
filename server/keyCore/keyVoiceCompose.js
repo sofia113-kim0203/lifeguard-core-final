@@ -231,6 +231,8 @@ export async function buildKeyVoiceComposeResult(
   let borrowedSensesCalls = 0;
   let focusedCorrectionCount = 0;
   let borrowedShadowProbeMark = null;
+  let claudeFullEmitMark = null;
+  let shadowProbeOmitted = null;
   let s6SpeakEnterMs = null;
   let s6SpeakExitMs = null;
   let s6SpeakDurationSum = 0;
@@ -267,8 +269,54 @@ export async function buildKeyVoiceComposeResult(
     return result;
   };
 
-  // --- Early Borrowed / Claude-Full (before Decision) when probe enabled — at most 1 call ---
-  if (probeOn) {
+  // --- Claude-Full primary emit OR legacy shadow probe (at most 1 Claude call) ---
+  // No safe post-response observer exists → claude_full skips shadow_sketch wait;
+  // the same Claude-full emit is the customer-answer path (latency: claude_full_emit).
+  if (claudeFullSinglePass) {
+    const factBoundary = buildEarlyBorrowedFactBoundary({
+      reality,
+      question: directiveQuestion,
+    });
+    const emitSpan = startSpan(startedAt);
+    try {
+      shadow = await runBorrowedSensesShadowProbe({
+        question: claudeQuestion,
+        directive: null,
+        decision: null,
+        factBoundary,
+        reflection,
+        reality,
+        history,
+        previousAnswerSummary,
+        s6FinalAnswer: "",
+        visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+        documentEvidence,
+        relatedPastOriginals,
+        directPdfAttachment,
+        documentDirectMeta,
+        answerMode: "claude_full",
+        startedAt,
+        env,
+        fetchImpl,
+      });
+    } finally {
+      claudeFullEmitMark = emitSpan.end();
+    }
+    borrowedShadowProbeMark = null;
+    shadowProbeOmitted = {
+      omitted: true,
+      reason: "claude_full_primary_path_no_post_response_observer",
+    };
+    borrowedSensesCalls = 1;
+    claudeCallCount = 1;
+    borrowedUnderstanding = shadow?.borrowed ?? null;
+    const borrowedErr = sanitizeLatencyErrorType(shadow?.error);
+    if (borrowedErr) providerErrorTypes.push(borrowedErr);
+    if (shadow?.error === "REQUEST_PAYLOAD_TOO_LARGE") {
+      claudeCallCount = 0;
+      borrowedSensesCalls = 0;
+    }
+  } else if (probeOn) {
     const factBoundary = buildEarlyBorrowedFactBoundary({
       reality,
       question: directiveQuestion,
@@ -290,7 +338,7 @@ export async function buildKeyVoiceComposeResult(
         relatedPastOriginals,
         directPdfAttachment,
         documentDirectMeta,
-        answerMode: claudeFullSinglePass ? "claude_full" : "shadow_sketch",
+        answerMode: "shadow_sketch",
         startedAt,
         env,
         fetchImpl,
@@ -303,7 +351,6 @@ export async function buildKeyVoiceComposeResult(
     borrowedUnderstanding = shadow?.borrowed ?? null;
     const borrowedErr = sanitizeLatencyErrorType(shadow?.error);
     if (borrowedErr) providerErrorTypes.push(borrowedErr);
-    // Request blocked before provider — not a Claude call.
     if (shadow?.error === "REQUEST_PAYLOAD_TOO_LARGE") {
       claudeCallCount = 0;
       borrowedSensesCalls = 0;
@@ -404,9 +451,17 @@ export async function buildKeyVoiceComposeResult(
     s6_speak_calls: 0,
     borrowed_mode: borrowedMode,
     fast_path: null,
-    call_order: probeOn
-      ? "reality_reflection_borrowed_decision_align_gate"
-      : "decision_directive_s6",
+    call_order: claudeFullSinglePass
+      ? "reality_reflection_claude_full_decision_align_gate"
+      : probeOn
+        ? "reality_reflection_borrowed_decision_align_gate"
+        : "decision_directive_s6",
+    shadow_probe_omitted: shadowProbeOmitted,
+    d2_output_incomplete:
+      claudeFullSinglePass &&
+      (decision?.hypothesis_used?.d2_output_incomplete === true ||
+        !(borrowedUnderstanding?.decision && typeof borrowedUnderstanding.decision === "object") ||
+        !String(borrowedUnderstanding?.session_goal ?? "").trim()),
   };
 
   // Re-gate borrowed output with real Directive (early call had factBoundary only)
@@ -423,7 +478,7 @@ export async function buildKeyVoiceComposeResult(
 
   // Decision alignment — observation for all probe modes; customer use only with Stage3+active
   let alignment = null;
-  if (probeOn && shadow) {
+  if ((probeOn || claudeFullSinglePass) && shadow) {
     alignment = evaluateBorrowedFastPathCandidate({
       question: directiveQuestion,
       decision,
@@ -788,106 +843,21 @@ export async function buildKeyVoiceComposeResult(
     };
 
     if (claudeFullSinglePass) {
-      // Focused Claude correction once — never S6 / S3–S5 / legacy speak.
-      focusedCorrectionCount = 1;
-      const factBoundary = buildEarlyBorrowedFactBoundary({
-        reality,
-        question: directiveQuestion,
-      });
-      const repairProbe = await runBorrowedSensesShadowProbe({
-        question: claudeQuestion,
-        directive: null,
-        decision: null,
-        factBoundary,
-        reflection,
-        reality,
-        history,
-        previousAnswerSummary,
-        s6FinalAnswer: "",
-        visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
-        publicResearchEvidence: researchEvForSafety(),
-        answerMode: "claude_full",
-        focusedCorrection: {
-          violations: safetyPartition.hard,
-          failed_claims_preview: failedClaimsPreview,
-          previous_customer_answer: voiceRaw,
-          previous_voice_raw_candidate: voiceRaw,
-        },
-        documentEvidence,
-        relatedPastOriginals,
-        directPdfAttachment,
-        documentDirectMeta,
-        startedAt,
-        env,
-        fetchImpl,
-      });
-      borrowedSensesCalls += 1;
-      claudeCallCount += 1;
-      trace.focused_correction_count = focusedCorrectionCount;
+      // Stein Q5 follow-up: normal Claude-full path = 1 call. No focused re-write.
+      focusedCorrectionCount = 0;
+      finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+      usedFailureMode = true;
+      usedClaudeFullSinglePass = false;
+      trace.fallback_used = true;
+      trace.fallback_reason = safetyPartition.hard.join(";") || "claude_full_hard_safety_no_rewrite";
+      trace.failure_mode_used = true;
+      trace.focused_correction_count = 0;
       trace.claude_call_count = claudeCallCount;
-      const repaired = String(
-        repairProbe?.borrowed?.customer_answer ??
-          repairProbe?.borrowed?.voice_raw_candidate ??
-          "",
-      ).trim();
-      if (repairProbe?.error || !repaired) {
-        finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-        usedFailureMode = true;
-        usedClaudeFullSinglePass = false;
-        trace.fallback_used = true;
-        trace.fallback_reason = repairProbe?.error ?? "focused_correction_failed";
-        trace.failure_mode_used = true;
-        outputGate = {
-          ok: false,
-          reasons: [trace.fallback_reason],
-          hard_safety_failure_mode: true,
-        };
-      } else {
-        voiceRaw = repaired;
-        provider = "claude_full_focused_correction";
-        finalText = voiceRaw;
-        const repairGate = markGate(() =>
-          gateBorrowedCandidateAnswer(voiceRaw, directive, s5Reference),
-        );
-        const repairPartition = markGate(() =>
-          partitionCustomerTextSafety({
-            gateResult: repairGate,
-            voice: voiceRaw,
-            question: directiveQuestion,
-            decision,
-            publicResearchEvidence: researchEvForSafety(),
-          }),
-        );
-        trace.hard_safety_repair.second_check = {
-          hard: repairPartition.hard,
-          soft: repairPartition.soft,
-          hard_fail: repairPartition.hardFail,
-        };
-        if (repairPartition.hardFail) {
-          finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-          usedFailureMode = true;
-          usedClaudeFullSinglePass = false;
-          trace.fallback_used = true;
-          trace.fallback_reason = repairPartition.hard.join("; ");
-          trace.failure_mode_used = true;
-          outputGate = {
-            ok: false,
-            reasons: repairPartition.hard,
-            hard_safety_failure_mode: true,
-          };
-        } else {
-          usedFailureMode = false;
-          usedClaudeFullSinglePass = true;
-          usedActiveFastPath = true;
-          trace.fallback_used = false;
-          outputGate = {
-            ...repairGate,
-            ok: true,
-            reasons: repairPartition.soft,
-            soft_pass: repairPartition.soft.length > 0,
-          };
-        }
-      }
+      outputGate = {
+        ok: false,
+        reasons: safetyPartition.hard,
+        hard_safety_failure_mode: true,
+      };
     } else {
       const repairDirective = {
         ...directive,
@@ -1158,6 +1128,7 @@ export async function buildKeyVoiceComposeResult(
   const deployIdentity = resolveDeployIdentity(env);
   trace.latency_marks = {
     borrowed_shadow_probe: borrowedShadowProbeMark,
+    claude_full_emit: claudeFullEmitMark,
     s6_speak:
       s6SpeakCalls > 0
         ? {
