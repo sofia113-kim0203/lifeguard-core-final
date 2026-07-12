@@ -11,9 +11,16 @@ import {
   isVercelProductionEnv,
   ONE_KEY_CORE_RESPONSE_SOURCE,
 } from "./oneKeyCoreFlags.js";
-import { buildVerifiedCustomerChart } from "./keyBorrowedSensesSpeak.js";
+import {
+  buildVerifiedCustomerChart,
+  ANTHROPIC_WEB_SEARCH_TOOL,
+} from "./keyBorrowedSensesSpeak.js";
 import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js";
 import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
+import {
+  buildClaudeFullUserContentWithPdf,
+  verifyAndFetchCustomerPdfOriginal,
+} from "./keyClaudeFullDocumentDirect.js";
 import { gateKeyVoiceAnswer, jailbreakAudit } from "./keyVoiceGate.js";
 import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
@@ -148,19 +155,20 @@ export function extractPartialCustomerAnswer(partialJson = "") {
 
 function buildSystemPrompt() {
   return [
-    "You are KEY speaking directly to the customer in natural Korean.",
-    "Answer the customer's current question first, using only verified_customer_chart, allowed_numbers, allowed_entities, and conversation originals provided.",
-    "Do not invent policy counts, premiums, insurers, products, coverages, or place names absent from the materials.",
-    "If materials are incomplete, say what is confirmed and what still needs checking — do not invent.",
-    "Do not push enrollment, cancellation, or definitive '충분/부족합니다' verdicts.",
-    "Call emit_claude_full with customer_answer as the full customer-facing reply.",
-    "Decision/session_goal/visual_blocks are optional — never delay customer_answer for them.",
+    "You are Claude. Answer in natural Korean as yourself — not as an insurance bot, not as a scripted KEY persona.",
+    "Decide freely whether the question is insurance, daily life, analysis, or something else, and use your full abilities.",
+    "Materials may include verified_customer_chart, conversation originals, and an attached original PDF when present. Use them when helpful; do not invent policy facts that contradict them.",
+    "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
+    "If a PDF is attached, you may read and analyze it directly.",
+    "Prefer calling emit_claude_full with customer_answer as the full customer-facing reply. Plain text answers are also acceptable.",
+    "Do not push enrollment, cancellation, or definitive '충분/부족합니다' verdicts without basis.",
+    "Do not invent restaurant/place names or policy numbers that are not grounded in materials or search results.",
   ].join("\n");
 }
 
-function buildUserPayload({ question, chart, allowlist, contextPack }) {
+function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = null }) {
   return {
-    mode: "claude_first_direct_preview",
+    mode: "claude_native_first_preview",
     customer_question: String(question ?? ""),
     conversation_originals: {
       recent_turns: contextPack?.recent_turns ?? [],
@@ -172,6 +180,18 @@ function buildUserPayload({ question, chart, allowlist, contextPack }) {
     allowed_entities: allowlist?.allowed_entities ?? [],
     insurer_counts: allowlist?.insurer_counts ?? null,
     product_counts: allowlist?.product_counts ?? null,
+    direct_document: pdfMeta
+      ? {
+          attached: pdfMeta.attached === true,
+          document_id: pdfMeta.document_id ?? null,
+          original_filename: pdfMeta.original_filename ?? null,
+          note: pdfMeta.attached
+            ? "Original PDF is attached as a document block. Read it yourself — no KEY pre-summary."
+            : pdfMeta.note ?? "No PDF attached for this turn.",
+        }
+      : { attached: false, note: "No PDF attached for this turn." },
+    guidance:
+      "Answer the customer's current question with your own judgment. Insurance materials are optional context, not a mandate to steer every topic back to insurance.",
   };
 }
 
@@ -310,11 +330,86 @@ function pickCustomerAnswer(dataRaw) {
           visual_blocks: Array.isArray(b.input?.visual_blocks) ? b.input.visual_blocks : [],
           decision: b.input?.decision ?? null,
           session_goal: b.input?.session_goal ?? null,
+          source: "emit_claude_full",
         };
       }
     }
   }
-  return { customer_answer: "", visual_blocks: [], decision: null, session_goal: null };
+  // Native Claude may answer as plain text without the tool.
+  const textParts = blocks
+    .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
+    .map((b) => String(b.text).trim());
+  if (textParts.length) {
+    return {
+      customer_answer: textParts.join("\n\n").trim(),
+      visual_blocks: [],
+      decision: null,
+      session_goal: null,
+      source: "plain_text",
+    };
+  }
+  return {
+    customer_answer: "",
+    visual_blocks: [],
+    decision: null,
+    session_goal: null,
+    source: null,
+  };
+}
+
+function latestDocumentIdFromContext(loadedContext = null) {
+  const docs = Array.isArray(loadedContext?.documents) ? loadedContext.documents : [];
+  for (let i = docs.length - 1; i >= 0; i -= 1) {
+    const id = String(docs[i]?.id ?? docs[i]?.document_id ?? "").trim();
+    if (id) return id;
+  }
+  return null;
+}
+
+async function resolveOptionalPdfAttachment({
+  userSupabase = null,
+  customerId = null,
+  loadedContext = null,
+  env = process.env,
+} = {}) {
+  const documentId = latestDocumentIdFromContext(loadedContext);
+  if (!documentId || !userSupabase || !customerId) {
+    return { pdfBase64: null, mediaType: null, meta: { attached: false } };
+  }
+  try {
+    const fetched = await verifyAndFetchCustomerPdfOriginal({
+      supabase: userSupabase,
+      customerId,
+      documentId,
+      env,
+    });
+    if (!fetched?.ok || !fetched.pdfBase64) {
+      return {
+        pdfBase64: null,
+        mediaType: null,
+        meta: {
+          attached: false,
+          document_id: documentId,
+          note: fetched?.reason ?? "pdf_attach_skipped",
+        },
+      };
+    }
+    return {
+      pdfBase64: fetched.pdfBase64,
+      mediaType: fetched.mediaType,
+      meta: {
+        attached: true,
+        document_id: documentId,
+        original_filename: fetched.document?.original_filename ?? null,
+      },
+    };
+  } catch {
+    return {
+      pdfBase64: null,
+      mediaType: null,
+      meta: { attached: false, document_id: documentId, note: "pdf_attach_error" },
+    };
+  }
 }
 
 /**
@@ -372,6 +467,9 @@ async function callClaudeFirstDirect({
   fetchImpl = fetch,
   startedAt = Date.now(),
   onFirstContent = null,
+  pdfBase64 = null,
+  pdfMediaType = null,
+  pdfMeta = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -389,57 +487,106 @@ async function callClaudeFirstDirect({
     chart,
     allowlist,
     contextPack,
+    pdfMeta,
   });
   const system = buildSystemPrompt();
-  const body = {
-    model,
-    max_tokens: 4096,
-    temperature: 0.35,
-    system,
-    tools: [CLAUDE_FIRST_DIRECT_EMIT_TOOL],
-    tool_choice: { type: "tool", name: "emit_claude_full" },
-    messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-    stream: true,
-  };
-
-  const res = await fetchImpl(ANTHROPIC_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
+  const tools = [ANTHROPIC_WEB_SEARCH_TOOL, CLAUDE_FIRST_DIRECT_EMIT_TOOL];
+  const userContent = buildClaudeFullUserContentWithPdf({
+    userPayload,
+    pdfBase64,
+    mediaType: pdfMediaType,
   });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    return {
-      ok: false,
-      error: `ANTHROPIC_HTTP_${res.status}`,
-      detail: String(errText).slice(0, 400),
+  let messages = [{ role: "user", content: userContent }];
+
+  let lastTtft = null;
+  let lastPicked = {
+    customer_answer: "",
+    visual_blocks: [],
+    decision: null,
+    session_goal: null,
+    source: null,
+  };
+  let streamedAnswer = "";
+
+  for (let turn = 0; turn < 4; turn += 1) {
+    const forceEmit = turn > 0 && !lastPicked.customer_answer;
+    const body = {
       model,
+      max_tokens: 4096,
+      temperature: 0.4,
+      system,
+      tools,
+      tool_choice: forceEmit
+        ? { type: "tool", name: "emit_claude_full" }
+        : { type: "auto" },
+      messages,
+      stream: true,
     };
+
+    const res = await fetchImpl(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `ANTHROPIC_HTTP_${res.status}`,
+        detail: String(errText).slice(0, 400),
+        model,
+      };
+    }
+
+    const streamed = await readAnthropicSseWithAnswerStream({
+      res,
+      startedAt,
+      onFirstContent: turn === 0 ? onFirstContent : null,
+    });
+    if (streamed.ttft_ms != null && lastTtft == null) lastTtft = streamed.ttft_ms;
+    if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
+
+    const picked = pickCustomerAnswer(streamed.dataRaw);
+    if (picked.customer_answer) {
+      lastPicked = picked;
+      break;
+    }
+
+    // Continue after web_search / intermediate tool use — ask Claude to emit the answer.
+    const assistantContent = Array.isArray(streamed.dataRaw?.content)
+      ? streamed.dataRaw.content
+      : [];
+    if (!assistantContent.length) break;
+    messages = [
+      ...messages,
+      { role: "assistant", content: assistantContent },
+      {
+        role: "user",
+        content:
+          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요.",
+      },
+    ];
   }
 
-  const streamed = await readAnthropicSseWithAnswerStream({
-    res,
-    startedAt,
-    onFirstContent,
-  });
-  const picked = pickCustomerAnswer(streamed.dataRaw);
   const customer_answer = String(
-    picked.customer_answer || streamed.streamed_answer || "",
+    lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
 
   return {
     ok: Boolean(customer_answer),
     customer_answer,
-    visual_blocks: picked.visual_blocks,
-    decision: picked.decision,
-    session_goal: picked.session_goal,
-    ttft_ms: streamed.ttft_ms,
+    visual_blocks: lastPicked.visual_blocks,
+    decision: lastPicked.decision,
+    session_goal: lastPicked.session_goal,
+    answer_source: lastPicked.source,
+    ttft_ms: lastTtft,
     chart,
     allowlist,
+    pdf_attached: Boolean(pdfBase64),
     error: customer_answer ? null : "empty_customer_answer",
   };
 }
@@ -454,6 +601,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   customerContextBundle = null,
   unifiedState = null,
   contextSnapshot = null,
+  userSupabase = null,
+  customerId = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -467,6 +616,13 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   const reality = { policies, policy_count };
 
+  const pdf = await resolveOptionalPdfAttachment({
+    userSupabase,
+    customerId,
+    loadedContext,
+    env,
+  });
+
   let firstTokenMs = null;
   const claude = await callClaudeFirstDirect({
     question,
@@ -478,6 +634,9 @@ export async function runClaudeFirstDirectQuestionTurn({
     onFirstContent: (ms) => {
       firstTokenMs = ms;
     },
+    pdfBase64: pdf.pdfBase64,
+    pdfMediaType: pdf.mediaType,
+    pdfMeta: pdf.meta,
   });
   const emitMark = span.end();
 
@@ -623,6 +782,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             hard_fail: usedFailure,
             hard_reasons: safety.hard,
             soft_ignored: safety.soft,
+            answer_source: claude.answer_source ?? null,
+            pdf_attached: claude.pdf_attached === true,
             answer_preview: String(claude.customer_answer).slice(0, 300),
           },
         },

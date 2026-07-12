@@ -397,6 +397,8 @@ async function runOneKeyCoreQuestionTurn({
       customerContextBundle,
       unifiedState,
       contextSnapshot,
+      userSupabase,
+      customerId,
       env: coreEnv,
       fetchImpl,
       startedAt,
