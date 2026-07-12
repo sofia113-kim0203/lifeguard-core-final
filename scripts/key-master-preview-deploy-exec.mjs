@@ -366,7 +366,9 @@ function deployPreview() {
       deployArgs.push("--env", `GIT_COMMIT_SHA=${sha}`);
       deployArgs.push("--build-env", `GIT_COMMIT_SHA=${sha}`);
     }
-    proc = spawnSync("npx", deployArgs, {
+    // Windows: npx.cmd + shell:false keeps --env intact and avoids empty spawn.
+    const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
+    proc = spawnSync(npxBin, deployArgs, {
       cwd: ROOT,
       encoding: "utf8",
       shell: false,
