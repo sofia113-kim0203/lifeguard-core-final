@@ -1,6 +1,7 @@
 /**
  * Claude-Full talent-open — local unit tests (no network · no deploy · no commit).
- * Activation stays behind existing KEY_BORROWED_SENSES=active (Preview only).
+ * Preview: probeOn (shadow|active) enables Claude-Full primary (no env mutation).
+ * stage2Partial / Production remain excluded. S6 customer path blocked when Claude-Full on.
  */
 import assert from "node:assert/strict";
 import { buildReflection } from "../server/keyCore/keyReflection.js";
@@ -612,32 +613,10 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
 }
 
-// 9) Shadow path unchanged — S6 customer text (emit_borrowed_senses)
+// 9) Shadow Preview — Claude-Full primary (S6 customer path blocked; no env mutation)
 {
   const q = "보험료 줄이고 싶어";
   const log = [];
-  const s6 =
-    "보험료가 부담되시는군요. 등록된 계약은 22건이고, 그중 삼성생명 실손의료비보험의 월 납입액 4만5천 원이 확인돼 있어요.";
-  const legacyBorrowed = {
-    understanding_hypotheses: ["목적이 있을 수 있음"],
-    customer_intent: "상담",
-    emotional_signal: null,
-    hesitation_signal: null,
-    context_carryover: null,
-    visual_observation: null,
-    answer_purpose: "리드",
-    must_not_assume: [],
-    used_facts: ["policy_count"],
-    recommendation_basis: "왜 맞아 보이는지: 목적",
-    voice_raw_candidate: "그림자 후보",
-    key_purpose: "절감 리드",
-    leadership_move: "선택지 제시",
-    insurance_expertise_angle: ["납입부담"],
-    insurance_expertise_rationale: null,
-    proposal_direction: "절감 목적이면 중복·납입 확인이 먼저 맞아 보입니다",
-    next_decision_point: ["납입 구조부터", "중복 보장부터", "조정 후보부터"],
-    final_answer_source: "s6",
-  };
   const result = await buildKeyVoiceComposeResult(
     {
       reflection: buildReflection({ customerSaid: q, reality: softReality }),
@@ -652,14 +631,18 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
         VERCEL_ENV: "preview",
         ANTHROPIC_API_KEY: "test-key",
       },
-      fetchImpl: makeFetch({ borrowed: legacyBorrowed, s6Text: s6, log }),
+      fetchImpl: makeFetch({ borrowed: goodClaudeFull(), log }),
     },
   );
   assert.equal(log.filter((x) => x === "borrowed").length, 1);
-  assert.equal(log.filter((x) => x === "s6").length, 1);
-  assert.equal(result.compose_mode, "key_s6_voice_speak");
-  assert.equal(result.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s6");
-  assert.match(result.text, /22건/);
+  assert.equal(log.filter((x) => x === "s6").length, 0);
+  assert.equal(result.compose_mode, "key_claude_full_single_pass");
+  assert.equal(result.key_voice_trace.s6_speak_calls, 0);
+  assert.equal(result.key_voice_trace.focused_correction_count, 0);
+  assert.equal(result.key_voice_trace.shadow_probe_omitted?.omitted, true);
+  assert.equal(result.key_voice_trace.latency_marks?.borrowed_shadow_probe ?? null, null);
+  assert.equal(result.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "claude_candidate");
+  assert.match(result.text, /22건|4만5천/);
 }
 
 // Chart builder: map coverage_summary.detected_coverages (no invent)

@@ -215,8 +215,10 @@ export async function buildKeyVoiceComposeResult(
   const borrowedMode = getKeyBorrowedSensesMode(env);
   const stage2Partial = isKeyBorrowedSensesStage2Partial(env);
   const stage3Active = isKeyBorrowedSensesStage3Active(env);
-  // Claude-Full v1.1 — Preview active only (no new env flag). Default Preview stays shadow.
-  const claudeFullSinglePass = stage3Active && !stage2Partial && !production;
+  // Claude-Full primary on Preview whenever borrowed-senses probe is on (shadow|active),
+  // except stage2 partial. KEY_BORROWED_SENSES env value is not changed by this gate.
+  // Legacy S6 / shadow-probe branches stay in code; they are skipped when this is true.
+  const claudeFullSinglePass = probeOn && !stage2Partial && !production;
 
   // Turn-owned ghost ledger (never module-global).
   const turnGhostLedger = Array.isArray(ghostLedger) ? ghostLedger : createGhostLedger();
