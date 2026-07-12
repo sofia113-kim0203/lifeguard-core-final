@@ -41,6 +41,11 @@ import {
 } from "./keyBorrowedSensesStage2.js";
 import { applyStage3PromotionToCompose } from "./keyBorrowedSensesStage3.js";
 import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "./keyCustomerMonopoly.js";
+import {
+  startSpan,
+  countBorrowedProviderCalls,
+  sanitizeLatencyErrorType,
+} from "./keyLatencyMarks.js";
 
 function normalizeText(text = "") {
   return String(text ?? "")
@@ -187,6 +192,7 @@ export async function buildKeyVoiceComposeResult(
     shadowVisualBlocksOverride = null,
     fetchImpl = fetch,
     ghostLedger = null,
+    startedAt = Date.now(),
   } = {},
 ) {
   let decision = thinkingFlow?.decision ?? null;
@@ -210,6 +216,41 @@ export async function buildKeyVoiceComposeResult(
   let borrowedUnderstanding = null;
   let s6SpeakCalls = 0;
   let borrowedSensesCalls = 0;
+  let borrowedShadowProbeMark = null;
+  let s6SpeakEnterMs = null;
+  let s6SpeakExitMs = null;
+  let s6SpeakDurationSum = 0;
+  let gateEnterMs = null;
+  let gateExitMs = null;
+  let gateDurationSum = 0;
+  const providerErrorTypes = [];
+  let s6ProviderCallCount = 0;
+
+  const markGate = (fn) => {
+    const span = startSpan(startedAt);
+    try {
+      return fn();
+    } finally {
+      const done = span.end();
+      if (gateEnterMs == null && done.enter_ms != null) gateEnterMs = done.enter_ms;
+      if (done.exit_ms != null) gateExitMs = done.exit_ms;
+      if (typeof done.duration_ms === "number") gateDurationSum += done.duration_ms;
+    }
+  };
+
+  const runS6Speak = async (args) => {
+    const span = startSpan(startedAt);
+    const result = await speakKeyVoice(args);
+    const done = span.end();
+    s6SpeakCalls += 1;
+    s6ProviderCallCount += 1;
+    if (s6SpeakEnterMs == null && done.enter_ms != null) s6SpeakEnterMs = done.enter_ms;
+    if (done.exit_ms != null) s6SpeakExitMs = done.exit_ms;
+    if (typeof done.duration_ms === "number") s6SpeakDurationSum += done.duration_ms;
+    const errType = sanitizeLatencyErrorType(result?.error);
+    if (errType) providerErrorTypes.push(errType);
+    return result;
+  };
 
   // --- Early Borrowed Senses (before Decision) when probe enabled — at most 1 call ---
   if (probeOn) {
@@ -217,22 +258,29 @@ export async function buildKeyVoiceComposeResult(
       reality,
       question: directiveQuestion,
     });
-    shadow = await runBorrowedSensesShadowProbe({
-      question: directiveQuestion,
-      directive: null,
-      decision: null,
-      factBoundary,
-      reflection,
-      reality,
-      history,
-      previousAnswerSummary,
-      s6FinalAnswer: "",
-      visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
-      env,
-      fetchImpl,
-    });
+    const probeSpan = startSpan(startedAt);
+    try {
+      shadow = await runBorrowedSensesShadowProbe({
+        question: directiveQuestion,
+        directive: null,
+        decision: null,
+        factBoundary,
+        reflection,
+        reality,
+        history,
+        previousAnswerSummary,
+        s6FinalAnswer: "",
+        visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+        env,
+        fetchImpl,
+      });
+    } finally {
+      borrowedShadowProbeMark = probeSpan.end();
+    }
     borrowedSensesCalls = 1;
     borrowedUnderstanding = shadow?.borrowed ?? null;
+    const borrowedErr = sanitizeLatencyErrorType(shadow?.error);
+    if (borrowedErr) providerErrorTypes.push(borrowedErr);
   }
 
   // --- KEY Decision (owns judgment; Claude understanding = material only) ---
@@ -386,7 +434,7 @@ export async function buildKeyVoiceComposeResult(
       String(stage3Pre.finalText ?? "").trim()
     ) {
       const candidate = String(stage3Pre.finalText).trim();
-      const kvGate = gateBorrowedCandidateAnswer(candidate, directive, s5Reference);
+      const kvGate = markGate(() => gateBorrowedCandidateAnswer(candidate, directive, s5Reference));
       const researchEv = shadow?.public_research_evidence ?? null;
       if (
         kvGate.ok ||
@@ -481,15 +529,17 @@ export async function buildKeyVoiceComposeResult(
       Boolean(shadow);
 
     if (canUseBorrowedInitial) {
-      const kvGate = gateBorrowedCandidateAnswer(rejectedAnswer, directive, s5Reference);
+      const kvGate = markGate(() => gateBorrowedCandidateAnswer(rejectedAnswer, directive, s5Reference));
       const researchEv = researchEvForSafety();
-      const borrowedPartition = partitionCustomerTextSafety({
-        gateResult: kvGate,
-        voice: rejectedAnswer,
-        question: directiveQuestion,
-        decision,
-        publicResearchEvidence: researchEv,
-      });
+      const borrowedPartition = markGate(() =>
+        partitionCustomerTextSafety({
+          gateResult: kvGate,
+          voice: rejectedAnswer,
+          question: directiveQuestion,
+          decision,
+          publicResearchEvidence: researchEv,
+        }),
+      );
 
       if (borrowedPartition.hardFail) {
         // Initial candidate = borrowed; sole correction later = hard_safety_repair.
@@ -566,8 +616,7 @@ export async function buildKeyVoiceComposeResult(
 
   // Initial S6 speak only when no candidate exists yet (not a correction).
   if (!voiceRaw) {
-    speakResult = await speakKeyVoice({ directive, env, fetchImpl });
-    s6SpeakCalls = 1;
+    speakResult = await runS6Speak({ directive, env, fetchImpl });
     usedConstrainedRegen = false;
     trace.answer_regeneration = { used: false };
     trace.initial_candidate_source = "s6_speak";
@@ -576,7 +625,7 @@ export async function buildKeyVoiceComposeResult(
       provider = speakResult.provider;
     }
     gateResult = voiceRaw
-      ? gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference })
+      ? markGate(() => gateKeyVoiceAnswer({ text: voiceRaw, directive, s5ReferenceText: s5Reference }))
       : { ok: false, reasons: [speakResult.error ?? "speak_failed"] };
   }
 
@@ -588,13 +637,15 @@ export async function buildKeyVoiceComposeResult(
   let outputGate = gateResult;
   let hardSafetyRepairAttempt = 0;
 
-  const safetyPartition = partitionCustomerTextSafety({
-    gateResult,
-    voice: voiceRaw,
-    question: directiveQuestion,
-    decision,
-    publicResearchEvidence: researchEvForSafety(),
-  });
+  const safetyPartition = markGate(() =>
+    partitionCustomerTextSafety({
+      gateResult,
+      voice: voiceRaw,
+      question: directiveQuestion,
+      decision,
+      publicResearchEvidence: researchEvForSafety(),
+    }),
+  );
   trace.safety_partition = {
     hard: safetyPartition.hard,
     soft: safetyPartition.soft,
@@ -636,30 +687,33 @@ export async function buildKeyVoiceComposeResult(
       },
       repetition_avoidance_instruction: `${directive.repetition_avoidance_instruction ?? ""} Hard safety fail (${safetyPartition.hard.join("; ")}). Failed claims: ${failedClaimsPreview}. Repair once without legacy templates.`,
     };
-    const repairSpeak = await speakKeyVoice({
+    const repairSpeak = await runS6Speak({
       directive: repairDirective,
       env,
       fetchImpl,
       temperature: 0.3,
     });
-    s6SpeakCalls += 1;
     trace.s6_speak_calls = s6SpeakCalls;
     if (repairSpeak.ok && repairSpeak.voice_raw) {
       voiceRaw = repairSpeak.voice_raw;
       provider = repairSpeak.provider;
       finalText = voiceRaw;
-      const repairGate = gateKeyVoiceAnswer({
-        text: voiceRaw,
-        directive,
-        s5ReferenceText: s5Reference,
-      });
-      const repairPartition = partitionCustomerTextSafety({
-        gateResult: repairGate,
-        voice: voiceRaw,
-        question: directiveQuestion,
-        decision,
-        publicResearchEvidence: researchEvForSafety(),
-      });
+      const repairGate = markGate(() =>
+        gateKeyVoiceAnswer({
+          text: voiceRaw,
+          directive,
+          s5ReferenceText: s5Reference,
+        }),
+      );
+      const repairPartition = markGate(() =>
+        partitionCustomerTextSafety({
+          gateResult: repairGate,
+          voice: voiceRaw,
+          question: directiveQuestion,
+          decision,
+          publicResearchEvidence: researchEvForSafety(),
+        }),
+      );
       trace.hard_safety_repair.second_check = {
         hard: repairPartition.hard,
         soft: repairPartition.soft,
@@ -827,6 +881,39 @@ export async function buildKeyVoiceComposeResult(
     shadow.s6_speak_calls = s6SpeakCalls;
     trace.borrowed_senses_shadow = shadow;
   }
+
+  const borrowedProviderCallCount = countBorrowedProviderCalls(shadow);
+  trace.latency_marks = {
+    borrowed_shadow_probe: borrowedShadowProbeMark,
+    s6_speak:
+      s6SpeakCalls > 0
+        ? {
+            enter_ms: s6SpeakEnterMs,
+            exit_ms: s6SpeakExitMs,
+            duration_ms: s6SpeakDurationSum,
+            s6_speak_call_count: s6SpeakCalls,
+          }
+        : {
+            enter_ms: null,
+            exit_ms: null,
+            duration_ms: null,
+            s6_speak_call_count: 0,
+          },
+    gate:
+      gateEnterMs != null || gateExitMs != null || gateDurationSum > 0
+        ? {
+            enter_ms: gateEnterMs,
+            exit_ms: gateExitMs,
+            duration_ms: gateDurationSum,
+          }
+        : null,
+    provider: {
+      provider_call_count: borrowedProviderCallCount + s6ProviderCallCount,
+      borrowed_provider_call_count: borrowedProviderCallCount,
+      s6_provider_call_count: s6ProviderCallCount,
+      error_types: [...new Set(providerErrorTypes)].slice(0, 8),
+    },
+  };
 
   return {
     text: finalText,

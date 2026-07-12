@@ -329,6 +329,7 @@ export async function buildQuestionSpeakFromUnderstandingAsync(
     shadowVisualBlocksOverride = null,
     ghostLedger = null,
     fetchImpl = fetch,
+    startedAt = Date.now(),
   } = {},
 ) {
   if (thinkingFlow?.slice5_enabled && (thinkingFlow.decision || thinkingFlow.reflection)) {
@@ -341,6 +342,7 @@ export async function buildQuestionSpeakFromUnderstandingAsync(
       shadowVisualBlocksOverride,
       ghostLedger,
       fetchImpl,
+      startedAt,
     });
     if (voice) return voice;
     return null;

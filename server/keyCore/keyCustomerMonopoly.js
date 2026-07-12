@@ -5,6 +5,7 @@ import { polishLifeguardCustomerText } from "../lifeguardOutputGuard.js";
 import { guardKeyCustomerTextCompleteness } from "./keyCustomerTextCompleteness.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { ONE_KEY_CORE_RESPONSE_SOURCE } from "./oneKeyCoreFlags.js";
+import { startSpan } from "./keyLatencyMarks.js";
 
 export const KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT =
   "지금은 여기까지 확인했어요. 잠시 후 다시 말씀해 주시면 KEY가 이어서 볼게요.";
@@ -31,10 +32,17 @@ export function isAllowedKeyCustomerResponseSource(responseSource = "") {
   return ALLOWED_QUESTION_SOURCES.has(String(responseSource ?? "").trim());
 }
 
-export function finalizeKeyCustomerText(speakDraft = "", { failureMode = false } = {}) {
+export function finalizeKeyCustomerText(
+  speakDraft = "",
+  { failureMode = false, startedAt = null } = {},
+) {
+  const finalizeSpan = typeof startedAt === "number" ? startSpan(startedAt) : null;
   const trimmed = String(speakDraft ?? "").trim();
   if (!trimmed && failureMode) {
+    const sealSpan = typeof startedAt === "number" ? startSpan(startedAt) : null;
     const sealed = sealKeyCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    const sealMark = sealSpan ? sealSpan.end() : null;
+    const finalizeMark = finalizeSpan ? finalizeSpan.end() : null;
     return {
       customerText: sealed.key_speak_original,
       keySpeakOriginal: sealed.key_speak_original,
@@ -42,11 +50,15 @@ export function finalizeKeyCustomerText(speakDraft = "", { failureMode = false }
       persona_rewrite_blocked: true,
       completeness_guard: { applied: false, reason: "key_speak_failure" },
       key_customer_text_sealed: true,
+      latency_marks: { finalize: finalizeMark, seal: sealMark },
     };
   }
   const guarded = guardKeyCustomerTextCompleteness(trimmed);
   const cleaned = polishLifeguardCustomerText(guarded.customerText);
+  const sealSpan = typeof startedAt === "number" ? startSpan(startedAt) : null;
   const sealed = sealKeyCustomerText(cleaned || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+  const sealMark = sealSpan ? sealSpan.end() : null;
+  const finalizeMark = finalizeSpan ? finalizeSpan.end() : null;
   return {
     customerText: sealed.key_speak_original,
     keySpeakOriginal: sealed.key_speak_original,
@@ -54,6 +66,7 @@ export function finalizeKeyCustomerText(speakDraft = "", { failureMode = false }
     persona_rewrite_blocked: true,
     completeness_guard: guarded.completeness_guard,
     key_customer_text_sealed: true,
+    latency_marks: { finalize: finalizeMark, seal: sealMark },
   };
 }
 

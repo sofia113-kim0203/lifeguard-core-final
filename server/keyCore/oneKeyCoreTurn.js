@@ -46,6 +46,7 @@ import {
   isKeyFirstDecisionShadowEnabled,
   resolveKeyFirstDecision,
 } from "../keyBrain/keyFirstDecision.js";
+import { startSpan } from "./keyLatencyMarks.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
@@ -141,6 +142,7 @@ async function buildOneKeySpeakDraft({
   history = [],
   previousAnswerSummary = "",
   shadowVisualBlocksOverride = null,
+  startedAt = Date.now(),
 } = {}) {
   const speakInput = {
     event: "question",
@@ -155,6 +157,7 @@ async function buildOneKeySpeakDraft({
     history,
     previousAnswerSummary,
     shadowVisualBlocksOverride,
+    startedAt,
   };
 
   const speakResult = await keySpeakAsync(speakInput);
@@ -336,7 +339,11 @@ async function runOneKeyCoreQuestionTurn({
   };
 
   const recordStep = (step, payload) => {
-    trace.steps.push({ step, at: step, payload });
+    trace.steps.push({
+      step,
+      at_ms: Math.max(0, Date.now() - startedAt),
+      payload,
+    });
   };
 
   let contextSnapshot = null;
@@ -495,12 +502,14 @@ async function runOneKeyCoreQuestionTurn({
     history: conversationHistory,
     previousAnswerSummary,
     shadowVisualBlocksOverride,
+    startedAt,
   });
   recordStep("speak", {
     draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
     compose_mode: speakResult.keyComposeTrace?.compose_mode ?? "key_master_question",
     key_speak_master: true,
     key_compose_trace: speakResult.keyComposeTrace,
+    latency_marks: speakResult.keyComposeTrace?.key_voice_trace?.latency_marks ?? null,
     shadow_visual_blocks_override_used:
       speakResult.keyComposeTrace?.key_voice_trace?.shadow_visual_blocks_override_used ?? false,
     shadow_visual_blocks_override_count:
@@ -551,7 +560,23 @@ async function runOneKeyCoreQuestionTurn({
       speakResult.keyComposeTrace?.failureMode === true ||
       speakResult.keyComposeTrace?.key_voice_trace?.used_failure_mode === true ||
       !String(speakResult.speakDraft ?? "").trim(),
+    startedAt,
   });
+  // Merge finalize/seal marks onto voice latency (compose) without failing the turn.
+  try {
+    const voiceMarks = speakResult.keyComposeTrace?.key_voice_trace?.latency_marks;
+    if (voiceMarks && typeof voiceMarks === "object" && outletResult.latency_marks) {
+      voiceMarks.finalize = outletResult.latency_marks.finalize ?? null;
+      voiceMarks.seal = outletResult.latency_marks.seal ?? null;
+    } else if (outletResult.latency_marks && speakResult.keyComposeTrace?.key_voice_trace) {
+      speakResult.keyComposeTrace.key_voice_trace.latency_marks = {
+        ...(speakResult.keyComposeTrace.key_voice_trace.latency_marks ?? {}),
+        ...outletResult.latency_marks,
+      };
+    }
+  } catch {
+    /* instrumentation only */
+  }
   recordStep("persona", {
     generation_mode: outletResult.generation_mode,
     persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
@@ -559,9 +584,18 @@ async function runOneKeyCoreQuestionTurn({
     text_preview: String(outletResult.customerText ?? "").slice(0, 300),
     rewrite_detected: false,
     ghost_path_reached: speakResult.keyComposeTrace?.ghost_path_reached ?? [],
+    latency_marks: outletResult.latency_marks ?? null,
   });
 
   trace.persona_rewrite_blocked = outletResult.persona_rewrite_blocked;
+  try {
+    trace.latency_marks =
+      speakResult.keyComposeTrace?.key_voice_trace?.latency_marks ??
+      outletResult.latency_marks ??
+      null;
+  } catch {
+    trace.latency_marks = null;
+  }
 
   const stepNames = trace.steps.map((row) => row.step);
   const traceComplete = CORE_STEPS.every((name) => stepNames.includes(name));

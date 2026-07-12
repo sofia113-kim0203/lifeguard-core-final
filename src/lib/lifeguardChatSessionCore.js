@@ -125,6 +125,56 @@ export function clearLifeguardChatSnapshot(customerId) {
  * T1 investigation — persistable turn trace summary only (no secrets / no customer PII dumps).
  * Built from SSE `done` payload fields already available to the client.
  */
+/**
+ * Persistable latency marks — numbers/status only (mirrors server/keyLatencyMarks).
+ * Kept local so this module stays browser-safe (no server imports).
+ */
+function buildPersistableLatencyMarks(latencyMarks = null) {
+  try {
+    if (!latencyMarks || typeof latencyMarks !== "object") return null;
+    const pickSpan = (span) => {
+      if (!span || typeof span !== "object") return null;
+      const enter_ms = typeof span.enter_ms === "number" ? span.enter_ms : null;
+      const exit_ms = typeof span.exit_ms === "number" ? span.exit_ms : null;
+      const duration_ms = typeof span.duration_ms === "number" ? span.duration_ms : null;
+      if (enter_ms == null && exit_ms == null && duration_ms == null) return null;
+      return { enter_ms, exit_ms, duration_ms };
+    };
+    const provider =
+      latencyMarks.provider && typeof latencyMarks.provider === "object"
+        ? {
+            provider_call_count: Number(latencyMarks.provider.provider_call_count) || 0,
+            borrowed_provider_call_count:
+              Number(latencyMarks.provider.borrowed_provider_call_count) || 0,
+            s6_provider_call_count: Number(latencyMarks.provider.s6_provider_call_count) || 0,
+            error_types: Array.isArray(latencyMarks.provider.error_types)
+              ? latencyMarks.provider.error_types
+                  .map((e) => String(e ?? "").trim().slice(0, 64))
+                  .filter(Boolean)
+                  .slice(0, 8)
+              : [],
+          }
+        : null;
+    const s6 =
+      latencyMarks.s6_speak && typeof latencyMarks.s6_speak === "object"
+        ? {
+            ...pickSpan(latencyMarks.s6_speak),
+            s6_speak_call_count: Number(latencyMarks.s6_speak.s6_speak_call_count) || 0,
+          }
+        : null;
+    return {
+      borrowed_shadow_probe: pickSpan(latencyMarks.borrowed_shadow_probe),
+      s6_speak: s6,
+      gate: pickSpan(latencyMarks.gate),
+      finalize: pickSpan(latencyMarks.finalize),
+      seal: pickSpan(latencyMarks.seal),
+      provider,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function buildPersistableTurnTraceSummary(donePayload = null) {
   const payload = donePayload && typeof donePayload === "object" ? donePayload : {};
   const trace = payload.one_key_core_trace ?? null;
@@ -165,7 +215,7 @@ export function buildPersistableTurnTraceSummary(donePayload = null) {
 
   const stepSummaries = steps.map((row) => ({
     step: row?.step ?? null,
-    // Core steps currently stamp `at` as the step name; keep ms only when numeric.
+    // Prefer numeric at_ms; legacy `at` may be step name string — ignore non-numeric.
     at_ms: typeof row?.at_ms === "number" ? row.at_ms : typeof row?.at === "number" ? row.at : null,
   }));
 
@@ -177,6 +227,18 @@ export function buildPersistableTurnTraceSummary(donePayload = null) {
   const latencyRaw = payload.response_latency_ms;
   const responseLatencyMs =
     typeof latencyRaw === "number" && Number.isFinite(latencyRaw) ? Math.max(0, latencyRaw) : null;
+
+  const latencyMarksRaw =
+    keyVoiceTrace?.latency_marks ??
+    speakPayload.latency_marks ??
+    personaPayload.latency_marks ??
+    null;
+  let latencyMarks = null;
+  try {
+    latencyMarks = buildPersistableLatencyMarks(latencyMarksRaw);
+  } catch {
+    latencyMarks = null;
+  }
 
   return {
     compose_mode: composeMode == null ? null : String(composeMode),
@@ -221,6 +283,13 @@ export function buildPersistableTurnTraceSummary(donePayload = null) {
         typeof payload.sales_director_trace?.latency?.ttft_ms === "number"
           ? payload.sales_director_trace.latency.ttft_ms
           : null,
+      s6_speak_call_count:
+        typeof keyVoiceTrace?.latency_marks?.s6_speak?.s6_speak_call_count === "number"
+          ? keyVoiceTrace.latency_marks.s6_speak.s6_speak_call_count
+          : typeof keyVoiceTrace?.s6_speak_calls === "number"
+            ? keyVoiceTrace.s6_speak_calls
+            : null,
+      latency_marks: latencyMarks,
     },
   };
 }

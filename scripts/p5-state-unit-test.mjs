@@ -237,17 +237,37 @@ async function main() {
         response_source: "one_key_core",
         one_key_core_trace: {
           steps: [
-            { step: "interpret", at: "interpret" },
+            { step: "interpret", at_ms: 12 },
             {
               step: "speak",
+              at_ms: 30000,
               payload: {
                 compose_mode: "key_master_question",
                 key_speak_master: true,
                 key_voice_trace: {
                   borrowed_senses_calls: 1,
+                  s6_speak_calls: 1,
                   fallback_used: false,
                   gate_result: { ok: true },
                   hard_safety_repair_attempt: false,
+                  latency_marks: {
+                    borrowed_shadow_probe: { enter_ms: 100, exit_ms: 20100, duration_ms: 20000 },
+                    s6_speak: {
+                      enter_ms: 20500,
+                      exit_ms: 35000,
+                      duration_ms: 14500,
+                      s6_speak_call_count: 1,
+                    },
+                    gate: { enter_ms: 35000, exit_ms: 35005, duration_ms: 5 },
+                    finalize: { enter_ms: 36000, exit_ms: 36002, duration_ms: 2 },
+                    seal: { enter_ms: 36001, exit_ms: 36002, duration_ms: 1 },
+                    provider: {
+                      provider_call_count: 3,
+                      borrowed_provider_call_count: 2,
+                      s6_provider_call_count: 1,
+                      error_types: [],
+                    },
+                  },
                   borrowed_senses_shadow: {
                     final_answer_source: "claude_candidate",
                     public_research_evidence: {
@@ -260,7 +280,7 @@ async function main() {
                 },
               },
             },
-            { step: "persona", payload: { ghost_path_reached: [] } },
+            { step: "persona", at_ms: 36010, payload: { ghost_path_reached: [] } },
           ],
         },
       });
@@ -270,6 +290,14 @@ async function main() {
       assert.equal(summary.one_key_core_trace_summary.web_search_result_count, 2);
       assert.equal(summary.one_key_core_trace_summary.borrowed_executed, true);
       assert.equal(summary.one_key_core_trace_summary.ghost_path_reached_count, 0);
+      assert.equal(summary.one_key_core_trace_summary.steps[0].at_ms, 12);
+      assert.equal(summary.one_key_core_trace_summary.s6_speak_call_count, 1);
+      assert.equal(
+        summary.one_key_core_trace_summary.latency_marks.borrowed_shadow_probe.duration_ms,
+        20000,
+      );
+      assert.equal(summary.one_key_core_trace_summary.latency_marks.s6_speak.s6_speak_call_count, 1);
+      assert.equal(summary.one_key_core_trace_summary.latency_marks.provider.provider_call_count, 3);
 
       const meta = buildAssistantTurnMetadata("s1", {
         composeMode: summary.compose_mode,
@@ -279,6 +307,7 @@ async function main() {
       assert.equal(meta.compose_mode, "key_master_question");
       assert.equal(meta.response_latency_ms, 12345);
       assert.equal(meta.one_key_core_trace_summary.web_search_result_count, 2);
+      assert.equal(meta.one_key_core_trace_summary.latency_marks.s6_speak.duration_ms, 14500);
       assert.equal(Object.prototype.hasOwnProperty.call(meta, "one_key_core_trace"), false);
     })
   ) {
@@ -304,6 +333,51 @@ async function main() {
 
       const merged = mergeRestoredSessionMessages(sanitized, []);
       assert.equal(merged.length, 2);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T12 latency marks — span + error sanitize (no secrets)", async () => {
+      const {
+        startSpan,
+        sanitizeLatencyErrorType,
+        buildPersistableLatencyMarks,
+        countBorrowedProviderCalls,
+      } = await import("../server/keyCore/keyLatencyMarks.js");
+      const t0 = Date.now() - 5000;
+      const span = startSpan(t0, t0 + 100);
+      await new Promise((r) => setTimeout(r, 5));
+      const done = span.end(t0 + 250);
+      assert.equal(done.enter_ms, 100);
+      assert.equal(done.exit_ms, 250);
+      assert.equal(done.duration_ms, 150);
+
+      assert.equal(sanitizeLatencyErrorType("CLAUDE_TIMEOUT"), "CLAUDE_TIMEOUT");
+      assert.equal(sanitizeLatencyErrorType("CLAUDE_API_429"), "CLAUDE_API_429");
+      assert.equal(sanitizeLatencyErrorType("sk-ant-secret-value-here"), "provider_error_other");
+
+      assert.equal(
+        countBorrowedProviderCalls({ provider_request_trace: [{}, {}], attempts: 9 }),
+        2,
+      );
+
+      const marks = buildPersistableLatencyMarks({
+        borrowed_shadow_probe: { enter_ms: 1, exit_ms: 2, duration_ms: 1 },
+        s6_speak: { enter_ms: 3, exit_ms: 4, duration_ms: 1, s6_speak_call_count: 1 },
+        gate: { enter_ms: 4, exit_ms: 5, duration_ms: 1 },
+        finalize: { enter_ms: 5, exit_ms: 6, duration_ms: 1 },
+        seal: { enter_ms: 5, exit_ms: 6, duration_ms: 1 },
+        provider: {
+          provider_call_count: 2,
+          borrowed_provider_call_count: 1,
+          s6_provider_call_count: 1,
+          error_types: ["CLAUDE_TIMEOUT"],
+        },
+      });
+      assert.equal(marks.borrowed_shadow_probe.duration_ms, 1);
+      assert.equal(marks.provider.error_types[0], "CLAUDE_TIMEOUT");
     })
   ) {
     passed += 1;

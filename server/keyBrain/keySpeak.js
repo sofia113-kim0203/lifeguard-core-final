@@ -126,6 +126,7 @@ export async function keySpeakAsync({
   shadowVisualBlocksOverride = null,
   ghostLedger = null,
   fetchImpl = fetch,
+  startedAt = Date.now(),
 } = {}) {
   const ledger = Array.isArray(ghostLedger) ? ghostLedger : createGhostLedger();
 
@@ -157,6 +158,7 @@ export async function keySpeakAsync({
       shadowVisualBlocksOverride,
       ghostLedger: ledger,
       fetchImpl,
+      startedAt,
     });
   }
 
@@ -184,6 +186,7 @@ export async function keySpeakAsync({
       shadowVisualBlocksOverride,
       ghostLedger: ledger,
       fetchImpl,
+      startedAt,
     });
   }
 
