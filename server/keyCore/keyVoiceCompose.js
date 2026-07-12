@@ -41,6 +41,7 @@ import {
 } from "./keyBorrowedSensesStage2.js";
 import { applyStage3PromotionToCompose } from "./keyBorrowedSensesStage3.js";
 import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "./keyCustomerMonopoly.js";
+import { DOCUMENT_DIRECT_REQUEST_TOO_LARGE_CUSTOMER_TEXT } from "./keyClaudeFullDocumentDirect.js";
 import {
   startSpan,
   countBorrowedProviderCalls,
@@ -192,6 +193,8 @@ export async function buildKeyVoiceComposeResult(
     shadowVisualBlocksOverride = null,
     documentEvidence = null,
     relatedPastOriginals = null,
+    directPdfAttachment = null,
+    documentDirectMeta = null,
     fetchImpl = fetch,
     ghostLedger = null,
     startedAt = Date.now(),
@@ -201,6 +204,11 @@ export async function buildKeyVoiceComposeResult(
   const reflection = thinkingFlow?.reflection ?? null;
   const reality = thinkingFlow?.reality ?? null;
   const directiveQuestion = question || reflection?.customer_said || "";
+  // PDF-only upload: do not feed KEY's reflection seed into Claude as a fake customer question.
+  const claudeQuestion =
+    documentDirectMeta && !String(question ?? "").trim()
+      ? ""
+      : directiveQuestion;
   const probeOn = isKeyBorrowedSensesProbeEnabled(env);
   const production = isVercelProductionEnv(env);
   const borrowedMode = getKeyBorrowedSensesMode(env);
@@ -267,7 +275,7 @@ export async function buildKeyVoiceComposeResult(
     const probeSpan = startSpan(startedAt);
     try {
       shadow = await runBorrowedSensesShadowProbe({
-        question: directiveQuestion,
+        question: claudeQuestion,
         directive: null,
         decision: null,
         factBoundary,
@@ -279,6 +287,8 @@ export async function buildKeyVoiceComposeResult(
         visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
         documentEvidence,
         relatedPastOriginals,
+        directPdfAttachment,
+        documentDirectMeta,
         answerMode: claudeFullSinglePass ? "claude_full" : "shadow_sketch",
         startedAt,
         env,
@@ -292,6 +302,11 @@ export async function buildKeyVoiceComposeResult(
     borrowedUnderstanding = shadow?.borrowed ?? null;
     const borrowedErr = sanitizeLatencyErrorType(shadow?.error);
     if (borrowedErr) providerErrorTypes.push(borrowedErr);
+    // Request blocked before provider — not a Claude call.
+    if (shadow?.error === "REQUEST_PAYLOAD_TOO_LARGE") {
+      claudeCallCount = 0;
+      borrowedSensesCalls = 0;
+    }
   }
 
   // --- KEY Decision (owns judgment; Claude understanding = material only) ---
@@ -771,7 +786,7 @@ export async function buildKeyVoiceComposeResult(
         question: directiveQuestion,
       });
       const repairProbe = await runBorrowedSensesShadowProbe({
-        question: directiveQuestion,
+        question: claudeQuestion,
         directive: null,
         decision: null,
         factBoundary,
@@ -791,6 +806,8 @@ export async function buildKeyVoiceComposeResult(
         },
         documentEvidence,
         relatedPastOriginals,
+        directPdfAttachment,
+        documentDirectMeta,
         startedAt,
         env,
         fetchImpl,
@@ -934,12 +951,47 @@ export async function buildKeyVoiceComposeResult(
     }
   } else if (!gateResult?.ok && !voiceRaw) {
     // Claude-Full / Speak failed with no candidate — honest failure, never S3/S4/S5 / safe utterance.
-    finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-    usedFailureMode = true;
-    trace.fallback_used = true;
-    trace.fallback_reason = speakResult?.error ?? gateResult?.reasons?.join("; ") ?? "speak_failed";
-    trace.failure_mode_used = true;
-    outputGate = { ok: false, reasons: [trace.fallback_reason], hard_safety_failure_mode: true };
+    if (shadow?.error === "REQUEST_PAYLOAD_TOO_LARGE") {
+      finalText = DOCUMENT_DIRECT_REQUEST_TOO_LARGE_CUSTOMER_TEXT;
+      usedFailureMode = true;
+      trace.fallback_used = true;
+      trace.fallback_reason = "request_payload_too_large";
+      trace.failure_mode_used = true;
+      if (shadow?.document_direct) {
+        trace.document_direct = {
+          document_id: shadow.document_direct.document_id ?? documentDirectMeta?.document_id ?? null,
+          mime_type: shadow.document_direct.mime_type ?? documentDirectMeta?.mime_type ?? null,
+          file_size_bytes:
+            shadow.document_direct.file_size_bytes ?? documentDirectMeta?.file_size_bytes ?? null,
+          direct_document_attached: false,
+          estimated_request_bytes: shadow.document_direct.estimated_request_bytes ?? null,
+          document_fallback_used: true,
+          document_fallback_reason: "request_payload_too_large",
+        };
+      } else if (documentDirectMeta) {
+        trace.document_direct = {
+          document_id: documentDirectMeta.document_id ?? null,
+          mime_type: documentDirectMeta.mime_type ?? null,
+          file_size_bytes: documentDirectMeta.file_size_bytes ?? null,
+          direct_document_attached: false,
+          estimated_request_bytes: shadow?.estimated_request_bytes ?? null,
+          document_fallback_used: true,
+          document_fallback_reason: "request_payload_too_large",
+        };
+      }
+      outputGate = {
+        ok: false,
+        reasons: ["request_payload_too_large"],
+        hard_safety_failure_mode: true,
+      };
+    } else {
+      finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+      usedFailureMode = true;
+      trace.fallback_used = true;
+      trace.fallback_reason = speakResult?.error ?? gateResult?.reasons?.join("; ") ?? "speak_failed";
+      trace.failure_mode_used = true;
+      outputGate = { ok: false, reasons: [trace.fallback_reason], hard_safety_failure_mode: true };
+    }
   }
 
   trace.correction_attempts = correctionAttempts;
@@ -1144,21 +1196,50 @@ export async function buildKeyVoiceComposeResult(
       : null,
   };
 
+  const usedDocumentDirect =
+    usedClaudeFullSinglePass &&
+    (trace.document_direct?.direct_document_attached === true ||
+      shadow?.document_direct?.direct_document_attached === true ||
+      documentDirectMeta?.direct_document_attached === true) &&
+    shadow?.error !== "REQUEST_PAYLOAD_TOO_LARGE" &&
+    trace.fallback_reason !== "request_payload_too_large";
+
+  if (shadow?.error === "REQUEST_PAYLOAD_TOO_LARGE" && shadow?.document_direct) {
+    trace.document_direct = {
+      document_id: shadow.document_direct.document_id ?? documentDirectMeta?.document_id ?? null,
+      mime_type: shadow.document_direct.mime_type ?? documentDirectMeta?.mime_type ?? null,
+      file_size_bytes:
+        shadow.document_direct.file_size_bytes ?? documentDirectMeta?.file_size_bytes ?? null,
+      direct_document_attached: false,
+      estimated_request_bytes: shadow.document_direct.estimated_request_bytes ?? null,
+      document_fallback_used: true,
+      document_fallback_reason: "request_payload_too_large",
+    };
+  } else if (trace.document_direct?.document_fallback_reason === "request_payload_too_large") {
+    // keep honest blocked meta already written on the failure path
+  } else if (documentDirectMeta || shadow?.document_direct) {
+    trace.document_direct = documentDirectMeta ?? shadow.document_direct;
+  }
+
   return {
     text: finalText,
     visual_blocks: visualBlocks,
     segments: [],
-    compose_mode: usedClaudeFullSinglePass
-      ? "key_claude_full_single_pass"
-      : usedActiveFastPath
-        ? "key_s7_borrowed_fast_path"
-        : "key_s6_voice_speak",
+    compose_mode: usedDocumentDirect
+      ? "key_claude_full_document_direct"
+      : usedClaudeFullSinglePass
+        ? "key_claude_full_single_pass"
+        : usedActiveFastPath
+          ? "key_s7_borrowed_fast_path"
+          : "key_s6_voice_speak",
     thinking_flow_applied: true,
-    speak_mode: usedClaudeFullSinglePass
-      ? "claude_full_single_pass"
-      : usedActiveFastPath
-        ? "borrowed_senses_fast_path"
-        : "key_voice_speak",
+    speak_mode: usedDocumentDirect
+      ? "claude_full_document_direct"
+      : usedClaudeFullSinglePass
+        ? "claude_full_single_pass"
+        : usedActiveFastPath
+          ? "borrowed_senses_fast_path"
+          : "key_voice_speak",
     facts_spoken: directive.facts_to_speak ?? [],
     facts_withheld: factSelection.facts_withheld ?? [],
     facts_used: (directive.facts_to_speak ?? []).map((f) => f.fact_id),

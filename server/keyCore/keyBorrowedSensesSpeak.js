@@ -16,6 +16,11 @@ import {
   permissionCheckProposedToolActions,
   normalizeDocumentEvidence,
 } from "./keyClaudeFullEmit.js";
+import {
+  buildClaudeFullUserContentWithPdf,
+  estimateAnthropicMessagesRequestBytes,
+  isClaudeFullRequestTooLarge,
+} from "./keyClaudeFullDocumentDirect.js";
 import { relMs } from "./keyLatencyMarks.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -108,7 +113,11 @@ function summarizeVisualBlocks(blocks = []) {
   }));
 }
 
-function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {}) {
+function buildSystemPrompt({
+  mode = "emit",
+  answerMode = "shadow_sketch",
+  documentDirect = false,
+} = {}) {
   // Claude-Full: safety-only free prompt (no S7 structure/tone/choice mandates).
   if (answerMode === "claude_full") {
     return buildClaudeFullSystemPrompt({
@@ -118,6 +127,7 @@ function buildSystemPrompt({ mode = "emit", answerMode = "shadow_sketch" } = {})
           : mode === "emit_with_tools" || mode === "emit_with_research"
             ? "emit_with_tools"
             : "emit",
+      documentDirect: documentDirect === true,
     });
   }
   if (mode === "research") {
@@ -1645,7 +1655,9 @@ async function callClaudeFullEmitPass({
   offerWebSearch = true,
   startedAt = null,
   focusedCorrection = null,
+  directPdfAttachment = null,
 }) {
+  const documentDirect = Boolean(directPdfAttachment?.pdfBase64);
   const repairMessage =
     repairReason === "focused_correction"
       ? "FOCUSED CORRECTION: Call emit_claude_full again. Fix ONLY the listed CLOSED_HARD violations in customer_answer. Do not invent facts. Do not emit internal reasoning."
@@ -1658,17 +1670,23 @@ async function callClaudeFullEmitPass({
         ? "emit_with_tools"
         : "emit",
     answerMode: "claude_full",
+    documentDirect,
   });
   const tools = focusedCorrection || !offerWebSearch
     ? [CLAUDE_FULL_EMIT_TOOL]
     : [ANTHROPIC_WEB_SEARCH_TOOL, CLAUDE_FULL_EMIT_TOOL];
+  const userContent = buildClaudeFullUserContentWithPdf({
+    userPayload,
+    pdfBase64: documentDirect ? directPdfAttachment.pdfBase64 : null,
+    mediaType: directPdfAttachment?.mediaType,
+  });
   let messages = repairRaw
     ? [
-        { role: "user", content: JSON.stringify(userPayload, null, 2) },
+        { role: "user", content: userContent },
         { role: "assistant", content: [{ type: "text", text: repairRaw }] },
         { role: "user", content: repairMessage },
       ]
-    : [{ role: "user", content: JSON.stringify(userPayload, null, 2) }];
+    : [{ role: "user", content: userContent }];
 
   const requestTrace = [];
   let lastProviderTiming = null;
@@ -1676,6 +1694,49 @@ async function callClaudeFullEmitPass({
   let lastData = null;
   let lastRaw = null;
   let reasoningStripped = false;
+
+  // Before any Anthropic call: measure full request (PDF base64 + payload + tools/schema).
+  if (documentDirect) {
+    const firstToolChoice = focusedCorrection || repairRaw
+      ? { type: "tool", name: "emit_claude_full" }
+      : { type: "auto" };
+    const estimated_request_bytes = estimateAnthropicMessagesRequestBytes({
+      model,
+      maxTokens: 4096,
+      temperature: temp,
+      system,
+      tools,
+      toolChoice: firstToolChoice,
+      messages,
+    });
+    if (isClaudeFullRequestTooLarge(estimated_request_bytes)) {
+      return {
+        ok: false,
+        error: "REQUEST_PAYLOAD_TOO_LARGE",
+        estimated_request_bytes,
+        public_research_evidence: researchEvidence,
+        provider_request_trace: [
+          {
+            phase: "claude_full_emit_blocked",
+            blocked: true,
+            reason: "request_payload_too_large",
+            estimated_request_bytes,
+            // Never log body / base64 — size only
+          },
+        ],
+        provider_timing: {
+          provider_request_start_ms: null,
+          provider_request_complete_ms: null,
+          provider_duration_ms: null,
+          ttft_ms: null,
+          input_bytes: estimated_request_bytes,
+          input_tokens: null,
+          output_tokens: null,
+        },
+        provider_call_count: 0,
+      };
+    }
+  }
 
   for (let turn = 0; turn < 4; turn += 1) {
     const toolChoice = focusedCorrection
@@ -1853,6 +1914,7 @@ async function callClaudeBorrowedSenses({
   answerMode = "shadow_sketch",
   startedAt = null,
   focusedCorrection = null,
+  directPdfAttachment = null,
 }) {
   if (answerMode === "claude_full") {
     return callClaudeFullEmitPass({
@@ -1864,9 +1926,11 @@ async function callClaudeBorrowedSenses({
       temperature,
       repairRaw,
       repairReason,
-      offerWebSearch: !focusedCorrection,
+      // With original PDF attached, prefer emit over forced research phase.
+      offerWebSearch: !focusedCorrection && !directPdfAttachment?.pdfBase64,
       startedAt,
       focusedCorrection,
+      directPdfAttachment,
     });
   }
   const repairMessage =
@@ -2164,6 +2228,8 @@ export async function runBorrowedSensesShadowProbe({
   relatedPastJudgments = null,
   relatedPastOriginals = null,
   documentEvidence = null,
+  directPdfAttachment = null,
+  documentDirectMeta = null,
   answerMode = "shadow_sketch",
   focusedCorrection = null,
   startedAt = null,
@@ -2232,7 +2298,26 @@ export async function runBorrowedSensesShadowProbe({
     focusedCorrection,
     contextPack,
   });
-  if (publicResearchEnabled) {
+  if (documentDirectMeta && typeof documentDirectMeta === "object") {
+    userPayload.direct_document = {
+      attached: documentDirectMeta.direct_document_attached === true,
+      document_id: documentDirectMeta.document_id ?? null,
+      mime_type: documentDirectMeta.mime_type ?? null,
+      file_size_bytes: documentDirectMeta.file_size_bytes ?? null,
+      original_filename: documentDirectMeta.original_filename ?? null,
+      note: documentDirectMeta.direct_document_attached
+        ? "Original PDF is attached as an Anthropic document block. KEY did not pre-summarize it."
+        : documentDirectMeta.document_fallback_reason
+          ? `Original PDF not attached (${documentDirectMeta.document_fallback_reason}).`
+          : "Original PDF not attached.",
+    };
+    if (!String(question ?? "").trim()) {
+      userPayload.customer_question = "";
+      userPayload.upload_without_question = true;
+      userPayload.direct_document.note = `${userPayload.direct_document.note} Customer uploaded PDF without a question — open with the most helpful natural explanation.`;
+    }
+  }
+  if (publicResearchEnabled && !directPdfAttachment?.pdfBase64) {
     userPayload.public_research = {
       enabled: true,
       provider_tool: ANTHROPIC_WEB_SEARCH_TOOL.name,
@@ -2307,6 +2392,7 @@ export async function runBorrowedSensesShadowProbe({
           answerMode,
           startedAt,
           focusedCorrection,
+          directPdfAttachment,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -2333,6 +2419,49 @@ export async function runBorrowedSensesShadowProbe({
         lastProviderTiming = result.provider_timing;
       }
       if (result.reasoning_stripped === true) reasoningStripped = true;
+
+      // Full request (PDF + context) over safety cap — never call provider, never retry, never RAG.
+      if (result.error === "REQUEST_PAYLOAD_TOO_LARGE") {
+        const estimated =
+          typeof result.estimated_request_bytes === "number"
+            ? result.estimated_request_bytes
+            : result.provider_timing?.input_bytes ?? null;
+        return {
+          ...base,
+          error: "REQUEST_PAYLOAD_TOO_LARGE",
+          provider: null,
+          model,
+          attempts: 0,
+          public_research_enabled: false,
+          public_research_evidence: lastPublicResearch,
+          provider_request_trace: lastRequestTrace,
+          estimated_request_bytes: estimated,
+          document_direct: {
+            ...(documentDirectMeta && typeof documentDirectMeta === "object"
+              ? {
+                  document_id: documentDirectMeta.document_id ?? null,
+                  mime_type: documentDirectMeta.mime_type ?? null,
+                  file_size_bytes: documentDirectMeta.file_size_bytes ?? null,
+                }
+              : {}),
+            direct_document_attached: false,
+            estimated_request_bytes: estimated,
+            document_fallback_used: true,
+            document_fallback_reason: "request_payload_too_large",
+          },
+          provider_call_count: 0,
+          provider_speed: buildProviderSpeedSummary({
+            context_pack_ms,
+            attempts: 0,
+            parseRetryUsed: false,
+            leadershipRetryCount: 0,
+            timeoutRetryUsed: false,
+            lastRequestTrace,
+            lastProviderTiming,
+            focusedCorrection,
+          }),
+        };
+      }
 
       // Typed research contract failures — do not outer-retry (would duplicate search)
       if (result.research_failed) {
@@ -2432,6 +2561,7 @@ export async function runBorrowedSensesShadowProbe({
           provider_request_trace: lastRequestTrace,
           reasoning_stripped: reasoningStripped,
           tool_permission_check: toolPermissionCheck,
+          document_direct: documentDirectMeta ?? null,
           provider_speed: buildProviderSpeedSummary({
             context_pack_ms,
             attempts,

@@ -109,6 +109,7 @@ export default async function handler(req, res) {
 
   const hasAnalysisConsent = await hasDocumentAnalysisConsent(supabase, auth.customerId);
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
+  const customerQuestion = String(body.question ?? body.customer_question ?? "").trim();
 
   const coreResult = await runOneKeyCoreTurn({
     event: "document",
@@ -119,6 +120,7 @@ export default async function handler(req, res) {
     uploadSource: String(body.upload_source ?? "web"),
     categoryKey: body.category_key ?? null,
     uploadEntryMode: mode,
+    customerQuestion,
     env: resolveOneKeyCoreDocumentEnv(process.env),
   });
 

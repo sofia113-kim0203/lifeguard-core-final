@@ -1,5 +1,6 @@
 /**
  * ONE KEY Core S02-1 — document event (upload Prototype → Core 8-step).
+ * Claude-Full (Preview active): original PDF attached for Claude to read first — no KEY pre-summary.
  */
 import {
   buildKeyContextLoadedStep,
@@ -12,7 +13,10 @@ import {
 import { buildKeyFirstJudgment } from "../keyBrain/documentFirstJudgment.js";
 import { appendKeyFirstSpeakTrace } from "../keyBrain/documentFirstSpeak.js";
 import { keySpeak, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
-import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
+import {
+  finalizeKeyCustomerText,
+  KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+} from "./keyCustomerMonopoly.js";
 import {
   buildDu1InputBundle,
   resolveDu1InputGates,
@@ -35,7 +39,12 @@ import {
   ONE_KEY_CORE_RESPONSE_SOURCE,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
   resolveOneKeyCoreDocumentEnv,
+  isKeyBorrowedSensesStage3Active,
+  isVercelProductionEnv,
 } from "./oneKeyCoreFlags.js";
+import { buildReflection } from "./keyReflection.js";
+import { buildKeyVoiceComposeResult } from "./keyVoiceCompose.js";
+import { verifyAndFetchCustomerPdfOriginal } from "./keyClaudeFullDocumentDirect.js";
 
 export const ONE_KEY_CORE_DOCUMENT_STEPS = [
   "interpret",
@@ -243,9 +252,13 @@ export async function runOneKeyCoreDocumentTurn({
   uploadSource = "web",
   categoryKey = null,
   uploadEntryMode = KEY_UPLOAD_ENTRY_MODES.ACTIVE,
+  customerQuestion = "",
+  history = [],
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
+  // Test-only PDF injection (never logged as bytes)
+  injectedPdfBytes = null,
 } = {}) {
   const coreEnv = resolveOneKeyCoreDocumentEnv(env);
   const trace = {
@@ -393,18 +406,121 @@ export async function runOneKeyCoreDocumentTurn({
   });
   recordStep("evidence", evidenceBundle);
 
-  const speakResult = keySpeak({
-    event: "document",
-    document,
-    keyFirstJudgment: keyJudgment,
-    contextSnapshot,
-    loadedContext,
-  });
+  const claudeFullDocumentDirect =
+    isKeyBorrowedSensesStage3Active(coreEnv) && !isVercelProductionEnv(coreEnv);
+
+  let speakResult;
+  let documentDirectMeta = null;
+  let directPdfAttachment = null;
+
+  if (claudeFullDocumentDirect) {
+    const pdfFetch = await verifyAndFetchCustomerPdfOriginal({
+      supabase: userSupabase,
+      customerId,
+      documentId: document.id,
+      env: coreEnv,
+      injectedPdfBytes,
+      injectedDocument: injectedPdfBytes != null ? document : null,
+    });
+    documentDirectMeta = {
+      ...(pdfFetch.metrics ?? {}),
+      original_filename: pdfFetch.document?.original_filename ?? document.original_filename ?? null,
+    };
+    if (pdfFetch.ok && pdfFetch.pdfBase64) {
+      directPdfAttachment = {
+        pdfBase64: pdfFetch.pdfBase64,
+        mediaType: pdfFetch.mediaType,
+      };
+    }
+    // Direct-read failure: mark fallback; OCR/RAG auxiliary stays available via documentEvidence
+    // callers (embedding path). No new parser. Compose still runs without KEY PDF summary.
+
+    const policies =
+      customerContextBundle?.policies ??
+      contextSnapshot?.bundle?.policies ??
+      [];
+    const reality = {
+      policy_count: Array.isArray(policies) ? policies.length : 0,
+      policies: Array.isArray(policies) ? policies : [],
+    };
+    // KEY seed for Decision only — Claude gets empty customer_question when PDF-only.
+    // Include insurance topic so Decision is not non_insurance (PDF explain ≠ daily pollution).
+    const customerQ = String(customerQuestion ?? "").trim();
+    const reflectionSeed = customerQ || "올린 보험 관련 문서를 확인해 주세요.";
+    const reflection = buildReflection({ customerSaid: reflectionSeed, reality });
+    const compose = await buildKeyVoiceComposeResult(
+      {
+        reflection,
+        reality,
+        policies: reality.policies,
+        decision: null,
+      },
+      {
+        question: customerQ,
+        env: coreEnv,
+        history,
+        fetchImpl,
+        startedAt,
+        directPdfAttachment,
+        documentDirectMeta,
+      },
+    );
+
+    if (compose?.text) {
+      const composeDocDirect =
+        compose.key_voice_trace?.document_direct ?? documentDirectMeta;
+      if (composeDocDirect) documentDirectMeta = composeDocDirect;
+      speakResult = {
+        speakDraft: compose.text,
+        visual_blocks: compose.visual_blocks ?? [],
+        key_speak_master: true,
+        failureMode: compose.key_voice_trace?.used_failure_mode === true,
+        key_compose_trace: {
+          compose_mode: compose.compose_mode,
+          key_voice_trace: compose.key_voice_trace,
+          failureMode: compose.key_voice_trace?.used_failure_mode === true,
+          document_direct: documentDirectMeta,
+        },
+      };
+    } else {
+      // Honest monopoly failure only — never invent KEY PDF summary / S3–S5.
+      speakResult = {
+        speakDraft: KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+        visual_blocks: [],
+        key_speak_master: true,
+        failureMode: true,
+        key_compose_trace: {
+          compose_mode: "key_claude_full_document_direct",
+          failureMode: true,
+          document_direct: documentDirectMeta,
+        },
+      };
+      documentDirectMeta = {
+        ...(documentDirectMeta ?? {}),
+        document_fallback_used: true,
+        document_fallback_reason:
+          documentDirectMeta?.document_fallback_reason ??
+          pdfFetch.reason ??
+          "claude_full_compose_empty",
+      };
+    }
+  } else {
+    speakResult = keySpeak({
+      event: "document",
+      document,
+      keyFirstJudgment: keyJudgment,
+      contextSnapshot,
+      loadedContext,
+    });
+  }
+
   recordStep("speak", {
-    compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_document",
+    compose_mode:
+      speakResult.key_compose_trace?.compose_mode ?? "key_master_document",
     static_draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
-    du1: true,
+    du1: !claudeFullDocumentDirect,
     key_speak_master: true,
+    document_direct: documentDirectMeta,
   });
 
   trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);

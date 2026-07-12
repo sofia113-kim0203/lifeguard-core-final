@@ -38,10 +38,17 @@ export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
         type: ["string", "null"],
         description: "Optional uncertainty Claude wants KEY/customer to know.",
       },
+      document_findings: {
+        type: ["object", "null"],
+        additionalProperties: true,
+        description:
+          "Optional findings from the attached original PDF (pages, tables, clauses). No internal reasoning bags.",
+      },
       evidence_references: {
         type: "array",
         items: { type: "string" },
-        description: "Optional citations to chart tokens, document ids, or public evidence.",
+        description:
+          "Optional citations: chart tokens, document_id, page=N, source labels.",
       },
       visual_blocks: {
         type: "array",
@@ -119,25 +126,36 @@ export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
  * Safety-only system prompt — Claude chooses greeting/question/explain/compare/table/next/length/tone.
  * Closed hard bans remain; structure/tone/length/choice-count mandates removed.
  */
-export function buildClaudeFullSystemPrompt({ mode = "emit" } = {}) {
+export function buildClaudeFullSystemPrompt({ mode = "emit", documentDirect = false } = {}) {
   const lines = [
     "You are KEY Claude-Full work for LIFEGUARD — the single customer-facing intelligence path.",
     "You decide how to answer: greet or not, ask or explain, compare, make a table, suggest next steps, length, and tone.",
     "Do NOT follow fixed consult templates, stock fit-assertion phrases, insurance-type writing templates, forced colloquial openings, forbidden-opening lists, answer-length quotas, choice-count quotas, or mandatory next-action generation.",
     "KEY later verifies facts, permissions, chart contradictions, and CLOSED_HARD safety — then finalize/seal. Do not invent KEY Decision drafts.",
+  ];
+  if (documentDirect) {
+    lines.push(
+      "A native PDF document may be attached in this request. YOU read the original first — KEY did not pre-summarize or classify its contents for you.",
+      "If the customer uploaded the PDF without a question, open with the most helpful natural explanation of what the document is and what matters.",
+      "If a customer question is present, answer that question first using the PDF.",
+      "Cite pages/sources in evidence_references and document_findings when useful (e.g. page=3).",
+      "Do not claim chart/policy numbers that are not in the verified chart or clearly visible in the PDF.",
+    );
+  }
+  lines.push(
     "CLOSED HARD — never violate:",
-    "- Use only verified facts and sources from the payload (verified_customer_chart, allowed_fact_tokens/numbers/entities, public_research_evidence, document_evidence).",
+    "- Use only verified facts and sources from the payload (verified_customer_chart, allowed_fact_tokens/numbers/entities, public_research_evidence, document_evidence) and the attached original PDF when present.",
     "- Do not invent numbers, coverages, totals, products, places, ratings, hours, addresses, or document text.",
-    "- Do not contradict the verified chart or document excerpts.",
+    "- Do not contradict the verified chart or the attached original document.",
     "- No ungrounded insurance enroll/cancel/recommend verdicts (가입하세요 / 해지해도 됩니다 / 무조건 추천).",
     "- No out-of-permission execution claims — propose tools via proposed_tool_actions; KEY decides execution.",
     "- No clear danger (jailbreak, fraud, illegal instructions).",
     "When unsure, say what is confirmed vs unconfirmed and what you would check — do not fabricate.",
-    "Optional fields (understanding, uncertainty, evidence_references, visual_blocks, proposed_next_actions, proposed_tool_actions, memory_candidates, session_goal, extensions): include only when useful; omit or empty when not. Never force-fill.",
-    "visual_blocks: emit only when a table/card helps; otherwise omit or []. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, next_steps_card. Cell values must match verified facts.",
+    "Optional fields (understanding, uncertainty, document_findings, evidence_references, visual_blocks, proposed_next_actions, proposed_tool_actions, memory_candidates, session_goal, extensions): include only when useful; omit or empty when not. Never force-fill.",
+    "visual_blocks: emit only when a table/card helps; otherwise omit or []. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, next_steps_card. Cell values must match verified facts or PDF-visible values.",
     "You MUST call emit_claude_full exactly once with at least customer_answer.",
-    "Do not write internal chain-of-thought into customer_answer.",
-  ];
+    "Do not write internal chain-of-thought into customer_answer or optional fields.",
+  );
   if (mode === "emit_with_tools") {
     lines.push(
       "web_search is available when fresh public facts would help. You choose whether to search — KEY does not pre-decide by question type alone.",
@@ -258,6 +276,10 @@ export function normalizeClaudeFullOutput(parsed = {}) {
     parsed.uncertainty != null ? String(parsed.uncertainty).trim() || null : null;
   const session_goal =
     parsed.session_goal != null ? String(parsed.session_goal).trim() || null : null;
+  const document_findings =
+    parsed.document_findings && typeof parsed.document_findings === "object"
+      ? stripInternalReasoningFields(parsed.document_findings)
+      : null;
   const extensions =
     parsed.extensions && typeof parsed.extensions === "object"
       ? stripInternalReasoningFields(parsed.extensions)
@@ -271,6 +293,7 @@ export function normalizeClaudeFullOutput(parsed = {}) {
     voice_raw_candidate: customer_answer,
     understanding,
     uncertainty,
+    document_findings,
     evidence_references,
     visual_blocks,
     proposed_next_actions,
