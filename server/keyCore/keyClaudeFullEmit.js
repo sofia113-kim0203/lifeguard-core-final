@@ -11,16 +11,17 @@ export const CLAUDE_FULL_VISUAL_BLOCK_TYPES = Object.freeze([
   "policy_count_summary",
   "coverage_gap_table",
   "next_steps_card",
+  "coverage_status_card",
 ]);
 
 /**
- * Minimal tool schema: required customer_answer only.
- * No minItems. Optional fields may be omitted — never force-fill.
+ * Minimal tool schema: required customer_answer + decision + session_goal (D2).
+ * No minItems. Other optional fields may be omitted — never force-fill.
  */
 export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
   name: "emit_claude_full",
   description:
-    "Emit the customer-facing answer and any optional structured fields Claude chooses. Omit unused optional fields.",
+    "Emit customer_answer, decision, and session_goal (required). Omit unused optional fields.",
   input_schema: {
     type: "object",
     additionalProperties: false,
@@ -109,15 +110,15 @@ export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
         description: "Optional memory candidates for KEY approval — never auto-written.",
       },
       session_goal: {
-        type: ["string", "null"],
+        type: "string",
         description:
-          "Optional session goal Claude proposes in output. Not an input draft — KEY records/validates only.",
+          "Required session goal Claude proposes this turn (short Korean or key phrase). KEY records/validates only — never sealed by Claude alone.",
       },
       decision: {
-        type: ["object", "null"],
+        type: "object",
         additionalProperties: false,
         description:
-          "Optional Decision proposal Claude emits. KEY validates and records; never treat as sealed judgment.",
+          "Required Decision proposal Claude emits this turn. KEY validates and records; never treat as sealed judgment.",
         properties: {
           situation_key: { type: ["string", "null"] },
           response_priority: { type: ["string", "null"] },
@@ -134,6 +135,7 @@ export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
           },
           confirm_question: { type: ["string", "null"] },
         },
+        required: ["situation_key", "key_judgment", "key_next_move"],
       },
       extensions: {
         type: ["object", "null"],
@@ -141,7 +143,7 @@ export const CLAUDE_FULL_EMIT_TOOL = Object.freeze({
         description: "Open optional bag for future Claude capabilities KEY does not yet schema-lock.",
       },
     },
-    required: ["customer_answer"],
+    required: ["customer_answer", "decision", "session_goal"],
   },
 });
 
@@ -155,7 +157,7 @@ export function buildClaudeFullSystemPrompt({ mode = "emit", documentDirect = fa
     "You decide how to answer: greet or not, ask or explain, compare, make a table, suggest next steps, length, and tone.",
     "Do NOT follow fixed consult templates, stock fit-assertion phrases, insurance-type writing templates, forced colloquial openings, forbidden-opening lists, answer-length quotas, choice-count quotas, or mandatory next-action generation.",
     "KEY later verifies facts, permissions, chart contradictions, and CLOSED_HARD safety — then finalize/seal.",
-    "Do not receive Decision or Session Goal as input drafts. If useful, emit optional decision and session_goal for KEY to record and validate — never treat them as already sealed.",
+    "Do not receive Decision or Session Goal as input drafts. You MUST emit decision and session_goal in this turn for KEY to record and validate — never treat them as already sealed.",
   ];
   if (documentDirect) {
     lines.push(
@@ -175,9 +177,13 @@ export function buildClaudeFullSystemPrompt({ mode = "emit", documentDirect = fa
     "- No out-of-permission execution claims — propose tools via proposed_tool_actions; KEY decides execution.",
     "- No clear danger (jailbreak, fraud, illegal instructions).",
     "When unsure, say what is confirmed vs unconfirmed and what you would check — do not fabricate.",
-    "Optional fields (understanding, uncertainty, document_findings, evidence_references, visual_blocks, proposed_next_actions, proposed_tool_actions, memory_candidates, session_goal, decision, extensions): include only when useful; omit or empty when not. Never force-fill.",
-    "visual_blocks: emit only when a table/card helps; otherwise omit or []. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, next_steps_card. Cell values must match verified facts or PDF-visible values.",
-    "You MUST call emit_claude_full exactly once with at least customer_answer.",
+    "REQUIRED output fields via emit_claude_full: customer_answer, decision, session_goal. Never omit decision or session_goal.",
+    "decision must include situation_key, key_judgment, and key_next_move (KEY validates; Claude proposes only).",
+    "session_goal: one short phrase for this turn's goal (e.g. clarify cancer-coverage intent / inspect policy PDF).",
+    "customer_answer: lead with verified known facts from verified_customer_chart before questions. If coverages are unknown, say contracts are confirmed but coverage details are not yet loaded — do not invent coverages, and do not end only with a vague 'tell me more context' ask.",
+    "Optional fields (understanding, uncertainty, document_findings, evidence_references, visual_blocks, proposed_next_actions, proposed_tool_actions, memory_candidates, extensions): include only when useful; omit or empty when not. Never force-fill unused optionals.",
+    "visual_blocks: for insurance analysis questions when verified_customer_chart lists contracts, emit at least one coverage_status_card or policy_count_summary using ONLY verified known/unknown rows (e.g. contracts confirmed count; coverages unknown; cancer sufficiency deferred; next=PDF/증권). Otherwise omit or []. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, next_steps_card, coverage_status_card. Never invent coverages or fake comparison tables. Do not force blocks on unrelated daily chit-chat.",
+    "You MUST call emit_claude_full exactly once with customer_answer, decision, and session_goal.",
     "Do not write internal chain-of-thought into customer_answer or optional fields.",
   );
   if (mode === "emit_with_tools") {

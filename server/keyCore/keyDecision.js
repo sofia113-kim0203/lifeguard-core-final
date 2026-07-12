@@ -666,6 +666,7 @@ export function validateAndRecordClaudeDecision({
         claude_decision_proposal: null,
         claude_session_goal: sessionGoal,
         decision_source: "key_fallback",
+        d2_output_incomplete: true,
       },
     };
   }
@@ -727,6 +728,7 @@ export function validateAndRecordClaudeDecision({
       decision_source: decision_complete
         ? "claude_proposal_validated"
         : "key_fallback_incomplete_proposal",
+      d2_output_incomplete: !decision_complete || !sessionGoal,
     },
   };
 }
