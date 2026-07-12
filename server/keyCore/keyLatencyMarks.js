@@ -64,8 +64,25 @@ export function countBorrowedProviderCalls(shadow = null) {
 
 /**
  * Persistable subset for SSE summary + metadata_json.
+ * Always includes deploy identity when env provides it (no secrets).
  */
-export function buildPersistableLatencyMarks(latencyMarks = null) {
+export function resolveDeployIdentity(env = process.env) {
+  try {
+    const git_commit_sha =
+      String(env.VERCEL_GIT_COMMIT_SHA ?? env.GIT_COMMIT_SHA ?? "")
+        .trim()
+        .slice(0, 40) || null;
+    const deployment_id =
+      String(env.VERCEL_DEPLOYMENT_ID ?? env.DEPLOYMENT_ID ?? "")
+        .trim()
+        .slice(0, 80) || null;
+    return { git_commit_sha, deployment_id };
+  } catch {
+    return { git_commit_sha: null, deployment_id: null };
+  }
+}
+
+export function buildPersistableLatencyMarks(latencyMarks = null, env = process.env) {
   try {
     if (!latencyMarks || typeof latencyMarks !== "object") return null;
     const pickSpan = (span) => {
@@ -117,6 +134,10 @@ export function buildPersistableLatencyMarks(latencyMarks = null) {
               typeof latencyMarks.provider_speed.ttft_ms === "number"
                 ? latencyMarks.provider_speed.ttft_ms
                 : null,
+            ttft_basis:
+              typeof latencyMarks.provider_speed.ttft_basis === "string"
+                ? latencyMarks.provider_speed.ttft_basis.slice(0, 48)
+                : null,
             input_bytes:
               typeof latencyMarks.provider_speed.input_bytes === "number"
                 ? latencyMarks.provider_speed.input_bytes
@@ -149,6 +170,7 @@ export function buildPersistableLatencyMarks(latencyMarks = null) {
           s6_speak_call_count: Number(latencyMarks.s6_speak.s6_speak_call_count) || 0,
         }
       : null;
+    const identity = resolveDeployIdentity(env);
     const out = {
       borrowed_shadow_probe: pickSpan(latencyMarks.borrowed_shadow_probe),
       s6_speak: s6,
@@ -157,6 +179,14 @@ export function buildPersistableLatencyMarks(latencyMarks = null) {
       seal: pickSpan(latencyMarks.seal),
       provider,
       provider_speed: providerSpeed,
+      git_commit_sha:
+        typeof latencyMarks.git_commit_sha === "string"
+          ? latencyMarks.git_commit_sha.slice(0, 40)
+          : identity.git_commit_sha,
+      deployment_id:
+        typeof latencyMarks.deployment_id === "string"
+          ? latencyMarks.deployment_id.slice(0, 80)
+          : identity.deployment_id,
     };
     return out;
   } catch {

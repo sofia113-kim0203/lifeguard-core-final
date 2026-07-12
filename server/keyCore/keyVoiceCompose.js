@@ -46,6 +46,7 @@ import {
   startSpan,
   countBorrowedProviderCalls,
   sanitizeLatencyErrorType,
+  resolveDeployIdentity,
 } from "./keyLatencyMarks.js";
 
 function normalizeText(text = "") {
@@ -1154,6 +1155,7 @@ export async function buildKeyVoiceComposeResult(
 
   const borrowedProviderCallCount = countBorrowedProviderCalls(shadow);
   const providerSpeed = shadow?.provider_speed ?? null;
+  const deployIdentity = resolveDeployIdentity(env);
   trace.latency_marks = {
     borrowed_shadow_probe: borrowedShadowProbeMark,
     s6_speak:
@@ -1194,6 +1196,7 @@ export async function buildKeyVoiceComposeResult(
           provider_request_complete_ms: providerSpeed.provider_request_complete_ms ?? null,
           provider_duration_ms: providerSpeed.provider_duration_ms ?? null,
           ttft_ms: providerSpeed.ttft_ms ?? null,
+          ttft_basis: providerSpeed.ttft_basis ?? null,
           input_bytes: providerSpeed.input_bytes ?? null,
           input_tokens: providerSpeed.input_tokens ?? null,
           output_tokens: providerSpeed.output_tokens ?? null,
@@ -1202,6 +1205,8 @@ export async function buildKeyVoiceComposeResult(
           research_tool_round_count: providerSpeed.research_tool_round_count ?? null,
         }
       : null,
+    git_commit_sha: deployIdentity.git_commit_sha,
+    deployment_id: deployIdentity.deployment_id,
   };
 
   const usedDocumentDirect =

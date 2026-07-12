@@ -1307,6 +1307,117 @@ function normalizeNullable(value) {
   return t || null;
 }
 
+async function readAnthropicSseMessage({
+  res,
+  startedAt = null,
+}) {
+  const reader = res.body?.getReader?.();
+  if (!reader) {
+    const dataRaw = await res.json();
+    const complete_ms = startedAt != null ? relMs(startedAt) : null;
+    return {
+      dataRaw,
+      ttft_ms: complete_ms,
+      ttft_basis: "non_stream_json_fallback",
+    };
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let ttft_ms = null;
+  let message = null;
+  let usage = null;
+  let contentBlocks = [];
+
+  const markTtft = () => {
+    if (ttft_ms == null && startedAt != null) ttft_ms = relMs(startedAt);
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n");
+    buffer = parts.pop() ?? "";
+    for (const line of parts) {
+      const trimmed = line.trimEnd();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let evt;
+      try {
+        evt = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      const type = String(evt?.type ?? "");
+      if (type === "message_start" && evt.message) {
+        message = evt.message;
+        if (Array.isArray(message.content)) contentBlocks = [...message.content];
+      } else if (type === "content_block_start") {
+        markTtft();
+        const idx = Number(evt.index);
+        if (Number.isFinite(idx)) {
+          const block = evt.content_block && typeof evt.content_block === "object"
+            ? { ...evt.content_block }
+            : { type: "text", text: "" };
+          if (block.type === "tool_use") block.input_json = block.input_json ?? "";
+          contentBlocks[idx] = block;
+        }
+      } else if (type === "content_block_delta") {
+        markTtft();
+        const idx = Number(evt.index);
+        const delta = evt.delta ?? {};
+        if (!Number.isFinite(idx)) continue;
+        if (!contentBlocks[idx]) contentBlocks[idx] = { type: "text", text: "" };
+        if (delta.type === "text_delta") {
+          contentBlocks[idx].text = `${contentBlocks[idx].text ?? ""}${delta.text ?? ""}`;
+        } else if (delta.type === "input_json_delta") {
+          contentBlocks[idx].input_json =
+            `${contentBlocks[idx].input_json ?? ""}${delta.partial_json ?? ""}`;
+          contentBlocks[idx].type = contentBlocks[idx].type || "tool_use";
+        }
+      } else if (type === "message_delta") {
+        if (evt.usage) usage = { ...(usage ?? {}), ...evt.usage };
+      } else if (type === "message_stop") {
+        // final assembly below
+      }
+    }
+  }
+
+  // Finalize tool_use blocks: parse accumulated input_json into input object
+  const content = contentBlocks.map((block) => {
+    if (!block || typeof block !== "object") return block;
+    if (block.type === "tool_use" || block.input_json != null) {
+      let input = block.input;
+      if (block.input_json) {
+        try {
+          input = JSON.parse(block.input_json);
+        } catch {
+          input = block.input ?? {};
+        }
+      }
+      return {
+        type: "tool_use",
+        id: block.id ?? null,
+        name: block.name ?? null,
+        input: input ?? {},
+      };
+    }
+    return block;
+  });
+
+  const dataRaw = {
+    ...(message && typeof message === "object" ? message : {}),
+    content,
+    usage: usage ?? message?.usage ?? null,
+  };
+  return {
+    dataRaw,
+    ttft_ms,
+    ttft_basis: ttft_ms != null ? "stream_first_content_block" : "stream_no_content",
+  };
+}
+
 async function postAnthropicMessages({
   fetchImpl,
   signal,
@@ -1328,6 +1439,7 @@ async function postAnthropicMessages({
     tools,
     tool_choice: toolChoice,
     messages,
+    stream: true,
   });
   const input_bytes = Buffer.byteLength(bodyStr, "utf8");
   const provider_request_start_ms =
@@ -1363,13 +1475,17 @@ async function postAnthropicMessages({
         provider_request_complete_ms,
         provider_duration_ms: Math.max(0, Date.now() - wallStart),
         ttft_ms: null,
+        ttft_basis: null,
         input_bytes,
         input_tokens: null,
         output_tokens: null,
       },
     };
   }
-  const dataRaw = await res.json();
+  const { dataRaw, ttft_ms, ttft_basis } = await readAnthropicSseMessage({
+    res,
+    startedAt,
+  });
   const { data, stripped } = stripReasoningFromProviderData(dataRaw);
   const usage = extractUsageMetrics(data);
   const provider_request_complete_ms =
@@ -1383,8 +1499,8 @@ async function postAnthropicMessages({
       provider_request_start_ms,
       provider_request_complete_ms,
       provider_duration_ms: Math.max(0, Date.now() - wallStart),
-      // Non-streaming Messages API — TTFT not measurable
-      ttft_ms: null,
+      ttft_ms: typeof ttft_ms === "number" ? ttft_ms : null,
+      ttft_basis: ttft_basis ?? null,
       input_bytes,
       input_tokens: usage.input_tokens,
       output_tokens: usage.output_tokens,
@@ -2674,6 +2790,7 @@ function buildProviderSpeedSummary({
     provider_request_complete_ms: lastProviderTiming?.provider_request_complete_ms ?? null,
     provider_duration_ms: lastProviderTiming?.provider_duration_ms ?? null,
     ttft_ms: lastProviderTiming?.ttft_ms ?? null,
+    ttft_basis: lastProviderTiming?.ttft_basis ?? null,
     input_bytes: lastProviderTiming?.input_bytes ?? null,
     input_tokens: lastProviderTiming?.input_tokens ?? null,
     output_tokens: lastProviderTiming?.output_tokens ?? null,
