@@ -41,6 +41,110 @@ export function resolveActiveLifeguardSessionId({ recentSessions = [], storedId 
   return createLifeguardSessionId();
 }
 
+/**
+ * T1 investigation — persistable turn trace summary only (no secrets / no customer PII dumps).
+ * Built from SSE `done` payload fields already available to the client.
+ */
+export function buildPersistableTurnTraceSummary(donePayload = null) {
+  const payload = donePayload && typeof donePayload === "object" ? donePayload : {};
+  const trace = payload.one_key_core_trace ?? null;
+  const steps = Array.isArray(trace?.steps) ? trace.steps : [];
+  const speakStep = steps.find((row) => row?.step === "speak") ?? null;
+  const speakPayload = speakStep?.payload && typeof speakStep.payload === "object" ? speakStep.payload : {};
+  const personaStep = steps.find((row) => row?.step === "persona") ?? null;
+  const personaPayload =
+    personaStep?.payload && typeof personaStep.payload === "object" ? personaStep.payload : {};
+  const keyVoiceTrace =
+    speakPayload.key_voice_trace ??
+    speakPayload.key_compose_trace?.key_voice_trace ??
+    null;
+  const shadow = keyVoiceTrace?.borrowed_senses_shadow ?? null;
+  const research =
+    shadow?.public_research_evidence ??
+    keyVoiceTrace?.directive?.public_research_evidence ??
+    null;
+  const resultCount = Array.isArray(research?.results) ? research.results.length : null;
+  const groundedCount = Array.isArray(research?.grounded_place_candidates)
+    ? research.grounded_place_candidates.length
+    : resultCount;
+  const searchCount = Number(research?.search_count);
+  const webSearchExecuted =
+    research == null
+      ? null
+      : research.used === true ||
+        (Number.isFinite(searchCount) && searchCount > 0) ||
+        (typeof resultCount === "number" && resultCount > 0);
+  const ghost = Array.isArray(personaPayload.ghost_path_reached)
+    ? personaPayload.ghost_path_reached
+    : Array.isArray(keyVoiceTrace?.ghost_path_reached)
+      ? keyVoiceTrace.ghost_path_reached
+      : [];
+  const hardRepair =
+    keyVoiceTrace?.hard_safety_repair_attempt === true ||
+    (keyVoiceTrace?.hard_safety_repair && typeof keyVoiceTrace.hard_safety_repair === "object");
+
+  const stepSummaries = steps.map((row) => ({
+    step: row?.step ?? null,
+    // Core steps currently stamp `at` as the step name; keep ms only when numeric.
+    at_ms: typeof row?.at_ms === "number" ? row.at_ms : typeof row?.at === "number" ? row.at : null,
+  }));
+
+  const composeMode =
+    speakPayload.compose_mode ??
+    speakPayload.key_compose_trace?.compose_mode ??
+    payload.compose_mode ??
+    null;
+  const latencyRaw = payload.response_latency_ms;
+  const responseLatencyMs =
+    typeof latencyRaw === "number" && Number.isFinite(latencyRaw) ? Math.max(0, latencyRaw) : null;
+
+  return {
+    compose_mode: composeMode == null ? null : String(composeMode),
+    response_latency_ms: responseLatencyMs,
+    one_key_core_trace_summary: {
+      steps: stepSummaries,
+      voice_entered:
+        speakPayload.key_speak_master === true ||
+        Boolean(speakPayload.key_voice_trace) ||
+        Boolean(speakPayload.key_compose_trace) ||
+        /^key_master/.test(String(composeMode ?? "")),
+      gate_ok:
+        typeof keyVoiceTrace?.gate_result?.ok === "boolean"
+          ? keyVoiceTrace.gate_result.ok
+          : typeof shadow?.gate?.ok === "boolean"
+            ? shadow.gate.ok
+            : null,
+      fallback_used: keyVoiceTrace?.fallback_used === true,
+      fallback_reason:
+        keyVoiceTrace?.fallback_reason == null
+          ? null
+          : String(keyVoiceTrace.fallback_reason).slice(0, 160),
+      borrowed_executed: Number(keyVoiceTrace?.borrowed_senses_calls ?? 0) > 0 || Boolean(shadow?.borrowed),
+      borrowed_senses_calls: Number(keyVoiceTrace?.borrowed_senses_calls ?? 0) || 0,
+      web_search_executed: webSearchExecuted,
+      web_search_result_count: typeof resultCount === "number" ? resultCount : null,
+      grounded_candidate_count: typeof groundedCount === "number" ? groundedCount : null,
+      research_status: research?.status == null ? null : String(research.status).slice(0, 64),
+      research_status_detail:
+        research?.status_detail == null ? null : String(research.status_detail).slice(0, 96),
+      hard_safety_repair: hardRepair === true,
+      final_answer_source:
+        shadow?.final_answer_source == null
+          ? keyVoiceTrace?.provider == null
+            ? null
+            : String(keyVoiceTrace.provider).slice(0, 64)
+          : String(shadow.final_answer_source).slice(0, 64),
+      ghost_path_reached_count: ghost.length,
+      response_source:
+        payload.response_source == null ? null : String(payload.response_source).slice(0, 64),
+      ttft_ms:
+        typeof payload.sales_director_trace?.latency?.ttft_ms === "number"
+          ? payload.sales_director_trace.latency.ttft_ms
+          : null,
+    },
+  };
+}
+
 export function isLifeguardHomeChatRow(row) {
   const metadata = row?.metadata ?? row?.metadata_json ?? {};
   const sessionId = metadata.session_id;
@@ -98,7 +202,13 @@ export function buildSessionMetadata(sessionId) {
 
 export function buildAssistantTurnMetadata(
   sessionId,
-  { visualBlocks = null, visualBlocksGate = null } = {},
+  {
+    visualBlocks = null,
+    visualBlocksGate = null,
+    composeMode = null,
+    responseLatencyMs = null,
+    oneKeyCoreTraceSummary = null,
+  } = {},
 ) {
   const metadata = buildSessionMetadata(sessionId);
   if (Array.isArray(visualBlocks) && visualBlocks.length > 0) {
@@ -106,6 +216,15 @@ export function buildAssistantTurnMetadata(
   }
   if (visualBlocksGate && typeof visualBlocksGate === "object") {
     metadata.visual_blocks_gate = visualBlocksGate;
+  }
+  if (composeMode != null && String(composeMode).trim()) {
+    metadata.compose_mode = String(composeMode).trim().slice(0, 96);
+  }
+  if (typeof responseLatencyMs === "number" && Number.isFinite(responseLatencyMs)) {
+    metadata.response_latency_ms = Math.max(0, Math.round(responseLatencyMs));
+  }
+  if (oneKeyCoreTraceSummary && typeof oneKeyCoreTraceSummary === "object") {
+    metadata.one_key_core_trace_summary = oneKeyCoreTraceSummary;
   }
   return metadata;
 }

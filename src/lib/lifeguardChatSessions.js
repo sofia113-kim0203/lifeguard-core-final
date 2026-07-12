@@ -20,6 +20,7 @@ export {
   activeSessionStorageKey,
   buildAssistantTurnMetadata,
   buildKeyPresenceMetadata,
+  buildPersistableTurnTraceSummary,
   buildRecentSessionsFromRows,
   createLifeguardSessionId,
   isLifeguardHomeChatRow,
@@ -161,6 +162,9 @@ export async function persistLifeguardChatTurn(
     assistantMessage,
     visualBlocks = null,
     visualBlocksGate = null,
+    composeMode = null,
+    responseLatencyMs = null,
+    oneKeyCoreTraceSummary = null,
   },
 ) {
   if (!sessionId) throw new Error("session_id_required");
@@ -169,6 +173,9 @@ export async function persistLifeguardChatTurn(
   const assistantMetadata = buildAssistantTurnMetadata(sessionId, {
     visualBlocks,
     visualBlocksGate,
+    composeMode,
+    responseLatencyMs,
+    oneKeyCoreTraceSummary,
   });
   const userRow = await insertLifeguardConversationMessage(customerId, {
     role: "user",

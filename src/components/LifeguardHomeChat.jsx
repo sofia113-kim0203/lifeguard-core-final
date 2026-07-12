@@ -692,6 +692,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           assistantMessage: finalText,
           visualBlocks,
           visualBlocksGate,
+          composeMode: result.composeMode ?? null,
+          responseLatencyMs: result.responseLatencyMs ?? null,
+          oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
         });
         writeActiveSessionId(customerId, sessionId);
         const recent = await listLifeguardRecentSessions(authUser, { customerId });

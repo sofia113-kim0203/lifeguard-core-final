@@ -5,6 +5,7 @@ import {
   rethrowCustomerApiError,
 } from "./customerApiAuth.js";
 import { parseHomeBrainFactSseBlock } from "./homeBrainFactSse.js";
+import { buildPersistableTurnTraceSummary } from "./lifeguardChatSessionCore.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const ROUTE_PATH = "/api/customer-home-brain-fact";
@@ -116,6 +117,7 @@ async function consumeHomeBrainFactSseForClient(response, handlers = {}) {
 
 export function mapHomeBrainFactPayload(payload) {
   const visualBlocks = resolveVisualBlocksFromPayload(payload);
+  const turnTrace = buildPersistableTurnTraceSummary(payload);
   return {
     answerText: payload.answerText ?? "",
     intent: payload.intent ?? null,
@@ -138,8 +140,10 @@ export function mapHomeBrainFactPayload(payload) {
     factoryHypothesis: payload.factory_hypothesis ?? null,
     factoryPrimaryDisconnect: payload.factory_primary_disconnect ?? null,
     salesDirectorJudgmentAudit: payload.sales_director_judgment_audit ?? null,
-    responseLatencyMs: payload.response_latency_ms ?? null,
+    responseLatencyMs: turnTrace.response_latency_ms ?? payload.response_latency_ms ?? null,
     ttftMs: payload.sales_director_trace?.latency?.ttft_ms ?? null,
+    composeMode: turnTrace.compose_mode,
+    oneKeyCoreTraceSummary: turnTrace.one_key_core_trace_summary,
     visualBlocks,
     visualBlocksGate: resolveVisualBlocksGateFromPayload(payload, visualBlocks),
   };

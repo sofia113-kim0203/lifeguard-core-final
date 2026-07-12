@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 
 import {
   buildAssistantTurnMetadata,
+  buildPersistableTurnTraceSummary,
   buildRecentSessionsFromRows,
   createLifeguardSessionId,
   isLifeguardHomeChatRow,
@@ -121,6 +122,8 @@ async function main() {
       assert.match(chat, /listLifeguardRecentSessions/);
       assert.match(chat, /loadLifeguardSessionMessages/);
       assert.match(chat, /createLifeguardSessionId/);
+      assert.match(chat, /oneKeyCoreTraceSummary/);
+      assert.match(chat, /composeMode/);
     })
   ) {
     passed += 1;
@@ -218,6 +221,61 @@ async function main() {
       assert.match(chat, /listDocuments\(authUser/);
       assert.match(chat, /formatOcrStatus/);
       assert.match(chat, /formatAnalysisComplete/);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T10 trace summary — persistable fields only (no secrets)", () => {
+      const summary = buildPersistableTurnTraceSummary({
+        response_latency_ms: 12345,
+        response_source: "one_key_core",
+        one_key_core_trace: {
+          steps: [
+            { step: "interpret", at: "interpret" },
+            {
+              step: "speak",
+              payload: {
+                compose_mode: "key_master_question",
+                key_speak_master: true,
+                key_voice_trace: {
+                  borrowed_senses_calls: 1,
+                  fallback_used: false,
+                  gate_result: { ok: true },
+                  hard_safety_repair_attempt: false,
+                  borrowed_senses_shadow: {
+                    final_answer_source: "claude_candidate",
+                    public_research_evidence: {
+                      status: "success",
+                      used: true,
+                      search_count: 1,
+                      results: [{ title: "A" }, { title: "B" }],
+                    },
+                  },
+                },
+              },
+            },
+            { step: "persona", payload: { ghost_path_reached: [] } },
+          ],
+        },
+      });
+      assert.equal(summary.compose_mode, "key_master_question");
+      assert.equal(summary.response_latency_ms, 12345);
+      assert.equal(summary.one_key_core_trace_summary.web_search_executed, true);
+      assert.equal(summary.one_key_core_trace_summary.web_search_result_count, 2);
+      assert.equal(summary.one_key_core_trace_summary.borrowed_executed, true);
+      assert.equal(summary.one_key_core_trace_summary.ghost_path_reached_count, 0);
+
+      const meta = buildAssistantTurnMetadata("s1", {
+        composeMode: summary.compose_mode,
+        responseLatencyMs: summary.response_latency_ms,
+        oneKeyCoreTraceSummary: summary.one_key_core_trace_summary,
+      });
+      assert.equal(meta.compose_mode, "key_master_question");
+      assert.equal(meta.response_latency_ms, 12345);
+      assert.equal(meta.one_key_core_trace_summary.web_search_result_count, 2);
+      assert.equal(Object.prototype.hasOwnProperty.call(meta, "one_key_core_trace"), false);
     })
   ) {
     passed += 1;
