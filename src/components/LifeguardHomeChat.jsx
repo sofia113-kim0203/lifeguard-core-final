@@ -32,6 +32,11 @@ import {
   formatUploadDate,
   toCustomerErrorMessage,
 } from "../lib/uiLocale.js";
+import {
+  isScrollNearBottom,
+  scrollChatContainerToBottom,
+  shouldAutoFollowChatScroll,
+} from "../lib/lifeguardChatScroll.js";
 
 const EXAMPLE_QUESTIONS = [
   "보험료 너무 비싼가?",
@@ -265,6 +270,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
   const focusTimerRef = useRef(null);
+  const chatScrollRef = useRef(null);
+  const stickToBottomRef = useRef(true);
+  const restoreForceScrollRef = useRef(false);
   const displayName =
     displayNameProp ??
     session?.dashboardData?.displayName ??
@@ -494,9 +502,70 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     });
   }, []);
 
+  const scrollChatToBottom = useCallback(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    scrollChatContainerToBottom(el);
+    window.requestAnimationFrame(() => {
+      scrollChatContainerToBottom(el);
+      window.requestAnimationFrame(() => {
+        scrollChatContainerToBottom(el);
+      });
+    });
+  }, []);
+
+  const handleChatScroll = useCallback(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = isScrollNearBottom(el);
+  }, []);
+
   useEffect(() => () => {
     if (focusTimerRef.current) window.clearTimeout(focusTimerRef.current);
   }, []);
+
+  // Restore / session switch: one forced jump to latest (separate from live follow).
+  useEffect(() => {
+    if (!threadRestoreReady || panelView !== "chat") return undefined;
+    if (!restoreForceScrollRef.current) return undefined;
+    restoreForceScrollRef.current = false;
+    stickToBottomRef.current = true;
+    scrollChatToBottom();
+    return undefined;
+  }, [threadRestoreReady, panelView, sessionId, messages.length, scrollChatToBottom]);
+
+  // Live follow only while user stays near bottom (or after restore force).
+  useEffect(() => {
+    if (!threadRestoreReady || panelView !== "chat") return undefined;
+    if (
+      !shouldAutoFollowChatScroll({
+        restoreForceOnce: false,
+        stickToBottom: stickToBottomRef.current,
+      })
+    ) {
+      return undefined;
+    }
+    scrollChatToBottom();
+    return undefined;
+  }, [messages, loading, streaming, thinkingIndex, threadRestoreReady, panelView, scrollChatToBottom]);
+
+  // Late visual-block / table height growth — follow only if still sticky.
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => {
+      if (
+        shouldAutoFollowChatScroll({
+          restoreForceOnce: restoreForceScrollRef.current,
+          stickToBottom: stickToBottomRef.current,
+        })
+      ) {
+        scrollChatContainerToBottom(el);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [messages.length, sessionId, scrollChatToBottom]);
 
   useEffect(() => {
     focusChatInputRef.current = focusChatInput;
@@ -548,6 +617,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     if (!authUser || !customerId || loadingSession) return undefined;
     let cancelled = false;
     setThreadRestoreReady(false);
+    restoreForceScrollRef.current = true;
 
     (async () => {
       try {
@@ -616,6 +686,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setError("");
       writeActiveSessionId(customerId, targetSessionId);
       setThreadRestoreReady(false);
+      restoreForceScrollRef.current = true;
+      stickToBottomRef.current = true;
 
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
@@ -769,6 +841,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setError("");
     setPanelView("chat");
     setSidebarOpen(false);
+    restoreForceScrollRef.current = false;
+    stickToBottomRef.current = true;
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = 0;
+    }
     if (customerId) {
       writeActiveSessionId(customerId, newSessionId);
       clearLifeguardChatSnapshot(customerId);
@@ -884,6 +961,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         </header>
 
         <div
+          ref={chatScrollRef}
+          onScroll={handleChatScroll}
           style={{
             flex: 1,
             overflowY: "auto",
