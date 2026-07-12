@@ -19,7 +19,7 @@ import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
 
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 /** Preview-only answer-first tool — customer_answer required; decision/goal/visual optional. */
@@ -344,11 +344,8 @@ export function hardOnlySafetyCheck(text, { allowed_numbers = [], allowed_entiti
       continue;
     }
     // Gate emits recommendation_or_termination for enroll/cancel/definitive — treat as CLOSED hard.
-    if (
-      key === "recommendation_or_termination" ||
-      String(reason).startsWith("forbidden:") ||
-      key === "unsupported_recommendation"
-    ) {
+    // Do NOT promote soft forbidden:* / du1 / over_familiar into hard (call-site only).
+    if (key === "recommendation_or_termination") {
       hard.push(String(reason));
     }
   }
@@ -419,7 +416,8 @@ async function callClaudeFirstDirect({
     return {
       ok: false,
       error: `ANTHROPIC_HTTP_${res.status}`,
-      detail: String(errText).slice(0, 300),
+      detail: String(errText).slice(0, 400),
+      model,
     };
   }
 
