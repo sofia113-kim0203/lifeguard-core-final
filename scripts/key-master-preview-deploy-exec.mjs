@@ -5,6 +5,10 @@
  *   node scripts/key-master-preview-deploy-exec.mjs
  *   node scripts/key-master-preview-deploy-exec.mjs --preflight-only
  *   node scripts/key-master-preview-deploy-exec.mjs --skip-env
+ *   node scripts/key-master-preview-deploy-exec.mjs --claude-full-active
+ *
+ * --claude-full-active: Preview env upsert only — sets KEY_BORROWED_SENSES=active.
+ *   Forbidden with Production intent or --skip-env. Default remains shadow.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,6 +24,66 @@ const OUT = join(FIX, "key-master-preview-deploy-evidence.json");
 
 const TEAM = "70sofia113-1918s-projects";
 const KNOWN_QA_CUSTOMER_ID = "a247a66f-a597-4ccf-9530-761b82518002";
+
+/** True when argv/env indicates Production target or Production-related command. */
+export function detectProductionIntent(argv = process.argv, env = process.env) {
+  const args = argv.slice(2).map((a) => String(a ?? "").trim().toLowerCase());
+  if (args.includes("--prod") || args.includes("--production") || args.includes("production")) {
+    return true;
+  }
+  if (args.some((a) => a === "--target=production" || a.startsWith("--target=prod"))) {
+    return true;
+  }
+  const vercelEnv = String(env.VERCEL_ENV ?? "").trim().toLowerCase();
+  if (vercelEnv === "production") return true;
+  const targetEnv = String(env.VERCEL_TARGET_ENV ?? env.VERCEL_TARGET ?? "")
+    .trim()
+    .toLowerCase();
+  if (targetEnv === "production" || targetEnv === "prod") return true;
+  return false;
+}
+
+export function parseKeyMasterDeployArgv(argv = process.argv) {
+  return {
+    skipEnv: argv.includes("--skip-env"),
+    preflightOnly: argv.includes("--preflight-only"),
+    claudeFullActive: argv.includes("--claude-full-active"),
+    productionIntent: detectProductionIntent(argv),
+  };
+}
+
+/**
+ * Preview env keys for upsert. Default KEY_BORROWED_SENSES=shadow.
+ * --claude-full-active overrides to active only (no new hidden env flags).
+ */
+export function buildKeyMasterPreviewEnvKeys({ claudeFullActive = false } = {}) {
+  return {
+    ...resolveKeyMasterPreviewEnv({}),
+    ...(claudeFullActive ? { KEY_BORROWED_SENSES: "active" } : {}),
+  };
+}
+
+/**
+ * Safety for explicit Claude-Full Preview activation.
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+export function assertClaudeFullActiveSafety({
+  claudeFullActive = false,
+  skipEnv = false,
+  productionIntent = false,
+} = {}) {
+  if (!claudeFullActive) return { ok: true };
+  if (productionIntent) {
+    return { ok: false, reason: "claude_full_active_forbidden_on_production" };
+  }
+  if (skipEnv) {
+    return {
+      ok: false,
+      reason: "claude_full_active_requires_env_upsert_skip_env_forbidden",
+    };
+  }
+  return { ok: true };
+}
 
 const KEY_MASTER_REQUIRED_FILES = [
   "server/keyBrain/keySpeak.js",
@@ -291,13 +355,27 @@ function deployPreview() {
 }
 
 async function main() {
-  const skipEnv = process.argv.includes("--skip-env");
-  const preflightOnly = process.argv.includes("--preflight-only");
+  const flags = parseKeyMasterDeployArgv(process.argv);
+  const { skipEnv, preflightOnly, claudeFullActive } = flags;
   mkdirSync(FIX, { recursive: true });
+
+  const safety = assertClaudeFullActiveSafety({
+    claudeFullActive,
+    skipEnv,
+    productionIntent: flags.productionIntent,
+  });
+  if (!safety.ok) {
+    console.error(`KEY Master deploy blocked: ${safety.reason}`);
+    console.error(
+      "KEY_BORROWED_SENSES=active is Preview-only and requires env upsert (no --skip-env, no Production).",
+    );
+    process.exit(1);
+  }
 
   const preflightResult = assertKeyMasterPreflight();
 
   if (preflightOnly) {
+    const previewEnvKeysPreflight = buildKeyMasterPreviewEnvKeys({ claudeFullActive });
     const evidence = {
       schema_version: "key-master-preview-deploy-evidence-v1",
       slice: "KEY_MASTER",
@@ -310,16 +388,20 @@ async function main() {
       key_master_intake_api_files: KEY_MASTER_INTAKE_API_FILES,
       intake_preflight: preflightResult.intakeApis,
       preflight: "passed",
+      claude_full_active: claudeFullActive === true,
+      KEY_BORROWED_SENSES: previewEnvKeysPreflight.KEY_BORROWED_SENSES,
+      preview_env_keys: previewEnvKeysPreflight,
     };
     writeFileSync(OUT, `${JSON.stringify(evidence, null, 2)}\n`);
     console.log("KEY Master preflight passed (intake APIs included).");
+    console.log(`KEY_BORROWED_SENSES=${previewEnvKeysPreflight.KEY_BORROWED_SENSES}`);
     console.log(`Wrote ${OUT}`);
     return;
   }
 
   const qaCustomerId = await resolveQaCustomerId();
   const envOps = [];
-  const previewEnvKeys = resolveKeyMasterPreviewEnv({});
+  const previewEnvKeys = buildKeyMasterPreviewEnvKeys({ claudeFullActive });
 
   if (!skipEnv) {
     const allowBefore = readPreviewEnvVar("SALES_DIRECTOR_KEY_CUSTOMER_ALLOWLIST");
@@ -340,7 +422,9 @@ async function main() {
   const evidence = {
     schema_version: "key-master-preview-deploy-evidence-v1",
     slice: "KEY_MASTER",
-    mode: "Preview deploy only · KEY Master preflight · no production",
+    mode: claudeFullActive
+      ? "Preview deploy · KEY Master · Claude-Full active (KEY_BORROWED_SENSES=active) · no production"
+      : "Preview deploy only · KEY Master preflight · no production",
     pass_declaration: "none",
     observed_at: new Date().toISOString(),
     git_short_sha: gitShortSha(),
@@ -350,6 +434,8 @@ async function main() {
     intake_preflight: preflightResult.intakeApis,
     preflight: "passed",
     qa_customer_profile_id: qaCustomerId,
+    claude_full_active: claudeFullActive === true,
+    KEY_BORROWED_SENSES: previewEnvKeys.KEY_BORROWED_SENSES,
     preview_env_keys: previewEnvKeys,
     env_ops: envOps,
     deploy,
@@ -365,6 +451,10 @@ async function main() {
   }
 
   console.log("KEY Master preview deployed:", deploy.preview_url);
+  console.log(`KEY_BORROWED_SENSES=${previewEnvKeys.KEY_BORROWED_SENSES}`);
+  if (claudeFullActive) {
+    console.log("claude_full_active=true (Preview env upsert)");
+  }
   console.log(`Wrote ${OUT}`);
   console.log(`Next: node scripts/key-master-survival-preview-probe.mjs ${deploy.preview_url}`);
 }
