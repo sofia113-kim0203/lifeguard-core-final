@@ -520,12 +520,13 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(log.filter((x) => x === "s6").length, 0);
 }
 
-// 6) Hard violation → no focused rewrite on claude_full (1 Claude call → monopoly failure)
+// 6) Hard violation → focused correction once → repaired success
 {
   const q = "보험료 줄이고 싶어";
   const log = [];
   const hard =
     "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.";
+  const repaired = "확인된 22건 기준으로 보험료 부담은 중복 가능성부터 같이 확인해보면 좋겠어요.";
   const result = await buildKeyVoiceComposeResult(
     {
       reflection: buildReflection({ customerSaid: q, reality: softReality }),
@@ -536,19 +537,20 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
       question: q,
       env: previewActive,
       fetchImpl: makeFetch({
-        borrowed: goodClaudeFull({ customer_answer: hard }),
+        borrowed: (_body, n) =>
+          n === 1 ? goodClaudeFull({ customer_answer: hard }) : goodClaudeFull({ customer_answer: repaired }),
         log,
       }),
     },
   );
-  assert.equal(log.filter((x) => x === "borrowed").length, 1);
+  assert.equal(log.filter((x) => x === "borrowed").length, 2);
   assert.equal(log.filter((x) => x === "s6").length, 0);
   assert.equal(result.key_voice_trace.s6_speak_calls, 0);
-  assert.equal(result.key_voice_trace.focused_correction_count, 0);
-  assert.equal(result.key_voice_trace.claude_call_count, 1);
+  assert.equal(result.key_voice_trace.focused_correction_count, 1);
+  assert.equal(result.key_voice_trace.claude_call_count, 2);
   assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
-  assert.equal(result.key_voice_trace.used_failure_mode, true);
-  assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+  assert.equal(result.key_voice_trace.used_failure_mode, false);
+  assert.equal(result.text, repaired);
   assert.ok(result.key_voice_trace.shadow_probe_omitted?.omitted === true);
   assert.ok(result.key_voice_trace.latency_marks?.claude_full_emit);
   assert.equal(result.key_voice_trace.latency_marks?.borrowed_shadow_probe, null);
@@ -580,7 +582,7 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(result.text, answer);
 }
 
-// 8) Hard → no second Claude rewrite → honest failure (no S3/S4/S5/S6)
+// 8) Hard → focused correction once still hard → honest failure (no S3/S4/S5/S6)
 {
   const q = "보험료 줄이고 싶어";
   const log = [];
@@ -601,11 +603,11 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
       }),
     },
   );
-  assert.equal(log.filter((x) => x === "borrowed").length, 1);
+  assert.equal(log.filter((x) => x === "borrowed").length, 2);
   assert.equal(log.filter((x) => x === "s6").length, 0);
   assert.equal(result.key_voice_trace.s6_speak_calls, 0);
-  assert.equal(result.key_voice_trace.focused_correction_count, 0);
-  assert.equal(result.key_voice_trace.claude_call_count, 1);
+  assert.equal(result.key_voice_trace.focused_correction_count, 1);
+  assert.equal(result.key_voice_trace.claude_call_count, 2);
   assert.equal(result.key_voice_trace.used_failure_mode, true);
   assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
 }

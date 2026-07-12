@@ -843,21 +843,106 @@ export async function buildKeyVoiceComposeResult(
     };
 
     if (claudeFullSinglePass) {
-      // Stein Q5 follow-up: normal Claude-full path = 1 call. No focused re-write.
-      focusedCorrectionCount = 0;
-      finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-      usedFailureMode = true;
-      usedClaudeFullSinglePass = false;
-      trace.fallback_used = true;
-      trace.fallback_reason = safetyPartition.hard.join(";") || "claude_full_hard_safety_no_rewrite";
-      trace.failure_mode_used = true;
-      trace.focused_correction_count = 0;
+      // Focused Claude correction once — never S6 / S3–S5 / legacy speak.
+      focusedCorrectionCount = 1;
+      const factBoundary = buildEarlyBorrowedFactBoundary({
+        reality,
+        question: directiveQuestion,
+      });
+      const repairProbe = await runBorrowedSensesShadowProbe({
+        question: claudeQuestion,
+        directive: null,
+        decision: null,
+        factBoundary,
+        reflection,
+        reality,
+        history,
+        previousAnswerSummary,
+        s6FinalAnswer: "",
+        visualBlocks: overrideBlocks?.length ? overrideBlocks : [],
+        publicResearchEvidence: researchEvForSafety(),
+        answerMode: "claude_full",
+        focusedCorrection: {
+          violations: safetyPartition.hard,
+          failed_claims_preview: failedClaimsPreview,
+          previous_customer_answer: voiceRaw,
+          previous_voice_raw_candidate: voiceRaw,
+        },
+        documentEvidence,
+        relatedPastOriginals,
+        directPdfAttachment,
+        documentDirectMeta,
+        startedAt,
+        env,
+        fetchImpl,
+      });
+      borrowedSensesCalls += 1;
+      claudeCallCount += 1;
+      trace.focused_correction_count = focusedCorrectionCount;
       trace.claude_call_count = claudeCallCount;
-      outputGate = {
-        ok: false,
-        reasons: safetyPartition.hard,
-        hard_safety_failure_mode: true,
-      };
+      const repaired = String(
+        repairProbe?.borrowed?.customer_answer ??
+          repairProbe?.borrowed?.voice_raw_candidate ??
+          "",
+      ).trim();
+      if (repairProbe?.error || !repaired) {
+        finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+        usedFailureMode = true;
+        usedClaudeFullSinglePass = false;
+        trace.fallback_used = true;
+        trace.fallback_reason = repairProbe?.error ?? "focused_correction_failed";
+        trace.failure_mode_used = true;
+        outputGate = {
+          ok: false,
+          reasons: [trace.fallback_reason],
+          hard_safety_failure_mode: true,
+        };
+      } else {
+        voiceRaw = repaired;
+        provider = "claude_full_focused_correction";
+        finalText = voiceRaw;
+        const repairGate = markGate(() =>
+          gateBorrowedCandidateAnswer(voiceRaw, directive, s5Reference),
+        );
+        const repairPartition = markGate(() =>
+          partitionCustomerTextSafety({
+            gateResult: repairGate,
+            voice: voiceRaw,
+            question: directiveQuestion,
+            decision,
+            publicResearchEvidence: researchEvForSafety(),
+          }),
+        );
+        trace.hard_safety_repair.second_check = {
+          hard: repairPartition.hard,
+          soft: repairPartition.soft,
+          hard_fail: repairPartition.hardFail,
+        };
+        if (repairPartition.hardFail) {
+          finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+          usedFailureMode = true;
+          usedClaudeFullSinglePass = false;
+          trace.fallback_used = true;
+          trace.fallback_reason = repairPartition.hard.join("; ");
+          trace.failure_mode_used = true;
+          outputGate = {
+            ok: false,
+            reasons: repairPartition.hard,
+            hard_safety_failure_mode: true,
+          };
+        } else {
+          usedFailureMode = false;
+          usedClaudeFullSinglePass = true;
+          usedActiveFastPath = true;
+          trace.fallback_used = false;
+          outputGate = {
+            ...repairGate,
+            ok: true,
+            reasons: repairPartition.soft,
+            soft_pass: repairPartition.soft.length > 0,
+          };
+        }
+      }
     } else {
       const repairDirective = {
         ...directive,
