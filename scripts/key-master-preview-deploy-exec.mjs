@@ -360,29 +360,33 @@ function deployPreview() {
   stampDeployIdentity(sha || null);
   let proc;
   try {
-    // shell:false so --env is not mangled on Windows; stamp file is the primary sha path.
+    // Stamp file is the primary sha path. shell:true matches runVercel (Windows npx).
+    // Do not use shell:false here — win32 returns status null / empty stderr (ENOENT).
     const deployArgs = ["vercel", "deploy", "--yes", "--scope", TEAM];
     if (sha) {
       deployArgs.push("--env", `GIT_COMMIT_SHA=${sha}`);
       deployArgs.push("--build-env", `GIT_COMMIT_SHA=${sha}`);
     }
-    // Windows: npx.cmd + shell:false keeps --env intact and avoids empty spawn.
-    const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
-    proc = spawnSync(npxBin, deployArgs, {
+    proc = spawnSync("npx", deployArgs, {
       cwd: ROOT,
       encoding: "utf8",
-      shell: false,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 16 * 1024 * 1024,
       timeout: 600000,
     });
   } finally {
     restoreDeployIdentity();
   }
-  const text = `${proc?.stdout ?? ""}\n${proc?.stderr ?? ""}`;
+  const spawnError = proc?.error ? String(proc.error.message ?? proc.error) : null;
+  const text = `${proc?.stdout ?? ""}\n${proc?.stderr ?? ""}${spawnError ? `\nspawn_error:${spawnError}` : ""}`;
   const urls = text.match(/https:\/\/lifeguard-core-final[^\s]+/g) ?? [];
   return {
     ok: proc?.status === 0,
     exit_code: proc?.status ?? 1,
+    spawn_error: spawnError,
+    signal: proc?.signal ?? null,
+    stderr_tail: String(proc?.stderr ?? "").slice(-1000),
     preview_url: urls[urls.length - 1] ?? null,
     log_tail: text.slice(-2000),
     git_commit_sha: sha || null,
