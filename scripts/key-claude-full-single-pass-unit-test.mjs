@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { buildReflection } from "../server/keyCore/keyReflection.js";
 import { buildKeyVoiceComposeResult } from "../server/keyCore/keyVoiceCompose.js";
 import { buildClaudeFullContextPack } from "../server/keyCore/keyClaudeFullContextPack.js";
-import { buildUserPayload, buildEarlyBorrowedFactBoundary } from "../server/keyCore/keyBorrowedSensesSpeak.js";
+import { buildUserPayload, buildEarlyBorrowedFactBoundary, buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import {
   CLAUDE_FULL_EMIT_TOOL,
   buildClaudeFullSystemPrompt,
@@ -27,11 +27,18 @@ const softReality = {
   ],
 };
 
-/** Minimal Claude-Full emit shape (customer_answer required only). */
+/** Minimal Claude-Full emit shape (D2: customer_answer + decision + session_goal). */
 function goodClaudeFull(overrides = {}) {
   return {
     customer_answer:
       "보험료를 줄이고 싶으신 거죠. 확인된 22건 중 중복·납입부터 보면 좋을 것 같아요. 대표 실손 월 4만5천 원은 참고만 할게요.",
+    session_goal: "보험료 부담 축부터 확인",
+    decision: {
+      situation_key: "premium_burden",
+      key_judgment: "확인된 계약부터 납입·중복을 짚는 상황",
+      key_next_move: "중복·납입부터 같이 볼까요?",
+      direction: { type: "lead", move: "중복·납입부터" },
+    },
     ...overrides,
   };
 }
@@ -131,13 +138,17 @@ const previewActive = {
 assert.equal(getKeyBorrowedSensesMode({}), "off");
 assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shadow");
 
-// Minimal schema: required customer_answer only; no minItems on optional arrays
+// Minimal schema: required customer_answer + decision + session_goal (D2)
 {
   const schema = CLAUDE_FULL_EMIT_TOOL.input_schema;
-  assert.deepEqual(schema.required, ["customer_answer"]);
+  assert.deepEqual(schema.required, ["customer_answer", "decision", "session_goal"]);
   assert.equal(schema.properties.proposed_next_actions.minItems, undefined);
   assert.equal(schema.properties.visual_blocks.minItems, undefined);
   assert.ok(schema.properties.extensions);
+  assert.ok(schema.properties.decision?.required?.includes("key_judgment"));
+  assert.ok(
+    schema.properties.visual_blocks.items.properties.type.enum.includes("coverage_status_card"),
+  );
   const prompt = buildClaudeFullSystemPrompt({ mode: "emit" });
   assert.equal(/consult paths: \(1\)/.test(prompt), false);
   assert.equal(/FORBIDDEN openings/.test(prompt), false);
@@ -146,6 +157,8 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(/맞아 보입니다/.test(prompt), false);
   assert.match(prompt, /Do not invent/i);
   assert.match(prompt, /verified/i);
+  assert.match(prompt, /REQUIRED output fields/i);
+  assert.match(prompt, /coverage_status_card/);
 }
 
 // D2 context pack + document evidence in payload
@@ -364,6 +377,18 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(result.key_voice_trace.promotion_diagnostic?.customer_text_replaced, false);
   assert.equal(result.text, borrowed.customer_answer);
   assert.equal(result.key_voice_trace.visual_blocks_source, "claude_emit");
+  assert.equal(result.key_voice_trace.shadow_probe_omitted?.omitted, true);
+  assert.equal(
+    result.key_voice_trace.shadow_probe_omitted?.reason,
+    "claude_full_primary_path_no_post_response_observer",
+  );
+  assert.equal(result.key_voice_trace.d2_output_incomplete, false);
+  assert.ok(result.key_voice_trace.latency_marks?.claude_full_emit);
+  assert.equal(result.key_voice_trace.latency_marks?.borrowed_shadow_probe ?? null, null);
+  assert.equal(
+    result.decision_snapshot?.hypothesis_used?.decision_source,
+    "claude_proposal_validated",
+  );
 }
 
 // 2) visual_blocks absent / empty — PASS; next actions 0 — PASS
@@ -495,14 +520,12 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(log.filter((x) => x === "s6").length, 0);
 }
 
-// 6) Hard violation → focused Claude correction once → safe adopt (S6=0)
+// 6) Hard violation → no focused rewrite on claude_full (1 Claude call → monopoly failure)
 {
   const q = "보험료 줄이고 싶어";
   const log = [];
   const hard =
     "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.";
-  const repair =
-    "보험료를 줄이고 싶으신 거죠. 절감이라면 확인된 22건 중 중복·납입부터 보면 좋아요. 대표 실손 월 4만5천 원은 참고만 할게요.";
   const result = await buildKeyVoiceComposeResult(
     {
       reflection: buildReflection({ customerSaid: q, reality: softReality }),
@@ -513,23 +536,22 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
       question: q,
       env: previewActive,
       fetchImpl: makeFetch({
-        borrowed: (_body, n) =>
-          goodClaudeFull({
-            customer_answer: n === 1 ? hard : repair,
-          }),
+        borrowed: goodClaudeFull({ customer_answer: hard }),
         log,
       }),
     },
   );
-  assert.equal(log.filter((x) => x === "borrowed").length, 2);
+  assert.equal(log.filter((x) => x === "borrowed").length, 1);
   assert.equal(log.filter((x) => x === "s6").length, 0);
   assert.equal(result.key_voice_trace.s6_speak_calls, 0);
-  assert.equal(result.key_voice_trace.focused_correction_count, 1);
-  assert.equal(result.key_voice_trace.claude_call_count, 2);
+  assert.equal(result.key_voice_trace.focused_correction_count, 0);
+  assert.equal(result.key_voice_trace.claude_call_count, 1);
   assert.equal(result.key_voice_trace.hard_safety_repair_attempt, 1);
-  assert.equal(result.compose_mode, "key_claude_full_single_pass");
-  assert.equal(result.text, repair);
-  assert.equal(result.key_voice_trace.used_failure_mode, false);
+  assert.equal(result.key_voice_trace.used_failure_mode, true);
+  assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+  assert.ok(result.key_voice_trace.shadow_probe_omitted?.omitted === true);
+  assert.ok(result.key_voice_trace.latency_marks?.claude_full_emit);
+  assert.equal(result.key_voice_trace.latency_marks?.borrowed_shadow_probe, null);
 }
 
 // 7) No hard → customer_answer rewrite 0 (single Claude call)
@@ -558,13 +580,12 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(result.text, answer);
 }
 
-// 8) Hard → focused correction hard → honest failure (no S3/S4/S5/S6)
+// 8) Hard → no second Claude rewrite → honest failure (no S3/S4/S5/S6)
 {
   const q = "보험료 줄이고 싶어";
   const log = [];
   const hard =
     "가입하세요. 해지해도 됩니다. 등록 22건이면 충분합니다. 보험료를 바로 줄이세요.";
-  const repairHard = "무조건 가입하세요. 해지해도 됩니다. 22건이면 충분합니다.";
   const result = await buildKeyVoiceComposeResult(
     {
       reflection: buildReflection({ customerSaid: q, reality: softReality }),
@@ -575,17 +596,16 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
       question: q,
       env: previewActive,
       fetchImpl: makeFetch({
-        borrowed: (_body, n) =>
-          goodClaudeFull({
-            customer_answer: n === 1 ? hard : repairHard,
-          }),
+        borrowed: goodClaudeFull({ customer_answer: hard }),
         log,
       }),
     },
   );
+  assert.equal(log.filter((x) => x === "borrowed").length, 1);
   assert.equal(log.filter((x) => x === "s6").length, 0);
   assert.equal(result.key_voice_trace.s6_speak_calls, 0);
-  assert.equal(result.key_voice_trace.focused_correction_count, 1);
+  assert.equal(result.key_voice_trace.focused_correction_count, 0);
+  assert.equal(result.key_voice_trace.claude_call_count, 1);
   assert.equal(result.key_voice_trace.used_failure_mode, true);
   assert.equal(result.text, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
 }
@@ -638,6 +658,32 @@ assert.equal(getKeyBorrowedSensesMode({ KEY_BORROWED_SENSES: "shadow" }), "shado
   assert.equal(result.compose_mode, "key_s6_voice_speak");
   assert.equal(result.key_voice_trace.borrowed_senses_shadow?.final_answer_source, "s6");
   assert.match(result.text, /22건/);
+}
+
+// Chart builder: map coverage_summary.detected_coverages (no invent)
+{
+  const chart = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [
+      {
+        insurer_name: "삼성생명",
+        product_name: "실손의료비보험",
+        monthly_premium: 45000,
+        coverage_summary: {
+          detected_coverages: ["실손", "암"],
+          coverage_categories: ["실손", "암"],
+        },
+      },
+    ],
+  });
+  assert.deepEqual(chart.contracts[0].verified_fields.coverages, ["실손", "암"]);
+  assert.equal(chart.contracts[0].unknown_fields.includes("coverages"), false);
+  const empty = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [{ insurer_name: "A", product_name: "B", monthly_premium: 1 }],
+  });
+  assert.equal(empty.contracts[0].verified_fields.coverages, undefined);
+  assert.ok(empty.contracts[0].unknown_fields.includes("coverages"));
 }
 
 console.log("key-claude-full-single-pass-unit-test: PASS");

@@ -693,6 +693,49 @@ const CHART_POLICY_FIELD_KEYS = [
 ];
 
 /**
+ * Collect factory-owned coverage labels already present on the policy.
+ * Maps coverage_summary.detected_coverages / coverage_categories — never invents.
+ */
+function extractVerifiedCoveragesFromPolicy(p = null) {
+  if (!p || typeof p !== "object") return null;
+  const out = [];
+  const seen = new Set();
+  const pushOne = (v) => {
+    const s = String(v ?? "").trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+  const pushMany = (raw) => {
+    if (raw == null || raw === "") return;
+    if (Array.isArray(raw)) {
+      for (const item of raw) {
+        if (item == null) continue;
+        if (typeof item === "string" || typeof item === "number") pushOne(item);
+        else if (typeof item === "object") {
+          pushOne(item.name ?? item.coverage_name ?? item.label ?? item.category ?? "");
+        }
+      }
+      return;
+    }
+    if (typeof raw === "string") {
+      for (const part of raw.split(/[,|/·]/).map((x) => x.trim()).filter(Boolean)) pushOne(part);
+    }
+  };
+  pushMany(p.coverages);
+  pushMany(p.coverage_list);
+  pushMany(p.coverage_names);
+  pushMany(p.coverage_categories);
+  const summary = p.coverage_summary;
+  if (summary && typeof summary === "object") {
+    pushMany(summary.detected_coverages);
+    pushMany(summary.coverage_categories);
+    pushMany(summary.categories);
+  }
+  return out.length ? out : null;
+}
+
+/**
  * Verified customer chart for Claude input — full contract list, no 1-policy stub.
  * Claude may read/analyze; KEY alone owns chart write/adopt/judgment.
  * Unverified values are marked unknown — never promoted to chart facts.
@@ -704,6 +747,7 @@ export function buildVerifiedCustomerChart(reality = null) {
     const verified = {};
     const unknown = [];
     for (const key of CHART_POLICY_FIELD_KEYS) {
+      if (key === "coverages" || key === "coverage_list" || key === "coverage_names") continue;
       const raw = p?.[key];
       if (raw == null || raw === "") {
         // skip empty aliases unless the field is a primary label
@@ -711,17 +755,15 @@ export function buildVerifiedCustomerChart(reality = null) {
       }
       verified[key] = raw;
     }
+    const coverages = extractVerifiedCoveragesFromPolicy(p);
+    if (coverages) verified.coverages = coverages;
     // Normalize common unknowns when primary labels absent
     if (verified.insurer_name == null && verified.company_name == null) unknown.push("insurer_name");
     if (verified.product_name == null) unknown.push("product_name");
     if (verified.monthly_premium == null && verified.premium_amount == null) {
       unknown.push("monthly_premium");
     }
-    if (
-      verified.coverages == null &&
-      verified.coverage_list == null &&
-      verified.coverage_names == null
-    ) {
+    if (verified.coverages == null) {
       unknown.push("coverages");
     }
     const status =
