@@ -235,6 +235,9 @@ function renderBlock(block, index, theme) {
   if (block.type === "premium_summary_table" || block.type === "policy_count_summary") {
     return <SummaryTable key={key} block={block} theme={theme} />;
   }
+  if (block.type === "coverage_status_card") {
+    return <SummaryTable key={key} block={block} theme={theme} />;
+  }
   return null;
 }
 

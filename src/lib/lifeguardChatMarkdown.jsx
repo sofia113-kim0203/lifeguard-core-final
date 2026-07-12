@@ -22,6 +22,25 @@ function renderInline(text, keyPrefix) {
   });
 }
 
+function splitTableCells(line) {
+  return String(line)
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((c) => c.trim());
+}
+
+function isTableSeparator(line) {
+  const cells = splitTableCells(line);
+  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c));
+}
+
+function isTableRow(line) {
+  const t = String(line).trim();
+  return t.startsWith("|") && t.includes("|", 1);
+}
+
 /**
  * @param {{ text: string, muted?: boolean, fontFamily?: string }} props
  */
@@ -61,10 +80,85 @@ export function LifeguardAssistantMarkdown({ text, muted = false, fontFamily }) 
     );
   };
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
     if (!trimmed) {
       flushList();
+      continue;
+    }
+    if (isTableRow(trimmed)) {
+      flushList();
+      const tableLines = [];
+      while (i < lines.length && isTableRow(lines[i].trim())) {
+        tableLines.push(lines[i].trim());
+        i += 1;
+      }
+      i -= 1;
+      const bodyLines = tableLines.filter((l) => !isTableSeparator(l));
+      if (bodyLines.length) {
+        const header = splitTableCells(bodyLines[0]);
+        const rows = bodyLines.slice(1).map(splitTableCells);
+        blocks.push(
+          <div
+            key={`table-${key++}`}
+            style={{
+              margin: "10px 0 14px",
+              overflowX: "auto",
+              border: "1px solid #E8E8E4",
+              borderRadius: "10px",
+              background: "#FFFFFF",
+            }}
+          >
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "13px",
+                color,
+                fontFamily,
+              }}
+            >
+              <thead>
+                <tr>
+                  {header.map((cell, idx) => (
+                    <th
+                      key={`th-${idx}`}
+                      style={{
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        borderBottom: "1px solid #E8E8E4",
+                        color: "#666666",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {renderInline(cell, `th-${idx}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rIdx) => (
+                  <tr key={`tr-${rIdx}`}>
+                    {row.map((cell, cIdx) => (
+                      <td
+                        key={`td-${rIdx}-${cIdx}`}
+                        style={{
+                          padding: "8px 10px",
+                          borderBottom: "1px solid #F3F3F0",
+                          verticalAlign: "top",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {renderInline(cell, `td-${rIdx}-${cIdx}`)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        );
+      }
       continue;
     }
     if (/^---+$/.test(trimmed)) {
