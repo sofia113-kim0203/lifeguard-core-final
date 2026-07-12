@@ -3,6 +3,7 @@ import {
   isClaudeFirstDirectPreview,
   extractPartialCustomerAnswer,
   hardOnlySafetyCheck,
+  buildSystemPrompt,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 
 assert.equal(
@@ -40,5 +41,10 @@ const hard = hardOnlySafetyCheck("지금 가입하세요. 해지해도 됩니다
   allowed_entities: ["삼성생명"],
 });
 assert.equal(hard.hard_fail, true);
+
+const prompt = buildSystemPrompt();
+assert.match(prompt, /No emoji/i);
+assert.match(prompt, /cite/i);
+assert.match(prompt, /Clean readable Korean/i);
 
 console.log("key-claude-first-direct-unit-test: PASS");

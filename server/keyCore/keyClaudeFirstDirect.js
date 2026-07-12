@@ -153,7 +153,7 @@ export function extractPartialCustomerAnswer(partialJson = "") {
   return { text: out, complete };
 }
 
-function buildSystemPrompt() {
+export function buildSystemPrompt() {
   return [
     "You are Claude. Answer in natural Korean as yourself — not as an insurance bot, not as a scripted KEY persona.",
     "Decide freely whether the question is insurance, daily life, analysis, or something else, and use your full abilities.",
@@ -163,6 +163,11 @@ function buildSystemPrompt() {
     "Prefer calling emit_claude_full with customer_answer as the full customer-facing reply. Plain text answers are also acceptable.",
     "Do not push enrollment, cancellation, or definitive '충분/부족합니다' verdicts without basis.",
     "Do not invent restaurant/place names or policy numbers that are not grounded in materials or search results.",
+    "Customer-facing presentation (required):",
+    "- No emoji, emoticons, or decorative pictographs.",
+    "- No HTML or citation markup in customer_answer (never output <cite> or other tags).",
+    "- Clean readable Korean: short paragraphs, ## headings when helpful, - bullet lists, **bold** sparingly for key phrases.",
+    "- Prefer clear structure over decoration. --- separators are ok when they help scanning.",
   ].join("\n");
 }
 
@@ -191,7 +196,7 @@ function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = n
         }
       : { attached: false, note: "No PDF attached for this turn." },
     guidance:
-      "Answer the customer's current question with your own judgment. Insurance materials are optional context, not a mandate to steer every topic back to insurance.",
+      "Answer the customer's current question with your own judgment. Insurance materials are optional context, not a mandate to steer every topic back to insurance. Keep customer_answer free of emoji and <cite>/HTML tags; use clean Korean paragraphs, headings, and lists.",
   };
 }
 
@@ -567,7 +572,7 @@ async function callClaudeFirstDirect({
       {
         role: "user",
         content:
-          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요.",
+          "이제 고객에게 보여줄 최종 한국어 답변을 emit_claude_full의 customer_answer로 보내 주세요. 보험으로 억지 전환하지 말고, 현재 질문 자체에 답하세요. 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요.",
       },
     ];
   }
