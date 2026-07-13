@@ -143,14 +143,24 @@ function gitStatusPorcelain() {
   return spawnSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }).stdout?.trim() ?? "";
 }
 
-function runVercel(args, { timeout = 120000 } = {}) {
+/**
+ * Run Vercel CLI. Secret values must never appear in args — pass via stdinText.
+ * When stdinText is set, append a single trailing newline for CLI line-read;
+ * callers should pass the raw value without a trailing newline.
+ */
+function runVercel(args, { timeout = 120000, stdinText = null } = {}) {
+  const useStdin = stdinText != null;
+  const raw = useStdin ? String(stdinText) : "";
+  // One terminating newline for CLI stdin readers; value itself should not embed it.
+  const input = useStdin ? (raw.endsWith("\n") ? raw : `${raw}\n`) : undefined;
   const proc = spawnSync("npx", ["vercel", ...args, "--scope", TEAM], {
     cwd: ROOT,
     encoding: "utf8",
     shell: true,
     maxBuffer: 16 * 1024 * 1024,
     timeout,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: useStdin ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
+    ...(useStdin ? { input } : {}),
   });
   return {
     ok: proc.status === 0,
@@ -211,17 +221,15 @@ export function sanitizeEnvCommandLog(text = "", secretValues = []) {
   return out;
 }
 
-function formatEnvUpsertFailure(prefix, proc, secretValues = []) {
-  const combined = sanitizeEnvCommandLog(
-    `${proc?.stdout ?? ""}\n${proc?.stderr ?? ""}`,
-    secretValues,
-  ).slice(0, 800);
+/** Failure report: env name (in prefix) + exit code only — never dump stdout/stderr/values. */
+function formatEnvUpsertFailure(prefix, proc, _secretValues = []) {
   const code = proc?.exit_code ?? proc?.status ?? "unknown";
-  return `${prefix}:exit=${code}:${combined}`;
+  return `${prefix}:exit=${code}`;
 }
 
 /**
  * Preview env upsert with hard-fail on ls errors and one conflict retry.
+ * Values are passed only via stdin (never --value / argv).
  * @param {string} name
  * @param {string} value
  * @param {{ runVercelImpl?: typeof runVercel }} [options]
@@ -243,10 +251,12 @@ export function upsertPreviewEnvVar(name, value, { runVercelImpl = runVercel } =
     envName,
   );
 
+  const stdinOpts = { timeout: 120000, stdinText: envValue };
+
   if (hasVar) {
     const updated = runVercelImpl(
-      ["env", "update", envName, "preview", "--yes", "--value", envValue],
-      { timeout: 120000 },
+      ["env", "update", envName, "preview", "--yes"],
+      stdinOpts,
     );
     if (!updated.ok) {
       throw new Error(formatEnvUpsertFailure(`env_update_${envName}_failed`, updated, [envValue]));
@@ -255,8 +265,8 @@ export function upsertPreviewEnvVar(name, value, { runVercelImpl = runVercel } =
   }
 
   const added = runVercelImpl(
-    ["env", "add", envName, "preview", "--yes", "--value", envValue],
-    { timeout: 120000 },
+    ["env", "add", envName, "preview", "--yes"],
+    stdinOpts,
   );
   if (added.ok) {
     return { action: "add" };
@@ -265,8 +275,8 @@ export function upsertPreviewEnvVar(name, value, { runVercelImpl = runVercel } =
   const addOut = `${added.stdout}\n${added.stderr}`;
   if (isVercelEnvAlreadyExistsError(addOut)) {
     const updated = runVercelImpl(
-      ["env", "update", envName, "preview", "--yes", "--value", envValue],
-      { timeout: 120000 },
+      ["env", "update", envName, "preview", "--yes"],
+      stdinOpts,
     );
     if (!updated.ok) {
       throw new Error(
