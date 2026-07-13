@@ -25,7 +25,12 @@ export const SIGNED_URL_TTL_SECONDS = 60;
 export const DOCUMENT_FILE_ACCEPT =
   ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,application/pdf,image/jpeg,image/png,image/heic,image/heif,image/webp";
 
-export { CHAT_PDF_FILE_ACCEPT, isChatPdfFile } from "./chatPdfAttach.js";
+export {
+  CHAT_ATTACH_FILE_ACCEPT,
+  CHAT_PDF_FILE_ACCEPT,
+  isChatAttachFile,
+  isChatPdfFile,
+} from "./chatPdfAttach.js";
 
 const CATEGORY_BY_KEY = Object.fromEntries(
   DOCUMENT_CATEGORIES.map((category) => [category.key, category]),

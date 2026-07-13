@@ -168,9 +168,10 @@ export function buildSystemPrompt() {
   return [
     "You are Claude. Answer in natural Korean as yourself — not as an insurance bot, not as a scripted KEY persona.",
     "Decide freely whether the question is insurance, daily life, analysis, or something else, and use your full abilities.",
-    "Materials may include verified_customer_chart, conversation originals, and an attached original PDF when present. Use them when helpful; do not invent policy facts that contradict them.",
+    "Materials may include verified_customer_chart, conversation originals, and an attached original PDF or image (JPEG/PNG) when present. Use them when helpful; do not invent policy facts that contradict them.",
     "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
-    "If a PDF is attached, you may read and analyze it directly.",
+    "If a PDF or photo is attached, you may read and analyze the original directly — no OCR pre-summary is provided. Report only what is visible or printed; mark unclear fields as 미확인; do not invent missing numbers, dates, or names.",
+    "Do NOT assert insurance payout eligibility, final benefit amount, exclusion/reduction, or medical final interpretation from an attached photo or PDF alone — when asked, say 증권·약관·계약 확인이 더 필요하다고 자연스럽게 안내한다.",
     "Delivery order (required for speed): write the full customer-facing reply as plain Korean text first. Do NOT wrap the main answer in emit_claude_full. Plain text streams to the customer immediately.",
     "emit_claude_full is only for optional visual_blocks AFTER the plain-text answer when a chart/table is useful. Never put the main prose only inside the tool.",
     "Do not push enrollment, cancellation, or definitive '충분/부족합니다' / '문제 없습니다' verdicts without basis.",
@@ -212,11 +213,14 @@ function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = n
           attached: pdfMeta.attached === true,
           document_id: pdfMeta.document_id ?? null,
           original_filename: pdfMeta.original_filename ?? null,
+          mime_type: pdfMeta.mime_type ?? null,
           note: pdfMeta.attached
-            ? "Original PDF is attached as a document block. Read it yourself — no KEY pre-summary."
-            : pdfMeta.note ?? "No PDF attached for this turn.",
+            ? pdfMeta.mime_type && String(pdfMeta.mime_type).startsWith("image/")
+              ? "Original image is attached as an image block. Read it yourself — no OCR/KEY pre-summary."
+              : "Original PDF is attached as a document block. Read it yourself — no KEY pre-summary."
+            : pdfMeta.note ?? "No document attached for this turn.",
         }
-      : { attached: false, note: "No PDF attached for this turn." },
+      : { attached: false, note: "No document attached for this turn." },
     guidance:
       "Answer warmly in plain Korean text first (not inside emit_claude_full). Insurance materials are optional context. No emoji/<cite>/HTML. Prefer headings and lists. Charts/visual_blocks come in a later step if needed.",
   };
@@ -570,13 +574,14 @@ async function resolveOptionalPdfAttachment({
         attached: true,
         document_id: documentId,
         original_filename: fetched.document?.original_filename ?? null,
+        mime_type: fetched.mediaType ?? fetched.document?.mime_type ?? null,
       },
     };
   } catch {
     return {
       pdfBase64: null,
       mediaType: null,
-      meta: { attached: false, document_id: documentId, note: "pdf_attach_error" },
+      meta: { attached: false, document_id: documentId, note: "attach_error" },
     };
   }
 }

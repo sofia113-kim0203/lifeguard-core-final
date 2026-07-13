@@ -7,7 +7,7 @@ import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysis
 import { useKeyBridgeSessionTransition } from "../hooks/useKeyBridgeSessionTransition.js";
 import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudgmentSessionTransition.js";
 import { listDocuments, uploadDocument } from "../lib/customerDocuments.js";
-import { CHAT_PDF_FILE_ACCEPT, isChatPdfFile } from "../lib/chatPdfAttach.js";
+import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   clearLifeguardChatSnapshot,
@@ -728,7 +728,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     const userMessage = {
       role: "user",
       content: documentIdForTurn
-        ? `${trimmed}\n\n(첨부: ${chatAttachFilename || "PDF"})`
+        ? `${trimmed}\n\n(첨부: ${chatAttachFilename || "파일"})`
         : trimmed,
     };
     const nextMessages = [...messages, userMessage];
@@ -892,14 +892,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     fileInputRef.current?.click();
   };
 
-  const handleChatPdfSelected = async (file) => {
+  const handleChatAttachSelected = async (file) => {
     if (!file) return;
     if (!authUser) {
       setChatAttachError("로그인이 필요합니다.");
       return;
     }
-    if (!isChatPdfFile(file)) {
-      setChatAttachError("PDF 파일만 첨부할 수 있습니다.");
+    if (!isChatAttachFile(file)) {
+      setChatAttachError("PDF, JPG, JPEG, PNG 파일만 첨부할 수 있습니다.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -923,11 +923,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         throw new Error("문서 업로드 후 식별자를 받지 못했습니다.");
       }
       setChatAttachDocumentId(documentId);
-      setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "PDF").trim());
+      setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "파일").trim());
       await loadDocumentsRef.current?.();
     } catch (err) {
       clearChatAttach();
-      setChatAttachError(toCustomerErrorMessage(err, "PDF 업로드에 실패했습니다."));
+      setChatAttachError(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
     } finally {
       setChatAttachUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1222,7 +1222,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  첨부됨: {chatAttachFilename || "PDF"}
+                  첨부됨: {chatAttachFilename || "파일"}
                 </span>
                 <button
                   type="button"
@@ -1256,10 +1256,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 ref={fileInputRef}
                 type="file"
                 hidden
-                accept={CHAT_PDF_FILE_ACCEPT}
+                accept={CHAT_ATTACH_FILE_ACCEPT}
                 onChange={(e) => {
                   const file = e.target.files?.[0] ?? null;
-                  void handleChatPdfSelected(file);
+                  void handleChatAttachSelected(file);
                 }}
               />
               <button

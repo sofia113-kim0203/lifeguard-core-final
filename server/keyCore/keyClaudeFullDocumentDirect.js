@@ -1,5 +1,6 @@
 /**
- * Claude-Full document-direct — ownership check + original PDF attach (no KEY pre-summary).
+ * Claude-Full / Claude-first document-direct — ownership + original PDF/image attach
+ * (no KEY pre-summary / no OCR substitute).
  * Bytes/base64/signed URLs must never enter DB trace/metadata/logs.
  */
 
@@ -8,6 +9,8 @@ export const CLAUDE_FULL_PDF_MAX_BYTES = 20 * 1024 * 1024; // align with upload 
 /** Full Anthropic Messages request body safety cap (PDF + context + tools/schema). */
 export const CLAUDE_FULL_REQUEST_MAX_BYTES = 30 * 1024 * 1024;
 export const CLAUDE_FULL_PDF_MEDIA_TYPE = "application/pdf";
+export const CLAUDE_FULL_JPEG_MEDIA_TYPE = "image/jpeg";
+export const CLAUDE_FULL_PNG_MEDIA_TYPE = "image/png";
 
 /** Honest customer text when PDF+context exceeds request cap — never S3/S4/S5. */
 export const DOCUMENT_DIRECT_REQUEST_TOO_LARGE_CUSTOMER_TEXT =
@@ -15,6 +18,31 @@ export const DOCUMENT_DIRECT_REQUEST_TOO_LARGE_CUSTOMER_TEXT =
 
 function isProductionEnv(env = process.env) {
   return String(env?.VERCEL_ENV ?? "").trim().toLowerCase() === "production";
+}
+
+/**
+ * Canonical MIME for Claude-first direct attach.
+ * Upload already stores image/jpeg (not image/jpg); only normalize known aliases.
+ * @returns {string|null}
+ */
+export function normalizeClaudeDirectAttachMediaType(mimeType) {
+  const raw = String(mimeType ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === CLAUDE_FULL_PDF_MEDIA_TYPE) return CLAUDE_FULL_PDF_MEDIA_TYPE;
+  if (raw === CLAUDE_FULL_JPEG_MEDIA_TYPE || raw === "image/jpg") {
+    return CLAUDE_FULL_JPEG_MEDIA_TYPE;
+  }
+  if (raw === CLAUDE_FULL_PNG_MEDIA_TYPE) return CLAUDE_FULL_PNG_MEDIA_TYPE;
+  return null;
+}
+
+export function isClaudeDirectAttachMediaType(mimeType) {
+  return normalizeClaudeDirectAttachMediaType(mimeType) != null;
+}
+
+export function isClaudeDirectImageMediaType(mimeType) {
+  const mime = normalizeClaudeDirectAttachMediaType(mimeType);
+  return mime === CLAUDE_FULL_JPEG_MEDIA_TYPE || mime === CLAUDE_FULL_PNG_MEDIA_TYPE;
 }
 
 /**
@@ -111,7 +139,73 @@ export function buildAnthropicPdfDocumentBlock({
 }
 
 /**
- * Verify customer ownership and load original PDF bytes from existing storage.
+ * Anthropic Messages API image block (JPEG / PNG).
+ * @param {{ base64: string, mediaType?: string }}
+ */
+export function buildAnthropicImageBlock({
+  base64,
+  mediaType = CLAUDE_FULL_JPEG_MEDIA_TYPE,
+} = {}) {
+  const data = String(base64 ?? "").trim();
+  const mime = normalizeClaudeDirectAttachMediaType(mediaType);
+  if (!data || !isClaudeDirectImageMediaType(mime)) return null;
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: mime,
+      data,
+    },
+  };
+}
+
+/**
+ * PDF → document block · JPEG/PNG → image block.
+ */
+export function buildAnthropicDirectAttachBlock({ base64, mediaType } = {}) {
+  const mime = normalizeClaudeDirectAttachMediaType(mediaType);
+  if (!mime) return null;
+  if (mime === CLAUDE_FULL_PDF_MEDIA_TYPE) {
+    return buildAnthropicPdfDocumentBlock({ base64, mediaType: mime });
+  }
+  return buildAnthropicImageBlock({ base64, mediaType: mime });
+}
+
+function rejectMimeNotSupported({
+  documentId,
+  mime,
+  ownershipVerified,
+  fetchStarted,
+  document = null,
+}) {
+  return {
+    ok: false,
+    reason: "mime_not_supported_for_direct",
+    fallbackRecommended: true,
+    ...(document
+      ? {
+          document: {
+            id: document.id,
+            customer_id: document.customer_id,
+            original_filename: document.original_filename ?? null,
+            mime_type: mime,
+            ingest_status: document.ingest_status ?? null,
+          },
+        }
+      : {}),
+    metrics: buildDocumentDirectTraceMeta({
+      documentId,
+      mimeType: mime,
+      ownershipVerified,
+      fallbackUsed: true,
+      fallbackReason: "mime_not_supported_for_direct",
+      documentFetchMs: Math.max(0, Date.now() - fetchStarted),
+    }),
+  };
+}
+
+/**
+ * Verify customer ownership and load original PDF/JPEG/PNG bytes from existing storage.
  * Does not OCR/parse. Does not invent content.
  *
  * @returns {Promise<{
@@ -130,7 +224,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
   customerId,
   documentId,
   env = process.env,
-  // Test injection — never used for production traces
+  // Test injection — never used for production traces (PDF or image bytes)
   injectedPdfBytes = null,
   injectedDocument = null,
 } = {}) {
@@ -181,21 +275,16 @@ export async function verifyAndFetchCustomerPdfOriginal({
         }),
       };
     }
-    const mime = String(doc.mime_type ?? CLAUDE_FULL_PDF_MEDIA_TYPE).trim();
-    if (mime !== CLAUDE_FULL_PDF_MEDIA_TYPE) {
-      return {
-        ok: false,
-        reason: "mime_not_pdf_direct",
-        fallbackRecommended: true,
-        metrics: buildDocumentDirectTraceMeta({
-          documentId: did,
-          mimeType: mime,
-          ownershipVerified: true,
-          fallbackUsed: true,
-          fallbackReason: "mime_not_pdf_direct",
-          documentFetchMs: Math.max(0, Date.now() - fetchStarted),
-        }),
-      };
+    const mime = normalizeClaudeDirectAttachMediaType(
+      doc.mime_type ?? CLAUDE_FULL_PDF_MEDIA_TYPE,
+    );
+    if (!mime) {
+      return rejectMimeNotSupported({
+        documentId: did,
+        mime: String(doc.mime_type ?? "").trim(),
+        ownershipVerified: true,
+        fetchStarted,
+      });
     }
     const buf = Buffer.isBuffer(injectedPdfBytes)
       ? injectedPdfBytes
@@ -223,7 +312,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
     return {
       ok: true,
       pdfBase64,
-      mediaType: CLAUDE_FULL_PDF_MEDIA_TYPE,
+      mediaType: mime,
       fileSizeBytes: buf.length,
       document: {
         id: did,
@@ -297,28 +386,16 @@ export async function verifyAndFetchCustomerPdfOriginal({
     };
   }
 
-  const mime = String(document.mime_type ?? "").trim() || CLAUDE_FULL_PDF_MEDIA_TYPE;
-  if (mime !== CLAUDE_FULL_PDF_MEDIA_TYPE) {
-    return {
-      ok: false,
-      reason: "mime_not_pdf_direct",
-      fallbackRecommended: true,
-      document: {
-        id: document.id,
-        customer_id: document.customer_id,
-        original_filename: document.original_filename ?? null,
-        mime_type: mime,
-        ingest_status: document.ingest_status ?? null,
-      },
-      metrics: buildDocumentDirectTraceMeta({
-        documentId: did,
-        mimeType: mime,
-        ownershipVerified: true,
-        fallbackUsed: true,
-        fallbackReason: "mime_not_pdf_direct",
-        documentFetchMs: Math.max(0, Date.now() - fetchStarted),
-      }),
-    };
+  const rawMime = String(document.mime_type ?? "").trim();
+  const mime = normalizeClaudeDirectAttachMediaType(rawMime || CLAUDE_FULL_PDF_MEDIA_TYPE);
+  if (!mime) {
+    return rejectMimeNotSupported({
+      documentId: did,
+      mime: rawMime,
+      ownershipVerified: true,
+      fetchStarted,
+      document,
+    });
   }
 
   const storagePath = String(document.storage_path ?? "").trim();
@@ -403,7 +480,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
   return {
     ok: true,
     pdfBase64,
-    mediaType: CLAUDE_FULL_PDF_MEDIA_TYPE,
+    mediaType: mime,
     fileSizeBytes: buf.length,
     document: {
       id: document.id,
@@ -425,8 +502,8 @@ export async function verifyAndFetchCustomerPdfOriginal({
 }
 
 /**
- * Build user message content for Claude-Full: optional PDF document block + JSON payload text.
- * PDF bytes live only in the in-flight provider request.
+ * Build user message content: optional PDF document or image block + JSON payload text.
+ * Bytes live only in the in-flight provider request.
  */
 export function buildClaudeFullUserContentWithPdf({
   userPayload,
@@ -434,11 +511,11 @@ export function buildClaudeFullUserContentWithPdf({
   mediaType = CLAUDE_FULL_PDF_MEDIA_TYPE,
 } = {}) {
   const text = JSON.stringify(userPayload ?? {}, null, 2);
-  const docBlock = pdfBase64
-    ? buildAnthropicPdfDocumentBlock({ base64: pdfBase64, mediaType })
+  const attachBlock = pdfBase64
+    ? buildAnthropicDirectAttachBlock({ base64: pdfBase64, mediaType })
     : null;
-  if (!docBlock) {
+  if (!attachBlock) {
     return text;
   }
-  return [docBlock, { type: "text", text }];
+  return [attachBlock, { type: "text", text }];
 }

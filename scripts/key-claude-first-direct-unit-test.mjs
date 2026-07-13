@@ -12,9 +12,16 @@ import {
 import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicPdfDocumentBlock,
+  buildAnthropicImageBlock,
   verifyAndFetchCustomerPdfOriginal,
+  normalizeClaudeDirectAttachMediaType,
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
-import { isChatPdfFile, CHAT_PDF_FILE_ACCEPT } from "../src/lib/chatPdfAttach.js";
+import {
+  isChatPdfFile,
+  isChatAttachFile,
+  CHAT_ATTACH_FILE_ACCEPT,
+  CHAT_PDF_FILE_ACCEPT,
+} from "../src/lib/chatPdfAttach.js";
 
 assert.equal(
   isClaudeFirstDirectPreview({ VERCEL_ENV: "preview", KEY_BORROWED_SENSES: "shadow" }),
@@ -146,9 +153,21 @@ assert.equal(
   null,
 );
 
-assert.match(CHAT_PDF_FILE_ACCEPT, /application\/pdf/);
+assert.match(CHAT_ATTACH_FILE_ACCEPT, /application\/pdf/);
+assert.match(CHAT_ATTACH_FILE_ACCEPT, /image\/jpeg/);
+assert.match(CHAT_ATTACH_FILE_ACCEPT, /image\/png/);
+assert.equal(CHAT_PDF_FILE_ACCEPT, CHAT_ATTACH_FILE_ACCEPT);
 assert.equal(isChatPdfFile({ name: "증권.pdf", type: "application/pdf" }), true);
 assert.equal(isChatPdfFile({ name: "photo.png", type: "image/png" }), false);
+assert.equal(isChatAttachFile({ name: "증권.pdf", type: "application/pdf" }), true);
+assert.equal(isChatAttachFile({ name: "receipt.jpg", type: "image/jpeg" }), true);
+assert.equal(isChatAttachFile({ name: "receipt.JPEG", type: "" }), true);
+assert.equal(isChatAttachFile({ name: "photo.png", type: "image/png" }), true);
+assert.equal(isChatAttachFile({ name: "shot.heic", type: "image/heic" }), false);
+assert.equal(isChatAttachFile({ name: "shot.webp", type: "image/webp" }), false);
+
+assert.equal(normalizeClaudeDirectAttachMediaType("image/jpg"), "image/jpeg");
+assert.equal(normalizeClaudeDirectAttachMediaType("image/heic"), null);
 
 const pdfBlock = buildAnthropicPdfDocumentBlock({
   base64: Buffer.from("%PDF-1.1\n%%EOF\n").toString("base64"),
@@ -161,6 +180,46 @@ const userContent = buildClaudeFullUserContentWithPdf({
 assert.equal(Array.isArray(userContent), true);
 assert.equal(userContent[0]?.type, "document");
 assert.equal(userContent[1]?.type, "text");
+
+const jpegTiny = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+const jpegBlock = buildAnthropicImageBlock({
+  base64: jpegTiny.toString("base64"),
+  mediaType: "image/jpeg",
+});
+assert.equal(jpegBlock?.type, "image");
+assert.equal(jpegBlock?.source?.media_type, "image/jpeg");
+const jpegContent = buildClaudeFullUserContentWithPdf({
+  userPayload: { question: "이 영수증 봐줘" },
+  pdfBase64: jpegTiny.toString("base64"),
+  mediaType: "image/jpeg",
+});
+assert.equal(jpegContent[0]?.type, "image");
+assert.equal(jpegContent[0]?.source?.media_type, "image/jpeg");
+
+const pngTiny = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00,
+]);
+const pngBlock = buildAnthropicImageBlock({
+  base64: pngTiny.toString("base64"),
+  mediaType: "image/png",
+});
+assert.equal(pngBlock?.type, "image");
+assert.equal(pngBlock?.source?.media_type, "image/png");
+const pngContent = buildClaudeFullUserContentWithPdf({
+  userPayload: { question: "이 사진 봐줘" },
+  pdfBase64: pngTiny.toString("base64"),
+  mediaType: "image/png",
+});
+assert.equal(pngContent[0]?.type, "image");
+assert.equal(pngContent[0]?.source?.media_type, "image/png");
+
+assert.equal(
+  buildAnthropicImageBlock({
+    base64: jpegTiny.toString("base64"),
+    mediaType: "image/heic",
+  }),
+  null,
+);
 
 const denied = await verifyAndFetchCustomerPdfOriginal({
   supabase: {},
@@ -176,5 +235,58 @@ const denied = await verifyAndFetchCustomerPdfOriginal({
 });
 assert.equal(denied.ok, false);
 assert.equal(denied.reason, "document_ownership_denied");
+
+const jpegOk = await verifyAndFetchCustomerPdfOriginal({
+  supabase: {},
+  customerId: "cust-a",
+  documentId: "doc-jpg",
+  env: { VERCEL_ENV: "preview" },
+  injectedPdfBytes: jpegTiny,
+  injectedDocument: {
+    id: "doc-jpg",
+    customer_id: "cust-a",
+    mime_type: "image/jpeg",
+    original_filename: "receipt.jpg",
+  },
+});
+assert.equal(jpegOk.ok, true);
+assert.equal(jpegOk.mediaType, "image/jpeg");
+assert.equal(Boolean(jpegOk.pdfBase64), true);
+
+const pngOk = await verifyAndFetchCustomerPdfOriginal({
+  supabase: {},
+  customerId: "cust-a",
+  documentId: "doc-png",
+  env: { VERCEL_ENV: "preview" },
+  injectedPdfBytes: pngTiny,
+  injectedDocument: {
+    id: "doc-png",
+    customer_id: "cust-a",
+    mime_type: "image/png",
+    original_filename: "receipt.png",
+  },
+});
+assert.equal(pngOk.ok, true);
+assert.equal(pngOk.mediaType, "image/png");
+
+const heicDenied = await verifyAndFetchCustomerPdfOriginal({
+  supabase: {},
+  customerId: "cust-a",
+  documentId: "doc-heic",
+  env: { VERCEL_ENV: "preview" },
+  injectedPdfBytes: Buffer.from("ftypheic"),
+  injectedDocument: {
+    id: "doc-heic",
+    customer_id: "cust-a",
+    mime_type: "image/heic",
+  },
+});
+assert.equal(heicDenied.ok, false);
+assert.equal(heicDenied.reason, "mime_not_supported_for_direct");
+
+const promptImage = buildSystemPrompt();
+assert.match(promptImage, /JPEG\/PNG|photo|image/i);
+assert.match(promptImage, /payout|지급|증권·약관/i);
+assert.doesNotMatch(promptImage, /Claim\/hospital/i);
 
 console.log("key-claude-first-direct-unit-test: PASS");
