@@ -161,6 +161,9 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
   const documentId = String(options.documentId ?? options.document_id ?? "").trim() || null;
+  const rotationQuarterTurns = Number(
+    options.rotationQuarterTurns ?? options.rotation_quarter_turns ?? 0,
+  );
   const accessToken = await getCustomerAccessToken();
   const response = await fetch(ROUTE_PATH, {
     method: "POST",
@@ -174,6 +177,9 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
       history: Array.isArray(history) ? history : [],
       stream: true,
       ...(documentId ? { document_id: documentId } : {}),
+      ...(documentId
+        ? { rotation_quarter_turns: [0, 1, 2, 3].includes(rotationQuarterTurns) ? rotationQuarterTurns : 0 }
+        : {}),
     }),
   });
 
@@ -212,11 +218,21 @@ export async function fetchHomeBrainFact(question, history = [], options = {}) {
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
   const documentId = String(options.documentId ?? options.document_id ?? "").trim() || null;
+  const rotationQuarterTurns = Number(
+    options.rotationQuarterTurns ?? options.rotation_quarter_turns ?? 0,
+  );
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
     body: {
       question: trimmed,
       history: Array.isArray(history) ? history : [],
       ...(documentId ? { document_id: documentId } : {}),
+      ...(documentId
+        ? {
+            rotation_quarter_turns: [0, 1, 2, 3].includes(rotationQuarterTurns)
+              ? rotationQuarterTurns
+              : 0,
+          }
+        : {}),
     },
   });
 

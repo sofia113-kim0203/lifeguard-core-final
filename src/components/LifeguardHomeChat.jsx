@@ -8,6 +8,11 @@ import { useKeyBridgeSessionTransition } from "../hooks/useKeyBridgeSessionTrans
 import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudgmentSessionTransition.js";
 import { listDocuments, uploadDocument } from "../lib/customerDocuments.js";
 import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.js";
+import {
+  normalizeQuarterTurns,
+  quarterTurnsToDegrees,
+  wrapQuarterTurns,
+} from "../lib/chatImageOrient.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   clearLifeguardChatSnapshot,
@@ -295,6 +300,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [chatAttachFilename, setChatAttachFilename] = useState("");
   const [chatAttachUploading, setChatAttachUploading] = useState(false);
   const [chatAttachError, setChatAttachError] = useState("");
+  const [chatAttachPreviewUrl, setChatAttachPreviewUrl] = useState("");
+  const [chatAttachIsImage, setChatAttachIsImage] = useState(false);
+  const [chatAttachQuarterTurns, setChatAttachQuarterTurns] = useState(0);
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
   const [sessionId, setSessionId] = useState(() => createLifeguardSessionId());
@@ -718,11 +726,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     const trimmed = String(value ?? "").trim();
     if (!trimmed || isDisabled || loading || !threadRestoreReady) return;
     if (chatAttachUploading) {
-      setError("PDF 업로드가 끝난 뒤 보내 주세요.");
+      setError("파일 업로드가 끝난 뒤 보내 주세요.");
       return;
     }
 
     const documentIdForTurn = chatAttachDocumentId;
+    const attachTurnsForTurn = chatAttachQuarterTurns;
+    const attachIsImageForTurn = chatAttachIsImage;
     setPanelView("chat");
     setSidebarOpen(false);
     const userMessage = {
@@ -754,6 +764,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       }
 
       let streamedText = "";
+      let attachOptions = documentIdForTurn ? { documentId: documentIdForTurn } : {};
+      if (documentIdForTurn && attachIsImageForTurn) {
+        attachOptions = {
+          ...attachOptions,
+          rotationQuarterTurns: normalizeQuarterTurns(attachTurnsForTurn),
+        };
+      }
       const result = await fetchHomeBrainFactStream(
         trimmed,
         history,
@@ -793,7 +810,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             );
           },
         },
-        documentIdForTurn ? { documentId: documentIdForTurn } : {},
+        attachOptions,
       );
 
       const finalText = result.answerText || streamedText;
@@ -816,10 +833,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           messages: completedMessages,
         });
       }
-      setChatAttachDocumentId(null);
-      setChatAttachFilename("");
-      setChatAttachError("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      clearChatAttach();
 
       if (authUser && customerId) {
         await persistLifeguardChatTurn(authUser, {
@@ -883,6 +897,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setChatAttachFilename("");
     setChatAttachError("");
     setAttachHint("");
+    setChatAttachIsImage(false);
+    setChatAttachQuarterTurns(0);
+    setChatAttachPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return "";
+    });
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -912,7 +932,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setChatAttachUploading(true);
     setChatAttachError("");
     setAttachHint("");
+    setChatAttachQuarterTurns(0);
+    const isImage = String(file.type || "").startsWith("image/");
+    setChatAttachIsImage(isImage);
+    setChatAttachPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return isImage ? URL.createObjectURL(file) : "";
+    });
     try {
+      // Storage keeps the original bytes (no re-encode / no orientation rewrite).
       const uploadResult = await uploadDocument(authUser, {
         file,
         categoryKey: "insurance_policy",
@@ -1207,37 +1235,101 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             ) : null}
             {chatAttachUploading ? (
               <div style={{ color: LG.textMuted, fontSize: "13px", marginBottom: "8px" }}>
-                PDF 업로드 중…
+                파일 업로드 중…
               </div>
             ) : null}
             {chatAttachDocumentId && !chatAttachUploading ? (
               <div
                 style={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: "column",
                   gap: "8px",
                   marginBottom: "8px",
                   fontSize: "13px",
                   color: LG.text,
                 }}
               >
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  첨부됨: {chatAttachFilename || "파일"}
-                </span>
-                <button
-                  type="button"
-                  onClick={clearChatAttach}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: LG.textMuted,
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    fontFamily: LG.sans,
-                  }}
-                >
-                  제거
-                </button>
+                {chatAttachIsImage && chatAttachPreviewUrl ? (
+                  <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                    <img
+                      src={chatAttachPreviewUrl}
+                      alt="첨부 미리보기"
+                      style={{
+                        width: "96px",
+                        height: "96px",
+                        objectFit: "contain",
+                        borderRadius: "8px",
+                        background: "#fff",
+                        border: `1px solid ${LG.border}`,
+                        transform: `rotate(${quarterTurnsToDegrees(chatAttachQuarterTurns)}deg)`,
+                      }}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: 0, flex: 1 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                        첨부됨: {chatAttachFilename || "이미지"}
+                      </span>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setChatAttachQuarterTurns((t) => wrapQuarterTurns(t - 1))
+                          }
+                          style={{
+                            border: `1px solid ${LG.border}`,
+                            background: LG.surface,
+                            borderRadius: "8px",
+                            padding: "4px 8px",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                            fontFamily: LG.sans,
+                          }}
+                        >
+                          왼쪽 90°
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setChatAttachQuarterTurns((t) => wrapQuarterTurns(t + 1))
+                          }
+                          style={{
+                            border: `1px solid ${LG.border}`,
+                            background: LG.surface,
+                            borderRadius: "8px",
+                            padding: "4px 8px",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                            fontFamily: LG.sans,
+                          }}
+                        >
+                          오른쪽 90°
+                        </button>
+                        <span style={{ color: LG.textMuted, fontSize: "12px" }}>
+                          {quarterTurnsToDegrees(chatAttachQuarterTurns)}°
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    첨부됨: {chatAttachFilename || "파일"}
+                  </span>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={clearChatAttach}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: LG.textMuted,
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      fontFamily: LG.sans,
+                    }}
+                  >
+                    제거
+                  </button>
+                </div>
               </div>
             ) : null}
             <div
