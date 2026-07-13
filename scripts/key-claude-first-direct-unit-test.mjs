@@ -14,6 +14,16 @@ import {
   buildClaudeImageAttachFromStorageOriginal,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
+  isPriorAttachFollowUpQuestion,
+  PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
+  normalizeActiveAttachment,
+  extractActiveAttachmentFromSessionMessages,
+} from "../src/lib/chatActiveAttachment.js";
+import {
+  buildSessionMetadata,
+  buildAssistantTurnMetadata,
+} from "../src/lib/lifeguardChatSessionCore.js";
+import {
   parseRotationQuarterTurns,
   normalizeQuarterTurns,
   quarterTurnsToDegrees,
@@ -509,5 +519,90 @@ assert.equal(
 
 const promptTable = buildSystemPrompt();
 assert.match(promptTable, /orientation|independently|column|셀/i);
+
+// --- Slice A: prior attach follow-up / active attachment ---
+assert.equal(isPriorAttachFollowUpQuestion("이 사진 다시 봐줘"), true);
+assert.equal(isPriorAttachFollowUpQuestion("방금 사진"), true);
+assert.equal(isPriorAttachFollowUpQuestion("첨부 사진만 분석해줘"), true);
+assert.equal(isPriorAttachFollowUpQuestion("잘못 읽은 것 같아"), true);
+assert.equal(
+  isPriorAttachFollowUpQuestion("잘못 읽은 것 같아. 이 사진만 다시 확인해줘."),
+  true,
+);
+assert.equal(isPriorAttachFollowUpQuestion("잘 지내?"), false);
+assert.equal(isPriorAttachFollowUpQuestion("내 보험 현황 알려줘"), false);
+// Ambiguous recheck alone needs recent photo readout context.
+assert.equal(isPriorAttachFollowUpQuestion("다시 확인해줘"), false);
+assert.equal(
+  isPriorAttachFollowUpQuestion("다시 확인해줘", {
+    history: [
+      { role: "user", content: "이 첨부 사진만 분석해줘.\n\n(첨부: a.jpg)" },
+      { role: "assistant", content: "첨부 이미지 판독 결과\n| 보험사 | 미확인 |" },
+    ],
+  }),
+  true,
+);
+assert.equal(
+  isPriorAttachFollowUpQuestion("다시 확인해줘", {
+    history: [
+      { role: "user", content: "오늘 기분은 어때?" },
+      { role: "assistant", content: "좋아요." },
+    ],
+  }),
+  false,
+);
+
+assert.equal(
+  wantsClaudeFirstVisualBlocks("잘못 읽은 것 같아", { documentAttached: true }),
+  false,
+);
+
+assert.equal(
+  resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId: null,
+    unifiedState: { documents: [{ id: "doc-old" }, { id: "doc-new" }] },
+    allowLatestFallback: false,
+  }),
+  null,
+  "prior-attach follow-up must not use latest-document fallback",
+);
+assert.equal(
+  resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId: "doc-active",
+    unifiedState: { documents: [{ id: "doc-other" }] },
+    allowLatestFallback: false,
+  }),
+  "doc-active",
+);
+
+const activeNorm = normalizeActiveAttachment({
+  active_attachment_id: "doc-a",
+  active_attachment_mime: "image/jpeg",
+  active_rotation_quarter_turns: 2,
+});
+assert.equal(activeNorm.active_attachment_id, "doc-a");
+assert.equal(activeNorm.active_rotation_quarter_turns, 2);
+assert.equal(normalizeActiveAttachment({ rotation_quarter_turns: 9 }), null); // no id
+assert.equal(
+  normalizeActiveAttachment({
+    active_attachment_id: "doc-b",
+    active_rotation_quarter_turns: 9,
+  }).active_rotation_quarter_turns,
+  0,
+);
+
+const metaWithActive = buildAssistantTurnMetadata("sess-1", {
+  activeAttachment: activeNorm,
+});
+assert.equal(metaWithActive.active_attachment_id, "doc-a");
+assert.equal(metaWithActive.active_rotation_quarter_turns, 2);
+assert.equal(buildSessionMetadata("sess-1").active_attachment_id, undefined);
+
+const extracted = extractActiveAttachmentFromSessionMessages([
+  { role: "user", content: "hi" },
+  { role: "assistant", content: "ok", metadata: metaWithActive },
+]);
+assert.equal(extracted?.active_attachment_id, "doc-a");
+assert.match(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT, /다시 첨부/);
 
 console.log("key-claude-first-direct-unit-test: PASS");
