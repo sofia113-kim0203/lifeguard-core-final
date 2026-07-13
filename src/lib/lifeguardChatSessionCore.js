@@ -2,6 +2,7 @@
  * P5-STATE / P5-CONTINUITY-01 Phase A — pure session helpers (no Supabase import).
  */
 import { normalizeActiveAttachment } from "./chatActiveAttachment.js";
+import { normalizeActiveEntity } from "./chatActiveEntity.js";
 
 export const LIFEGUARD_HOME_CHAT_PHASE = "lifeguard-home-chat";
 export const LIFEGUARD_HOME_CHAT_SOURCE = "lifeguard_home_chat";
@@ -90,6 +91,7 @@ export function readLifeguardChatSnapshot(customerId) {
       sessionId: String(parsed.sessionId),
       messages: sanitizeMessagesForChatSnapshot(parsed.messages),
       activeAttachment: normalizeActiveAttachment(parsed.activeAttachment ?? null),
+      activeEntity: normalizeActiveEntity(parsed.activeEntity ?? null),
       updatedAt: parsed.updatedAt ?? null,
     };
   } catch {
@@ -99,7 +101,7 @@ export function readLifeguardChatSnapshot(customerId) {
 
 export function writeLifeguardChatSnapshot(
   customerId,
-  { sessionId, messages, activeAttachment = null } = {},
+  { sessionId, messages, activeAttachment = null, activeEntity = null } = {},
 ) {
   if (typeof window === "undefined" || !customerId || !sessionId) return;
   const sanitized = sanitizeMessagesForChatSnapshot(messages);
@@ -110,6 +112,8 @@ export function writeLifeguardChatSnapshot(
       messages: sanitized,
       updatedAt: new Date().toISOString(),
       activeAttachment: normalizeActiveAttachment(activeAttachment),
+      // Selection hint only — never persist authorization / role / corporate facts.
+      activeEntity: normalizeActiveEntity(activeEntity),
     };
     window.sessionStorage.setItem(chatSnapshotStorageKey(customerId), JSON.stringify(payload));
   } catch {
@@ -346,7 +350,10 @@ function compareSessionMessageRows(a, b) {
   return ta - tb;
 }
 
-export function buildSessionMetadata(sessionId, { activeAttachment = null } = {}) {
+export function buildSessionMetadata(
+  sessionId,
+  { activeAttachment = null, activeEntity = null } = {},
+) {
   const metadata = {
     phase: LIFEGUARD_HOME_CHAT_PHASE,
     session_id: sessionId,
@@ -360,6 +367,11 @@ export function buildSessionMetadata(sessionId, { activeAttachment = null } = {}
     }
     metadata.active_rotation_quarter_turns = normalized.active_rotation_quarter_turns;
   }
+  const entity = normalizeActiveEntity(activeEntity);
+  if (entity) {
+    metadata.active_entity_type = entity.active_entity_type;
+    metadata.active_entity_id = entity.active_entity_id;
+  }
   return metadata;
 }
 
@@ -372,9 +384,10 @@ export function buildAssistantTurnMetadata(
     responseLatencyMs = null,
     oneKeyCoreTraceSummary = null,
     activeAttachment = null,
+    activeEntity = null,
   } = {},
 ) {
-  const metadata = buildSessionMetadata(sessionId, { activeAttachment });
+  const metadata = buildSessionMetadata(sessionId, { activeAttachment, activeEntity });
   if (Array.isArray(visualBlocks) && visualBlocks.length > 0) {
     metadata.visual_blocks = visualBlocks;
   }

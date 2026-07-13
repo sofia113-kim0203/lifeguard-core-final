@@ -5,10 +5,13 @@ import {
   rethrowCustomerApiError,
 } from "./customerApiAuth.js";
 import { parseHomeBrainFactSseBlock } from "./homeBrainFactSse.js";
+import { buildHomeBrainFactRequestBody } from "./homeBrainFactRequestBody.js";
 import { buildPersistableTurnTraceSummary } from "./lifeguardChatSessionCore.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const ROUTE_PATH = "/api/customer-home-brain-fact";
+
+export { buildHomeBrainFactRequestBody } from "./homeBrainFactRequestBody.js";
 
 function resolveVisualBlocksFromPayload(payload = {}) {
   if (Array.isArray(payload.visual_blocks) && payload.visual_blocks.length > 0) {
@@ -146,6 +149,8 @@ export function mapHomeBrainFactPayload(payload) {
     oneKeyCoreTraceSummary: turnTrace.one_key_core_trace_summary,
     visualBlocks,
     visualBlocksGate: resolveVisualBlocksGateFromPayload(payload, visualBlocks),
+    keyMonopolyFailure: payload.key_monopoly_failure === true,
+    failureReason: payload.failure_reason ?? null,
   };
 }
 
@@ -160,13 +165,6 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
-  const documentId = String(options.documentId ?? options.document_id ?? "").trim() || null;
-  const rotationQuarterTurns = Number(
-    options.rotationQuarterTurns ?? options.rotation_quarter_turns ?? 0,
-  );
-  const priorAttachFollowUp = Boolean(
-    options.priorAttachFollowUp ?? options.prior_attach_follow_up ?? false,
-  );
   const accessToken = await getCustomerAccessToken();
   const response = await fetch(ROUTE_PATH, {
     method: "POST",
@@ -176,14 +174,8 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      question: trimmed,
-      history: Array.isArray(history) ? history : [],
+      ...buildHomeBrainFactRequestBody(trimmed, history, options),
       stream: true,
-      ...(documentId ? { document_id: documentId } : {}),
-      ...(documentId
-        ? { rotation_quarter_turns: [0, 1, 2, 3].includes(rotationQuarterTurns) ? rotationQuarterTurns : 0 }
-        : {}),
-      ...(priorAttachFollowUp ? { prior_attach_follow_up: true } : {}),
     }),
   });
 
@@ -221,27 +213,8 @@ export async function fetchHomeBrainFact(question, history = [], options = {}) {
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
-  const documentId = String(options.documentId ?? options.document_id ?? "").trim() || null;
-  const rotationQuarterTurns = Number(
-    options.rotationQuarterTurns ?? options.rotation_quarter_turns ?? 0,
-  );
-  const priorAttachFollowUp = Boolean(
-    options.priorAttachFollowUp ?? options.prior_attach_follow_up ?? false,
-  );
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
-    body: {
-      question: trimmed,
-      history: Array.isArray(history) ? history : [],
-      ...(documentId ? { document_id: documentId } : {}),
-      ...(documentId
-        ? {
-            rotation_quarter_turns: [0, 1, 2, 3].includes(rotationQuarterTurns)
-              ? rotationQuarterTurns
-              : 0,
-          }
-        : {}),
-      ...(priorAttachFollowUp ? { prior_attach_follow_up: true } : {}),
-    },
+    body: buildHomeBrainFactRequestBody(trimmed, history, options),
   });
 
   try {
