@@ -49,6 +49,23 @@ export default async function handler(req, res) {
     const attachedDocumentId = String(
       body?.document_id ?? body?.documentId ?? body?.attached_document_id ?? "",
     ).trim() || null;
+    const { requestHasForbiddenClientImageBytes, parseRotationQuarterTurns } =
+      await import("../server/keyCore/keyClaudeImageOrient.js");
+    if (requestHasForbiddenClientImageBytes(body)) {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: "INVALID_BODY",
+          error_message: "클라이언트 이미지 bytes는 사용할 수 없습니다.",
+        }),
+      );
+      return;
+    }
+    const rotationQuarterTurns = parseRotationQuarterTurns(
+      body?.rotation_quarter_turns ?? body?.rotationQuarterTurns ?? 0,
+    );
     // Shadow-only: accepted only when KEY_BORROWED_SENSES=shadow (never customer UI blocks).
     const shadowVisualBlocksOverride = resolveShadowVisualBlocksOverride(
       body?.shadow_visual_blocks ?? body?.shadowVisualBlocksOverride ?? null,
@@ -99,6 +116,7 @@ export default async function handler(req, res) {
         question,
         history,
         attachedDocumentId,
+        rotationQuarterTurns,
         shadowVisualBlocksOverride,
         streamHandlers,
         requestStartedAt,
@@ -120,6 +138,7 @@ export default async function handler(req, res) {
       question,
       history,
       attachedDocumentId,
+      rotationQuarterTurns,
       shadowVisualBlocksOverride,
     });
 

@@ -20,7 +20,16 @@ import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
 import {
   buildClaudeFullUserContentWithPdf,
   verifyAndFetchCustomerPdfOriginal,
+  CLAUDE_FULL_PDF_MAX_BYTES,
+  isClaudeDirectImageMediaType,
+  normalizeClaudeDirectAttachMediaType,
 } from "./keyClaudeFullDocumentDirect.js";
+import {
+  parseRotationQuarterTurns,
+  quarterTurnsToDegrees,
+  readImageSizeFromBuffer,
+  rotateImageBufferQuarterTurns,
+} from "./keyClaudeImageOrient.js";
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
@@ -172,6 +181,7 @@ export function buildSystemPrompt() {
     "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
     "If a PDF or photo is attached, you may read and analyze the original directly — no OCR pre-summary is provided.",
     "Attached-file literal rules (required): copy only what is clearly visible/printed. If a character, number, name, or field is blurry/partial/uncertain, write 미확인 — never guess a similar word. Do not reinterpret printed values into other insurance concepts (example: do not turn '9999세 만기' into '종신형'; keep the printed wording or mark 미확인).",
+    "Attached table readout (required): account for image orientation first. Read each contract column independently — never pull a product name or value from an adjacent column. Keep printed units as-is (원, 세, 년납, etc.). If any part of a cell is uncertain, mark that whole cell 미확인 — do not invent similar words or partially invent the rest of the cell. Do not reinterpret document wording into other product meanings.",
     "Attached-file focus (required when a file is attached and the customer asks about that file): answer from the attachment first. Do not auto-mix verified_customer_chart into that answer. If chart facts are truly needed, separate sources explicitly (e.g. '첨부 문서:' vs '고객 차트:').",
     "Do NOT assert insurance payout eligibility, final benefit amount, exclusion/reduction, or medical final interpretation from an attached photo or PDF alone — when asked, say 증권·약관·계약 확인이 더 필요하다고 자연스럽게 안내한다.",
     "Delivery order (required for speed): write the full customer-facing reply as plain Korean text first. Do NOT wrap the main answer in emit_claude_full. Plain text streams to the customer immediately.",
@@ -246,6 +256,7 @@ export function buildUserPayload({ question, chart, allowlist, contextPack, pdfM
       ? [
           "ATTACHED FILE READ: Focus on the attached PDF/image first.",
           "Copy visible/printed values literally. Unclear glyphs → 미확인 (never guess similar words).",
+          "Table cells: respect image orientation; read each contract column independently (do not take names/values from adjacent columns); keep units as printed; if a cell is uncertain, mark the whole cell 미확인 — never invent similar words or reinterpret product meaning.",
           "Do not reinterpret printed wording (e.g. keep '9999세 만기'; do not say 종신형 unless printed).",
           "Do not auto-mix verified_customer_chart. If chart is needed, label '첨부 문서' vs '고객 차트' separately.",
           "Put any summary table in plain Korean text. No emoji/<cite>/HTML.",
@@ -561,6 +572,106 @@ export function resolveClaudeFirstPdfDocumentId({
   return latestDocumentIdFromContext(loadedContext, unifiedState);
 }
 
+/**
+ * Build Claude image bytes from Storage original + trusted quarter turns.
+ * Never trusts client-provided image bytes.
+ */
+export function buildClaudeImageAttachFromStorageOriginal({
+  storageBase64 = null,
+  storageMediaType = null,
+  rotationQuarterTurns = 0,
+} = {}) {
+  const turns = parseRotationQuarterTurns(rotationQuarterTurns);
+  const stored = String(storageBase64 ?? "").trim();
+  const storedMime = normalizeClaudeDirectAttachMediaType(storageMediaType);
+  if (!stored || !storedMime) {
+    return {
+      ok: false,
+      reason: "storage_image_missing",
+      base64: null,
+      mediaType: null,
+      claude_image_source: null,
+      rotation_quarter_turns: turns,
+      image_rotation_deg: quarterTurnsToDegrees(turns),
+    };
+  }
+  if (storedMime === "application/pdf") {
+    return {
+      ok: true,
+      base64: stored,
+      mediaType: storedMime,
+      claude_image_source: "storage_original",
+      rotation_quarter_turns: 0,
+      image_rotation_deg: 0,
+      rotated: false,
+    };
+  }
+  if (!isClaudeDirectImageMediaType(storedMime)) {
+    return {
+      ok: false,
+      reason: "mime_not_image",
+      base64: null,
+      mediaType: storedMime,
+      claude_image_source: null,
+      rotation_quarter_turns: turns,
+      image_rotation_deg: quarterTurnsToDegrees(turns),
+    };
+  }
+
+  const rawBuf = Buffer.from(stored, "base64");
+  if (rawBuf.length > CLAUDE_FULL_PDF_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: "image_too_large",
+      base64: null,
+      mediaType: storedMime,
+      claude_image_source: null,
+      rotation_quarter_turns: turns,
+      image_rotation_deg: quarterTurnsToDegrees(turns),
+    };
+  }
+
+  const rotated = rotateImageBufferQuarterTurns(rawBuf, storedMime, turns);
+  if (!rotated.ok || !rotated.buffer) {
+    return {
+      ok: false,
+      reason: rotated.reason ?? "image_rotate_failed",
+      base64: null,
+      mediaType: storedMime,
+      claude_image_source: null,
+      rotation_quarter_turns: turns,
+      image_rotation_deg: quarterTurnsToDegrees(turns),
+    };
+  }
+  if (rotated.buffer.length > CLAUDE_FULL_PDF_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: "rotated_image_too_large",
+      base64: null,
+      mediaType: storedMime,
+      claude_image_source: null,
+      rotation_quarter_turns: turns,
+      image_rotation_deg: quarterTurnsToDegrees(turns),
+    };
+  }
+
+  return {
+    ok: true,
+    base64: rotated.buffer.toString("base64"),
+    mediaType: rotated.mediaType,
+    claude_image_source: rotated.rotated
+      ? "server_ephemeral_rotate"
+      : "storage_original",
+    rotation_quarter_turns: turns,
+    image_rotation_deg: quarterTurnsToDegrees(turns),
+    rotated: rotated.rotated === true,
+    source_width: rotated.source_width ?? null,
+    source_height: rotated.source_height ?? null,
+    width: rotated.width ?? null,
+    height: rotated.height ?? null,
+  };
+}
+
 async function resolveOptionalPdfAttachment({
   userSupabase = null,
   customerId = null,
@@ -568,6 +679,7 @@ async function resolveOptionalPdfAttachment({
   unifiedState = null,
   attachedDocumentId = null,
   env = process.env,
+  rotationQuarterTurns = 0,
 } = {}) {
   const documentId = resolveClaudeFirstPdfDocumentId({
     attachedDocumentId,
@@ -595,14 +707,63 @@ async function resolveOptionalPdfAttachment({
         },
       };
     }
+
+    const isPdf = fetched.mediaType === "application/pdf";
+    if (isPdf) {
+      return {
+        pdfBase64: fetched.pdfBase64,
+        mediaType: fetched.mediaType,
+        meta: {
+          attached: true,
+          document_id: documentId,
+          original_filename: fetched.document?.original_filename ?? null,
+          mime_type: fetched.mediaType,
+          storage_mime_type: fetched.mediaType,
+          claude_image_source: "storage_original",
+          rotation_quarter_turns: 0,
+          image_rotation_deg: 0,
+        },
+      };
+    }
+
+    const storageSize = readImageSizeFromBuffer(
+      Buffer.from(String(fetched.pdfBase64), "base64"),
+      fetched.mediaType,
+    );
+    const built = buildClaudeImageAttachFromStorageOriginal({
+      storageBase64: fetched.pdfBase64,
+      storageMediaType: fetched.mediaType,
+      rotationQuarterTurns,
+    });
+    if (!built.ok || !built.base64) {
+      return {
+        pdfBase64: null,
+        mediaType: null,
+        meta: {
+          attached: false,
+          document_id: documentId,
+          note: built.reason ?? "image_attach_failed",
+          rotation_quarter_turns: parseRotationQuarterTurns(rotationQuarterTurns),
+        },
+      };
+    }
+
     return {
-      pdfBase64: fetched.pdfBase64,
-      mediaType: fetched.mediaType,
+      pdfBase64: built.base64,
+      mediaType: built.mediaType,
       meta: {
         attached: true,
         document_id: documentId,
         original_filename: fetched.document?.original_filename ?? null,
-        mime_type: fetched.mediaType ?? fetched.document?.mime_type ?? null,
+        mime_type: built.mediaType,
+        storage_mime_type: fetched.mediaType ?? null,
+        claude_image_source: built.claude_image_source,
+        rotation_quarter_turns: built.rotation_quarter_turns,
+        image_rotation_deg: built.image_rotation_deg,
+        storage_pixel_width: storageSize?.width ?? built.source_width ?? null,
+        storage_pixel_height: storageSize?.height ?? built.source_height ?? null,
+        claude_pixel_width: built.width ?? storageSize?.width ?? null,
+        claude_pixel_height: built.height ?? storageSize?.height ?? null,
       },
     };
   } catch {
@@ -868,6 +1029,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   userSupabase = null,
   customerId = null,
   attachedDocumentId = null,
+  rotationQuarterTurns = 0,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -888,6 +1050,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     unifiedState,
     attachedDocumentId,
     env,
+    rotationQuarterTurns,
   });
 
   let firstTokenMs = null;
