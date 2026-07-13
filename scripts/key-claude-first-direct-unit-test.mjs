@@ -5,6 +5,8 @@ import {
   hardOnlySafetyCheck,
   buildSystemPrompt,
   selectReplacingHardReasons,
+  finalizeClaudeFirstStreamContentBlocks,
+  hasClientToolUse,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 
 assert.equal(
@@ -65,5 +67,50 @@ const enrollReplace = selectReplacingHardReasons(
   "지금 가입하세요. 특약을 바로 추가하시는 게 좋아요.",
 );
 assert.equal(enrollReplace.includes("recommendation_or_termination"), true);
+
+// Server web_search blocks must keep native types (never rewrite to client tool_use).
+const finalized = finalizeClaudeFirstStreamContentBlocks([
+  { type: "text", text: "분당 맛집을 찾고 계시는군요!" },
+  {
+    type: "server_tool_use",
+    id: "srvtoolu_test",
+    name: "web_search",
+    input_json: '{"query":"분당 맛집"}',
+  },
+  {
+    type: "web_search_tool_result",
+    tool_use_id: "srvtoolu_test",
+    content: [{ type: "web_search_result", title: "A", url: "https://example.com" }],
+  },
+  {
+    type: "tool_use",
+    id: "toolu_client",
+    name: "emit_claude_full",
+    input_json: '{"customer_answer":"표입니다."}',
+  },
+]);
+assert.equal(finalized[0].type, "text");
+assert.equal(finalized[1].type, "server_tool_use");
+assert.equal(finalized[1].name, "web_search");
+assert.deepEqual(finalized[1].input, { query: "분당 맛집" });
+assert.equal(Object.prototype.hasOwnProperty.call(finalized[1], "input_json"), false);
+assert.equal(finalized[2].type, "web_search_tool_result");
+assert.equal(finalized[2].tool_use_id, "srvtoolu_test");
+assert.equal(finalized[3].type, "tool_use");
+assert.equal(finalized[3].name, "emit_claude_full");
+assert.deepEqual(finalized[3].input, { customer_answer: "표입니다." });
+
+assert.equal(hasClientToolUse(finalized), true);
+assert.equal(
+  hasClientToolUse(finalized.filter((b) => b.type !== "tool_use")),
+  false,
+);
+assert.equal(
+  hasClientToolUse([
+    { type: "server_tool_use", id: "s1", name: "web_search", input: { query: "x" } },
+    { type: "web_search_tool_result", tool_use_id: "s1", content: [] },
+  ]),
+  false,
+);
 
 console.log("key-claude-first-direct-unit-test: PASS");

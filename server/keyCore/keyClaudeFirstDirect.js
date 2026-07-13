@@ -222,6 +222,64 @@ function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = n
   };
 }
 
+/**
+ * Finalize streamed Anthropic content blocks for the next request.
+ * Preserve server_tool_use / web_search_tool_result as-is (never rewrite to client tool_use).
+ * Only client tool_use gets input_json → input parsing.
+ */
+export function finalizeClaudeFirstStreamContentBlocks(contentBlocks = []) {
+  return (Array.isArray(contentBlocks) ? contentBlocks : []).map((block) => {
+    if (!block || typeof block !== "object") return block;
+    const type = String(block.type ?? "");
+
+    if (type === "tool_use") {
+      let input = block.input;
+      if (block.input_json) {
+        try {
+          input = JSON.parse(block.input_json);
+        } catch {
+          input = block.input ?? {};
+        }
+      }
+      return {
+        type: "tool_use",
+        id: block.id ?? null,
+        name: block.name ?? null,
+        input: input ?? {},
+      };
+    }
+
+    if (type === "server_tool_use") {
+      let input = block.input;
+      if (block.input_json) {
+        try {
+          input = JSON.parse(block.input_json);
+        } catch {
+          input = block.input ?? {};
+        }
+      }
+      return {
+        type: "server_tool_use",
+        id: block.id ?? null,
+        name: block.name ?? null,
+        input: input ?? {},
+      };
+    }
+
+    // web_search_tool_result and other blocks: drop stream-only input_json, keep type.
+    if (Object.prototype.hasOwnProperty.call(block, "input_json")) {
+      const { input_json: _drop, ...rest } = block;
+      return rest;
+    }
+    return block;
+  });
+}
+
+/** True only for client tool_use — server web_search must not drive the follow-up loop. */
+export function hasClientToolUse(content = []) {
+  return (Array.isArray(content) ? content : []).some((b) => b?.type === "tool_use");
+}
+
 async function readAnthropicSseWithAnswerStream({
   res,
   startedAt,
@@ -327,26 +385,7 @@ async function readAnthropicSseWithAnswerStream({
     }
   }
 
-  const content = contentBlocks.map((block) => {
-    if (!block || typeof block !== "object") return block;
-    if (block.type === "tool_use" || block.input_json != null) {
-      let input = block.input;
-      if (block.input_json) {
-        try {
-          input = JSON.parse(block.input_json);
-        } catch {
-          input = block.input ?? {};
-        }
-      }
-      return {
-        type: "tool_use",
-        id: block.id ?? null,
-        name: block.name ?? null,
-        input: input ?? {},
-      };
-    }
-    return block;
-  });
+  const content = finalizeClaudeFirstStreamContentBlocks(contentBlocks);
 
   return {
     dataRaw: {
@@ -659,7 +698,8 @@ async function callClaudeFirstDirect({
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
-    const hasToolUse = assistantContent.some((b) => b?.type === "tool_use");
+    // Client tool_use only — server web_search must not force a follow-up turn.
+    const hasToolUse = hasClientToolUse(assistantContent);
 
     if (picked.customer_answer && !hasToolUse) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
