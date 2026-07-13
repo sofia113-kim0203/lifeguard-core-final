@@ -39,9 +39,11 @@ export function findNextCommitEnd(
     /^#{1,3}\s+[^\n]+(?:\n|$)/,
     /^[-*]\s+[^\n]+(?:\n|$)/,
     /^\d+\.\s+[^\n]+(?:\n|$)/,
+    /^\|.+\|[ \t]*(?:\n|$)/,
     /\n#{1,3}\s+[^\n]+(?:\n|$)/,
     /\n[-*]\s+[^\n]+(?:\n|$)/,
     /\n\d+\.\s+[^\n]+(?:\n|$)/,
+    /\n\|.+\|[ \t]*(?:\n|$)/,
     /\n---+\n/,
     /\n\n/,
     /[.!?。…](?:["”']?)(?=\s|$|\n)/,
@@ -84,6 +86,7 @@ export function createSentenceCommitStream({
   let lastSeen = "";
   let aborted = false;
   let abortReason = null;
+  let catchUpAppended = false;
 
   function commitSlice(slice) {
     if (!slice) return;
@@ -129,6 +132,36 @@ export function createSentenceCommitStream({
       drain({ flushAll: false });
       return { aborted };
     },
+    /**
+     * Append-only catch-up from the final Claude answer.
+     * Only the exact suffix after already-committed text is queued.
+     * Never replaces or re-emits committed sentences.
+     */
+    catchUpFinalAnswer(finalAnswer = "") {
+      if (aborted) {
+        return { aborted: true, appended: false, reason: "already_aborted" };
+      }
+      const final = String(finalAnswer ?? "");
+      if (!final) {
+        return { aborted: false, appended: false, reason: "empty_final" };
+      }
+      if (!final.startsWith(committed)) {
+        // Unsafe to invent a suffix — keep committed as-is (no replace).
+        return { aborted: false, appended: false, reason: "final_not_prefix_of_committed" };
+      }
+      if (final.length <= committed.length) {
+        pending = "";
+        lastSeen = final;
+        return { aborted: false, appended: false, reason: "already_complete" };
+      }
+      const suffix = final.slice(committed.length);
+      // Drop any in-flight pending that overlaps the suffix path; rebuild from committed.
+      pending = suffix;
+      lastSeen = final;
+      catchUpAppended = true;
+      drain({ flushAll: false });
+      return { aborted, appended: true, suffix_len: suffix.length };
+    },
     flush() {
       if (aborted) return { aborted: true };
       drain({ flushAll: true });
@@ -145,6 +178,9 @@ export function createSentenceCommitStream({
     },
     getAbortReason() {
       return abortReason;
+    },
+    didCatchUpAppend() {
+      return catchUpAppended;
     },
   };
 }

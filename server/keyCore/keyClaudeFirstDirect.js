@@ -170,15 +170,17 @@ export function buildSystemPrompt() {
     "Decide freely whether the question is insurance, daily life, analysis, or something else, and use your full abilities.",
     "Materials may include verified_customer_chart, conversation originals, and an attached original PDF or image (JPEG/PNG) when present. Use them when helpful; do not invent policy facts that contradict them.",
     "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
-    "If a PDF or photo is attached, you may read and analyze the original directly — no OCR pre-summary is provided. Report only what is visible or printed; mark unclear fields as 미확인; do not invent missing numbers, dates, or names.",
+    "If a PDF or photo is attached, you may read and analyze the original directly — no OCR pre-summary is provided.",
+    "Attached-file literal rules (required): copy only what is clearly visible/printed. If a character, number, name, or field is blurry/partial/uncertain, write 미확인 — never guess a similar word. Do not reinterpret printed values into other insurance concepts (example: do not turn '9999세 만기' into '종신형'; keep the printed wording or mark 미확인).",
+    "Attached-file focus (required when a file is attached and the customer asks about that file): answer from the attachment first. Do not auto-mix verified_customer_chart into that answer. If chart facts are truly needed, separate sources explicitly (e.g. '첨부 문서:' vs '고객 차트:').",
     "Do NOT assert insurance payout eligibility, final benefit amount, exclusion/reduction, or medical final interpretation from an attached photo or PDF alone — when asked, say 증권·약관·계약 확인이 더 필요하다고 자연스럽게 안내한다.",
     "Delivery order (required for speed): write the full customer-facing reply as plain Korean text first. Do NOT wrap the main answer in emit_claude_full. Plain text streams to the customer immediately.",
-    "emit_claude_full is only for optional visual_blocks AFTER the plain-text answer when a chart/table is useful. Never put the main prose only inside the tool.",
+    "emit_claude_full is only for optional visual_blocks AFTER the plain-text answer when a chart/table is useful. Never put the main prose only inside the tool. When reading an attached file into a markdown table, put the table in the plain-text answer — do not call emit_claude_full just to restate the attachment.",
     "Do not push enrollment, cancellation, or definitive '충분/부족합니다' / '문제 없습니다' verdicts without basis.",
     "Do not invent restaurant/place names or policy numbers that are not grounded in materials or search results.",
     "Tone (required): warm, respectful, and clear. Open with a short caring acknowledgment when helpful. Soften uncertainty without sounding cold or accusing. Do not call the customer's records '오류' or '가짜' — say what is confirmed vs not yet confirmed.",
     "When the customer asks whether riders/특약을 can be added: explain the concept kindly, clarify you cannot enroll or change the policy here, and invite sharing the 증권 for a concrete review. Do not use '지금 가입하세요' style language.",
-    "Charts: when the customer asks for a chart/table/현황 정리, or when an insurance status summary benefits from a table, emit visual_blocks later via emit_claude_full (coverage_status_card, policy_count_summary, premium_summary_table, or coverage_gap_table) using ONLY verified_customer_chart facts. Omit visual_blocks for pure daily chit-chat.",
+    "Charts: when the customer asks for a chart/table/현황 정리 of their stored policies (not an attached-file readout), emit visual_blocks later via emit_claude_full (coverage_status_card, policy_count_summary, premium_summary_table, or coverage_gap_table) using ONLY verified_customer_chart facts. Omit visual_blocks for pure daily chit-chat and for attached-file readouts.",
     "Customer-facing presentation (required):",
     "- No emoji, emoticons, or decorative pictographs.",
     "- No HTML or citation markup (never output <cite> or other tags).",
@@ -187,14 +189,33 @@ export function buildSystemPrompt() {
   ].join("\n");
 }
 
-export function wantsClaudeFirstVisualBlocks(question = "") {
+/** True when the question is mainly about reading an attached file/photo. */
+export function isAttachDocumentReadQuestion(question = "") {
   const q = String(question ?? "");
-  return /차트|표\s*로|표로\s*보여|현황|내\s*보험은\s*괜찮아|보험\s*어때|계약\s*요약/.test(
+  return /이\s*사진|이\s*문서|이\s*파일|첨부(?:된|한|파일)?|올려\s*준|올려주신|찾아\s*(?:줘|표)|표로\s*정리|읽어|판독|영수증|진단서|처방전|세부\s*내역/.test(
     q,
   );
 }
 
-function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = null }) {
+/**
+ * When to run Phase B chart visual_blocks (second tool call).
+ * Attach-file readouts must not auto-trigger verified_customer_chart visuals.
+ */
+export function wantsClaudeFirstVisualBlocks(
+  question = "",
+  { documentAttached = false } = {},
+) {
+  if (documentAttached && isAttachDocumentReadQuestion(question)) {
+    return false;
+  }
+  const q = String(question ?? "");
+  return /차트|표로\s*보여|현황|내\s*보험은\s*괜찮아|보험\s*어때|계약\s*요약/.test(q);
+}
+
+export function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = null }) {
+  const attached = pdfMeta?.attached === true;
+  const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
+  const isImage = Boolean(mime && mime.startsWith("image/"));
   return {
     mode: "claude_native_first_preview",
     customer_question: String(question ?? ""),
@@ -210,19 +231,26 @@ function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = n
     product_counts: allowlist?.product_counts ?? null,
     direct_document: pdfMeta
       ? {
-          attached: pdfMeta.attached === true,
+          attached,
           document_id: pdfMeta.document_id ?? null,
           original_filename: pdfMeta.original_filename ?? null,
-          mime_type: pdfMeta.mime_type ?? null,
-          note: pdfMeta.attached
-            ? pdfMeta.mime_type && String(pdfMeta.mime_type).startsWith("image/")
+          mime_type: mime,
+          note: attached
+            ? isImage
               ? "Original image is attached as an image block. Read it yourself — no OCR/KEY pre-summary."
               : "Original PDF is attached as a document block. Read it yourself — no KEY pre-summary."
             : pdfMeta.note ?? "No document attached for this turn.",
         }
       : { attached: false, note: "No document attached for this turn." },
-    guidance:
-      "Answer warmly in plain Korean text first (not inside emit_claude_full). Insurance materials are optional context. No emoji/<cite>/HTML. Prefer headings and lists. Charts/visual_blocks come in a later step if needed.",
+    guidance: attached
+      ? [
+          "ATTACHED FILE READ: Focus on the attached PDF/image first.",
+          "Copy visible/printed values literally. Unclear glyphs → 미확인 (never guess similar words).",
+          "Do not reinterpret printed wording (e.g. keep '9999세 만기'; do not say 종신형 unless printed).",
+          "Do not auto-mix verified_customer_chart. If chart is needed, label '첨부 문서' vs '고객 차트' separately.",
+          "Put any summary table in plain Korean text. No emoji/<cite>/HTML.",
+        ].join(" ")
+      : "Answer warmly in plain Korean text first (not inside emit_claude_full). Insurance materials are optional context. No emoji/<cite>/HTML. Prefer headings and lists. Charts/visual_blocks come in a later step if needed.",
   };
 }
 
@@ -763,10 +791,12 @@ async function callClaudeFirstDirect({
   ).trim();
 
   // Phase B — optional charts after prose (does not stream customer prose again).
+  // Skip when this turn is an attached-file readout (avoid mixing verified_customer_chart).
   let visual_blocks = Array.isArray(lastPicked.visual_blocks) ? lastPicked.visual_blocks : [];
+  const documentAttached = Boolean(pdfBase64) || pdfMeta?.attached === true;
   if (
     customer_answer &&
-    wantsClaudeFirstVisualBlocks(question) &&
+    wantsClaudeFirstVisualBlocks(question, { documentAttached }) &&
     visual_blocks.length === 0
   ) {
     const chartMessages = [
@@ -897,6 +927,16 @@ export async function runClaudeFirstDirectQuestionTurn({
     pdfMeta: pdf.meta,
   });
   const emitMark = span.end();
+  // Completeness: progressive extract can lag the final customer_answer.
+  // Append-only catch-up — exact suffix after committed; never replace sent text.
+  let sentenceCatchUp = null;
+  if (!sentenceStreamAborted && claude.ok && claude.customer_answer) {
+    sentenceCatchUp = commitStream.catchUpFinalAnswer(claude.customer_answer);
+    if (sentenceCatchUp?.aborted) {
+      sentenceStreamAborted = true;
+      sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
+    }
+  }
   commitStream.flush();
   if (commitStream.isAborted()) {
     sentenceStreamAborted = true;
@@ -1058,6 +1098,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             abort_reason: sentenceAbortReason,
             committed_len: String(commitStream.getCommitted() ?? "").length,
             already_committed: alreadyCommitted,
+            catch_up_appended: commitStream.didCatchUpAppend?.() === true,
+            catch_up_reason: sentenceCatchUp?.reason ?? null,
           },
           latency_marks: {
             claude_full_emit: emitMark,

@@ -4,10 +4,13 @@ import {
   extractPartialCustomerAnswer,
   hardOnlySafetyCheck,
   buildSystemPrompt,
+  buildUserPayload,
   selectReplacingHardReasons,
   finalizeClaudeFirstStreamContentBlocks,
   hasClientToolUse,
   resolveClaudeFirstPdfDocumentId,
+  wantsClaudeFirstVisualBlocks,
+  isAttachDocumentReadQuestion,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
   buildClaudeFullUserContentWithPdf,
@@ -287,6 +290,63 @@ assert.equal(heicDenied.reason, "mime_not_supported_for_direct");
 const promptImage = buildSystemPrompt();
 assert.match(promptImage, /JPEG\/PNG|photo|image/i);
 assert.match(promptImage, /payout|지급|증권·약관/i);
+assert.match(promptImage, /미확인/);
+assert.match(promptImage, /9999세|종신형/);
+assert.match(promptImage, /첨부 문서|고객 차트/);
 assert.doesNotMatch(promptImage, /Claim\/hospital/i);
+
+assert.equal(
+  isAttachDocumentReadQuestion(
+    "이 사진에서 병원명, 진료일, 문서 종류, 총 결제금액을 찾아 표로 정리해줘.",
+  ),
+  true,
+);
+assert.equal(
+  wantsClaudeFirstVisualBlocks("이 사진에서 병원명 찾아 표로 정리해줘.", {
+    documentAttached: true,
+  }),
+  false,
+);
+assert.equal(
+  wantsClaudeFirstVisualBlocks("표로 정리해줘", { documentAttached: true }),
+  false,
+);
+assert.equal(
+  wantsClaudeFirstVisualBlocks(
+    "이 사진에서 보험사, 상품명, 납입기간과 만기, 계약기간, 월 보험료를 표로 정리해줘. 읽기 어려운 항목은 추측하지 말고 미확인으로 표시해줘.",
+    { documentAttached: true },
+  ),
+  false,
+  "attach readout must not trigger Phase B chart call",
+);
+assert.equal(
+  wantsClaudeFirstVisualBlocks("내 보험 현황을 차트로 보여줘", {
+    documentAttached: false,
+  }),
+  true,
+);
+// Phase B gate alone ⇒ attach readout → 0 extra Claude chart calls (call count stays 1).
+assert.equal(
+  wantsClaudeFirstVisualBlocks("이 사진에서 표로 정리해줘", {
+    documentAttached: true,
+  }) === false,
+  true,
+);
+
+const attachPayload = buildUserPayload({
+  question: "이 사진에서 총 결제금액 찾아줘",
+  chart: { policy_count: 22 },
+  allowlist: { allowed_numbers: ["22"], allowed_entities: [] },
+  contextPack: { recent_turns: [] },
+  pdfMeta: {
+    attached: true,
+    document_id: "doc-img",
+    mime_type: "image/jpeg",
+    original_filename: "receipt.jpg",
+  },
+});
+assert.match(attachPayload.guidance, /ATTACHED FILE READ|미확인|9999세/);
+assert.match(attachPayload.guidance, /고객 차트|첨부/);
+assert.equal(attachPayload.verified_customer_chart?.policy_count, 22);
 
 console.log("key-claude-first-direct-unit-test: PASS");
