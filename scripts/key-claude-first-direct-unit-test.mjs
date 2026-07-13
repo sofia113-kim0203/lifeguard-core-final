@@ -7,7 +7,14 @@ import {
   selectReplacingHardReasons,
   finalizeClaudeFirstStreamContentBlocks,
   hasClientToolUse,
+  resolveClaudeFirstPdfDocumentId,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  buildClaudeFullUserContentWithPdf,
+  buildAnthropicPdfDocumentBlock,
+  verifyAndFetchCustomerPdfOriginal,
+} from "../server/keyCore/keyClaudeFullDocumentDirect.js";
+import { isChatPdfFile, CHAT_PDF_FILE_ACCEPT } from "../src/lib/chatPdfAttach.js";
 
 assert.equal(
   isClaudeFirstDirectPreview({ VERCEL_ENV: "preview", KEY_BORROWED_SENSES: "shadow" }),
@@ -112,5 +119,62 @@ assert.equal(
   ]),
   false,
 );
+
+// Explicit chat document_id wins over unifiedState "latest".
+assert.equal(
+  resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId: "doc-chat",
+    unifiedState: { documents: [{ id: "doc-old" }, { id: "doc-latest" }] },
+    loadedContext: { documents: [{ id: "doc-ctx" }] },
+  }),
+  "doc-chat",
+);
+assert.equal(
+  resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId: null,
+    unifiedState: { documents: [{ id: "doc-a" }, { id: "doc-b" }] },
+    loadedContext: { documents: "empty" },
+  }),
+  "doc-b",
+);
+assert.equal(
+  resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId: "",
+    unifiedState: null,
+    loadedContext: { documents: "empty" },
+  }),
+  null,
+);
+
+assert.match(CHAT_PDF_FILE_ACCEPT, /application\/pdf/);
+assert.equal(isChatPdfFile({ name: "증권.pdf", type: "application/pdf" }), true);
+assert.equal(isChatPdfFile({ name: "photo.png", type: "image/png" }), false);
+
+const pdfBlock = buildAnthropicPdfDocumentBlock({
+  base64: Buffer.from("%PDF-1.1\n%%EOF\n").toString("base64"),
+});
+assert.equal(pdfBlock?.type, "document");
+const userContent = buildClaudeFullUserContentWithPdf({
+  userPayload: { question: "이 증권 봐줘" },
+  pdfBase64: Buffer.from("%PDF-1.1\n%%EOF\n").toString("base64"),
+});
+assert.equal(Array.isArray(userContent), true);
+assert.equal(userContent[0]?.type, "document");
+assert.equal(userContent[1]?.type, "text");
+
+const denied = await verifyAndFetchCustomerPdfOriginal({
+  supabase: {},
+  customerId: "cust-a",
+  documentId: "doc-1",
+  env: { VERCEL_ENV: "preview" },
+  injectedPdfBytes: Buffer.from("%PDF-1.1\n%%EOF\n"),
+  injectedDocument: {
+    id: "doc-1",
+    customer_id: "cust-b",
+    mime_type: "application/pdf",
+  },
+});
+assert.equal(denied.ok, false);
+assert.equal(denied.reason, "document_ownership_denied");
 
 console.log("key-claude-first-direct-unit-test: PASS");
