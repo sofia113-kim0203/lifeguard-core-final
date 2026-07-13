@@ -11,7 +11,17 @@ import {
   resolveClaudeFirstPdfDocumentId,
   wantsClaudeFirstVisualBlocks,
   isAttachDocumentReadQuestion,
+  buildClaudeImageAttachFromStorageOriginal,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  parseRotationQuarterTurns,
+  normalizeQuarterTurns,
+  quarterTurnsToDegrees,
+  normalizeImageRotationDegrees,
+  readJpegSizeFromBuffer,
+  rotateImageBufferQuarterTurns,
+  requestHasForbiddenClientImageBytes,
+} from "../server/keyCore/keyClaudeImageOrient.js";
 import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicPdfDocumentBlock,
@@ -25,6 +35,8 @@ import {
   CHAT_ATTACH_FILE_ACCEPT,
   CHAT_PDF_FILE_ACCEPT,
 } from "../src/lib/chatPdfAttach.js";
+import jpeg from "jpeg-js";
+import { PNG } from "pngjs";
 
 assert.equal(
   isClaudeFirstDirectPreview({ VERCEL_ENV: "preview", KEY_BORROWED_SENSES: "shadow" }),
@@ -347,6 +359,155 @@ const attachPayload = buildUserPayload({
 });
 assert.match(attachPayload.guidance, /ATTACHED FILE READ|미확인|9999세/);
 assert.match(attachPayload.guidance, /고객 차트|첨부/);
+assert.match(attachPayload.guidance, /orientation|column|셀|independently/i);
 assert.equal(attachPayload.verified_customer_chart?.policy_count, 22);
+
+// --- rotation_quarter_turns trust policy (safe 0 for invalid) ---
+assert.equal(parseRotationQuarterTurns(0), 0);
+assert.equal(parseRotationQuarterTurns(1), 1);
+assert.equal(parseRotationQuarterTurns(2), 2);
+assert.equal(parseRotationQuarterTurns(3), 3);
+assert.equal(parseRotationQuarterTurns("0"), 0);
+assert.equal(parseRotationQuarterTurns("3"), 3);
+assert.equal(parseRotationQuarterTurns(-1), 0);
+assert.equal(parseRotationQuarterTurns(4), 0);
+assert.equal(parseRotationQuarterTurns(1.5), 0);
+assert.equal(parseRotationQuarterTurns("90"), 0);
+assert.equal(parseRotationQuarterTurns("abc"), 0);
+assert.equal(parseRotationQuarterTurns(null), 0);
+assert.equal(normalizeQuarterTurns(2), 2);
+assert.equal(quarterTurnsToDegrees(1), 90);
+assert.equal(normalizeImageRotationDegrees(90), 90);
+assert.equal(normalizeImageRotationDegrees(45), 0);
+
+assert.equal(requestHasForbiddenClientImageBytes({}), false);
+assert.equal(
+  requestHasForbiddenClientImageBytes({ claude_upright_image_base64: "abc" }),
+  true,
+);
+assert.equal(
+  requestHasForbiddenClientImageBytes({ image_base64: "abc" }),
+  true,
+);
+assert.equal(
+  requestHasForbiddenClientImageBytes({ claudeUprightImage: { base64: "xyz" } }),
+  true,
+);
+
+const tinyJpeg = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+  0x00, 0x01, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x20, 0x00, 0x40, 0x01, 0x01, 0x11,
+  0x00, 0xff, 0xd9,
+]);
+const jpegSize = readJpegSizeFromBuffer(tinyJpeg);
+assert.equal(jpegSize?.width, 64);
+assert.equal(jpegSize?.height, 32);
+
+// Synthetic 4x2 JPEG (distinct pixels) for rotate geometry
+function makeSolidJpeg(width, height, fillRgba) {
+  const data = Buffer.alloc(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    data[i * 4] = fillRgba[0];
+    data[i * 4 + 1] = fillRgba[1];
+    data[i * 4 + 2] = fillRgba[2];
+    data[i * 4 + 3] = fillRgba[3];
+  }
+  // mark top-left pixel unique so 180° flip is detectable
+  data[0] = 10;
+  data[1] = 20;
+  data[2] = 30;
+  data[3] = 255;
+  const encoded = jpeg.encode({ data, width, height }, 100);
+  return Buffer.from(encoded.data);
+}
+
+function makeSolidPng(width, height) {
+  const png = new PNG({ width, height });
+  for (let i = 0; i < width * height; i += 1) {
+    png.data[i * 4] = 200;
+    png.data[i * 4 + 1] = 100;
+    png.data[i * 4 + 2] = 50;
+    png.data[i * 4 + 3] = 255;
+  }
+  png.data[0] = 1;
+  png.data[1] = 2;
+  png.data[2] = 3;
+  png.data[3] = 255;
+  return PNG.sync.write(png);
+}
+
+const srcJpeg = makeSolidJpeg(8, 4, [80, 80, 80, 255]);
+const rot0 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 0);
+assert.equal(rot0.ok, true);
+assert.equal(rot0.rotated, false);
+assert.equal(rot0.buffer, srcJpeg);
+assert.equal(rot0.width, 8);
+assert.equal(rot0.height, 4);
+
+const rot1 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 1);
+assert.equal(rot1.ok, true);
+assert.equal(rot1.rotated, true);
+assert.equal(rot1.width, 4);
+assert.equal(rot1.height, 8);
+
+const rot2 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 2);
+assert.equal(rot2.ok, true);
+assert.equal(rot2.width, 8);
+assert.equal(rot2.height, 4);
+{
+  const decoded = jpeg.decode(rot2.buffer, { useTArray: true });
+  // after 180°, unique pixel moves to bottom-right
+  const br = ((decoded.height - 1) * decoded.width + (decoded.width - 1)) * 4;
+  assert.ok(decoded.data[br] < 40, "180° should move corner pixel");
+}
+
+const rot3 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 3);
+assert.equal(rot3.ok, true);
+assert.equal(rot3.width, 4);
+assert.equal(rot3.height, 8);
+
+const srcPng = makeSolidPng(6, 3);
+const pngRot1 = rotateImageBufferQuarterTurns(srcPng, "image/png", 1);
+assert.equal(pngRot1.ok, true);
+assert.equal(pngRot1.width, 3);
+assert.equal(pngRot1.height, 6);
+
+const badMime = rotateImageBufferQuarterTurns(srcJpeg, "image/webp", 1);
+assert.equal(badMime.ok, false);
+
+const storageB64 = srcJpeg.toString("base64");
+const clientB64 = makeSolidJpeg(2, 2, [1, 1, 1, 255]).toString("base64");
+const built0 = buildClaudeImageAttachFromStorageOriginal({
+  storageBase64: storageB64,
+  storageMediaType: "image/jpeg",
+  rotationQuarterTurns: 0,
+});
+assert.equal(built0.ok, true);
+assert.equal(built0.claude_image_source, "storage_original");
+assert.equal(built0.rotated, false);
+assert.equal(built0.base64, storageB64);
+
+const built1 = buildClaudeImageAttachFromStorageOriginal({
+  storageBase64: storageB64,
+  storageMediaType: "image/jpeg",
+  rotationQuarterTurns: 1,
+});
+assert.equal(built1.ok, true);
+assert.equal(built1.claude_image_source, "server_ephemeral_rotate");
+assert.equal(built1.rotated, true);
+assert.notEqual(built1.base64, storageB64);
+assert.notEqual(built1.base64, clientB64);
+
+// client raw base64 must never be selected even if somehow passed elsewhere
+assert.equal(
+  requestHasForbiddenClientImageBytes({
+    document_id: "doc-x",
+    claude_upright_image_base64: clientB64,
+  }),
+  true,
+);
+
+const promptTable = buildSystemPrompt();
+assert.match(promptTable, /orientation|independently|column|셀/i);
 
 console.log("key-claude-first-direct-unit-test: PASS");
