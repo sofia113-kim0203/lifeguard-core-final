@@ -33,6 +33,9 @@ import {
   readJpegSizeFromBuffer,
   rotateImageBufferQuarterTurns,
   requestHasForbiddenClientImageBytes,
+  detectImageSignature,
+  sanitizeRotateObservationError,
+  redactImageRotateObservation,
 } from "../server/keyCore/keyClaudeImageOrient.js";
 import {
   buildClaudeFullUserContentWithPdf,
@@ -455,12 +458,23 @@ assert.equal(rot0.rotated, false);
 assert.equal(rot0.buffer, srcJpeg);
 assert.equal(rot0.width, 8);
 assert.equal(rot0.height, 4);
+assert.equal(rot0.observation?.rotation_quarter_turns, 0);
+assert.equal(rot0.observation?.decode_started, false);
+assert.equal(rot0.observation?.rotate_started, false);
+assert.equal(rot0.observation?.encode_started, false);
+assert.equal(rot0.observation?.failure_stage, null);
+assert.equal(detectImageSignature(srcJpeg), "jpeg");
 
 const rot1 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 1);
 assert.equal(rot1.ok, true);
 assert.equal(rot1.rotated, true);
 assert.equal(rot1.width, 4);
 assert.equal(rot1.height, 8);
+assert.equal(rot1.observation?.decode_ok, true);
+assert.equal(rot1.observation?.rotate_ok, true);
+assert.equal(rot1.observation?.encode_ok, true);
+assert.equal(rot1.observation?.failure_stage, null);
+assert.ok(typeof rot1.observation?.output_byte_size === "number");
 
 const rot2 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 2);
 assert.equal(rot2.ok, true);
@@ -486,6 +500,29 @@ assert.equal(pngRot1.height, 6);
 
 const badMime = rotateImageBufferQuarterTurns(srcJpeg, "image/webp", 1);
 assert.equal(badMime.ok, false);
+assert.equal(badMime.observation?.failure_stage, "signature");
+
+// JPEG decode early return → failure_stage=decode
+const corruptJpegSoiEoi = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+const decodeFail = rotateImageBufferQuarterTurns(corruptJpegSoiEoi, "image/jpeg", 1);
+assert.equal(decodeFail.ok, false);
+assert.equal(decodeFail.observation?.failure_stage, "decode");
+assert.equal(decodeFail.observation?.normalized_failure_code, "jpeg_decode_failed");
+assert.equal(decodeFail.observation?.decode_started, true);
+assert.equal(decodeFail.observation?.decode_ok, false);
+
+// sanitized error must not leak path/url/base64/ids
+{
+  const san = sanitizeRotateObservationError(
+    new Error(
+      "boom at C:\\Users\\x\\secret.jpg https://example.com/a data:image/jpeg;base64,AAAA customer_id=abc document_id=11111111-1111-1111-1111-111111111111",
+    ),
+    "jpeg_decode_failed",
+  );
+  assert.equal(san.normalized_failure_code, "jpeg_decode_failed");
+  assert.equal(/Users\\|https?:|base64,|11111111-1111/i.test(san.sanitized_error_message), false);
+  assert.ok(String(san.sanitized_error_message).length <= 160);
+}
 
 const storageB64 = srcJpeg.toString("base64");
 const clientB64 = makeSolidJpeg(2, 2, [1, 1, 1, 255]).toString("base64");
@@ -498,6 +535,9 @@ assert.equal(built0.ok, true);
 assert.equal(built0.claude_image_source, "storage_original");
 assert.equal(built0.rotated, false);
 assert.equal(built0.base64, storageB64);
+assert.equal(built0.observation?.attachment_block_built, true);
+assert.equal(built0.observation?.decode_started, false);
+assert.equal(built0.observation?.failure_stage, null);
 
 const built1 = buildClaudeImageAttachFromStorageOriginal({
   storageBase64: storageB64,
@@ -509,6 +549,20 @@ assert.equal(built1.claude_image_source, "server_ephemeral_rotate");
 assert.equal(built1.rotated, true);
 assert.notEqual(built1.base64, storageB64);
 assert.notEqual(built1.base64, clientB64);
+assert.equal(built1.observation?.attachment_block_built, true);
+assert.ok(built1.observation?.output_byte_size > 0);
+
+const builtDecodeFail = buildClaudeImageAttachFromStorageOriginal({
+  storageBase64: corruptJpegSoiEoi.toString("base64"),
+  storageMediaType: "image/jpeg",
+  rotationQuarterTurns: 1,
+});
+assert.equal(builtDecodeFail.ok, false);
+assert.equal(builtDecodeFail.observation?.failure_stage, "decode");
+assert.equal(builtDecodeFail.observation?.attachment_block_built, false);
+const builtBlob = JSON.stringify(builtDecodeFail.observation ?? {});
+assert.equal(/base64|filename|customer_id|document_id/i.test(builtBlob), false);
+assert.equal(redactImageRotateObservation({ document_id: "x", base64: "y", failure_stage: "decode" })?.document_id, undefined);
 
 // client raw base64 must never be selected even if somehow passed elsewhere
 assert.equal(
@@ -696,6 +750,12 @@ const chartPolicies = {
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attachment_fail_closed,
     true,
   );
+  const rotObs =
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.image_rotate_observation;
+  assert.equal(rotObs?.failure_stage, "decode");
+  assert.equal(rotObs?.normalized_failure_code, "jpeg_decode_failed");
+  assert.equal(rotObs?.rotation_quarter_turns, 1);
+  assert.equal(/base64|filename|customer_id|document_id/i.test(JSON.stringify(rotObs)), false);
   assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
   assert.match(result.customerText, /다시 첨부/);
   assertNoChartLeak(result.customerText);

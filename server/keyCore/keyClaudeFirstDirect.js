@@ -19,6 +19,7 @@ import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js
 import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
 import {
   buildClaudeFullUserContentWithPdf,
+  buildAnthropicDirectAttachBlock,
   verifyAndFetchCustomerPdfOriginal,
   CLAUDE_FULL_PDF_MAX_BYTES,
   isClaudeDirectImageMediaType,
@@ -29,6 +30,9 @@ import {
   quarterTurnsToDegrees,
   readImageSizeFromBuffer,
   rotateImageBufferQuarterTurns,
+  detectImageSignature,
+  redactImageRotateObservation,
+  newImageRotateObservationId,
 } from "./keyClaudeImageOrient.js";
 import {
   isPriorAttachFollowUpQuestion,
@@ -595,6 +599,7 @@ export function resolveClaudeFirstPdfDocumentId({
 /**
  * Build Claude image bytes from Storage original + trusted quarter turns.
  * Never trusts client-provided image bytes.
+ * Returns redacted `observation` for rotate fail-stage triage (no bytes/PII).
  */
 export function buildClaudeImageAttachFromStorageOriginal({
   storageBase64 = null,
@@ -604,6 +609,8 @@ export function buildClaudeImageAttachFromStorageOriginal({
   const turns = parseRotationQuarterTurns(rotationQuarterTurns);
   const stored = String(storageBase64 ?? "").trim();
   const storedMime = normalizeClaudeDirectAttachMediaType(storageMediaType);
+  const obsId = newImageRotateObservationId();
+
   if (!stored || !storedMime) {
     return {
       ok: false,
@@ -613,6 +620,16 @@ export function buildClaudeImageAttachFromStorageOriginal({
       claude_image_source: null,
       rotation_quarter_turns: turns,
       image_rotation_deg: quarterTurnsToDegrees(turns),
+      observation: redactImageRotateObservation({
+        observation_id: obsId,
+        rotation_quarter_turns: turns,
+        normalized_db_mime: storedMime,
+        detected_signature: "unknown",
+        input_byte_size: 0,
+        failure_stage: "storage_fetch",
+        normalized_failure_code: "storage_image_missing",
+        attachment_block_built: false,
+      }),
     };
   }
   if (storedMime === "application/pdf") {
@@ -624,6 +641,7 @@ export function buildClaudeImageAttachFromStorageOriginal({
       rotation_quarter_turns: 0,
       image_rotation_deg: 0,
       rotated: false,
+      observation: null,
     };
   }
   if (!isClaudeDirectImageMediaType(storedMime)) {
@@ -635,10 +653,20 @@ export function buildClaudeImageAttachFromStorageOriginal({
       claude_image_source: null,
       rotation_quarter_turns: turns,
       image_rotation_deg: quarterTurnsToDegrees(turns),
+      observation: redactImageRotateObservation({
+        observation_id: obsId,
+        rotation_quarter_turns: turns,
+        normalized_db_mime: storedMime,
+        detected_signature: "unknown",
+        failure_stage: "signature",
+        normalized_failure_code: "mime_not_image",
+        attachment_block_built: false,
+      }),
     };
   }
 
   const rawBuf = Buffer.from(stored, "base64");
+  const signature = detectImageSignature(rawBuf);
   if (rawBuf.length > CLAUDE_FULL_PDF_MAX_BYTES) {
     return {
       ok: false,
@@ -648,10 +676,26 @@ export function buildClaudeImageAttachFromStorageOriginal({
       claude_image_source: null,
       rotation_quarter_turns: turns,
       image_rotation_deg: quarterTurnsToDegrees(turns),
+      observation: redactImageRotateObservation({
+        observation_id: obsId,
+        rotation_quarter_turns: turns,
+        normalized_db_mime: storedMime,
+        detected_signature: signature,
+        input_byte_size: rawBuf.length,
+        failure_stage: "storage_fetch",
+        normalized_failure_code: "image_too_large",
+        attachment_block_built: false,
+      }),
     };
   }
 
   const rotated = rotateImageBufferQuarterTurns(rawBuf, storedMime, turns);
+  const observation = redactImageRotateObservation({
+    ...(rotated.observation ?? {}),
+    observation_id: rotated.observation?.observation_id ?? obsId,
+    normalized_db_mime: storedMime,
+  });
+
   if (!rotated.ok || !rotated.buffer) {
     return {
       ok: false,
@@ -661,6 +705,12 @@ export function buildClaudeImageAttachFromStorageOriginal({
       claude_image_source: null,
       rotation_quarter_turns: turns,
       image_rotation_deg: quarterTurnsToDegrees(turns),
+      observation: {
+        ...observation,
+        attachment_block_built: false,
+        normalized_failure_code:
+          observation?.normalized_failure_code ?? rotated.reason ?? "image_rotate_failed",
+      },
     };
   }
   if (rotated.buffer.length > CLAUDE_FULL_PDF_MAX_BYTES) {
@@ -672,12 +722,43 @@ export function buildClaudeImageAttachFromStorageOriginal({
       claude_image_source: null,
       rotation_quarter_turns: turns,
       image_rotation_deg: quarterTurnsToDegrees(turns),
+      observation: {
+        ...observation,
+        output_byte_size: rotated.buffer.length,
+        failure_stage: "encode",
+        normalized_failure_code: "rotated_image_too_large",
+        attachment_block_built: false,
+      },
+    };
+  }
+
+  const base64 = rotated.buffer.toString("base64");
+  const block = buildAnthropicDirectAttachBlock({
+    base64,
+    mediaType: rotated.mediaType,
+  });
+  if (!block) {
+    return {
+      ok: false,
+      reason: "block_build_failed",
+      base64: null,
+      mediaType: storedMime,
+      claude_image_source: null,
+      rotation_quarter_turns: turns,
+      image_rotation_deg: quarterTurnsToDegrees(turns),
+      observation: {
+        ...observation,
+        output_byte_size: rotated.buffer.length,
+        failure_stage: "block_build",
+        normalized_failure_code: "block_build_failed",
+        attachment_block_built: false,
+      },
     };
   }
 
   return {
     ok: true,
-    base64: rotated.buffer.toString("base64"),
+    base64,
     mediaType: rotated.mediaType,
     claude_image_source: rotated.rotated
       ? "server_ephemeral_rotate"
@@ -689,6 +770,13 @@ export function buildClaudeImageAttachFromStorageOriginal({
     source_height: rotated.source_height ?? null,
     width: rotated.width ?? null,
     height: rotated.height ?? null,
+    observation: {
+      ...observation,
+      output_byte_size: rotated.buffer.length,
+      attachment_block_built: true,
+      failure_stage: null,
+      normalized_failure_code: null,
+    },
   };
 }
 
@@ -726,6 +814,15 @@ async function resolveOptionalPdfAttachment({
           attached: false,
           document_id: documentId,
           note: fetched?.reason ?? "pdf_attach_skipped",
+          image_rotate_observation: redactImageRotateObservation({
+            observation_id: newImageRotateObservationId(),
+            rotation_quarter_turns: parseRotationQuarterTurns(rotationQuarterTurns),
+            normalized_db_mime: null,
+            detected_signature: "unknown",
+            failure_stage: "storage_fetch",
+            normalized_failure_code: fetched?.reason ?? "pdf_attach_skipped",
+            attachment_block_built: false,
+          }),
         },
       };
     }
@@ -766,6 +863,7 @@ async function resolveOptionalPdfAttachment({
           document_id: documentId,
           note: built.reason ?? "image_attach_failed",
           rotation_quarter_turns: parseRotationQuarterTurns(rotationQuarterTurns),
+          image_rotate_observation: built.observation ?? null,
         },
       };
     }
@@ -786,13 +884,25 @@ async function resolveOptionalPdfAttachment({
         storage_pixel_height: storageSize?.height ?? built.source_height ?? null,
         claude_pixel_width: built.width ?? storageSize?.width ?? null,
         claude_pixel_height: built.height ?? storageSize?.height ?? null,
+        image_rotate_observation: built.observation ?? null,
       },
     };
   } catch {
     return {
       pdfBase64: null,
       mediaType: null,
-      meta: { attached: false, document_id: documentId, note: "attach_error" },
+      meta: {
+        attached: false,
+        document_id: documentId,
+        note: "attach_error",
+        image_rotate_observation: redactImageRotateObservation({
+          observation_id: newImageRotateObservationId(),
+          rotation_quarter_turns: parseRotationQuarterTurns(rotationQuarterTurns),
+          failure_stage: "storage_fetch",
+          normalized_failure_code: "attach_error",
+          attachment_block_built: false,
+        }),
+      },
     };
   }
 }
@@ -1147,6 +1257,10 @@ export async function runClaudeFirstDirectQuestionTurn({
                   explicit_document_id_present: true,
                 }),
             pdf_attached: false,
+            image_rotate_observation:
+              !usePriorAttachCopy && pdf?.meta?.image_rotate_observation
+                ? redactImageRotateObservation(pdf.meta.image_rotate_observation)
+                : null,
             latency_marks: {
               claude_full_emit: emitMark,
               ttft_ms: relMs(startedAt),
@@ -1175,6 +1289,10 @@ export async function runClaudeFirstDirectQuestionTurn({
               document_id_present: true,
               allow_latest_fallback: false,
               claude_call_started: false,
+              image_rotate_observation:
+                !usePriorAttachCopy && pdf?.meta?.image_rotate_observation
+                  ? redactImageRotateObservation(pdf.meta.image_rotate_observation)
+                  : null,
             },
           },
         ],
@@ -1460,6 +1578,9 @@ export async function runClaudeFirstDirectQuestionTurn({
           jailbreak_detail: safety.jailbreak_detail,
           answer_source: claude.answer_source ?? null,
           pdf_attached: claude.pdf_attached === true,
+          image_rotate_observation: pdf?.meta?.image_rotate_observation
+            ? redactImageRotateObservation(pdf.meta.image_rotate_observation)
+            : null,
           sentence_commit: {
             mode: "sentence_unit_e",
             aborted: sentenceStreamAborted,
@@ -1496,6 +1617,9 @@ export async function runClaudeFirstDirectQuestionTurn({
             soft_ignored: safety.soft,
             answer_source: claude.answer_source ?? null,
             pdf_attached: claude.pdf_attached === true,
+            image_rotate_observation: pdf?.meta?.image_rotate_observation
+              ? redactImageRotateObservation(pdf.meta.image_rotate_observation)
+              : null,
             answer_preview: String(claude.customer_answer).slice(0, 300),
             sentence_commit_aborted: sentenceStreamAborted,
             sentence_commit_abort_reason: sentenceAbortReason,
