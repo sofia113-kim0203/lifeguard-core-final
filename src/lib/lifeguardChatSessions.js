@@ -170,17 +170,19 @@ export async function persistLifeguardChatTurn(
     composeMode = null,
     responseLatencyMs = null,
     oneKeyCoreTraceSummary = null,
+    activeAttachment = null,
   },
 ) {
   if (!sessionId) throw new Error("session_id_required");
   const customerId = await resolveCustomerId(authUser, knownCustomerId);
-  const metadata = buildSessionMetadata(sessionId);
+  const metadata = buildSessionMetadata(sessionId, { activeAttachment });
   const assistantMetadata = buildAssistantTurnMetadata(sessionId, {
     visualBlocks,
     visualBlocksGate,
     composeMode,
     responseLatencyMs,
     oneKeyCoreTraceSummary,
+    activeAttachment,
   });
   const userRow = await insertLifeguardConversationMessage(customerId, {
     role: "user",

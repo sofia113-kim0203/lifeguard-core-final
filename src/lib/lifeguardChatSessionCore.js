@@ -1,6 +1,8 @@
 /**
  * P5-STATE / P5-CONTINUITY-01 Phase A — pure session helpers (no Supabase import).
  */
+import { normalizeActiveAttachment } from "./chatActiveAttachment.js";
+
 export const LIFEGUARD_HOME_CHAT_PHASE = "lifeguard-home-chat";
 export const LIFEGUARD_HOME_CHAT_SOURCE = "lifeguard_home_chat";
 
@@ -87,6 +89,7 @@ export function readLifeguardChatSnapshot(customerId) {
     return {
       sessionId: String(parsed.sessionId),
       messages: sanitizeMessagesForChatSnapshot(parsed.messages),
+      activeAttachment: normalizeActiveAttachment(parsed.activeAttachment ?? null),
       updatedAt: parsed.updatedAt ?? null,
     };
   } catch {
@@ -94,19 +97,21 @@ export function readLifeguardChatSnapshot(customerId) {
   }
 }
 
-export function writeLifeguardChatSnapshot(customerId, { sessionId, messages } = {}) {
+export function writeLifeguardChatSnapshot(
+  customerId,
+  { sessionId, messages, activeAttachment = null } = {},
+) {
   if (typeof window === "undefined" || !customerId || !sessionId) return;
   const sanitized = sanitizeMessagesForChatSnapshot(messages);
   if (sanitized.length === 0) return;
   try {
-    window.sessionStorage.setItem(
-      chatSnapshotStorageKey(customerId),
-      JSON.stringify({
-        sessionId: String(sessionId),
-        messages: sanitized,
-        updatedAt: new Date().toISOString(),
-      }),
-    );
+    const payload = {
+      sessionId: String(sessionId),
+      messages: sanitized,
+      updatedAt: new Date().toISOString(),
+      activeAttachment: normalizeActiveAttachment(activeAttachment),
+    };
+    window.sessionStorage.setItem(chatSnapshotStorageKey(customerId), JSON.stringify(payload));
   } catch {
     // ignore quota / privacy errors
   }
@@ -341,12 +346,21 @@ function compareSessionMessageRows(a, b) {
   return ta - tb;
 }
 
-export function buildSessionMetadata(sessionId) {
-  return {
+export function buildSessionMetadata(sessionId, { activeAttachment = null } = {}) {
+  const metadata = {
     phase: LIFEGUARD_HOME_CHAT_PHASE,
     session_id: sessionId,
     source: LIFEGUARD_HOME_CHAT_SOURCE,
   };
+  const normalized = normalizeActiveAttachment(activeAttachment);
+  if (normalized) {
+    metadata.active_attachment_id = normalized.active_attachment_id;
+    if (normalized.active_attachment_mime) {
+      metadata.active_attachment_mime = normalized.active_attachment_mime;
+    }
+    metadata.active_rotation_quarter_turns = normalized.active_rotation_quarter_turns;
+  }
+  return metadata;
 }
 
 export function buildAssistantTurnMetadata(
@@ -357,9 +371,10 @@ export function buildAssistantTurnMetadata(
     composeMode = null,
     responseLatencyMs = null,
     oneKeyCoreTraceSummary = null,
+    activeAttachment = null,
   } = {},
 ) {
-  const metadata = buildSessionMetadata(sessionId);
+  const metadata = buildSessionMetadata(sessionId, { activeAttachment });
   if (Array.isArray(visualBlocks) && visualBlocks.length > 0) {
     metadata.visual_blocks = visualBlocks;
   }
@@ -521,6 +536,14 @@ export function mapSessionRowsToChatMessages(rows, sessionId) {
       }
       if (metadata.visual_blocks_gate && typeof metadata.visual_blocks_gate === "object") {
         message.visual_blocks_gate = metadata.visual_blocks_gate;
+      }
+      const active = normalizeActiveAttachment(metadata);
+      if (active) {
+        message.metadata = {
+          active_attachment_id: active.active_attachment_id,
+          active_attachment_mime: active.active_attachment_mime,
+          active_rotation_quarter_turns: active.active_rotation_quarter_turns,
+        };
       }
       return message;
     });
