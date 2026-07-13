@@ -636,6 +636,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     return undefined;
   }, [panelView, authUser, reloadDocuments]);
 
+  // Home chat: hydrate document_storage consent from DB (never treat unknown as denied).
+  useEffect(() => {
+    if (!authUser) return undefined;
+    void uploadFlow.hydrateStorageConsent();
+    return undefined;
+  }, [authUser, uploadFlow.hydrateStorageConsent]);
+
   useEffect(() => {
     if (!authUser || !customerId || loadingSession) return undefined;
     let cancelled = false;
@@ -1044,8 +1051,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-    if (!uploadFlow.hasConsent) {
-      setChatAttachError("문서 보관 동의가 필요합니다. 「내 문서」에서 동의를 완료해 주세요.");
+
+    const consentGate = await uploadFlow.ensureStorageConsentForChatAttach();
+    if (!consentGate.allowUpload) {
+      setChatAttachError(
+        consentGate.message ||
+          "문서 보관 동의가 필요합니다. 「내 문서」에서 동의를 완료해 주세요.",
+      );
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -1062,6 +1074,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     });
     try {
       // Storage keeps the original bytes (no re-encode / no orientation rewrite).
+      // Server uploadDocument still re-checks DB consent (SSOT).
       const uploadResult = await uploadDocument(authUser, {
         file,
         categoryKey: "insurance_policy",
