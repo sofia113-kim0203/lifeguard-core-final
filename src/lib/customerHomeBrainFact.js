@@ -156,10 +156,11 @@ function mapServerError(payload, status) {
   return "질문에 답변하지 못했습니다.";
 }
 
-export async function fetchHomeBrainFactStream(question, history = [], handlers = {}) {
+export async function fetchHomeBrainFactStream(question, history = [], handlers = {}, options = {}) {
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
+  const documentId = String(options.documentId ?? options.document_id ?? "").trim() || null;
   const accessToken = await getCustomerAccessToken();
   const response = await fetch(ROUTE_PATH, {
     method: "POST",
@@ -172,6 +173,7 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
       question: trimmed,
       history: Array.isArray(history) ? history : [],
       stream: true,
+      ...(documentId ? { document_id: documentId } : {}),
     }),
   });
 
@@ -205,14 +207,16 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
   return mapHomeBrainFactPayload(payload);
 }
 
-export async function fetchHomeBrainFact(question, history = []) {
+export async function fetchHomeBrainFact(question, history = [], options = {}) {
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
+  const documentId = String(options.documentId ?? options.document_id ?? "").trim() || null;
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
     body: {
       question: trimmed,
       history: Array.isArray(history) ? history : [],
+      ...(documentId ? { document_id: documentId } : {}),
     },
   });
 

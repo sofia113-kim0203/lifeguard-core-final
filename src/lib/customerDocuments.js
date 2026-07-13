@@ -21,6 +21,12 @@ export const DOCUMENT_ANALYSIS_CONSENT_VERSION = "2026-06-07-ko-doc-analysis";
 export const INSURANCE_DATA_CONSENT_VERSION = "2026-01-01-ko";
 export const SIGNED_URL_TTL_SECONDS = 60;
 
+/** Shared accept list for document panel uploads (PDF + images). */
+export const DOCUMENT_FILE_ACCEPT =
+  ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,application/pdf,image/jpeg,image/png,image/heic,image/heif,image/webp";
+
+export { CHAT_PDF_FILE_ACCEPT, isChatPdfFile } from "./chatPdfAttach.js";
+
 const CATEGORY_BY_KEY = Object.fromEntries(
   DOCUMENT_CATEGORIES.map((category) => [category.key, category]),
 );

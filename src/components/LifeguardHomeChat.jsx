@@ -6,7 +6,8 @@ import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js
 import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysisCompleteSessionTransition.js";
 import { useKeyBridgeSessionTransition } from "../hooks/useKeyBridgeSessionTransition.js";
 import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudgmentSessionTransition.js";
-import { listDocuments } from "../lib/customerDocuments.js";
+import { listDocuments, uploadDocument } from "../lib/customerDocuments.js";
+import { CHAT_PDF_FILE_ACCEPT, isChatPdfFile } from "../lib/chatPdfAttach.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   clearLifeguardChatSnapshot,
@@ -290,6 +291,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [attachHint, setAttachHint] = useState("");
+  const [chatAttachDocumentId, setChatAttachDocumentId] = useState(null);
+  const [chatAttachFilename, setChatAttachFilename] = useState("");
+  const [chatAttachUploading, setChatAttachUploading] = useState(false);
+  const [chatAttachError, setChatAttachError] = useState("");
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
   const [sessionId, setSessionId] = useState(() => createLifeguardSessionId());
@@ -712,10 +717,20 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const submitQuestion = async (value) => {
     const trimmed = String(value ?? "").trim();
     if (!trimmed || isDisabled || loading || !threadRestoreReady) return;
+    if (chatAttachUploading) {
+      setError("PDF 업로드가 끝난 뒤 보내 주세요.");
+      return;
+    }
 
+    const documentIdForTurn = chatAttachDocumentId;
     setPanelView("chat");
     setSidebarOpen(false);
-    const userMessage = { role: "user", content: trimmed };
+    const userMessage = {
+      role: "user",
+      content: documentIdForTurn
+        ? `${trimmed}\n\n(첨부: ${chatAttachFilename || "PDF"})`
+        : trimmed,
+    };
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
     setInput("");
@@ -739,42 +754,47 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       }
 
       let streamedText = "";
-      const result = await fetchHomeBrainFactStream(trimmed, history, {
-        onAck: (ackText) => {
-          const text = String(ackText ?? "").trim() || KEY_WAIT_ACK_FALLBACK;
-          setMessages((prev) =>
-            patchLastAssistantMessage(prev, { content: text, thinking: true }),
-          );
+      const result = await fetchHomeBrainFactStream(
+        trimmed,
+        history,
+        {
+          onAck: (ackText) => {
+            const text = String(ackText ?? "").trim() || KEY_WAIT_ACK_FALLBACK;
+            setMessages((prev) =>
+              patchLastAssistantMessage(prev, { content: text, thinking: true }),
+            );
+          },
+          onDelta: (chunk) => {
+            streamedText += chunk;
+            setStreaming(true);
+            setLoading(false);
+            setMessages((prev) =>
+              patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
+            );
+          },
+          onReplace: (text) => {
+            streamedText = String(text ?? "");
+            setLoading(false);
+            setStreaming(false);
+            setMessages((prev) =>
+              patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
+            );
+          },
+          onDone: (payload) => {
+            const mapped = mapHomeBrainFactPayload(payload ?? {});
+            const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
+            if (visualBlocks.length === 0) return;
+            setMessages((prev) =>
+              patchLastAssistantMessage(prev, {
+                visual_blocks: visualBlocks,
+                visual_blocks_gate: mapped.visualBlocksGate ?? null,
+                thinking: false,
+              }),
+            );
+          },
         },
-        onDelta: (chunk) => {
-          streamedText += chunk;
-          setStreaming(true);
-          setLoading(false);
-          setMessages((prev) =>
-            patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
-          );
-        },
-        onReplace: (text) => {
-          streamedText = String(text ?? "");
-          setLoading(false);
-          setStreaming(false);
-          setMessages((prev) =>
-            patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
-          );
-        },
-        onDone: (payload) => {
-          const mapped = mapHomeBrainFactPayload(payload ?? {});
-          const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
-          if (visualBlocks.length === 0) return;
-          setMessages((prev) =>
-            patchLastAssistantMessage(prev, {
-              visual_blocks: visualBlocks,
-              visual_blocks_gate: mapped.visualBlocksGate ?? null,
-              thinking: false,
-            }),
-          );
-        },
-      });
+        documentIdForTurn ? { documentId: documentIdForTurn } : {},
+      );
 
       const finalText = result.answerText || streamedText;
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
@@ -796,6 +816,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           messages: completedMessages,
         });
       }
+      setChatAttachDocumentId(null);
+      setChatAttachFilename("");
+      setChatAttachError("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
 
       if (authUser && customerId) {
         await persistLifeguardChatTurn(authUser, {
@@ -854,9 +878,60 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     focusChatInput();
   };
 
+  const clearChatAttach = () => {
+    setChatAttachDocumentId(null);
+    setChatAttachFilename("");
+    setChatAttachError("");
+    setAttachHint("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const handleAttachClick = () => {
-    setAttachHint("문서는 대화에서 편하게 말씀해 주세요. 예: \"이 증권 봐줘\"");
-    window.setTimeout(() => setAttachHint(""), 4000);
+    setChatAttachError("");
+    setAttachHint("");
+    fileInputRef.current?.click();
+  };
+
+  const handleChatPdfSelected = async (file) => {
+    if (!file) return;
+    if (!authUser) {
+      setChatAttachError("로그인이 필요합니다.");
+      return;
+    }
+    if (!isChatPdfFile(file)) {
+      setChatAttachError("PDF 파일만 첨부할 수 있습니다.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (!uploadFlow.hasConsent) {
+      setChatAttachError("문서 보관 동의가 필요합니다. 「내 문서」에서 동의를 완료해 주세요.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setChatAttachUploading(true);
+    setChatAttachError("");
+    setAttachHint("");
+    try {
+      const uploadResult = await uploadDocument(authUser, {
+        file,
+        categoryKey: "insurance_policy",
+      });
+      const doc = uploadResult?.document ?? null;
+      const documentId = String(doc?.id ?? "").trim();
+      if (!documentId) {
+        throw new Error("문서 업로드 후 식별자를 받지 못했습니다.");
+      }
+      setChatAttachDocumentId(documentId);
+      setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "PDF").trim());
+      await loadDocumentsRef.current?.();
+    } catch (err) {
+      clearChatAttach();
+      setChatAttachError(toCustomerErrorMessage(err, "PDF 업로드에 실패했습니다."));
+    } finally {
+      setChatAttachUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const sidebarProps = {
@@ -1124,8 +1199,46 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             }}
           >
             {error ? <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{error}</div> : null}
+            {chatAttachError ? (
+              <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{chatAttachError}</div>
+            ) : null}
             {attachHint ? (
               <div style={{ color: LG.textMuted, fontSize: "13px", marginBottom: "8px" }}>{attachHint}</div>
+            ) : null}
+            {chatAttachUploading ? (
+              <div style={{ color: LG.textMuted, fontSize: "13px", marginBottom: "8px" }}>
+                PDF 업로드 중…
+              </div>
+            ) : null}
+            {chatAttachDocumentId && !chatAttachUploading ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "8px",
+                  fontSize: "13px",
+                  color: LG.text,
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  첨부됨: {chatAttachFilename || "PDF"}
+                </span>
+                <button
+                  type="button"
+                  onClick={clearChatAttach}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: LG.textMuted,
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontFamily: LG.sans,
+                  }}
+                >
+                  제거
+                </button>
+              </div>
             ) : null}
             <div
               style={{
@@ -1139,18 +1252,28 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
               }}
             >
-              <input ref={fileInputRef} type="file" hidden onChange={() => setAttachHint("")} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                hidden
+                accept={CHAT_PDF_FILE_ACCEPT}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  void handleChatPdfSelected(file);
+                }}
+              />
               <button
                 type="button"
                 aria-label="첨부"
                 onClick={handleAttachClick}
+                disabled={isDisabled || chatAttachUploading || loading || streaming}
                 style={{
                   border: "none",
                   background: "transparent",
                   fontSize: "13px",
                   fontWeight: 500,
                   color: LG.textMuted,
-                  cursor: "pointer",
+                  cursor: chatAttachUploading ? "default" : "pointer",
                   padding: "4px 8px",
                   fontFamily: LG.sans,
                 }}
@@ -1162,7 +1285,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 rows={1}
                 value={input}
                 readOnly={false}
-                disabled={isDisabled}
+                disabled={isDisabled || chatAttachUploading}
                 aria-label="질문 입력"
                 placeholder="무엇이든 편하게 물어보세요"
                 onChange={(e) => setInput(e.target.value)}
@@ -1189,15 +1312,21 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               />
               <button
                 type="button"
-                disabled={isDisabled || loading || streaming || !input.trim()}
+                disabled={
+                  isDisabled ||
+                  loading ||
+                  streaming ||
+                  chatAttachUploading ||
+                  !input.trim()
+                }
                 onClick={() => submitQuestion(input)}
                 style={{
                   border: "none",
                   background: "transparent",
-                  color: input.trim() ? LG.text : LG.textSoft,
+                  color: input.trim() && !chatAttachUploading ? LG.text : LG.textSoft,
                   fontSize: "14px",
                   fontWeight: 600,
-                  cursor: input.trim() ? "pointer" : "default",
+                  cursor: input.trim() && !chatAttachUploading ? "pointer" : "default",
                   fontFamily: LG.sans,
                   padding: "6px 8px",
                 }}
