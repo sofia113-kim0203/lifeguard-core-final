@@ -46,6 +46,10 @@ import {
   KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
 } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
+import {
+  CORPORATE_AUTH_FAILED_CUSTOMER_TEXT,
+  resolveClaudeCorporateContext,
+} from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
 import { CLAUDE_FULL_VISUAL_BLOCK_TYPES } from "./keyClaudeFullEmit.js";
 import {
@@ -241,12 +245,78 @@ export function wantsClaudeFirstVisualBlocks(
   return /차트|표로\s*보여|현황|내\s*보험은\s*괜찮아|보험\s*어때|계약\s*요약/.test(q);
 }
 
-export function buildUserPayload({ question, chart, allowlist, contextPack, pdfMeta = null }) {
+export function buildUserPayload({
+  question,
+  chart,
+  allowlist,
+  contextPack,
+  pdfMeta = null,
+  corporateFactPack = null,
+} = {}) {
   const attached = pdfMeta?.attached === true;
   const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
   const isImage = Boolean(mime && mime.startsWith("image/"));
   const turns = parseRotationQuarterTurns(pdfMeta?.rotation_quarter_turns);
   const previewHint = attached && isImage ? buildPreviewOrientationHint(turns) : null;
+  const corporate =
+    corporateFactPack?.entity_type === "corporate" &&
+    corporateFactPack?.authorization_verified === true
+      ? corporateFactPack
+      : null;
+
+  // Corporate context: corporate verified pack only — never merge personal chart.
+  if (corporate) {
+    return {
+      mode: "claude_native_first_preview",
+      customer_question: String(question ?? ""),
+      conversation_originals: {
+        recent_turns: contextPack?.recent_turns ?? [],
+        older_summary: contextPack?.older_summary ?? null,
+        retained_past_originals: contextPack?.retained_past_originals ?? [],
+      },
+      verified_customer_chart: null,
+      verified_corporate_facts: {
+        entity_type: corporate.entity_type,
+        entity_id: corporate.entity_id,
+        membership_role: corporate.membership_role,
+        verified_facts: corporate.verified_facts ?? [],
+        partial_facts: corporate.partial_facts ?? [],
+        unknowns: corporate.unknowns ?? [],
+        provenance: corporate.provenance ?? null,
+      },
+      allowed_numbers: [],
+      allowed_entities: [],
+      insurer_counts: null,
+      product_counts: null,
+      direct_document: pdfMeta
+        ? {
+            attached,
+            document_id: pdfMeta.document_id ?? null,
+            original_filename: pdfMeta.original_filename ?? null,
+            mime_type: mime,
+            note: attached
+              ? isImage
+                ? "Original image is attached as an image block. Read it yourself — no OCR/KEY pre-summary."
+                : "Original PDF is attached as a document block. Read it yourself — no KEY pre-summary."
+              : pdfMeta.note ?? "No document attached for this turn.",
+            ...(previewHint ? { preview_orientation_hint: previewHint } : {}),
+          }
+        : { attached: false, note: "No document attached for this turn." },
+      guidance: [
+        "CORPORATE CONTEXT: Use only verified_corporate_facts for this entity.",
+        "Do not invent other companies, roles, or contracts.",
+        "Treat partial_facts as incomplete and unknowns as 미확인.",
+        "Do not mix personal customer chart (not provided in this turn).",
+        "Answer warmly in plain Korean. No emoji/<cite>/HTML.",
+        ...(attached
+          ? [
+              "ATTACHED FILE READ: Focus on the attached PDF/image first; label 첨부 문서 vs 법인 검증 사실 separately.",
+            ]
+          : []),
+      ].join(" "),
+    };
+  }
+
   return {
     mode: "claude_native_first_preview",
     customer_question: String(question ?? ""),
@@ -968,24 +1038,34 @@ async function callClaudeFirstDirect({
   pdfBase64 = null,
   pdfMediaType = null,
   pdfMeta = null,
+  corporateFactPack = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
     return { ok: false, error: "ANTHROPIC_NOT_CONFIGURED" };
   }
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
-  const chart = buildVerifiedCustomerChart(reality);
-  const allowlist = collectVerifiedSpeakAllowlistFromReality(reality);
+  const useCorporate =
+    corporateFactPack?.entity_type === "corporate" &&
+    corporateFactPack?.authorization_verified === true;
+  // Corporate turn: never feed personal policy chart into Claude.
+  const chart = useCorporate
+    ? { policies: [], policy_count: 0, insurers: [], products: [] }
+    : buildVerifiedCustomerChart(reality);
+  const allowlist = useCorporate
+    ? { allowed_numbers: [], allowed_entities: [] }
+    : collectVerifiedSpeakAllowlistFromReality(reality);
   const { pack: contextPack } = buildClaudeFullContextPack({
     history,
     question,
   });
   const userPayload = buildUserPayload({
     question,
-    chart,
+    chart: useCorporate ? null : chart,
     allowlist,
     contextPack,
     pdfMeta,
+    corporateFactPack: useCorporate ? corporateFactPack : null,
   });
   const system = buildSystemPrompt();
   const userContent = buildClaudeFullUserContentWithPdf({
@@ -1087,10 +1167,15 @@ async function callClaudeFirstDirect({
 
   // Phase B — optional charts after prose (does not stream customer prose again).
   // Skip when this turn is an attached-file readout (avoid mixing verified_customer_chart).
+  // Skip corporate fact-pack turns — no personal chart substitute, no second Claude.
   let visual_blocks = Array.isArray(lastPicked.visual_blocks) ? lastPicked.visual_blocks : [];
   const documentAttached = Boolean(pdfBase64) || pdfMeta?.attached === true;
+  const corporateTurn =
+    corporateFactPack?.entity_type === "corporate" &&
+    corporateFactPack?.authorization_verified === true;
   if (
     customer_answer &&
+    !corporateTurn &&
     wantsClaudeFirstVisualBlocks(question, { documentAttached }) &&
     visual_blocks.length === 0
   ) {
@@ -1162,6 +1247,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   contextSnapshot = null,
   userSupabase = null,
   customerId = null,
+  authUserId = null,
+  entityContext = null,
   attachedDocumentId = null,
   rotationQuarterTurns = 0,
   priorAttachFollowUp = false,
@@ -1169,13 +1256,116 @@ export async function runClaudeFirstDirectQuestionTurn({
   fetchImpl = fetch,
   startedAt = Date.now(),
   streamHandlers = null,
+  resolveClaudeCorporateContextImpl = resolveClaudeCorporateContext,
 } = {}) {
   const span = startSpan(startedAt);
-  const { policies, policy_count } = extractPoliciesFromContext({
-    loadedContext,
-    customerContextBundle,
-    unifiedState,
+
+  // Slice 1: explicit corporate entity only — never keyword-guess. Fail closed on auth.
+  const corporateCtx = await resolveClaudeCorporateContextImpl({
+    userSupabase,
+    customerId,
+    authUserId,
+    entityContext,
   });
+  if (corporateCtx.mode === "corporate" && corporateCtx.ok !== true) {
+    const outlet = finalizeKeyCustomerText(
+      corporateCtx.customer_text ?? CORPORATE_AUTH_FAILED_CUSTOMER_TEXT,
+      { failureMode: true, startedAt },
+    );
+    if (streamHandlers?.onDelta) {
+      streamHandlers.onDelta(outlet.keySpeakOriginal);
+      streamHandlers._emitted = true;
+      streamHandlers.onFirstToken?.(relMs(startedAt));
+    }
+    const emitMark = span.end();
+    return {
+      ok: true,
+      customerText: outlet.customerText,
+      keySpeakOriginal: outlet.keySpeakOriginal,
+      visualBlocks: [],
+      key_monopoly_failure: true,
+      failure_reason: corporateCtx.failure_reason ?? "corporate_access_denied",
+      agentTurn: {
+        text: outlet.keySpeakOriginal,
+        responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        consultationIntent: { intent: "claude_first_direct" },
+        factBundle: { policies: [], policy_count: 0, one_key_core: true },
+      },
+      modeDecision: null,
+      loadedContext,
+      contextSnapshot,
+      unifiedState,
+      customerContextBundle,
+      salesDirectorTrace: {
+        one_key_core: true,
+        one_key_core_s1: true,
+        compose_mode: "key_claude_first_direct",
+        key_compose_trace: {
+          compose_mode: "key_claude_first_direct",
+          key_voice_trace: {
+            provider: "claude_first_direct",
+            used_failure_mode: true,
+            fallback_reason: corporateCtx.failure_reason ?? "corporate_access_denied",
+            corporate_auth_fail_closed: true,
+            corporate_authorization: corporateCtx.authorization ?? null,
+            pdf_attached: false,
+            latency_marks: {
+              claude_full_emit: emitMark,
+              ttft_ms: relMs(startedAt),
+              ...(outlet.latency_marks
+                ? {
+                    finalize: outlet.latency_marks.finalize ?? null,
+                    seal: outlet.latency_marks.seal ?? null,
+                  }
+                : {}),
+              ...resolveDeployIdentity(env),
+            },
+          },
+        },
+      },
+      oneKeyCoreTrace: {
+        schema_version: "one-key-core-trace-claude-first-v1",
+        steps: [
+          {
+            step: "corporate_auth_fail_closed",
+            at_ms: relMs(startedAt),
+            payload: {
+              compose_mode: "key_claude_first_direct",
+              reason: corporateCtx.failure_reason ?? "corporate_access_denied",
+              authorization_verified: false,
+              claude_call_started: false,
+              corporate_snapshot_loaded: false,
+              corporate_compose_called: false,
+              corporate_speech_called: false,
+              corporate_loop_called: false,
+            },
+          },
+        ],
+        legacy_paths_blocked: [
+          "claude_first_direct_call",
+          "verified_customer_chart_substitute",
+          "runCorporateKeyLoopTurn",
+          "corporate_key_compose",
+          "corporate_key_speech",
+          "phase_b_visual",
+          "s3_s6_compose",
+        ],
+      },
+    };
+  }
+
+  const corporateFactPack =
+    corporateCtx.mode === "corporate" && corporateCtx.ok === true
+      ? corporateCtx.factPack
+      : null;
+
+  const { policies, policy_count } = corporateFactPack
+    ? { policies: [], policy_count: 0 }
+    : extractPoliciesFromContext({
+        loadedContext,
+        customerContextBundle,
+        unifiedState,
+      });
   const reality = { policies, policy_count };
 
   const followUp =
@@ -1415,6 +1605,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     pdfBase64: pdf.pdfBase64,
     pdfMediaType: pdf.mediaType,
     pdfMeta: pdf.meta,
+    corporateFactPack,
   });
   const emitMark = span.end();
   // Completeness: progressive extract can lag the final customer_answer.

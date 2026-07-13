@@ -182,6 +182,8 @@ export function buildHomeBrainFactsUsed(unified, stats) {
 export async function handleHomeBrainFactRequest({
   userSupabase,
   customerId,
+  authUserId = null,
+  entityContext = null,
   question,
   history = [],
   attachedDocumentId = null,
@@ -254,6 +256,8 @@ export async function handleHomeBrainFactRequest({
   const coreResult = await runOneKeyCoreTurn({
     userSupabase,
     customerId,
+    authUserId,
+    entityContext,
     question: trimmedQuestion,
     history,
     attachedDocumentId,

@@ -69,6 +69,10 @@ export default async function handler(req, res) {
     const priorAttachFollowUp = Boolean(
       body?.prior_attach_follow_up ?? body?.priorAttachFollowUp ?? false,
     );
+    const { parseEntityContextFromRequestBody } = await import(
+      "../server/entity/entityApiContextPassthrough.js"
+    );
+    const entityContext = parseEntityContextFromRequestBody(body);
     // Shadow-only: accepted only when KEY_BORROWED_SENSES=shadow (never customer UI blocks).
     const shadowVisualBlocksOverride = resolveShadowVisualBlocksOverride(
       body?.shadow_visual_blocks ?? body?.shadowVisualBlocksOverride ?? null,
@@ -116,6 +120,8 @@ export default async function handler(req, res) {
       const result = await handleHomeBrainFactRequest({
         userSupabase,
         customerId: resolved.customerId,
+        authUserId: resolved.user?.id ?? null,
+        entityContext,
         question,
         history,
         attachedDocumentId,
@@ -139,6 +145,8 @@ export default async function handler(req, res) {
     const result = await handleHomeBrainFactRequest({
       userSupabase,
       customerId: resolved.customerId,
+      authUserId: resolved.user?.id ?? null,
+      entityContext,
       question,
       history,
       attachedDocumentId,
