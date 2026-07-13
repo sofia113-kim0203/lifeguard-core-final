@@ -170,17 +170,113 @@ function readPreviewEnvVar(name) {
   return { ok: true, value: String(proc.stdout ?? "").trim() };
 }
 
-function upsertPreviewEnvVar(name, value) {
-  const existing = runVercel(["env", "ls", "preview"]);
-  const hasVar = new RegExp(`\\b${name}\\b`).test(`${existing.stdout}\n${existing.stderr}`);
-  const args = hasVar
-    ? ["env", "update", name, "preview", "--yes", "--value", value]
-    : ["env", "add", name, "preview", "--yes", "--value", value];
-  const proc = runVercel(args, { timeout: 120000 });
-  if (!proc.ok) {
-    throw new Error(`env_${hasVar ? "update" : "add"}_${name}_failed:${proc.stderr.slice(0, 400)}`);
+/**
+ * Exact first-column name match from `vercel env ls` table text.
+ * Avoids loose substring / word-boundary false negatives.
+ */
+export function previewEnvNameExistsInLsOutput(lsText = "", name = "") {
+  const target = String(name ?? "").trim();
+  if (!target) return false;
+  for (const rawLine of String(lsText ?? "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^name\b/i.test(line)) continue;
+    if (/^common next commands/i.test(line)) continue;
+    if (/^>/i.test(line)) continue;
+    const first = line.split(/\s+/)[0];
+    if (first === target) return true;
   }
-  return { action: hasVar ? "update" : "add" };
+  return false;
+}
+
+/** Detect duplicate-env conflict from CLI/API text (stdout or stderr). */
+export function isVercelEnvAlreadyExistsError(text = "") {
+  const t = String(text ?? "");
+  return /ENV_ALREADY_EXISTS|ENV_CONFLICT|Another Environment Variable with the same Name|already exists/i.test(
+    t,
+  );
+}
+
+/** Strip known secret values and --value payloads from command logs. */
+export function sanitizeEnvCommandLog(text = "", secretValues = []) {
+  let out = String(text ?? "");
+  out = out.replace(/--value(\s+|=)("([^"]*)"|'([^']*)'|\S+)/g, "--value$1[redacted]");
+  for (const raw of secretValues) {
+    const secret = String(raw ?? "");
+    if (!secret) continue;
+    if (secret.length === 1) continue; // avoid wiping common digits like "1" globally
+    out = out.split(secret).join("[redacted]");
+  }
+  // Still redact single-char secrets when they appear as isolated --value payloads (handled above).
+  return out;
+}
+
+function formatEnvUpsertFailure(prefix, proc, secretValues = []) {
+  const combined = sanitizeEnvCommandLog(
+    `${proc?.stdout ?? ""}\n${proc?.stderr ?? ""}`,
+    secretValues,
+  ).slice(0, 800);
+  const code = proc?.exit_code ?? proc?.status ?? "unknown";
+  return `${prefix}:exit=${code}:${combined}`;
+}
+
+/**
+ * Preview env upsert with hard-fail on ls errors and one conflict retry.
+ * @param {string} name
+ * @param {string} value
+ * @param {{ runVercelImpl?: typeof runVercel }} [options]
+ */
+export function upsertPreviewEnvVar(name, value, { runVercelImpl = runVercel } = {}) {
+  const envName = String(name ?? "").trim();
+  const envValue = String(value ?? "");
+  if (!envName) {
+    throw new Error("env_upsert_failed:missing_env_name");
+  }
+
+  const existing = runVercelImpl(["env", "ls", "preview"]);
+  if (!existing.ok) {
+    throw new Error(formatEnvUpsertFailure("env_ls_preview_failed", existing, [envValue]));
+  }
+
+  const hasVar = previewEnvNameExistsInLsOutput(
+    `${existing.stdout}\n${existing.stderr}`,
+    envName,
+  );
+
+  if (hasVar) {
+    const updated = runVercelImpl(
+      ["env", "update", envName, "preview", "--yes", "--value", envValue],
+      { timeout: 120000 },
+    );
+    if (!updated.ok) {
+      throw new Error(formatEnvUpsertFailure(`env_update_${envName}_failed`, updated, [envValue]));
+    }
+    return { action: "update" };
+  }
+
+  const added = runVercelImpl(
+    ["env", "add", envName, "preview", "--yes", "--value", envValue],
+    { timeout: 120000 },
+  );
+  if (added.ok) {
+    return { action: "add" };
+  }
+
+  const addOut = `${added.stdout}\n${added.stderr}`;
+  if (isVercelEnvAlreadyExistsError(addOut)) {
+    const updated = runVercelImpl(
+      ["env", "update", envName, "preview", "--yes", "--value", envValue],
+      { timeout: 120000 },
+    );
+    if (!updated.ok) {
+      throw new Error(
+        formatEnvUpsertFailure(`env_add_conflict_update_${envName}_failed`, updated, [envValue]),
+      );
+    }
+    return { action: "update_after_add_conflict" };
+  }
+
+  throw new Error(formatEnvUpsertFailure(`env_add_${envName}_failed`, added, [envValue]));
 }
 
 function mergeAllowlist(currentRaw, appendId) {
