@@ -66,6 +66,9 @@ export default async function handler(req, res) {
     const rotationQuarterTurns = parseRotationQuarterTurns(
       body?.rotation_quarter_turns ?? body?.rotationQuarterTurns ?? 0,
     );
+    const priorAttachFollowUp = Boolean(
+      body?.prior_attach_follow_up ?? body?.priorAttachFollowUp ?? false,
+    );
     // Shadow-only: accepted only when KEY_BORROWED_SENSES=shadow (never customer UI blocks).
     const shadowVisualBlocksOverride = resolveShadowVisualBlocksOverride(
       body?.shadow_visual_blocks ?? body?.shadowVisualBlocksOverride ?? null,
@@ -117,6 +120,7 @@ export default async function handler(req, res) {
         history,
         attachedDocumentId,
         rotationQuarterTurns,
+        priorAttachFollowUp,
         shadowVisualBlocksOverride,
         streamHandlers,
         requestStartedAt,
@@ -139,6 +143,7 @@ export default async function handler(req, res) {
       history,
       attachedDocumentId,
       rotationQuarterTurns,
+      priorAttachFollowUp,
       shadowVisualBlocksOverride,
     });
 

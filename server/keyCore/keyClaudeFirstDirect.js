@@ -31,6 +31,10 @@ import {
   rotateImageBufferQuarterTurns,
 } from "./keyClaudeImageOrient.js";
 import {
+  isPriorAttachFollowUpQuestion,
+  PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
+} from "../../src/lib/chatActiveAttachment.js";
+import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
   recommendationOrTerminationRisk,
@@ -215,7 +219,10 @@ export function wantsClaudeFirstVisualBlocks(
   question = "",
   { documentAttached = false } = {},
 ) {
-  if (documentAttached && isAttachDocumentReadQuestion(question)) {
+  if (
+    documentAttached &&
+    (isAttachDocumentReadQuestion(question) || isPriorAttachFollowUpQuestion(question))
+  ) {
     return false;
   }
   const q = String(question ?? "");
@@ -561,14 +568,17 @@ function latestDocumentIdFromContext(loadedContext = null, unifiedState = null) 
 /**
  * Resolve which customer document to attach for Claude-first.
  * Explicit request document_id wins — never guess "latest" over an active chat attach.
+ * Prior-attach follow-ups must not use latest-document fallback.
  */
 export function resolveClaudeFirstPdfDocumentId({
   attachedDocumentId = null,
   loadedContext = null,
   unifiedState = null,
+  allowLatestFallback = true,
 } = {}) {
   const explicit = String(attachedDocumentId ?? "").trim();
   if (explicit) return explicit;
+  if (!allowLatestFallback) return null;
   return latestDocumentIdFromContext(loadedContext, unifiedState);
 }
 
@@ -680,11 +690,13 @@ async function resolveOptionalPdfAttachment({
   attachedDocumentId = null,
   env = process.env,
   rotationQuarterTurns = 0,
+  allowLatestFallback = true,
 } = {}) {
   const documentId = resolveClaudeFirstPdfDocumentId({
     attachedDocumentId,
     loadedContext,
     unifiedState,
+    allowLatestFallback,
   });
   if (!documentId || !userSupabase || !customerId) {
     return { pdfBase64: null, mediaType: null, meta: { attached: false } };
@@ -1030,6 +1042,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   customerId = null,
   attachedDocumentId = null,
   rotationQuarterTurns = 0,
+  priorAttachFollowUp = false,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -1043,6 +1056,12 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   const reality = { policies, policy_count };
 
+  const followUp =
+    priorAttachFollowUp === true ||
+    isPriorAttachFollowUpQuestion(question, { history });
+  // Follow-up photo refs must never invent a latest document or chart substitute.
+  const allowLatestFallback = !followUp;
+
   const pdf = await resolveOptionalPdfAttachment({
     userSupabase,
     customerId,
@@ -1051,7 +1070,76 @@ export async function runClaudeFirstDirectQuestionTurn({
     attachedDocumentId,
     env,
     rotationQuarterTurns,
+    allowLatestFallback,
   });
+
+  if (followUp && pdf?.meta?.attached !== true) {
+    const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
+    if (streamHandlers?.onDelta) {
+      streamHandlers.onDelta(sealed.key_speak_original);
+      streamHandlers._emitted = true;
+      streamHandlers.onFirstToken?.(relMs(startedAt));
+    }
+    const emitMark = span.end();
+    return {
+      ok: true,
+      customerText: sealed.key_speak_original,
+      keySpeakOriginal: sealed.key_speak_original,
+      visualBlocks: [],
+      key_monopoly_failure: false,
+      failure_reason: "prior_attach_missing",
+      agentTurn: {
+        text: sealed.key_speak_original,
+        responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        consultationIntent: { intent: "claude_first_direct" },
+        factBundle: { policies, policy_count, one_key_core: true },
+      },
+      modeDecision: null,
+      loadedContext,
+      contextSnapshot,
+      unifiedState,
+      customerContextBundle,
+      salesDirectorTrace: {
+        one_key_core: true,
+        one_key_core_s1: true,
+        compose_mode: "key_claude_first_direct",
+        key_compose_trace: {
+          compose_mode: "key_claude_first_direct",
+          key_voice_trace: {
+            provider: "claude_first_direct",
+            used_failure_mode: false,
+            fallback_reason: "prior_attach_missing",
+            prior_attach_follow_up: true,
+            pdf_attached: false,
+            latency_marks: {
+              claude_full_emit: emitMark,
+              ttft_ms: relMs(startedAt),
+              ...resolveDeployIdentity(env),
+            },
+          },
+        },
+      },
+      oneKeyCoreTrace: {
+        schema_version: "one-key-core-trace-claude-first-v1",
+        steps: [
+          {
+            step: "prior_attach_reattach",
+            at_ms: relMs(startedAt),
+            payload: {
+              compose_mode: "key_claude_first_direct",
+              reason: "prior_attach_missing",
+              allow_latest_fallback: false,
+            },
+          },
+        ],
+        legacy_paths_blocked: [
+          "latest_document_fallback",
+          "verified_customer_chart_substitute",
+          "s3_s6_compose",
+        ],
+      },
+    };
+  }
 
   let firstTokenMs = null;
   let sentenceStreamAborted = false;
