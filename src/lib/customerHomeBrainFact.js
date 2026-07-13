@@ -164,6 +164,9 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
   const rotationQuarterTurns = Number(
     options.rotationQuarterTurns ?? options.rotation_quarter_turns ?? 0,
   );
+  const priorAttachFollowUp = Boolean(
+    options.priorAttachFollowUp ?? options.prior_attach_follow_up ?? false,
+  );
   const accessToken = await getCustomerAccessToken();
   const response = await fetch(ROUTE_PATH, {
     method: "POST",
@@ -180,6 +183,7 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
       ...(documentId
         ? { rotation_quarter_turns: [0, 1, 2, 3].includes(rotationQuarterTurns) ? rotationQuarterTurns : 0 }
         : {}),
+      ...(priorAttachFollowUp ? { prior_attach_follow_up: true } : {}),
     }),
   });
 
@@ -221,6 +225,9 @@ export async function fetchHomeBrainFact(question, history = [], options = {}) {
   const rotationQuarterTurns = Number(
     options.rotationQuarterTurns ?? options.rotation_quarter_turns ?? 0,
   );
+  const priorAttachFollowUp = Boolean(
+    options.priorAttachFollowUp ?? options.prior_attach_follow_up ?? false,
+  );
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
     body: {
       question: trimmed,
@@ -233,6 +240,7 @@ export async function fetchHomeBrainFact(question, history = [], options = {}) {
               : 0,
           }
         : {}),
+      ...(priorAttachFollowUp ? { prior_attach_follow_up: true } : {}),
     },
   });
 

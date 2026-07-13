@@ -13,6 +13,11 @@ import {
   quarterTurnsToDegrees,
   wrapQuarterTurns,
 } from "../lib/chatImageOrient.js";
+import {
+  extractActiveAttachmentFromSessionMessages,
+  isPriorAttachFollowUpQuestion,
+  normalizeActiveAttachment,
+} from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   clearLifeguardChatSnapshot,
@@ -303,6 +308,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [chatAttachPreviewUrl, setChatAttachPreviewUrl] = useState("");
   const [chatAttachIsImage, setChatAttachIsImage] = useState(false);
   const [chatAttachQuarterTurns, setChatAttachQuarterTurns] = useState(0);
+  // Conversation-scoped active attachment (survives composer clear).
+  const [activeAttachmentId, setActiveAttachmentId] = useState(null);
+  const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
+  const [activeRotationQuarterTurns, setActiveRotationQuarterTurns] = useState(0);
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
   const [sessionId, setSessionId] = useState(() => createLifeguardSessionId());
@@ -666,11 +675,33 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             const base = seed.length > 0 ? seed : prev;
             return mergeRestoredSessionMessages(base, restored);
           });
+          const fromRestored = extractActiveAttachmentFromSessionMessages(restored);
+          const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
+          const active = fromRestored || (String(snapshot?.sessionId) === String(activeId) ? fromSnap : null);
+          if (active) {
+            setActiveAttachmentId(active.active_attachment_id);
+            setActiveAttachmentMime(active.active_attachment_mime);
+            setActiveRotationQuarterTurns(active.active_rotation_quarter_turns);
+          } else {
+            setActiveAttachmentId(null);
+            setActiveAttachmentMime(null);
+            setActiveRotationQuarterTurns(0);
+          }
           setPanelView("chat");
         } else if (seed.length > 0) {
           // Remount before DB indexed the just-completed turn — keep local snapshot.
           setMessages(seed);
+          const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
+          if (fromSnap && String(snapshot?.sessionId) === String(activeId)) {
+            setActiveAttachmentId(fromSnap.active_attachment_id);
+            setActiveAttachmentMime(fromSnap.active_attachment_mime);
+            setActiveRotationQuarterTurns(fromSnap.active_rotation_quarter_turns);
+          }
           setPanelView("chat");
+        } else {
+          setActiveAttachmentId(null);
+          setActiveAttachmentMime(null);
+          setActiveRotationQuarterTurns(0);
         }
 
         setThreadRestoreReady(true);
@@ -706,12 +737,26 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
         setMessages(restored);
+        const active = extractActiveAttachmentFromSessionMessages(restored);
+        if (active) {
+          setActiveAttachmentId(active.active_attachment_id);
+          setActiveAttachmentMime(active.active_attachment_mime);
+          setActiveRotationQuarterTurns(active.active_rotation_quarter_turns);
+        } else {
+          setActiveAttachmentId(null);
+          setActiveAttachmentMime(null);
+          setActiveRotationQuarterTurns(0);
+        }
         writeLifeguardChatSnapshot(customerId, {
           sessionId: targetSessionId,
           messages: restored,
+          activeAttachment: active,
         });
       } catch (err) {
         setMessages([]);
+        setActiveAttachmentId(null);
+        setActiveAttachmentMime(null);
+        setActiveRotationQuarterTurns(0);
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
@@ -730,15 +775,38 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       return;
     }
 
-    const documentIdForTurn = chatAttachDocumentId;
-    const attachTurnsForTurn = chatAttachQuarterTurns;
-    const attachIsImageForTurn = chatAttachIsImage;
+    const composerDocumentId = chatAttachDocumentId;
+    const composerTurns = chatAttachQuarterTurns;
+    const composerIsImage = chatAttachIsImage;
+    const composerFilename = chatAttachFilename;
+    const followUpRef = isPriorAttachFollowUpQuestion(trimmed, {
+      history: messages,
+    });
+
+    let documentIdForTurn = composerDocumentId;
+    let attachTurnsForTurn = composerTurns;
+    let attachIsImageForTurn = composerIsImage;
+    let attachMimeForTurn = composerIsImage
+      ? "image/jpeg"
+      : composerDocumentId
+        ? "application/pdf"
+        : null;
+
+    // Reuse conversation active attachment only for explicit photo follow-ups.
+    if (!documentIdForTurn && followUpRef && activeAttachmentId) {
+      documentIdForTurn = activeAttachmentId;
+      attachTurnsForTurn = activeRotationQuarterTurns;
+      attachMimeForTurn = activeAttachmentMime;
+      attachIsImageForTurn =
+        !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
+    }
+
     setPanelView("chat");
     setSidebarOpen(false);
     const userMessage = {
       role: "user",
-      content: documentIdForTurn
-        ? `${trimmed}\n\n(첨부: ${chatAttachFilename || "파일"})`
+      content: composerDocumentId
+        ? `${trimmed}\n\n(첨부: ${composerFilename || "파일"})`
         : trimmed,
     };
     const nextMessages = [...messages, userMessage];
@@ -760,6 +828,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
           messages: nextMessages,
+          activeAttachment: activeAttachmentId
+            ? {
+                active_attachment_id: activeAttachmentId,
+                active_attachment_mime: activeAttachmentMime,
+                active_rotation_quarter_turns: activeRotationQuarterTurns,
+              }
+            : null,
         });
       }
 
@@ -770,6 +845,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           ...attachOptions,
           rotationQuarterTurns: normalizeQuarterTurns(attachTurnsForTurn),
         };
+      }
+      // Signal follow-up so server never falls back to latest-doc / chart substitute.
+      if (followUpRef) {
+        attachOptions = { ...attachOptions, priorAttachFollowUp: true };
       }
       const result = await fetchHomeBrainFactStream(
         trimmed,
@@ -827,13 +906,32 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         },
       ];
       setMessages(completedMessages);
+      let nextActive = null;
+      if (documentIdForTurn) {
+        nextActive = {
+          active_attachment_id: documentIdForTurn,
+          active_attachment_mime: attachMimeForTurn,
+          active_rotation_quarter_turns: normalizeQuarterTurns(attachTurnsForTurn),
+        };
+        setActiveAttachmentId(documentIdForTurn);
+        setActiveAttachmentMime(attachMimeForTurn);
+        setActiveRotationQuarterTurns(normalizeQuarterTurns(attachTurnsForTurn));
+      } else if (activeAttachmentId) {
+        nextActive = {
+          active_attachment_id: activeAttachmentId,
+          active_attachment_mime: activeAttachmentMime,
+          active_rotation_quarter_turns: activeRotationQuarterTurns,
+        };
+      }
       if (customerId) {
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
           messages: completedMessages,
+          activeAttachment: nextActive,
         });
       }
-      clearChatAttach();
+      // Composer only — conversation active attachment stays.
+      clearComposerAttach();
 
       if (authUser && customerId) {
         await persistLifeguardChatTurn(authUser, {
@@ -846,11 +944,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           composeMode: result.composeMode ?? null,
           responseLatencyMs: result.responseLatencyMs ?? null,
           oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
+          activeAttachment: nextActive,
         });
         writeActiveSessionId(customerId, sessionId);
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
           messages: completedMessages,
+          activeAttachment: nextActive,
         });
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         setThreads(recent);
@@ -878,6 +978,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setMessages([]);
     setInput("");
     setError("");
+    setActiveAttachmentId(null);
+    setActiveAttachmentMime(null);
+    setActiveRotationQuarterTurns(0);
+    clearComposerAttach();
     setPanelView("chat");
     setSidebarOpen(false);
     restoreForceScrollRef.current = false;
@@ -892,7 +996,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     focusChatInput();
   };
 
-  const clearChatAttach = () => {
+  const clearComposerAttach = () => {
     setChatAttachDocumentId(null);
     setChatAttachFilename("");
     setChatAttachError("");
@@ -904,6 +1008,23 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       return "";
     });
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const clearActiveAttachment = () => {
+    setActiveAttachmentId(null);
+    setActiveAttachmentMime(null);
+    setActiveRotationQuarterTurns(0);
+    if (customerId) {
+      writeLifeguardChatSnapshot(customerId, {
+        sessionId,
+        messages,
+        activeAttachment: null,
+      });
+    }
+  };
+
+  const handleComposerRemove = () => {
+    clearComposerAttach();
   };
 
   const handleAttachClick = () => {
@@ -954,7 +1075,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "파일").trim());
       await loadDocumentsRef.current?.();
     } catch (err) {
-      clearChatAttach();
+      clearComposerAttach();
       setChatAttachError(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
     } finally {
       setChatAttachUploading(false);
@@ -1317,7 +1438,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button
                     type="button"
-                    onClick={clearChatAttach}
+                    onClick={handleComposerRemove}
                     style={{
                       border: "none",
                       background: "transparent",
@@ -1330,6 +1451,35 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     제거
                   </button>
                 </div>
+              </div>
+            ) : null}
+            {!chatAttachDocumentId && !chatAttachUploading && activeAttachmentId ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  marginBottom: "8px",
+                  fontSize: "12px",
+                  color: LG.textMuted,
+                }}
+              >
+                <span>이 대화의 이전 첨부 사진을 참조할 수 있습니다.</span>
+                <button
+                  type="button"
+                  onClick={clearActiveAttachment}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: LG.textMuted,
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    fontFamily: LG.sans,
+                  }}
+                >
+                  첨부 참조 해제
+                </button>
               </div>
             ) : null}
             <div
