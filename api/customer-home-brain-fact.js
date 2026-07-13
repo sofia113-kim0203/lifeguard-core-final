@@ -46,6 +46,9 @@ export default async function handler(req, res) {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
+    const attachedDocumentId = String(
+      body?.document_id ?? body?.documentId ?? body?.attached_document_id ?? "",
+    ).trim() || null;
     // Shadow-only: accepted only when KEY_BORROWED_SENSES=shadow (never customer UI blocks).
     const shadowVisualBlocksOverride = resolveShadowVisualBlocksOverride(
       body?.shadow_visual_blocks ?? body?.shadowVisualBlocksOverride ?? null,
@@ -95,6 +98,7 @@ export default async function handler(req, res) {
         customerId: resolved.customerId,
         question,
         history,
+        attachedDocumentId,
         shadowVisualBlocksOverride,
         streamHandlers,
         requestStartedAt,
@@ -115,6 +119,7 @@ export default async function handler(req, res) {
       customerId: resolved.customerId,
       question,
       history,
+      attachedDocumentId,
       shadowVisualBlocksOverride,
     });
 

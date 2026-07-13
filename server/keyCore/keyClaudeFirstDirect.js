@@ -501,7 +501,12 @@ export function selectReplacingHardReasons(hardReasons = [], text = "") {
   });
 }
 
-function latestDocumentIdFromContext(loadedContext = null) {
+function latestDocumentIdFromContext(loadedContext = null, unifiedState = null) {
+  const fromUnified = Array.isArray(unifiedState?.documents) ? unifiedState.documents : [];
+  for (let i = fromUnified.length - 1; i >= 0; i -= 1) {
+    const id = String(fromUnified[i]?.id ?? fromUnified[i]?.document_id ?? "").trim();
+    if (id) return id;
+  }
   const docs = Array.isArray(loadedContext?.documents) ? loadedContext.documents : [];
   for (let i = docs.length - 1; i >= 0; i -= 1) {
     const id = String(docs[i]?.id ?? docs[i]?.document_id ?? "").trim();
@@ -510,13 +515,33 @@ function latestDocumentIdFromContext(loadedContext = null) {
   return null;
 }
 
+/**
+ * Resolve which customer document to attach for Claude-first.
+ * Explicit request document_id wins — never guess "latest" over an active chat attach.
+ */
+export function resolveClaudeFirstPdfDocumentId({
+  attachedDocumentId = null,
+  loadedContext = null,
+  unifiedState = null,
+} = {}) {
+  const explicit = String(attachedDocumentId ?? "").trim();
+  if (explicit) return explicit;
+  return latestDocumentIdFromContext(loadedContext, unifiedState);
+}
+
 async function resolveOptionalPdfAttachment({
   userSupabase = null,
   customerId = null,
   loadedContext = null,
+  unifiedState = null,
+  attachedDocumentId = null,
   env = process.env,
 } = {}) {
-  const documentId = latestDocumentIdFromContext(loadedContext);
+  const documentId = resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId,
+    loadedContext,
+    unifiedState,
+  });
   if (!documentId || !userSupabase || !customerId) {
     return { pdfBase64: null, mediaType: null, meta: { attached: false } };
   }
@@ -807,6 +832,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   contextSnapshot = null,
   userSupabase = null,
   customerId = null,
+  attachedDocumentId = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -824,6 +850,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     userSupabase,
     customerId,
     loadedContext,
+    unifiedState,
+    attachedDocumentId,
     env,
   });
 
