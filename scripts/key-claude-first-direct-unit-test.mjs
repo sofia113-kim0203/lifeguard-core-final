@@ -31,11 +31,10 @@ import {
   quarterTurnsToDegrees,
   normalizeImageRotationDegrees,
   readJpegSizeFromBuffer,
-  rotateImageBufferQuarterTurns,
   requestHasForbiddenClientImageBytes,
   detectImageSignature,
-  sanitizeRotateObservationError,
-  redactImageRotateObservation,
+  buildPreviewOrientationHint,
+  buildAttachOpsSignals,
 } from "../server/keyCore/keyClaudeImageOrient.js";
 import {
   buildClaudeFullUserContentWithPdf,
@@ -50,8 +49,21 @@ import {
   CHAT_ATTACH_FILE_ACCEPT,
   CHAT_PDF_FILE_ACCEPT,
 } from "../src/lib/chatPdfAttach.js";
-import jpeg from "jpeg-js";
-import { PNG } from "pngjs";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+{
+  const root = dirname(fileURLToPath(import.meta.url));
+  const orientSrc = readFileSync(join(root, "../server/keyCore/keyClaudeImageOrient.js"), "utf8");
+  const directSrc = readFileSync(join(root, "../server/keyCore/keyClaudeFirstDirect.js"), "utf8");
+  assert.equal(/jpeg-js|pngjs|jpeg\.decode|jpeg\.encode|PNG\.sync/.test(orientSrc), false);
+  assert.equal(
+    /rotateImageBufferQuarterTurns|jpeg-js|pngjs|server_ephemeral_rotate/.test(directSrc),
+    false,
+  );
+}
 
 assert.equal(
   isClaudeFirstDirectPreview({ VERCEL_ENV: "preview", KEY_BORROWED_SENSES: "shadow" }),
@@ -419,150 +431,77 @@ assert.equal(jpegSize?.width, 64);
 assert.equal(jpegSize?.height, 32);
 
 // Synthetic 4x2 JPEG (distinct pixels) for rotate geometry
-function makeSolidJpeg(width, height, fillRgba) {
-  const data = Buffer.alloc(width * height * 4);
-  for (let i = 0; i < width * height; i += 1) {
-    data[i * 4] = fillRgba[0];
-    data[i * 4 + 1] = fillRgba[1];
-    data[i * 4 + 2] = fillRgba[2];
-    data[i * 4 + 3] = fillRgba[3];
-  }
-  // mark top-left pixel unique so 180° flip is detectable
-  data[0] = 10;
-  data[1] = 20;
-  data[2] = 30;
-  data[3] = 255;
-  const encoded = jpeg.encode({ data, width, height }, 100);
-  return Buffer.from(encoded.data);
+function sha256Hex(buf) {
+  return createHash("sha256").update(buf).digest("hex");
 }
 
-function makeSolidPng(width, height) {
-  const png = new PNG({ width, height });
-  for (let i = 0; i < width * height; i += 1) {
-    png.data[i * 4] = 200;
-    png.data[i * 4 + 1] = 100;
-    png.data[i * 4 + 2] = 50;
-    png.data[i * 4 + 3] = 255;
-  }
-  png.data[0] = 1;
-  png.data[1] = 2;
-  png.data[2] = 3;
-  png.data[3] = 255;
-  return PNG.sync.write(png);
-}
+// Fixed JPEG fixtures (no jpeg-js/pngjs in product or tests).
+const srcJpeg = Buffer.from(
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAf/AABEIAAQACAMBEQACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APx3tLS1sLW2sbG2t7KysreG0s7O0hjt7W0tbeNYbe2treFUigt4IkSKGGJEjijRURVVQA23JuUm222227tt6ttvVtvVt7iSSSSSSSSSSsklokktEktkf//Z",
+  "base64",
+);
+const validJpeg8 = Buffer.from(
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx4BBQUFBwYHDggIDh4UERQeHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHv/AABEIAAgACAMBEQACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/AKVAH//Z",
+  "base64",
+);
+const clientB64 = validJpeg8.toString("base64");
 
-const srcJpeg = makeSolidJpeg(8, 4, [80, 80, 80, 255]);
-const rot0 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 0);
-assert.equal(rot0.ok, true);
-assert.equal(rot0.rotated, false);
-assert.equal(rot0.buffer, srcJpeg);
-assert.equal(rot0.width, 8);
-assert.equal(rot0.height, 4);
-assert.equal(rot0.observation?.rotation_quarter_turns, 0);
-assert.equal(rot0.observation?.decode_started, false);
-assert.equal(rot0.observation?.rotate_started, false);
-assert.equal(rot0.observation?.encode_started, false);
-assert.equal(rot0.observation?.failure_stage, null);
 assert.equal(detectImageSignature(srcJpeg), "jpeg");
-
-const rot1 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 1);
-assert.equal(rot1.ok, true);
-assert.equal(rot1.rotated, true);
-assert.equal(rot1.width, 4);
-assert.equal(rot1.height, 8);
-assert.equal(rot1.observation?.decode_ok, true);
-assert.equal(rot1.observation?.rotate_ok, true);
-assert.equal(rot1.observation?.encode_ok, true);
-assert.equal(rot1.observation?.failure_stage, null);
-assert.ok(typeof rot1.observation?.output_byte_size === "number");
-
-const rot2 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 2);
-assert.equal(rot2.ok, true);
-assert.equal(rot2.width, 8);
-assert.equal(rot2.height, 4);
-{
-  const decoded = jpeg.decode(rot2.buffer, { useTArray: true });
-  // after 180°, unique pixel moves to bottom-right
-  const br = ((decoded.height - 1) * decoded.width + (decoded.width - 1)) * 4;
-  assert.ok(decoded.data[br] < 40, "180° should move corner pixel");
-}
-
-const rot3 = rotateImageBufferQuarterTurns(srcJpeg, "image/jpeg", 3);
-assert.equal(rot3.ok, true);
-assert.equal(rot3.width, 4);
-assert.equal(rot3.height, 8);
-
-const srcPng = makeSolidPng(6, 3);
-const pngRot1 = rotateImageBufferQuarterTurns(srcPng, "image/png", 1);
-assert.equal(pngRot1.ok, true);
-assert.equal(pngRot1.width, 3);
-assert.equal(pngRot1.height, 6);
-
-const badMime = rotateImageBufferQuarterTurns(srcJpeg, "image/webp", 1);
-assert.equal(badMime.ok, false);
-assert.equal(badMime.observation?.failure_stage, "signature");
-
-// JPEG decode early return → failure_stage=decode
-const corruptJpegSoiEoi = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-const decodeFail = rotateImageBufferQuarterTurns(corruptJpegSoiEoi, "image/jpeg", 1);
-assert.equal(decodeFail.ok, false);
-assert.equal(decodeFail.observation?.failure_stage, "decode");
-assert.equal(decodeFail.observation?.normalized_failure_code, "jpeg_decode_failed");
-assert.equal(decodeFail.observation?.decode_started, true);
-assert.equal(decodeFail.observation?.decode_ok, false);
-
-// sanitized error must not leak path/url/base64/ids
-{
-  const san = sanitizeRotateObservationError(
-    new Error(
-      "boom at C:\\Users\\x\\secret.jpg https://example.com/a data:image/jpeg;base64,AAAA customer_id=abc document_id=11111111-1111-1111-1111-111111111111",
-    ),
-    "jpeg_decode_failed",
-  );
-  assert.equal(san.normalized_failure_code, "jpeg_decode_failed");
-  assert.equal(/Users\\|https?:|base64,|11111111-1111/i.test(san.sanitized_error_message), false);
-  assert.ok(String(san.sanitized_error_message).length <= 160);
-}
+assert.equal(buildPreviewOrientationHint(0), null);
+assert.match(buildPreviewOrientationHint(1), /시계 방향으로 1회/);
+assert.match(buildPreviewOrientationHint(1), /Storage 원본/);
+assert.equal(buildPreviewOrientationHint(1).includes("똑바로"), false);
 
 const storageB64 = srcJpeg.toString("base64");
-const clientB64 = makeSolidJpeg(2, 2, [1, 1, 1, 255]).toString("base64");
-const built0 = buildClaudeImageAttachFromStorageOriginal({
-  storageBase64: storageB64,
-  storageMediaType: "image/jpeg",
-  rotationQuarterTurns: 0,
-});
-assert.equal(built0.ok, true);
-assert.equal(built0.claude_image_source, "storage_original");
-assert.equal(built0.rotated, false);
-assert.equal(built0.base64, storageB64);
-assert.equal(built0.observation?.attachment_block_built, true);
-assert.equal(built0.observation?.decode_started, false);
-assert.equal(built0.observation?.failure_stage, null);
+const storageHash = sha256Hex(srcJpeg);
+for (const turns of [0, 1, 2, 3]) {
+  const built = buildClaudeImageAttachFromStorageOriginal({
+    storageBase64: storageB64,
+    storageMediaType: "image/jpeg",
+    rotationQuarterTurns: turns,
+  });
+  assert.equal(built.ok, true, `turns=${turns} must attach`);
+  assert.equal(built.claude_image_source, "storage_original");
+  assert.equal(built.rotated, false);
+  assert.equal(built.base64, storageB64);
+  assert.equal(sha256Hex(Buffer.from(built.base64, "base64")), storageHash);
+  assert.equal(built.attach_signals?.attachment_block_built, true);
+  assert.equal(built.attach_signals?.attachment_attached, true);
+  assert.equal(built.attach_signals?.attachment_failed, false);
+  assert.equal(built.attach_signals?.rotation_requested, turns);
+  assert.equal(built.rotation_quarter_turns, turns);
+}
 
-const built1 = buildClaudeImageAttachFromStorageOriginal({
-  storageBase64: storageB64,
+const builtMissing = buildClaudeImageAttachFromStorageOriginal({
+  storageBase64: "",
   storageMediaType: "image/jpeg",
   rotationQuarterTurns: 1,
 });
-assert.equal(built1.ok, true);
-assert.equal(built1.claude_image_source, "server_ephemeral_rotate");
-assert.equal(built1.rotated, true);
-assert.notEqual(built1.base64, storageB64);
-assert.notEqual(built1.base64, clientB64);
-assert.equal(built1.observation?.attachment_block_built, true);
-assert.ok(built1.observation?.output_byte_size > 0);
+assert.equal(builtMissing.ok, false);
+assert.equal(builtMissing.attach_signals?.attachment_failed, true);
+assert.equal(builtMissing.attach_signals?.attachment_failure_code, "storage_image_missing");
 
-const builtDecodeFail = buildClaudeImageAttachFromStorageOriginal({
-  storageBase64: corruptJpegSoiEoi.toString("base64"),
-  storageMediaType: "image/jpeg",
+const builtMime = buildClaudeImageAttachFromStorageOriginal({
+  storageBase64: storageB64,
+  storageMediaType: "image/heic",
   rotationQuarterTurns: 1,
 });
-assert.equal(builtDecodeFail.ok, false);
-assert.equal(builtDecodeFail.observation?.failure_stage, "decode");
-assert.equal(builtDecodeFail.observation?.attachment_block_built, false);
-const builtBlob = JSON.stringify(builtDecodeFail.observation ?? {});
-assert.equal(/base64|filename|customer_id|document_id/i.test(builtBlob), false);
-assert.equal(redactImageRotateObservation({ document_id: "x", base64: "y", failure_stage: "decode" })?.document_id, undefined);
+assert.equal(builtMime.ok, false);
+// Unsupported MIME normalizes to null → treated as missing attach media.
+assert.equal(builtMime.attach_signals?.attachment_failure_code, "storage_image_missing");
+assert.equal(builtMime.reason, "storage_image_missing");
+
+assert.equal(
+  buildAttachOpsSignals({
+    attachment_requested: true,
+    attachment_attached: false,
+    attachment_failed: true,
+    attachment_failure_code: "block_build_failed",
+    rotation_requested: 2,
+    attachment_block_built: false,
+  }).rotation_requested,
+  2,
+);
 
 // client raw base64 must never be selected even if somehow passed elsewhere
 assert.equal(
@@ -575,6 +514,24 @@ assert.equal(
 
 const promptTable = buildSystemPrompt();
 assert.match(promptTable, /orientation|independently|column|셀/i);
+
+{
+  const payload = buildUserPayload({
+    question: "이 사진 분석해줘",
+    chart: { policies: [], policy_count: 0 },
+    allowlist: {},
+    contextPack: {},
+    pdfMeta: {
+      attached: true,
+      mime_type: "image/jpeg",
+      rotation_quarter_turns: 1,
+      document_id: "doc-hint",
+    },
+  });
+  assert.match(payload.direct_document.preview_orientation_hint, /시계 방향으로 1회/);
+  assert.match(payload.direct_document.preview_orientation_hint, /Storage 원본/);
+  assert.match(payload.guidance, /Storage 원본/);
+}
 
 // --- Slice A: prior attach follow-up / active attachment ---
 assert.equal(isPriorAttachFollowUpQuestion("이 사진 다시 봐줘"), true);
@@ -715,61 +672,74 @@ const chartPolicies = {
 
 {
   let claudeCalls = 0;
-  const fetchImpl = async () => {
+  let imageB64FromClaude = null;
+  let sawHint = false;
+  const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
-    throw new Error("claude_must_not_run_on_rotate_fail");
+    const body = JSON.parse(String(opts?.body ?? "{}"));
+    const content = body?.messages?.[0]?.content;
+    if (Array.isArray(content)) {
+      const img = content.find((b) => b?.type === "image");
+      imageB64FromClaude = img?.source?.data ?? null;
+      const text = content.find((b) => b?.type === "text")?.text ?? "";
+      sawHint = /시계 방향으로 1회/.test(text) && /Storage 원본/.test(text);
+    }
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "첨부 이미지에서 보험사 칸은 미확인입니다. 더 궁금한 점 말씀해 주세요.",
+            },
+          ],
+        };
+      },
+    };
   };
   const result = await runClaudeFirstDirectQuestionTurn({
     question: "이 사진에서 보험사와 월 보험료를 표로 정리해줘.",
     history: [],
     loadedContext: chartPolicies,
     customerId: "cust-a",
-    attachedDocumentId: "doc-rot-fail",
+    attachedDocumentId: "doc-rot-ok",
     rotationQuarterTurns: 1,
     userSupabase: makeAttachSupabase({
       document: {
-        id: "doc-rot-fail",
+        id: "doc-rot-ok",
         customer_id: "cust-a",
-        storage_path: "cust-a/doc-rot-fail.jpg",
+        storage_path: "cust-a/doc-rot-ok.jpg",
         mime_type: "image/jpeg",
         original_filename: "table.jpg",
         deleted_at: null,
       },
-      blob: makeBlobFromBuffer(jpegTiny),
+      blob: makeBlobFromBuffer(validJpeg8),
     }),
     env: failClosedEnv,
     fetchImpl,
   });
-  assert.equal(claudeCalls, 0, "rotate fail must not call Claude");
-  assert.equal(result.key_monopoly_failure, true);
+  assert.equal(claudeCalls, 1, "turns=1 must call Claude-first once (no rotate fail-closed)");
+  assert.equal(result.key_monopoly_failure, false);
   assert.equal(
-    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.used_failure_mode,
-    true,
+    result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
+    false,
   );
+  assert.equal(imageB64FromClaude, validJpeg8.toString("base64"));
+  assert.equal(sha256Hex(Buffer.from(imageB64FromClaude, "base64")), sha256Hex(validJpeg8));
+  assert.equal(sawHint, true);
+  const signals =
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
+  assert.equal(signals?.attachment_attached, true);
+  assert.equal(signals?.attachment_failed, false);
+  assert.equal(signals?.rotation_requested, 1);
+  assert.equal(signals?.attachment_block_built, true);
   assert.equal(
-    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attachment_fail_closed,
-    true,
-  );
-  const rotObs =
-    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.image_rotate_observation;
-  assert.equal(rotObs?.failure_stage, "decode");
-  assert.equal(rotObs?.normalized_failure_code, "jpeg_decode_failed");
-  assert.equal(rotObs?.rotation_quarter_turns, 1);
-  assert.equal(/base64|filename|customer_id|document_id/i.test(JSON.stringify(rotObs)), false);
-  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
-  assert.match(result.customerText, /다시 첨부/);
-  assertNoChartLeak(result.customerText);
-  assert.equal(result.visualBlocks?.length ?? 0, 0);
-  assert.ok(
-    (result.oneKeyCoreTrace?.legacy_paths_blocked ?? []).includes(
-      "verified_customer_chart_substitute",
-    ),
-  );
-  assert.ok(
-    (result.oneKeyCoreTrace?.legacy_paths_blocked ?? []).includes("claude_first_direct_call"),
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.image_rotate_observation,
+    undefined,
   );
   assert.equal(
-    JSON.stringify(result).includes(jpegTiny.toString("base64").slice(0, 12)),
+    JSON.stringify(result).includes(validJpeg8.toString("base64").slice(0, 12)),
     false,
   );
 }
@@ -894,18 +864,19 @@ const chartPolicies = {
 }
 
 {
-  const validJpeg = jpeg.encode(
-    { data: Buffer.alloc(8 * 8 * 4, 120), width: 8, height: 8 },
-    85,
-  ).data;
   let claudeCalls = 0;
   let sawImageBlock = false;
+  let imageHash = null;
   const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
     const body = JSON.parse(String(opts?.body ?? "{}"));
     const content = body?.messages?.[0]?.content;
     if (Array.isArray(content)) {
-      sawImageBlock = content.some((b) => b?.type === "image");
+      const img = content.find((b) => b?.type === "image");
+      sawImageBlock = Boolean(img);
+      if (img?.source?.data) {
+        imageHash = sha256Hex(Buffer.from(img.source.data, "base64"));
+      }
     }
     // Phase A only — attach readout must not open Phase B (second call).
     return {
@@ -939,13 +910,14 @@ const chartPolicies = {
         original_filename: "ok.jpg",
         deleted_at: null,
       },
-      blob: makeBlobFromBuffer(Buffer.from(validJpeg)),
+      blob: makeBlobFromBuffer(validJpeg8),
     }),
     env: failClosedEnv,
     fetchImpl,
   });
   assert.equal(claudeCalls, 1, "attach success: Claude-first single call (Phase B skipped)");
   assert.equal(sawImageBlock, true);
+  assert.equal(imageHash, sha256Hex(validJpeg8));
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(
     result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),

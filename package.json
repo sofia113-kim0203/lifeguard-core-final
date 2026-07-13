@@ -173,9 +173,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
     "@vercel/functions": "^3.7.1",
-    "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
-    "pngjs": "^7.0.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
