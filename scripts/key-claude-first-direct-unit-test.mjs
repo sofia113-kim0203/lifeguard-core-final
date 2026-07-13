@@ -12,6 +12,8 @@ import {
   wantsClaudeFirstVisualBlocks,
   isAttachDocumentReadQuestion,
   buildClaudeImageAttachFromStorageOriginal,
+  runClaudeFirstDirectQuestionTurn,
+  ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
   isPriorAttachFollowUpQuestion,
@@ -604,5 +606,392 @@ const extracted = extractActiveAttachmentFromSessionMessages([
 ]);
 assert.equal(extracted?.active_attachment_id, "doc-a");
 assert.match(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT, /다시 첨부/);
+
+// --- Explicit attach fail-closed (no Claude / no chart substitute) ---
+assert.match(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT, /첨부 파일을 처리하지 못했습니다/);
+assert.match(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT, /다시 첨부/);
+
+function makeAttachQuery(result) {
+  const q = {
+    select: () => q,
+    eq: () => q,
+    is: () => q,
+    maybeSingle: async () => result,
+  };
+  return q;
+}
+
+function makeAttachSupabase({ document = null, docError = null, blob = null, downloadError = null } = {}) {
+  return {
+    from: () => makeAttachQuery({ data: document, error: docError }),
+    storage: {
+      from: () => ({
+        download: async () => ({ data: blob, error: downloadError }),
+      }),
+    },
+  };
+}
+
+function makeBlobFromBuffer(buf) {
+  const bytes = Buffer.isBuffer(buf) ? buf : Buffer.from(buf ?? []);
+  return {
+    arrayBuffer: async () =>
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  };
+}
+
+function assertNoChartLeak(text) {
+  const t = String(text ?? "");
+  assert.equal(/총\s*\d+\s*건|계약\s*\d+\s*건|\d+\s*건/.test(t), false);
+  assert.equal(/삼성생명|한화생명|교보생명|월\s*보험료/.test(t), false);
+  assert.equal(t.includes("verified_customer_chart"), false);
+}
+
+const failClosedEnv = {
+  VERCEL_ENV: "preview",
+  ANTHROPIC_API_KEY: "test-key-fail-closed",
+};
+const chartPolicies = {
+  policies: [
+    { insurer: "삼성생명", product_name: "종신", monthly_premium: 50000 },
+    { insurer: "한화생명", product_name: "실손", monthly_premium: 30000 },
+  ],
+  policy_count: 34,
+};
+
+{
+  let claudeCalls = 0;
+  const fetchImpl = async () => {
+    claudeCalls += 1;
+    throw new Error("claude_must_not_run_on_rotate_fail");
+  };
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 사진에서 보험사와 월 보험료를 표로 정리해줘.",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-rot-fail",
+    rotationQuarterTurns: 1,
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-rot-fail",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-rot-fail.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "table.jpg",
+        deleted_at: null,
+      },
+      blob: makeBlobFromBuffer(jpegTiny),
+    }),
+    env: failClosedEnv,
+    fetchImpl,
+  });
+  assert.equal(claudeCalls, 0, "rotate fail must not call Claude");
+  assert.equal(result.key_monopoly_failure, true);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.used_failure_mode,
+    true,
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attachment_fail_closed,
+    true,
+  );
+  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
+  assert.match(result.customerText, /다시 첨부/);
+  assertNoChartLeak(result.customerText);
+  assert.equal(result.visualBlocks?.length ?? 0, 0);
+  assert.ok(
+    (result.oneKeyCoreTrace?.legacy_paths_blocked ?? []).includes(
+      "verified_customer_chart_substitute",
+    ),
+  );
+  assert.ok(
+    (result.oneKeyCoreTrace?.legacy_paths_blocked ?? []).includes("claude_first_direct_call"),
+  );
+  assert.equal(
+    JSON.stringify(result).includes(jpegTiny.toString("base64").slice(0, 12)),
+    false,
+  );
+}
+
+{
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 첨부 파일 읽어줘",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-own-deny",
+    userSupabase: makeAttachSupabase({ document: null }),
+    env: failClosedEnv,
+    fetchImpl: async () => {
+      claudeCalls += 1;
+      throw new Error("claude_must_not_run_on_ownership_fail");
+    },
+  });
+  assert.equal(claudeCalls, 0);
+  assert.equal(result.key_monopoly_failure, true);
+  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
+  assertNoChartLeak(result.customerText);
+  assert.ok(
+    ["document_ownership_denied", "pdf_attach_skipped", "attach_process_failed"].includes(
+      result.failure_reason,
+    ) || String(result.failure_reason ?? "").length > 0,
+  );
+}
+
+{
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 PDF 증권 봐줘",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-dl-fail",
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-dl-fail",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-dl-fail.pdf",
+        mime_type: "application/pdf",
+        original_filename: "policy.pdf",
+        deleted_at: null,
+      },
+      blob: null,
+      downloadError: { message: "not_found" },
+    }),
+    env: failClosedEnv,
+    fetchImpl: async () => {
+      claudeCalls += 1;
+      throw new Error("claude_must_not_run_on_download_fail");
+    },
+  });
+  assert.equal(claudeCalls, 0);
+  assert.equal(result.key_monopoly_failure, true);
+  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
+  assertNoChartLeak(result.customerText);
+}
+
+{
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 사진 표로 정리해줘",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-heic-block",
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-heic-block",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-heic-block.heic",
+        mime_type: "image/heic",
+        original_filename: "shot.heic",
+        deleted_at: null,
+      },
+      blob: makeBlobFromBuffer(Buffer.from("ftypheic")),
+    }),
+    env: failClosedEnv,
+    fetchImpl: async () => {
+      claudeCalls += 1;
+      throw new Error("claude_must_not_run_on_block_fail");
+    },
+  });
+  assert.equal(claudeCalls, 0);
+  assert.equal(result.key_monopoly_failure, true);
+  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
+  assertNoChartLeak(result.customerText);
+}
+
+{
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 사진 다시 봐줘",
+    history: [
+      { role: "user", content: "이 첨부 사진만 분석해줘.\n\n(첨부: a.jpg)" },
+      { role: "assistant", content: "첨부 이미지 판독 결과\n| 보험사 | 미확인 |" },
+    ],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-prior-gone",
+    priorAttachFollowUp: true,
+    userSupabase: makeAttachSupabase({ document: null }),
+    env: failClosedEnv,
+    fetchImpl: async () => {
+      claudeCalls += 1;
+      throw new Error("claude_must_not_run_on_prior_attach_miss");
+    },
+  });
+  assert.equal(claudeCalls, 0);
+  assert.equal(result.failure_reason, "prior_attach_missing");
+  assert.equal(result.customerText, PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
+  assertNoChartLeak(result.customerText);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.prior_attach_follow_up,
+    true,
+  );
+  assert.equal(result.key_monopoly_failure, false);
+}
+
+{
+  const validJpeg = jpeg.encode(
+    { data: Buffer.alloc(8 * 8 * 4, 120), width: 8, height: 8 },
+    85,
+  ).data;
+  let claudeCalls = 0;
+  let sawImageBlock = false;
+  const fetchImpl = async (_url, opts) => {
+    claudeCalls += 1;
+    const body = JSON.parse(String(opts?.body ?? "{}"));
+    const content = body?.messages?.[0]?.content;
+    if (Array.isArray(content)) {
+      sawImageBlock = content.some((b) => b?.type === "image");
+    }
+    // Phase A only — attach readout must not open Phase B (second call).
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "첨부 이미지에서 보험사 칸은 미확인입니다. 더 궁금한 점 말씀해 주세요.",
+            },
+          ],
+        };
+      },
+    };
+  };
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question:
+      "이 사진에서 보험사, 상품명, 납입기간과 만기, 계약기간, 월 보험료를 표로 정리해줘. 읽기 어려운 항목은 추측하지 말고 미확인으로 표시해줘.",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-ok-jpg",
+    rotationQuarterTurns: 0,
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-ok-jpg",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-ok-jpg.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "ok.jpg",
+        deleted_at: null,
+      },
+      blob: makeBlobFromBuffer(Buffer.from(validJpeg)),
+    }),
+    env: failClosedEnv,
+    fetchImpl,
+  });
+  assert.equal(claudeCalls, 1, "attach success: Claude-first single call (Phase B skipped)");
+  assert.equal(sawImageBlock, true);
+  assert.equal(result.key_monopoly_failure, false);
+  assert.equal(
+    result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
+    false,
+  );
+  assert.ok(String(result.customerText ?? "").includes("미확인"));
+}
+
+{
+  const tinyPdf = Buffer.from("%PDF-1.1\n%%EOF\n");
+  let claudeCalls = 0;
+  let sawDocBlock = false;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 증권 PDF에서 보험료만 확인해줘.",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-ok-pdf",
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-ok-pdf",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-ok-pdf.pdf",
+        mime_type: "application/pdf",
+        original_filename: "ok.pdf",
+        deleted_at: null,
+      },
+      blob: makeBlobFromBuffer(tinyPdf),
+    }),
+    env: failClosedEnv,
+    fetchImpl: async (_url, opts) => {
+      claudeCalls += 1;
+      const body = JSON.parse(String(opts?.body ?? "{}"));
+      const content = body?.messages?.[0]?.content;
+      if (Array.isArray(content)) {
+        sawDocBlock = content.some((b) => b?.type === "document");
+      }
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "첨부 문서에서 보험료 칸은 미확인입니다. 더 궁금한 점 말씀해 주세요.",
+              },
+            ],
+          };
+        },
+      };
+    },
+  });
+  assert.equal(claudeCalls, 1);
+  assert.equal(sawDocBlock, true);
+  assert.equal(result.key_monopoly_failure, false);
+}
+
+{
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "내 보험 현황 알려줘",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: null,
+    unifiedState: { documents: [{ id: "doc-latest-should-not-force-fail" }] },
+    userSupabase: makeAttachSupabase({ document: null }),
+    env: failClosedEnv,
+    fetchImpl: async (_url, opts) => {
+      claudeCalls += 1;
+      const body = JSON.parse(String(opts?.body ?? "{}"));
+      const userText = Array.isArray(body?.messages?.[0]?.content)
+        ? body.messages[0].content.find((b) => b?.type === "text")?.text
+        : body?.messages?.[0]?.content;
+      assert.ok(String(userText ?? "").includes("verified_customer_chart"));
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "확인된 계약을 기준으로 현황을 같이 보면 좋겠어요. 더 궁금한 점 말씀해 주세요.",
+              },
+            ],
+          };
+        },
+      };
+    },
+  });
+  assert.ok(claudeCalls >= 1, "general question without explicit attach still calls Claude");
+  assert.equal(
+    result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
+    false,
+  );
+  assert.equal(result.key_monopoly_failure, false);
+}
+
+{
+  // Explicit document_id present → must not silently succeed via a different latest id.
+  const resolved = resolveClaudeFirstPdfDocumentId({
+    attachedDocumentId: "doc-explicit-fail-closed",
+    unifiedState: { documents: [{ id: "doc-other-latest" }] },
+    allowLatestFallback: true,
+  });
+  assert.equal(resolved, "doc-explicit-fail-closed");
+}
 
 console.log("key-claude-first-direct-unit-test: PASS");
