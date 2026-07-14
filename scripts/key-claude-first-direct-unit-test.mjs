@@ -20,6 +20,7 @@ import {
   runClaudeFirstDirectQuestionTurn,
   ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
   RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
+  RECORD_CLAIM_CASE_UPDATES_TOOL,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import { sentenceHardLiteBlocks } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
@@ -1764,6 +1765,316 @@ const chartPolicies = {
   );
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.ok,
+    false,
+  );
+}
+
+// --- Active claim cases → customer card (profile_health.details_json) ---
+{
+  assert.equal(RECORD_CLAIM_CASE_UPDATES_TOOL.name, "record_claim_case_updates");
+  assert.ok(String(buildSystemPrompt()).includes("record_claim_case_updates"));
+
+  const hydratePayload = buildUserPayload({
+    question: "지난 청구는 지금 어디까지 진행됐지?",
+    chart: buildVerifiedCustomerChart({ policy_count: 1, policies: [] }),
+    contextPack: { recent_turns: [], older_summary: null },
+    activeClaimCases: [
+      {
+        claim_case_key: "date:2026-07-12:kind:surgery",
+        medical_event: {
+          surgery_name: "슬관절 수술",
+          surgery_date: "2026-07-12",
+          event_kind: "surgery",
+        },
+        related_policies: ["실손의료비보험"],
+        related_coverages: ["실손", "수술비"],
+        assessment: { code: "claim_warranted", rationale: "확인된 수술" },
+        required_documents: ["진단서", "영수증"],
+        available_documents: ["진단서"],
+        missing_documents: ["영수증"],
+        status: "preparing",
+        next_action: "영수증 준비",
+        evidence: [],
+        updated_at: "2026-07-15T00:00:00.000Z",
+      },
+    ],
+    now: new Date("2026-07-15T12:00:00+09:00"),
+  });
+  const cases =
+    hydratePayload.available_verified_evidence.personal.active_claim_cases;
+  assert.equal(cases.length, 1);
+  assert.equal(cases[0].status, "preparing");
+  assert.equal(
+    hydratePayload.available_verified_evidence.personal.provenance
+      .active_claim_case_count,
+    1,
+  );
+  // Internal field names may exist in payload materials, but not as customer copy instructions.
+  assert.equal(JSON.stringify(hydratePayload).includes("claim_bridge"), false);
+}
+
+{
+  const customerAnswer =
+    "어제 수술 기준으로는 확인된 실손·수술비 청구를 준비해보는 게 맞습니다. 지금은 진단서가 있고 영수증이 더 필요합니다.";
+  let claudeCalls = 0;
+  let sawClaimTool = false;
+  let sawHydratedCase = false;
+  let healthWrites = [];
+  const fetchImpl = async (_url, opts) => {
+    claudeCalls += 1;
+    const body = JSON.parse(String(opts?.body ?? "{}"));
+    sawClaimTool = (body.tools ?? []).some(
+      (t) => t?.name === RECORD_CLAIM_CASE_UPDATES_TOOL.name,
+    );
+    assert.equal(
+      (body.tools ?? []).some((t) => t?.name === "emit_claude_full"),
+      false,
+    );
+    const rawContent = body?.messages?.[0]?.content;
+    const userText = Array.isArray(rawContent)
+      ? rawContent.find((b) => b?.type === "text")?.text
+      : rawContent;
+    sawHydratedCase = String(userText ?? "").includes("date:2026-07-12:kind:surgery");
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            { type: "text", text: customerAnswer },
+            {
+              type: "tool_use",
+              id: "claim-1",
+              name: RECORD_CLAIM_CASE_UPDATES_TOOL.name,
+              input: {
+                claim_case_updates: [
+                  {
+                    claim_case_key: "date:2026-07-12:kind:surgery",
+                    medical_event: {
+                      surgery_name: "슬관절 수술",
+                      surgery_date: "2026-07-12",
+                      event_kind: "surgery",
+                      diagnosis_certainty: "confirmed",
+                    },
+                    related_policies: ["실손의료비보험"],
+                    related_coverages: ["실손", "수술비"],
+                    assessment: { code: "claim_warranted" },
+                    required_documents: ["진단서", "영수증", "수술기록"],
+                    available_documents: ["진단서", "영수증"],
+                    missing_documents: ["수술기록"],
+                    status: "preparing",
+                    next_action: "수술기록 준비",
+                    evidence: [],
+                  },
+                  {
+                    medical_event: { diagnosis_name: "추측만" },
+                    status: "paid",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      },
+    };
+  };
+
+  const userSupabase = {
+    from(table) {
+      if (table === "profile_health") {
+        let mode = "select";
+        let payload = null;
+        const api = {
+          select() {
+            mode = "select";
+            return api;
+          },
+          update(p) {
+            mode = "update";
+            payload = p;
+            return api;
+          },
+          insert(p) {
+            mode = "insert";
+            payload = p;
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          maybeSingle() {
+            return Promise.resolve({
+              data: {
+                customer_id: "cust-claim",
+                details_json: {
+                  key_active_claim_cases: [
+                    {
+                      claim_case_key: "date:2026-07-12:kind:surgery",
+                      status: "identified",
+                      available_documents: ["진단서"],
+                      missing_documents: ["영수증"],
+                      evidence: [],
+                      medical_event: {
+                        surgery_date: "2026-07-12",
+                        event_kind: "surgery",
+                      },
+                    },
+                  ],
+                },
+              },
+              error: null,
+            });
+          },
+          then(resolve) {
+            if (mode === "update" || mode === "insert") {
+              healthWrites.push({ mode, payload });
+              resolve({ data: null, error: null });
+              return;
+            }
+            resolve({ data: null, error: null });
+          },
+        };
+        return api;
+      }
+      return makeAttachQuery({ data: null, error: null });
+    },
+  };
+
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "진단서와 영수증은 준비했어. 아직 부족한 서류가 뭐야?",
+    history: [],
+    loadedContext: {
+      policy_count: 1,
+      policies: [
+        {
+          id: "pol-claim-1",
+          insurer_name: "테스트생명",
+          product_name: "실손의료비보험",
+          coverage_summary: { source_document_id: "doc-claim-1" },
+        },
+      ],
+    },
+    customerId: "cust-claim",
+    userSupabase,
+    env: failClosedEnv,
+    fetchImpl,
+  });
+
+  assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
+  assert.equal(sawClaimTool, true);
+  assert.equal(sawHydratedCase, true);
+  assert.equal(result.key_monopoly_failure, false);
+  assert.equal(result.customerText, customerAnswer);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sealed_matches_claude,
+    true,
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.web_search
+      ?.phase_b_call_count,
+    0,
+  );
+  assert.equal(
+    result.oneKeyCoreTrace?.legacy_paths_blocked?.includes("claim_bridge_speak"),
+    true,
+  );
+  assert.equal(healthWrites.length, 1);
+  const stored = healthWrites[0].payload.details_json.key_active_claim_cases;
+  assert.equal(stored.length, 1, "same claim case must not duplicate");
+  assert.equal(stored[0].available_documents.includes("영수증"), true);
+  assert.equal(stored[0].missing_documents.includes("수술기록"), true);
+  assert.equal(stored[0].status, "preparing");
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist
+      ?.ok,
+    true,
+  );
+  assert.equal(JSON.stringify(result.customerText).includes("claim_case_key"), false);
+  assert.equal(JSON.stringify(result.customerText).includes("record_claim_case"), false);
+}
+
+{
+  // Claim persist failure must not rewrite sealed customer answer / no second Claude.
+  const customerAnswer =
+    "접수하셨다면 고객카드에 제출 확인으로 남겨 두겠습니다. 보험사 심사 연동은 아직 없습니다.";
+  let claudeCalls = 0;
+  const fetchImpl = async () => {
+    claudeCalls += 1;
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            { type: "text", text: customerAnswer },
+            {
+              type: "tool_use",
+              id: "claim-fail",
+              name: RECORD_CLAIM_CASE_UPDATES_TOOL.name,
+              input: {
+                claim_case_updates: [
+                  {
+                    claim_case_key: "date:2026-07-12:kind:surgery",
+                    status: "submitted_by_customer",
+                    evidence: ["customer_said_submitted"],
+                    medical_event: {
+                      surgery_date: "2026-07-12",
+                      event_kind: "surgery",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      },
+    };
+  };
+  const userSupabase = {
+    from(table) {
+      if (table === "profile_health") {
+        const api = {
+          select() {
+            return api;
+          },
+          update() {
+            return api;
+          },
+          insert() {
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          maybeSingle() {
+            return Promise.resolve({ data: null, error: null });
+          },
+          then(resolve) {
+            resolve({ data: null, error: { message: "forced_claim_persist_error" } });
+          },
+        };
+        return api;
+      }
+      return makeAttachQuery({ data: null, error: null });
+    },
+  };
+
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "내가 직접 접수하고 왔어.",
+    history: [],
+    loadedContext: { policy_count: 0, policies: [] },
+    customerId: "cust-claim-fail",
+    userSupabase,
+    env: failClosedEnv,
+    fetchImpl,
+  });
+  assert.equal(claudeCalls, 1);
+  assert.equal(result.customerText, customerAnswer);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sealed_matches_claude,
+    true,
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist
+      ?.ok,
     false,
   );
 }

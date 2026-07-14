@@ -49,6 +49,10 @@ import {
   normalizeKeyConfirmedSourceFacts,
   mergeKeyConfirmedSourceFacts,
   persistKeyConfirmedSourceFactsToPolicies,
+  normalizeKeyClaimCaseUpdates,
+  mergeKeyActiveClaimCases,
+  persistKeyActiveClaimCases,
+  loadKeyActiveClaimCases,
 } from "../documentPolicyUploadPersist.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -101,6 +105,88 @@ export const RECORD_CONFIRMED_SOURCE_FACTS_TOOL = Object.freeze({
   },
 });
 
+/**
+ * Same Claude-first call — internal claim-case card updates (not customer text).
+ */
+export const RECORD_CLAIM_CASE_UPDATES_TOOL = Object.freeze({
+  name: "record_claim_case_updates",
+  description:
+    "의료사건·보험 비교 후 청구 준비 건을 내부 고객카드에 보관한다. 고객 답변이 아니다. 안정적 claim_case_key 필수(임의 UUID 금지). 접수·지급·거절은 확인 근거(evidence) 있을 때만. 검색 일반정보·추측 진단을 사실로 넣지 않는다.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      claim_case_updates: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            claim_case_key: { type: "string" },
+            medical_event: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                diagnosis_name: { type: "string" },
+                diagnosis_code: { type: "string" },
+                diagnosis_certainty: {
+                  type: "string",
+                  description: "confirmed|suspected|under_test",
+                },
+                event_kind: { type: "string" },
+                surgery_name: { type: "string" },
+                diagnosis_date: { type: "string" },
+                surgery_date: { type: "string" },
+                admission_date: { type: "string" },
+                discharge_date: { type: "string" },
+                event_date: { type: "string" },
+                facility_name: { type: "string" },
+                source_document_id: { type: "string" },
+                source_locator: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    page: {},
+                    section: { type: "string" },
+                    source_text: { type: "string" },
+                  },
+                },
+              },
+            },
+            related_policies: { type: "array", items: { type: "string" } },
+            related_coverages: { type: "array", items: { type: "string" } },
+            assessment: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                code: {
+                  type: "string",
+                  description:
+                    "claim_warranted|claim_possible|needs_policy_or_docs|insufficient_evidence",
+                },
+                rationale: { type: "string" },
+                evidence_refs: { type: "array", items: { type: "string" } },
+              },
+              required: ["code"],
+            },
+            required_documents: { type: "array", items: { type: "string" } },
+            available_documents: { type: "array", items: { type: "string" } },
+            missing_documents: { type: "array", items: { type: "string" } },
+            status: {
+              type: "string",
+              description:
+                "identified|preparing|ready_for_customer_submission|submitted_by_customer|under_review|paid|denied|closed",
+            },
+            next_action: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+      },
+    },
+    required: ["claim_case_updates"],
+  },
+});
+
 function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
   const docId =
     pdfMeta?.document_id != null && String(pdfMeta.document_id).trim()
@@ -112,6 +198,17 @@ function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
     "추측·웹검색 일반정보·고객의 '아마' 발언·추천·해석(9999세→종신, 간편가입→건강이력 등)은 기록하지 않는다.",
     "literal_value는 원문 그대로 둔다.",
     docId ? `source_document_id 기본값: ${docId}` : "source_document_id를 알면 반드시 넣는다.",
+  ].join("\n");
+}
+
+function buildClaimCaseUpdatesToolHint() {
+  return [
+    "의료사건·수술·입원·병원비·진단이 보이면 고객카드 계약과 비교해 청구 필요성을 직접 판단한다.",
+    "근거가 충분하면 선제적으로 청구 확인을 제안하고, 같은 응답에서 record_claim_case_updates로 내부 보관한다.",
+    "claim_case_key는 문서id+사건일 또는 사건일+사건종류로 안정적으로 식별한다. 매 턴 임의 UUID 금지.",
+    "submitted_by_customer·under_review·paid·denied는 확인 근거(evidence) 없이 전진하지 않는다.",
+    "청구했습니다/접수 완료/심사 중/지급됐습니다는 확인 근거 없이 고객에게 말하지 않는다.",
+    "고객에게 내부 도구명·필드명을 말하지 않는다.",
   ].join("\n");
 }
 
@@ -128,6 +225,25 @@ function extractConfirmedSourceFactsFromContent(content = [], defaults = {}) {
   }
   return facts;
 }
+
+function extractClaimCaseUpdatesFromContent(content = [], defaults = {}) {
+  const blocks = Array.isArray(content) ? content : [];
+  let cases = [];
+  for (const block of blocks) {
+    if (block?.type !== "tool_use") continue;
+    if (block?.name !== RECORD_CLAIM_CASE_UPDATES_TOOL.name) continue;
+    cases = mergeKeyActiveClaimCases(
+      cases,
+      normalizeKeyClaimCaseUpdates(block?.input?.claim_case_updates, defaults),
+    );
+  }
+  return cases;
+}
+
+const KEY_CARD_CLIENT_TOOL_NAMES = new Set([
+  RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+  RECORD_CLAIM_CASE_UPDATES_TOOL.name,
+]);
 
 /**
  * Explicit attach was requested but ownership/fetch/rotate/block failed.
@@ -259,6 +375,7 @@ export function buildSystemPrompt() {
     "입력이 충분하면 지분·금액·구조의 의미를 직접 계산·판단하고, 부족하면 무엇이 부족한지 구체적으로 밝힌다. 무조건 전문가에게만 넘기며 판단을 회피하지 않는다.",
     "고객에게 내부 필드명·도구명·시스템 경로를 말하지 않는다.",
     "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
+    buildClaimCaseUpdatesToolHint(),
   ].join("\n");
 }
 
@@ -524,6 +641,7 @@ export function buildUserPayload({
   corporateRecommendationCandidates = null,
   corporateUnknowns = null,
   publicEvidence = null,
+  activeClaimCases = null,
   now = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
@@ -535,6 +653,12 @@ export function buildUserPayload({
     corporateUnknowns,
   });
   const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
+  const keyConfirmed = Array.isArray(chart?.key_confirmed_source_facts)
+    ? chart.key_confirmed_source_facts
+    : [];
+  const active_claim_cases = Array.isArray(activeClaimCases)
+    ? activeClaimCases
+    : [];
 
   // Compat mirrors for tests / older readers (same objects, no cross-copy of facts).
   const personalChart = chart
@@ -544,10 +668,6 @@ export function buildUserPayload({
         subject_type: "individual",
       }
     : null;
-
-  const keyConfirmed = Array.isArray(chart?.key_confirmed_source_facts)
-    ? chart.key_confirmed_source_facts
-    : [];
 
   return {
     current_question: String(question ?? ""),
@@ -567,11 +687,14 @@ export function buildUserPayload({
         chart: personalChart,
         // KEY(Claude) facts read from originals — prefer over factory OCR; do not auto-merge.
         key_confirmed_source_facts: keyConfirmed,
+        // Active claim prep cases for continuity — not customer-facing field names.
+        active_claim_cases,
         provenance: personalChart
           ? {
               source: "factory",
               schema: personalChart.schema ?? "verified_customer_chart_v1",
               key_confirmed_count: keyConfirmed.length,
+              active_claim_case_count: active_claim_cases.length,
             }
           : null,
         evidence_state: chartEvidenceState(personalChart),
@@ -1266,6 +1389,7 @@ async function callClaudeFirstDirect({
   corporateGapEvidence = null,
   corporateRecommendationCandidates = null,
   corporateUnknowns = null,
+  activeClaimCases = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -1290,6 +1414,7 @@ async function callClaudeFirstDirect({
     corporateRecommendationCandidates,
     corporateUnknowns,
     publicEvidence: [],
+    activeClaimCases,
     now: requestNow,
   });
   const pdfAttached = Boolean(pdfBase64);
@@ -1316,17 +1441,25 @@ async function callClaudeFirstDirect({
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
   let confirmedSourceFacts = [];
+  let claimCaseUpdates = [];
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
   const factDefaults = {
     source_document_id: pdfMeta?.document_id ?? null,
     confirmed_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
+  const claimDefaults = {
+    updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
+  };
 
-  // Single answer path — plain text + optional web_search; with attach, optional facts tool.
+  // Plain text + web_search + claim-case tool; optional facts tool when original attached.
   const answerTools = pdfAttached
-    ? [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CONFIRMED_SOURCE_FACTS_TOOL]
-    : [ANTHROPIC_WEB_SEARCH_TOOL];
+    ? [
+        ANTHROPIC_WEB_SEARCH_TOOL,
+        RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
+        RECORD_CLAIM_CASE_UPDATES_TOOL,
+      ]
+    : [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CLAIM_CASE_UPDATES_TOOL];
   for (let turn = 0; turn < 4; turn += 1) {
     const body = {
       model,
@@ -1357,6 +1490,7 @@ async function callClaudeFirstDirect({
         detail: String(errText).slice(0, 400),
         model,
         confirmed_source_facts: confirmedSourceFacts,
+        claim_case_updates: claimCaseUpdates,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -1398,31 +1532,35 @@ async function callClaudeFirstDirect({
       }
     }
 
-    const factBlocks = assistantContent.filter(
-      (b) =>
-        b?.type === "tool_use" && b?.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+    const cardToolBlocks = assistantContent.filter(
+      (b) => b?.type === "tool_use" && KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name),
     );
-    if (factBlocks.length) {
+    if (cardToolBlocks.some((b) => b.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name)) {
       confirmedSourceFacts = mergeKeyConfirmedSourceFacts(
         confirmedSourceFacts,
         extractConfirmedSourceFactsFromContent(assistantContent, factDefaults),
       );
     }
+    if (cardToolBlocks.some((b) => b.name === RECORD_CLAIM_CASE_UPDATES_TOOL.name)) {
+      claimCaseUpdates = mergeKeyActiveClaimCases(
+        claimCaseUpdates,
+        extractClaimCaseUpdatesFromContent(assistantContent, claimDefaults),
+      );
+    }
 
     const otherClientTools = assistantContent.filter(
-      (b) =>
-        b?.type === "tool_use" && b?.name !== RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+      (b) => b?.type === "tool_use" && !KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name),
     );
     const hasToolUse = hasClientToolUse(assistantContent);
 
-    // Facts tool only (no customer text yet) — acknowledge and continue for plain answer.
-    if (factBlocks.length && !picked.customer_answer && otherClientTools.length === 0) {
+    // Card tools only (no customer text yet) — acknowledge and continue for plain answer.
+    if (cardToolBlocks.length && !picked.customer_answer && otherClientTools.length === 0) {
       messages = [
         ...messages,
         { role: "assistant", content: assistantContent },
         {
           role: "user",
-          content: factBlocks.map((b) => ({
+          content: cardToolBlocks.map((b) => ({
             type: "tool_result",
             tool_use_id: b.id,
             content: JSON.stringify({ ok: true }),
@@ -1432,7 +1570,7 @@ async function callClaudeFirstDirect({
       continue;
     }
 
-    // Answer ready (optionally with facts in same response). No further Claude rewrite.
+    // Answer ready (optionally with card tools in same response).
     if (picked.customer_answer && otherClientTools.length === 0) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
@@ -1446,14 +1584,13 @@ async function callClaudeFirstDirect({
     }
 
     if (!assistantContent.length) break;
-    // Continue conversation for rare other client tool_use — no tone/format rewrite prompt.
-    if (factBlocks.length && otherClientTools.length === 0) {
+    if (cardToolBlocks.length && otherClientTools.length === 0) {
       messages = [
         ...messages,
         { role: "assistant", content: assistantContent },
         {
           role: "user",
-          content: factBlocks.map((b) => ({
+          content: cardToolBlocks.map((b) => ({
             type: "tool_result",
             tool_use_id: b.id,
             content: JSON.stringify({ ok: true }),
@@ -1494,6 +1631,7 @@ async function callClaudeFirstDirect({
     ok: Boolean(customer_answer),
     customer_answer,
     confirmed_source_facts: confirmedSourceFacts,
+    claim_case_updates: claimCaseUpdates,
     visual_blocks: [],
     decision: lastPicked.decision,
     session_goal: lastPicked.session_goal,
@@ -1777,6 +1915,18 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
   });
 
+  // Existing customer-card claim cases — materials only; never invent cross-customer rows.
+  let activeClaimCases = [];
+  try {
+    activeClaimCases = await loadKeyActiveClaimCases({
+      supabase: userSupabase,
+      customerId,
+    });
+  } catch (err) {
+    console.error("[key_active_claim_cases_load]", String(err?.message ?? err).slice(0, 200));
+    activeClaimCases = [];
+  }
+
   const claude = await callClaudeFirstDirect({
     question,
     history,
@@ -1801,6 +1951,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     corporateGapEvidence,
     corporateRecommendationCandidates,
     corporateUnknowns,
+    activeClaimCases,
   });
   const emitMark = span.end();
   // Completeness: progressive extract can lag the final customer_answer.
@@ -1910,7 +2061,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // As-is delivery (no polish rewrite). Seal only.
   const sealed = sealKeyCustomerText(finalText);
 
-  // Customer answer is fixed. Persist KEY-confirmed facts only — never rewrite answer on failure.
+  // Customer answer is fixed. Persist facts/claim cases only — never rewrite answer on failure.
   let keyConfirmedPersist = { attempted: false, ok: false, stored: 0 };
   const factsToPersist = Array.isArray(claude.confirmed_source_facts)
     ? claude.confirmed_source_facts
@@ -1930,6 +2081,28 @@ export async function runClaudeFirstDirectQuestionTurn({
         error: String(err?.message ?? err).slice(0, 200),
       };
       console.error("[key_confirmed_source_facts_persist]", keyConfirmedPersist);
+    }
+  }
+
+  let claimCasePersist = { attempted: false, ok: false, stored: 0 };
+  const claimCasesToPersist = Array.isArray(claude.claim_case_updates)
+    ? claude.claim_case_updates
+    : [];
+  if (!usedFailure && claimCasesToPersist.length > 0 && userSupabase && customerId) {
+    try {
+      claimCasePersist = await persistKeyActiveClaimCases({
+        supabase: userSupabase,
+        customerId,
+        claimCaseUpdates: claimCasesToPersist,
+      });
+    } catch (err) {
+      claimCasePersist = {
+        attempted: true,
+        ok: false,
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_active_claim_cases_persist]", claimCasePersist);
     }
   }
 
@@ -1957,6 +2130,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         one_key_core: true,
         claude_first_direct: true,
         key_confirmed_source_facts: factsToPersist,
+        active_claim_cases: claimCasesToPersist,
       },
     },
     modeDecision: null,
@@ -1990,6 +2164,9 @@ export async function runClaudeFirstDirectQuestionTurn({
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
           confirmed_source_facts_count: factsToPersist.length,
           key_confirmed_persist: keyConfirmedPersist,
+          active_claim_cases_hydrated: activeClaimCases.length,
+          claim_case_updates_count: claimCasesToPersist.length,
+          key_claim_case_persist: claimCasePersist,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? "").trim(),
@@ -2016,7 +2193,11 @@ export async function runClaudeFirstDirectQuestionTurn({
         {
           step: "context",
           at_ms: 0,
-          payload: { policy_count, policy_rows: policies.length },
+          payload: {
+            policy_count,
+            policy_rows: policies.length,
+            active_claim_cases_hydrated: activeClaimCases.length,
+          },
         },
         {
           step: "claude_first_direct",
@@ -2032,6 +2213,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             attach_signals: pdf?.meta?.attach_signals ?? null,
             web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
             confirmed_source_facts_count: factsToPersist.length,
+            claim_case_updates_count: claimCasesToPersist.length,
             answer_preview: String(claude.customer_answer).slice(0, 300),
             sentence_commit_aborted: sentenceStreamAborted,
             sentence_commit_abort_reason: sentenceAbortReason,
@@ -2050,6 +2232,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           at_ms: relMs(startedAt),
           payload: keyConfirmedPersist,
         },
+        {
+          step: "key_active_claim_cases_persist",
+          at_ms: relMs(startedAt),
+          payload: claimCasePersist,
+        },
       ],
       legacy_paths_blocked: [
         "interpret_before_claude",
@@ -2061,6 +2248,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         "focused_correction",
         "phase_b_visual",
         "emit_claude_full",
+        "claim_bridge_speak",
       ],
       customer_text_path: ["claude_first_direct", "hard_only_check", "sealKeyCustomerText"],
     },

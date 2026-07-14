@@ -332,4 +332,329 @@ export async function persistKeyConfirmedSourceFactsToPolicies({
   };
 }
 
+/** Customer-card claim cases — stored in existing profile_health.details_json (no new table). */
+export const KEY_ACTIVE_CLAIM_CASES_FACT_PATH = "key_active_claim_cases";
+
+export const KEY_CLAIM_CASE_STATUSES = Object.freeze([
+  "identified",
+  "preparing",
+  "ready_for_customer_submission",
+  "submitted_by_customer",
+  "under_review",
+  "paid",
+  "denied",
+  "closed",
+]);
+
+export const KEY_CLAIM_ASSESSMENTS = Object.freeze([
+  "claim_warranted",
+  "claim_possible",
+  "needs_policy_or_docs",
+  "insufficient_evidence",
+]);
+
+const KEY_CLAIM_STATUS_SET = new Set(KEY_CLAIM_CASE_STATUSES);
+const KEY_CLAIM_ASSESSMENT_SET = new Set(KEY_CLAIM_ASSESSMENTS);
+const KEY_CLAIM_STATUS_NEEDS_EVIDENCE = new Set([
+  "submitted_by_customer",
+  "under_review",
+  "paid",
+  "denied",
+]);
+
+function normalizeClaimString(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s ? s : null;
+}
+
+function normalizeClaimStringList(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const s = normalizeClaimString(typeof item === "string" ? item : item?.name ?? item?.label);
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Stable claim_case_key only — never invent a fresh UUID per turn.
+ * Priority: explicit key → source_document_id+event_date → event_date+event_kind.
+ */
+export function resolveStableClaimCaseKey(row = {}) {
+  const explicit = normalizeClaimString(row.claim_case_key);
+  if (explicit) return explicit.slice(0, 180);
+
+  const medical =
+    row.medical_event && typeof row.medical_event === "object" ? row.medical_event : {};
+  const docId = normalizeClaimString(
+    medical.source_document_id ?? row.source_document_id,
+  );
+  const eventDate = normalizeClaimString(
+    medical.event_date ??
+      medical.surgery_date ??
+      medical.diagnosis_date ??
+      medical.admission_date ??
+      row.event_date,
+  );
+  const eventKind = normalizeClaimString(
+    medical.event_kind ?? medical.diagnosis_name ?? medical.surgery_name ?? row.event_kind,
+  );
+
+  if (docId && eventDate) return `doc:${docId}:date:${eventDate}`.slice(0, 180);
+  if (eventDate && eventKind) return `date:${eventDate}:kind:${eventKind}`.slice(0, 180);
+  return null;
+}
+
+function normalizeMedicalEvent(raw = null) {
+  if (!raw || typeof raw !== "object") return null;
+  const event = {
+    diagnosis_name: normalizeClaimString(raw.diagnosis_name),
+    diagnosis_code: normalizeClaimString(raw.diagnosis_code),
+    diagnosis_certainty: normalizeClaimString(raw.diagnosis_certainty),
+    event_kind: normalizeClaimString(raw.event_kind),
+    surgery_name: normalizeClaimString(raw.surgery_name),
+    diagnosis_date: normalizeClaimString(raw.diagnosis_date),
+    surgery_date: normalizeClaimString(raw.surgery_date),
+    admission_date: normalizeClaimString(raw.admission_date),
+    discharge_date: normalizeClaimString(raw.discharge_date),
+    event_date: normalizeClaimString(raw.event_date),
+    facility_name: normalizeClaimString(raw.facility_name ?? raw.medical_facility),
+    source_document_id: normalizeClaimString(raw.source_document_id),
+  };
+  if (raw.source_locator && typeof raw.source_locator === "object") {
+    const loc = raw.source_locator;
+    const source_locator = {
+      ...(loc.page != null ? { page: loc.page } : {}),
+      ...(loc.section != null ? { section: String(loc.section) } : {}),
+      ...(loc.source_text != null ? { source_text: String(loc.source_text) } : {}),
+    };
+    if (Object.keys(source_locator).length) event.source_locator = source_locator;
+  }
+  const hasAny = Object.values(event).some((v) => v != null && v !== "");
+  return hasAny ? event : null;
+}
+
+function normalizeAssessment(raw = null) {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    const code = raw.trim().toLowerCase();
+    if (!KEY_CLAIM_ASSESSMENT_SET.has(code)) return null;
+    return { code, rationale: null, evidence_refs: [] };
+  }
+  if (typeof raw !== "object") return null;
+  const code = normalizeClaimString(raw.code ?? raw.assessment)?.toLowerCase();
+  if (!code || !KEY_CLAIM_ASSESSMENT_SET.has(code)) return null;
+  return {
+    code,
+    rationale: normalizeClaimString(raw.rationale ?? raw.reason),
+    evidence_refs: normalizeClaimStringList(raw.evidence_refs ?? raw.evidence ?? []),
+  };
+}
+
+function normalizeClaimStatus(rawStatus, { priorStatus = null, evidence = [] } = {}) {
+  const status = normalizeClaimString(rawStatus)?.toLowerCase();
+  if (!status || !KEY_CLAIM_STATUS_SET.has(status)) {
+    return priorStatus && KEY_CLAIM_STATUS_SET.has(priorStatus) ? priorStatus : "identified";
+  }
+  if (KEY_CLAIM_STATUS_NEEDS_EVIDENCE.has(status)) {
+    const hasEvidence = Array.isArray(evidence) && evidence.length > 0;
+    if (!hasEvidence) {
+      // Do not advance on KEY speculation alone.
+      if (priorStatus && KEY_CLAIM_STATUS_SET.has(priorStatus)) return priorStatus;
+      return "preparing";
+    }
+  }
+  return status;
+}
+
+export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
+  const rows = Array.isArray(rawUpdates) ? rawUpdates : [];
+  const updatedAt =
+    defaults.updated_at != null && String(defaults.updated_at).trim()
+      ? String(defaults.updated_at).trim()
+      : new Date().toISOString();
+  const out = [];
+  const seen = new Set();
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const claim_case_key = resolveStableClaimCaseKey(row);
+    if (!claim_case_key) continue;
+    if (seen.has(claim_case_key)) continue;
+    seen.add(claim_case_key);
+
+    const evidence = normalizeClaimStringList(row.evidence);
+    const medical_event = normalizeMedicalEvent(row.medical_event);
+    const assessment = normalizeAssessment(row.assessment);
+    const status = normalizeClaimStatus(row.status, { evidence });
+
+    out.push({
+      claim_case_key,
+      medical_event,
+      related_policies: normalizeClaimStringList(row.related_policies),
+      related_coverages: normalizeClaimStringList(row.related_coverages),
+      assessment,
+      required_documents: normalizeClaimStringList(row.required_documents),
+      available_documents: normalizeClaimStringList(row.available_documents),
+      missing_documents: normalizeClaimStringList(row.missing_documents),
+      status,
+      next_action: normalizeClaimString(row.next_action),
+      evidence,
+      updated_at: normalizeClaimString(row.updated_at) ?? updatedAt,
+      card_source: "key_claude_claim_case",
+    });
+  }
+  return out;
+}
+
+export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
+  const map = new Map();
+  for (const row of [
+    ...normalizeKeyClaimCaseUpdates(existing),
+    ...normalizeKeyClaimCaseUpdates(incoming),
+  ]) {
+    const prior = map.get(row.claim_case_key);
+    if (!prior) {
+      map.set(row.claim_case_key, row);
+      continue;
+    }
+    const evidence = [
+      ...new Set([...(prior.evidence ?? []), ...(row.evidence ?? [])]),
+    ];
+    const status = normalizeClaimStatus(row.status, {
+      priorStatus: prior.status,
+      evidence,
+    });
+    map.set(row.claim_case_key, {
+      ...prior,
+      ...row,
+      medical_event: row.medical_event ?? prior.medical_event,
+      related_policies: row.related_policies?.length
+        ? row.related_policies
+        : prior.related_policies,
+      related_coverages: row.related_coverages?.length
+        ? row.related_coverages
+        : prior.related_coverages,
+      assessment: row.assessment ?? prior.assessment,
+      required_documents: row.required_documents?.length
+        ? row.required_documents
+        : prior.required_documents,
+      available_documents: [
+        ...new Set([
+          ...(prior.available_documents ?? []),
+          ...(row.available_documents ?? []),
+        ]),
+      ],
+      missing_documents: row.missing_documents?.length
+        ? row.missing_documents
+        : prior.missing_documents,
+      status,
+      evidence,
+      updated_at: row.updated_at ?? prior.updated_at,
+    });
+  }
+  return [...map.values()];
+}
+
+export async function loadKeyActiveClaimCases({ supabase = null, customerId = null } = {}) {
+  if (!supabase || !customerId) return [];
+  const { data, error } = await supabase
+    .from("profile_health")
+    .select("details_json")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+  if (error || !data) return [];
+  const details =
+    data.details_json && typeof data.details_json === "object" ? data.details_json : {};
+  return normalizeKeyClaimCaseUpdates(details[KEY_ACTIVE_CLAIM_CASES_FACT_PATH]);
+}
+
+/**
+ * Persist KEY claim-case updates into existing customer card JSON.
+ * Failures must not rewrite the customer answer.
+ */
+export async function persistKeyActiveClaimCases({
+  supabase = null,
+  customerId = null,
+  claimCaseUpdates = [],
+} = {}) {
+  const incoming = normalizeKeyClaimCaseUpdates(claimCaseUpdates);
+  if (!supabase || !customerId || incoming.length === 0) {
+    return {
+      ok: false,
+      attempted: Boolean(
+        supabase && customerId && Array.isArray(claimCaseUpdates) && claimCaseUpdates.length,
+      ),
+      reason: !supabase
+        ? "no_supabase"
+        : !customerId
+          ? "no_customer_id"
+          : incoming.length === 0
+            ? "no_stable_claim_case_key"
+            : "skip",
+      stored: 0,
+    };
+  }
+
+  const { data: row, error: selectError } = await supabase
+    .from("profile_health")
+    .select("customer_id, details_json")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+
+  if (selectError) {
+    return {
+      ok: false,
+      attempted: true,
+      stored: 0,
+      error: selectError.message,
+    };
+  }
+
+  const existingDetails =
+    row?.details_json && typeof row.details_json === "object" ? row.details_json : {};
+  const merged = mergeKeyActiveClaimCases(
+    existingDetails[KEY_ACTIVE_CLAIM_CASES_FACT_PATH],
+    incoming,
+  );
+  const nextDetails = {
+    ...existingDetails,
+    [KEY_ACTIVE_CLAIM_CASES_FACT_PATH]: merged,
+  };
+
+  if (row?.customer_id) {
+    const { error: updateError } = await supabase
+      .from("profile_health")
+      .update({
+        details_json: nextDetails,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("customer_id", customerId);
+    if (updateError) {
+      return { ok: false, attempted: true, stored: 0, error: updateError.message };
+    }
+  } else {
+    const { error: insertError } = await supabase.from("profile_health").insert({
+      customer_id: customerId,
+      details_json: nextDetails,
+      source: "update",
+    });
+    if (insertError) {
+      return { ok: false, attempted: true, stored: 0, error: insertError.message };
+    }
+  }
+
+  return {
+    ok: true,
+    attempted: true,
+    stored: incoming.length,
+    case_count: merged.length,
+  };
+}
+
 export { EXTRACTOR_VERSION };

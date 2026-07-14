@@ -225,4 +225,198 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
   );
 }
 
+{
+  const {
+    resolveStableClaimCaseKey,
+    normalizeKeyClaimCaseUpdates,
+    mergeKeyActiveClaimCases,
+    persistKeyActiveClaimCases,
+    KEY_ACTIVE_CLAIM_CASES_FACT_PATH,
+  } = await import("../server/documentPolicyUploadPersist.js");
+
+  assert(
+    resolveStableClaimCaseKey({
+      medical_event: { source_document_id: "doc-a", surgery_date: "2026-07-12" },
+    }) === "doc:doc-a:date:2026-07-12",
+    "stable key from document + event date",
+  );
+  assert(
+    resolveStableClaimCaseKey({
+      medical_event: { event_date: "2026-07-12", event_kind: "surgery" },
+    }) === "date:2026-07-12:kind:surgery",
+    "stable key from date + kind",
+  );
+  assert(
+    resolveStableClaimCaseKey({ medical_event: { diagnosis_name: "의증" } }) == null,
+    "unstable key must HOLD (no random UUID)",
+  );
+
+  const normalized = normalizeKeyClaimCaseUpdates(
+    [
+      {
+        claim_case_key: "date:2026-07-12:kind:surgery",
+        medical_event: {
+          surgery_name: "슬관절 수술",
+          surgery_date: "2026-07-12",
+          event_kind: "surgery",
+          diagnosis_certainty: "confirmed",
+        },
+        related_policies: ["실손의료비보험"],
+        related_coverages: ["실손", "수술비"],
+        assessment: {
+          code: "claim_warranted",
+          rationale: "확인된 수술일과 실손·수술비 담보",
+        },
+        required_documents: ["진단서", "영수증", "수술기록"],
+        available_documents: ["진단서"],
+        missing_documents: ["영수증", "수술기록"],
+        status: "preparing",
+        next_action: "영수증과 수술기록을 준비",
+        evidence: [],
+      },
+      {
+        medical_event: { diagnosis_name: "미확인" },
+        status: "submitted_by_customer",
+      },
+    ],
+    { updated_at: "2026-07-15T00:00:00.000Z" },
+  );
+  assert(normalized.length === 1, "unstable rows dropped");
+  assert(normalized[0].status === "preparing", "initial preparing status");
+  assert(
+    normalized[0].available_documents.includes("진단서"),
+    "available docs preserved",
+  );
+
+  const blocked = normalizeKeyClaimCaseUpdates([
+    {
+      claim_case_key: "date:2026-07-01:kind:fracture",
+      status: "under_review",
+      evidence: [],
+      medical_event: { event_date: "2026-07-01", event_kind: "fracture" },
+    },
+  ]);
+  assert(blocked[0].status === "preparing", "no evidence → do not advance to under_review");
+
+  const noAdvance = mergeKeyActiveClaimCases(normalized, [
+    {
+      claim_case_key: "date:2026-07-12:kind:surgery",
+      status: "submitted_by_customer",
+      evidence: [],
+    },
+  ]);
+  assert(
+    noAdvance[0].status === "preparing",
+    "speculation must not advance to submitted_by_customer",
+  );
+
+  const paid = mergeKeyActiveClaimCases(normalized, [
+    {
+      claim_case_key: "date:2026-07-12:kind:surgery",
+      status: "paid",
+      evidence: ["customer_confirmed_payment"],
+    },
+  ]);
+  assert(paid[0].status === "paid", "paid allowed only with evidence");
+
+  const merged = mergeKeyActiveClaimCases(normalized, [
+    {
+      claim_case_key: "date:2026-07-12:kind:surgery",
+      available_documents: ["진단서", "영수증"],
+      missing_documents: ["수술기록"],
+      status: "preparing",
+    },
+  ]);
+  assert(merged.length === 1, "same claim_case_key must not duplicate");
+  assert(
+    merged[0].available_documents.includes("영수증"),
+    "available docs accumulate across turns",
+  );
+
+  const healthWrites = [];
+  const supabase = {
+    from(table) {
+      assert(table === "profile_health", "claim cases use existing profile_health only");
+      let mode = "select";
+      let payload = null;
+      const api = {
+        select() {
+          mode = "select";
+          return api;
+        },
+        update(p) {
+          mode = "update";
+          payload = p;
+          return api;
+        },
+        insert(p) {
+          mode = "insert";
+          payload = p;
+          return api;
+        },
+        eq() {
+          return api;
+        },
+        maybeSingle() {
+          return Promise.resolve({
+            data: {
+              customer_id: "cust-claim",
+              details_json: {
+                [KEY_ACTIVE_CLAIM_CASES_FACT_PATH]: [
+                  {
+                    claim_case_key: "date:2026-07-12:kind:surgery",
+                    status: "identified",
+                    available_documents: [],
+                    missing_documents: ["진단서"],
+                    evidence: [],
+                    medical_event: {
+                      surgery_date: "2026-07-12",
+                      event_kind: "surgery",
+                    },
+                  },
+                ],
+              },
+            },
+            error: null,
+          });
+        },
+        then(resolve, reject) {
+          try {
+            if (mode === "update" || mode === "insert") {
+              healthWrites.push({ mode, payload });
+              resolve({ data: null, error: null });
+              return;
+            }
+            resolve({ data: null, error: null });
+          } catch (err) {
+            reject(err);
+          }
+        },
+      };
+      return api;
+    },
+  };
+
+  const persist = await persistKeyActiveClaimCases({
+    supabase,
+    customerId: "cust-claim",
+    claimCaseUpdates: [
+      {
+        claim_case_key: "date:2026-07-12:kind:surgery",
+        available_documents: ["진단서"],
+        missing_documents: ["영수증"],
+        status: "preparing",
+        assessment: { code: "claim_possible" },
+      },
+    ],
+  });
+  assert(persist.ok === true, "claim case persist should succeed");
+  assert(healthWrites.length === 1, "one profile_health write");
+  const stored =
+    healthWrites[0].payload.details_json[KEY_ACTIVE_CLAIM_CASES_FACT_PATH];
+  assert(stored.length === 1, "no duplicate claim cases on persist");
+  assert(stored[0].available_documents.includes("진단서"), "docs merged into card");
+  assert(stored[0].status === "preparing", "status truthfulness retained");
+}
+
 console.log("PASS");
