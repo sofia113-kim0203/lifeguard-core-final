@@ -19,6 +19,7 @@ import {
   buildClaudeImageAttachFromStorageOriginal,
   runClaudeFirstDirectQuestionTurn,
   ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
+  RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import { sentenceHardLiteBlocks } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
@@ -1444,6 +1445,327 @@ const chartPolicies = {
   assert.equal(/상속\s*모드|세무\s*persona|classifier/i.test(sys), false);
   assert.ok(sys.includes("법정상속인"));
   assert.ok(sys.includes("내부 필드명"));
+}
+
+// --- KEY confirmed source facts → customer card (existing coverage_summary) ---
+{
+  assert.equal(RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name, "record_confirmed_source_facts");
+
+  const chartWithKey = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [
+      {
+        id: "pol-key-1",
+        insurer_name: "OCR보험",
+        product_name: "OCR상품",
+        coverage_summary: {
+          source_document_id: "doc-key-1",
+          policyholder: "OCR계약자",
+          key_confirmed_source_facts: [
+            {
+              fact_type: "policyholder",
+              literal_value: "KEY계약자",
+              source_document_id: "doc-key-1",
+              source_locator: { page: 1 },
+              confirmed_at: "2026-07-15T00:00:00.000Z",
+              confirmation_source: "key_claude_original_document",
+            },
+            {
+              fact_type: "coverage_amount",
+              literal_value: "9999세",
+              source_document_id: "doc-key-1",
+              confirmed_at: "2026-07-15T00:00:00.000Z",
+              confirmation_source: "key_claude_original_document",
+            },
+          ],
+        },
+      },
+    ],
+  });
+  assert.equal(chartWithKey.key_confirmed_source_facts.length, 2);
+  assert.equal(chartWithKey.contracts[0].key_confirmed_source_facts[0].literal_value, "KEY계약자");
+  assert.ok(String(chartWithKey.ownership).includes("key_confirmed_source_facts"));
+
+  const hydratePayload = buildUserPayload({
+    question: "지난 문서에서 확인한 계약자와 보장금액을 다시 알려줘.",
+    chart: chartWithKey,
+    contextPack: { recent_turns: [], older_summary: null },
+    now: new Date("2026-07-15T12:00:00+09:00"),
+  });
+  const keyFacts =
+    hydratePayload.available_verified_evidence.personal.key_confirmed_source_facts;
+  assert.equal(keyFacts.length, 2);
+  assert.equal(keyFacts[0].literal_value, "KEY계약자");
+  assert.equal(
+    hydratePayload.available_verified_evidence.personal.chart.contracts[0].policyholder,
+    "OCR계약자",
+  );
+  assert.equal(JSON.stringify(hydratePayload).includes("보험료 부담을 늘리지"), false);
+}
+
+{
+  const customerAnswer =
+    "이 문서에서 확인되는 계약자는 홍길동이고, 보장기간 표기는 9999세입니다.";
+  let claudeCalls = 0;
+  let sawFactsTool = false;
+  let policyUpdates = [];
+  const fetchImpl = async (_url, opts) => {
+    claudeCalls += 1;
+    const body = JSON.parse(String(opts?.body ?? "{}"));
+    sawFactsTool = (body.tools ?? []).some(
+      (t) => t?.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+    );
+    assert.equal(
+      (body.tools ?? []).some((t) => t?.name === "emit_claude_full"),
+      false,
+    );
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            { type: "text", text: customerAnswer },
+            {
+              type: "tool_use",
+              id: "fact-1",
+              name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+              input: {
+                confirmed_source_facts: [
+                  {
+                    fact_type: "policyholder",
+                    literal_value: "홍길동",
+                    source_document_id: "doc-card-1",
+                    source_locator: { page: 1, source_text: "계약자 홍길동" },
+                  },
+                  {
+                    fact_type: "insurance_period",
+                    literal_value: "9999세",
+                    source_document_id: "doc-card-1",
+                  },
+                  {
+                    fact_type: "priority",
+                    literal_value: "보험료 부담을 늘리지 않고",
+                    source_document_id: "doc-card-1",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      },
+    };
+  };
+
+  const userSupabase = {
+    from(table) {
+      if (table === "customer_documents" || table === "documents") {
+        return makeAttachQuery({
+          data: {
+            id: "doc-card-1",
+            customer_id: "cust-card",
+            storage_path: "cust-card/doc-card-1.pdf",
+            mime_type: "application/pdf",
+            original_filename: "policy.pdf",
+            deleted_at: null,
+          },
+          error: null,
+        });
+      }
+      if (table === "profile_insurance_policies") {
+        let mode = "select";
+        let updatePayload = null;
+        const api = {
+          select() {
+            mode = "select";
+            return api;
+          },
+          update(payload) {
+            mode = "update";
+            updatePayload = payload;
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          then(resolve, reject) {
+            try {
+              if (mode === "select") {
+                resolve({
+                  data: [
+                    {
+                      id: "pol-card-1",
+                      is_active: true,
+                      coverage_summary: {
+                        source_document_id: "doc-card-1",
+                        policyholder: "OCR홍길동",
+                      },
+                    },
+                  ],
+                  error: null,
+                });
+                return;
+              }
+              policyUpdates.push(updatePayload);
+              resolve({ data: null, error: null });
+            } catch (err) {
+              reject(err);
+            }
+          },
+        };
+        return api;
+      }
+      return makeAttachQuery({ data: null, error: null });
+    },
+    storage: {
+      from: () => ({
+        download: async () => ({
+          data: makeBlobFromBuffer(Buffer.from("%PDF-1.4 card")),
+          error: null,
+        }),
+      }),
+    },
+  };
+
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 문서에서 확인되는 계약자와 보장금액을 알려줘.",
+    history: [],
+    loadedContext: {
+      policy_count: 1,
+      policies: [
+        {
+          id: "pol-card-1",
+          insurer_name: "테스트생명",
+          coverage_summary: { source_document_id: "doc-card-1", policyholder: "OCR홍길동" },
+        },
+      ],
+    },
+    customerId: "cust-card",
+    attachedDocumentId: "doc-card-1",
+    userSupabase,
+    env: failClosedEnv,
+    fetchImpl,
+  });
+
+  assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
+  assert.equal(sawFactsTool, true);
+  assert.equal(result.key_monopoly_failure, false);
+  assert.equal(result.customerText, customerAnswer);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sealed_matches_claude,
+    true,
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.web_search
+      ?.phase_b_call_count,
+    0,
+  );
+  assert.equal(policyUpdates.length, 1);
+  const stored =
+    policyUpdates[0].coverage_summary.key_confirmed_source_facts ?? [];
+  assert.equal(stored.length, 2);
+  assert.equal(stored.some((f) => f.literal_value === "9999세"), true);
+  assert.equal(stored.some((f) => f.fact_type === "priority"), false);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.ok,
+    true,
+  );
+}
+
+{
+  // Persist failure must not rewrite sealed customer answer / no second Claude.
+  const customerAnswer = "계약자는 김철수입니다.";
+  let claudeCalls = 0;
+  const fetchImpl = async () => {
+    claudeCalls += 1;
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            { type: "text", text: customerAnswer },
+            {
+              type: "tool_use",
+              id: "fact-fail",
+              name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+              input: {
+                confirmed_source_facts: [
+                  {
+                    fact_type: "policyholder",
+                    literal_value: "김철수",
+                    source_document_id: "doc-fail-1",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      },
+    };
+  };
+  const userSupabase = {
+    from(table) {
+      if (table === "customer_documents" || table === "documents") {
+        return makeAttachQuery({
+          data: {
+            id: "doc-fail-1",
+            customer_id: "cust-fail",
+            storage_path: "cust-fail/doc-fail-1.pdf",
+            mime_type: "application/pdf",
+            original_filename: "fail.pdf",
+            deleted_at: null,
+          },
+          error: null,
+        });
+      }
+      if (table === "profile_insurance_policies") {
+        const api = {
+          select() {
+            return api;
+          },
+          update() {
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          then(resolve) {
+            resolve({ data: null, error: { message: "forced_persist_error" } });
+          },
+        };
+        return api;
+      }
+      return makeAttachQuery({ data: null, error: null });
+    },
+    storage: {
+      from: () => ({
+        download: async () => ({
+          data: makeBlobFromBuffer(Buffer.from("%PDF-1.4 fail")),
+          error: null,
+        }),
+      }),
+    },
+  };
+
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "계약자가 누구야?",
+    history: [],
+    loadedContext: { policy_count: 0, policies: [] },
+    customerId: "cust-fail",
+    attachedDocumentId: "doc-fail-1",
+    userSupabase,
+    env: failClosedEnv,
+    fetchImpl,
+  });
+  assert.equal(claudeCalls, 1);
+  assert.equal(result.customerText, customerAnswer);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sealed_matches_claude,
+    true,
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.ok,
+    false,
+  );
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");

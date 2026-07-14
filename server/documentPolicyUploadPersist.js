@@ -125,4 +125,211 @@ export function planRetiredPolicyIds(existingRows, documentId, activeKeys) {
     .map((row) => row.id);
 }
 
+/**
+ * KEY(Claude)-confirmed contract facts on the existing customer card
+ * (profile_insurance_policies.coverage_summary JSONB). No new table/migration.
+ * OCR must never own or wipe this list — see mergeCoverageSummary preserve.
+ */
+export const KEY_CONFIRMED_SOURCE_FACT_TYPES = Object.freeze([
+  "policyholder",
+  "insured",
+  "beneficiary",
+  "beneficiaries",
+  "insurer",
+  "insurer_name",
+  "product_name",
+  "premium",
+  "monthly_premium",
+  "coverage_name",
+  "coverage_amount",
+  "payment_period",
+  "insurance_period",
+  "effective_from",
+  "change_date",
+  "policy_number",
+]);
+
+const KEY_CONFIRMED_FACT_TYPE_SET = new Set(KEY_CONFIRMED_SOURCE_FACT_TYPES);
+
+export function keyConfirmedSourceFactDedupeKey(fact = {}) {
+  return [
+    String(fact.fact_type ?? "").trim().toLowerCase(),
+    String(fact.literal_value ?? "").trim(),
+    String(fact.source_document_id ?? "").trim(),
+  ].join("::");
+}
+
+export function normalizeKeyConfirmedSourceFacts(rawFacts = [], defaults = {}) {
+  const rows = Array.isArray(rawFacts) ? rawFacts : [];
+  const defaultDocId =
+    defaults.source_document_id != null && String(defaults.source_document_id).trim()
+      ? String(defaults.source_document_id).trim()
+      : null;
+  const confirmedAt =
+    defaults.confirmed_at != null && String(defaults.confirmed_at).trim()
+      ? String(defaults.confirmed_at).trim()
+      : new Date().toISOString();
+  const out = [];
+  const seen = new Set();
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const fact_type = String(row.fact_type ?? "")
+      .trim()
+      .toLowerCase();
+    if (!fact_type || !KEY_CONFIRMED_FACT_TYPE_SET.has(fact_type)) continue;
+    if (row.literal_value == null || String(row.literal_value).trim() === "") continue;
+    // Preserve original literal — never coerce (e.g. 9999세 stays 9999세).
+    const literal_value = String(row.literal_value);
+    const source_document_id =
+      row.source_document_id != null && String(row.source_document_id).trim()
+        ? String(row.source_document_id).trim()
+        : defaultDocId;
+    if (!source_document_id) continue;
+
+    let source_locator = null;
+    if (row.source_locator && typeof row.source_locator === "object") {
+      const loc = row.source_locator;
+      source_locator = {
+        ...(loc.page != null ? { page: loc.page } : {}),
+        ...(loc.section != null ? { section: String(loc.section) } : {}),
+        ...(loc.table_row != null ? { table_row: String(loc.table_row) } : {}),
+        ...(loc.row != null && loc.table_row == null ? { table_row: String(loc.row) } : {}),
+        ...(loc.source_text != null ? { source_text: String(loc.source_text) } : {}),
+      };
+      if (Object.keys(source_locator).length === 0) source_locator = null;
+    }
+
+    const fact = {
+      fact_type,
+      literal_value,
+      source_document_id,
+      source_locator,
+      confirmed_at:
+        row.confirmed_at != null && String(row.confirmed_at).trim()
+          ? String(row.confirmed_at).trim()
+          : confirmedAt,
+      confirmation_source: "key_claude_original_document",
+    };
+    const key = keyConfirmedSourceFactDedupeKey(fact);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(fact);
+  }
+  return out;
+}
+
+export function mergeKeyConfirmedSourceFacts(existing = [], incoming = []) {
+  const map = new Map();
+  for (const fact of [
+    ...normalizeKeyConfirmedSourceFacts(existing),
+    ...normalizeKeyConfirmedSourceFacts(incoming),
+  ]) {
+    map.set(keyConfirmedSourceFactDedupeKey(fact), fact);
+  }
+  return [...map.values()];
+}
+
+/**
+ * After customer answer is sealed — store KEY-confirmed facts only.
+ * Failures must not rewrite the answer or call Claude again.
+ */
+export async function persistKeyConfirmedSourceFactsToPolicies({
+  supabase = null,
+  customerId = null,
+  facts = [],
+} = {}) {
+  const normalized = normalizeKeyConfirmedSourceFacts(facts);
+  if (!supabase || !customerId || normalized.length === 0) {
+    return {
+      ok: false,
+      attempted: Boolean(supabase && customerId && Array.isArray(facts) && facts.length),
+      reason: !supabase
+        ? "no_supabase"
+        : !customerId
+          ? "no_customer_id"
+          : normalized.length === 0
+            ? "no_valid_facts"
+            : "skip",
+      stored: 0,
+      updated_policy_ids: [],
+    };
+  }
+
+  const byDoc = new Map();
+  for (const fact of normalized) {
+    const list = byDoc.get(fact.source_document_id) ?? [];
+    list.push(fact);
+    byDoc.set(fact.source_document_id, list);
+  }
+
+  const updated_policy_ids = [];
+  let stored = 0;
+  const errors = [];
+
+  for (const [documentId, docFacts] of byDoc.entries()) {
+    const { data: rows, error: selectError } = await supabase
+      .from("profile_insurance_policies")
+      .select("id, coverage_summary, is_active")
+      .eq("customer_id", customerId)
+      .eq("is_active", true);
+
+    if (selectError) {
+      errors.push({ document_id: documentId, stage: "select", message: selectError.message });
+      continue;
+    }
+
+    const matches = (rows ?? []).filter(
+      (row) => row?.coverage_summary?.source_document_id === documentId,
+    );
+    if (matches.length === 0) {
+      errors.push({ document_id: documentId, stage: "match", message: "no_policy_row_for_document" });
+      continue;
+    }
+
+    for (const row of matches) {
+      const existingSummary =
+        row.coverage_summary && typeof row.coverage_summary === "object"
+          ? row.coverage_summary
+          : {};
+      const mergedFacts = mergeKeyConfirmedSourceFacts(
+        existingSummary.key_confirmed_source_facts,
+        docFacts,
+      );
+      const nextSummary = {
+        ...existingSummary,
+        key_confirmed_source_facts: mergedFacts,
+      };
+      const { error: updateError } = await supabase
+        .from("profile_insurance_policies")
+        .update({
+          coverage_summary: nextSummary,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id)
+        .eq("customer_id", customerId);
+
+      if (updateError) {
+        errors.push({
+          document_id: documentId,
+          policy_id: row.id,
+          stage: "update",
+          message: updateError.message,
+        });
+        continue;
+      }
+      updated_policy_ids.push(row.id);
+      stored += docFacts.length;
+    }
+  }
+
+  return {
+    ok: errors.length === 0 && updated_policy_ids.length > 0,
+    attempted: true,
+    stored,
+    updated_policy_ids,
+    errors,
+  };
+}
+
 export { EXTRACTOR_VERSION };

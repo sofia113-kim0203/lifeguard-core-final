@@ -45,9 +45,89 @@ import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
 import { createSentenceCommitStream } from "./keyClaudeFirstSentenceCommit.js";
+import {
+  normalizeKeyConfirmedSourceFacts,
+  mergeKeyConfirmedSourceFacts,
+  persistKeyConfirmedSourceFactsToPolicies,
+} from "../documentPolicyUploadPersist.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+
+/**
+ * Same Claude-first call — internal only. Customer never sees this tool output.
+ * customer_answer stays plain text; facts are storage materials for the customer card.
+ */
+export const RECORD_CONFIRMED_SOURCE_FACTS_TOOL = Object.freeze({
+  name: "record_confirmed_source_facts",
+  description:
+    "원본 첨부 문서에서 명시적으로 확인한 계약 사실만 내부 고객카드 보관용으로 기록한다. 고객에게 보이는 답변이 아니다. 추측·검색 일반정보·고객 미확인 발언·추천·의미변환 금지. literal_value는 원문 그대로.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      confirmed_source_facts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            fact_type: {
+              type: "string",
+              description:
+                "policyholder|insured|beneficiary|beneficiaries|insurer|insurer_name|product_name|premium|monthly_premium|coverage_name|coverage_amount|payment_period|insurance_period|effective_from|change_date|policy_number",
+            },
+            literal_value: {
+              type: "string",
+              description: "원본에 적힌 그대로. 9999세 등 변환 금지.",
+            },
+            source_document_id: { type: "string" },
+            source_locator: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                page: {},
+                section: { type: "string" },
+                table_row: { type: "string" },
+                source_text: { type: "string" },
+              },
+            },
+          },
+          required: ["fact_type", "literal_value"],
+        },
+      },
+    },
+    required: ["confirmed_source_facts"],
+  },
+});
+
+function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
+  const docId =
+    pdfMeta?.document_id != null && String(pdfMeta.document_id).trim()
+      ? String(pdfMeta.document_id).trim()
+      : null;
+  return [
+    "원본 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
+    "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 기록한다.",
+    "추측·웹검색 일반정보·고객의 '아마' 발언·추천·해석(9999세→종신, 간편가입→건강이력 등)은 기록하지 않는다.",
+    "literal_value는 원문 그대로 둔다.",
+    docId ? `source_document_id 기본값: ${docId}` : "source_document_id를 알면 반드시 넣는다.",
+  ].join("\n");
+}
+
+function extractConfirmedSourceFactsFromContent(content = [], defaults = {}) {
+  const blocks = Array.isArray(content) ? content : [];
+  let facts = [];
+  for (const block of blocks) {
+    if (block?.type !== "tool_use") continue;
+    if (block?.name !== RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name) continue;
+    facts = mergeKeyConfirmedSourceFacts(
+      facts,
+      normalizeKeyConfirmedSourceFacts(block?.input?.confirmed_source_facts, defaults),
+    );
+  }
+  return facts;
+}
 
 /**
  * Explicit attach was requested but ownership/fetch/rotate/block failed.
@@ -465,6 +545,10 @@ export function buildUserPayload({
       }
     : null;
 
+  const keyConfirmed = Array.isArray(chart?.key_confirmed_source_facts)
+    ? chart.key_confirmed_source_facts
+    : [];
+
   return {
     current_question: String(question ?? ""),
     current_context: {
@@ -481,10 +565,13 @@ export function buildUserPayload({
       personal: {
         subject_type: "individual",
         chart: personalChart,
+        // KEY(Claude) facts read from originals — prefer over factory OCR; do not auto-merge.
+        key_confirmed_source_facts: keyConfirmed,
         provenance: personalChart
           ? {
               source: "factory",
               schema: personalChart.schema ?? "verified_customer_chart_v1",
+              key_confirmed_count: keyConfirmed.length,
             }
           : null,
         evidence_state: chartEvidenceState(personalChart),
@@ -1205,7 +1292,11 @@ async function callClaudeFirstDirect({
     publicEvidence: [],
     now: requestNow,
   });
-  const system = buildSystemPrompt();
+  const pdfAttached = Boolean(pdfBase64);
+  let system = buildSystemPrompt();
+  if (pdfAttached) {
+    system = `${system}\n${buildConfirmedSourceFactsToolHint(pdfMeta)}`;
+  }
   const userContent = buildClaudeFullUserContentWithPdf({
     userPayload,
     pdfBase64,
@@ -1224,11 +1315,18 @@ async function callClaudeFirstDirect({
   let streamedAnswer = "";
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
+  let confirmedSourceFacts = [];
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
+  const factDefaults = {
+    source_document_id: pdfMeta?.document_id ?? null,
+    confirmed_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
+  };
 
-  // Single answer path — plain text + optional Anthropic server web_search (tool_choice auto).
-  const answerTools = [ANTHROPIC_WEB_SEARCH_TOOL];
+  // Single answer path — plain text + optional web_search; with attach, optional facts tool.
+  const answerTools = pdfAttached
+    ? [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CONFIRMED_SOURCE_FACTS_TOOL]
+    : [ANTHROPIC_WEB_SEARCH_TOOL];
   for (let turn = 0; turn < 4; turn += 1) {
     const body = {
       model,
@@ -1258,6 +1356,7 @@ async function callClaudeFirstDirect({
         error: `ANTHROPIC_HTTP_${res.status}`,
         detail: String(errText).slice(0, 400),
         model,
+        confirmed_source_facts: confirmedSourceFacts,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -1299,10 +1398,42 @@ async function callClaudeFirstDirect({
       }
     }
 
-    // Client tool_use only — server web_search must not force a follow-up turn.
+    const factBlocks = assistantContent.filter(
+      (b) =>
+        b?.type === "tool_use" && b?.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+    );
+    if (factBlocks.length) {
+      confirmedSourceFacts = mergeKeyConfirmedSourceFacts(
+        confirmedSourceFacts,
+        extractConfirmedSourceFactsFromContent(assistantContent, factDefaults),
+      );
+    }
+
+    const otherClientTools = assistantContent.filter(
+      (b) =>
+        b?.type === "tool_use" && b?.name !== RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+    );
     const hasToolUse = hasClientToolUse(assistantContent);
 
-    if (picked.customer_answer && !hasToolUse) {
+    // Facts tool only (no customer text yet) — acknowledge and continue for plain answer.
+    if (factBlocks.length && !picked.customer_answer && otherClientTools.length === 0) {
+      messages = [
+        ...messages,
+        { role: "assistant", content: assistantContent },
+        {
+          role: "user",
+          content: factBlocks.map((b) => ({
+            type: "tool_result",
+            tool_use_id: b.id,
+            content: JSON.stringify({ ok: true }),
+          })),
+        },
+      ];
+      continue;
+    }
+
+    // Answer ready (optionally with facts in same response). No further Claude rewrite.
+    if (picked.customer_answer && otherClientTools.length === 0) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
       messages = [...messages, { role: "assistant", content: assistantContent }];
@@ -1315,15 +1446,30 @@ async function callClaudeFirstDirect({
     }
 
     if (!assistantContent.length) break;
-    // Continue conversation for rare client tool_use — no tone/format rewrite prompt.
-    messages = [
-      ...messages,
-      { role: "assistant", content: assistantContent },
-      {
-        role: "user",
-        content: "Continue and provide the final Korean customer answer as plain text.",
-      },
-    ];
+    // Continue conversation for rare other client tool_use — no tone/format rewrite prompt.
+    if (factBlocks.length && otherClientTools.length === 0) {
+      messages = [
+        ...messages,
+        { role: "assistant", content: assistantContent },
+        {
+          role: "user",
+          content: factBlocks.map((b) => ({
+            type: "tool_result",
+            tool_use_id: b.id,
+            content: JSON.stringify({ ok: true }),
+          })),
+        },
+      ];
+    } else {
+      messages = [
+        ...messages,
+        { role: "assistant", content: assistantContent },
+        {
+          role: "user",
+          content: "Continue and provide the final Korean customer answer as plain text.",
+        },
+      ];
+    }
 
     if (picked.customer_answer && !hasToolUse) break;
   }
@@ -1347,6 +1493,7 @@ async function callClaudeFirstDirect({
   return {
     ok: Boolean(customer_answer),
     customer_answer,
+    confirmed_source_facts: confirmedSourceFacts,
     visual_blocks: [],
     decision: lastPicked.decision,
     session_goal: lastPicked.session_goal,
@@ -1763,6 +1910,29 @@ export async function runClaudeFirstDirectQuestionTurn({
   // As-is delivery (no polish rewrite). Seal only.
   const sealed = sealKeyCustomerText(finalText);
 
+  // Customer answer is fixed. Persist KEY-confirmed facts only — never rewrite answer on failure.
+  let keyConfirmedPersist = { attempted: false, ok: false, stored: 0 };
+  const factsToPersist = Array.isArray(claude.confirmed_source_facts)
+    ? claude.confirmed_source_facts
+    : [];
+  if (!usedFailure && factsToPersist.length > 0 && userSupabase && customerId) {
+    try {
+      keyConfirmedPersist = await persistKeyConfirmedSourceFactsToPolicies({
+        supabase: userSupabase,
+        customerId,
+        facts: factsToPersist,
+      });
+    } catch (err) {
+      keyConfirmedPersist = {
+        attempted: true,
+        ok: false,
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_confirmed_source_facts_persist]", keyConfirmedPersist);
+    }
+  }
+
   // If nothing was sentence-committed (e.g. tiny answer without boundary), emit once.
   if (streamHandlers?.onDelta && !streamHandlers._emitted) {
     streamHandlers.onDelta(sealed.key_speak_original);
@@ -1786,6 +1956,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         policy_count,
         one_key_core: true,
         claude_first_direct: true,
+        key_confirmed_source_facts: factsToPersist,
       },
     },
     modeDecision: null,
@@ -1817,6 +1988,8 @@ export async function runClaudeFirstDirectQuestionTurn({
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
+          confirmed_source_facts_count: factsToPersist.length,
+          key_confirmed_persist: keyConfirmedPersist,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? "").trim(),
@@ -1858,6 +2031,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             pdf_attached: claude.pdf_attached === true,
             attach_signals: pdf?.meta?.attach_signals ?? null,
             web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
+            confirmed_source_facts_count: factsToPersist.length,
             answer_preview: String(claude.customer_answer).slice(0, 300),
             sentence_commit_aborted: sentenceStreamAborted,
             sentence_commit_abort_reason: sentenceAbortReason,
@@ -1870,6 +2044,11 @@ export async function runClaudeFirstDirectQuestionTurn({
             compose_mode: "key_claude_first_direct",
             draft_preview: String(sealed.key_speak_original).slice(0, 300),
           },
+        },
+        {
+          step: "key_confirmed_source_facts_persist",
+          at_ms: relMs(startedAt),
+          payload: keyConfirmedPersist,
         },
       ],
       legacy_paths_blocked: [

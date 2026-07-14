@@ -1109,6 +1109,16 @@ export function buildVerifiedCustomerChart(reality = null) {
 
     const provenance = buildContractProvenance(p, summary);
     const parties = extractContractPartiesFromPolicy(p, summary, provenance);
+    const key_confirmed_source_facts = Array.isArray(summary.key_confirmed_source_facts)
+      ? summary.key_confirmed_source_facts.filter(
+          (f) =>
+            f &&
+            typeof f === "object" &&
+            f.fact_type != null &&
+            f.literal_value != null &&
+            String(f.literal_value).trim() !== "",
+        )
+      : [];
     // Canonical party fields on contract + verified_fields (insured_name alias unified).
     if (parties.policyholder.value != null) {
       verified.policyholder = parties.policyholder.value;
@@ -1171,6 +1181,7 @@ export function buildVerifiedCustomerChart(reality = null) {
       verified_fields: verified,
       unknown_fields: unknown,
       source: "factory",
+      key_confirmed_source_facts,
     };
     if (parties.actual_premium_funder) {
       contract.actual_premium_funder = parties.actual_premium_funder;
@@ -1188,6 +1199,17 @@ export function buildVerifiedCustomerChart(reality = null) {
       ? { status: "verified", values: aggregatesRaw }
       : { status: "unknown", values: null };
 
+  const key_confirmed_source_facts = [];
+  const keySeen = new Set();
+  for (const c of contracts) {
+    for (const fact of c.key_confirmed_source_facts ?? []) {
+      const key = `${String(fact.fact_type ?? "")}::${String(fact.literal_value ?? "")}::${String(fact.source_document_id ?? "")}`;
+      if (keySeen.has(key)) continue;
+      keySeen.add(key);
+      key_confirmed_source_facts.push(fact);
+    }
+  }
+
   return {
     schema: "verified_customer_chart_v1",
     policy_count: {
@@ -1196,6 +1218,7 @@ export function buildVerifiedCustomerChart(reality = null) {
       source: "factory",
     },
     contracts,
+    key_confirmed_source_facts,
     factory_aggregates,
     chart_completeness: {
       listed_contracts: contracts.length,
@@ -1203,7 +1226,7 @@ export function buildVerifiedCustomerChart(reality = null) {
       all_contracts_listed: contracts.length === declaredCount && declaredCount > 0,
     },
     ownership:
-      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts.",
+      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts.",
   };
 }
 

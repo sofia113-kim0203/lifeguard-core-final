@@ -247,12 +247,21 @@ export function mergeCoverageSummary(existingSummary, nextScalars, riderPayload 
     context,
   );
 
-  return {
+  // OCR/factory merge must never wipe KEY(Claude)-confirmed source facts.
+  const preservedKeyConfirmed = Array.isArray(existing.key_confirmed_source_facts)
+    ? existing.key_confirmed_source_facts
+    : undefined;
+
+  const merged = {
     ...existing,
     ...nextScalars,
     riders: mergedNames,
     rider_details: mergedDetails,
   };
+  if (preservedKeyConfirmed) {
+    merged.key_confirmed_source_facts = preservedKeyConfirmed;
+  }
+  return merged;
 }
 
 function collectRiderPayload(entries, context = {}) {
