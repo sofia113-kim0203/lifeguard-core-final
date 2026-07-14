@@ -1201,4 +1201,71 @@ const chartPolicies = {
   assert.equal(pub.some((p) => /web_search_used|tool/.test(JSON.stringify(p))), false);
 }
 
+// --- Slice 7: contract parties Hand (policyholder / insured) ---
+{
+  const chart = buildVerifiedCustomerChart({
+    policy_count: 2,
+    policies: [
+      {
+        id: "pol-a",
+        insurer_name: "삼성생명",
+        product_name: "실손",
+        monthly_premium: 45000,
+        coverage_summary: {
+          policyholder: "홍길동",
+          insured: "김영희",
+          source_document_id: "doc-a",
+          extractor_version: "step4-ocr-policy-v3-multi",
+          extracted_at: "2026-01-10T00:00:00.000Z",
+          detected_coverages: ["암"],
+        },
+      },
+      {
+        id: "pol-b",
+        insurer_name: "한화생명",
+        product_name: "건강",
+        insured_name: "이순신",
+        coverage_summary: {
+          source_document_id: "doc-b",
+          detected_coverages: ["실손"],
+        },
+      },
+    ],
+  });
+  const a = chart.contracts[0];
+  const b = chart.contracts[1];
+  assert.equal(a.policyholder, "홍길동");
+  assert.equal(a.insured, "김영희");
+  assert.equal(a.parties.policyholder.evidence_state, "verified");
+  assert.equal(a.parties.insured.evidence_state, "verified");
+  assert.equal(a.provenance.document_id, "doc-a");
+  assert.equal(a.parties.policyholder.provenance.document_id, "doc-a");
+  // Contract B: insured_name alias → insured; no policyholder → unknown
+  assert.equal(b.insured, "이순신");
+  assert.equal(b.verified_fields.insured_name, "이순신");
+  assert.equal(b.policyholder, null);
+  assert.equal(b.parties.policyholder.evidence_state, "unknown");
+  assert.equal(b.unknown_fields.includes("policyholder"), true);
+  // No cross-contract mix
+  assert.equal(a.insured.includes("이순신"), false);
+  assert.equal(JSON.stringify(b).includes("홍길동"), false);
+  assert.equal(JSON.stringify(b).includes("김영희"), false);
+}
+
+{
+  // coverage_summary.insured alone (no insured_name) must not be lost
+  const chart = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [
+      {
+        insurer_name: "A",
+        product_name: "B",
+        coverage_summary: { insured: "박씨", policyholder: "박씨" },
+      },
+    ],
+  });
+  assert.equal(chart.contracts[0].insured, "박씨");
+  assert.equal(chart.contracts[0].policyholder, "박씨");
+}
+
 console.log("key-claude-first-direct-unit-test: PASS");

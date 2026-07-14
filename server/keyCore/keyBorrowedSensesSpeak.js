@@ -687,7 +687,7 @@ const CHART_POLICY_FIELD_KEYS = [
   "coverage_names",
   // Slice 6: do not forward policy_number (direct identifier) into Claude chart.
   "policy_status",
-  // Keep existing insured_name pass-through; do not expand policyholder/beneficiary PII this slice.
+  // Slice 7: insured_name aliases into parties.insured (with coverage_summary.insured).
   "insured_name",
   "start_date",
   "end_date",
@@ -709,6 +709,53 @@ function pickFirstPresent(...values) {
     return preserveFactoryLiteral(v);
   }
   return null;
+}
+
+/**
+ * Slice 7 — contract parties from factory/extract only.
+ * Unifies insured / insured_name / coverage_summary.insured (no invent, no cross-contract mix).
+ */
+function buildContractPartyField(value, provenance) {
+  const v = preserveFactoryLiteral(value);
+  if (v == null) {
+    return {
+      value: null,
+      evidence_state: "unknown",
+      provenance: provenance ?? null,
+    };
+  }
+  return {
+    value: v,
+    evidence_state: "verified",
+    provenance: provenance ?? null,
+  };
+}
+
+function extractContractPartiesFromPolicy(p = null, summary = null, contractProvenance = null) {
+  const s = summary && typeof summary === "object" ? summary : {};
+  // policyholder: top-level or coverage_summary only — never invent.
+  const policyholderRaw = pickFirstPresent(p?.policyholder, s.policyholder);
+  // insured: unify insured_name ↔ insured (same person field, different legacy names).
+  const insuredRaw = pickFirstPresent(
+    p?.insured,
+    s.insured,
+    p?.insured_name,
+    s.insured_name,
+  );
+  const partyProvenance = {
+    document_id: contractProvenance?.document_id ?? null,
+    extractor_version: contractProvenance?.extractor_version ?? null,
+    extracted_at: contractProvenance?.extracted_at ?? null,
+    source_span: pickFirstPresent(
+      s.policyholder_source_line,
+      s.insured_source_line,
+      s.source_line,
+    ),
+  };
+  return {
+    policyholder: buildContractPartyField(policyholderRaw, partyProvenance),
+    insured: buildContractPartyField(insuredRaw, partyProvenance),
+  };
 }
 
 /**
@@ -907,6 +954,7 @@ function buildContractProvenance(p = null, summary = null) {
  * Claude may read/analyze; KEY alone owns chart write/adopt/judgment.
  * Unverified values are marked unknown — never promoted to chart facts.
  * Slice 6: pass factory rider amounts / periods / provenance when already present.
+ * Slice 7: pass verified policyholder / insured per contract (no beneficiary yet).
  */
 export function buildVerifiedCustomerChart(reality = null) {
   const policies = Array.isArray(reality?.policies) ? reality.policies : [];
@@ -949,6 +997,21 @@ export function buildVerifiedCustomerChart(reality = null) {
     if (coverageLabels) verified.coverages = coverageLabels;
     const coverages = extractVerifiedCoverageDetailsFromPolicy(p);
 
+    const provenance = buildContractProvenance(p, summary);
+    const parties = extractContractPartiesFromPolicy(p, summary, provenance);
+    // Canonical party fields on contract + verified_fields (insured_name alias unified).
+    if (parties.policyholder.value != null) {
+      verified.policyholder = parties.policyholder.value;
+    } else {
+      unknown.push("policyholder");
+    }
+    if (parties.insured.value != null) {
+      verified.insured = parties.insured.value;
+      verified.insured_name = parties.insured.value;
+    } else {
+      unknown.push("insured");
+    }
+
     if (verified.insurer_name == null && verified.company_name == null) unknown.push("insurer_name");
     if (verified.product_name == null) unknown.push("product_name");
     if (verified.monthly_premium == null && verified.premium_amount == null) {
@@ -966,7 +1029,6 @@ export function buildVerifiedCustomerChart(reality = null) {
 
     const insurer = pickFirstPresent(verified.insurer_name, verified.company_name);
     const monthly_premium = pickFirstPresent(verified.monthly_premium, verified.premium_amount);
-    const provenance = buildContractProvenance(p, summary);
 
     return {
       index,
@@ -979,6 +1041,9 @@ export function buildVerifiedCustomerChart(reality = null) {
       insurance_period,
       renewal_type,
       monthly_premium,
+      policyholder: parties.policyholder.value,
+      insured: parties.insured.value,
+      parties,
       evidence_state: status,
       provenance,
       coverages,
