@@ -1,11 +1,11 @@
 /**
- * Slice 1 — corporate entity context → Claude-first fact pack (fake loaders only).
+ * Unified KEY corporate contexts — membership-scoped facts beside personal chart.
+ * Fake loaders only. No keyword router. No personal/corporate XOR.
  */
 import assert from "node:assert/strict";
 import {
   buildClaudeCorporateFactPack,
-  hasExplicitCorporateEntitySignal,
-  resolveClaudeCorporateContext,
+  loadAllowedCorporateContextsForClaude,
   CORPORATE_AUTH_FAILED_CUSTOMER_TEXT,
   CLAUDE_CORPORATE_FACT_PACK_V1,
 } from "../server/keyCore/keyClaudeCorporateContext.js";
@@ -13,49 +13,28 @@ import {
   buildUserPayload,
   runClaudeFirstDirectQuestionTurn,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
-import { parseEntityContextFromRequestBody } from "../server/entity/entityApiContextPassthrough.js";
+import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
 import { CORPORATE_SNAPSHOT_V1 } from "../server/entity/corporate/corporateSnapshot.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 assert.equal(typeof CORPORATE_AUTH_FAILED_CUSTOMER_TEXT, "string");
 
-// --- explicit signal only (no keyword guess) ---
-assert.equal(hasExplicitCorporateEntitySignal({}), false);
-assert.equal(hasExplicitCorporateEntitySignal({ entity_type: "corporate" }), false);
-assert.equal(
-  hasExplicitCorporateEntitySignal({
-    entity_type: "corporate",
-    entity_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-  }),
-  true,
-);
-assert.equal(
-  hasExplicitCorporateEntitySignal({
-    entity_type: "individual",
-    entity_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-  }),
-  false,
-);
-assert.equal(
-  hasExplicitCorporateEntitySignal(
-    parseEntityContextFromRequestBody({
-      entity_type: "corporate",
-      entity_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-    }),
-  ),
-  true,
-);
-
 const ENTITY_A = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const ENTITY_B = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+const ENTITY_FOREIGN = "cccccccc-dddd-4eee-8fff-000000000000";
 
-function makeEntityRecord(id = ENTITY_A) {
+function makeEntityRecord(id = ENTITY_A, displayName = "테스트법인") {
   return {
     entity_id: id,
     id,
     entity_type: "corporate",
     entity_status: "active",
     entity_scope: "owner",
-    display_name: "테스트법인",
+    display_name: displayName,
     memory_version: 3,
     metadata_json: {},
   };
@@ -71,7 +50,7 @@ function makeMembership(id = ENTITY_A) {
   };
 }
 
-function makeMemorySnapshot(entityId = ENTITY_A) {
+function makeMemorySnapshot(entityId = ENTITY_A, industry = "제조") {
   return {
     entity_id: entityId,
     entity_type: "corporate",
@@ -81,7 +60,7 @@ function makeMemorySnapshot(entityId = ENTITY_A) {
     facts: [
       {
         fact_key: "corporate.basic.industry",
-        fact_value: "제조",
+        fact_value: industry,
         fact_type: "corporate",
         importance: "high",
       },
@@ -101,27 +80,27 @@ function makeMemorySnapshot(entityId = ENTITY_A) {
   };
 }
 
-{
-  const entityRecord = makeEntityRecord();
-  const membership = makeMembership();
-  const memorySnapshot = makeMemorySnapshot();
-  const snapshot = {
+function makeSnapshot(industry = "제조") {
+  return {
     contract_version: CORPORATE_SNAPSHOT_V1,
     derived: {
-      industry: "제조",
+      industry,
       group_insurance_status: "present",
-      employee_count: null,
+      employee_count: 12,
       executive_protection: null,
       fire_insurance: null,
       liability: null,
-      unknowns: ["employee_count", "executive_protection", "fire_insurance", "liability"],
+      unknowns: ["executive_protection", "fire_insurance", "liability"],
     },
   };
+}
+
+{
   const pack = buildClaudeCorporateFactPack({
-    entityRecord,
-    membership,
-    snapshot,
-    memorySnapshot,
+    entityRecord: makeEntityRecord(),
+    membership: makeMembership(),
+    snapshot: makeSnapshot(),
+    memorySnapshot: makeMemorySnapshot(),
   });
   assert.equal(pack.contract_version, CLAUDE_CORPORATE_FACT_PACK_V1);
   assert.equal(pack.entity_id, ENTITY_A);
@@ -129,108 +108,99 @@ function makeMemorySnapshot(entityId = ENTITY_A) {
   assert.equal(pack.membership_role, "owner");
   assert.ok(pack.verified_facts.some((f) => f.key === "corporate.basic.industry"));
   assert.ok(pack.partial_facts.some((f) => f.key === "corporate.note.soft"));
-  assert.ok(pack.unknowns.includes("employee_count"));
+  assert.ok(pack.unknowns.includes("executive_protection"));
   assert.equal(pack.provenance.memory_namespace, "entity_memory_facts");
   assert.equal(JSON.stringify(pack).includes(ENTITY_B), false);
 }
 
-// --- resolve: individual when no corporate signal ---
+// --- membership none → empty contexts, personal path unchanged ---
 {
-  const result = await resolveClaudeCorporateContext({
-    requestBody: { question: "우리 회사 보험 어때?" },
-    authUserId: "user-1",
-    customerId: "cust-1",
+  const result = await loadAllowedCorporateContextsForClaude({
     userSupabase: {},
+    customerId: "cust-1",
+    authUserId: "user-1",
+    listMyCorporateEntitiesImpl: async () => ({ ok: true, entities: [] }),
   });
-  assert.equal(result.mode, "individual");
   assert.equal(result.ok, true);
+  assert.deepEqual(result.corporate_contexts, []);
 }
 
-// --- resolve: missing entity → fail, no individual fallback ---
+// --- membership 1 → one context ---
 {
-  const result = await resolveClaudeCorporateContext({
-    requestBody: {
-      entity_type: "corporate",
-      entity_id: ENTITY_A,
-    },
-    authUserId: "user-1",
-    customerId: "cust-1",
+  const result = await loadAllowedCorporateContextsForClaude({
     userSupabase: {},
-    loadEntityContextRecordsImpl: async () => ({
-      entityRecord: null,
-      membership: null,
-      load_error: "entity_record_not_found",
+    customerId: "cust-1",
+    authUserId: "user-1",
+    listMyCorporateEntitiesImpl: async () => ({
+      ok: true,
+      entities: [{ entity_id: ENTITY_A, display_name: "A법인" }],
     }),
-  });
-  assert.equal(result.mode, "corporate");
-  assert.equal(result.ok, false);
-  assert.equal(result.failure_reason, "entity_record_not_found");
-  assert.equal(result.customer_text, CORPORATE_AUTH_FAILED_CUSTOMER_TEXT);
-  assert.equal(result.authorization.authorization_verified, false);
-}
-
-// --- resolve: no membership → fail ---
-{
-  let memoryLoads = 0;
-  const result = await resolveClaudeCorporateContext({
-    requestBody: { entity_type: "corporate", entity_id: ENTITY_A },
-    authUserId: "user-1",
-    customerId: "cust-1",
-    userSupabase: {},
     loadEntityContextRecordsImpl: async () => ({
-      entityRecord: makeEntityRecord(),
-      membership: null,
-    }),
-    loadCorporateMemorySnapshotImpl: async () => {
-      memoryLoads += 1;
-      return makeMemorySnapshot();
-    },
-  });
-  assert.equal(result.ok, false);
-  assert.equal(result.failure_reason, "membership_required");
-  assert.equal(memoryLoads, 0, "unauthorized must not load corporate memory");
-}
-
-// --- resolve: authorized → fact pack for ENTITY_A only ---
-{
-  let loadedEntityIds = [];
-  const result = await resolveClaudeCorporateContext({
-    requestBody: { entity_type: "corporate", entity_id: ENTITY_A },
-    authUserId: "user-1",
-    customerId: "cust-1",
-    userSupabase: {},
-    loadEntityContextRecordsImpl: async () => ({
-      entityRecord: makeEntityRecord(ENTITY_A),
+      entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
       membership: makeMembership(ENTITY_A),
     }),
-    loadCorporateMemorySnapshotImpl: async (_sb, entityId) => {
-      loadedEntityIds.push(entityId);
-      return makeMemorySnapshot(entityId);
+    loadCorporateMemorySnapshotImpl: async (_sb, entityId) => makeMemorySnapshot(entityId, "제조"),
+    buildCorporateSnapshotImpl: () => makeSnapshot("제조"),
+  });
+  assert.equal(result.corporate_contexts.length, 1);
+  assert.equal(result.corporate_contexts[0].entity_id, ENTITY_A);
+  assert.equal(result.corporate_contexts[0].authorization_verified, true);
+}
+
+// --- membership many → separated contexts, no mix ---
+{
+  const result = await loadAllowedCorporateContextsForClaude({
+    userSupabase: {},
+    customerId: "cust-1",
+    authUserId: "user-1",
+    listMyCorporateEntitiesImpl: async () => ({
+      ok: true,
+      entities: [
+        { entity_id: ENTITY_A, display_name: "A법인" },
+        { entity_id: ENTITY_B, display_name: "B법인" },
+      ],
+    }),
+    loadEntityContextRecordsImpl: async (_sb, { conversationContext }) => {
+      const id = conversationContext.entity_id;
+      return {
+        entityRecord: makeEntityRecord(id, id === ENTITY_A ? "A법인" : "B법인"),
+        membership: makeMembership(id),
+      };
     },
-    buildCorporateSnapshotImpl: ({ entityRecord, memorySnapshot }) => ({
-      contract_version: CORPORATE_SNAPSHOT_V1,
-      identity: { entity_id: entityRecord.id },
-      derived: {
-        industry: "제조",
-        group_insurance_status: "present",
-        employee_count: 12,
-        executive_protection: null,
-        fire_insurance: null,
-        liability: null,
-        unknowns: ["executive_protection", "fire_insurance", "liability"],
-      },
-      memory_summary: { fact_count: memorySnapshot.fact_count },
+    loadCorporateMemorySnapshotImpl: async (_sb, entityId) =>
+      makeMemorySnapshot(entityId, entityId === ENTITY_A ? "제조" : "유통"),
+    buildCorporateSnapshotImpl: ({ entityRecord }) =>
+      makeSnapshot(entityRecord.display_name === "A법인" ? "제조" : "유통"),
+  });
+  assert.equal(result.corporate_contexts.length, 2);
+  assert.equal(result.corporate_contexts[0].entity_id, ENTITY_A);
+  assert.equal(result.corporate_contexts[1].entity_id, ENTITY_B);
+  const aJson = JSON.stringify(result.corporate_contexts[0]);
+  const bJson = JSON.stringify(result.corporate_contexts[1]);
+  assert.equal(aJson.includes(ENTITY_B), false);
+  assert.equal(bJson.includes(ENTITY_A), false);
+}
+
+// --- no membership on listed entity → skipped, not whole-turn failure ---
+{
+  const result = await loadAllowedCorporateContextsForClaude({
+    userSupabase: {},
+    customerId: "cust-1",
+    authUserId: "user-1",
+    listMyCorporateEntitiesImpl: async () => ({
+      ok: true,
+      entities: [{ entity_id: ENTITY_A, display_name: "A법인" }],
+    }),
+    loadEntityContextRecordsImpl: async () => ({
+      entityRecord: makeEntityRecord(ENTITY_A),
+      membership: null,
     }),
   });
   assert.equal(result.ok, true);
-  assert.equal(result.mode, "corporate");
-  assert.equal(result.factPack.entity_id, ENTITY_A);
-  assert.equal(result.authorization.authorization_verified, true);
-  assert.deepEqual(loadedEntityIds, [ENTITY_A]);
-  assert.equal(JSON.stringify(result.factPack).includes(ENTITY_B), false);
+  assert.deepEqual(result.corporate_contexts, []);
 }
 
-// --- payload: personal unchanged chart path ---
+// --- payload: personal chart always present; corporate contexts separate ---
 {
   const personal = buildUserPayload({
     question: "내 보험 알려줘",
@@ -239,161 +209,97 @@ function makeMemorySnapshot(entityId = ENTITY_A) {
     contextPack: { recent_turns: [] },
   });
   assert.equal(personal.verified_customer_chart.policy_count, 1);
-  assert.equal(personal.verified_corporate_facts, undefined);
+  assert.deepEqual(personal.verified_corporate_contexts, []);
+  assert.equal(Object.prototype.hasOwnProperty.call(personal, "verified_corporate_facts"), false);
 }
 
-// --- payload: corporate has pack, no personal chart ---
 {
-  const pack = buildClaudeCorporateFactPack({
-    entityRecord: makeEntityRecord(),
-    membership: makeMembership(),
-    snapshot: {
-      contract_version: CORPORATE_SNAPSHOT_V1,
-      derived: {
-        industry: "제조",
-        group_insurance_status: "present",
-        employee_count: 12,
-        executive_protection: null,
-        fire_insurance: null,
-        liability: null,
-        unknowns: ["executive_protection", "fire_insurance", "liability"],
-      },
-    },
-    memorySnapshot: makeMemorySnapshot(),
+  const packA = buildClaudeCorporateFactPack({
+    entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
+    membership: makeMembership(ENTITY_A),
+    snapshot: makeSnapshot("제조"),
+    memorySnapshot: makeMemorySnapshot(ENTITY_A, "제조"),
+  });
+  const packB = buildClaudeCorporateFactPack({
+    entityRecord: makeEntityRecord(ENTITY_B, "B법인"),
+    membership: makeMembership(ENTITY_B),
+    snapshot: makeSnapshot("유통"),
+    memorySnapshot: makeMemorySnapshot(ENTITY_B, "유통"),
   });
   const payload = buildUserPayload({
-    question: "우리 법인 단체보험 현황은?",
+    question: "내 보험과 회사 단체보험을 비교해줘",
     chart: { policies: [{ insurer: "개인보험사" }], policy_count: 34 },
     allowlist: { allowed_numbers: [34], allowed_entities: ["개인보험사"] },
     contextPack: { recent_turns: [] },
-    corporateFactPack: pack,
+    corporateContexts: [packA, packB],
   });
-  assert.equal(payload.verified_customer_chart, null);
-  assert.equal(payload.verified_corporate_facts.entity_id, ENTITY_A);
-  assert.ok(Array.isArray(payload.verified_corporate_facts.verified_facts));
-  assert.ok(Array.isArray(payload.verified_corporate_facts.partial_facts));
-  assert.ok(Array.isArray(payload.verified_corporate_facts.unknowns));
-  assert.ok(payload.verified_corporate_facts.provenance);
-  assert.equal(JSON.stringify(payload).includes("개인보험사"), false);
-  assert.equal(JSON.stringify(payload).includes("\"policy_count\":34"), false);
+  assert.equal(payload.verified_customer_chart.policy_count, 34);
+  assert.equal(payload.verified_corporate_contexts.length, 2);
+  assert.equal(payload.verified_corporate_contexts[0].entity_id, ENTITY_A);
+  assert.equal(payload.verified_corporate_contexts[1].entity_id, ENTITY_B);
+  assert.match(payload.guidance, /verified_corporate_contexts/);
+  assert.equal(payload.guidance.includes("Use only verified_corporate_facts"), false);
+  assert.equal(JSON.stringify(payload.verified_corporate_contexts[0]).includes(ENTITY_B), false);
+}
+
+// --- home request body: no entity fields ---
+{
+  const body = buildHomeBrainFactRequestBody("내 보험은?", []);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, "entity_type"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, "entity_id"), false);
 }
 
 const previewEnv = {
   VERCEL_ENV: "preview",
   KEY_BORROWED_SENSES: "shadow",
   KEY_CLAUDE_FIRST_DIRECT: "1",
-  ANTHROPIC_API_KEY: "test-key-corporate-slice1",
+  ANTHROPIC_API_KEY: "test-key-corporate-unified",
 };
 
-// --- unauthorized corporate → no Claude, failureMode+seal ---
-{
-  let claudeCalls = 0;
-  let memoryLoads = 0;
-  const result = await runClaudeFirstDirectQuestionTurn({
-    question: "우리 법인 단체보험 알려줘",
-    history: [],
-    loadedContext: {
-      policies: [{ insurer: "삼성생명", product_name: "종신" }],
-      policy_count: 1,
-    },
-    customerId: "cust-1",
-    authUserId: "user-1",
-    entityContext: parseEntityContextFromRequestBody({
-      entity_type: "corporate",
-      entity_id: ENTITY_A,
-    }),
-    env: previewEnv,
-    fetchImpl: async () => {
-      claudeCalls += 1;
-      throw new Error("claude_must_not_run");
-    },
-    resolveClaudeCorporateContextImpl: async () => ({
-      mode: "corporate",
-      ok: false,
-      failure_reason: "membership_required",
-      customer_text: CORPORATE_AUTH_FAILED_CUSTOMER_TEXT,
-      authorization: {
-        entity_type: "corporate",
-        entity_id: ENTITY_A,
-        authorization_verified: false,
-        membership_role: null,
-      },
-    }),
-  });
-  assert.equal(claudeCalls, 0);
-  assert.equal(memoryLoads, 0);
-  assert.equal(result.key_monopoly_failure, true);
-  assert.match(result.customerText, /권한이 확인되지 않았습니다/);
-  assert.equal(
-    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.corporate_auth_fail_closed,
-    true,
-  );
-  assert.ok(
-    (result.oneKeyCoreTrace?.legacy_paths_blocked ?? []).includes("runCorporateKeyLoopTurn"),
-  );
-  assert.ok(
-    (result.oneKeyCoreTrace?.legacy_paths_blocked ?? []).includes(
-      "verified_customer_chart_substitute",
-    ),
-  );
+function extractUserText(opts) {
+  const body = JSON.parse(String(opts?.body ?? "{}"));
+  const content = body?.messages?.[0]?.content;
+  return typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.find((b) => b?.type === "text")?.text ?? ""
+      : "";
 }
 
-// --- authorized corporate → Claude 1회, personal chart not in body ---
+// --- arbitrary client entity_id → does not widen; membership list drives contexts ---
 {
   let claudeCalls = 0;
-  let sawPersonalChart = false;
-  let sawCorporateFacts = false;
-  let sawPolicyDump = false;
-  const pack = buildClaudeCorporateFactPack({
-    entityRecord: makeEntityRecord(),
-    membership: makeMembership(),
-    snapshot: {
-      contract_version: CORPORATE_SNAPSHOT_V1,
-      derived: {
-        industry: "제조",
-        group_insurance_status: "present",
-        employee_count: 12,
-        executive_protection: null,
-        fire_insurance: null,
-        liability: null,
-        unknowns: ["executive_protection", "fire_insurance", "liability"],
-      },
-    },
-    memorySnapshot: makeMemorySnapshot(),
+  let sawPersonal = false;
+  let sawForeign = false;
+  let sawAllowed = false;
+  const packA = buildClaudeCorporateFactPack({
+    entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
+    membership: makeMembership(ENTITY_A),
+    snapshot: makeSnapshot("제조"),
+    memorySnapshot: makeMemorySnapshot(ENTITY_A, "제조"),
   });
   const result = await runClaudeFirstDirectQuestionTurn({
-    question: "법인 단체보험 현황을 설명해줘",
+    question: "내 보험과 회사 단체보험 비교해줘",
     history: [],
     loadedContext: {
-      policies: [{ insurer: "삼성생명", monthly_premium: 50000 }],
-      policy_count: 34,
+      policies: [{ insurer_name: "삼성생명", monthly_premium: 50000 }],
+      policy_count: 2,
     },
     customerId: "cust-1",
     authUserId: "user-1",
-    entityContext: parseEntityContextFromRequestBody({
-      entity_type: "corporate",
-      entity_id: ENTITY_A,
-    }),
+    entityContext: {
+      conversationContext: {
+        entity_type: "corporate",
+        entity_id: ENTITY_FOREIGN,
+      },
+    },
     env: previewEnv,
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
-      const body = JSON.parse(String(opts?.body ?? "{}"));
-      const content = body?.messages?.[0]?.content;
-      const text =
-        typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content.find((b) => b?.type === "text")?.text ?? ""
-            : "";
-      if (/verified_customer_chart/.test(text) && /삼성생명/.test(text)) {
-        sawPersonalChart = true;
-      }
-      if (/\"policy_count\":\s*34/.test(text) || /삼성생명/.test(text)) {
-        sawPolicyDump = true;
-      }
-      if (/verified_corporate_facts/.test(text) && /제조/.test(text)) {
-        sawCorporateFacts = true;
-      }
+      const text = extractUserText(opts);
+      if (/verified_customer_chart/.test(text) && /삼성생명/.test(text)) sawPersonal = true;
+      if (text.includes(ENTITY_FOREIGN)) sawForeign = true;
+      if (/verified_corporate_contexts/.test(text) && /제조/.test(text)) sawAllowed = true;
       return {
         ok: true,
         async json() {
@@ -401,35 +307,27 @@ const previewEnv = {
             content: [
               {
                 type: "text",
-                text: "법인 검증 사실 기준으로 단체보험은 있음으로 확인됩니다.",
+                text: "개인 계약과 법인 검증 사실을 함께 확인했습니다.",
               },
             ],
           };
         },
       };
     },
-    resolveClaudeCorporateContextImpl: async () => ({
-      mode: "corporate",
+    loadAllowedCorporateContextsForClaudeImpl: async () => ({
       ok: true,
-      factPack: pack,
-      session: { entity_id: ENTITY_A, entity_type: "corporate" },
-      authorization: {
-        entity_type: "corporate",
-        entity_id: ENTITY_A,
-        authorization_verified: true,
-        membership_role: "owner",
-      },
+      corporate_contexts: [packA],
     }),
   });
   assert.equal(claudeCalls, 1);
-  assert.equal(sawCorporateFacts, true);
-  assert.equal(sawPersonalChart, false);
-  assert.equal(sawPolicyDump, false);
+  assert.equal(sawPersonal, true);
+  assert.equal(sawAllowed, true);
+  assert.equal(sawForeign, false);
   assert.equal(result.key_monopoly_failure, false);
-  assert.ok(String(result.customerText ?? "").includes("단체보험"));
+  assert.ok(String(result.customerText ?? "").length > 0);
 }
 
-// --- personal path regression: no entity → personal chart still used ---
+// --- membership none → personal chart path regression ---
 {
   let claudeCalls = 0;
   let sawPersonal = false;
@@ -437,25 +335,18 @@ const previewEnv = {
     question: "내 보험 몇 건이야?",
     history: [],
     loadedContext: {
-      policies: [{ insurer: "한화생명" }],
+      policies: [{ insurer_name: "한화생명" }],
       policy_count: 2,
     },
     customerId: "cust-1",
     authUserId: "user-1",
-    entityContext: parseEntityContextFromRequestBody({}),
     env: previewEnv,
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
-      const body = JSON.parse(String(opts?.body ?? "{}"));
-      const content = body?.messages?.[0]?.content;
-      const text =
-        typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content.find((b) => b?.type === "text")?.text ?? ""
-            : "";
+      const text = extractUserText(opts);
       if (/verified_customer_chart/.test(text)) sawPersonal = true;
-      assert.equal(/verified_corporate_facts/.test(text), false);
+      assert.match(text, /verified_corporate_contexts/);
+      assert.equal(/Use only verified_corporate_facts/.test(text), false);
       return {
         ok: true,
         async json() {
@@ -465,10 +356,27 @@ const previewEnv = {
         },
       };
     },
+    loadAllowedCorporateContextsForClaudeImpl: async () => ({
+      ok: true,
+      corporate_contexts: [],
+    }),
   });
   assert.equal(claudeCalls, 1);
   assert.equal(sawPersonal, true);
   assert.equal(result.key_monopoly_failure, false);
+}
+
+// --- UI / API dead assets removed ---
+{
+  const homeChat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
+  assert.equal(/selectChatEntity|activeEntityId|대화 대상/.test(homeChat), false);
+  assert.equal(/entityType|entityId/.test(homeChat), false);
+  const sessionCore = readFileSync(join(ROOT, "src/lib/lifeguardChatSessionCore.js"), "utf8");
+  assert.equal(/active_entity_type|active_entity_id|activeEntity/.test(sessionCore), false);
+  const firstDirect = readFileSync(join(ROOT, "server/keyCore/keyClaudeFirstDirect.js"), "utf8");
+  assert.equal(/corporateTurn|Use only verified_corporate_facts|verified_customer_chart: null/.test(firstDirect), false);
+  assert.match(firstDirect, /verified_corporate_contexts/);
+  assert.match(firstDirect, /loadAllowedCorporateContextsForClaude/);
 }
 
 console.log("key-claude-corporate-context-unit-test: PASS");

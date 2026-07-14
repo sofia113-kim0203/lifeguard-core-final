@@ -18,14 +18,6 @@ import {
   isPriorAttachFollowUpQuestion,
   normalizeActiveAttachment,
 } from "../lib/chatActiveAttachment.js";
-import {
-  CORPORATE_LIST_FAILED_CUSTOMER_TEXT,
-  extractActiveEntityFromSessionMessages,
-  isCorporateAuthFailClosedResult,
-  normalizeActiveEntity,
-  resolveRestoredActiveEntity,
-} from "../lib/chatActiveEntity.js";
-import { fetchMyCorporateEntities } from "../lib/customerCorporateEntities.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   clearLifeguardChatSnapshot,
@@ -320,12 +312,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
   const [activeRotationQuarterTurns, setActiveRotationQuarterTurns] = useState(0);
-  // Conversation-scoped corporate selection (explicit only — no keyword auto-switch).
-  const [activeEntityId, setActiveEntityId] = useState(null);
-  const [activeEntityDisplayName, setActiveEntityDisplayName] = useState(null);
-  const [corporateEntities, setCorporateEntities] = useState([]);
-  const [corporateListStatus, setCorporateListStatus] = useState("idle"); // idle|ok|empty|error
-  const [corporateListError, setCorporateListError] = useState("");
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
   const [sessionId, setSessionId] = useState(() => createLifeguardSessionId());
@@ -657,82 +643,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     return undefined;
   }, [authUser, uploadFlow.hydrateStorageConsent]);
 
-  const clearActiveEntitySelection = useCallback(() => {
-    setActiveEntityId(null);
-    setActiveEntityDisplayName(null);
-  }, []);
-
-  const pendingEntityRestoreRef = useRef(null);
-
-  const applyRestoredActiveEntity = useCallback((candidate, membershipRows, listOk) => {
-    const resolved = resolveRestoredActiveEntity({
-      candidate,
-      membershipEntities: membershipRows,
-      listOk,
-    });
-    if (resolved.activeEntity) {
-      setActiveEntityId(resolved.activeEntity.active_entity_id);
-      setActiveEntityDisplayName(resolved.activeEntity.display_name);
-      return resolved.activeEntity;
-    }
-    setActiveEntityId(null);
-    setActiveEntityDisplayName(null);
-    return null;
-  }, []);
-
-  // Membership-scoped corporate list for this login only (explicit select Hand).
-  useEffect(() => {
-    if (!authUser) {
-      setCorporateEntities([]);
-      setCorporateListStatus("idle");
-      setCorporateListError("");
-      pendingEntityRestoreRef.current = null;
-      return undefined;
-    }
-    let cancelled = false;
-    setCorporateListStatus("idle");
-    setCorporateListError("");
-    (async () => {
-      try {
-        const listed = await fetchMyCorporateEntities();
-        if (cancelled) return;
-        if (!listed.ok) {
-          setCorporateEntities([]);
-          setCorporateListStatus("error");
-          setCorporateListError(listed.customerMessage || CORPORATE_LIST_FAILED_CUSTOMER_TEXT);
-          return;
-        }
-        setCorporateEntities(listed.entities);
-        setCorporateListStatus(listed.listStatus === "empty" ? "empty" : "ok");
-        setCorporateListError("");
-      } catch {
-        if (cancelled) return;
-        setCorporateEntities([]);
-        setCorporateListStatus("error");
-        setCorporateListError(CORPORATE_LIST_FAILED_CUSTOMER_TEXT);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [authUser]);
-
-  // Apply conversation-scoped entity restore only after membership list settles.
-  useEffect(() => {
-    if (corporateListStatus === "idle") return;
-    const candidate = pendingEntityRestoreRef.current;
-    if (!candidate) return;
-    if (corporateListStatus === "error") {
-      applyRestoredActiveEntity(candidate, [], false);
-      return;
-    }
-    const applied = applyRestoredActiveEntity(candidate, corporateEntities, true);
-    if (applied || corporateListStatus === "empty" || corporateListStatus === "ok") {
-      // Stale / unauthorized selection cleared; stop retrying this candidate.
-      if (!applied) pendingEntityRestoreRef.current = null;
-    }
-  }, [corporateListStatus, corporateEntities, applyRestoredActiveEntity]);
-
   useEffect(() => {
     if (!authUser || !customerId || loadingSession) return undefined;
     let cancelled = false;
@@ -784,15 +694,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             setActiveAttachmentMime(null);
             setActiveRotationQuarterTurns(0);
           }
-          const entityFromRestored = extractActiveEntityFromSessionMessages(restored);
-          const entityFromSnap =
-            String(snapshot?.sessionId) === String(activeId)
-              ? normalizeActiveEntity(snapshot?.activeEntity ?? null)
-              : null;
-          pendingEntityRestoreRef.current = entityFromRestored || entityFromSnap;
-          if (!pendingEntityRestoreRef.current) {
-            clearActiveEntitySelection();
-          }
           setPanelView("chat");
         } else if (seed.length > 0) {
           // Remount before DB indexed the just-completed turn — keep local snapshot.
@@ -803,20 +704,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             setActiveAttachmentMime(fromSnap.active_attachment_mime);
             setActiveRotationQuarterTurns(fromSnap.active_rotation_quarter_turns);
           }
-          pendingEntityRestoreRef.current =
-            String(snapshot?.sessionId) === String(activeId)
-              ? normalizeActiveEntity(snapshot?.activeEntity ?? null)
-              : null;
-          if (!pendingEntityRestoreRef.current) {
-            clearActiveEntitySelection();
-          }
           setPanelView("chat");
         } else {
           setActiveAttachmentId(null);
           setActiveAttachmentMime(null);
           setActiveRotationQuarterTurns(0);
-          pendingEntityRestoreRef.current = null;
-          clearActiveEntitySelection();
         }
 
         setThreadRestoreReady(true);
@@ -848,8 +740,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setThreadRestoreReady(false);
       restoreForceScrollRef.current = true;
       stickToBottomRef.current = true;
-      pendingEntityRestoreRef.current = null;
-      clearActiveEntitySelection();
 
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
@@ -864,31 +754,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           setActiveAttachmentMime(null);
           setActiveRotationQuarterTurns(0);
         }
-        const entityCandidate = extractActiveEntityFromSessionMessages(restored);
-        pendingEntityRestoreRef.current = entityCandidate;
-        const restoredEntity =
-          corporateListStatus === "error"
-            ? null
-            : corporateListStatus === "idle"
-              ? null
-              : applyRestoredActiveEntity(
-                  entityCandidate,
-                  corporateEntities,
-                  corporateListStatus === "ok" || corporateListStatus === "empty",
-                );
         writeLifeguardChatSnapshot(customerId, {
           sessionId: targetSessionId,
           messages: restored,
           activeAttachment: active,
-          activeEntity: restoredEntity,
         });
       } catch (err) {
         setMessages([]);
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
         setActiveRotationQuarterTurns(0);
-        pendingEntityRestoreRef.current = null;
-        clearActiveEntitySelection();
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
@@ -896,15 +771,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         focusChatInput();
       }
     },
-    [
-      authUser,
-      customerId,
-      focusChatInput,
-      corporateListStatus,
-      corporateEntities,
-      applyRestoredActiveEntity,
-      clearActiveEntitySelection,
-    ],
+    [authUser, customerId, focusChatInput],
   );
 
   const submitQuestion = async (value) => {
@@ -964,9 +831,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         ...nextMessages,
         { role: "assistant", content: THINKING_PROGRESS_MESSAGES[0], thinking: true },
       ]);
-      const activeEntityForTurn = activeEntityId
-        ? { active_entity_type: "corporate", active_entity_id: activeEntityId }
-        : null;
       if (customerId) {
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
@@ -978,7 +842,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 active_rotation_quarter_turns: activeRotationQuarterTurns,
               }
             : null,
-          activeEntity: activeEntityForTurn,
         });
       }
 
@@ -993,13 +856,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       // Signal follow-up so server never falls back to latest-doc / chart substitute.
       if (followUpRef) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
-      }
-      if (activeEntityForTurn) {
-        attachOptions = {
-          ...attachOptions,
-          entityType: "corporate",
-          entityId: activeEntityForTurn.active_entity_id,
-        };
       }
       const result = await fetchHomeBrainFactStream(
         trimmed,
@@ -1075,20 +931,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         };
       }
 
-      // Auth loss: clear stale corporate selection only — no personal auto-retry.
-      let nextActiveEntity = activeEntityForTurn;
-      if (isCorporateAuthFailClosedResult(result)) {
-        nextActiveEntity = null;
-        pendingEntityRestoreRef.current = null;
-        clearActiveEntitySelection();
-      }
-
       if (customerId) {
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
           messages: completedMessages,
           activeAttachment: nextActive,
-          activeEntity: nextActiveEntity,
         });
       }
       // Composer only — conversation active attachment stays.
@@ -1106,14 +953,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           responseLatencyMs: result.responseLatencyMs ?? null,
           oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
           activeAttachment: nextActive,
-          activeEntity: nextActiveEntity,
         });
         writeActiveSessionId(customerId, sessionId);
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
           messages: completedMessages,
           activeAttachment: nextActive,
-          activeEntity: nextActiveEntity,
         });
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         setThreads(recent);
@@ -1144,8 +989,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setActiveAttachmentId(null);
     setActiveAttachmentMime(null);
     setActiveRotationQuarterTurns(0);
-    pendingEntityRestoreRef.current = null;
-    clearActiveEntitySelection();
     clearComposerAttach();
     setPanelView("chat");
     setSidebarOpen(false);
@@ -1159,50 +1002,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       clearLifeguardChatSnapshot(customerId);
     }
     focusChatInput();
-  };
-
-  const selectChatEntity = (entityId) => {
-    const nextId = String(entityId ?? "").trim();
-    pendingEntityRestoreRef.current = null;
-    if (!nextId || nextId === "personal") {
-      clearActiveEntitySelection();
-      if (customerId) {
-        writeLifeguardChatSnapshot(customerId, {
-          sessionId,
-          messages,
-          activeAttachment: activeAttachmentId
-            ? {
-                active_attachment_id: activeAttachmentId,
-                active_attachment_mime: activeAttachmentMime,
-                active_rotation_quarter_turns: activeRotationQuarterTurns,
-              }
-            : null,
-          activeEntity: null,
-        });
-      }
-      return;
-    }
-    const match = corporateEntities.find((row) => row.entity_id === nextId);
-    if (!match) return;
-    setActiveEntityId(match.entity_id);
-    setActiveEntityDisplayName(match.display_name);
-    if (customerId) {
-      writeLifeguardChatSnapshot(customerId, {
-        sessionId,
-        messages,
-        activeAttachment: activeAttachmentId
-          ? {
-              active_attachment_id: activeAttachmentId,
-              active_attachment_mime: activeAttachmentMime,
-              active_rotation_quarter_turns: activeRotationQuarterTurns,
-            }
-          : null,
-        activeEntity: {
-          active_entity_type: "corporate",
-          active_entity_id: match.entity_id,
-        },
-      });
-    }
   };
 
   const clearComposerAttach = () => {
@@ -1228,9 +1027,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         sessionId,
         messages,
         activeAttachment: null,
-        activeEntity: activeEntityId
-          ? { active_entity_type: "corporate", active_entity_id: activeEntityId }
-          : null,
       });
     }
   };
@@ -1700,72 +1496,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 </button>
               </div>
             ) : null}
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: "6px",
-                marginBottom: "8px",
-              }}
-            >
-              <label
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  fontSize: "12px",
-                  color: LG.textMuted,
-                  fontFamily: LG.sans,
-                }}
-              >
-                <span>대화 대상</span>
-                <select
-                  aria-label="개인 또는 법인 선택"
-                  value={activeEntityId || "personal"}
-                  disabled={isDisabled || loading || streaming || corporateListStatus === "idle"}
-                  onChange={(e) => selectChatEntity(e.target.value)}
-                  style={{
-                    border: `1px solid ${LG.border}`,
-                    borderRadius: "8px",
-                    background: LG.surface,
-                    color: LG.text,
-                    fontSize: "12px",
-                    fontFamily: LG.sans,
-                    padding: "4px 8px",
-                    maxWidth: "220px",
-                  }}
-                >
-                  <option value="personal">개인</option>
-                  {corporateEntities.map((row) => (
-                    <option key={row.entity_id} value={row.entity_id}>
-                      {row.display_name}
-                      {row.membership_role_display ? ` (${row.membership_role_display})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {activeEntityId ? (
-                <span
-                  style={{
-                    fontSize: "12px",
-                    color: LG.text,
-                    border: `1px solid ${LG.borderStrong}`,
-                    borderRadius: "999px",
-                    padding: "2px 10px",
-                    fontFamily: LG.sans,
-                    background: LG.surface,
-                  }}
-                >
-                  {activeEntityDisplayName || "법인"}
-                </span>
-              ) : null}
-              {corporateListStatus === "error" ? (
-                <span style={{ fontSize: "12px", color: LG.textMuted, fontFamily: LG.sans }}>
-                  {corporateListError || CORPORATE_LIST_FAILED_CUSTOMER_TEXT}
-                </span>
-              ) : null}
-            </div>
             <div
               style={{
                 display: "flex",
