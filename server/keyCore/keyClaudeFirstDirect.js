@@ -674,8 +674,15 @@ export function buildUserPayload({
       current_date: clock.current_date,
       timezone: clock.timezone,
       conversation: {
-        recent_turns: contextPack?.recent_turns ?? [],
-        older_summary: contextPack?.older_summary ?? null,
+        // Same field names as keyClaudeFullContextPack — recent originals must reach Claude.
+        recent_conversation_originals:
+          contextPack?.recent_conversation_originals ??
+          contextPack?.recent_turns ??
+          [],
+        older_conversation_summary:
+          contextPack?.older_conversation_summary ??
+          contextPack?.older_summary ??
+          null,
         retained_past_originals: contextPack?.retained_past_originals ?? [],
       },
     },

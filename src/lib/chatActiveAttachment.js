@@ -79,6 +79,41 @@ export function normalizeActiveAttachment(input = null) {
   };
 }
 
+/**
+ * Home brain result signals that original attach failed this turn.
+ * Clear conversation activeAttachment so the failed document_id is not resent.
+ * Does not erase already-shown "(첨부: …)" message text.
+ */
+export function shouldClearActiveAttachmentAfterTurn(result = null) {
+  if (!result || typeof result !== "object") return false;
+  const reason = String(result.failureReason ?? result.failure_reason ?? "").trim();
+  if (
+    reason === "prior_attach_missing" ||
+    reason === "attach_process_failed" ||
+    reason === "production_document_access_forbidden"
+  ) {
+    return true;
+  }
+  if (
+    reason &&
+    /^(document_ownership_denied|mime_not_supported|document_too_large|storage_|pdf_|image_|block_build|attach_)/i.test(
+      reason,
+    )
+  ) {
+    return true;
+  }
+  const signals =
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals ??
+    result.sales_director_trace?.key_compose_trace?.key_voice_trace?.attach_signals ??
+    null;
+  if (signals?.attachment_failed === true) return true;
+  if (String(signals?.attachment_failure_code ?? "").trim()) return true;
+  const text = String(result.answerText ?? result.customerText ?? "").trim();
+  if (text.includes("첨부 파일을 처리하지 못했습니다")) return true;
+  if (text.includes(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT)) return true;
+  return false;
+}
+
 /** Walk message metadata (newest first) for persisted active attachment. */
 export function extractActiveAttachmentFromSessionMessages(messages = []) {
   const rows = Array.isArray(messages) ? messages : [];

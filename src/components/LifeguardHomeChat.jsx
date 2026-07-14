@@ -16,6 +16,7 @@ import {
 import {
   extractActiveAttachmentFromSessionMessages,
   normalizeActiveAttachment,
+  shouldClearActiveAttachmentAfterTurn,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
@@ -956,7 +957,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       ];
       setMessages(completedMessages);
       let nextActive = null;
-      if (documentIdForTurn) {
+      const clearFailedAttach = shouldClearActiveAttachmentAfterTurn(result);
+      if (clearFailedAttach) {
+        // Attach fail-closed / prior-attach miss — drop conversation active id so
+        // the next normal question does not resend the failed document_id.
+        // Keep already-shown "(첨부: …)" message text in completedMessages.
+        setActiveAttachmentId(null);
+        setActiveAttachmentMime(null);
+        setActiveRotationQuarterTurns(0);
+        nextActive = null;
+      } else if (documentIdForTurn) {
         nextActive = {
           active_attachment_id: documentIdForTurn,
           active_attachment_mime: attachMimeForTurn,

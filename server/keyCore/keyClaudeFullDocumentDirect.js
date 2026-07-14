@@ -16,10 +16,6 @@ export const CLAUDE_FULL_PNG_MEDIA_TYPE = "image/png";
 export const DOCUMENT_DIRECT_REQUEST_TOO_LARGE_CUSTOMER_TEXT =
   "올려주신 문서가 커서 지금은 원본을 직접 읽어 드리기 어려워요. 잠시 후 다시 올려 주시거나, 꼭 필요한 페이지만 따로 보내 주시면 KEY가 이어서 볼게요.";
 
-function isProductionEnv(env = process.env) {
-  return String(env?.VERCEL_ENV ?? "").trim().toLowerCase() === "production";
-}
-
 /**
  * Canonical MIME for Claude-first direct attach.
  * Upload already stores image/jpeg (not image/jpg); only normalize known aliases.
@@ -231,19 +227,8 @@ export async function verifyAndFetchCustomerPdfOriginal({
   const fetchStarted = Date.now();
   const cid = String(customerId ?? "").trim();
   const did = String(documentId ?? "").trim();
-
-  if (isProductionEnv(env)) {
-    return {
-      ok: false,
-      reason: "production_document_access_forbidden",
-      fallbackRecommended: false,
-      metrics: buildDocumentDirectTraceMeta({
-        documentId: did || null,
-        fallbackUsed: true,
-        fallbackReason: "production_document_access_forbidden",
-      }),
-    };
-  }
+  // Production and Preview share the same ownership / MIME / size / Storage path.
+  // No VERCEL_ENV hard-block — KEY(Claude) must read the same original bytes.
 
   if (!cid || !did) {
     return {

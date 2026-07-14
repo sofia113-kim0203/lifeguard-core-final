@@ -29,6 +29,7 @@ import {
   PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
   normalizeActiveAttachment,
   extractActiveAttachmentFromSessionMessages,
+  shouldClearActiveAttachmentAfterTurn,
 } from "../src/lib/chatActiveAttachment.js";
 import {
   buildSessionMetadata,
@@ -396,7 +397,13 @@ assert.equal(
 const attachPayload = buildUserPayload({
   question: "이 사진에서 총 결제금액 찾아줘",
   chart: { policy_count: { value: 22 } },
-  contextPack: { recent_turns: [] },
+  contextPack: {
+    recent_conversation_originals: [
+      { role: "user", text: "추천해줘" },
+      { role: "assistant", text: "직전 답입니다." },
+    ],
+    older_conversation_summary: null,
+  },
   pdfMeta: {
     attached: true,
     document_id: "doc-img",
@@ -411,6 +418,21 @@ assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "mode"), false)
 assert.equal(attachPayload.current_question, "이 사진에서 총 결제금액 찾아줘");
 assert.equal(attachPayload.current_context?.timezone, "Asia/Seoul");
 assert.equal(attachPayload.current_context?.current_date, "2026-07-14");
+assert.equal(
+  attachPayload.current_context?.conversation?.recent_conversation_originals?.length,
+  2,
+);
+assert.equal(
+  attachPayload.current_context?.conversation?.recent_conversation_originals?.[0]?.text,
+  "추천해줘",
+);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(
+    attachPayload.current_context?.conversation ?? {},
+    "recent_turns",
+  ),
+  false,
+);
 assert.equal(
   attachPayload.available_verified_evidence?.personal?.subject_type,
   "individual",
@@ -653,6 +675,40 @@ const extracted = extractActiveAttachmentFromSessionMessages([
 ]);
 assert.equal(extracted?.active_attachment_id, "doc-a");
 assert.match(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT, /다시 첨부/);
+
+assert.equal(
+  shouldClearActiveAttachmentAfterTurn({
+    answerText: ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
+    failureReason: "attach_process_failed",
+    keyMonopolyFailure: true,
+  }),
+  true,
+);
+assert.equal(
+  shouldClearActiveAttachmentAfterTurn({
+    answerText: PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
+    failureReason: "prior_attach_missing",
+  }),
+  true,
+);
+assert.equal(
+  shouldClearActiveAttachmentAfterTurn({
+    answerText: "확인된 내용을 기준으로 말씀드릴게요.",
+    failureReason: null,
+  }),
+  false,
+);
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const homeChat = readFileSync(join(root, "src/components/LifeguardHomeChat.jsx"), "utf8");
+  assert.match(homeChat, /shouldClearActiveAttachmentAfterTurn/);
+  assert.match(homeChat, /clearFailedAttach/);
+  const docDirect = readFileSync(
+    join(root, "server/keyCore/keyClaudeFullDocumentDirect.js"),
+    "utf8",
+  );
+  assert.equal(/production_document_access_forbidden/.test(docDirect), false);
+}
 
 // --- Explicit attach fail-closed (no Claude / no chart substitute) ---
 assert.match(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT, /첨부 파일을 처리하지 못했습니다/);
@@ -1169,7 +1225,7 @@ const chartPolicies = {
         { insurer_name: "삼성생명", product_name: "실손", monthly_premium: 45000 },
       ],
     }),
-    contextPack: { recent_turns: [] },
+    contextPack: { recent_conversation_originals: [] },
     corporateContexts: [pack],
     corporateGapEvidence: [
       {
@@ -1460,7 +1516,7 @@ const chartPolicies = {
   const payload = buildUserPayload({
     question: "사망보험금은 누가 얼마씩 받게 돼?",
     chart,
-    contextPack: { recent_turns: [] },
+    contextPack: { recent_conversation_originals: [] },
     now: new Date("2026-07-14T12:00:00+09:00"),
   });
   const personal = payload.available_verified_evidence.personal.chart;
@@ -1520,7 +1576,7 @@ const chartPolicies = {
   const hydratePayload = buildUserPayload({
     question: "지난 문서에서 확인한 계약자와 보장금액을 다시 알려줘.",
     chart: chartWithKey,
-    contextPack: { recent_turns: [], older_summary: null },
+    contextPack: { recent_conversation_originals: [], older_conversation_summary: null },
     now: new Date("2026-07-15T12:00:00+09:00"),
   });
   const keyFacts =
@@ -1807,7 +1863,7 @@ const chartPolicies = {
   const hydratePayload = buildUserPayload({
     question: "지난 청구는 지금 어디까지 진행됐지?",
     chart: buildVerifiedCustomerChart({ policy_count: 1, policies: [] }),
-    contextPack: { recent_turns: [], older_summary: null },
+    contextPack: { recent_conversation_originals: [], older_conversation_summary: null },
     activeClaimCases: [
       {
         claim_case_key: "date:2026-07-12:kind:surgery",

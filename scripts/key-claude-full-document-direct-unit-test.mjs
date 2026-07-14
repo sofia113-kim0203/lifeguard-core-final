@@ -152,7 +152,7 @@ function makeFetch({ answer, log = [] } = {}) {
   assert.equal(JSON.stringify(denied).includes(TINY_PDF.toString("base64")), false);
 }
 
-// Production blocked
+// Production shares Preview ownership path — no VERCEL_ENV hard-block
 {
   const prod = await verifyAndFetchCustomerPdfOriginal({
     customerId: "cust-a",
@@ -163,10 +163,14 @@ function makeFetch({ answer, log = [] } = {}) {
       id: "doc-1",
       customer_id: "cust-a",
       mime_type: "application/pdf",
+      original_filename: "policy.pdf",
+      ingest_status: "ready",
     },
   });
-  assert.equal(prod.ok, false);
-  assert.equal(prod.reason, "production_document_access_forbidden");
+  assert.equal(prod.ok, true);
+  assert.equal(prod.metrics.direct_document_attached, true);
+  assert.equal(prod.metrics.ownership_verified, true);
+  assert.notEqual(prod.reason, "production_document_access_forbidden");
 }
 
 // Owned PDF attach OK — metrics redacted
