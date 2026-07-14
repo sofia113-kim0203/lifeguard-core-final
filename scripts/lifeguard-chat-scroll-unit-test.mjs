@@ -3,12 +3,20 @@
  * Usage: node scripts/lifeguard-chat-scroll-unit-test.mjs
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isScrollNearBottom,
   scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
   LIFEGUARD_CHAT_NEAR_BOTTOM_PX,
+  resolveAppendOnlyAssistantText,
+  splitKeyAnswerMeaningUnits,
+  joinKeyAnswerMeaningUnits,
 } from "../src/lib/lifeguardChatScroll.js";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 let passed = 0;
 let failed = 0;
@@ -67,6 +75,45 @@ async function main() {
       assert.equal(scrollChatContainerToBottom(el), true);
       assert.equal(el.scrollTop, 2400);
       assert.equal(scrollChatContainerToBottom(null), false);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("append-only — Claude original identity", () => {
+      assert.equal(resolveAppendOnlyAssistantText("", "안녕."), "안녕.");
+      assert.equal(resolveAppendOnlyAssistantText("안녕.", "안녕. 이어서."), "안녕. 이어서.");
+      assert.equal(resolveAppendOnlyAssistantText("안녕.", "안녕."), "안녕.");
+
+      const sample =
+        "어제 수술 기준으로는 실손 청구를 준비해보는 게 맞습니다.\n\n- 진단서\n- 영수증\n\n진단코드는 C73입니다.";
+      const units = splitKeyAnswerMeaningUnits(sample);
+      assert.ok(units.length >= 2, "long answer splits into meaning units");
+      assert.equal(joinKeyAnswerMeaningUnits(units), sample);
+
+      let shown = "";
+      for (const unit of units) {
+        shown += unit;
+      }
+      assert.equal(shown, sample, "paced reveal concatenates to Claude original");
+      assert.ok(shown.includes("C73"));
+      assert.ok(shown.includes("영수증"));
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("chat UI — E display guards present", () => {
+      const chatSource = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
+      assert.match(chatSource, /KEY가 확인하고 있어요/);
+      assert.match(chatSource, /onReplace:\s*\(\)\s*=>\s*\{\s*\}/);
+      assert.match(chatSource, /splitKeyAnswerMeaningUnits/);
+      assert.match(chatSource, /resolveAppendOnlyAssistantText/);
+      assert.match(chatSource, /aria-expanded=\{sidebarOpen\}/);
+      assert.doesNotMatch(chatSource, /sentenceHardLiteBlocks|sentence_hard_lite/);
+      assert.doesNotMatch(chatSource, /createSentenceCommitStream/);
     })
   ) {
     passed += 1;

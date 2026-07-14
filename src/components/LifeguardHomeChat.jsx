@@ -46,6 +46,8 @@ import {
   isScrollNearBottom,
   scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
+  resolveAppendOnlyAssistantText,
+  splitKeyAnswerMeaningUnits,
 } from "../lib/lifeguardChatScroll.js";
 import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
 
@@ -58,13 +60,8 @@ const EXAMPLE_QUESTIONS = [
 
 const DESKTOP_SIDEBAR_BREAKPOINT = 768;
 
-const KEY_WAIT_ACK_FALLBACK = "말씀 주신 내용 잘 받았어요. 함께 확인해 볼게요.";
-
-const THINKING_PROGRESS_MESSAGES = [
-  KEY_WAIT_ACK_FALLBACK,
-  "가입 정보와 상담 내용을 살펴보고 있어요.",
-  "확인한 내용을 정리해서 이어 말씀드릴게요.",
-];
+const KEY_WAIT_STATUS = "KEY가 확인하고 있어요.";
+const KEY_WAIT_ACK_FALLBACK = KEY_WAIT_STATUS;
 
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() => {
@@ -212,13 +209,36 @@ function SidebarNav({
   onOpenSession,
   onPanelChange,
   onSignOut,
+  onClose = null,
   style = {},
 }) {
   return (
     <aside style={style}>
-      <button type="button" onClick={onNewChat} style={sidebarBtn(false)}>
-        새 대화
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+        <button type="button" onClick={onNewChat} style={{ ...sidebarBtn(false), flex: 1 }}>
+          새 대화
+        </button>
+        {typeof onClose === "function" ? (
+          <button
+            type="button"
+            aria-label="사이드바 닫기"
+            onClick={onClose}
+            style={{
+              border: `1px solid ${LG.border}`,
+              background: LG.surface,
+              color: LG.textMuted,
+              borderRadius: "8px",
+              width: "40px",
+              height: "40px",
+              cursor: "pointer",
+              flexShrink: 0,
+              fontSize: "16px",
+            }}
+          >
+            ✕
+          </button>
+        ) : null}
+      </div>
       <div
         style={{
           fontSize: "11px",
@@ -317,11 +337,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
-  const [thinkingIndex, setThinkingIndex] = useState(0);
   const [threadRestoreReady, setThreadRestoreReady] = useState(false);
   const [bridgeSettled, setBridgeSettled] = useState(false);
   const loadDocumentsRef = useRef(async () => {});
-
   const focusChatInputRef = useRef(() => {});
   const sessionIdRef = useRef(sessionId);
   const authUserRef = useRef(authUser);
@@ -569,7 +587,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     }
     scrollChatToBottom();
     return undefined;
-  }, [messages, loading, streaming, thinkingIndex, threadRestoreReady, panelView, scrollChatToBottom]);
+  }, [messages, loading, streaming, threadRestoreReady, panelView, scrollChatToBottom]);
 
   // Late visual-block / table height growth — follow only if still sticky.
   useEffect(() => {
@@ -595,9 +613,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const goBackToChat = useCallback(() => {
     setPanelView("chat");
-    setSidebarOpen(false);
+    if (!isDesktopSidebar) setSidebarOpen(false);
     focusChatInput();
-  }, [focusChatInput]);
+  }, [focusChatInput, isDesktopSidebar]);
 
   useEffect(() => {
     if (panelView === "chat") focusChatInput();
@@ -607,27 +625,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     if (panelView === "chat" && !loading) focusChatInput();
   }, [loading, panelView, messages.length, focusChatInput]);
 
+  // Desktop: sidebar starts open; mobile stays closed until menu.
   useEffect(() => {
-    if (!loading || streaming) return undefined;
-    const timer = window.setInterval(() => {
-      setThinkingIndex((current) => (current + 1) % THINKING_PROGRESS_MESSAGES.length);
-    }, 2600);
-    return () => window.clearInterval(timer);
-  }, [loading, streaming]);
-
-  useEffect(() => {
-    if (!loading || streaming) return;
-    setMessages((prev) => {
-      const copy = [...prev];
-      const last = copy[copy.length - 1];
-      if (last?.role !== "assistant" || !last.thinking) return prev;
-      copy[copy.length - 1] = {
-        ...last,
-        content: THINKING_PROGRESS_MESSAGES[thinkingIndex],
-      };
-      return copy;
-    });
-  }, [thinkingIndex, loading, streaming]);
+    setSidebarOpen(isDesktopSidebar);
+  }, [isDesktopSidebar]);
 
   useEffect(() => {
     if (panelView !== "documents" || !authUser) return undefined;
@@ -727,7 +728,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const openSession = useCallback(
     async (targetSessionId) => {
       setPanelView("chat");
-      setSidebarOpen(false);
+      if (!isDesktopSidebar) setSidebarOpen(false);
       if (!authUser || !customerId) {
         focusChatInput();
         return;
@@ -770,7 +771,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         focusChatInput();
       }
     },
-    [authUser, customerId, focusChatInput],
+    [authUser, customerId, focusChatInput, isDesktopSidebar],
   );
 
   const submitQuestion = async (value) => {
@@ -807,7 +808,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     }
 
     setPanelView("chat");
-    setSidebarOpen(false);
+    if (!isDesktopSidebar) setSidebarOpen(false);
     const userMessage = {
       role: "user",
       content: composerDocumentId
@@ -820,14 +821,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     focusChatInput();
     setLoading(true);
     setStreaming(false);
-    setThinkingIndex(0);
     setError("");
 
     try {
       const history = nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
       setMessages([
         ...nextMessages,
-        { role: "assistant", content: THINKING_PROGRESS_MESSAGES[0], thinking: true },
+        { role: "assistant", content: KEY_WAIT_STATUS, thinking: true },
       ]);
       if (customerId) {
         writeLifeguardChatSnapshot(customerId, {
@@ -844,6 +844,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       }
 
       let streamedText = "";
+      let receivedDelta = false;
       let attachOptions = documentIdForTurn ? { documentId: documentIdForTurn } : {};
       if (documentIdForTurn && attachIsImageForTurn) {
         attachOptions = {
@@ -855,32 +856,37 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       if (reusedActiveAttachment) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
       }
+      const patchAssistantContent = (text, extra = {}) => {
+        setMessages((prev) =>
+          patchLastAssistantMessage(prev, { content: text, thinking: false, ...extra }),
+        );
+      };
       const result = await fetchHomeBrainFactStream(
         trimmed,
         history,
         {
           onAck: (ackText) => {
-            const text = String(ackText ?? "").trim() || KEY_WAIT_ACK_FALLBACK;
+            // Short customer status only — do not list internal search/doc stage names.
+            const text = String(ackText ?? "").trim() || KEY_WAIT_STATUS;
+            const safe =
+              text.length > 80 || /SSE|Claude|tool|phase|trace/i.test(text)
+                ? KEY_WAIT_STATUS
+                : text;
             setMessages((prev) =>
-              patchLastAssistantMessage(prev, { content: text, thinking: true }),
+              patchLastAssistantMessage(prev, { content: safe, thinking: true }),
             );
           },
           onDelta: (chunk) => {
-            streamedText += chunk;
+            const piece = String(chunk ?? "");
+            if (!piece) return;
+            receivedDelta = true;
+            streamedText += piece;
             setStreaming(true);
             setLoading(false);
-            setMessages((prev) =>
-              patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
-            );
+            patchAssistantContent(streamedText);
           },
-          onReplace: (text) => {
-            streamedText = String(text ?? "");
-            setLoading(false);
-            setStreaming(false);
-            setMessages((prev) =>
-              patchLastAssistantMessage(prev, { content: streamedText, thinking: false }),
-            );
-          },
+          // E: already-shown text is never replaced by SSE replace.
+          onReplace: () => {},
           onDone: (payload) => {
             const mapped = mapHomeBrainFactPayload(payload ?? {});
             const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
@@ -897,7 +903,45 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         attachOptions,
       );
 
-      const finalText = result.answerText || streamedText;
+      const sealedText = String(result.answerText ?? "");
+      const merged = resolveAppendOnlyAssistantText(streamedText, sealedText || streamedText);
+      // Prefer sealed Claude original as the authoritative full string.
+      const finalText = sealedText || merged;
+
+      if (!receivedDelta && finalText) {
+        // One-blob arrival: paced meaning-unit reveal (append-only, no rewrite).
+        setStreaming(true);
+        setLoading(false);
+        const units = splitKeyAnswerMeaningUnits(finalText);
+        let shown = "";
+        for (let i = 0; i < units.length; i += 1) {
+          shown += units[i];
+          patchAssistantContent(shown);
+          if (i < units.length - 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 32));
+          }
+        }
+        streamedText = finalText;
+        patchAssistantContent(finalText);
+      } else if (finalText.startsWith(streamedText) && finalText.length > streamedText.length) {
+        // Catch-up remaining units only — never delete shown prefix.
+        const suffix = finalText.slice(streamedText.length);
+        const units = splitKeyAnswerMeaningUnits(suffix);
+        let shown = streamedText;
+        for (let i = 0; i < units.length; i += 1) {
+          shown += units[i];
+          patchAssistantContent(shown);
+          if (i < units.length - 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 24));
+          }
+        }
+        streamedText = finalText;
+        patchAssistantContent(finalText);
+      } else {
+        streamedText = finalText;
+        patchAssistantContent(finalText);
+      }
+
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
       const visualBlocksGate = result.visualBlocksGate ?? null;
       const completedMessages = [
@@ -989,7 +1033,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setActiveRotationQuarterTurns(0);
     clearComposerAttach();
     setPanelView("chat");
-    setSidebarOpen(false);
+    if (!isDesktopSidebar) setSidebarOpen(false);
     restoreForceScrollRef.current = false;
     stickToBottomRef.current = true;
     if (chatScrollRef.current) {
@@ -1105,6 +1149,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setPanelView(view);
       if (!isDesktopSidebar) setSidebarOpen(false);
     },
+    onClose: () => setSidebarOpen(false),
     onSignOut: () => supabase.auth.signOut(),
   };
 
@@ -1151,9 +1196,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         color: LG.text,
       }}
     >
-      {isDesktopSidebar ? <SidebarNav {...sidebarProps} style={desktopSidebarStyle} /> : null}
+      {sidebarOpen && isDesktopSidebar ? (
+        <SidebarNav {...sidebarProps} style={desktopSidebarStyle} />
+      ) : null}
 
-      {!isDesktopSidebar && sidebarOpen ? (
+      {sidebarOpen && !isDesktopSidebar ? (
         <>
           <div
             role="presentation"
@@ -1176,25 +1223,24 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             flexShrink: 0,
           }}
         >
-          {!isDesktopSidebar ? (
-            <button
-              type="button"
-              aria-label="메뉴"
-              onClick={() => setSidebarOpen(true)}
-              style={{
-                border: `1px solid ${LG.border}`,
-                background: LG.surface,
-                color: LG.text,
-                borderRadius: "8px",
-                width: "40px",
-                height: "40px",
-                cursor: "pointer",
-                fontSize: "18px",
-              }}
-            >
-              ☰
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-label={sidebarOpen ? "메뉴 닫기" : "메뉴 열기"}
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen((open) => !open)}
+            style={{
+              border: `1px solid ${LG.border}`,
+              background: LG.surface,
+              color: LG.text,
+              borderRadius: "8px",
+              width: "40px",
+              height: "40px",
+              cursor: "pointer",
+              fontSize: "18px",
+            }}
+          >
+            {sidebarOpen ? "✕" : "☰"}
+          </button>
         </header>
 
         <div
