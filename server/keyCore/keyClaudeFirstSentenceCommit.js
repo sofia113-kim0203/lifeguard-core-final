@@ -1,26 +1,28 @@
 /**
  * Preview Claude-first — E: sentence-unit commit stream.
  * Committed sentences are never replaced (KEY monopoly / no onReplace).
- * Hard-lite only: enroll / cancel / close-push. Gate body untouched.
+ * Slice 8: hard-lite word abort removed from the normal customer path —
+ * stream is transmission stability only. Real enroll/cancel pressure uses hard-only.
  */
 
 const DEFAULT_SAFETY_BUFFER = 8;
 
-/** Soft closer when a later sentence fails hard-lite after some commits. */
+/** @deprecated Slice 8 — closer unused; kept for import compatibility. */
 export const SENTENCE_COMMIT_ABORT_CLOSER =
   "이 부분은 여기서 잠시 마무리할게요. 이어서 궁금한 점 있으시면 편하게 말씀해 주세요.";
 
 /**
- * Hard-lite for sentence commit — strong enroll / cancel / close only.
- * Avoids explanatory phrases like "가입 시점" (false positive on 특약 Q).
- * Gate body untouched — call-site stream policy only.
+ * Diagnostic only — Slice 8 does not abort the sentence stream on these matches.
+ * Real CLOSED enroll/cancel pressure is handled by hardOnlySafetyCheck.
  */
 export function sentenceHardLiteBlocks(text = "") {
   const t = String(text ?? "");
   if (!t.trim()) return false;
   if (/(?:지금\s*)?가입(?:하세요|하시길|하는\s*게\s*좋|하십|[을를]\s*권)/.test(t)) return true;
   if (/(?:지금\s*)?해지(?:하세요|하시길|하는\s*게\s*좋|하십|[을를]\s*권)/.test(t)) return true;
-  if (/(?:최종\s*)?(?:체결|가입\s*확정|설계\s*완료|지금\s*결정)/.test(t)) return true;
+  if (/(?:최종\s*)?(?:체결|가입\s*확정|설계\s*완료|지금\s*결정(?:하세요|해\s*주세요|이\s*필요))/.test(t)) {
+    return true;
+  }
   return false;
 }
 
@@ -84,8 +86,6 @@ export function createSentenceCommitStream({
   let pending = "";
   let committed = "";
   let lastSeen = "";
-  let aborted = false;
-  let abortReason = null;
   let catchUpAppended = false;
 
   function commitSlice(slice) {
@@ -95,28 +95,14 @@ export function createSentenceCommitStream({
   }
 
   function drain({ flushAll = false } = {}) {
-    if (aborted) return;
     while (true) {
       const end = findNextCommitEnd(pending, { flushAll, safetyBufferChars });
       if (end < 0) break;
       const slice = pending.slice(0, end);
-      const rest = pending.slice(end);
-      if (sentenceHardLiteBlocks(slice)) {
-        aborted = true;
-        abortReason = "sentence_hard_lite";
-        pending = "";
-        return;
-      }
-      pending = rest;
+      pending = pending.slice(end);
       commitSlice(slice);
     }
     if (flushAll && pending) {
-      if (sentenceHardLiteBlocks(pending)) {
-        aborted = true;
-        abortReason = "sentence_hard_lite";
-        pending = "";
-        return;
-      }
       commitSlice(pending);
       pending = "";
     }
@@ -124,13 +110,12 @@ export function createSentenceCommitStream({
 
   return {
     pushAnswerText(fullText = "") {
-      if (aborted) return { aborted: true };
       const next = String(fullText ?? "");
       if (next.length <= lastSeen.length) return { aborted: false };
       pending += next.slice(lastSeen.length);
       lastSeen = next;
       drain({ flushAll: false });
-      return { aborted };
+      return { aborted: false };
     },
     /**
      * Append-only catch-up from the final Claude answer.
@@ -138,9 +123,6 @@ export function createSentenceCommitStream({
      * Never replaces or re-emits committed sentences.
      */
     catchUpFinalAnswer(finalAnswer = "") {
-      if (aborted) {
-        return { aborted: true, appended: false, reason: "already_aborted" };
-      }
       const final = String(finalAnswer ?? "");
       if (!final) {
         return { aborted: false, appended: false, reason: "empty_final" };
@@ -160,12 +142,11 @@ export function createSentenceCommitStream({
       lastSeen = final;
       catchUpAppended = true;
       drain({ flushAll: false });
-      return { aborted, appended: true, suffix_len: suffix.length };
+      return { aborted: false, appended: true, suffix_len: suffix.length };
     },
     flush() {
-      if (aborted) return { aborted: true };
       drain({ flushAll: true });
-      return { aborted };
+      return { aborted: false };
     },
     getCommitted() {
       return committed;
@@ -174,10 +155,10 @@ export function createSentenceCommitStream({
       return pending;
     },
     isAborted() {
-      return aborted;
+      return false;
     },
     getAbortReason() {
-      return abortReason;
+      return null;
     },
     didCatchUpAppend() {
       return catchUpAppended;

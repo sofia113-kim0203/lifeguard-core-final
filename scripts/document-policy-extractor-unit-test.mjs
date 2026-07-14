@@ -168,4 +168,67 @@ const blockOnly = extractPolicyFieldsFromBlock("실손의료비\n암진단비");
 assert(!blockOnly.success, "identity-free block must not become fake policy");
 assert(blockOnly.requires_manual_review, "weak block should require manual review");
 
+// --- Slice 8: beneficiaries / premium payers / party changes ---
+{
+  const partySample = `
+보험증권
+보험사: 삼성생명
+상품명: 종신보험
+계약자: 홍길동
+피보험자: 홍길동
+사망보험금 수익자: 김영희 60%, 이철수 40%
+만기보험금 수익자: 박민수
+보험료 납입자: 최수진
+월 보험료: 120,000원
+수익자 변경: 김영희 → 정수린
+효력발생일: 2024년 05월 01일
+`;
+  const party = extractPolicyFieldsFromBlock(partySample);
+  assert(party.success, "party sample should succeed");
+  assert(party.fields.policyholder === "홍길동", "policyholder preserved");
+  assert(party.fields.insured === "홍길동", "insured preserved");
+  assert(party.fields.beneficiaries.length >= 3, "death+maturity beneficiaries");
+  const death = party.fields.beneficiaries.filter((b) => b.beneficiary_type === "death_benefit");
+  assert(death.length === 2, "two death beneficiaries");
+  assert(death.some((b) => b.name === "김영희" && b.share === "60%"), "share 60%");
+  assert(death.some((b) => b.name === "이철수" && b.share === "40%"), "share 40%");
+  const maturity = party.fields.beneficiaries.find((b) => b.beneficiary_type === "maturity_benefit");
+  assert(maturity?.name === "박민수", "maturity beneficiary separated");
+  assert(party.fields.premium_payers.length === 1, "one premium payer");
+  assert(party.fields.premium_payers[0].name === "최수진", "payer not assumed policyholder");
+  assert(party.fields.premium_payers[0].name !== party.fields.policyholder, "payer != policyholder");
+  assert(party.fields.party_changes.length >= 1, "party change extracted");
+  assert(party.fields.party_changes[0].previous_value === "김영희", "change from");
+  assert(party.fields.party_changes[0].new_value === "정수린", "change to");
+  assert(String(party.fields.party_changes[0].effective_date || "").includes("2024"), "effective date");
+}
+
+{
+  const noParty = extractPolicyFieldsFromBlock(certificateSample);
+  assert(Array.isArray(noParty.fields.beneficiaries), "beneficiaries array always present");
+  assert(noParty.fields.beneficiaries.length === 0, "missing beneficiary → empty, no invent");
+  assert(noParty.fields.premium_payers.length === 0, "missing payer → empty, no invent");
+}
+
+{
+  const a = extractPolicyFieldsFromBlock(`
+보험사: A생명
+상품명: A종신
+계약자: 갑
+피보험자: 갑
+수익자: 을
+`);
+  const b = extractPolicyFieldsFromBlock(`
+보험사: B생명
+상품명: B종신
+계약자: 병
+피보험자: 병
+수익자: 정
+`);
+  assert(a.fields.beneficiaries[0].name === "을", "contract A beneficiary");
+  assert(b.fields.beneficiaries[0].name === "정", "contract B beneficiary");
+  assert(a.fields.beneficiaries.every((x) => x.name !== "정"), "no cross-contract mix A");
+  assert(b.fields.beneficiaries.every((x) => x.name !== "을"), "no cross-contract mix B");
+}
+
 console.log("PASS");

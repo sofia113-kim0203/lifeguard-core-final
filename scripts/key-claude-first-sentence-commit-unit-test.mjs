@@ -9,6 +9,11 @@ import {
 assert.equal(sentenceHardLiteBlocks("지금 가입하세요."), true);
 assert.equal(sentenceHardLiteBlocks("확인된 22건을 같이 보면 좋겠어요."), false);
 assert.equal(sentenceHardLiteBlocks("- **가입 시점 및 약관**: 확인이 필요합니다."), false);
+assert.equal(
+  sentenceHardLiteBlocks("지금 결정하기 전에 계약자와 피보험자 차이를 확인하세요."),
+  false,
+  "explanatory 지금 결정… must not hard-lite",
+);
 
 const commits = [];
 const stream = createSentenceCommitStream({
@@ -23,17 +28,17 @@ assert.ok(commits.length >= 1);
 assert.ok(stream.getCommitted().includes("안녕하세요"));
 assert.equal(stream.isAborted(), false);
 
-const blocked = [];
+// Slice 8: enroll push is still committed for stream stability; hard-only seals separately.
 const risky = createSentenceCommitStream({
-  onCommit: (s) => blocked.push(s),
+  onCommit: () => {},
   safetyBufferChars: 0,
 });
 risky.pushAnswerText("먼저 현황을 볼게요. ");
 risky.pushAnswerText("먼저 현황을 볼게요. 지금 가입하세요. 끝.");
 risky.flush();
-assert.ok(blocked.join("").includes("현황"));
-assert.equal(risky.isAborted(), true);
-assert.equal(blocked.join("").includes("가입하세요"), false);
+assert.equal(risky.isAborted(), false);
+assert.equal(risky.getAbortReason(), null);
+assert.ok(risky.getCommitted().includes("가입하세요"));
 assert.ok(SENTENCE_COMMIT_ABORT_CLOSER.length > 10);
 
 const end = findNextCommitEnd("첫 문장입니다. 다음", {
@@ -71,7 +76,6 @@ assert.ok(end2 > 0);
   assert.ok(after.includes("123,000원"), "table last rows completed");
   assert.ok(after.includes("말씀해 주세요"), "closing sentence completed");
   assert.equal(after.includes(before + before), false, "no duplicated committed block");
-  // Each committed unit appears once as contiguous prefix growth — count hospital row once
   assert.equal(
     (after.match(/분당서울대학교병원/g) || []).length,
     1,
@@ -83,9 +87,8 @@ assert.ok(end2 > 0);
 
 // --- Catch-up identical final → no append, no replace ---
 {
-  const units = [];
   const s = createSentenceCommitStream({
-    onCommit: (u) => units.push(u),
+    onCommit: () => {},
     safetyBufferChars: 0,
   });
   const full = "짧은 답입니다. 끝이에요.";
@@ -98,22 +101,30 @@ assert.ok(end2 > 0);
   assert.equal(s.getCommitted(), snap);
 }
 
-// --- Catch-up hard-lite on suffix: keep prior commits, block violation ---
+// --- Slice 8: educational contract-party text is never truncated ---
 {
-  const units = [];
   const s = createSentenceCommitStream({
-    onCommit: (u) => units.push(u),
+    onCommit: () => {},
     safetyBufferChars: 0,
   });
-  s.pushAnswerText("먼저 현황을 볼게요. ");
-  const before = s.getCommitted();
-  const cu = s.catchUpFinalAnswer("먼저 현황을 볼게요. 지금 가입하세요. 끝.");
+  const educational = [
+    "# 계약자 vs 피보험자",
+    "",
+    "보험증권을 보면 계약자와 피보험자가 따로 적혀 있는 경우가 많습니다.",
+    "",
+    "| 구분 | 역할 |",
+    "| 계약자 | 계약을 체결하고 변경·해지 권한이 있습니다 |",
+    "| 피보험자 | 보장의 대상입니다 |",
+    "",
+    "가입 시점과 해지 권한을 구분해서 보면 의미가 분명해집니다.",
+    "지금 결정하기 전에 이 구조를 먼저 확인하세요.",
+  ].join("\n");
+  s.pushAnswerText(educational.slice(0, 80));
+  s.catchUpFinalAnswer(educational);
   s.flush();
-  assert.equal(s.getCommitted().startsWith(before), true);
-  assert.equal(s.getCommitted().includes("가입하세요"), false);
-  assert.equal(s.isAborted(), true);
-  assert.equal(s.getAbortReason(), "sentence_hard_lite");
-  assert.ok(cu.appended === true || s.isAborted());
+  assert.equal(s.isAborted(), false);
+  assert.equal(s.getCommitted(), educational);
+  assert.equal(sentenceHardLiteBlocks("지금 결정하기 전에 확인하세요."), false);
 }
 
 // Markdown table rows are committable units.

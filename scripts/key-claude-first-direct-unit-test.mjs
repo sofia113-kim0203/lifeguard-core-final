@@ -18,6 +18,7 @@ import {
   ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
+import { sentenceHardLiteBlocks } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
 import {
   isPriorAttachFollowUpQuestion,
   PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
@@ -1266,6 +1267,100 @@ const chartPolicies = {
   });
   assert.equal(chart.contracts[0].insured, "박씨");
   assert.equal(chart.contracts[0].policyholder, "박씨");
+}
+
+// --- Slice 8: beneficiaries / premium_payers Hand + no invent ---
+{
+  const chart = buildVerifiedCustomerChart({
+    policy_count: 2,
+    policies: [
+      {
+        id: "pol-a",
+        insurer_name: "삼성생명",
+        product_name: "종신",
+        coverage_summary: {
+          policyholder: "갑",
+          insured: "갑",
+          beneficiaries: [
+            {
+              name: "을",
+              beneficiary_type: "death_benefit",
+              share: "60%",
+              evidence_state: "verified",
+            },
+            {
+              name: "병",
+              beneficiary_type: "death_benefit",
+              share: "40%",
+              evidence_state: "verified",
+            },
+            {
+              name: "정",
+              beneficiary_type: "maturity_benefit",
+              share: null,
+              evidence_state: "verified",
+            },
+          ],
+          premium_payers: [
+            {
+              name: "무",
+              payer_type: "premium_payer",
+              payment_share: null,
+              evidence_state: "verified",
+            },
+          ],
+          party_changes: [
+            {
+              party_role: "beneficiary",
+              previous_value: "을",
+              new_value: "기",
+              effective_date: "2024-05-01",
+              evidence_state: "verified",
+            },
+          ],
+          source_document_id: "doc-a",
+          insurance_period: "9999세",
+        },
+      },
+      {
+        id: "pol-b",
+        insurer_name: "한화생명",
+        product_name: "건강",
+        coverage_summary: {
+          policyholder: "신",
+          insured: "신",
+          source_document_id: "doc-b",
+        },
+      },
+    ],
+  });
+  const a = chart.contracts[0];
+  const b = chart.contracts[1];
+  assert.equal(a.beneficiaries.length, 3);
+  assert.equal(a.beneficiaries.filter((x) => x.beneficiary_type === "death_benefit").length, 2);
+  assert.equal(a.premium_payers[0].name, "무");
+  assert.equal(a.premium_payers[0].name === a.policyholder, false);
+  assert.equal(a.party_changes[0].effective_date, "2024-05-01");
+  assert.equal(a.insurance_period, "9999세");
+  assert.equal(b.beneficiaries.length, 0);
+  assert.equal(b.unknown_fields.includes("beneficiaries"), true);
+  assert.equal(b.unknown_fields.includes("premium_payers"), true);
+  assert.equal(JSON.stringify(b).includes("을"), false);
+  assert.equal(JSON.stringify(b).includes("무"), false);
+}
+
+{
+  // explanatory party answer must not be treated as sentence_hard_lite truncation case
+  const educational =
+    "계약자와 피보험자가 다르면 계약 변경·해지 권한은 계약자에게 있고, 보장은 피보험자 기준입니다. 지금 결정하기 전에 구조를 확인하세요.";
+  assert.equal(sentenceHardLiteBlocks(educational), false);
+  const enroll = hardOnlySafetyCheck("지금 가입하세요. 바로 해지하세요.", {
+    allowed_numbers: [],
+    allowed_entities: [],
+  });
+  assert.ok(enroll.hard_fail);
+  const replace = selectReplacingHardReasons(enroll.hard, "지금 가입하세요. 바로 해지하세요.");
+  assert.ok(replace.length > 0);
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");

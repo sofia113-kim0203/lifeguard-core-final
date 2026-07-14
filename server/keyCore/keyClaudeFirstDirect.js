@@ -1731,17 +1731,14 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
   const replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
 
-  // Prefer full Claude answer; on hard-lite abort keep committed prefix only (no closer).
+  // Slice 8: always prefer full Claude original when no CLOSED replacing hard.
+  // sentence_hard_lite must not truncate normal contract-structure answers.
   const alreadyCommitted = Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
   let finalText = String(claude.customer_answer ?? "").trim();
   let usedFailure = false;
   let failureReason = null;
 
-  if (sentenceStreamAborted && commitStream.getCommitted()) {
-    finalText = commitStream.getCommitted();
-    usedFailure = false;
-    failureReason = sentenceAbortReason;
-  } else if (!String(finalText ?? "").trim()) {
+  if (!String(finalText ?? "").trim()) {
     finalText = commitStream.getCommitted() || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
     if (!commitStream.getCommitted()) {
       usedFailure = true;
@@ -1757,6 +1754,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     finalText = commitStream.getCommitted() || finalText;
     failureReason = `committed_no_replace:${replacingHard.join(";")}`;
   }
+  // else: seal Claude original as-is (no sentence_hard_lite truncation).
 
   // As-is delivery (no polish rewrite). Seal only.
   const sealed = sealKeyCustomerText(finalText);
