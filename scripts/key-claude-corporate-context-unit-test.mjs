@@ -237,8 +237,8 @@ function makeSnapshot(industry = "제조") {
   assert.equal(payload.verified_corporate_contexts.length, 2);
   assert.equal(payload.verified_corporate_contexts[0].entity_id, ENTITY_A);
   assert.equal(payload.verified_corporate_contexts[1].entity_id, ENTITY_B);
-  assert.match(payload.guidance, /verified_corporate_contexts/);
-  assert.equal(payload.guidance.includes("Use only verified_corporate_facts"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
+  assert.equal(payload.verified_corporate_contexts?.length >= 1, true);
   assert.equal(JSON.stringify(payload.verified_corporate_contexts[0]).includes(ENTITY_B), false);
 }
 

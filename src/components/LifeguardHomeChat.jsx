@@ -15,7 +15,6 @@ import {
 } from "../lib/chatImageOrient.js";
 import {
   extractActiveAttachmentFromSessionMessages,
-  isPriorAttachFollowUpQuestion,
   normalizeActiveAttachment,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
@@ -786,9 +785,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     const composerTurns = chatAttachQuarterTurns;
     const composerIsImage = chatAttachIsImage;
     const composerFilename = chatAttachFilename;
-    const followUpRef = isPriorAttachFollowUpQuestion(trimmed, {
-      history: messages,
-    });
 
     let documentIdForTurn = composerDocumentId;
     let attachTurnsForTurn = composerTurns;
@@ -798,14 +794,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       : composerDocumentId
         ? "application/pdf"
         : null;
+    let reusedActiveAttachment = false;
 
-    // Reuse conversation active attachment only for explicit photo follow-ups.
-    if (!documentIdForTurn && followUpRef && activeAttachmentId) {
+    // Physical conversation active attachment — every turn until cleared (no keyword pre-route).
+    if (!documentIdForTurn && activeAttachmentId) {
       documentIdForTurn = activeAttachmentId;
       attachTurnsForTurn = activeRotationQuarterTurns;
       attachMimeForTurn = activeAttachmentMime;
       attachIsImageForTurn =
         !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
+      reusedActiveAttachment = true;
     }
 
     setPanelView("chat");
@@ -853,8 +851,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           rotationQuarterTurns: normalizeQuarterTurns(attachTurnsForTurn),
         };
       }
-      // Signal follow-up so server never falls back to latest-doc / chart substitute.
-      if (followUpRef) {
+      // Reused active attachment — server re-verifies ownership (no latest-doc invent).
+      if (reusedActiveAttachment) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
       }
       const result = await fetchHomeBrainFactStream(

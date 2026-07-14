@@ -283,8 +283,9 @@ function findCand(rec, item) {
   assert.equal(payload.verified_corporate_contexts.length, 1);
   assert.ok(payload.corporate_gap_evidence.length > 0);
   assert.ok(payload.corporate_recommendation_candidates.length > 0);
-  assert.match(payload.guidance, /known-gap review candidate|not a severity/i);
-  assert.equal(payload.corporate_evidence_meta.invented_recommendation, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "corporate_evidence_meta"), false);
+  assert.equal(payload.corporate_gap_evidence?.length > 0, true);
 }
 
 const previewEnv = {

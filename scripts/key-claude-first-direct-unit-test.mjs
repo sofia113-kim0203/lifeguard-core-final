@@ -102,13 +102,12 @@ const hard = hardOnlySafetyCheck("지금 가입하세요. 해지해도 됩니다
 assert.equal(hard.hard_fail, true);
 
 const prompt = buildSystemPrompt();
-assert.match(prompt, /No emoji/i);
-assert.match(prompt, /cite/i);
-assert.match(prompt, /Clean readable Korean/i);
-assert.match(prompt, /Tone \(required\)/i);
-assert.match(prompt, /plain Korean text first/i);
-assert.match(prompt, /warm/i);
-assert.match(prompt, /emit_claude_full is only for optional visual_blocks/i);
+assert.match(prompt, /하나의 KEY/);
+assert.match(prompt, /최종 KEY 답변/);
+assert.match(prompt, /웹 검색어/);
+assert.match(prompt, /검색어로 외부에 내보내지 않는다/);
+assert.equal(/No emoji|Tone \(required\)|emit_claude_full|특약|ATTACHED FILE/i.test(prompt), false);
+assert.equal(/guidance|must ask|do not mix/i.test(prompt), false);
 
 // Monopoly A: definitive-only wording must not monopoly-replace.
 const definitiveOnly = selectReplacingHardReasons(
@@ -327,18 +326,16 @@ assert.equal(heicDenied.ok, false);
 assert.equal(heicDenied.reason, "mime_not_supported_for_direct");
 
 const promptImage = buildSystemPrompt();
-assert.match(promptImage, /JPEG\/PNG|photo|image/i);
-assert.match(promptImage, /payout|지급|증권·약관/i);
-assert.match(promptImage, /미확인/);
-assert.match(promptImage, /9999세|종신형/);
-assert.match(promptImage, /첨부 문서|고객 차트/);
-assert.doesNotMatch(promptImage, /Claim\/hospital/i);
+assert.match(promptImage, /하나의 KEY/);
+assert.match(promptImage, /웹 검색어/);
+assert.equal(/9999세|종신형|ATTACHED FILE|emit_claude_full|Tone \(required\)/i.test(promptImage), false);
 
 assert.equal(
   isAttachDocumentReadQuestion(
     "이 사진에서 병원명, 진료일, 문서 종류, 총 결제금액을 찾아 표로 정리해줘.",
   ),
-  true,
+  false,
+  "Slice 5: keyword attach pre-route removed",
 );
 assert.equal(
   wantsClaudeFirstVisualBlocks("이 사진에서 병원명 찾아 표로 정리해줘.", {
@@ -347,35 +344,16 @@ assert.equal(
   false,
 );
 assert.equal(
-  wantsClaudeFirstVisualBlocks("표로 정리해줘", { documentAttached: true }),
-  false,
-);
-assert.equal(
-  wantsClaudeFirstVisualBlocks(
-    "이 사진에서 보험사, 상품명, 납입기간과 만기, 계약기간, 월 보험료를 표로 정리해줘. 읽기 어려운 항목은 추측하지 말고 미확인으로 표시해줘.",
-    { documentAttached: true },
-  ),
-  false,
-  "attach readout must not trigger Phase B chart call",
-);
-assert.equal(
   wantsClaudeFirstVisualBlocks("내 보험 현황을 차트로 보여줘", {
     documentAttached: false,
   }),
-  true,
-);
-// Phase B gate alone ⇒ attach readout → 0 extra Claude chart calls (call count stays 1).
-assert.equal(
-  wantsClaudeFirstVisualBlocks("이 사진에서 표로 정리해줘", {
-    documentAttached: true,
-  }) === false,
-  true,
+  false,
+  "Slice 5: Phase B removed",
 );
 
 const attachPayload = buildUserPayload({
   question: "이 사진에서 총 결제금액 찾아줘",
-  chart: { policy_count: 22 },
-  allowlist: { allowed_numbers: ["22"], allowed_entities: [] },
+  chart: { policy_count: { value: 22 } },
   contextPack: { recent_turns: [] },
   pdfMeta: {
     attached: true,
@@ -384,10 +362,12 @@ const attachPayload = buildUserPayload({
     original_filename: "receipt.jpg",
   },
 });
-assert.match(attachPayload.guidance, /ATTACHED FILE READ|미확인|9999세/);
-assert.match(attachPayload.guidance, /고객 차트|첨부/);
-assert.match(attachPayload.guidance, /orientation|column|셀|independently/i);
-assert.equal(attachPayload.verified_customer_chart?.policy_count, 22);
+assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "guidance"), false);
+assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "allowed_numbers"), false);
+assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "mode"), false);
+assert.equal(attachPayload.verified_customer_chart?.subject, "personal");
+assert.equal(attachPayload.direct_document?.attached, true);
+assert.equal(attachPayload.verified_customer_chart?.policy_count?.value, 22);
 
 // --- rotation_quarter_turns trust policy (safe 0 for invalid) ---
 assert.equal(parseRotationQuarterTurns(0), 0);
@@ -513,13 +493,13 @@ assert.equal(
 );
 
 const promptTable = buildSystemPrompt();
-assert.match(promptTable, /orientation|independently|column|셀/i);
+assert.match(promptTable, /하나의 KEY/);
+assert.equal(/orientation|independently|column/i.test(promptTable), false);
 
 {
   const payload = buildUserPayload({
     question: "이 사진 분석해줘",
-    chart: { policies: [], policy_count: 0 },
-    allowlist: {},
+    chart: { policies: [], policy_count: { value: 0 } },
     contextPack: {},
     pdfMeta: {
       attached: true,
@@ -529,8 +509,7 @@ assert.match(promptTable, /orientation|independently|column|셀/i);
     },
   });
   assert.match(payload.direct_document.preview_orientation_hint, /시계 방향으로 1회/);
-  assert.match(payload.direct_document.preview_orientation_hint, /Storage 원본/);
-  assert.match(payload.guidance, /Storage 원본/);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
 }
 
 // --- Slice A: prior attach follow-up / active attachment ---

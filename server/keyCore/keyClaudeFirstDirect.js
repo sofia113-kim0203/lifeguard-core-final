@@ -1,8 +1,7 @@
 /**
- * Preview experiment — Claude-first direct customer answer.
- * KEY: auth/ownership (caller) · verified raw materials · concrete CLOSED hard check only.
- * Does not confirm intent/Decision/Goal before Claude.
- * Does not run S3–S6 compose. Does not rewrite soft-pass answers.
+ * Preview Claude-first — free KEY answer path (Slice 5).
+ * KEY: auth/ownership · verified raw materials · CLOSED hard-only · seal as-is.
+ * Does not pre-decide intent/format/judgment. No Phase B / soft rewrite / S3–S6.
  * Production must never enable (isClaudeFirstDirectPreview).
  */
 import {
@@ -32,10 +31,7 @@ import {
   buildPreviewOrientationHint,
   buildAttachOpsSignals,
 } from "./keyClaudeImageOrient.js";
-import {
-  isPriorAttachFollowUpQuestion,
-  PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
-} from "../../src/lib/chatActiveAttachment.js";
+import { PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT } from "../../src/lib/chatActiveAttachment.js";
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
@@ -48,11 +44,7 @@ import {
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
-import { CLAUDE_FULL_VISUAL_BLOCK_TYPES } from "./keyClaudeFullEmit.js";
-import {
-  createSentenceCommitStream,
-  SENTENCE_COMMIT_ABORT_CLOSER,
-} from "./keyClaudeFirstSentenceCommit.js";
+import { createSentenceCommitStream } from "./keyClaudeFirstSentenceCommit.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -64,33 +56,15 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 export const ATTACH_PROCESS_FAILED_CUSTOMER_TEXT =
   "첨부 파일을 처리하지 못했습니다. 파일을 다시 첨부해 주세요.";
 
-/** Preview-only answer-first tool — customer_answer required; decision/goal/visual optional. */
+/** @deprecated Slice 5 — Phase B / emit_claude_full removed. Kept export for stale imports. */
 export const CLAUDE_FIRST_DIRECT_EMIT_TOOL = Object.freeze({
   name: "emit_claude_full",
-  description:
-    "Emit the customer-facing Korean answer first. Optional fields may be omitted.",
+  description: "Deprecated — unused after Slice 5 free KEY cleanup.",
   input_schema: {
     type: "object",
     additionalProperties: false,
     properties: {
-      customer_answer: {
-        type: "string",
-        description:
-          "Full natural Korean customer-facing answer. Delivered as-is after hard safety only.",
-      },
-      visual_blocks: {
-        type: "array",
-        description:
-          "Optional customer UI charts. Prefer when customer asks for a chart/table or insurance status summary. Allowed types: premium_summary_table, policy_count_summary, coverage_gap_table, coverage_status_card, next_steps_card. Use only verified chart facts; never invent coverages.",
-        items: { type: "object", additionalProperties: true },
-      },
-      decision: {
-        type: ["object", "null"],
-        additionalProperties: true,
-      },
-      session_goal: {
-        type: ["string", "null"],
-      },
+      customer_answer: { type: "string" },
     },
     required: ["customer_answer"],
   },
@@ -192,54 +166,24 @@ export function extractPartialCustomerAnswer(partialJson = "") {
 
 export function buildSystemPrompt() {
   return [
-    "You are Claude. Answer in natural Korean as yourself — not as an insurance bot, not as a scripted KEY persona.",
-    "Decide freely whether the question is insurance, daily life, analysis, or something else, and use your full abilities.",
-    "Materials may include verified_customer_chart, conversation originals, and an attached original PDF or image (JPEG/PNG) when present. Use them when helpful; do not invent policy facts that contradict them.",
-    "web_search is available — use it when you need fresh public info (e.g. restaurants, places, news). Do not refuse daily questions just because insurance materials exist.",
-    "If a PDF or photo is attached, you may read and analyze the original directly — no OCR pre-summary is provided.",
-    "Attached-file literal rules (required): copy only what is clearly visible/printed. If a character, number, name, or field is blurry/partial/uncertain, write 미확인 — never guess a similar word. Do not reinterpret printed values into other insurance concepts (example: do not turn '9999세 만기' into '종신형'; keep the printed wording or mark 미확인).",
-    "Attached table readout (required): account for image orientation first. Read each contract column independently — never pull a product name or value from an adjacent column. Keep printed units as-is (원, 세, 년납, etc.). If any part of a cell is uncertain, mark that whole cell 미확인 — do not invent similar words or partially invent the rest of the cell. Do not reinterpret document wording into other product meanings.",
-    "Attached-file focus (required when a file is attached and the customer asks about that file): answer from the attachment first. Do not auto-mix verified_customer_chart into that answer. If chart facts are truly needed, separate sources explicitly (e.g. '첨부 문서:' vs '고객 차트:').",
-    "Do NOT assert insurance payout eligibility, final benefit amount, exclusion/reduction, or medical final interpretation from an attached photo or PDF alone — when asked, say 증권·약관·계약 확인이 더 필요하다고 자연스럽게 안내한다.",
-    "Delivery order (required for speed): write the full customer-facing reply as plain Korean text first. Do NOT wrap the main answer in emit_claude_full. Plain text streams to the customer immediately.",
-    "emit_claude_full is only for optional visual_blocks AFTER the plain-text answer when a chart/table is useful. Never put the main prose only inside the tool. When reading an attached file into a markdown table, put the table in the plain-text answer — do not call emit_claude_full just to restate the attachment.",
-    "Do not push enrollment, cancellation, or definitive '충분/부족합니다' / '문제 없습니다' verdicts without basis.",
-    "Do not invent restaurant/place names or policy numbers that are not grounded in materials or search results.",
-    "Tone (required): warm, respectful, and clear. Open with a short caring acknowledgment when helpful. Soften uncertainty without sounding cold or accusing. Do not call the customer's records '오류' or '가짜' — say what is confirmed vs not yet confirmed.",
-    "When the customer asks whether riders/특약을 can be added: explain the concept kindly, clarify you cannot enroll or change the policy here, and invite sharing the 증권 for a concrete review. Do not use '지금 가입하세요' style language.",
-    "Charts: when the customer asks for a chart/table/현황 정리 of their stored policies (not an attached-file readout), emit visual_blocks later via emit_claude_full (coverage_status_card, policy_count_summary, premium_summary_table, or coverage_gap_table) using ONLY verified_customer_chart facts. Omit visual_blocks for pure daily chit-chat and for attached-file readouts.",
-    "Customer-facing presentation (required):",
-    "- No emoji, emoticons, or decorative pictographs.",
-    "- No HTML or citation markup (never output <cite> or other tags).",
-    "- Clean readable Korean: short paragraphs, ## headings when helpful, - bullet lists, **bold** sparingly for key phrases.",
-    "- Prefer clear structure over decoration. --- separators are ok when they help scanning.",
+    "너는 고객이 만나는 하나의 KEY다.",
+    "제공된 질문, 대화, 검증 사실, 원본 첨부와 도구를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
+    "네 답변이 최종 KEY 답변이다.",
+    "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
   ].join("\n");
 }
 
-/** True when the question is mainly about reading an attached file/photo. */
-export function isAttachDocumentReadQuestion(question = "") {
-  const q = String(question ?? "");
-  return /이\s*사진|이\s*문서|이\s*파일|첨부(?:된|한|파일)?|올려\s*준|올려주신|찾아\s*(?:줘|표)|표로\s*정리|읽어|판독|영수증|진단서|처방전|세부\s*내역/.test(
-    q,
-  );
+/** @deprecated Slice 5 — keyword attach pre-route removed. Always false. */
+export function isAttachDocumentReadQuestion(_question = "") {
+  return false;
 }
 
-/**
- * When to run Phase B chart visual_blocks (second tool call).
- * Attach-file readouts must not auto-trigger verified_customer_chart visuals.
- */
+/** @deprecated Slice 5 — Phase B removed. Always false. */
 export function wantsClaudeFirstVisualBlocks(
-  question = "",
-  { documentAttached = false } = {},
+  _question = "",
+  _opts = {},
 ) {
-  if (
-    documentAttached &&
-    (isAttachDocumentReadQuestion(question) || isPriorAttachFollowUpQuestion(question))
-  ) {
-    return false;
-  }
-  const q = String(question ?? "");
-  return /차트|표로\s*보여|현황|내\s*보험은\s*괜찮아|보험\s*어때|계약\s*요약/.test(q);
+  return false;
 }
 
 function normalizeCorporateContexts(corporateContexts = null) {
@@ -256,10 +200,21 @@ function normalizeCorporateContexts(corporateContexts = null) {
   );
 }
 
+function factStatusLabel(row = null) {
+  if (!row || typeof row !== "object") return "unknown";
+  if (row.verified_absent === true || row.status === "verified_absent") return "verified_absent";
+  if (row.known_gap === true && row.status === "known_gap") return "verified_absent";
+  if (row.unknown_gap === true || row.status === "unknown") return "unknown";
+  if (row.sufficient === true || row.status === "verified" || row.status === "verified_present") {
+    return "verified_present";
+  }
+  if (row.status === "partial" || row.partial === true) return "partial";
+  return row.status ? String(row.status) : "unknown";
+}
+
 export function buildUserPayload({
   question,
   chart,
-  allowlist,
   contextPack,
   pdfMeta = null,
   corporateContexts = null,
@@ -277,6 +232,7 @@ export function buildUserPayload({
     entity_id: corporate.entity_id,
     display_name: corporate.display_name ?? null,
     membership_role: corporate.membership_role,
+    subject: "corporate",
     verified_facts: corporate.verified_facts ?? [],
     partial_facts: corporate.partial_facts ?? [],
     unknowns: corporate.unknowns ?? [],
@@ -287,7 +243,8 @@ export function buildUserPayload({
     .map((row) => ({
       entity_id: row.entity_id,
       item: row.item,
-      status: row.status ?? null,
+      subject: "corporate",
+      status: factStatusLabel(row),
       known_gap: row.known_gap === true,
       unknown_gap: row.unknown_gap === true,
       sufficient: row.sufficient === true,
@@ -302,63 +259,31 @@ export function buildUserPayload({
     .map((row) => ({
       entity_id: row.entity_id,
       item: row.item,
+      subject: "corporate",
       action: row.action ?? null,
       confidence: row.confidence ?? null,
       reason: row.reason ?? null,
       provenance: row.provenance ?? null,
-      action_meaning:
-        row.action === "address_gap"
-          ? "known_gap_review_candidate_not_risk_rank"
-          : row.action_meaning ?? null,
     }));
   const corporate_unknowns = Array.isArray(corporateUnknowns) ? corporateUnknowns : [];
 
-  const baseGuidance = attached
-    ? [
-        "ATTACHED FILE READ: Focus on the attached PDF/image first.",
-        "Copy visible/printed values literally. Unclear glyphs → 미확인 (never guess similar words).",
-        "Table cells: respect image orientation; read each contract column independently (do not take names/values from adjacent columns); keep units as printed; if a cell is uncertain, mark the whole cell 미확인 — never invent similar words or reinterpret product meaning.",
-        "Do not reinterpret printed wording (e.g. keep '9999세 만기'; do not say 종신형 unless printed).",
-        "Do not auto-mix verified_customer_chart. If chart is needed, label '첨부 문서' vs '고객 차트' separately.",
-        "Put any summary table in plain Korean text. No emoji/<cite>/HTML.",
-        ...(previewHint ? [previewHint] : []),
-      ].join(" ")
-    : "Answer warmly in plain Korean text first (not inside emit_claude_full). Insurance materials are optional context. No emoji/<cite>/HTML. Prefer headings and lists. Charts/visual_blocks come in a later step if needed.";
-
-  const sourceGuidance = [
-    "Use verified_customer_chart (personal) and verified_corporate_contexts (per-entity corporate) together when relevant.",
-    "Keep personal and corporate sources separate — never flatten corporate facts into the personal chart or mix contracts across entities.",
-    "corporate_gap_evidence is derived from verified corporate snapshot facts only.",
-    "address_gap means a known-gap review candidate — not a severity rank, urgency score, or confirmed risk ranking.",
-    "unknown/defer items mean insufficient information — do not treat them as confirmed gaps.",
-    "Do not invent product names, premiums, or coverage amounts. Do not pre-write a recommendation conclusion.",
-    "Infer which source the question needs from conversation context; if truly ambiguous, ask one natural clarifying question.",
-    "Treat partial_facts as incomplete and unknowns as 미확인.",
-  ].join(" ");
-
   return {
-    mode: "claude_native_first_preview",
     customer_question: String(question ?? ""),
     conversation_originals: {
       recent_turns: contextPack?.recent_turns ?? [],
       older_summary: contextPack?.older_summary ?? null,
       retained_past_originals: contextPack?.retained_past_originals ?? [],
     },
-    // Personal chart stays present even when corporate contexts exist — never XOR-null.
-    verified_customer_chart: chart,
+    verified_customer_chart: chart
+      ? {
+          ...chart,
+          subject: "personal",
+        }
+      : null,
     verified_corporate_contexts: corporate_contexts,
     corporate_gap_evidence,
     corporate_recommendation_candidates,
     corporate_unknowns,
-    corporate_evidence_meta: {
-      invented_coverage: false,
-      invented_recommendation: false,
-      priority_meaning: "known_gap_review_candidates_not_severity_rank",
-    },
-    allowed_numbers: allowlist?.allowed_numbers ?? [],
-    allowed_entities: allowlist?.allowed_entities ?? [],
-    insurer_counts: allowlist?.insurer_counts ?? null,
-    product_counts: allowlist?.product_counts ?? null,
     direct_document: pdfMeta
       ? {
           attached,
@@ -367,13 +292,12 @@ export function buildUserPayload({
           mime_type: mime,
           note: attached
             ? isImage
-              ? "Original image is attached as an image block. Read it yourself — no OCR/KEY pre-summary."
-              : "Original PDF is attached as a document block. Read it yourself — no KEY pre-summary."
+              ? "Original image is attached as an image block."
+              : "Original PDF is attached as a document block."
             : pdfMeta.note ?? "No document attached for this turn.",
           ...(previewHint ? { preview_orientation_hint: previewHint } : {}),
         }
       : { attached: false, note: "No document attached for this turn." },
-    guidance: [sourceGuidance, baseGuidance].join(" "),
   };
 }
 
@@ -554,56 +478,55 @@ async function readAnthropicSseWithAnswerStream({
   };
 }
 
-function sanitizeClaudeFirstVisualBlocks(raw) {
-  if (!Array.isArray(raw)) return [];
-  const allowed = new Set(CLAUDE_FULL_VISUAL_BLOCK_TYPES);
-  return raw
-    .filter((b) => b && typeof b === "object")
-    .map((b) => {
-      const type = String(b.type ?? "").trim();
-      if (!allowed.has(type)) return null;
-      const out = { type };
-      if (b.title != null) out.title = String(b.title);
-      if (b.subtitle != null) out.subtitle = String(b.subtitle);
-      if (Array.isArray(b.columns)) {
-        out.columns = b.columns.map((c) => String(c ?? ""));
+function emptyWebSearchTrace() {
+  return {
+    web_search_available: true,
+    web_search_used: false,
+    web_search_count: 0,
+    search_result_count: 0,
+    search_citation_count: 0,
+    search_latency_ms: null,
+    claude_messages_request_count: 0,
+    phase_b_call_count: 0,
+    query_redacted: true,
+    query_public_terms_count: null,
+  };
+}
+
+/** Count web_search blocks without storing query text (PII-safe). */
+function accumulateWebSearchTrace(trace, content = [], dataRaw = null) {
+  const blocks = Array.isArray(content) ? content : [];
+  let searches = 0;
+  let results = 0;
+  let citations = 0;
+  for (const block of blocks) {
+    if (block?.type === "server_tool_use" && block?.name === "web_search") searches += 1;
+    if (block?.type === "web_search_tool_result") {
+      const items = Array.isArray(block.content) ? block.content : [];
+      for (const item of items) {
+        if (item?.type === "web_search_tool_result_error") continue;
+        if (item?.url || item?.title || item?.type === "web_search_result") results += 1;
       }
-      if (Array.isArray(b.rows)) {
-        out.rows = b.rows.map((row) =>
-          (Array.isArray(row) ? row : []).map((c) => String(c ?? "")),
-        );
-      }
-      if (Array.isArray(b.steps)) {
-        out.steps = b.steps
-          .filter((s) => s && typeof s === "object")
-          .map((s, idx) => ({
-            order: Number.isFinite(Number(s.order)) ? Number(s.order) : idx + 1,
-            label: String(s.label ?? ""),
-            move: String(s.move ?? ""),
-          }));
-      }
-      return out;
-    })
-    .filter(Boolean);
+    }
+    if (block?.type === "text" && Array.isArray(block.citations)) {
+      citations += block.citations.length;
+    }
+  }
+  const usageSearches = Number(dataRaw?.usage?.server_tool_use?.web_search_requests ?? 0);
+  const nextCount = Math.max(trace.web_search_count, searches, usageSearches);
+  return {
+    ...trace,
+    web_search_used: nextCount > 0 || results > 0,
+    web_search_count: nextCount,
+    search_result_count: trace.search_result_count + results,
+    search_citation_count: trace.search_citation_count + citations,
+    query_redacted: true,
+  };
 }
 
 function pickCustomerAnswer(dataRaw) {
   const blocks = Array.isArray(dataRaw?.content) ? dataRaw.content : [];
-  for (const b of blocks) {
-    if (b?.type === "tool_use" && b?.name === "emit_claude_full") {
-      const answer = String(b.input?.customer_answer ?? "").trim();
-      if (answer) {
-        return {
-          customer_answer: answer,
-          visual_blocks: sanitizeClaudeFirstVisualBlocks(b.input?.visual_blocks),
-          decision: b.input?.decision ?? null,
-          session_goal: b.input?.session_goal ?? null,
-          source: "emit_claude_full",
-        };
-      }
-    }
-  }
-  // Native Claude may answer as plain text without the tool.
+  // Native Claude answers as plain text (Slice 5 — no emit_claude_full).
   const textParts = blocks
     .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
     .map((b) => String(b.text).trim());
@@ -1068,6 +991,7 @@ async function callClaudeFirstDirect({
   }
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
   const chart = buildVerifiedCustomerChart(reality);
+  // Allowlist stays KEY-internal for hard-only — never shown in Claude payload.
   const allowlist = collectVerifiedSpeakAllowlistFromReality(reality);
   const { pack: contextPack } = buildClaudeFullContextPack({
     history,
@@ -1076,7 +1000,6 @@ async function callClaudeFirstDirect({
   const userPayload = buildUserPayload({
     question,
     chart,
-    allowlist,
     contextPack,
     pdfMeta,
     corporateContexts,
@@ -1101,8 +1024,11 @@ async function callClaudeFirstDirect({
     source: null,
   };
   let streamedAnswer = "";
+  let webSearchTrace = emptyWebSearchTrace();
+  let messagesRequestCount = 0;
+  const searchWallStarted = Date.now();
 
-  // Phase A — plain text (+ optional web_search). No emit tool so prose streams early.
+  // Single answer path — plain text + optional Anthropic server web_search (tool_choice auto).
   const answerTools = [ANTHROPIC_WEB_SEARCH_TOOL];
   for (let turn = 0; turn < 4; turn += 1) {
     const body = {
@@ -1125,6 +1051,7 @@ async function callClaudeFirstDirect({
       },
       body: JSON.stringify(body),
     });
+    messagesRequestCount += 1;
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       return {
@@ -1132,6 +1059,11 @@ async function callClaudeFirstDirect({
         error: `ANTHROPIC_HTTP_${res.status}`,
         detail: String(errText).slice(0, 400),
         model,
+        web_search_trace: {
+          ...webSearchTrace,
+          claude_messages_request_count: messagesRequestCount,
+          phase_b_call_count: 0,
+        },
       };
     }
 
@@ -1148,6 +1080,12 @@ async function callClaudeFirstDirect({
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
+    webSearchTrace = accumulateWebSearchTrace(
+      webSearchTrace,
+      assistantContent,
+      streamed.dataRaw,
+    );
+
     // Client tool_use only — server web_search must not force a follow-up turn.
     const hasToolUse = hasClientToolUse(assistantContent);
 
@@ -1159,19 +1097,18 @@ async function callClaudeFirstDirect({
     }
 
     if (picked.customer_answer && hasToolUse) {
-      // Unusual mix — prefer plain text progress already streamed.
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
     }
 
     if (!assistantContent.length) break;
+    // Continue conversation for rare client tool_use — no tone/format rewrite prompt.
     messages = [
       ...messages,
       { role: "assistant", content: assistantContent },
       {
         role: "user",
-        content:
-          "이제 고객에게 보여줄 최종 한국어 답변을 일반 텍스트로만 작성해 주세요. emit_claude_full 도구는 사용하지 마세요. 따뜻하고 존중하는 톤으로, 이모지·<cite>·HTML 없이, 문단·제목·목록으로 깔끔히 정리하세요. 보험으로 억지 전환하지 말고 현재 질문 자체에 답하세요.",
+        content: "Continue and provide the final Korean customer answer as plain text.",
       },
     ];
 
@@ -1182,61 +1119,22 @@ async function callClaudeFirstDirect({
     lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
 
-  // Phase B — optional charts after prose (does not stream customer prose again).
-  // Skip when this turn is an attached-file readout (avoid mixing verified_customer_chart).
-  // Corporate contexts do not force a different visual path.
-  let visual_blocks = Array.isArray(lastPicked.visual_blocks) ? lastPicked.visual_blocks : [];
-  const documentAttached = Boolean(pdfBase64) || pdfMeta?.attached === true;
-  if (
-    customer_answer &&
-    wantsClaudeFirstVisualBlocks(question, { documentAttached }) &&
-    visual_blocks.length === 0
-  ) {
-    const chartMessages = [
-      ...messages,
-      {
-        role: "user",
-        content:
-          "Plain-text answer already delivered to the customer. Now call emit_claude_full with visual_blocks only (policy_count_summary / premium_summary_table / coverage_status_card / coverage_gap_table) using verified_customer_chart facts only. Set customer_answer to a single short line like '현황 표입니다.' — do not rewrite the full answer.",
-      },
-    ];
-    const chartBody = {
-      model,
-      max_tokens: 2048,
-      temperature: 0.2,
-      system,
-      tools: [CLAUDE_FIRST_DIRECT_EMIT_TOOL],
-      tool_choice: { type: "tool", name: "emit_claude_full" },
-      messages: chartMessages,
-      stream: true,
+  if (webSearchTrace.web_search_used) {
+    webSearchTrace = {
+      ...webSearchTrace,
+      search_latency_ms: Math.max(0, Date.now() - searchWallStarted),
     };
-    const chartRes = await fetchImpl(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(chartBody),
-    });
-    if (chartRes.ok) {
-      const chartStreamed = await readAnthropicSseWithAnswerStream({
-        res: chartRes,
-        startedAt,
-        onFirstContent: null,
-        onAnswerProgress: null,
-      });
-      const chartPicked = pickCustomerAnswer(chartStreamed.dataRaw);
-      if (Array.isArray(chartPicked.visual_blocks) && chartPicked.visual_blocks.length) {
-        visual_blocks = chartPicked.visual_blocks;
-      }
-    }
   }
+  webSearchTrace = {
+    ...webSearchTrace,
+    claude_messages_request_count: messagesRequestCount,
+    phase_b_call_count: 0,
+  };
 
   return {
     ok: Boolean(customer_answer),
     customer_answer,
-    visual_blocks,
+    visual_blocks: [],
     decision: lastPicked.decision,
     session_goal: lastPicked.session_goal,
     answer_source: lastPicked.source || (customer_answer ? "plain_text" : null),
@@ -1244,6 +1142,7 @@ async function callClaudeFirstDirect({
     chart,
     allowlist,
     pdf_attached: Boolean(pdfBase64),
+    web_search_trace: webSearchTrace,
     error: customer_answer ? null : "empty_customer_answer",
   };
 }
@@ -1304,11 +1203,10 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   const reality = { policies, policy_count };
 
-  const followUp =
-    priorAttachFollowUp === true ||
-    isPriorAttachFollowUpQuestion(question, { history });
-  // Follow-up photo refs must never invent a latest document or chart substitute.
-  const allowLatestFallback = !followUp;
+  // Physical active attachment only — never invent latest document; never keyword-classify the question.
+  const explicitDocumentId = String(attachedDocumentId ?? "").trim();
+  const allowLatestFallback = false;
+  const clientPriorAttach = priorAttachFollowUp === true;
 
   const pdf = await resolveOptionalPdfAttachment({
     userSupabase,
@@ -1322,11 +1220,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
 
   // Explicit attach requested this turn but processing failed → fail-closed.
-  // Do not fire on weak latest-document-only turns (no attachedDocumentId).
-  // Slice A client flag priorAttachFollowUp keeps the dedicated reattach copy.
-  const explicitDocumentId = String(attachedDocumentId ?? "").trim();
   if (explicitDocumentId && pdf?.meta?.attached !== true) {
-    const usePriorAttachCopy = priorAttachFollowUp === true;
+    const usePriorAttachCopy = clientPriorAttach === true;
     const failureNote = usePriorAttachCopy
       ? "prior_attach_missing"
       : String(pdf?.meta?.note ?? "").trim() || "attach_process_failed";
@@ -1437,8 +1332,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     };
   }
 
-  // Slice A / question follow-up without an explicit document_id → reattach prompt.
-  if (followUp && pdf?.meta?.attached !== true) {
+  // Client signals prior active attach but document is missing → reattach prompt (no keyword classify).
+  if (clientPriorAttach && !explicitDocumentId && pdf?.meta?.attached !== true) {
     const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
     if (streamHandlers?.onDelta) {
       streamHandlers.onDelta(sealed.key_speak_original);
@@ -1626,28 +1521,22 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
   const replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
 
-  // E: sentence commit stream — committed text is never replaced.
+  // Prefer full Claude answer; on hard-lite abort keep committed prefix only (no closer).
   const alreadyCommitted = Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
-  let finalText = commitStream.getCommitted() || claude.customer_answer;
+  let finalText = String(claude.customer_answer ?? "").trim();
   let usedFailure = false;
   let failureReason = null;
 
   if (sentenceStreamAborted && commitStream.getCommitted()) {
-    // Keep committed sentences; append soft closer once (also commit to stream if needed).
-    if (!String(finalText).includes(SENTENCE_COMMIT_ABORT_CLOSER)) {
-      const closer = `\n\n${SENTENCE_COMMIT_ABORT_CLOSER}`;
-      finalText = `${finalText.trimEnd()}${closer}`;
-      if (streamHandlers?.onDelta) {
-        streamHandlers.onDelta(closer);
-        streamHandlers._emitted = true;
-      }
-    }
+    finalText = commitStream.getCommitted();
     usedFailure = false;
     failureReason = sentenceAbortReason;
   } else if (!String(finalText ?? "").trim()) {
-    finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-    usedFailure = true;
-    failureReason = "empty_answer";
+    finalText = commitStream.getCommitted() || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+    if (!commitStream.getCommitted()) {
+      usedFailure = true;
+      failureReason = "empty_answer";
+    }
   } else if (replacingHard.length > 0 && !alreadyCommitted) {
     // Only monopoly-replace when nothing was already shown to the customer.
     finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
@@ -1655,6 +1544,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     failureReason = replacingHard.join(";") || "closed_hard";
   } else if (replacingHard.length > 0 && alreadyCommitted) {
     // E: keep committed text; do not yank.
+    finalText = commitStream.getCommitted() || finalText;
     failureReason = `committed_no_replace:${replacingHard.join(";")}`;
   }
 
@@ -1713,6 +1603,10 @@ export async function runClaudeFirstDirectQuestionTurn({
           answer_source: claude.answer_source ?? null,
           pdf_attached: claude.pdf_attached === true,
           attach_signals: pdf?.meta?.attach_signals ?? null,
+          web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
+          sealed_matches_claude:
+            !usedFailure &&
+            String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? "").trim(),
           sentence_commit: {
             mode: "sentence_unit_e",
             aborted: sentenceStreamAborted,
@@ -1750,6 +1644,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             answer_source: claude.answer_source ?? null,
             pdf_attached: claude.pdf_attached === true,
             attach_signals: pdf?.meta?.attach_signals ?? null,
+            web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
             answer_preview: String(claude.customer_answer).slice(0, 300),
             sentence_commit_aborted: sentenceStreamAborted,
             sentence_commit_abort_reason: sentenceAbortReason,
@@ -1772,6 +1667,8 @@ export async function runClaudeFirstDirectQuestionTurn({
         "s3_s6_compose",
         "soft_rewrite",
         "focused_correction",
+        "phase_b_visual",
+        "emit_claude_full",
       ],
       customer_text_path: ["claude_first_direct", "hard_only_check", "sealKeyCustomerText"],
     },
