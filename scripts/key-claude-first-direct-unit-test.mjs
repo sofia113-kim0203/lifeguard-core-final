@@ -5,6 +5,8 @@ import {
   hardOnlySafetyCheck,
   buildSystemPrompt,
   buildUserPayload,
+  buildRequestClock,
+  extractPublicEvidenceFromClaudeContent,
   selectReplacingHardReasons,
   finalizeClaudeFirstStreamContentBlocks,
   hasClientToolUse,
@@ -15,6 +17,7 @@ import {
   runClaudeFirstDirectQuestionTurn,
   ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import {
   isPriorAttachFollowUpQuestion,
   PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
@@ -361,13 +364,25 @@ const attachPayload = buildUserPayload({
     mime_type: "image/jpeg",
     original_filename: "receipt.jpg",
   },
+  now: new Date("2026-07-14T12:00:00+09:00"),
 });
 assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "guidance"), false);
 assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "allowed_numbers"), false);
 assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "mode"), false);
-assert.equal(attachPayload.verified_customer_chart?.subject, "personal");
-assert.equal(attachPayload.direct_document?.attached, true);
-assert.equal(attachPayload.verified_customer_chart?.policy_count?.value, 22);
+assert.equal(attachPayload.current_question, "이 사진에서 총 결제금액 찾아줘");
+assert.equal(attachPayload.current_context?.timezone, "Asia/Seoul");
+assert.equal(attachPayload.current_context?.current_date, "2026-07-14");
+assert.equal(
+  attachPayload.available_verified_evidence?.personal?.subject_type,
+  "individual",
+);
+assert.equal(
+  attachPayload.available_verified_evidence?.personal?.chart?.policy_count?.value,
+  22,
+);
+assert.equal(attachPayload.available_verified_evidence?.documents?.[0]?.attached, true);
+assert.deepEqual(attachPayload.available_verified_evidence?.public_evidence, []);
+assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "verified_customer_chart"), false);
 
 // --- rotation_quarter_turns trust policy (safe 0 for invalid) ---
 assert.equal(parseRotationQuarterTurns(0), 0);
@@ -508,7 +523,10 @@ assert.equal(/orientation|independently|column/i.test(promptTable), false);
       document_id: "doc-hint",
     },
   });
-  assert.match(payload.direct_document.preview_orientation_hint, /시계 방향으로 1회/);
+  assert.match(
+    payload.available_verified_evidence.documents[0].preview_orientation_hint,
+    /시계 방향으로 1회/,
+  );
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
 }
 
@@ -1003,6 +1021,178 @@ const chartPolicies = {
     allowLatestFallback: true,
   });
   assert.equal(resolved, "doc-explicit-fail-closed");
+}
+
+// --- Slice 6: question-centered evidence + coverage Hand + public_evidence ---
+{
+  const clock = buildRequestClock(new Date("2026-07-14T15:30:00+09:00"));
+  assert.equal(clock.timezone, "Asia/Seoul");
+  assert.equal(clock.current_date, "2026-07-14");
+  assert.match(clock.current_datetime, /^2026-07-14T/);
+}
+
+{
+  const chart = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [
+      {
+        id: "pol-1",
+        insurer_name: "삼성생명",
+        product_name: "실손의료비보험",
+        monthly_premium: 45000,
+        end_date: "9999세",
+        coverage_summary: {
+          payment_period: "20년납",
+          insurance_period: "9999세",
+          source_document_id: "doc-src",
+          extractor_version: "step4-ocr-policy-v3-multi",
+          extracted_at: "2026-01-10T00:00:00.000Z",
+          rider_details: [
+            {
+              rider_name: "암진단비",
+              coverage_amount: 30000000,
+              source_line: "암진단비 3,000만원",
+            },
+            {
+              rider_name: "암주요치료비",
+              coverage_amount: 5000000,
+            },
+          ],
+          detected_coverages: ["암", "실손"],
+        },
+      },
+    ],
+  });
+  const c0 = chart.contracts[0];
+  assert.equal(c0.insurer, "삼성생명");
+  assert.equal(c0.end_date, "9999세");
+  assert.equal(c0.insurance_period, "9999세");
+  assert.equal(c0.payment_period, "20년납");
+  assert.equal(JSON.stringify(c0).includes("종신"), false);
+  const cancer = c0.coverages.find((x) => x.coverage_name === "암진단비");
+  assert.equal(cancer?.coverage_amount, 30000000);
+  assert.equal(cancer?.provenance?.document_id, "doc-src");
+  const treat = c0.coverages.find((x) => x.coverage_name === "암주요치료비");
+  assert.equal(treat?.coverage_amount, 5000000);
+  assert.ok(c0.coverages.every((x) => x.coverage_amount !== 0 || x.coverage_name));
+  // amount-only row stays partial + unknown name
+  const amountOnly = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [
+      {
+        insurer_name: "A",
+        product_name: "B",
+        coverage_summary: {
+          rider_details: [{ coverage_amount: 10000000, coverage_amount_raw: "1000만원" }],
+        },
+      },
+    ],
+  });
+  const partialCov = amountOnly.contracts[0].coverages[0];
+  assert.equal(partialCov.coverage_name, "unknown");
+  assert.equal(partialCov.coverage_amount, 10000000);
+  assert.equal(partialCov.coverage_amount_raw, "1000만원");
+  assert.equal(partialCov.evidence_state, "partial");
+}
+
+{
+  const { buildClaudeCorporateFactPack } = await import(
+    "../server/keyCore/keyClaudeCorporateContext.js"
+  );
+  const pack = buildClaudeCorporateFactPack({
+    entityRecord: {
+      entity_id: "corp-1",
+      id: "corp-1",
+      entity_type: "corporate",
+      display_name: "QA법인",
+    },
+    membership: { member_role: "owner" },
+    snapshot: {
+      contract_version: "corporate-snapshot-v1",
+      derived: {
+        industry: "제조",
+        group_insurance_status: "present",
+        employee_count: null,
+        executive_protection: null,
+        fire_insurance: null,
+        liability: null,
+        unknowns: ["fire_insurance", "liability", "executive_protection"],
+      },
+    },
+    memorySnapshot: { facts: [], fact_count: 0 },
+  });
+  const payload = buildUserPayload({
+    question: "올해 보험료 세액공제 기준을 설명해줘",
+    chart: buildVerifiedCustomerChart({
+      policy_count: 2,
+      policies: [
+        { insurer_name: "한화생명", product_name: "건강보험", monthly_premium: 10000 },
+        { insurer_name: "삼성생명", product_name: "실손", monthly_premium: 45000 },
+      ],
+    }),
+    contextPack: { recent_turns: [] },
+    corporateContexts: [pack],
+    corporateGapEvidence: [
+      {
+        entity_id: "corp-1",
+        item: "fire_insurance",
+        unknown_gap: true,
+        status: "unknown",
+      },
+    ],
+    now: new Date("2026-07-14T10:00:00+09:00"),
+  });
+  assert.equal(payload.current_question.includes("올해"), true);
+  assert.equal(payload.current_context.current_date, "2026-07-14");
+  const personal = payload.available_verified_evidence.personal;
+  const corporate = payload.available_verified_evidence.corporate;
+  assert.equal(personal.subject_type, "individual");
+  assert.equal(personal.chart.policy_count.value, 2);
+  assert.equal(JSON.stringify(personal).includes("group_insurance"), false);
+  assert.equal(corporate.length, 1);
+  assert.equal(corporate[0].subject_type, "corporate");
+  assert.equal(corporate[0].entity_id, "corp-1");
+  assert.ok(corporate[0].gap_evidence.length >= 1);
+  assert.equal(JSON.stringify(corporate[0]).includes("한화생명"), false);
+  assert.equal(JSON.stringify(corporate[0]).includes("삼성생명"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "mode"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
+}
+
+{
+  assert.deepEqual(extractPublicEvidenceFromClaudeContent([]), []);
+  const pub = extractPublicEvidenceFromClaudeContent(
+    [
+      {
+        type: "web_search_tool_result",
+        content: [
+          {
+            type: "web_search_result",
+            title: "국세청 보험료 세액공제",
+            url: "https://www.nts.go.kr/example",
+            publisher: "국세청",
+            published_at: "2025-01-01",
+          },
+        ],
+      },
+      {
+        type: "text",
+        text: "한도는 100만 원입니다.",
+        citations: [
+          {
+            title: "국세청 보험료 세액공제",
+            url: "https://www.nts.go.kr/example",
+            cited_text: "보장성 보험료 세액공제",
+          },
+        ],
+      },
+    ],
+    { retrievedAt: "2026-07-14T12:00:00" },
+  );
+  assert.ok(pub.length >= 1);
+  assert.equal(pub[0].publisher, "국세청");
+  assert.equal(pub[0].retrieved_at, "2026-07-14T12:00:00");
+  assert.equal(pub.some((p) => /web_search_used|tool/.test(JSON.stringify(p))), false);
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");

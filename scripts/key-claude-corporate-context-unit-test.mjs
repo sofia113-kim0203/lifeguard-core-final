@@ -208,9 +208,10 @@ function makeSnapshot(industry = "제조") {
     allowlist: { allowed_numbers: [1], allowed_entities: ["삼성생명"] },
     contextPack: { recent_turns: [] },
   });
-  assert.equal(personal.verified_customer_chart.policy_count, 1);
-  assert.deepEqual(personal.verified_corporate_contexts, []);
+  assert.equal(personal.available_verified_evidence.personal.chart.policy_count, 1);
+  assert.deepEqual(personal.available_verified_evidence.corporate, []);
   assert.equal(Object.prototype.hasOwnProperty.call(personal, "verified_corporate_facts"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(personal, "verified_customer_chart"), false);
 }
 
 {
@@ -233,13 +234,19 @@ function makeSnapshot(industry = "제조") {
     contextPack: { recent_turns: [] },
     corporateContexts: [packA, packB],
   });
-  assert.equal(payload.verified_customer_chart.policy_count, 34);
-  assert.equal(payload.verified_corporate_contexts.length, 2);
-  assert.equal(payload.verified_corporate_contexts[0].entity_id, ENTITY_A);
-  assert.equal(payload.verified_corporate_contexts[1].entity_id, ENTITY_B);
+  assert.equal(payload.available_verified_evidence.personal.chart.policy_count, 34);
+  assert.equal(payload.available_verified_evidence.corporate.length, 2);
+  assert.equal(payload.available_verified_evidence.corporate[0].entity_id, ENTITY_A);
+  assert.equal(payload.available_verified_evidence.corporate[1].entity_id, ENTITY_B);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
-  assert.equal(payload.verified_corporate_contexts?.length >= 1, true);
-  assert.equal(JSON.stringify(payload.verified_corporate_contexts[0]).includes(ENTITY_B), false);
+  assert.equal(
+    JSON.stringify(payload.available_verified_evidence.corporate[0]).includes(ENTITY_B),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(payload.available_verified_evidence.corporate[0]).includes("개인보험사"),
+    false,
+  );
 }
 
 // --- home request body: no entity fields ---
@@ -297,9 +304,11 @@ function extractUserText(opts) {
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
       const text = extractUserText(opts);
-      if (/verified_customer_chart/.test(text) && /삼성생명/.test(text)) sawPersonal = true;
+      if (/available_verified_evidence/.test(text) && /삼성생명/.test(text)) sawPersonal = true;
       if (text.includes(ENTITY_FOREIGN)) sawForeign = true;
-      if (/verified_corporate_contexts/.test(text) && /제조/.test(text)) sawAllowed = true;
+      if (/available_verified_evidence/.test(text) && /제조/.test(text) && text.includes(ENTITY_A)) {
+        sawAllowed = true;
+      }
       return {
         ok: true,
         async json() {
@@ -344,8 +353,8 @@ function extractUserText(opts) {
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
       const text = extractUserText(opts);
-      if (/verified_customer_chart/.test(text)) sawPersonal = true;
-      assert.match(text, /verified_corporate_contexts/);
+      if (/available_verified_evidence/.test(text) && /한화생명/.test(text)) sawPersonal = true;
+      assert.match(text, /available_verified_evidence/);
       assert.equal(/Use only verified_corporate_facts/.test(text), false);
       return {
         ok: true,
@@ -375,7 +384,7 @@ function extractUserText(opts) {
   assert.equal(/active_entity_type|active_entity_id|activeEntity/.test(sessionCore), false);
   const firstDirect = readFileSync(join(ROOT, "server/keyCore/keyClaudeFirstDirect.js"), "utf8");
   assert.equal(/corporateTurn|Use only verified_corporate_facts|verified_customer_chart: null/.test(firstDirect), false);
-  assert.match(firstDirect, /verified_corporate_contexts/);
+  assert.match(firstDirect, /available_verified_evidence/);
   assert.match(firstDirect, /loadAllowedCorporateContextsForClaude/);
 }
 

@@ -685,8 +685,9 @@ const CHART_POLICY_FIELD_KEYS = [
   "coverages",
   "coverage_list",
   "coverage_names",
-  "policy_number",
+  // Slice 6: do not forward policy_number (direct identifier) into Claude chart.
   "policy_status",
+  // Keep existing insured_name pass-through; do not expand policyholder/beneficiary PII this slice.
   "insured_name",
   "start_date",
   "end_date",
@@ -694,6 +695,21 @@ const CHART_POLICY_FIELD_KEYS = [
   "product_type",
   "company_name",
 ];
+
+/** Preserve factory literals as-is (e.g. "9999세") — never normalize to 종신/invalid. */
+function preserveFactoryLiteral(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  return value;
+}
+
+function pickFirstPresent(...values) {
+  for (const v of values) {
+    if (v == null || v === "") continue;
+    return preserveFactoryLiteral(v);
+  }
+  return null;
+}
 
 /**
  * Collect factory-owned coverage labels already present on the policy.
@@ -734,45 +750,238 @@ function extractVerifiedCoveragesFromPolicy(p = null) {
     pushMany(summary.detected_coverages);
     pushMany(summary.coverage_categories);
     pushMany(summary.categories);
+    pushMany(summary.riders);
   }
   return out.length ? out : null;
+}
+
+function buildCoverageProvenance(summary = null, detail = null) {
+  const document_id = pickFirstPresent(
+    detail?.source_document_id,
+    summary?.source_document_id,
+    summary?.document_id,
+  );
+  const extractor_version = pickFirstPresent(
+    detail?.extractor_version,
+    summary?.extractor_version,
+  );
+  const extracted_at = pickFirstPresent(detail?.extracted_at, summary?.extracted_at);
+  const page = pickFirstPresent(detail?.page, detail?.page_number, summary?.page);
+  const row_or_source_span = pickFirstPresent(
+    detail?.source_line,
+    detail?.row_or_source_span,
+    detail?.notes,
+    summary?.source_line,
+  );
+  if (
+    document_id == null &&
+    extractor_version == null &&
+    extracted_at == null &&
+    page == null &&
+    row_or_source_span == null
+  ) {
+    return null;
+  }
+  return {
+    document_id,
+    page,
+    row_or_source_span,
+    extractor_version,
+    extracted_at,
+  };
+}
+
+/**
+ * Structured coverages from factory/extract — amounts only when already present.
+ * Never invent names, amounts, or units. Never coerce 9999세 → 종신.
+ */
+function extractVerifiedCoverageDetailsFromPolicy(p = null) {
+  if (!p || typeof p !== "object") return [];
+  const summary =
+    p.coverage_summary && typeof p.coverage_summary === "object" ? p.coverage_summary : {};
+  const out = [];
+  const seen = new Set();
+
+  const pushCoverage = (row) => {
+    if (!row || typeof row !== "object") return;
+    const nameRaw = pickFirstPresent(
+      row.coverage_name,
+      row.rider_name,
+      row.name,
+      row.label,
+      row.category,
+    );
+    const amount =
+      row.coverage_amount != null && row.coverage_amount !== ""
+        ? preserveFactoryLiteral(row.coverage_amount)
+        : row.amount != null && row.amount !== ""
+          ? preserveFactoryLiteral(row.amount)
+          : null;
+    const amountRaw = pickFirstPresent(
+      row.coverage_amount_raw,
+      row.amount_raw,
+      amount != null ? amount : null,
+    );
+    const hasName = nameRaw != null && String(nameRaw).trim() !== "";
+    const hasAmount = amount != null || (amountRaw != null && String(amountRaw).trim() !== "");
+    if (!hasName && !hasAmount) return;
+
+    const coverage_name = hasName ? preserveFactoryLiteral(nameRaw) : "unknown";
+    const key = `${String(coverage_name)}::${amount ?? ""}::${amountRaw ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    let evidence_state = "verified";
+    if (!hasName && hasAmount) evidence_state = "partial";
+    else if (hasName && !hasAmount) evidence_state = "partial";
+    else if (row.evidence_state) evidence_state = String(row.evidence_state);
+
+    out.push({
+      coverage_name,
+      coverage_amount: amount,
+      coverage_amount_raw: amountRaw,
+      coverage_unit: pickFirstPresent(row.coverage_unit, row.unit),
+      coverage_period: pickFirstPresent(
+        row.coverage_period,
+        row.insurance_period,
+        summary.insurance_period,
+      ),
+      renewal_type: pickFirstPresent(row.renewal_type, summary.renewal_type, p.renewal_type),
+      evidence_state,
+      provenance: buildCoverageProvenance(summary, row),
+    });
+  };
+
+  if (Array.isArray(summary.rider_details)) {
+    for (const detail of summary.rider_details) pushCoverage(detail);
+  }
+  if (Array.isArray(summary.riders)) {
+    for (const rider of summary.riders) {
+      if (rider && typeof rider === "object") pushCoverage(rider);
+    }
+  }
+  // Top-level summary coverage_name + amount (single)
+  if (summary.coverage_name != null || summary.coverage_amount != null) {
+    pushCoverage({
+      coverage_name: summary.coverage_name,
+      coverage_amount: summary.coverage_amount,
+      coverage_amount_raw: summary.coverage_amount_raw,
+      coverage_unit: summary.coverage_unit,
+      source_line: summary.source_line,
+    });
+  }
+
+  // Label-only factory coverages (no amount) — keep as partial name rows if not already added
+  const labels = extractVerifiedCoveragesFromPolicy(p) ?? [];
+  for (const label of labels) {
+    const already = out.some(
+      (c) => String(c.coverage_name ?? "").trim() === String(label).trim(),
+    );
+    if (already) continue;
+    pushCoverage({ coverage_name: label, coverage_amount: null });
+  }
+
+  return out;
+}
+
+function buildContractProvenance(p = null, summary = null) {
+  return {
+    document_id: pickFirstPresent(
+      summary?.source_document_id,
+      p?.source_document_id,
+      p?.document_id,
+    ),
+    extractor_version: pickFirstPresent(summary?.extractor_version, p?.extractor_version),
+    extracted_at: pickFirstPresent(summary?.extracted_at, p?.extracted_at),
+    effective_from: pickFirstPresent(
+      summary?.effective_from,
+      p?.effective_from,
+      p?.start_date,
+    ),
+    source: pickFirstPresent(p?.source, "factory"),
+  };
 }
 
 /**
  * Verified customer chart for Claude input — full contract list, no 1-policy stub.
  * Claude may read/analyze; KEY alone owns chart write/adopt/judgment.
  * Unverified values are marked unknown — never promoted to chart facts.
+ * Slice 6: pass factory rider amounts / periods / provenance when already present.
  */
 export function buildVerifiedCustomerChart(reality = null) {
   const policies = Array.isArray(reality?.policies) ? reality.policies : [];
   const declaredCount = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
   const contracts = policies.map((p, index) => {
+    const summary =
+      p?.coverage_summary && typeof p.coverage_summary === "object" ? p.coverage_summary : {};
     const verified = {};
     const unknown = [];
     for (const key of CHART_POLICY_FIELD_KEYS) {
       if (key === "coverages" || key === "coverage_list" || key === "coverage_names") continue;
       const raw = p?.[key];
       if (raw == null || raw === "") {
-        // skip empty aliases unless the field is a primary label
         continue;
       }
-      verified[key] = raw;
+      verified[key] = preserveFactoryLiteral(raw);
     }
-    const coverages = extractVerifiedCoveragesFromPolicy(p);
-    if (coverages) verified.coverages = coverages;
-    // Normalize common unknowns when primary labels absent
+    // Periods from factory/extract — never invent; preserve literals (incl. 9999세).
+    const payment_period = pickFirstPresent(
+      p?.payment_period,
+      summary.payment_period,
+      verified.payment_cycle,
+    );
+    const insurance_period = pickFirstPresent(p?.insurance_period, summary.insurance_period);
+    const renewal_type = pickFirstPresent(p?.renewal_type, summary.renewal_type);
+    const end_date = pickFirstPresent(verified.end_date, p?.end_date, summary.end_date);
+    const start_date = pickFirstPresent(
+      verified.start_date,
+      p?.start_date,
+      summary.effective_from,
+      p?.effective_from,
+    );
+    if (payment_period != null) verified.payment_period = payment_period;
+    if (insurance_period != null) verified.insurance_period = insurance_period;
+    if (renewal_type != null) verified.renewal_type = renewal_type;
+    if (end_date != null) verified.end_date = end_date;
+    if (start_date != null) verified.start_date = start_date;
+
+    const coverageLabels = extractVerifiedCoveragesFromPolicy(p);
+    if (coverageLabels) verified.coverages = coverageLabels;
+    const coverages = extractVerifiedCoverageDetailsFromPolicy(p);
+
     if (verified.insurer_name == null && verified.company_name == null) unknown.push("insurer_name");
     if (verified.product_name == null) unknown.push("product_name");
     if (verified.monthly_premium == null && verified.premium_amount == null) {
       unknown.push("monthly_premium");
     }
-    if (verified.coverages == null) {
+    if (coverages.length === 0 && verified.coverages == null) {
       unknown.push("coverages");
     }
     const status =
-      Object.keys(verified).length === 0 ? "unknown" : unknown.length === 0 ? "verified" : "partial";
+      Object.keys(verified).length === 0 && coverages.length === 0
+        ? "unknown"
+        : unknown.length === 0
+          ? "verified"
+          : "partial";
+
+    const insurer = pickFirstPresent(verified.insurer_name, verified.company_name);
+    const monthly_premium = pickFirstPresent(verified.monthly_premium, verified.premium_amount);
+    const provenance = buildContractProvenance(p, summary);
+
     return {
       index,
+      contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
+      insurer,
+      product_name: pickFirstPresent(verified.product_name),
+      start_date,
+      end_date,
+      payment_period,
+      insurance_period,
+      renewal_type,
+      monthly_premium,
+      evidence_state: status,
+      provenance,
+      coverages,
       status,
       verified_fields: verified,
       unknown_fields: unknown,

@@ -246,10 +246,9 @@ function findCand(rec, item) {
     allowlist: {},
     contextPack: {},
   });
-  assert.equal(personal.verified_customer_chart.policy_count.value, 2);
-  assert.deepEqual(personal.verified_corporate_contexts, []);
-  assert.deepEqual(personal.corporate_gap_evidence, []);
-  assert.deepEqual(personal.corporate_recommendation_candidates, []);
+  assert.equal(personal.available_verified_evidence.personal.chart.policy_count.value, 2);
+  assert.deepEqual(personal.available_verified_evidence.corporate, []);
+  assert.deepEqual(personal.available_verified_evidence.public_evidence, []);
 }
 
 // --- payload wiring: membership evidence + personal chart together ---
@@ -279,13 +278,16 @@ function findCand(rec, item) {
     corporateRecommendationCandidates: evidence.recommendation_candidates,
     corporateUnknowns: evidence.unknowns.map((u) => ({ entity_id: ENTITY_A, unknown: u })),
   });
-  assert.equal(payload.verified_customer_chart.policy_count.value, 2);
-  assert.equal(payload.verified_corporate_contexts.length, 1);
-  assert.ok(payload.corporate_gap_evidence.length > 0);
-  assert.ok(payload.corporate_recommendation_candidates.length > 0);
+  assert.equal(payload.available_verified_evidence.personal.chart.policy_count.value, 2);
+  assert.equal(payload.available_verified_evidence.corporate.length, 1);
+  assert.ok(payload.available_verified_evidence.corporate[0].gap_evidence.length > 0);
+  assert.ok(payload.available_verified_evidence.corporate[0].recommendation_candidates.length > 0);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "corporate_evidence_meta"), false);
-  assert.equal(payload.corporate_gap_evidence?.length > 0, true);
+  assert.equal(
+    JSON.stringify(payload.available_verified_evidence.corporate[0]).includes("한화생명"),
+    false,
+  );
 }
 
 const previewEnv = {
@@ -350,10 +352,10 @@ function extractPayload(opts) {
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
       const payload = extractPayload(opts);
-      assert.equal(payload.verified_customer_chart != null, true);
-      assert.equal(payload.verified_corporate_contexts.length, 1);
-      assert.ok(payload.corporate_gap_evidence.length > 0);
-      assert.ok(payload.corporate_recommendation_candidates.length > 0);
+      assert.equal(payload.available_verified_evidence?.personal?.chart != null, true);
+      assert.equal(payload.available_verified_evidence.corporate.length, 1);
+      assert.ok(payload.available_verified_evidence.corporate[0].gap_evidence.length > 0);
+      assert.ok(payload.available_verified_evidence.corporate[0].recommendation_candidates.length > 0);
       assert.equal(/composeCorporateKeySpeech|runCorporateKeyLoopTurn/.test(JSON.stringify(opts)), false);
       return {
         ok: true,
@@ -388,8 +390,9 @@ function extractPayload(opts) {
   const first = readFileSync(join(ROOT, "server/keyCore/keyClaudeFirstDirect.js"), "utf8");
   assert.equal(/from ["'].*corporateKeySpeech/.test(first), false);
   assert.equal(/from ["'].*runCorporateKeyLoopTurn/.test(first), false);
-  assert.match(first, /corporate_gap_evidence/);
-  assert.match(first, /corporate_recommendation_candidates/);
+  assert.match(first, /corporateGapEvidence|gap_evidence/);
+  assert.match(first, /corporateRecommendationCandidates|recommendation_candidates/);
+  assert.match(first, /available_verified_evidence/);
 }
 
 console.log("key-claude-corporate-gap-rec-evidence-unit-test: PASS");

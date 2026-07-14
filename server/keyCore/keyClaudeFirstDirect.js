@@ -1,5 +1,5 @@
 /**
- * Preview Claude-first — free KEY answer path (Slice 5).
+ * Preview Claude-first — free KEY answer path (Slice 5 + Slice 6 evidence Hand).
  * KEY: auth/ownership · verified raw materials · CLOSED hard-only · seal as-is.
  * Does not pre-decide intent/format/judgment. No Phase B / soft rewrite / S3–S6.
  * Production must never enable (isClaudeFirstDirectPreview).
@@ -212,33 +212,86 @@ function factStatusLabel(row = null) {
   return row.status ? String(row.status) : "unknown";
 }
 
-export function buildUserPayload({
-  question,
-  chart,
-  contextPack,
-  pdfMeta = null,
+const REQUEST_TIMEZONE = "Asia/Seoul";
+
+/** Request-time clock for Claude materials — never hardcode calendar dates. */
+export function buildRequestClock(now = new Date(), timeZone = REQUEST_TIMEZONE) {
+  const date = now instanceof Date ? now : new Date(now);
+  const safe = Number.isFinite(date.getTime()) ? date : new Date();
+  const dateParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(safe);
+  const pick = (type) => dateParts.find((p) => p.type === type)?.value ?? "";
+  const current_date = `${pick("year")}-${pick("month")}-${pick("day")}`;
+  const current_datetime = new Intl.DateTimeFormat("sv-SE", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+    .format(safe)
+    .replace(" ", "T");
+  return {
+    current_datetime,
+    current_date,
+    timezone: timeZone,
+  };
+}
+
+function chartEvidenceState(chart = null) {
+  if (!chart || typeof chart !== "object") return "unknown";
+  const contracts = Array.isArray(chart.contracts) ? chart.contracts : [];
+  if (!contracts.length) {
+    return chart.policy_count?.status === "verified" ? "partial" : "unknown";
+  }
+  if (contracts.every((c) => c?.evidence_state === "verified" || c?.status === "verified")) {
+    return "verified";
+  }
+  if (contracts.some((c) => (c?.coverages?.length ?? 0) > 0 || c?.verified_fields)) {
+    return "partial";
+  }
+  return "unknown";
+}
+
+function buildDocumentsEvidence(pdfMeta = null) {
+  if (!pdfMeta || typeof pdfMeta !== "object") return [];
+  const attached = pdfMeta.attached === true;
+  const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
+  const isImage = Boolean(mime && mime.startsWith("image/"));
+  const turns = parseRotationQuarterTurns(pdfMeta?.rotation_quarter_turns);
+  const previewHint = attached && isImage ? buildPreviewOrientationHint(turns) : null;
+  if (!attached && !pdfMeta.document_id) return [];
+  return [
+    {
+      document_id: pdfMeta.document_id ?? null,
+      original_filename: pdfMeta.original_filename ?? null,
+      mime_type: mime,
+      attached,
+      note: attached
+        ? isImage
+          ? "Original image is attached as an image block."
+          : "Original PDF is attached as a document block."
+        : pdfMeta.note ?? "No document attached for this turn.",
+      evidence_state: attached ? "attached" : "missing",
+      ...(previewHint ? { preview_orientation_hint: previewHint } : {}),
+    },
+  ];
+}
+
+function buildCorporateEvidenceEntries({
   corporateContexts = null,
   corporateGapEvidence = null,
   corporateRecommendationCandidates = null,
   corporateUnknowns = null,
 } = {}) {
-  const attached = pdfMeta?.attached === true;
-  const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
-  const isImage = Boolean(mime && mime.startsWith("image/"));
-  const turns = parseRotationQuarterTurns(pdfMeta?.rotation_quarter_turns);
-  const previewHint = attached && isImage ? buildPreviewOrientationHint(turns) : null;
-  const corporate_contexts = normalizeCorporateContexts(corporateContexts).map((corporate) => ({
-    entity_type: corporate.entity_type,
-    entity_id: corporate.entity_id,
-    display_name: corporate.display_name ?? null,
-    membership_role: corporate.membership_role,
-    subject: "corporate",
-    verified_facts: corporate.verified_facts ?? [],
-    partial_facts: corporate.partial_facts ?? [],
-    unknowns: corporate.unknowns ?? [],
-    provenance: corporate.provenance ?? null,
-  }));
-  const corporate_gap_evidence = (Array.isArray(corporateGapEvidence) ? corporateGapEvidence : [])
+  const gaps = (Array.isArray(corporateGapEvidence) ? corporateGapEvidence : [])
     .filter((row) => String(row?.entity_id ?? "").trim() && String(row?.item ?? "").trim())
     .map((row) => ({
       entity_id: row.entity_id,
@@ -252,7 +305,7 @@ export function buildUserPayload({
       snapshot_field: row.snapshot_field ?? null,
       provenance: row.provenance ?? null,
     }));
-  const corporate_recommendation_candidates = (
+  const recs = (
     Array.isArray(corporateRecommendationCandidates) ? corporateRecommendationCandidates : []
   )
     .filter((row) => String(row?.entity_id ?? "").trim() && String(row?.item ?? "").trim())
@@ -265,39 +318,172 @@ export function buildUserPayload({
       reason: row.reason ?? null,
       provenance: row.provenance ?? null,
     }));
-  const corporate_unknowns = Array.isArray(corporateUnknowns) ? corporateUnknowns : [];
+  const unknownsRaw = Array.isArray(corporateUnknowns) ? corporateUnknowns : [];
+
+  return normalizeCorporateContexts(corporateContexts).map((corporate) => {
+    const entityId = String(corporate.entity_id ?? "").trim();
+    const entityUnknowns = unknownsRaw
+      .filter((u) => String(u?.entity_id ?? "").trim() === entityId)
+      .map((u) => (typeof u === "string" ? u : u?.unknown ?? u?.item ?? u))
+      .filter(Boolean);
+    const mergedUnknowns = [
+      ...new Set([...(Array.isArray(corporate.unknowns) ? corporate.unknowns : []), ...entityUnknowns]),
+    ];
+    return {
+      subject_type: "corporate",
+      entity_id: entityId,
+      entity_name: corporate.display_name ?? null,
+      membership_role: corporate.membership_role ?? null,
+      verified_context: {
+        entity_type: corporate.entity_type,
+        verified_facts: corporate.verified_facts ?? [],
+        partial_facts: corporate.partial_facts ?? [],
+      },
+      gap_evidence: gaps.filter((g) => String(g.entity_id) === entityId),
+      recommendation_candidates: recs.filter((r) => String(r.entity_id) === entityId),
+      unknowns: mergedUnknowns,
+      provenance: corporate.provenance ?? null,
+      evidence_state:
+        (corporate.verified_facts?.length ?? 0) > 0
+          ? mergedUnknowns.length
+            ? "partial"
+            : "verified"
+          : mergedUnknowns.length
+            ? "unknown"
+            : "partial",
+    };
+  });
+}
+
+/**
+ * Preserve Anthropic web_search / citation metadata for KEY (not customer UI internals).
+ * Does not write to customer fact/memory.
+ */
+export function extractPublicEvidenceFromClaudeContent(
+  content = [],
+  { retrievedAt = null } = {},
+) {
+  const retrieved_at =
+    retrievedAt ??
+    buildRequestClock(new Date(), REQUEST_TIMEZONE).current_datetime;
+  const out = [];
+  const seen = new Set();
+  const push = (row) => {
+    if (!row || typeof row !== "object") return;
+    const title = row.title != null ? String(row.title) : null;
+    const url = row.url != null ? String(row.url) : null;
+    if (!title && !url) return;
+    const key = `${url ?? ""}|${title ?? ""}|${row.citation_reference ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      title,
+      publisher: row.publisher != null ? String(row.publisher) : null,
+      url,
+      published_at: row.published_at ?? null,
+      retrieved_at,
+      citation_reference: row.citation_reference ?? null,
+    });
+  };
+
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type === "web_search_tool_result") {
+      for (const item of Array.isArray(block.content) ? block.content : []) {
+        if (!item || item.type === "web_search_tool_result_error") continue;
+        push({
+          title: item.title ?? item.page_title ?? null,
+          publisher: item.publisher ?? item.site_name ?? null,
+          url: item.url ?? item.page_url ?? null,
+          published_at: item.published_at ?? item.page_age ?? null,
+          citation_reference:
+            item.cited_text ?? item.encrypted_index ?? item.snippet ?? null,
+        });
+      }
+    }
+    if (block?.type === "text" && Array.isArray(block.citations)) {
+      for (const c of block.citations) {
+        if (!c || typeof c !== "object") continue;
+        push({
+          title: c.title ?? c.source_title ?? null,
+          publisher: c.publisher ?? c.site_name ?? null,
+          url: c.url ?? c.source_url ?? null,
+          published_at: c.published_at ?? c.page_age ?? null,
+          citation_reference:
+            c.cited_text ??
+            c.citation_reference ??
+            (c.start_char_index != null
+              ? `chars:${c.start_char_index}-${c.end_char_index ?? ""}`
+              : null),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Slice 6 question-centered evidence payload for the single free Claude-first KEY.
+ * No guidance/mode/classifier. Insurance materials are available evidence, not identity.
+ */
+export function buildUserPayload({
+  question,
+  chart,
+  contextPack,
+  pdfMeta = null,
+  corporateContexts = null,
+  corporateGapEvidence = null,
+  corporateRecommendationCandidates = null,
+  corporateUnknowns = null,
+  publicEvidence = null,
+  now = null,
+} = {}) {
+  const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
+  const documents = buildDocumentsEvidence(pdfMeta);
+  const corporate = buildCorporateEvidenceEntries({
+    corporateContexts,
+    corporateGapEvidence,
+    corporateRecommendationCandidates,
+    corporateUnknowns,
+  });
+  const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
+
+  // Compat mirrors for tests / older readers (same objects, no cross-copy of facts).
+  const personalChart = chart
+    ? {
+        ...chart,
+        subject: "personal",
+        subject_type: "individual",
+      }
+    : null;
 
   return {
-    customer_question: String(question ?? ""),
-    conversation_originals: {
-      recent_turns: contextPack?.recent_turns ?? [],
-      older_summary: contextPack?.older_summary ?? null,
-      retained_past_originals: contextPack?.retained_past_originals ?? [],
+    current_question: String(question ?? ""),
+    current_context: {
+      current_datetime: clock.current_datetime,
+      current_date: clock.current_date,
+      timezone: clock.timezone,
+      conversation: {
+        recent_turns: contextPack?.recent_turns ?? [],
+        older_summary: contextPack?.older_summary ?? null,
+        retained_past_originals: contextPack?.retained_past_originals ?? [],
+      },
     },
-    verified_customer_chart: chart
-      ? {
-          ...chart,
-          subject: "personal",
-        }
-      : null,
-    verified_corporate_contexts: corporate_contexts,
-    corporate_gap_evidence,
-    corporate_recommendation_candidates,
-    corporate_unknowns,
-    direct_document: pdfMeta
-      ? {
-          attached,
-          document_id: pdfMeta.document_id ?? null,
-          original_filename: pdfMeta.original_filename ?? null,
-          mime_type: mime,
-          note: attached
-            ? isImage
-              ? "Original image is attached as an image block."
-              : "Original PDF is attached as a document block."
-            : pdfMeta.note ?? "No document attached for this turn.",
-          ...(previewHint ? { preview_orientation_hint: previewHint } : {}),
-        }
-      : { attached: false, note: "No document attached for this turn." },
+    available_verified_evidence: {
+      personal: {
+        subject_type: "individual",
+        chart: personalChart,
+        provenance: personalChart
+          ? {
+              source: "factory",
+              schema: personalChart.schema ?? "verified_customer_chart_v1",
+            }
+          : null,
+        evidence_state: chartEvidenceState(personalChart),
+      },
+      corporate,
+      documents,
+      public_evidence,
+    },
   };
 }
 
@@ -997,6 +1183,7 @@ async function callClaudeFirstDirect({
     history,
     question,
   });
+  const requestNow = startedAt instanceof Date ? startedAt : new Date(startedAt);
   const userPayload = buildUserPayload({
     question,
     chart,
@@ -1006,6 +1193,8 @@ async function callClaudeFirstDirect({
     corporateGapEvidence,
     corporateRecommendationCandidates,
     corporateUnknowns,
+    publicEvidence: [],
+    now: requestNow,
   });
   const system = buildSystemPrompt();
   const userContent = buildClaudeFullUserContentWithPdf({
@@ -1025,6 +1214,7 @@ async function callClaudeFirstDirect({
   };
   let streamedAnswer = "";
   let webSearchTrace = emptyWebSearchTrace();
+  let publicEvidence = [];
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
 
@@ -1085,6 +1275,20 @@ async function callClaudeFirstDirect({
       assistantContent,
       streamed.dataRaw,
     );
+    const extracted = extractPublicEvidenceFromClaudeContent(assistantContent, {
+      retrievedAt: buildRequestClock(new Date(), REQUEST_TIMEZONE).current_datetime,
+    });
+    if (extracted.length) {
+      const seen = new Set(
+        publicEvidence.map((e) => `${e.url ?? ""}|${e.title ?? ""}|${e.citation_reference ?? ""}`),
+      );
+      for (const row of extracted) {
+        const key = `${row.url ?? ""}|${row.title ?? ""}|${row.citation_reference ?? ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        publicEvidence.push(row);
+      }
+    }
 
     // Client tool_use only — server web_search must not force a follow-up turn.
     const hasToolUse = hasClientToolUse(assistantContent);
@@ -1143,6 +1347,7 @@ async function callClaudeFirstDirect({
     allowlist,
     pdf_attached: Boolean(pdfBase64),
     web_search_trace: webSearchTrace,
+    public_evidence: publicEvidence,
     error: customer_answer ? null : "empty_customer_answer",
   };
 }
@@ -1604,6 +1809,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           pdf_attached: claude.pdf_attached === true,
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
+          public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? "").trim(),
