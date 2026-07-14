@@ -48,15 +48,19 @@ export function buildCoverageSummaryFromCandidate(documentId, candidate, existin
       policyholder: fields.policyholder,
       insured: fields.insured,
       beneficiaries: Array.isArray(fields.beneficiaries) ? fields.beneficiaries : [],
-      premium_payers: Array.isArray(fields.premium_payers) ? fields.premium_payers : [],
       party_changes: Array.isArray(fields.party_changes) ? fields.party_changes : [],
       parties: {
         policyholder: fields.policyholder ?? null,
         insured: fields.insured ?? null,
         beneficiaries: Array.isArray(fields.beneficiaries) ? fields.beneficiaries : [],
-        premium_payers: Array.isArray(fields.premium_payers) ? fields.premium_payers : [],
         party_changes: Array.isArray(fields.party_changes) ? fields.party_changes : [],
+        ...(fields.actual_premium_funder?.name
+          ? { actual_premium_funder: fields.actual_premium_funder }
+          : {}),
       },
+      ...(fields.actual_premium_funder?.name
+        ? { actual_premium_funder: fields.actual_premium_funder }
+        : {}),
       payment_period: fields.payment_period,
       insurance_period: fields.insurance_period,
       coverage_name: fields.coverage_name,

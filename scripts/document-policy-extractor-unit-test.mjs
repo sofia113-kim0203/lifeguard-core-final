@@ -168,7 +168,7 @@ const blockOnly = extractPolicyFieldsFromBlock("실손의료비\n암진단비");
 assert(!blockOnly.success, "identity-free block must not become fake policy");
 assert(blockOnly.requires_manual_review, "weak block should require manual review");
 
-// --- Slice 8: beneficiaries / premium payers / party changes ---
+// --- Slice 8.1: beneficiaries / optional actual_premium_funder (no premium_payers) ---
 {
   const partySample = `
 보험증권
@@ -194,9 +194,9 @@ assert(blockOnly.requires_manual_review, "weak block should require manual revie
   assert(death.some((b) => b.name === "이철수" && b.share === "40%"), "share 40%");
   const maturity = party.fields.beneficiaries.find((b) => b.beneficiary_type === "maturity_benefit");
   assert(maturity?.name === "박민수", "maturity beneficiary separated");
-  assert(party.fields.premium_payers.length === 1, "one premium payer");
-  assert(party.fields.premium_payers[0].name === "최수진", "payer not assumed policyholder");
-  assert(party.fields.premium_payers[0].name !== party.fields.policyholder, "payer != policyholder");
+  assert(party.fields.premium_payers == null, "premium_payers not a standard field");
+  assert(party.fields.actual_premium_funder?.name === "최수진", "distinct funder evidenced");
+  assert(party.fields.actual_premium_funder.name !== party.fields.policyholder, "funder != policyholder");
   assert(party.fields.party_changes.length >= 1, "party change extracted");
   assert(party.fields.party_changes[0].previous_value === "김영희", "change from");
   assert(party.fields.party_changes[0].new_value === "정수린", "change to");
@@ -207,7 +207,33 @@ assert(blockOnly.requires_manual_review, "weak block should require manual revie
   const noParty = extractPolicyFieldsFromBlock(certificateSample);
   assert(Array.isArray(noParty.fields.beneficiaries), "beneficiaries array always present");
   assert(noParty.fields.beneficiaries.length === 0, "missing beneficiary → empty, no invent");
-  assert(noParty.fields.premium_payers.length === 0, "missing payer → empty, no invent");
+  assert(noParty.fields.actual_premium_funder == null, "no funder evidence → omit");
+  assert(noParty.fields.premium_payers == null, "no premium_payers array");
+}
+
+{
+  // 납입의무자 alone is contractual duty — not actual_premium_funder
+  const dutyOnly = extractPolicyFieldsFromBlock(`
+보험사: A생명
+상품명: A종신
+계약자: 갑
+피보험자: 갑
+납입의무자: 갑
+`);
+  assert(dutyOnly.fields.policyholder === "갑", "policyholder present");
+  assert(dutyOnly.fields.actual_premium_funder == null, "납입의무자 does not create funder");
+}
+
+{
+  // Same name as policyholder on 보험료 납입자 → do not clone
+  const same = extractPolicyFieldsFromBlock(`
+보험사: A생명
+상품명: A종신
+계약자: 갑
+피보험자: 갑
+보험료 납입자: 갑
+`);
+  assert(same.fields.actual_premium_funder == null, "same-as-policyholder funder omitted");
 }
 
 {

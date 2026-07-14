@@ -712,9 +712,9 @@ function pickFirstPresent(...values) {
 }
 
 /**
- * Slice 7/8 — contract parties from factory/extract only.
- * Unifies insured / insured_name / coverage_summary.insured (no invent, no cross-contract mix).
- * Slice 8: beneficiaries / premium_payers / party_changes — never invent from policyholder.
+ * Slice 7/8.1 — contract parties from factory/extract only.
+ * Standard roles: policyholder / insured / beneficiaries (+ party_changes).
+ * Optional: actual_premium_funder only when evidence-backed and distinct from policyholder.
  */
 function buildContractPartyField(value, provenance) {
   const v = preserveFactoryLiteral(value);
@@ -732,7 +732,7 @@ function buildContractPartyField(value, provenance) {
   };
 }
 
-function normalizePartyList(raw, kind = "beneficiary") {
+function normalizeBeneficiaryList(raw) {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const out = [];
   for (const item of raw) {
@@ -740,51 +740,54 @@ function normalizePartyList(raw, kind = "beneficiary") {
     if (typeof item === "string" || typeof item === "number") {
       const name = preserveFactoryLiteral(item);
       if (name == null) continue;
-      out.push(
-        kind === "payer"
-          ? {
-              name,
-              payer_type: "premium_payer",
-              payment_share: null,
-              effective_from: null,
-              evidence_state: "verified",
-              provenance: null,
-            }
-          : {
-              name,
-              beneficiary_type: "beneficiary",
-              share: null,
-              effective_from: null,
-              evidence_state: "verified",
-              provenance: null,
-            },
-      );
+      out.push({
+        name,
+        beneficiary_type: "beneficiary",
+        share: null,
+        effective_from: null,
+        evidence_state: "verified",
+        provenance: null,
+      });
       continue;
     }
     if (typeof item !== "object") continue;
     const name = preserveFactoryLiteral(item.name ?? item.value ?? null);
     if (name == null) continue;
-    if (kind === "payer") {
-      out.push({
-        name,
-        payer_type: preserveFactoryLiteral(item.payer_type) ?? "premium_payer",
-        payment_share: preserveFactoryLiteral(item.payment_share ?? item.share) ?? null,
-        effective_from: preserveFactoryLiteral(item.effective_from) ?? null,
-        evidence_state: item.evidence_state === "unknown" ? "unknown" : "verified",
-        provenance: item.provenance && typeof item.provenance === "object" ? item.provenance : null,
-      });
-    } else {
-      out.push({
-        name,
-        beneficiary_type: preserveFactoryLiteral(item.beneficiary_type) ?? "beneficiary",
-        share: preserveFactoryLiteral(item.share) ?? null,
-        effective_from: preserveFactoryLiteral(item.effective_from) ?? null,
-        evidence_state: item.evidence_state === "unknown" ? "unknown" : "verified",
-        provenance: item.provenance && typeof item.provenance === "object" ? item.provenance : null,
-      });
-    }
+    out.push({
+      name,
+      beneficiary_type: preserveFactoryLiteral(item.beneficiary_type) ?? "beneficiary",
+      share: preserveFactoryLiteral(item.share) ?? null,
+      effective_from: preserveFactoryLiteral(item.effective_from) ?? null,
+      evidence_state: item.evidence_state === "unknown" ? "unknown" : "verified",
+      provenance: item.provenance && typeof item.provenance === "object" ? item.provenance : null,
+    });
   }
   return out;
+}
+
+function normalizeActualPremiumFunder(raw, policyholderName, partyProvenance) {
+  if (raw == null || raw === "") return null;
+  let name = null;
+  let provenance = partyProvenance;
+  if (typeof raw === "string" || typeof raw === "number") {
+    name = preserveFactoryLiteral(raw);
+  } else if (typeof raw === "object") {
+    name = preserveFactoryLiteral(raw.name ?? raw.value ?? null);
+    if (raw.provenance && typeof raw.provenance === "object") {
+      provenance = { ...partyProvenance, ...raw.provenance };
+    }
+  }
+  if (name == null) return null;
+  const ph = preserveFactoryLiteral(policyholderName);
+  if (ph != null && String(name).replace(/\s+/g, "") === String(ph).replace(/\s+/g, "")) {
+    // Do not clone policyholder as a separate funder fact.
+    return null;
+  }
+  return {
+    name,
+    evidence_state: "verified",
+    provenance: provenance ?? null,
+  };
 }
 
 function normalizePartyChanges(raw) {
@@ -792,8 +795,12 @@ function normalizePartyChanges(raw) {
   const out = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
+    let party_role = preserveFactoryLiteral(item.party_role) ?? null;
+    if (party_role === "premium_payer" || party_role === "premium_payers") {
+      party_role = "actual_premium_funder";
+    }
     out.push({
-      party_role: preserveFactoryLiteral(item.party_role) ?? null,
+      party_role,
       previous_value: preserveFactoryLiteral(item.previous_value) ?? null,
       new_value: preserveFactoryLiteral(item.new_value) ?? null,
       effective_date: preserveFactoryLiteral(item.effective_date) ?? null,
@@ -807,9 +814,7 @@ function normalizePartyChanges(raw) {
 function extractContractPartiesFromPolicy(p = null, summary = null, contractProvenance = null) {
   const s = summary && typeof summary === "object" ? summary : {};
   const nested = s.parties && typeof s.parties === "object" ? s.parties : {};
-  // policyholder: top-level or coverage_summary only — never invent.
   const policyholderRaw = pickFirstPresent(p?.policyholder, s.policyholder, nested.policyholder);
-  // insured: unify insured_name ↔ insured (same person field, different legacy names).
   const insuredRaw = pickFirstPresent(
     p?.insured,
     s.insured,
@@ -827,19 +832,11 @@ function extractContractPartiesFromPolicy(p = null, summary = null, contractProv
       s.source_line,
     ),
   };
-  const beneficiaries = normalizePartyList(
+  const beneficiaries = normalizeBeneficiaryList(
     pickFirstPresent(p?.beneficiaries, s.beneficiaries, nested.beneficiaries) ?? [],
-    "beneficiary",
   ).map((b) => ({
     ...b,
     provenance: b.provenance ?? partyProvenance,
-  }));
-  const premium_payers = normalizePartyList(
-    pickFirstPresent(p?.premium_payers, s.premium_payers, nested.premium_payers) ?? [],
-    "payer",
-  ).map((x) => ({
-    ...x,
-    provenance: x.provenance ?? partyProvenance,
   }));
   const party_changes = normalizePartyChanges(
     pickFirstPresent(p?.party_changes, s.party_changes, nested.party_changes) ?? [],
@@ -847,14 +844,27 @@ function extractContractPartiesFromPolicy(p = null, summary = null, contractProv
     ...c,
     provenance: c.provenance ?? partyProvenance,
   }));
+  const funderRaw = pickFirstPresent(
+    p?.actual_premium_funder,
+    s.actual_premium_funder,
+    nested.actual_premium_funder,
+  );
+  const actual_premium_funder = normalizeActualPremiumFunder(
+    funderRaw,
+    policyholderRaw,
+    partyProvenance,
+  );
 
-  return {
+  const parties = {
     policyholder: buildContractPartyField(policyholderRaw, partyProvenance),
     insured: buildContractPartyField(insuredRaw, partyProvenance),
     beneficiaries,
-    premium_payers,
     party_changes,
   };
+  if (actual_premium_funder) {
+    parties.actual_premium_funder = actual_premium_funder;
+  }
+  return parties;
 }
 
 /**
@@ -1054,7 +1064,7 @@ function buildContractProvenance(p = null, summary = null) {
  * Unverified values are marked unknown — never promoted to chart facts.
  * Slice 6: pass factory rider amounts / periods / provenance when already present.
  * Slice 7: pass verified policyholder / insured per contract.
- * Slice 8: pass beneficiaries / premium_payers / party_changes when extracted (no invent).
+ * Slice 8.1: beneficiaries / party_changes; optional actual_premium_funder only when evidenced.
  */
 export function buildVerifiedCustomerChart(reality = null) {
   const policies = Array.isArray(reality?.policies) ? reality.policies : [];
@@ -1113,10 +1123,12 @@ export function buildVerifiedCustomerChart(reality = null) {
     }
     if (parties.beneficiaries.length === 0) unknown.push("beneficiaries");
     else verified.beneficiaries = parties.beneficiaries;
-    if (parties.premium_payers.length === 0) unknown.push("premium_payers");
-    else verified.premium_payers = parties.premium_payers;
     if (parties.party_changes.length === 0) unknown.push("party_changes");
     else verified.party_changes = parties.party_changes;
+    // Optional tax fact — never invent unknown funder / premium_payers.
+    if (parties.actual_premium_funder) {
+      verified.actual_premium_funder = parties.actual_premium_funder;
+    }
 
     if (verified.insurer_name == null && verified.company_name == null) unknown.push("insurer_name");
     if (verified.product_name == null) unknown.push("product_name");
@@ -1136,7 +1148,7 @@ export function buildVerifiedCustomerChart(reality = null) {
     const insurer = pickFirstPresent(verified.insurer_name, verified.company_name);
     const monthly_premium = pickFirstPresent(verified.monthly_premium, verified.premium_amount);
 
-    return {
+    const contract = {
       index,
       contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
       insurer,
@@ -1150,7 +1162,6 @@ export function buildVerifiedCustomerChart(reality = null) {
       policyholder: parties.policyholder.value,
       insured: parties.insured.value,
       beneficiaries: parties.beneficiaries,
-      premium_payers: parties.premium_payers,
       party_changes: parties.party_changes,
       parties,
       evidence_state: status,
@@ -1161,6 +1172,10 @@ export function buildVerifiedCustomerChart(reality = null) {
       unknown_fields: unknown,
       source: "factory",
     };
+    if (parties.actual_premium_funder) {
+      contract.actual_premium_funder = parties.actual_premium_funder;
+    }
+    return contract;
   });
 
   const aggregatesRaw =

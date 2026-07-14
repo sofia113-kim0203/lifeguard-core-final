@@ -326,12 +326,11 @@ function classifyBeneficiaryType(labelText = "") {
   return "beneficiary";
 }
 
-function classifyPayerType(labelText = "") {
-  const t = String(labelText ?? "");
-  if (/의무/.test(t)) return "obligation";
-  if (/실제/.test(t)) return "actual";
-  if (/부담/.test(t)) return "burden";
-  return "premium_payer";
+/** Evidence-backed funder labels only — 납입의무자 is contractual duty (= policyholder), not funder. */
+function isActualPremiumFunderEvidenceLabel(labelText = "") {
+  const t = String(labelText ?? "").replace(/\s+/g, "");
+  if (/납입의무자/.test(t)) return false;
+  return /실제납입자|보험료부담자|보험료납입자/.test(t);
 }
 
 function splitPartyNameList(raw) {
@@ -372,17 +371,24 @@ function splitBeneficiaryEntries(rest, type, source_line) {
   }));
 }
 
+function namesEqualParty(a, b) {
+  const x = String(a ?? "").replace(/\s+/g, "");
+  const y = String(b ?? "").replace(/\s+/g, "");
+  if (!x || !y) return false;
+  return x === y;
+}
+
 /**
- * Slice 8 — extract beneficiaries / premium payers / party change events from OCR only.
- * Never invents relationship or copies policyholder/insured into these roles.
+ * Slice 8.1 — standard parties: policyholder / insured / beneficiaries (+ party_changes).
+ * actual_premium_funder is optional tax evidence only when OCR shows a distinct funder.
+ * Never invents funder from policyholder; never creates unknown payer objects.
  */
-export function extractPartyStructuresFromBlock(blockText) {
+export function extractPartyStructuresFromBlock(blockText, { policyholder = null } = {}) {
   const variants = normalizeOcrTextVariants(blockText);
   const beneficiaries = [];
-  const premium_payers = [];
   const party_changes = [];
   const seenBen = new Set();
-  const seenPay = new Set();
+  let actual_premium_funder = null;
 
   const pushBeneficiary = (entry) => {
     const name = cleanValue(entry?.name);
@@ -394,24 +400,6 @@ export function extractPartyStructuresFromBlock(blockText) {
       name,
       beneficiary_type: entry.beneficiary_type ?? "beneficiary",
       share: entry.share ?? null,
-      effective_from: entry.effective_from ?? null,
-      evidence_state: "verified",
-      provenance: {
-        source_line: entry.source_line ?? null,
-      },
-    });
-  };
-
-  const pushPayer = (entry) => {
-    const name = cleanValue(entry?.name);
-    if (!name) return;
-    const key = `${entry.payer_type ?? ""}|${name}|${entry.payment_share ?? ""}`;
-    if (seenPay.has(key)) return;
-    seenPay.add(key);
-    premium_payers.push({
-      name,
-      payer_type: entry.payer_type ?? "premium_payer",
-      payment_share: entry.payment_share ?? null,
       effective_from: entry.effective_from ?? null,
       evidence_state: "verified",
       provenance: {
@@ -434,26 +422,28 @@ export function extractPartyStructuresFromBlock(blockText) {
       }
     }
 
-    const pay = line.match(
-      /((?:보험료\s*)?(?:납입자|납입의무자|실제\s*납입자|보험료\s*부담자))\s*[:：]?\s*(.+)$/i,
+    // Optional tax fact — only evidence-backed funder labels, never 납입의무자.
+    const funderMatch = line.match(
+      /((?:실제\s*납입자|보험료\s*부담자|보험료\s*납입자))\s*[:：]?\s*(.+)$/i,
     );
-    if (pay) {
-      const label = pay[1];
-      const rest = pay[2];
-      const type = classifyPayerType(label);
-      const share = parseShareLiteral(rest);
-      for (const name of splitPartyNameList(rest)) {
-        pushPayer({
+    if (funderMatch && isActualPremiumFunderEvidenceLabel(funderMatch[1]) && !actual_premium_funder) {
+      const names = splitPartyNameList(funderMatch[2]);
+      const name = names[0] ?? null;
+      // Distinct from policyholder only — do not clone policyholder as funder.
+      if (name && !namesEqualParty(name, policyholder)) {
+        actual_premium_funder = {
           name,
-          payer_type: type,
-          payment_share: share,
-          source_line: line,
-        });
+          evidence_state: "verified",
+          provenance: {
+            source_line: line,
+            source_label: cleanValue(funderMatch[1]),
+          },
+        };
       }
     }
 
     const change = line.match(
-      /(계약자|피보험자|수익자|보험료\s*납입자|납입자)\s*변경\s*[:：]?\s*(.+?)\s*(?:→|->|⇒)\s*(.+?)(?:\s*$|\s+효력)/i,
+      /(계약자|피보험자|수익자|보험료\s*납입자|실제\s*납입자|보험료\s*부담자)\s*변경\s*[:：]?\s*(.+?)\s*(?:→|->|⇒)\s*(.+?)(?:\s*$|\s+효력)/i,
     );
     if (change) {
       const roleRaw = cleanValue(change[1]);
@@ -462,8 +452,8 @@ export function extractPartyStructuresFromBlock(blockText) {
           ? "beneficiary"
           : /피보험자/.test(roleRaw)
             ? "insured"
-            : /납입/.test(roleRaw)
-              ? "premium_payer"
+            : /납입|부담/.test(roleRaw)
+              ? "actual_premium_funder"
               : "policyholder";
       const effective =
         line.match(/효력(?:발생)?일\s*[:：]?\s*([0-9]{4}[.\-/년\s]*[0-9]{1,2}[.\-/월\s]*[0-9]{1,2}일?)/)?.[1] ??
@@ -478,21 +468,21 @@ export function extractPartyStructuresFromBlock(blockText) {
       });
     }
 
-    const endorsement = line.match(
-      /배서\s*[:：]?\s*(.+)$/i,
-    );
-    if (endorsement && /변경|수익자|계약자|납입/.test(endorsement[1])) {
+    const endorsement = line.match(/배서\s*[:：]?\s*(.+)$/i);
+    if (endorsement && /변경|수익자|계약자|납입|부담/.test(endorsement[1])) {
       const effective =
         line.match(/효력(?:발생)?일\s*[:：]?\s*([0-9]{4}[.\-/년\s]*[0-9]{1,2}[.\-/월\s]*[0-9]{1,2}일?)/)?.[1] ??
         variants.lines
-          .map((l) => l.match(/효력(?:발생)?일\s*[:：]?\s*([0-9]{4}[.\-/년\s]*[0-9]{1,2}[.\-/월\s]*[0-9]{1,2}일?)/)?.[1])
+          .map((l) =>
+            l.match(/효력(?:발생)?일\s*[:：]?\s*([0-9]{4}[.\-/년\s]*[0-9]{1,2}[.\-/월\s]*[0-9]{1,2}일?)/)?.[1],
+          )
           .find(Boolean) ??
         null;
       party_changes.push({
         party_role: /수익자/.test(endorsement[1])
           ? "beneficiary"
-          : /납입/.test(endorsement[1])
-            ? "premium_payer"
+          : /납입|부담/.test(endorsement[1])
+            ? "actual_premium_funder"
             : /피보험자/.test(endorsement[1])
               ? "insured"
               : "policyholder",
@@ -508,7 +498,9 @@ export function extractPartyStructuresFromBlock(blockText) {
   // Standalone effective date line attaches to last change missing date.
   if (party_changes.length) {
     const dateLine = variants.lines
-      .map((l) => l.match(/효력(?:발생)?일\s*[:：]?\s*([0-9]{4}[.\-/년\s]*[0-9]{1,2}[.\-/월\s]*[0-9]{1,2}일?)/)?.[1])
+      .map((l) =>
+        l.match(/효력(?:발생)?일\s*[:：]?\s*([0-9]{4}[.\-/년\s]*[0-9]{1,2}[.\-/월\s]*[0-9]{1,2}일?)/)?.[1],
+      )
       .find(Boolean);
     if (dateLine) {
       for (const ch of party_changes) {
@@ -517,7 +509,7 @@ export function extractPartyStructuresFromBlock(blockText) {
     }
   }
 
-  return { beneficiaries, premium_payers, party_changes };
+  return { beneficiaries, actual_premium_funder, party_changes };
 }
 
 function detectCoverageCategories(variants) {
@@ -881,7 +873,7 @@ function buildEmptyPolicyExtraction(ocrTextLength = 0) {
       policyholder: null,
       insured: null,
       beneficiaries: [],
-      premium_payers: [],
+      actual_premium_funder: null,
       party_changes: [],
       monthly_premium: null,
       payment_period: null,
@@ -932,9 +924,11 @@ export function extractPolicyFieldsFromBlock(blockText) {
   if (lineNames.policyholder) fields.policyholder = lineNames.policyholder;
   if (lineNames.insured) fields.insured = lineNames.insured;
 
-  const partyStructures = extractPartyStructuresFromBlock(blockText);
+  const partyStructures = extractPartyStructuresFromBlock(blockText, {
+    policyholder: fields.policyholder ?? null,
+  });
   fields.beneficiaries = partyStructures.beneficiaries;
-  fields.premium_payers = partyStructures.premium_payers;
+  fields.actual_premium_funder = partyStructures.actual_premium_funder ?? null;
   fields.party_changes = partyStructures.party_changes;
 
   const coverage = detectCoverageCategories(variants);
@@ -956,7 +950,6 @@ export function extractPolicyFieldsFromBlock(blockText) {
     policyholder: fields.policyholder ?? null,
     insured: fields.insured ?? null,
     beneficiaries: Array.isArray(fields.beneficiaries) ? fields.beneficiaries : [],
-    premium_payers: Array.isArray(fields.premium_payers) ? fields.premium_payers : [],
     party_changes: Array.isArray(fields.party_changes) ? fields.party_changes : [],
     monthly_premium: fields.monthly_premium ?? null,
     payment_period: fields.payment_period ?? null,
@@ -969,6 +962,10 @@ export function extractPolicyFieldsFromBlock(blockText) {
     coverage_categories: fields.coverage_categories ?? [],
     policy_type: fields.policy_type ?? null,
   };
+  // Optional tax fact only when verified distinct funder exists — omit when absent.
+  if (fields.actual_premium_funder && fields.actual_premium_funder.name) {
+    normalizedFields.actual_premium_funder = fields.actual_premium_funder;
+  }
 
   const fieldCount = countPresentFields(normalizedFields);
   const candidateTier = evaluatePolicyCandidateTier(normalizedFields, riders);

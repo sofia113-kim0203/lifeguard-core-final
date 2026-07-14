@@ -1269,7 +1269,7 @@ const chartPolicies = {
   assert.equal(chart.contracts[0].policyholder, "박씨");
 }
 
-// --- Slice 8: beneficiaries / premium_payers Hand + no invent ---
+// --- Slice 8.1: beneficiaries Hand + optional actual_premium_funder ---
 {
   const chart = buildVerifiedCustomerChart({
     policy_count: 2,
@@ -1301,14 +1301,11 @@ const chartPolicies = {
               evidence_state: "verified",
             },
           ],
-          premium_payers: [
-            {
-              name: "무",
-              payer_type: "premium_payer",
-              payment_share: null,
-              evidence_state: "verified",
-            },
-          ],
+          actual_premium_funder: {
+            name: "무",
+            evidence_state: "verified",
+            provenance: { source_label: "보험료 납입자" },
+          },
           party_changes: [
             {
               party_role: "beneficiary",
@@ -1338,15 +1335,39 @@ const chartPolicies = {
   const b = chart.contracts[1];
   assert.equal(a.beneficiaries.length, 3);
   assert.equal(a.beneficiaries.filter((x) => x.beneficiary_type === "death_benefit").length, 2);
-  assert.equal(a.premium_payers[0].name, "무");
-  assert.equal(a.premium_payers[0].name === a.policyholder, false);
+  assert.equal(a.actual_premium_funder?.name, "무");
+  assert.equal(a.actual_premium_funder.name === a.policyholder, false);
+  assert.equal(a.premium_payers, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(a, "premium_payers"), false);
   assert.equal(a.party_changes[0].effective_date, "2024-05-01");
   assert.equal(a.insurance_period, "9999세");
   assert.equal(b.beneficiaries.length, 0);
+  assert.equal(b.actual_premium_funder, undefined);
   assert.equal(b.unknown_fields.includes("beneficiaries"), true);
-  assert.equal(b.unknown_fields.includes("premium_payers"), true);
+  assert.equal(b.unknown_fields.includes("premium_payers"), false);
   assert.equal(JSON.stringify(b).includes("을"), false);
   assert.equal(JSON.stringify(b).includes("무"), false);
+  assert.equal(JSON.stringify(chart).includes("premium_payers"), false);
+}
+
+{
+  // No funder evidence → omit; do not invent from policyholder
+  const chart = buildVerifiedCustomerChart({
+    policy_count: 1,
+    policies: [
+      {
+        insurer_name: "A",
+        product_name: "B",
+        coverage_summary: {
+          policyholder: "갑",
+          insured: "갑",
+          actual_premium_funder: { name: "갑" },
+        },
+      },
+    ],
+  });
+  assert.equal(chart.contracts[0].policyholder, "갑");
+  assert.equal(chart.contracts[0].actual_premium_funder, undefined);
 }
 
 {
