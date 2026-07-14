@@ -105,12 +105,18 @@ const hard = hardOnlySafetyCheck("지금 가입하세요. 해지해도 됩니다
 assert.equal(hard.hard_fail, true);
 
 const prompt = buildSystemPrompt();
-assert.match(prompt, /하나의 KEY/);
+assert.match(prompt, /보험 AI KEY/);
+assert.match(prompt, /일상 대화/);
+assert.match(prompt, /보험 전문가의 기본 능력/);
+assert.match(prompt, /가입·유지·정리·보완/);
+assert.match(prompt, /지금 묻는 문제를 온전히 해결/);
 assert.match(prompt, /최종 KEY 답변/);
 assert.match(prompt, /웹 검색어/);
 assert.match(prompt, /검색어로 외부에 내보내지 않는다/);
 assert.equal(/No emoji|Tone \(required\)|emit_claude_full|특약|ATTACHED FILE/i.test(prompt), false);
 assert.equal(/guidance|must ask|do not mix/i.test(prompt), false);
+assert.equal(/맛집이면|키워드|classifier|모든 대화에 보험|반드시 보험을 언급/i.test(prompt), false);
+assert.equal(/별도 일상 모드|고정 템플릿|답변 길이/i.test(prompt), false);
 
 // Monopoly A: definitive-only wording must not monopoly-replace.
 const definitiveOnly = selectReplacingHardReasons(
@@ -329,7 +335,7 @@ assert.equal(heicDenied.ok, false);
 assert.equal(heicDenied.reason, "mime_not_supported_for_direct");
 
 const promptImage = buildSystemPrompt();
-assert.match(promptImage, /하나의 KEY/);
+assert.match(promptImage, /보험 AI KEY/);
 assert.match(promptImage, /웹 검색어/);
 assert.equal(/9999세|종신형|ATTACHED FILE|emit_claude_full|Tone \(required\)/i.test(promptImage), false);
 
@@ -508,7 +514,7 @@ assert.equal(
 );
 
 const promptTable = buildSystemPrompt();
-assert.match(promptTable, /하나의 KEY/);
+assert.match(promptTable, /보험 AI KEY/);
 assert.equal(/orientation|independently|column/i.test(promptTable), false);
 
 {
