@@ -1,0 +1,149 @@
+{
+  "schema": "slice-9-party-positive-fixtures-v1",
+  "note": "Non-identified QA only. No real customer PII. No migration.",
+  "cases": [
+    {
+      "id": "slice-9-case-a",
+      "label": "일반 계약 — 계약자=피보험자, 사망 수익자 2명 지분, 자금부담 증거 없음",
+      "reality": {
+        "policy_count": 1,
+        "policies": [
+          {
+            "id": "fixture-s9-case-a",
+            "insurer_name": "QA테스트생명",
+            "product_name": "QA종신(Slice9-A)",
+            "policy_type": "whole_life",
+            "monthly_premium": 180000,
+            "coverage_summary": {
+              "seed_tag": "slice_9_party_case_a_v1",
+              "extractor_version": "slice-9-fixture-v1",
+              "extracted_at": "2026-07-14T00:00:00.000Z",
+              "source_document_id": "fixture-doc-s9-a",
+              "policyholder": "가상갑",
+              "insured": "가상갑",
+              "beneficiaries": [
+                {
+                  "name": "가상의을",
+                  "beneficiary_type": "death_benefit",
+                  "share": "60%",
+                  "effective_from": "2023-06-01",
+                  "evidence_state": "verified",
+                  "provenance": {
+                    "document_id": "fixture-doc-s9-a",
+                    "source_line": "사망보험금 수익자: 가상의을 60%"
+                  }
+                },
+                {
+                  "name": "가상의병",
+                  "beneficiary_type": "death_benefit",
+                  "share": "40%",
+                  "effective_from": "2023-06-01",
+                  "evidence_state": "verified",
+                  "provenance": {
+                    "document_id": "fixture-doc-s9-a",
+                    "source_line": "사망보험금 수익자: 가상의병 40%"
+                  }
+                },
+                {
+                  "name": "가상갑",
+                  "beneficiary_type": "maturity_benefit",
+                  "share": null,
+                  "effective_from": "2020-01-15",
+                  "evidence_state": "verified",
+                  "provenance": {
+                    "document_id": "fixture-doc-s9-a",
+                    "source_line": "만기보험금 수익자: 가상갑"
+                  }
+                }
+              ],
+              "party_changes": [
+                {
+                  "party_role": "beneficiary",
+                  "previous_value": "법정상속인",
+                  "new_value": "가상의을 60% / 가상의병 40%",
+                  "effective_date": "2023-06-01",
+                  "evidence_state": "verified",
+                  "provenance": {
+                    "document_id": "fixture-doc-s9-a",
+                    "source_line": "수익자 변경: 법정상속인 → 가상의을 60% / 가상의병 40% · 효력발생일 2023-06-01"
+                  }
+                }
+              ],
+              "detected_coverages": ["사망", "만기"],
+              "rider_details": [
+                {
+                  "rider_name": "사망보험금",
+                  "coverage_amount": 300000000,
+                  "coverage_amount_raw": "3억원",
+                  "evidence_state": "verified"
+                }
+              ],
+              "insurance_period": "종신",
+              "payment_period": "20년",
+              "effective_from": "2020-01-15"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "slice-9-case-b",
+      "label": "자금 부담자 분리 — actual_premium_funder 증거 있음",
+      "reality": {
+        "policy_count": 1,
+        "policies": [
+          {
+            "id": "fixture-s9-case-b",
+            "insurer_name": "QA테스트생명",
+            "product_name": "QA종신(Slice9-B)",
+            "policy_type": "whole_life",
+            "monthly_premium": 220000,
+            "coverage_summary": {
+              "seed_tag": "slice_9_party_case_b_v1",
+              "extractor_version": "slice-9-fixture-v1",
+              "extracted_at": "2026-07-14T00:00:00.000Z",
+              "source_document_id": "fixture-doc-s9-b",
+              "policyholder": "가상정",
+              "insured": "가상무",
+              "beneficiaries": [
+                {
+                  "name": "가상기",
+                  "beneficiary_type": "death_benefit",
+                  "share": "100%",
+                  "effective_from": "2021-03-10",
+                  "evidence_state": "verified",
+                  "provenance": {
+                    "document_id": "fixture-doc-s9-b",
+                    "source_line": "사망보험금 수익자: 가상기"
+                  }
+                }
+              ],
+              "party_changes": [],
+              "actual_premium_funder": {
+                "name": "가상경",
+                "evidence_state": "verified",
+                "provenance": {
+                  "document_id": "fixture-doc-s9-b",
+                  "source_label": "보험료 납입자",
+                  "source_line": "보험료 납입자: 가상경"
+                }
+              },
+              "detected_coverages": ["사망"],
+              "rider_details": [
+                {
+                  "rider_name": "사망보험금",
+                  "coverage_amount": 200000000,
+                  "coverage_amount_raw": "2억원",
+                  "evidence_state": "verified"
+                }
+              ],
+              "insurance_period": "종신",
+              "payment_period": "20년",
+              "effective_from": "2021-03-10"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

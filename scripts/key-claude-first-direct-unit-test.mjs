@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isClaudeFirstDirectPreview,
   extractPartialCustomerAnswer,
@@ -54,9 +57,6 @@ import {
   CHAT_PDF_FILE_ACCEPT,
 } from "../src/lib/chatPdfAttach.js";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
 {
   const root = dirname(fileURLToPath(import.meta.url));
@@ -1382,6 +1382,68 @@ const chartPolicies = {
   assert.ok(enroll.hard_fail);
   const replace = selectReplacingHardReasons(enroll.hard, "지금 가입하세요. 바로 해지하세요.");
   assert.ok(replace.length > 0);
+}
+
+// --- Slice 9: positive party fixtures → chart → Claude payload (judgment Hand materials) ---
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const pack = JSON.parse(
+    readFileSync(
+      join(root, "fixtures/key-judgment-validation-v1/slice-9-party-positive-fixtures.json"),
+      "utf8",
+    ),
+  );
+  const caseA = pack.cases.find((c) => c.id === "slice-9-case-a");
+  const caseB = pack.cases.find((c) => c.id === "slice-9-case-b");
+  assert.ok(caseA && caseB);
+
+  const chartA = buildVerifiedCustomerChart(caseA.reality);
+  const a = chartA.contracts[0];
+  assert.equal(a.policyholder, "가상갑");
+  assert.equal(a.insured, "가상갑");
+  assert.equal(a.beneficiaries.filter((b) => b.beneficiary_type === "death_benefit").length, 2);
+  assert.equal(a.beneficiaries.some((b) => b.beneficiary_type === "maturity_benefit"), true);
+  assert.equal(a.beneficiaries.find((b) => b.share === "60%")?.name, "가상의을");
+  assert.equal(a.beneficiaries.find((b) => b.share === "40%")?.name, "가상의병");
+  assert.equal(a.party_changes[0]?.effective_date, "2023-06-01");
+  assert.equal(a.actual_premium_funder, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(a, "premium_payers"), false);
+
+  const chartB = buildVerifiedCustomerChart(caseB.reality);
+  const b = chartB.contracts[0];
+  assert.equal(b.policyholder, "가상정");
+  assert.equal(b.insured, "가상무");
+  assert.equal(b.actual_premium_funder?.name, "가상경");
+  assert.equal(b.actual_premium_funder.name === b.policyholder, false);
+
+  const combined = {
+    policy_count: 2,
+    policies: [...caseA.reality.policies, ...caseB.reality.policies],
+  };
+  const chart = buildVerifiedCustomerChart(combined);
+  assert.equal(chart.contracts.length, 2);
+  assert.equal(JSON.stringify(chart.contracts[0]).includes("가상경"), false);
+  assert.equal(JSON.stringify(chart.contracts[1]).includes("가상의을"), false);
+
+  const payload = buildUserPayload({
+    question: "사망보험금은 누가 얼마씩 받게 돼?",
+    chart,
+    contextPack: { recent_turns: [] },
+    now: new Date("2026-07-14T12:00:00+09:00"),
+  });
+  const personal = payload.available_verified_evidence.personal.chart;
+  assert.equal(personal.contracts[0].beneficiaries.length >= 2, true);
+  assert.equal(personal.contracts[1].actual_premium_funder.name, "가상경");
+  assert.equal(JSON.stringify(payload).includes("premium_payers"), false);
+
+  // 60%/40% of 3억 — materials include amount for Claude calculation
+  const amountRaw = JSON.stringify(caseA.reality.policies[0].coverage_summary);
+  assert.equal(amountRaw.includes("300000000") || amountRaw.includes("3억"), true);
+
+  const sys = buildSystemPrompt();
+  assert.equal(/상속\s*모드|세무\s*persona|classifier/i.test(sys), false);
+  assert.ok(sys.includes("법정상속인"));
+  assert.ok(sys.includes("내부 필드명"));
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");
