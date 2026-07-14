@@ -263,6 +263,9 @@ export function buildUserPayload({
   contextPack,
   pdfMeta = null,
   corporateContexts = null,
+  corporateGapEvidence = null,
+  corporateRecommendationCandidates = null,
+  corporateUnknowns = null,
 } = {}) {
   const attached = pdfMeta?.attached === true;
   const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
@@ -279,6 +282,36 @@ export function buildUserPayload({
     unknowns: corporate.unknowns ?? [],
     provenance: corporate.provenance ?? null,
   }));
+  const corporate_gap_evidence = (Array.isArray(corporateGapEvidence) ? corporateGapEvidence : [])
+    .filter((row) => String(row?.entity_id ?? "").trim() && String(row?.item ?? "").trim())
+    .map((row) => ({
+      entity_id: row.entity_id,
+      item: row.item,
+      status: row.status ?? null,
+      known_gap: row.known_gap === true,
+      unknown_gap: row.unknown_gap === true,
+      sufficient: row.sufficient === true,
+      reason: row.reason ?? null,
+      snapshot_field: row.snapshot_field ?? null,
+      provenance: row.provenance ?? null,
+    }));
+  const corporate_recommendation_candidates = (
+    Array.isArray(corporateRecommendationCandidates) ? corporateRecommendationCandidates : []
+  )
+    .filter((row) => String(row?.entity_id ?? "").trim() && String(row?.item ?? "").trim())
+    .map((row) => ({
+      entity_id: row.entity_id,
+      item: row.item,
+      action: row.action ?? null,
+      confidence: row.confidence ?? null,
+      reason: row.reason ?? null,
+      provenance: row.provenance ?? null,
+      action_meaning:
+        row.action === "address_gap"
+          ? "known_gap_review_candidate_not_risk_rank"
+          : row.action_meaning ?? null,
+    }));
+  const corporate_unknowns = Array.isArray(corporateUnknowns) ? corporateUnknowns : [];
 
   const baseGuidance = attached
     ? [
@@ -295,6 +328,10 @@ export function buildUserPayload({
   const sourceGuidance = [
     "Use verified_customer_chart (personal) and verified_corporate_contexts (per-entity corporate) together when relevant.",
     "Keep personal and corporate sources separate — never flatten corporate facts into the personal chart or mix contracts across entities.",
+    "corporate_gap_evidence is derived from verified corporate snapshot facts only.",
+    "address_gap means a known-gap review candidate — not a severity rank, urgency score, or confirmed risk ranking.",
+    "unknown/defer items mean insufficient information — do not treat them as confirmed gaps.",
+    "Do not invent product names, premiums, or coverage amounts. Do not pre-write a recommendation conclusion.",
     "Infer which source the question needs from conversation context; if truly ambiguous, ask one natural clarifying question.",
     "Treat partial_facts as incomplete and unknowns as 미확인.",
   ].join(" ");
@@ -310,6 +347,14 @@ export function buildUserPayload({
     // Personal chart stays present even when corporate contexts exist — never XOR-null.
     verified_customer_chart: chart,
     verified_corporate_contexts: corporate_contexts,
+    corporate_gap_evidence,
+    corporate_recommendation_candidates,
+    corporate_unknowns,
+    corporate_evidence_meta: {
+      invented_coverage: false,
+      invented_recommendation: false,
+      priority_meaning: "known_gap_review_candidates_not_severity_rank",
+    },
     allowed_numbers: allowlist?.allowed_numbers ?? [],
     allowed_entities: allowlist?.allowed_entities ?? [],
     insurer_counts: allowlist?.insurer_counts ?? null,
@@ -1013,6 +1058,9 @@ async function callClaudeFirstDirect({
   pdfMediaType = null,
   pdfMeta = null,
   corporateContexts = null,
+  corporateGapEvidence = null,
+  corporateRecommendationCandidates = null,
+  corporateUnknowns = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -1032,6 +1080,9 @@ async function callClaudeFirstDirect({
     contextPack,
     pdfMeta,
     corporateContexts,
+    corporateGapEvidence,
+    corporateRecommendationCandidates,
+    corporateUnknowns,
   });
   const system = buildSystemPrompt();
   const userContent = buildClaudeFullUserContentWithPdf({
@@ -1231,6 +1282,17 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   const corporateContexts = Array.isArray(corporateLoaded?.corporate_contexts)
     ? corporateLoaded.corporate_contexts
+    : [];
+  const corporateGapEvidence = Array.isArray(corporateLoaded?.corporate_gap_evidence)
+    ? corporateLoaded.corporate_gap_evidence
+    : [];
+  const corporateRecommendationCandidates = Array.isArray(
+    corporateLoaded?.corporate_recommendation_candidates,
+  )
+    ? corporateLoaded.corporate_recommendation_candidates
+    : [];
+  const corporateUnknowns = Array.isArray(corporateLoaded?.corporate_unknowns)
+    ? corporateLoaded.corporate_unknowns
     : [];
   // entityContext from older clients is ignored for data access scope.
   void entityContext;
@@ -1480,6 +1542,9 @@ export async function runClaudeFirstDirectQuestionTurn({
     pdfMediaType: pdf.mediaType,
     pdfMeta: pdf.meta,
     corporateContexts,
+    corporateGapEvidence,
+    corporateRecommendationCandidates,
+    corporateUnknowns,
   });
   const emitMark = span.end();
   // Completeness: progressive extract can lag the final customer_answer.

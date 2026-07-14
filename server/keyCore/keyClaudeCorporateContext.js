@@ -1,12 +1,14 @@
 /**
  * Corporate fact Hand for the single Claude-first KEY path.
- * Loads membership-scoped corporate verified contexts alongside personal chart.
+ * Loads membership-scoped corporate verified contexts + gap/rec evidence
+ * alongside personal chart.
  *
  * Reuses: loadEntityContextRecords, assertCorporateEntity, assertEntityAccess,
  * createCorporateEntitySession, loadCorporateMemorySnapshot, buildCorporateSnapshot,
- * listMyCorporateEntities.
+ * listMyCorporateEntities, corporateGap/Recommendation pure functions.
  *
- * Does NOT call: resolveEntitySession, runCorporateKeyLoopTurn, corporate compose/speech.
+ * Does NOT call: resolveEntitySession, runCorporateKeyLoopTurn, corporate compose/speech,
+ * loadCorporateKeyContext, workspace/panel compose.
  * Does NOT fail the whole turn when a client sends a stale/foreign entity_id.
  */
 import { loadEntityContextRecords } from "../entity/entityRecordLoader.js";
@@ -22,12 +24,22 @@ import {
   buildCorporateSnapshot,
   CORPORATE_SNAPSHOT_V1,
 } from "../entity/corporate/corporateSnapshot.js";
+import {
+  buildCorporateGapInputFromSnapshot,
+  analyzeCorporateCoverageGaps,
+} from "../entity/corporate/corporateGap.js";
+import {
+  buildCorporateRecommendationInputFromGap,
+  generateCorporateRecommendations,
+} from "../entity/corporate/corporateRecommendation.js";
 import { listMyCorporateEntities } from "../entity/listMyCorporateEntities.js";
 
 export const CORPORATE_AUTH_FAILED_CUSTOMER_TEXT =
   "이 법인의 정보를 확인할 권한이 확인되지 않았습니다.";
 
 export const CLAUDE_CORPORATE_FACT_PACK_V1 = "claude-corporate-fact-pack-v1";
+export const CLAUDE_CORPORATE_GAP_EVIDENCE_V1 = "claude-corporate-gap-evidence-v1";
+export const CLAUDE_CORPORATE_REC_CANDIDATE_V1 = "claude-corporate-rec-candidate-v1";
 
 /**
  * Build read-only Claude fact pack from corporate snapshot + memory.
@@ -130,7 +142,81 @@ export function buildClaudeCorporateFactPack({
   };
 }
 
-async function loadOneCorporateFactPack({
+/**
+ * FACT + JUDGMENT CANDIDATE only — no customer speech, products, premiums, or risk scores.
+ */
+export function buildClaudeCorporateGapRecEvidence({ snapshot = null } = {}) {
+  if (!snapshot?.identity?.entity_id) {
+    return {
+      gap_evidence: [],
+      recommendation_candidates: [],
+      unknowns: [],
+      invented_coverage: false,
+      invented_recommendation: false,
+    };
+  }
+
+  const gapInput = buildCorporateGapInputFromSnapshot({ corporateSnapshot: snapshot });
+  const gapAnalysis = analyzeCorporateCoverageGaps({ gapInput });
+  const gapContext = {
+    analysis: gapAnalysis,
+    contract_version: gapAnalysis.contract_version,
+    entity_id: gapAnalysis.entity_id,
+    snapshot_version: gapAnalysis.snapshot_version,
+  };
+  const recommendationInput = buildCorporateRecommendationInputFromGap({ gapContext });
+  const recAnalysis = generateCorporateRecommendations({ recommendationInput });
+
+  const entityId = gapAnalysis.entity_id;
+  const gap_evidence = (gapAnalysis.gaps ?? []).map((gap) => ({
+    contract_version: CLAUDE_CORPORATE_GAP_EVIDENCE_V1,
+    entity_id: entityId,
+    item: gap.item,
+    status: gap.status,
+    known_gap: gap.known_gap === true,
+    unknown_gap: gap.unknown_gap === true,
+    sufficient: gap.sufficient === true,
+    reason: gap.reason ?? null,
+    snapshot_field: gap.snapshot_field ?? null,
+    provenance: gap.provenance ?? null,
+  }));
+
+  const recommendation_candidates = [
+    ...(recAnalysis.priority_items ?? []),
+    ...(recAnalysis.maintain_items ?? []),
+    ...(recAnalysis.deferred_items ?? []),
+  ].map((row) => ({
+    contract_version: CLAUDE_CORPORATE_REC_CANDIDATE_V1,
+    entity_id: entityId,
+    item: row.item,
+    action: row.action,
+    confidence: row.confidence ?? null,
+    reason: row.reason ?? null,
+    provenance: row.provenance ?? null,
+    action_meaning:
+      row.action === "address_gap"
+        ? "known_gap_review_candidate_not_risk_rank"
+        : row.action_meaning ?? null,
+  }));
+
+  const unknowns = [
+    ...new Set([
+      ...(Array.isArray(snapshot?.derived?.unknowns) ? snapshot.derived.unknowns : []),
+      ...gap_evidence.filter((g) => g.unknown_gap).map((g) => g.item),
+    ]),
+  ];
+
+  return {
+    gap_evidence,
+    recommendation_candidates,
+    unknowns,
+    invented_coverage: gapAnalysis.summary?.invented_coverage === false ? false : false,
+    invented_recommendation: recAnalysis.invented_recommendation === false ? false : false,
+    priority_meaning: "known_gap_review_candidates_not_severity_rank",
+  };
+}
+
+async function loadOneCorporateBundle({
   userSupabase,
   customerId,
   authUserId,
@@ -186,18 +272,21 @@ async function loadOneCorporateFactPack({
     resolver_version: ENTITY_RESOLVER_V1,
   });
 
-  return buildClaudeCorporateFactPack({
+  const factPack = buildClaudeCorporateFactPack({
     entityRecord: access.entity,
     membership: access.membership,
     snapshot,
     memorySnapshot,
   });
+  const evidence = buildClaudeCorporateGapRecEvidence({ snapshot });
+
+  return { factPack, evidence };
 }
 
 /**
- * Load all corporate contexts the authenticated user may access via membership.
+ * Load all corporate contexts + gap/rec evidence the authenticated user may access.
  * Client entity_type/entity_id hints are ignored for widening access.
- * Never fails the personal turn — returns empty contexts on list/load issues.
+ * Never fails the personal turn — returns empty arrays on list/load issues.
  */
 export async function loadAllowedCorporateContextsForClaude({
   userSupabase = null,
@@ -208,22 +297,37 @@ export async function loadAllowedCorporateContextsForClaude({
   loadCorporateMemorySnapshotImpl = loadCorporateMemorySnapshot,
   buildCorporateSnapshotImpl = buildCorporateSnapshot,
 } = {}) {
+  const empty = {
+    ok: true,
+    corporate_contexts: [],
+    corporate_gap_evidence: [],
+    corporate_recommendation_candidates: [],
+    corporate_unknowns: [],
+    invented_coverage: false,
+    invented_recommendation: false,
+    priority_meaning: "known_gap_review_candidates_not_severity_rank",
+  };
+
   if (!userSupabase || !authUserId) {
-    return { ok: true, corporate_contexts: [], skipped_reason: "auth_context_missing" };
+    return { ...empty, skipped_reason: "auth_context_missing" };
   }
 
   const listed = await listMyCorporateEntitiesImpl(userSupabase, { authUserId });
   if (!listed?.ok) {
-    return { ok: true, corporate_contexts: [], skipped_reason: listed?.reason ?? "list_failed" };
+    return { ...empty, skipped_reason: listed?.reason ?? "list_failed" };
   }
 
   const rows = Array.isArray(listed.entities) ? listed.entities : [];
   const corporate_contexts = [];
+  const corporate_gap_evidence = [];
+  const corporate_recommendation_candidates = [];
+  const corporate_unknowns = [];
+
   for (const row of rows) {
     const entityId = String(row?.entity_id ?? "").trim();
     if (!entityId) continue;
     try {
-      const pack = await loadOneCorporateFactPack({
+      const bundle = await loadOneCorporateBundle({
         userSupabase,
         customerId,
         authUserId,
@@ -232,13 +336,29 @@ export async function loadAllowedCorporateContextsForClaude({
         loadCorporateMemorySnapshotImpl,
         buildCorporateSnapshotImpl,
       });
-      if (pack?.authorization_verified === true && pack.entity_id) {
-        corporate_contexts.push(pack);
+      if (!bundle?.factPack?.authorization_verified || !bundle.factPack.entity_id) continue;
+      corporate_contexts.push(bundle.factPack);
+      corporate_gap_evidence.push(...(bundle.evidence?.gap_evidence ?? []));
+      corporate_recommendation_candidates.push(
+        ...(bundle.evidence?.recommendation_candidates ?? []),
+      );
+      for (const u of bundle.evidence?.unknowns ?? []) {
+        corporate_unknowns.push({ entity_id: bundle.factPack.entity_id, unknown: u });
       }
     } catch {
       // Skip this entity; do not fail the whole KEY turn.
     }
   }
 
-  return { ok: true, corporate_contexts, skipped_reason: null };
+  return {
+    ok: true,
+    corporate_contexts,
+    corporate_gap_evidence,
+    corporate_recommendation_candidates,
+    corporate_unknowns,
+    invented_coverage: false,
+    invented_recommendation: false,
+    priority_meaning: "known_gap_review_candidates_not_severity_rank",
+    skipped_reason: null,
+  };
 }
