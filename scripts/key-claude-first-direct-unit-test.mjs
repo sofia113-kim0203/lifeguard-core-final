@@ -72,18 +72,48 @@ import { createHash } from "node:crypto";
 }
 
 assert.equal(
-  isClaudeFirstDirectPreview({ VERCEL_ENV: "preview", KEY_BORROWED_SENSES: "shadow" }),
+  isClaudeFirstDirectPreview({
+    VERCEL_ENV: "preview",
+    KEY_BORROWED_SENSES: "shadow",
+    KEY_CLAUDE_FIRST_DIRECT: "1",
+  }),
   true,
-);
-assert.equal(
-  isClaudeFirstDirectPreview({ VERCEL_ENV: "production", KEY_BORROWED_SENSES: "shadow" }),
-  false,
 );
 assert.equal(
   isClaudeFirstDirectPreview({
     VERCEL_ENV: "preview",
     KEY_BORROWED_SENSES: "shadow",
     KEY_CLAUDE_FIRST_DIRECT: "0",
+  }),
+  false,
+);
+assert.equal(
+  isClaudeFirstDirectPreview({
+    VERCEL_ENV: "preview",
+    KEY_BORROWED_SENSES: "shadow",
+  }),
+  false,
+);
+assert.equal(
+  isClaudeFirstDirectPreview({
+    VERCEL_ENV: "production",
+    KEY_BORROWED_SENSES: "shadow",
+    KEY_CLAUDE_FIRST_DIRECT: "1",
+  }),
+  true,
+);
+assert.equal(
+  isClaudeFirstDirectPreview({
+    VERCEL_ENV: "production",
+    KEY_BORROWED_SENSES: "shadow",
+    KEY_CLAUDE_FIRST_DIRECT: "0",
+  }),
+  false,
+);
+assert.equal(
+  isClaudeFirstDirectPreview({
+    VERCEL_ENV: "production",
+    KEY_BORROWED_SENSES: "shadow",
   }),
   false,
 );

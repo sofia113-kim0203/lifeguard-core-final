@@ -1,13 +1,12 @@
 /**
- * Preview Claude-first — free KEY answer path (Slice 5 + Slice 6 evidence Hand).
+ * Claude-first — free KEY answer path (Slice 5 + Slice 6 evidence Hand).
  * KEY: auth/ownership · verified raw materials · CLOSED hard-only · seal as-is.
  * Does not pre-decide intent/format/judgment. No Phase B / soft rewrite / S3–S6.
- * Production must never enable (isClaudeFirstDirectPreview).
+ * Enabled by KEY_CLAUDE_FIRST_DIRECT=1 on Preview and Production alike.
  */
 import {
   isKeyBorrowedSensesProbeEnabled,
   isKeyBorrowedSensesStage2Partial,
-  isVercelProductionEnv,
   ONE_KEY_CORE_RESPONSE_SOURCE,
 } from "./oneKeyCoreFlags.js";
 import {
@@ -285,14 +284,13 @@ const CLOSED_HARD = new Set([
 ]);
 
 export function isClaudeFirstDirectPreview(env = process.env) {
-  if (isVercelProductionEnv(env)) return false;
   if (isKeyBorrowedSensesStage2Partial(env)) return false;
   if (!isKeyBorrowedSensesProbeEnabled(env)) return false;
-  // Preview path lock: on whenever borrowed probe is on (shadow|active).
-  // Optional explicit off: KEY_CLAUDE_FIRST_DIRECT=0
-  const flag = String(env.KEY_CLAUDE_FIRST_DIRECT ?? "1").trim().toLowerCase();
-  if (flag === "0" || flag === "false" || flag === "off") return false;
-  return true;
+  // Same flag on Preview and Production — do not hard-block by VERCEL_ENV alone.
+  // Explicit on only: KEY_CLAUDE_FIRST_DIRECT=1|true|on. Absent or 0 → off.
+  const flag = String(env.KEY_CLAUDE_FIRST_DIRECT ?? "").trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "on") return true;
+  return false;
 }
 
 function relMs(startedAt) {
