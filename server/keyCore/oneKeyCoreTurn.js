@@ -32,6 +32,7 @@ import {
   resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreReturnJudgmentEnv,
   resolveOneKeyCoreS1Env,
+  shouldRunClaudeFirstHomeChatQuestion,
 } from "./oneKeyCoreFlags.js";
 import {
   buildQuestionInterpretShadow,
@@ -47,10 +48,7 @@ import {
   resolveKeyFirstDecision,
 } from "../keyBrain/keyFirstDecision.js";
 import { startSpan } from "./keyLatencyMarks.js";
-import {
-  isClaudeFirstDirectPreview,
-  runClaudeFirstDirectQuestionTurn,
-} from "./keyClaudeFirstDirect.js";
+import { runClaudeFirstDirectQuestionTurn } from "./keyClaudeFirstDirect.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
@@ -63,6 +61,7 @@ export {
   resolveOneKeyCoreDocumentEnv,
   resolveOneKeyCoreReturnJudgmentEnv,
   resolveOneKeyCoreS1Env,
+  shouldRunClaudeFirstHomeChatQuestion,
   ONE_KEY_CORE_S1_BLOCKED_PATHS,
   ONE_KEY_CORE_RESPONSE_SOURCE,
 };
@@ -396,9 +395,9 @@ async function runOneKeyCoreQuestionTurn({
     });
   }
 
-  // Preview Claude-first: question + history + verified raw → Claude answer as-is.
-  // No intent/Decision/Goal/planner/S3–S6 before Claude. Production never enters.
-  if (isClaudeFirstDirectPreview(coreEnv)) {
+  // HomeChat Claude-first: question + history + verified + original → Claude as-is.
+  // No intent/Decision/leadership/S3–S6. Probe / active_partial do not divert this path.
+  if (shouldRunClaudeFirstHomeChatQuestion(coreEnv)) {
     const conversationHistory = (history ?? [])
       .map((turn) => ({
         role: turn.role === "assistant" ? "assistant" : "user",

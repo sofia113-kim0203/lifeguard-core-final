@@ -23,6 +23,237 @@ import { resolveOneKeyCoreS1Env, runOneKeyCoreTurn } from "./keyCore/oneKeyCoreT
 import { buildKeyCustomerTextFailureEnvelope } from "./keyCore/keyCustomerMonopoly.js";
 import { enforceKeyCustomerTextIntegrity } from "./keyCore/keyCustomerTextSeal.js";
 import { ONE_KEY_CORE_RESPONSE_SOURCE } from "./keyCore/oneKeyCoreFlags.js";
+import { resolveSupabaseConfig } from "./claudeGroundedExecutionCore.js";
+import { buildDocumentDispatchPlanShadow } from "./keyBrain/documentIntakeShadow.js";
+import {
+  buildKeyWorkOrderRecord,
+  mintKeyWorkOrderId,
+  persistKeyWorkOrder,
+  resolveKeyWorkOrderTtlMs,
+} from "./keyBrain/workOrder.js";
+import { runDocumentPolicyExtraction } from "./documentPolicyExtractionPipeline.js";
+
+/** Reuse Claude-first turn fields for factory post-processing (no second Claude call). */
+export function buildClaudeFactoryDirectionFromTurn({
+  question = "",
+  documentId = null,
+  coreResult = null,
+} = {}) {
+  const trace = coreResult?.salesDirectorTrace ?? {};
+  const voice = trace?.key_compose_trace?.key_voice_trace ?? {};
+  const facts = Array.isArray(coreResult?.agentTurn?.factBundle?.key_confirmed_source_facts)
+    ? coreResult.agentTurn.factBundle.key_confirmed_source_facts
+    : [];
+  const decision = trace.decision ?? null;
+  const session_goal = trace.session_goal ?? null;
+  const recheck = facts
+    .map((fact) => fact?.field ?? fact?.fact_key ?? fact?.label ?? null)
+    .filter(Boolean)
+    .slice(0, 40);
+  return {
+    schema_version: "claude-factory-direction-v1",
+    source: "claude_first_direct",
+    document_id: documentId,
+    customer_question_focus: String(question ?? "").trim().slice(0, 500),
+    session_goal,
+    decision,
+    document_understanding:
+      decision?.key_judgment ??
+      decision?.situation_key ??
+      session_goal ??
+      (facts.length ? "confirmed_source_facts_present" : null),
+    confirm_items: facts.slice(0, 40).map((fact) => ({
+      field: fact?.field ?? fact?.fact_key ?? null,
+      value: fact?.value ?? null,
+      uncertain: fact?.uncertain === true || fact?.confidence === "low",
+    })),
+    uncertain_parts: facts
+      .filter((fact) => fact?.uncertain === true || fact?.confidence === "low")
+      .slice(0, 20),
+    recheck_on_original: recheck,
+    compare_or_calc_basis: decision?.key_next_move ?? session_goal ?? null,
+    pdf_attached: voice.pdf_attached === true,
+    gaps: {
+      decision_null: decision == null,
+      session_goal_null: session_goal == null,
+      note:
+        "plain_text Claude-first path often leaves decision/session_goal null; direction uses question + confirmed_source_facts",
+    },
+  };
+}
+
+async function hasDocumentAnalysisConsent(supabase, customerId) {
+  const { data, error } = await supabase
+    .from("customer_consents")
+    .select("id")
+    .eq("customer_id", customerId)
+    .eq("consent_type", "document_analysis")
+    .eq("granted", true)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+async function invokeDocumentIngestWorkerAfterClaude({
+  env,
+  accessToken,
+  documentId,
+  workOrderId,
+  fetchImpl = fetch,
+}) {
+  const { url, anonKey } = resolveSupabaseConfig(env);
+  const token = String(accessToken ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!url || !anonKey || !token) {
+    return { ok: false, reason: "missing_worker_auth" };
+  }
+  const body = { document_id: documentId };
+  if (workOrderId) body.work_order_id = workOrderId;
+  const response = await fetchImpl(`${url}/functions/v1/document-ingest-worker`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      reason: "worker_failed",
+      status: response.status,
+      error: payload?.error_message ?? payload?.error ?? null,
+    };
+  }
+  return { ok: true, payload };
+}
+
+/**
+ * After Claude seal: issue WO carrying Claude direction, then existing ingest path.
+ * Never throws to caller — factory failure must not alter the sealed customer answer.
+ */
+export async function runHomeChatFactoryAfterClaude({
+  userSupabase,
+  customerId,
+  documentId,
+  claudeFactoryDirection,
+  accessToken = null,
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const trimmedId = String(documentId ?? "").trim();
+  if (!userSupabase || !customerId || !trimmedId) {
+    return { ok: false, reason: "missing_args" };
+  }
+
+  const hasConsent = await hasDocumentAnalysisConsent(userSupabase, customerId);
+  if (!hasConsent) {
+    return { ok: false, reason: "analysis_consent_missing" };
+  }
+
+  const { data: document, error: docError } = await userSupabase
+    .from("customer_documents")
+    .select("id, customer_id, metadata_json, customer_hint_type, doc_class, ingest_status")
+    .eq("id", trimmedId)
+    .eq("customer_id", customerId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (docError || !document) {
+    return { ok: false, reason: "document_not_found" };
+  }
+
+  const dispatchPlan = buildDocumentDispatchPlanShadow({
+    document,
+    hasAnalysisConsent: true,
+    claudeFactoryDirection,
+  });
+  const workOrderId = mintKeyWorkOrderId();
+  const workOrderRecord = buildKeyWorkOrderRecord({
+    workOrderId,
+    customerId,
+    documentId: trimmedId,
+    dispatchPlan,
+    ttlMs: resolveKeyWorkOrderTtlMs(env),
+  });
+  workOrderRecord.claude_factory_direction = claudeFactoryDirection ?? null;
+
+  await persistKeyWorkOrder(userSupabase, {
+    documentId: trimmedId,
+    customerId,
+    workOrderRecord,
+    existingMetadata: {
+      ...(document.metadata_json ?? {}),
+      claude_factory_direction: claudeFactoryDirection ?? null,
+      factory_deferred_until_claude: false,
+      factory_started_after_claude: true,
+    },
+  });
+
+  const { data: rpcData, error: rpcError } = await userSupabase.rpc(
+    "lifeguard_request_customer_document_ingest",
+    { p_document_id: trimmedId },
+  );
+  if (rpcError) {
+    return { ok: false, reason: "ingest_rpc_failed", error: rpcError.message, work_order_id: workOrderId };
+  }
+  if (rpcData?.blocked) {
+    return {
+      ok: false,
+      reason: "ingest_blocked",
+      work_order_id: workOrderId,
+      message: rpcData.message ?? null,
+    };
+  }
+
+  const worker = await invokeDocumentIngestWorkerAfterClaude({
+    env,
+    accessToken,
+    documentId: trimmedId,
+    workOrderId,
+    fetchImpl,
+  });
+
+  let policyExtraction = null;
+  if (worker.ok && worker.payload?.ingest_status === "ready") {
+    try {
+      policyExtraction = await runDocumentPolicyExtraction({
+        customerId,
+        documentId: trimmedId,
+        env,
+        invokeMemory: true,
+      });
+    } catch (extractError) {
+      policyExtraction = {
+        ok: false,
+        reason: "extract_failed",
+        message: String(extractError?.message ?? extractError).slice(0, 200),
+      };
+    }
+  }
+
+  return {
+    ok: worker.ok === true,
+    work_order_id: workOrderId,
+    claude_factory_direction: claudeFactoryDirection ?? null,
+    worker,
+    policyExtraction,
+  };
+}
+
+export function scheduleHomeChatFactoryAfterClaude(args) {
+  void runHomeChatFactoryAfterClaude(args).catch((error) => {
+    console.error(
+      "[homechat_factory_after_claude]",
+      String(error?.message ?? error).slice(0, 240),
+    );
+  });
+}
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
@@ -190,6 +421,7 @@ export async function handleHomeBrainFactRequest({
   rotationQuarterTurns = 0,
   priorAttachFollowUp = false,
   shadowVisualBlocksOverride = null,
+  accessToken = null,
   env = process.env,
   fetchImpl = fetch,
   streamHandlers = null,
@@ -393,6 +625,28 @@ export async function handleHomeBrainFactRequest({
     },
   });
 
+  const attachedId = String(attachedDocumentId ?? "").trim() || null;
+  const claudeFactoryDirection = attachedId
+    ? buildClaudeFactoryDirectionFromTurn({
+        question: trimmedQuestion,
+        documentId: attachedId,
+        coreResult,
+      })
+    : null;
+
+  // Customer answer is already sealed/streamed — factory must not delay or rewrite it.
+  if (attachedId && claudeFactoryDirection) {
+    scheduleHomeChatFactoryAfterClaude({
+      userSupabase,
+      customerId,
+      documentId: attachedId,
+      claudeFactoryDirection,
+      accessToken,
+      env,
+      fetchImpl,
+    });
+  }
+
   return buildDonePayload({
     coreResult,
     answerText,
@@ -423,6 +677,14 @@ export async function handleHomeBrainFactRequest({
       key_monopoly_failure: coreResult.key_monopoly_failure === true,
       failure_reason: coreResult.failure_reason ?? null,
       factsUsed,
+      claude_factory_direction: claudeFactoryDirection,
+      factory_enqueue: attachedId
+        ? {
+            deferred_until_after_claude: true,
+            document_id: attachedId,
+            started_async: true,
+          }
+        : null,
     },
   });
 }

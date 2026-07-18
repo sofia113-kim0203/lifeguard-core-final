@@ -128,6 +128,7 @@ export default async function handler(req, res) {
         rotationQuarterTurns,
         priorAttachFollowUp,
         shadowVisualBlocksOverride,
+        accessToken: authHeader,
         streamHandlers,
         requestStartedAt,
       });
@@ -153,6 +154,7 @@ export default async function handler(req, res) {
       rotationQuarterTurns,
       priorAttachFollowUp,
       shadowVisualBlocksOverride,
+      accessToken: authHeader,
     });
 
     if (!result.ok) {

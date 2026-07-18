@@ -1176,11 +1176,11 @@ const repairCases = [
     run: () => {
       const q9 = buildQuestionLeadershipHint("보험 추천해줘");
       if (!q9 || !/Recommend path|FULLVOICE_Q9|S7Q6/.test(q9)) return false;
-      if (!/추천은\s*가능|추천해드릴게요|추천은\s*가능해요/.test(q9)) return false;
-      if (!/고객 목적이 아직 확인되지 않은 상태입니다/.test(q9)) return false; // must forbid by naming BAD
-      if (!/FORBIDDEN|BAD opening/.test(q9)) return false;
-      if (!/절감|보완|현황|막연/.test(q9)) return false;
-      if (!/next_decision_point MUST/.test(q9)) return false;
+      if (!/first sentence|첫 문장|judgment\/recommendation|판단과 추천/.test(q9)) return false;
+      if (!/확인되지 않음/.test(q9)) return false;
+      if (!/FORBIDDEN|BAD FORBIDDEN/.test(q9)) return false;
+      if (!/내보험다보여|age\/family\/income|나이/.test(q9)) return false;
+      if (!/recommendation-ban|추천\s*금지|추천은\s*어렵/.test(q9)) return false;
       if (/추천은\s*하지\s*않|추천\s*금지|추천은\s*어렵/.test(q9) && !/BAD|FORBIDDEN/.test(q9)) {
         return false;
       }

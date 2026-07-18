@@ -109,6 +109,26 @@ async function retireUploadExtractPolicies(admin, customerId, policyIds) {
   return retired;
 }
 
+function hasKeyProtectedVerifiedFacts(coverageSummary) {
+  const facts = coverageSummary?.key_confirmed_source_facts;
+  return Array.isArray(facts) && facts.length > 0;
+}
+
+function markFactoryPendingUnverified(row) {
+  const summary =
+    row?.coverage_summary && typeof row.coverage_summary === "object"
+      ? row.coverage_summary
+      : {};
+  return {
+    ...row,
+    coverage_summary: {
+      ...summary,
+      factory_analysis_status: "pending_unverified",
+      factory_verification_status: "pending_unverified",
+    },
+  };
+}
+
 export async function persistExtractedPolicies(admin, customerId, documentId, multiExtraction) {
   const candidates = multiExtraction.policies ?? [];
   const existingRows = await loadUploadExtractPoliciesForDocument(admin, customerId, documentId);
@@ -122,10 +142,22 @@ export async function persistExtractedPolicies(admin, customerId, documentId, mu
       candidate,
       candidates.length,
     );
-    const row = buildPolicyRowFromCandidate(customerId, documentId, candidate, existing?.coverage_summary);
+    const row = markFactoryPendingUnverified(
+      buildPolicyRowFromCandidate(customerId, documentId, candidate, existing?.coverage_summary),
+    );
     activeKeys.push(uploadExtractKey);
 
     if (existing?.id) {
+      // KEY-protected verified facts win — factory never auto-overwrites them.
+      if (hasKeyProtectedVerifiedFacts(existing.coverage_summary)) {
+        actions.push({
+          policy_id: existing.id,
+          action: "kept_existing_verified",
+          upload_extract_key: uploadExtractKey,
+          block_index: candidate.block_index ?? null,
+        });
+        continue;
+      }
       const { data, error } = await admin
         .from("profile_insurance_policies")
         .update(row)
@@ -136,7 +168,7 @@ export async function persistExtractedPolicies(admin, customerId, documentId, mu
       if (error) throw new Error(`policy_update_failed: ${error.message}`);
       actions.push({
         policy_id: data.id,
-        action: "updated",
+        action: "updated_pending_unverified",
         upload_extract_key: uploadExtractKey,
         block_index: candidate.block_index ?? null,
       });
@@ -151,13 +183,16 @@ export async function persistExtractedPolicies(admin, customerId, documentId, mu
     if (error) throw new Error(`policy_insert_failed: ${error.message}`);
     actions.push({
       policy_id: data.id,
-      action: "inserted",
+      action: "inserted_pending_unverified",
       upload_extract_key: uploadExtractKey,
       block_index: candidate.block_index ?? null,
     });
   }
 
-  const retireIds = planRetiredPolicyIds(existingRows, documentId, activeKeys);
+  const retireIds = planRetiredPolicyIds(existingRows, documentId, activeKeys).filter((id) => {
+    const row = (existingRows ?? []).find((entry) => entry.id === id);
+    return !hasKeyProtectedVerifiedFacts(row?.coverage_summary);
+  });
   const retiredPolicyIds = await retireUploadExtractPolicies(admin, customerId, retireIds);
 
   return {

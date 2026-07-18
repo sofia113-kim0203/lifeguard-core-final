@@ -300,7 +300,23 @@ function relMs(startedAt) {
   return Math.max(0, Date.now() - startedAt);
 }
 
-function extractPoliciesFromContext({
+/** Drop deleted/retired rows so Claude never treats them as current verified facts. */
+function isClaudeFirstInactivePolicyRow(policy = null) {
+  if (!policy || typeof policy !== "object") return true;
+  const summary =
+    policy.coverage_summary && typeof policy.coverage_summary === "object"
+      ? policy.coverage_summary
+      : {};
+  if (String(summary.retired_reason ?? policy.retired_reason ?? "").trim()) return true;
+  if (policy.deleted_at != null && policy.deleted_at !== "") return true;
+  const status = String(policy.policy_status ?? summary.policy_status ?? "")
+    .trim()
+    .toLowerCase();
+  if (status.includes("retired")) return true;
+  return false;
+}
+
+export function extractPoliciesFromContext({
   loadedContext = null,
   customerContextBundle = null,
   unifiedState = null,
@@ -310,18 +326,22 @@ function extractPoliciesFromContext({
     ? customerContextBundle.policies
     : null;
   const fromUnified = Array.isArray(unifiedState?.policies) ? unifiedState.policies : null;
-  const policies = fromLoaded ?? fromBundle ?? fromUnified ?? [];
-  const policy_count =
+  const hasPolicyArray = fromLoaded != null || fromBundle != null || fromUnified != null;
+  const declared =
     Number(
       loadedContext?.policy_count ??
         customerContextBundle?.policy_count ??
         customerContextBundle?.active_policy_count ??
         unifiedState?.policy_count ??
         unifiedState?.active_policy_count ??
-        policies.length ??
         0,
-    ) || policies.length;
-  return { policies, policy_count };
+    ) || 0;
+  if (!hasPolicyArray) {
+    return { policies: [], policy_count: declared };
+  }
+  const raw = fromLoaded ?? fromBundle ?? fromUnified ?? [];
+  const policies = raw.filter((p) => !isClaudeFirstInactivePolicyRow(p));
+  return { policies, policy_count: policies.length };
 }
 
 /**
@@ -370,13 +390,19 @@ export function buildSystemPrompt() {
     "고객에게 보험이 실제로 필요하다는 근거가 확인되면, 그 이유를 분명히 설명하고 가입·유지·정리·보완을 자신 있게 제안한다.",
     "보험이 관련되지 않은 순간에는 고객이 지금 묻는 문제를 온전히 해결한다.",
     "제공된 질문, 대화, 검증 사실, 원본 첨부와 도구를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
-    "네 답변이 최종 KEY 답변이다.",
-    "검증된 고객 계약 사실과 법령·공공 기준을 구분하고, 고객 사실은 제공된 검증 자료 범위 안에서만 단정한다.",
+    "네 답변이 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·판단·답변한다.",
+    "검증된 고객 계약 사실과 법령·공공 기준을 구분하고, 고객 계약·담보·보험료 사실은 available_verified_evidence의 현재 검증 자료에만 근거한다.",
+    "과거 대화·이전 KEY 답변·삭제·retired 자료에 나온 계약·담보·보험료를 현재 사실처럼 말하지 않는다. 검증되지 않은 값을 '실손·운전자만 보유', '암·뇌·심장 없음', 특정 월 보험료 합계처럼 단정하지 않는다.",
     "계약상 수익자와 법정상속인을 같은 개념으로 취급하지 않는다. 가족관계·자금 부담자를 이름만으로 추정하지 않는다.",
-    "입력이 충분하면 지분·금액·구조의 의미를 직접 계산·판단하고, 부족하면 무엇이 부족한지 구체적으로 밝힌다. 무조건 전문가에게만 넘기며 판단을 회피하지 않는다.",
+    "보험 추천·맞춤 추천 질문에서는 정보 부족 감사·상황 요약 표·공백 표·나이·성별·가족·소득 필수 질문지로 답변을 축소하거나 멈추지 않는다. 현재 자료로 할 수 있는 판단과 추천을 첫 문장부터 바로 말한다.",
+    "확인된 계약·담보는 정확히 설명하고, 부족·보완이 검증된 축은 구체적으로 추천한다. 확인되지 않은 부분은 '없음/미가입/공백'이 아니라 '확인되지 않음'으로 말한다.",
+    "정보가 일부 부족해도 가능한 범위의 추천을 먼저 제공한다. 추가 질문은 추천을 끝낸 뒤 정말 필요한 것 하나만 자연스럽게 묻는다.",
+    "보험 추천 자체를 금지하지 않는다. 근거가 있는 필요 보험·방향은 분명하게 추천한다. 다만 '지금 가입하세요/해지해도 됩니다/무조건 이 상품' 같은 확정 가입·해지 지시는 하지 않는다.",
+    "고정된 표·제목·문단 순서·'현재 확인된 상황 요약'·'지금 자료로 보이는 공백'·'추천을 제대로 드리려면' 같은 감사 템플릿을 강요하지 않는다. 표현과 구성은 네가 맡는다.",
+    "자동조회·본인인증 기능이 실제 작동하는 것처럼 말하지 않는다. 내보험다보여·보험다보여 안내를 자동으로 붙이지 않는다. 추가 자료가 정말 필요할 때만 보험증권 또는 보장내역서 업로드를 한 번 자연스럽게 요청할 수 있다. 추천 답변을 내보험다보여 안내로 끝내지 않는다.",
+    "입력이 충분하면 지분·금액·구조의 의미를 직접 계산·판단한다. 무조건 전문가에게만 넘기며 판단을 회피하지 않는다.",
     "고객에게 내부 필드명·도구명·시스템 경로를 말하지 않는다.",
     "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
-    "보험계약 자동조회·본인인증 연동은 아직 준비되지 않았다. '내 보험 한눈에 서비스(보험다보여)를 통해 전체 계약을 조회하신 후 올려주셔도 됩니다'처럼 지금 바로 가능한 기능인 양 안내하지 마라. 자료가 더 필요하면 보험증권·보장내역서 또는 내보험다보여 조회자료를 올려주시면 정리·확인한다고 말하고, 자동조회는 준비 중이라고만 밝혀라. 본인인증 버튼을 작동하는 것처럼 위장하지 마라.",
     buildClaimCaseUpdatesToolHint(),
   ].join("\n");
 }

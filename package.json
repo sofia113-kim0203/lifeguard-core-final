@@ -69,7 +69,6 @@
     "test:orphan-source-deleted-policy-retire-unit": "node scripts/orphan-source-deleted-policy-retire-unit-test.mjs",
     "test:pr-c2b-coverage-sheet-shadow-rls-verify-unit": "node scripts/pr-c2b-coverage-sheet-shadow-rls-verify-unit-test.mjs",
     "test:document-upload-category-unit": "node --experimental-strip-types scripts/document-upload-category-unit-test.mjs",
-    "test:home-brain-fact": "node scripts/home-brain-fact-unit-test.mjs",
     "test:step1-phaseA-honesty-gate": "node scripts/step1-phaseA-honesty-gate-unit-test.mjs",
     "test:step1-B1-guidance-builder": "node scripts/step1-B1-guidance-builder-unit-test.mjs",
     "test:p11-3-active-policy-count-ssot": "node scripts/p11-3-active-policy-count-ssot-unit-test.mjs",

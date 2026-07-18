@@ -160,6 +160,17 @@ export function isStage3PromotionEnvAllowed(env = process.env) {
   return isKeyBorrowedSensesStage3Active(env);
 }
 
+/**
+ * HomeChat question routing — Claude-first only.
+ * Does NOT use borrowed-senses probe / active_partial as an entry gate.
+ * Explicit off: KEY_CLAUDE_FIRST_DIRECT=0|false|off. Absent → on (HomeChat default).
+ */
+export function shouldRunClaudeFirstHomeChatQuestion(env = process.env) {
+  const flag = String(env.KEY_CLAUDE_FIRST_DIRECT ?? "1").trim().toLowerCase();
+  if (flag === "0" || flag === "false" || flag === "off") return false;
+  return true;
+}
+
 /** S1 env overlay — orchestrator on, legacy speak fallback off. */
 export function resolveOneKeyCoreS1Env(env = process.env) {
   return {

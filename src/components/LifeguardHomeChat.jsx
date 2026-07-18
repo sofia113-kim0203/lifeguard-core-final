@@ -1393,6 +1393,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       const uploadResult = await uploadDocument(authUser, {
         file,
         categoryKey: "insurance_policy",
+        // Store original only — Claude-first question turn reads first; factory after seal.
+        deferFactoryUntilClaude: true,
       });
       const doc = uploadResult?.document ?? null;
       const documentId = String(doc?.id ?? "").trim();

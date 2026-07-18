@@ -7,6 +7,7 @@ import {
   extractPartialCustomerAnswer,
   hardOnlySafetyCheck,
   buildSystemPrompt,
+  extractPoliciesFromContext,
   buildUserPayload,
   buildRequestClock,
   extractPublicEvidenceFromClaudeContent,
@@ -149,7 +150,57 @@ assert.match(prompt, /지금 묻는 문제를 온전히 해결/);
 assert.match(prompt, /최종 KEY 답변/);
 assert.match(prompt, /웹 검색어/);
 assert.match(prompt, /검색어로 외부에 내보내지 않는다/);
+assert.match(prompt, /보험 추천·맞춤 추천/);
+assert.match(prompt, /첫 문장부터 바로 말한다/);
+assert.match(prompt, /확인되지 않음/);
+assert.match(prompt, /내보험다보여·보험다보여 안내를 자동으로 붙이지 않는다/);
+assert.match(prompt, /추천 답변을 내보험다보여 안내로 끝내지 않는다/);
+assert.equal(/부족하면 무엇이 부족한지 구체적으로 밝힌다/.test(prompt), false);
+assert.equal(/올려주시면 정리·확인한다고 말하고/.test(prompt), false);
+assert.equal(/내보험다보여 조회자료/.test(prompt), false);
+assert.equal(/자료가 더 필요하면/.test(prompt), false);
 assert.equal(/No emoji|Tone \(required\)|emit_claude_full|특약|ATTACHED FILE/i.test(prompt), false);
+
+{
+  const mixed = extractPoliciesFromContext({
+    loadedContext: {
+      policy_count: 2,
+      policies: [
+        { id: "a", insurer_name: "KB", policy_status: "active" },
+        { id: "r", insurer_name: "한화", policy_status: "retired" },
+      ],
+    },
+  });
+  assert.equal(mixed.policies.length, 1);
+  assert.equal(mixed.policy_count, 1);
+  assert.equal(mixed.policies[0].id, "a");
+
+  const statusOnly = extractPoliciesFromContext({
+    loadedContext: {
+      policies: [{ id: "r2", insurer_name: "DB", policy_status: "retired" }],
+    },
+  });
+  assert.equal(statusOnly.policies.length, 0);
+  assert.equal(statusOnly.policy_count, 0);
+
+  const allGone = extractPoliciesFromContext({
+    customerContextBundle: {
+      policy_count: 9,
+      policies: [
+        { id: "d1", deleted_at: "2026-07-01" },
+        { id: "r3", retired_reason: "soft_delete" },
+      ],
+    },
+  });
+  assert.equal(allGone.policies.length, 0);
+  assert.equal(allGone.policy_count, 0);
+
+  const noArray = extractPoliciesFromContext({
+    loadedContext: { policy_count: 3 },
+  });
+  assert.deepEqual(noArray.policies, []);
+  assert.equal(noArray.policy_count, 3);
+}
 assert.equal(/guidance|must ask|do not mix/i.test(prompt), false);
 assert.equal(/맛집이면|키워드|classifier|모든 대화에 보험|반드시 보험을 언급/i.test(prompt), false);
 assert.equal(/별도 일상 모드|고정 템플릿|답변 길이/i.test(prompt), false);

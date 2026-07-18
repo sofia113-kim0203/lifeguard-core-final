@@ -563,7 +563,10 @@ export async function retryPendingPolicyExtractions(authUser) {
   };
 }
 
-export async function uploadDocument(authUser, { file, categoryKey }) {
+export async function uploadDocument(
+  authUser,
+  { file, categoryKey, deferFactoryUntilClaude = false } = {},
+) {
   const category = getCategory(categoryKey);
   const { customerId } = await ensureCustomerContext(authUser);
 
@@ -605,6 +608,12 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
         upload_source: "web",
         sanitized_filename: storageFilename,
         category_key: category.key,
+        ...(deferFactoryUntilClaude
+          ? {
+              factory_deferred_until_claude: true,
+              factory_deferred_reason: "homechat_claude_first_reader",
+            }
+          : {}),
       },
       consent_snapshot: consentSnapshot,
     })
@@ -614,6 +623,19 @@ export async function uploadDocument(authUser, { file, categoryKey }) {
   if (insertError) {
     await supabase.storage.from(STORAGE_BUCKET).remove([storagePath]);
     throw new Error(toCustomerErrorMessage(insertError, "문서 정보를 저장하지 못했습니다."));
+  }
+
+  // HomeChat: store original only. Intake / Stage3 / OCR / factory wait for Claude-first answer.
+  if (deferFactoryUntilClaude) {
+    return {
+      customerId,
+      document: data,
+      ingest: null,
+      keyIntake: null,
+      keyIntakeTrace: null,
+      workOrderId: null,
+      deferred_factory: true,
+    };
   }
 
   const keyIntakeResult = await requestKeyDocumentIntake(documentId, {
