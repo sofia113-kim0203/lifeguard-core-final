@@ -6,6 +6,12 @@ import { resolvePolicyPremium } from "./resolvePolicyPremium.js";
 
 export const KEY_TURN_MIRROR_EMPTY = "\uC544\uC9C1 \uC774 \uB300\uD654\uC5D0\uC11C \uD655\uC778\uB41C \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
 
+/** Left-rail honesty: auto-lookup is not ready; upload only (no fake auth CTA). */
+export const KEY_INSURANCE_UPLOAD_GUIDANCE =
+  "현재는 KEY가 보험계약을 자동으로 불러오는 연결이 아직 준비되지 않았습니다.\n" +
+  "보험증권·보장내역서 또는 내보험다보여 조회자료를 올려주시면, KEY가 전체 계약을 정리하고 부족하거나 겹치는 보장을 확인해 드릴게요.\n" +
+  "자동조회 연동이 준비되면 본인인증과 동의만으로 KEY가 직접 보험계약을 불러오게 됩니다.";
+
 const INSURANCE_TURN_RE =
   /\uBCF4\uD5D8|\uACC4\uC57D|\uBCF4\uC7A5|\uBCF4\uD5D8\uB8CC|\uC9C4\uB2E8\uBE44|\uC2E4\uC190|\uC554|\uB0A9\uC785|\uC99D\uAD8C|\uD2B9\uC57D|\uBCF4\uD5D8\uC0AC|\uC0C1\uD488\uBA85|\uD655\uC778\uB428|\uBBF8\uD655\uC778|\uD655\uC778\\s*\uD544\uC694/;
 

@@ -2,7 +2,11 @@
  * Left rail — my insurance status (customer card only, no separate API).
  */
 import { LG } from "../lib/lifeguardCustomerTheme.js";
-import { buildMyInsuranceStatus, formatWonMonthly } from "../lib/keyInsuranceScreenFacts.js";
+import {
+  KEY_INSURANCE_UPLOAD_GUIDANCE,
+  buildMyInsuranceStatus,
+  formatWonMonthly,
+} from "../lib/keyInsuranceScreenFacts.js";
 
 export default function KeyMyInsuranceRail({ policies = [], loading = false, style = {} }) {
   const status = buildMyInsuranceStatus(policies);
@@ -57,6 +61,19 @@ export default function KeyMyInsuranceRail({ policies = [], loading = false, sty
         {!loading && status.totalCount === 0 ? (
           <p style={{ margin: "8px 4px", fontSize: "13px", color: LG.textMuted, lineHeight: 1.55 }}>
             {"\uC544\uC9C1 \uD655\uC778\uB41C \uBCF4\uD5D8\uC774 \uC5C6\uC5B4\uC694. \uC11C\uB958\uB97C \uC62C\uB9AC\uBA74 KEY\uAC00 \uD655\uC778\uD569\uB2C8\uB2E4."}
+          </p>
+        ) : null}
+        {!loading ? (
+          <p
+            style={{
+              margin: "10px 4px 4px",
+              fontSize: "12px",
+              color: LG.textMuted,
+              lineHeight: 1.55,
+              whiteSpace: "pre-line",
+            }}
+          >
+            {KEY_INSURANCE_UPLOAD_GUIDANCE}
           </p>
         ) : null}
         {status.policies.map((row) => {
