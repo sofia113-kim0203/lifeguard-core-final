@@ -528,6 +528,108 @@ export async function verifyAndFetchCustomerPdfOriginal({
   };
 }
 
+function normalizeFilenameKey(name = "") {
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Resolve a customer_documents row only when the user explicitly points at the box
+ * or names a file (history "(첨부: …)" / filename). Never invent "latest" otherwise.
+ */
+export async function resolveExplicitCustomerDocumentMention({
+  supabase = null,
+  customerId = null,
+  question = "",
+  history = [],
+  mentionedFilenames = [],
+  allowRecentUploadPhrase = true,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  if (!supabase || !cid) {
+    return { ok: false, documentId: null, reason: "missing_auth" };
+  }
+
+  const q = String(question ?? "");
+  const names = (Array.isArray(mentionedFilenames) ? mentionedFilenames : [])
+    .map((n) => String(n ?? "").trim())
+    .filter(Boolean);
+  const boxMention =
+    /내\s*문서|문서함|올려\s*둔\s*(?:파일|사진|이미지|문서)|등록된\s*(?:파일|문서)|문서함에\s*있|파일\s*있잖아|그\s*파일|이\s*파일|방금\s*올린/.test(
+      q,
+    );
+  const recentUploadPhrase = allowRecentUploadPhrase && /방금\s*올린/.test(q);
+  if (!boxMention && names.length === 0) {
+    return { ok: false, documentId: null, reason: "no_explicit_mention" };
+  }
+
+  const { data: rows, error } = await supabase
+    .from("customer_documents")
+    .select("id, original_filename, created_at, deleted_at")
+    .eq("customer_id", cid)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(80);
+
+  if (error) {
+    return { ok: false, documentId: null, reason: "document_list_failed", listing: [] };
+  }
+  const docs = Array.isArray(rows) ? rows : [];
+  const listing = docs.map((doc) => ({
+    document_id: doc?.id != null ? String(doc.id) : null,
+    original_filename: doc?.original_filename ?? null,
+  }));
+  if (docs.length === 0) {
+    return { ok: false, documentId: null, reason: "document_box_empty", listing };
+  }
+
+  if (names.length > 0) {
+    for (const name of names) {
+      const key = normalizeFilenameKey(name);
+      const hit = docs.find((doc) => {
+        const fn = normalizeFilenameKey(doc?.original_filename);
+        return fn === key || fn.endsWith(key) || key.endsWith(fn);
+      });
+      if (hit?.id) {
+        return {
+          ok: true,
+          documentId: String(hit.id),
+          reason: "filename_match",
+          original_filename: hit.original_filename ?? null,
+          listing,
+        };
+      }
+    }
+    return { ok: false, documentId: null, reason: "filename_not_found", listing };
+  }
+
+  // "방금 올린 파일" — explicit recent-upload phrase only (not silent latest fallback).
+  if (recentUploadPhrase && docs[0]?.id) {
+    return {
+      ok: true,
+      documentId: String(docs[0].id),
+      reason: "recent_upload_phrase",
+      original_filename: docs[0].original_filename ?? null,
+      listing,
+    };
+  }
+
+  // Box mention without a name: only safe when exactly one document exists.
+  if (boxMention && docs.length === 1 && docs[0]?.id) {
+    return {
+      ok: true,
+      documentId: String(docs[0].id),
+      reason: "single_document_box",
+      original_filename: docs[0].original_filename ?? null,
+      listing,
+    };
+  }
+
+  return { ok: false, documentId: null, reason: "ambiguous_document_box", listing };
+}
+
 /**
  * Build user message content: optional PDF document or image block + JSON payload text.
  * Bytes live only in the in-flight provider request.

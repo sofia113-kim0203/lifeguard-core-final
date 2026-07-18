@@ -243,9 +243,83 @@ export function mergeKeyConfirmedSourceFacts(existing = [], incoming = []) {
   return [...map.values()];
 }
 
+function literalFactValue(docFacts, ...types) {
+  const set = new Set(types.map((t) => String(t).toLowerCase()));
+  for (const fact of docFacts ?? []) {
+    if (set.has(String(fact?.fact_type ?? "").toLowerCase())) {
+      const v = String(fact.literal_value ?? "").trim();
+      if (v) return v;
+    }
+  }
+  return null;
+}
+
+function parsePremiumLiteral(raw) {
+  if (raw == null) return null;
+  const digits = String(raw).replace(/[^\d.]/g, "");
+  if (!digits) return null;
+  const n = Number(digits);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Build / refresh policy card fields from KEY-confirmed facts.
+ * C: insured/policyholder stay under coverage_summary.parties (document subjects) —
+ * never written to customer_profiles.
+ */
+export function buildPolicyFieldsFromKeyConfirmedFacts(documentId, docFacts = [], existingSummary = null) {
+  const mergedFacts = mergeKeyConfirmedSourceFacts(
+    existingSummary?.key_confirmed_source_facts,
+    docFacts,
+  );
+  const insurer =
+    literalFactValue(mergedFacts, "insurer_name", "insurer") ??
+    existingSummary?.insurer_name ??
+    null;
+  const product =
+    literalFactValue(mergedFacts, "product_name") ?? existingSummary?.product_name ?? null;
+  const premiumLiteral = literalFactValue(mergedFacts, "monthly_premium", "premium");
+  const monthlyPremium =
+    parsePremiumLiteral(premiumLiteral) ??
+    (existingSummary?.monthly_premium != null ? Number(existingSummary.monthly_premium) : null);
+  const policyholder = literalFactValue(mergedFacts, "policyholder");
+  const insured = literalFactValue(mergedFacts, "insured");
+  const existingParties =
+    existingSummary?.parties && typeof existingSummary.parties === "object"
+      ? existingSummary.parties
+      : {};
+
+  const coverage_summary = {
+    ...(existingSummary && typeof existingSummary === "object" ? existingSummary : {}),
+    source_document_id: documentId,
+    key_confirmed_source_facts: mergedFacts,
+    // Document contract parties — not logged-in customer profile fields.
+    policyholder: policyholder ?? existingSummary?.policyholder ?? null,
+    insured: insured ?? existingSummary?.insured ?? null,
+    parties: {
+      ...existingParties,
+      policyholder: policyholder ?? existingParties.policyholder ?? null,
+      insured: insured ?? existingParties.insured ?? null,
+      subject_scope: "document_contract",
+    },
+    key_confirmed_subject_scope: "document_contract_not_customer_profile",
+  };
+
+  return {
+    insurer_name: insurer,
+    product_name: product,
+    monthly_premium: monthlyPremium != null && Number.isFinite(monthlyPremium) ? monthlyPremium : null,
+    coverage_summary,
+    source: "key_confirmed_source_facts",
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 /**
  * After customer answer is sealed — store KEY-confirmed facts only.
  * Failures must not rewrite the answer or call Claude again.
+ * D: if no policy row exists for the document_id, create one linked to that document.
  */
 export async function persistKeyConfirmedSourceFactsToPolicies({
   supabase = null,
@@ -279,11 +353,12 @@ export async function persistKeyConfirmedSourceFactsToPolicies({
   const updated_policy_ids = [];
   let stored = 0;
   const errors = [];
+  const created_policy_ids = [];
 
   for (const [documentId, docFacts] of byDoc.entries()) {
     const { data: rows, error: selectError } = await supabase
       .from("profile_insurance_policies")
-      .select("id, coverage_summary, is_active")
+      .select("id, coverage_summary, is_active, insurer_name, product_name, monthly_premium")
       .eq("customer_id", customerId)
       .eq("is_active", true);
 
@@ -292,11 +367,40 @@ export async function persistKeyConfirmedSourceFactsToPolicies({
       continue;
     }
 
-    const matches = (rows ?? []).filter(
+    let matches = (rows ?? []).filter(
       (row) => row?.coverage_summary?.source_document_id === documentId,
     );
+
     if (matches.length === 0) {
-      errors.push({ document_id: documentId, stage: "match", message: "no_policy_row_for_document" });
+      const fields = buildPolicyFieldsFromKeyConfirmedFacts(documentId, docFacts, null);
+      const insertRow = {
+        customer_id: customerId,
+        insurer_name: fields.insurer_name,
+        product_name: fields.product_name,
+        monthly_premium: fields.monthly_premium,
+        coverage_summary: fields.coverage_summary,
+        source: fields.source,
+        is_active: true,
+        updated_at: fields.updated_at,
+      };
+      const { data: inserted, error: insertError } = await supabase
+        .from("profile_insurance_policies")
+        .insert(insertRow)
+        .select("id")
+        .single();
+      if (insertError) {
+        errors.push({
+          document_id: documentId,
+          stage: "insert",
+          message: insertError.message,
+        });
+        continue;
+      }
+      if (inserted?.id) {
+        created_policy_ids.push(inserted.id);
+        updated_policy_ids.push(inserted.id);
+        stored += docFacts.length;
+      }
       continue;
     }
 
@@ -305,18 +409,20 @@ export async function persistKeyConfirmedSourceFactsToPolicies({
         row.coverage_summary && typeof row.coverage_summary === "object"
           ? row.coverage_summary
           : {};
-      const mergedFacts = mergeKeyConfirmedSourceFacts(
-        existingSummary.key_confirmed_source_facts,
-        docFacts,
-      );
-      const nextSummary = {
+      const fields = buildPolicyFieldsFromKeyConfirmedFacts(documentId, docFacts, {
         ...existingSummary,
-        key_confirmed_source_facts: mergedFacts,
-      };
+        insurer_name: row.insurer_name,
+        product_name: row.product_name,
+        monthly_premium: row.monthly_premium,
+      });
       const { error: updateError } = await supabase
         .from("profile_insurance_policies")
         .update({
-          coverage_summary: nextSummary,
+          insurer_name: fields.insurer_name ?? row.insurer_name ?? null,
+          product_name: fields.product_name ?? row.product_name ?? null,
+          monthly_premium:
+            fields.monthly_premium != null ? fields.monthly_premium : row.monthly_premium ?? null,
+          coverage_summary: fields.coverage_summary,
           updated_at: new Date().toISOString(),
         })
         .eq("id", row.id)
@@ -341,6 +447,7 @@ export async function persistKeyConfirmedSourceFactsToPolicies({
     attempted: true,
     stored,
     updated_policy_ids,
+    created_policy_ids,
     errors,
   };
 }

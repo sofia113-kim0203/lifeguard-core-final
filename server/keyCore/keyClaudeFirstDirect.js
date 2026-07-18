@@ -19,6 +19,7 @@ import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicDirectAttachBlock,
   verifyAndFetchCustomerPdfOriginal,
+  resolveExplicitCustomerDocumentMention,
   CLAUDE_FULL_PDF_MAX_BYTES,
   isClaudeDirectImageMediaType,
   normalizeClaudeDirectAttachMediaType,
@@ -26,6 +27,8 @@ import {
 } from "./keyClaudeFullDocumentDirect.js";
 import {
   isPriorAttachFollowUpQuestion,
+  isExplicitDocumentBoxMentionQuestion,
+  extractMentionedFilenamesFromChat,
   PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
@@ -584,7 +587,17 @@ function buildDocumentsEvidence(pdfMeta = null) {
   const attached = pdfMeta.attached === true;
   const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
   const isImage = Boolean(mime && mime.startsWith("image/"));
-  if (!attached && !pdfMeta.document_id) return [];
+  const listing = Array.isArray(pdfMeta.document_box_listing)
+    ? pdfMeta.document_box_listing
+        .filter((row) => row && (row.document_id || row.original_filename))
+        .map((row) => ({
+          document_id: row.document_id ?? null,
+          original_filename: row.original_filename ?? null,
+          evidence_state: "listed_in_customer_document_box",
+          attached: false,
+        }))
+    : [];
+  if (!attached && !pdfMeta.document_id && listing.length === 0) return [];
   // Image original reads: minimal identity only — no orientation / OCR / chart notes.
   if (attached && isImage) {
     return [
@@ -594,21 +607,31 @@ function buildDocumentsEvidence(pdfMeta = null) {
         mime_type: mime,
         attached: true,
         evidence_state: "attached",
+        // C: document parties are not the logged-in customer profile.
+        document_subject_vs_customer:
+          "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields.",
       },
+      ...listing.filter((row) => String(row.document_id) !== String(pdfMeta.document_id ?? "")),
     ];
   }
-  return [
-    {
-      document_id: pdfMeta.document_id ?? null,
-      original_filename: pdfMeta.original_filename ?? null,
-      mime_type: mime,
-      attached,
-      note: attached
-        ? "Original PDF is attached as a document block."
-        : pdfMeta.note ?? "No document attached for this turn.",
-      evidence_state: attached ? "attached" : "missing",
-    },
-  ];
+  if (attached || pdfMeta.document_id) {
+    return [
+      {
+        document_id: pdfMeta.document_id ?? null,
+        original_filename: pdfMeta.original_filename ?? null,
+        mime_type: mime,
+        attached,
+        note: attached
+          ? "Original PDF is attached as a document block."
+          : pdfMeta.note ?? "No document attached for this turn.",
+        evidence_state: attached ? "attached" : "missing",
+        document_subject_vs_customer:
+          "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields.",
+      },
+      ...listing.filter((row) => String(row.document_id) !== String(pdfMeta.document_id ?? "")),
+    ];
+  }
+  return listing;
 }
 
 function buildCorporateEvidenceEntries({
@@ -1835,7 +1858,28 @@ export async function runClaudeFirstDirectQuestionTurn({
   const reality = { policies, policy_count };
 
   // Physical active attachment only — never invent latest document; never keyword-classify the question.
-  const explicitDocumentId = String(attachedDocumentId ?? "").trim();
+  let explicitDocumentId = String(attachedDocumentId ?? "").trim();
+  let documentMentionResolve = null;
+  // B: explicit 내 문서 / filename pointer → lookup owned document (no silent latest invent).
+  if (!explicitDocumentId && userSupabase && customerId) {
+    const mentionedFilenames = extractMentionedFilenamesFromChat(question, history);
+    const wantsBox =
+      isExplicitDocumentBoxMentionQuestion(question) ||
+      mentionedFilenames.length > 0 ||
+      isPriorAttachFollowUpQuestion(question, { history, priorAttachFollowUp });
+    if (wantsBox) {
+      documentMentionResolve = await resolveExplicitCustomerDocumentMention({
+        supabase: userSupabase,
+        customerId,
+        question,
+        history,
+        mentionedFilenames,
+      });
+      if (documentMentionResolve?.ok && documentMentionResolve.documentId) {
+        explicitDocumentId = String(documentMentionResolve.documentId).trim();
+      }
+    }
+  }
   const allowLatestFallback = false;
   const clientPriorAttach = priorAttachFollowUp === true;
 
@@ -1844,7 +1888,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     customerId,
     loadedContext,
     unifiedState,
-    attachedDocumentId,
+    attachedDocumentId: explicitDocumentId || null,
     env,
     allowLatestFallback,
   });
@@ -2070,6 +2114,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     activeClaimCases = [];
   }
 
+  const pdfMetaForClaude = {
+    ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
+    ...(Array.isArray(documentMentionResolve?.listing) && documentMentionResolve.listing.length
+      ? { document_box_listing: documentMentionResolve.listing }
+      : {}),
+    document_mention_resolve: documentMentionResolve?.reason ?? null,
+  };
+
   const claude = await callClaudeFirstDirect({
     question,
     history,
@@ -2089,7 +2141,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
     pdfBase64: pdf.pdfBase64,
     pdfMediaType: pdf.mediaType,
-    pdfMeta: pdf.meta,
+    pdfMeta: pdfMetaForClaude,
     corporateContexts,
     corporateGapEvidence,
     corporateRecommendationCandidates,

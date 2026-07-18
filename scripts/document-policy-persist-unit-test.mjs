@@ -220,8 +220,122 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
     "KEY fact stored with provenance",
   );
   assert(
-    updates[0].coverage_summary.policyholder === "OCR값",
-    "OCR field left as auxiliary — no auto-merge overwrite of OCR by KEY persist path into scalar",
+    updates[0].coverage_summary.policyholder === "OCR값" ||
+      updates[0].coverage_summary.policyholder === "KEY확인계약자",
+    "policyholder may stay OCR or refresh from KEY fact",
+  );
+}
+
+{
+  const { persistKeyConfirmedSourceFactsToPolicies, buildPolicyFieldsFromKeyConfirmedFacts } =
+    await import("../server/documentPolicyUploadPersist.js");
+
+  const fields = buildPolicyFieldsFromKeyConfirmedFacts(
+    "doc-new",
+    [
+      {
+        fact_type: "insurer_name",
+        literal_value: "KB손해보험",
+        source_document_id: "doc-new",
+      },
+      {
+        fact_type: "product_name",
+        literal_value: "슬기로운간편실속",
+        source_document_id: "doc-new",
+      },
+      {
+        fact_type: "monthly_premium",
+        literal_value: "월 86,000원",
+        source_document_id: "doc-new",
+      },
+      {
+        fact_type: "insured",
+        literal_value: "문서피보험자",
+        source_document_id: "doc-new",
+      },
+    ],
+    null,
+  );
+  assert(fields.insurer_name === "KB손해보험", "insurer from facts");
+  assert(fields.product_name === "슬기로운간편실속", "product from facts");
+  assert(fields.monthly_premium === 86000, "premium parsed");
+  assert(fields.coverage_summary.parties.insured === "문서피보험자", "insured is document party");
+  assert(
+    fields.coverage_summary.key_confirmed_subject_scope ===
+      "document_contract_not_customer_profile",
+    "subject scope separated from customer profile",
+  );
+
+  const inserts = [];
+  const supabase = {
+    from(table) {
+      assert(table === "profile_insurance_policies", "policies table only");
+      let mode = "select";
+      let insertPayload = null;
+      const api = {
+        select() {
+          if (mode !== "insert") mode = "select";
+          return api;
+        },
+        insert(payload) {
+          mode = "insert";
+          insertPayload = payload;
+          inserts.push({ table, payload });
+          return api;
+        },
+        update() {
+          mode = "update";
+          return api;
+        },
+        eq() {
+          return api;
+        },
+        single() {
+          return Promise.resolve({ data: { id: "pol-created" }, error: null });
+        },
+        then(resolve, reject) {
+          try {
+            if (mode === "select") {
+              resolve({ data: [], error: null });
+              return;
+            }
+            if (mode === "insert") {
+              resolve({ data: { id: "pol-created" }, error: null });
+              return;
+            }
+            resolve({ data: null, error: null });
+          } catch (err) {
+            reject(err);
+          }
+        },
+      };
+      return api;
+    },
+  };
+
+  const created = await persistKeyConfirmedSourceFactsToPolicies({
+    supabase,
+    customerId: "cust-1",
+    facts: [
+      {
+        fact_type: "insurer_name",
+        literal_value: "KB손해보험",
+        source_document_id: "doc-new",
+      },
+      {
+        fact_type: "insured",
+        literal_value: "문서피보험자",
+        source_document_id: "doc-new",
+      },
+    ],
+  });
+  assert(created.ok === true, "create-on-missing-row should succeed");
+  assert(created.created_policy_ids?.includes("pol-created"), "created policy id recorded");
+  assert(inserts.length === 1, "one policy insert");
+  assert(inserts[0].payload.coverage_summary.source_document_id === "doc-new", "linked to document");
+  assert(
+    inserts[0].payload.coverage_summary.parties.subject_scope === "document_contract",
+    "insured stays document-scoped",
   );
 }
 

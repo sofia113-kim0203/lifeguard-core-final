@@ -1059,6 +1059,8 @@ const chartPolicies = {
     ]),
     false,
   );
+  // Unloaded chat document list must keep active id (server ownership is authoritative).
+  assert.equal(isReusableActiveAttachmentId("doc-active", []), true);
 
   let claudeCalls = 0;
   const result = await runClaudeFirstDirectQuestionTurn({

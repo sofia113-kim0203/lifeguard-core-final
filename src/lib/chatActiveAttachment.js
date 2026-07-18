@@ -9,7 +9,7 @@ export const PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT =
 /** Strong / explicit photo references — always eligible when active exists. */
 export function isExplicitPriorAttachFollowUpQuestion(question = "") {
   const q = String(question ?? "");
-  return /이\s*사진|그\s*사진|방금\s*사진|첨부\s*사진|첨부한\s*사진|이\s*이미지|방금\s*첨부|잘못\s*읽었|잘못\s*읽은|사진만\s*분석|사진\s*다시|이\s*파일|그\s*파일|올려\s*준\s*(?:사진|이미지|파일|문서)/.test(
+  return /이\s*사진|그\s*사진|방금\s*사진|첨부\s*사진|첨부한\s*사진|이\s*이미지|방금\s*첨부|잘못\s*읽었|잘못\s*읽은|사진만\s*분석|사진\s*다시|이\s*파일|그\s*파일|올려\s*준\s*(?:사진|이미지|파일|문서)|내\s*문서|문서함|방금\s*올린|올려\s*둔\s*(?:파일|사진|이미지|문서)/.test(
     q,
   );
 }
@@ -19,9 +19,43 @@ export function isAttachAnalyzeFollowUpQuestion(question = "") {
   const q = String(question ?? "")
     .replace(/\s+/g, " ")
     .trim();
-  return /^(?:이\s*)?(?:사진|이미지|파일|문서)?\s*분석해\s*줘[.!]?$|^분석해\s*줘[.!]?$|^분석\s*부탁(?:해)?(?:요)?[.!]?$/.test(
+  return /^(?:이\s*)?(?:사진|이미지|파일|문서)?\s*(?:분석|확인)해\s*(?:줘|봐)(?:요)?[.!]?$|^(?:분석|확인)해\s*(?:줘|봐)(?:요)?[.!]?$|^(?:분석|확인)\s*부탁(?:해)?(?:요)?[.!]?$/.test(
     q,
   );
+}
+
+/** Explicit pointer into the customer's document box (not silent latest-doc invent). */
+export function isExplicitDocumentBoxMentionQuestion(question = "") {
+  const q = String(question ?? "");
+  return /내\s*문서|문서함|올려\s*둔\s*(?:파일|사진|이미지|문서)|등록된\s*(?:파일|문서)|방금\s*올린|문서함에\s*있|파일\s*있잖아/.test(
+    q,
+  );
+}
+
+/** Filenames referenced in chat bubbles / question text — used to resolve a named document only. */
+export function extractMentionedFilenamesFromChat(question = "", history = []) {
+  const names = [];
+  const push = (raw) => {
+    const name = String(raw ?? "").trim();
+    if (!name || name === "파일") return;
+    if (!names.includes(name)) names.push(name);
+  };
+  const scan = (text) => {
+    const s = String(text ?? "");
+    for (const match of s.matchAll(/\(첨부:\s*([^)]+)\)/g)) {
+      push(match[1]);
+    }
+    for (const match of s.matchAll(
+      /["'“”]?([\w가-힣A-Za-z0-9][\w가-힣A-Za-z0-9.\s_-]{0,120}\.(?:jpg|jpeg|png|pdf|webp|heic))["'“”]?/gi,
+    )) {
+      push(match[1]);
+    }
+  };
+  scan(question);
+  for (const row of Array.isArray(history) ? history : []) {
+    scan(row?.content);
+  }
+  return names;
 }
 
 /**
@@ -91,13 +125,16 @@ export function clearActiveAttachmentIfDocumentDeleted(activeAttachment = null, 
 }
 
 /**
- * Reuse conversation active attach only when the id is still in the live document list
- * and not soft-deleted. Stale ids must not force prior_attach_follow_up on the next turn.
+ * Reuse conversation active attach when the id is still valid.
+ * Empty / unloaded document list must NOT discard a live active id — server ownership
+ * check is authoritative. Only reject when the loaded list proves missing/deleted.
  */
 export function isReusableActiveAttachmentId(activeId = null, documents = []) {
   const id = String(activeId ?? "").trim();
   if (!id) return false;
   const rows = Array.isArray(documents) ? documents : [];
+  // Chat mount often has documents=[] until 내 문서 panel loads — keep active id.
+  if (rows.length === 0) return true;
   const row = rows.find((doc) => String(doc?.id ?? doc?.document_id ?? "").trim() === id);
   if (!row) return false;
   const deletedAt = row.deleted_at ?? row.deletedAt ?? null;
