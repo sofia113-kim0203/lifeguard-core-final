@@ -1,10 +1,9 @@
 /**
- * Right rail — KEY industry cumulative coverage baseline (read-only).
- * Amount cards: current sum + horizontal graph (no invented industry numbers).
- * Structured cards: axis 확인됨/미확인 only — no money bar graphs.
- * major_treatment: A 암 주요치료비 / B 뇌·심 주요치료비 (never summed).
+ * Right rail — KEY 업계 비교 기준선 (read-only UI).
+ * Amount cards: current sum + horizontal graph.
+ * Structured cards: axis 확인됨/미확인 — no money bar graphs.
+ * Colors follow approved per-item + status tokens (UI only).
  */
-import { LG } from "../lib/lifeguardCustomerTheme.js";
 import {
   BASELINE_STATUS,
   formatManwonAmount,
@@ -14,6 +13,41 @@ import {
   BASELINE_STRUCTURED_AXES,
   MAJOR_TREATMENT_REGIONS,
 } from "../lib/keyIndustryCoverageBaselineTable.js";
+
+const PANEL = {
+  bg: "#FFFFFF",
+  outerBorder: "#E7EAF2",
+  cardBorder: "#E9ECF3",
+  text: "#17213C",
+  textMuted: "#6B7280",
+  track: "#E8ECF3",
+  sans: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
+};
+
+/** Per-item color tokens (approved). */
+const ITEM_COLORS = {
+  cancer_diagnosis: { main: "#EC5C76", soft: "#FFF0F4", text: "#D93D5E" },
+  cerebrovascular_diagnosis: { main: "#F59A3D", soft: "#FFF4E8", text: "#D97706" },
+  ischemic_heart_diagnosis: { main: "#55BE83", soft: "#EDF9F2", text: "#2D9B63" },
+  caregiving: { main: "#4C8FEF", soft: "#EEF5FF", text: "#3475D4" },
+  hospital_daily: { main: "#7B61E8", soft: "#F2EFFF", text: "#6547D9" },
+  surgery: { main: "#F2B84B", soft: "#FFF8E8", text: "#D59621" },
+  major_treatment: { main: "#D94BB7", soft: "#FFF0FA", text: "#B83294" },
+};
+
+const MAJOR_REGION_COLORS = {
+  cancer: { main: "#D94BB7", soft: "#FFF0FA", text: "#B83294" },
+  brain_heart: { main: "#4C8FEF", soft: "#EAF8F5", text: "#1F8F7A" },
+};
+
+/** Status judgment colors (badge / graph / footnote). */
+const STATUS_COLORS = {
+  SHORT: { text: "#E07A3A", bg: "#FFF4E8", main: "#F59A3D" },
+  MET: { text: "#2D9B63", bg: "#EDF9F2", main: "#55BE83" },
+  OVERLAP: { text: "#6547D9", bg: "#F2EFFF", main: "#7B61E8" },
+  CURRENT_UNKNOWN: { text: "#6B7280", bg: "#F3F4F6", main: "#9CA3AF" },
+  TABLE_PENDING: { text: "#5B6B8C", bg: "#EEF2F7", main: "#7B8BA8" },
+};
 
 const ROW_ICONS = {
   cancer_diagnosis: "◆",
@@ -33,21 +67,9 @@ const VIEW_STATUS = {
   TABLE_PENDING: "기준 확인 중",
 };
 
-const VIEW_STATUS_COLOR = {
-  [VIEW_STATUS.SHORT]: LG.needs,
-  [VIEW_STATUS.MET]: LG.verified,
-  [VIEW_STATUS.OVERLAP]: LG.overlap,
-  [VIEW_STATUS.CURRENT_UNKNOWN]: LG.needCheck,
-  [VIEW_STATUS.TABLE_PENDING]: LG.needCheck,
-};
-
-const VIEW_STATUS_BG = {
-  [VIEW_STATUS.SHORT]: LG.needsBg,
-  [VIEW_STATUS.MET]: LG.verifiedBg,
-  [VIEW_STATUS.OVERLAP]: LG.overlapBg,
-  [VIEW_STATUS.CURRENT_UNKNOWN]: LG.needCheckBg,
-  [VIEW_STATUS.TABLE_PENDING]: LG.needCheckBg,
-};
+function itemTone(id) {
+  return ITEM_COLORS[id] || { main: "#7B8BA8", soft: "#EEF2F7", text: "#5B6B8C" };
+}
 
 function resolveRows(baseline) {
   const byId = new Map(
@@ -61,12 +83,11 @@ function resolveRows(baseline) {
       label: def.label,
       shortLabel: def.shortLabel,
       status: BASELINE_STATUS.TABLE_PENDING,
-      statusColor: LG.needCheck,
-      statusBg: LG.needCheckBg,
       currentAmount: null,
       currentDisplay: "확인 필요",
       industry_range_low: null,
       industry_range_high: null,
+      industry_representative: null,
       industryRangeDisplay: "기준 확인 중",
       showCompareBar: false,
       tableReady: false,
@@ -100,40 +121,64 @@ function isAmountItem(item) {
 
 function mapAmountViewStatus(item, currentAmount) {
   const status = item?.status;
-  if (status === BASELINE_STATUS.SHORT) return VIEW_STATUS.SHORT;
-  if (status === BASELINE_STATUS.MET) return VIEW_STATUS.MET;
-  if (status === BASELINE_STATUS.OVERLAP) return VIEW_STATUS.OVERLAP;
-  if (status === BASELINE_STATUS.TABLE_PENDING) return VIEW_STATUS.TABLE_PENDING;
-  if (currentAmount == null) return VIEW_STATUS.CURRENT_UNKNOWN;
-  return VIEW_STATUS.TABLE_PENDING;
+  if (status === BASELINE_STATUS.SHORT) return "SHORT";
+  if (status === BASELINE_STATUS.MET) return "MET";
+  if (status === BASELINE_STATUS.OVERLAP) return "OVERLAP";
+  if (status === BASELINE_STATUS.TABLE_PENDING) return "TABLE_PENDING";
+  if (currentAmount == null) return "CURRENT_UNKNOWN";
+  return "TABLE_PENDING";
 }
 
 function formatCompactAmount(value) {
   return formatManwonAmount(value) || "—";
 }
 
+function ItemIcon({ itemId, size = 42 }) {
+  const tone = itemTone(itemId);
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: "12px",
+        background: tone.soft,
+        color: tone.main,
+        display: "grid",
+        placeItems: "center",
+        fontSize: size >= 40 ? "16px" : "12px",
+        fontWeight: 700,
+        flexShrink: 0,
+      }}
+    >
+      {ROW_ICONS[itemId] || "·"}
+    </span>
+  );
+}
+
 function BaselineCompareGraph({
   currentAmount = null,
   baselineAmount = null,
   rangeHigh = null,
-  accent = LG.needCheck,
+  statusMain = PANEL.textMuted,
   muted = false,
 }) {
   const max = Math.max(currentAmount || 0, baselineAmount || 0, rangeHigh || 0, 1);
   const currentPct =
-    currentAmount != null ? Math.max(2, Math.min(100, (currentAmount / max) * 100)) : null;
+    currentAmount != null ? Math.max(3, Math.min(100, (currentAmount / max) * 100)) : null;
   const baselinePct =
     baselineAmount != null ? Math.max(2, Math.min(100, (baselineAmount / max) * 100)) : null;
   const fillPct = currentPct ?? 0;
+  const line = muted ? "#CBD5E1" : statusMain;
 
   return (
-    <div style={{ marginTop: "4px", width: "100%" }} aria-hidden="true">
+    <div style={{ marginTop: "6px", width: "100%" }} aria-hidden="true">
       <div
         style={{
           position: "relative",
-          height: "7px",
+          height: "5px",
           borderRadius: "999px",
-          background: muted ? "#E8ECF2" : "#E7EAF0",
+          background: PANEL.track,
         }}
       >
         {currentPct != null ? (
@@ -145,8 +190,8 @@ function BaselineCompareGraph({
               bottom: 0,
               width: `${fillPct}%`,
               borderRadius: "999px",
-              background: muted ? "#CBD5E1" : accent,
-              opacity: muted ? 0.45 : 0.35,
+              background: line,
+              opacity: muted ? 0.45 : 0.85,
             }}
           />
         ) : null}
@@ -155,11 +200,12 @@ function BaselineCompareGraph({
             style={{
               position: "absolute",
               left: `calc(${baselinePct}% - 1px)`,
-              top: "-2px",
+              top: "-4px",
               width: "2px",
-              height: "11px",
-              background: muted ? "#94A3B8" : LG.navy,
-              opacity: 0.55,
+              height: "13px",
+              background: muted ? "#94A3B8" : PANEL.text,
+              opacity: 0.65,
+              borderRadius: "1px",
             }}
           />
         ) : null}
@@ -167,14 +213,15 @@ function BaselineCompareGraph({
           <div
             style={{
               position: "absolute",
-              left: `calc(${currentPct}% - 4px)`,
-              top: "-1px",
-              width: "9px",
-              height: "9px",
+              left: `calc(${currentPct}% - 6px)`,
+              top: "-4px",
+              width: "13px",
+              height: "13px",
               borderRadius: "999px",
-              background: muted ? "#94A3B8" : accent,
-              border: `2px solid ${LG.surface}`,
+              background: line,
+              border: `2px solid ${PANEL.bg}`,
               boxSizing: "border-box",
+              boxShadow: muted ? "none" : `0 0 0 1px ${line}33`,
             }}
           />
         ) : null}
@@ -183,9 +230,9 @@ function BaselineCompareGraph({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          marginTop: "2px",
+          marginTop: "4px",
           fontSize: "9px",
-          color: LG.textMuted,
+          color: PANEL.textMuted,
         }}
       >
         <span>0</span>
@@ -195,8 +242,9 @@ function BaselineCompareGraph({
   );
 }
 
-function AxisRow({ label, status }) {
+function AxisRow({ label, status, confirmedTone }) {
   const ok = status === "확인됨";
+  const tone = confirmedTone || STATUS_COLORS.MET;
   return (
     <div
       style={{
@@ -205,8 +253,8 @@ function AxisRow({ label, status }) {
         justifyContent: "space-between",
         gap: "6px",
         fontSize: "10px",
-        lineHeight: 1.25,
-        color: LG.textMuted,
+        lineHeight: 1.3,
+        color: PANEL.textMuted,
       }}
     >
       <span
@@ -215,7 +263,7 @@ function AxisRow({ label, status }) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
-          color: LG.navy,
+          color: PANEL.text,
         }}
       >
         {label}
@@ -225,10 +273,10 @@ function AxisRow({ label, status }) {
           flexShrink: 0,
           fontSize: "9px",
           fontWeight: 700,
-          color: ok ? LG.verified : LG.needCheck,
-          background: ok ? LG.verifiedBg : LG.needCheckBg,
+          color: ok ? tone.text : STATUS_COLORS.CURRENT_UNKNOWN.text,
+          background: ok ? tone.bg : STATUS_COLORS.CURRENT_UNKNOWN.bg,
           borderRadius: "999px",
-          padding: "1px 6px",
+          padding: "2px 7px",
         }}
       >
         {ok ? "확인됨" : "미확인"}
@@ -239,28 +287,68 @@ function AxisRow({ label, status }) {
 
 function StructuredAxesBlock({ item }) {
   const axes = item?.structuredAxes;
+  const itemConfirmed = {
+    text: itemTone(item.id).text,
+    bg: itemTone(item.id).soft,
+    main: itemTone(item.id).main,
+  };
+
   if (item?.id === "major_treatment" && Array.isArray(axes)) {
     return (
-      <div style={{ paddingLeft: "24px", display: "flex", flexDirection: "column", gap: "4px" }}>
-        {axes.map((region) => (
-          <div key={region.id}>
+      <div style={{ paddingLeft: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
+        {axes.map((region, idx) => {
+          const regionTone =
+            MAJOR_REGION_COLORS[region.id] ||
+            (region.id === "cancer"
+              ? MAJOR_REGION_COLORS.cancer
+              : MAJOR_REGION_COLORS.brain_heart);
+          return (
             <div
+              key={region.id}
               style={{
-                fontSize: "10px",
-                fontWeight: 750,
-                color: LG.navy,
-                marginBottom: "2px",
+                paddingTop: idx === 0 ? 0 : "6px",
+                borderTop: idx === 0 ? "none" : `1px solid ${PANEL.cardBorder}`,
               }}
             >
-              {region.label}
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 750,
+                  color: regionTone.text,
+                  marginBottom: "3px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "999px",
+                    background: regionTone.main,
+                    flexShrink: 0,
+                  }}
+                />
+                {region.label}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                {(region.axes || []).map((axis) => (
+                  <AxisRow
+                    key={`${region.id}-${axis.id}`}
+                    label={axis.label}
+                    status={axis.status}
+                    confirmedTone={{
+                      text: regionTone.text,
+                      bg: regionTone.soft,
+                      main: regionTone.main,
+                    }}
+                  />
+                ))}
+              </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-              {(region.axes || []).map((axis) => (
-                <AxisRow key={`${region.id}-${axis.id}`} label={axis.label} status={axis.status} />
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   }
@@ -269,20 +357,26 @@ function StructuredAxesBlock({ item }) {
   return (
     <div
       style={{
-        paddingLeft: "24px",
+        paddingLeft: "8px",
         display: "flex",
         flexDirection: "column",
-        gap: "1px",
+        gap: "2px",
       }}
     >
       {axes.map((axis) => (
-        <AxisRow key={axis.id} label={axis.label} status={axis.status} />
+        <AxisRow
+          key={axis.id}
+          label={axis.label}
+          status={axis.status}
+          confirmedTone={itemConfirmed}
+        />
       ))}
     </div>
   );
 }
 
 function AmountCardBody({ item }) {
+  const tone = itemTone(item.id);
   const currentAmount =
     item?.currentAmount != null && Number.isFinite(Number(item.currentAmount))
       ? Number(item.currentAmount)
@@ -297,9 +391,9 @@ function AmountCardBody({ item }) {
       ? Number(item.industry_range_high)
       : null;
   const tableReady = item?.tableReady === true || item?.showCompareBar === true;
-  const viewStatus = mapAmountViewStatus(item, currentAmount);
-  const badgeColor = VIEW_STATUS_COLOR[viewStatus];
-  const badgeBg = VIEW_STATUS_BG[viewStatus];
+  const statusKey = mapAmountViewStatus(item, currentAmount);
+  const statusTone = STATUS_COLORS[statusKey];
+  const viewLabel = VIEW_STATUS[statusKey];
   const currentLabel =
     currentAmount != null ? formatCompactAmount(currentAmount) : "미확인";
   const baselineLabel = tableReady
@@ -311,88 +405,78 @@ function AmountCardBody({ item }) {
       : "현재 미확인 / 자료 등록 후 비교 가능"
     : currentAmount == null
       ? "현재 미확인 · 해지 권유 아님"
-      : viewStatus === VIEW_STATUS.OVERLAP
+      : statusKey === "OVERLAP"
         ? "중복·보험료 점검 · 해지 권유 아님"
-        : `${item?.industryRangeDisplay || "비교 구간"} · 해지 권유 아님`;
+        : statusKey === "SHORT"
+          ? "부족 가능성 · 해지 권유 아님"
+          : statusKey === "MET"
+            ? "적정 구간 · 해지 권유 아님"
+            : `${item?.industryRangeDisplay || "비교 구간"} · 해지 권유 아님`;
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-        <span
-          aria-hidden="true"
-          style={{
-            width: "18px",
-            height: "18px",
-            borderRadius: "6px",
-            background: LG.accentSoft,
-            color: LG.accent,
-            display: "grid",
-            placeItems: "center",
-            fontSize: "10px",
-            flexShrink: 0,
-          }}
-        >
-          {ROW_ICONS[item.id] || "·"}
-        </span>
-        <div
-          style={{
-            minWidth: 0,
-            flex: 1,
-            fontSize: "11px",
-            fontWeight: 700,
-            color: LG.navy,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {item.label || item.shortLabel}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <ItemIcon itemId={item.id} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 750,
+              color: PANEL.text,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {item.label || item.shortLabel}
+          </div>
         </div>
         <span
           style={{
-            fontSize: "9px",
+            fontSize: "10px",
             fontWeight: 700,
-            color: badgeColor,
-            background: badgeBg,
+            color: statusTone.text,
+            background: statusTone.bg,
             borderRadius: "999px",
-            padding: "2px 6px",
+            padding: "3px 8px",
             flexShrink: 0,
           }}
         >
-          {viewStatus}
+          {viewLabel}
         </span>
       </div>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          gap: "6px",
-          paddingLeft: "24px",
-          fontSize: "10px",
-          color: LG.textMuted,
+          gap: "8px",
+          marginTop: "6px",
+          fontSize: "11px",
+          color: PANEL.textMuted,
         }}
       >
         <span>
-          현재 <strong style={{ color: LG.navy }}>{currentLabel}</strong>
+          현재{" "}
+          <strong style={{ color: PANEL.text, fontWeight: 750 }}>{currentLabel}</strong>
         </span>
         <span>
-          기준 <strong style={{ color: LG.navy }}>{baselineLabel}</strong>
+          기준{" "}
+          <strong style={{ color: PANEL.text, fontWeight: 750 }}>{baselineLabel}</strong>
         </span>
       </div>
-      <div style={{ paddingLeft: "24px" }}>
-        <BaselineCompareGraph
-          currentAmount={currentAmount}
-          baselineAmount={tableReady ? representative : null}
-          rangeHigh={tableReady ? rangeHigh : null}
-          accent={badgeColor}
-          muted={!tableReady}
-        />
-      </div>
+      <BaselineCompareGraph
+        currentAmount={currentAmount}
+        baselineAmount={tableReady ? representative : null}
+        rangeHigh={tableReady ? rangeHigh : null}
+        statusMain={statusTone.main}
+        muted={!tableReady || currentAmount == null}
+      />
       <div
         style={{
-          paddingLeft: "24px",
-          fontSize: "9px",
-          color: LG.textMuted,
+          marginTop: "2px",
+          fontSize: "10px",
+          fontWeight: 650,
+          color: statusTone.text,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -400,52 +484,41 @@ function AmountCardBody({ item }) {
       >
         {footnote}
       </div>
+      <div style={{ fontSize: "9px", color: tone.text, opacity: 0.75, marginTop: "1px" }}>
+        {item?.industryRangeDisplay && tableReady ? `구간 ${item.industryRangeDisplay}` : ""}
+      </div>
     </>
   );
 }
 
 function StructuredCardBody({ item }) {
+  const tone = itemTone(item.id);
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-        <span
-          aria-hidden="true"
-          style={{
-            width: "18px",
-            height: "18px",
-            borderRadius: "6px",
-            background: LG.accentSoft,
-            color: LG.accent,
-            display: "grid",
-            placeItems: "center",
-            fontSize: "10px",
-            flexShrink: 0,
-          }}
-        >
-          {ROW_ICONS[item.id] || "·"}
-        </span>
-        <div
-          style={{
-            minWidth: 0,
-            flex: 1,
-            fontSize: "11px",
-            fontWeight: 700,
-            color: LG.navy,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {item.label || item.shortLabel}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+        <ItemIcon itemId={item.id} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 750,
+              color: PANEL.text,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {item.label || item.shortLabel}
+          </div>
         </div>
         <span
           style={{
-            fontSize: "9px",
+            fontSize: "10px",
             fontWeight: 700,
-            color: LG.needCheck,
-            background: LG.needCheckBg,
+            color: tone.text,
+            background: tone.soft,
             borderRadius: "999px",
-            padding: "2px 6px",
+            padding: "3px 8px",
             flexShrink: 0,
           }}
         >
@@ -454,6 +527,47 @@ function StructuredCardBody({ item }) {
       </div>
       <StructuredAxesBlock item={item} />
     </>
+  );
+}
+
+function BaselineCard({ item, onSelectItem }) {
+  const amount = isAmountItem(item);
+  const tone = itemTone(item.id);
+  return (
+    <button
+      key={item.id}
+      type="button"
+      data-baseline-item={item.id}
+      onClick={() => onSelectItem?.(item)}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = `${tone.soft}66`;
+        e.currentTarget.style.borderColor = tone.main;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = PANEL.bg;
+        e.currentTarget.style.borderColor = PANEL.cardBorder;
+      }}
+      style={{
+        flex: amount ? "0.95 1 0" : item.id === "major_treatment" ? "1.55 1 0" : "1.1 1 0",
+        minHeight: 0,
+        width: "100%",
+        textAlign: "left",
+        border: `1px solid ${PANEL.cardBorder}`,
+        cursor: "pointer",
+        background: PANEL.bg,
+        borderRadius: "17px",
+        padding: "10px 12px",
+        fontFamily: PANEL.sans,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: "2px",
+        overflow: "hidden",
+        transition: "background 120ms ease, border-color 120ms ease",
+      }}
+    >
+      {amount ? <AmountCardBody item={item} /> : <StructuredCardBody item={item} />}
+    </button>
   );
 }
 
@@ -474,22 +588,26 @@ export default function KeyCoverageBaselineRail({
   return (
     <aside
       aria-label="KEY 업계 비교 기준선"
+      data-key-baseline-rail="1"
       style={{
         width: "280px",
         maxWidth: "280px",
         flexShrink: 0,
-        background: LG.bg,
+        background: PANEL.bg,
+        border: `1px solid ${PANEL.outerBorder}`,
+        borderRadius: "16px",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
         height: "100%",
         overflow: "hidden",
+        boxSizing: "border-box",
         ...style,
       }}
     >
       <div
         style={{
-          padding: "10px 10px 4px",
+          padding: "12px 12px 6px",
           flexShrink: 0,
           display: "flex",
           alignItems: "flex-start",
@@ -498,10 +616,17 @@ export default function KeyCoverageBaselineRail({
         }}
       >
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: "13px", fontWeight: 750, color: LG.navy, lineHeight: 1.25 }}>
+          <div
+            style={{
+              fontSize: "13px",
+              fontWeight: 750,
+              color: PANEL.text,
+              lineHeight: 1.25,
+            }}
+          >
             KEY 업계 비교 기준선
           </div>
-          <div style={{ marginTop: "3px", fontSize: "10px", color: LG.textMuted }}>
+          <div style={{ marginTop: "3px", fontSize: "10px", color: PANEL.textMuted }}>
             {summaryLine}
           </div>
         </div>
@@ -513,7 +638,7 @@ export default function KeyCoverageBaselineRail({
             style={{
               border: "none",
               background: "transparent",
-              color: LG.textMuted,
+              color: PANEL.textMuted,
               cursor: "pointer",
               fontSize: "16px",
               lineHeight: 1,
@@ -530,50 +655,24 @@ export default function KeyCoverageBaselineRail({
           flex: 1,
           minHeight: 0,
           overflow: "hidden",
-          padding: "2px 8px 0",
+          padding: "4px 10px 0",
           display: "flex",
           flexDirection: "column",
-          gap: "4px",
+          gap: "12px",
         }}
       >
-        {items.map((item) => {
-          const amount = isAmountItem(item);
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelectItem?.(item)}
-              style={{
-                flex: amount ? "0.9 1 0" : item.id === "major_treatment" ? "1.6 1 0" : "1.15 1 0",
-                minHeight: 0,
-                width: "100%",
-                textAlign: "left",
-                border: `1px solid ${LG.border}`,
-                cursor: "pointer",
-                background: LG.surface,
-                borderRadius: "10px",
-                padding: "6px 8px",
-                fontFamily: LG.sans,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                gap: "2px",
-                overflow: "hidden",
-              }}
-            >
-              {amount ? <AmountCardBody item={item} /> : <StructuredCardBody item={item} />}
-            </button>
-          );
-        })}
+        {items.map((item) => (
+          <BaselineCard key={item.id} item={item} onSelectItem={onSelectItem} />
+        ))}
       </div>
 
       <div
         style={{
           flexShrink: 0,
-          padding: "5px 10px 8px",
+          padding: "8px 12px 10px",
           fontSize: "9px",
-          color: LG.textMuted,
-          lineHeight: 1.3,
+          color: PANEL.textMuted,
+          lineHeight: 1.35,
         }}
       >
         미확인은 부족·0원이 아닙니다. 판매 권유를 하지 않습니다.
