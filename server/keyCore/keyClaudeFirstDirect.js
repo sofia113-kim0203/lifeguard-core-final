@@ -247,14 +247,17 @@ export const RECORD_CLAIM_CASE_UPDATES_TOOL = Object.freeze({
   },
 });
 
-/** PDF-only internal tool hint — never used for image original reads. */
+/**
+ * Internal save-tool hint for original attach (image or PDF).
+ * Not a fill-pressure reading script — Claude already has the original bytes.
+ */
 function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
   const docId =
     pdfMeta?.document_id != null && String(pdfMeta.document_id).trim()
       ? String(pdfMeta.document_id).trim()
       : null;
   return [
-    "원본 PDF 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
+    "원본 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
     "접수·예고 문장으로 답하지 않는다. '기록하고 분석하겠습니다', '먼저 확인하겠습니다', '분석해 드릴게요'처럼 나중에 하겠다는 말은 금지한다.",
     "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 보관한다. 이 도구는 고객에게 말하지 않는다.",
     "같은 응답에서 담보별 KEY 7개 기준선 분석은 record_coverage_baseline_facts로 내부 보관한다. 고객에게 도구명·JSON·내부 필드명을 말하지 않는다.",
@@ -1535,11 +1538,10 @@ async function callClaudeFirstDirect({
     now: requestNow,
   });
   const pdfAttached = Boolean(pdfBase64);
-  const pdfOriginalAttached =
-    pdfAttached && String(pdfMediaType ?? "").toLowerCase() === "application/pdf";
   let system = buildSystemPrompt();
-  // Image original reads: no fill-pressure / OCR / orientation instructions — question+image+context only.
-  if (pdfOriginalAttached) {
+  // Original attach (image|PDF): enable internal save tools in the same provider turn.
+  // User payload for images stays chart-free; tools are not pre-read materials.
+  if (pdfAttached) {
     system = `${system}\n${buildConfirmedSourceFactsToolHint(pdfMeta)}`;
   }
   const userContent = buildClaudeFullUserContentWithPdf({
@@ -1573,9 +1575,9 @@ async function callClaudeFirstDirect({
     updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
 
-  // Image: web_search + claim tool only (no image-fill pressure tools).
-  // PDF: keep existing facts/baseline tools. No attach: web_search + claim.
-  const answerTools = pdfOriginalAttached
+  // Image|PDF original: facts + baseline + claim tools in the same Claude-first turn.
+  // No attach: web_search + claim only.
+  const answerTools = pdfAttached
     ? [
         ANTHROPIC_WEB_SEARCH_TOOL,
         RECORD_CONFIRMED_SOURCE_FACTS_TOOL,

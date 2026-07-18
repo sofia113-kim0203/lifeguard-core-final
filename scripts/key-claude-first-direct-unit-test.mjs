@@ -803,11 +803,13 @@ const chartPolicies = {
   let sawHint = false;
   let sawChartObject = false;
   let sawFillPressure = false;
+  let toolNames = [];
   const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
     const body = JSON.parse(String(opts?.body ?? "{}"));
     const content = body?.messages?.[0]?.content;
     const system = String(body?.system ?? "");
+    toolNames = (Array.isArray(body?.tools) ? body.tools : []).map((t) => t?.name).filter(Boolean);
     sawFillPressure = /지금 바로 말한다/.test(system);
     if (Array.isArray(content)) {
       const img = content.find((b) => b?.type === "image");
@@ -868,6 +870,8 @@ const chartPolicies = {
   assert.equal(sawHint, false);
   assert.equal(sawChartObject, false);
   assert.equal(sawFillPressure, false);
+  assert.equal(toolNames.includes("record_confirmed_source_facts"), true);
+  assert.equal(toolNames.includes("record_coverage_baseline_facts"), true);
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
   assert.equal(signals?.attachment_attached, true);

@@ -110,20 +110,6 @@ function sidebarBtn(active) {
   };
 }
 
-function headerToggleBtn(active) {
-  return {
-    border: `1px solid ${active ? LG.accent : LG.border}`,
-    background: active ? LG.accentSoft : LG.surface,
-    color: active ? LG.navy : LG.textMuted,
-    borderRadius: "999px",
-    padding: "8px 14px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: 600,
-    fontFamily: LG.sans,
-  };
-}
-
 function LayerPanel({ title, children, onBack }) {
   return (
     <div style={{ padding: "8px 0" }}>
@@ -281,6 +267,8 @@ function SidebarNav({
   onNewChat,
   onOpenSession,
   onPanelChange,
+  onOpenInsurancePanel = null,
+  onOpenBaselinePanel = null,
   onSignOut,
   onClose = null,
   style = {},
@@ -353,9 +341,21 @@ function SidebarNav({
         ))
       )}
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
-        <button type="button" style={sidebarBtn(panelView === "insurance")} onClick={() => onPanelChange("insurance")}>
+        <button
+          type="button"
+          style={sidebarBtn(panelView === "insurance")}
+          onClick={() => {
+            if (typeof onOpenInsurancePanel === "function") onOpenInsurancePanel();
+            else onPanelChange("insurance");
+          }}
+        >
           내 보험 점검
         </button>
+        {typeof onOpenBaselinePanel === "function" ? (
+          <button type="button" style={sidebarBtn(false)} onClick={() => onOpenBaselinePanel()}>
+            기준선
+          </button>
+        ) : null}
         <button type="button" style={sidebarBtn(panelView === "documents")} onClick={() => onPanelChange("documents")}>
           내 문서
         </button>
@@ -617,13 +617,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const isWideRoom = useMediaQuery(`(min-width: ${ROOM_WIDE_BREAKPOINT}px)`);
 
   useEffect(() => {
-    if (isMidRoom) {
-      setInsuranceRailOpen(true);
-    } else {
-      setInsuranceRailOpen(false);
-    }
-    // Baseline is read-only parallel UI — open on wide by default; never blocks Claude.
-    setMirrorRailOpen(isWideRoom);
+    // Fixed panels on desktop breakpoints — no header toggles.
+    if (isMidRoom) setInsuranceRailOpen(true);
+    if (isWideRoom) setMirrorRailOpen(true);
   }, [isMidRoom, isWideRoom]);
 
   const coverageBaseline = useMemo(
@@ -631,12 +627,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     [policies],
   );
 
-  const showInsuranceInline =
-    panelView === "chat" && insuranceRailOpen && isMidRoom;
+  const showInsuranceInline = panelView === "chat" && isMidRoom;
   const showInsuranceDrawer =
     panelView === "chat" && insuranceRailOpen && !isMidRoom;
-  const showMirrorInline =
-    panelView === "chat" && mirrorRailOpen && isWideRoom;
+  const showMirrorInline = panelView === "chat" && isWideRoom;
   const showMirrorDrawer =
     panelView === "chat" && mirrorRailOpen && !isWideRoom;
 
@@ -1141,6 +1135,22 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         setThreads(recent);
       }
+
+      // KEY persist + deferred factory may update chart/baseline — refresh left/right rails.
+      if (
+        documentIdForTurn &&
+        typeof session?.refreshSession === "function" &&
+        !shouldClearActiveAttachmentAfterTurn(result)
+      ) {
+        try {
+          await session.refreshSession({
+            event: "claude_first_attach_persisted",
+            reloadJob: false,
+          });
+        } catch {
+          /* next session load refreshes; do not block customer answer */
+        }
+      }
     } catch (err) {
       setMessages((prev) => {
         const copy = [...prev];
@@ -1170,7 +1180,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     clearComposerAttach();
     setPanelView("chat");
     setSidebarOpen(false);
-    setMirrorRailOpen(false);
+    setInsuranceRailOpen(isMidRoom);
+    setMirrorRailOpen(isWideRoom);
     restoreForceScrollRef.current = false;
     stickToBottomRef.current = true;
     if (chatScrollRef.current) {
@@ -1399,6 +1410,18 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setPanelView(view);
       setSidebarOpen(false);
     },
+    onOpenInsurancePanel: () => {
+      // Narrow: open overlay drawer. Mid+: fixed left rail already visible.
+      setPanelView("chat");
+      setSidebarOpen(false);
+      setInsuranceRailOpen(true);
+    },
+    onOpenBaselinePanel: () => {
+      // Narrow/mid: open baseline drawer via hamburger. Wide: fixed right rail.
+      setPanelView("chat");
+      setSidebarOpen(false);
+      setMirrorRailOpen(true);
+    },
     onClose: () => setSidebarOpen(false),
     onSignOut: () => supabase.auth.signOut(),
   };
@@ -1595,28 +1618,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", justifySelf: "end" }}>
-            {panelView === "chat" ? (
-              <>
-                <button
-                  type="button"
-                  aria-pressed={insuranceRailOpen}
-                  onClick={() => setInsuranceRailOpen((open) => !open)}
-                  style={headerToggleBtn(insuranceRailOpen)}
-                >
-                  나의 보험
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={mirrorRailOpen}
-                  onClick={() => setMirrorRailOpen((open) => !open)}
-                  style={headerToggleBtn(mirrorRailOpen)}
-                >
-                  기준선
-                </button>
-              </>
-            ) : null}
-          </div>
+          <div style={{ justifySelf: "end", minWidth: "40px" }} aria-hidden="true" />
         </header>
 
         <div
