@@ -26,6 +26,7 @@ import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesS
 import { sentenceHardLiteBlocks } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
 import {
   isPriorAttachFollowUpQuestion,
+  isReusableActiveAttachmentId,
   PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
   normalizeActiveAttachment,
   extractActiveAttachmentFromSessionMessages,
@@ -1003,6 +1004,77 @@ const chartPolicies = {
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.prior_attach_follow_up,
     true,
   );
+  assert.equal(result.key_monopoly_failure, false);
+}
+
+{
+  // Delete then first insurance-count question: stale active id must not wall with reattach.
+  assert.equal(
+    isReusableActiveAttachmentId("doc-deleted-stale", [
+      { id: "doc-other", deleted_at: null },
+    ]),
+    false,
+  );
+  assert.equal(
+    isReusableActiveAttachmentId("doc-live", [{ id: "doc-live", deleted_at: null }]),
+    true,
+  );
+  assert.equal(
+    isReusableActiveAttachmentId("doc-gone", [
+      { id: "doc-gone", deleted_at: "2026-07-18T00:00:00.000Z" },
+    ]),
+    false,
+  );
+
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "내보험 건수는?",
+    history: [
+      { role: "user", content: "이 첨부 사진만 분석해줘.\n\n(첨부: a.jpg)" },
+      { role: "assistant", content: "첨부 이미지 판독 결과\n| 보험사 | 한화생명 |" },
+    ],
+    loadedContext: {
+      policies: [
+        { insurer: "한화생명", product_name: "건강보험" },
+        { insurer: "한화생명", product_name: "건강보험" },
+      ],
+      policy_count: 2,
+    },
+    customerId: "cust-a",
+    attachedDocumentId: "doc-deleted-stale",
+    priorAttachFollowUp: true,
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-deleted-stale",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-deleted-stale.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "gone.jpg",
+        deleted_at: "2026-07-18T00:00:00.000Z",
+      },
+    }),
+    env: failClosedEnv,
+    fetchImpl: async () => {
+      claudeCalls += 1;
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "현재 확인된 보험 계약은 총 2건입니다. 두 계약 모두 한화생명 건강보험으로 확인됩니다.",
+              },
+            ],
+          };
+        },
+      };
+    },
+  });
+  assert.ok(claudeCalls >= 1, "stale deleted active must reach Claude-first");
+  assert.notEqual(result.failure_reason, "prior_attach_missing");
+  assert.notEqual(result.customerText, PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
+  assert.match(result.customerText, /총\s*2건|2건/);
   assert.equal(result.key_monopoly_failure, false);
 }
 

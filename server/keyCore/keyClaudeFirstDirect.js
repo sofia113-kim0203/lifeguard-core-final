@@ -30,7 +30,10 @@ import {
   buildPreviewOrientationHint,
   buildAttachOpsSignals,
 } from "./keyClaudeImageOrient.js";
-import { PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT } from "../../src/lib/chatActiveAttachment.js";
+import {
+  isPriorAttachFollowUpQuestion,
+  PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
+} from "../../src/lib/chatActiveAttachment.js";
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
@@ -1724,120 +1727,129 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
 
   // Explicit attach requested this turn but processing failed → fail-closed.
+  // Stale deleted active id on a normal insurance question must not block verified answers.
+  const realPriorAttachFollowUp =
+    clientPriorAttach === true &&
+    isPriorAttachFollowUpQuestion(question, { history }) === true;
   if (explicitDocumentId && pdf?.meta?.attached !== true) {
-    const usePriorAttachCopy = clientPriorAttach === true;
-    const failureNote = usePriorAttachCopy
-      ? "prior_attach_missing"
-      : String(pdf?.meta?.note ?? "").trim() || "attach_process_failed";
-    let outlet;
-    if (usePriorAttachCopy) {
-      const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
-      outlet = {
-        customerText: sealed.key_speak_original,
-        keySpeakOriginal: sealed.key_speak_original,
-        latency_marks: null,
-      };
-    } else {
-      outlet = finalizeKeyCustomerText(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT, {
-        failureMode: true,
-        startedAt,
-      });
-    }
-    if (streamHandlers?.onDelta) {
-      streamHandlers.onDelta(outlet.keySpeakOriginal);
-      streamHandlers._emitted = true;
-      streamHandlers.onFirstToken?.(relMs(startedAt));
-    }
-    const emitMark = span.end();
-    return {
-      ok: true,
-      customerText: outlet.customerText,
-      keySpeakOriginal: outlet.keySpeakOriginal,
-      visualBlocks: [],
-      key_monopoly_failure: usePriorAttachCopy ? false : true,
-      failure_reason: failureNote,
-      agentTurn: {
-        text: outlet.keySpeakOriginal,
-        responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
-        consultationIntent: { intent: "claude_first_direct" },
-        factBundle: { policies, policy_count, one_key_core: true },
-      },
-      modeDecision: null,
-      loadedContext,
-      contextSnapshot,
-      unifiedState,
-      customerContextBundle,
-      salesDirectorTrace: {
-        one_key_core: true,
-        one_key_core_s1: true,
-        compose_mode: "key_claude_first_direct",
-        key_compose_trace: {
-          compose_mode: "key_claude_first_direct",
-          key_voice_trace: {
-            provider: "claude_first_direct",
-            used_failure_mode: usePriorAttachCopy ? false : true,
-            fallback_reason: failureNote,
-            ...(usePriorAttachCopy
-              ? { prior_attach_follow_up: true }
-              : {
-                  attachment_fail_closed: true,
-                  explicit_document_id_present: true,
-                }),
-            pdf_attached: false,
-            ...(usePriorAttachCopy
-              ? {}
-              : {
-                  attach_signals: pdf?.meta?.attach_signals ?? null,
-                }),
-            latency_marks: {
-              claude_full_emit: emitMark,
-              ttft_ms: relMs(startedAt),
-              ...(outlet.latency_marks
-                ? {
-                    finalize: outlet.latency_marks.finalize ?? null,
-                    seal: outlet.latency_marks.seal ?? null,
-                  }
-                : {}),
-              ...resolveDeployIdentity(env),
-            },
-          },
+    const staleActiveNotFollowUp =
+      clientPriorAttach === true && realPriorAttachFollowUp !== true;
+    if (!staleActiveNotFollowUp) {
+      const usePriorAttachCopy = realPriorAttachFollowUp === true;
+      const failureNote = usePriorAttachCopy
+        ? "prior_attach_missing"
+        : String(pdf?.meta?.note ?? "").trim() || "attach_process_failed";
+      let outlet;
+      if (usePriorAttachCopy) {
+        const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
+        outlet = {
+          customerText: sealed.key_speak_original,
+          keySpeakOriginal: sealed.key_speak_original,
+          latency_marks: null,
+        };
+      } else {
+        outlet = finalizeKeyCustomerText(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT, {
+          failureMode: true,
+          startedAt,
+        });
+      }
+      if (streamHandlers?.onDelta) {
+        streamHandlers.onDelta(outlet.keySpeakOriginal);
+        streamHandlers._emitted = true;
+        streamHandlers.onFirstToken?.(relMs(startedAt));
+      }
+      const emitMark = span.end();
+      return {
+        ok: true,
+        customerText: outlet.customerText,
+        keySpeakOriginal: outlet.keySpeakOriginal,
+        visualBlocks: [],
+        key_monopoly_failure: usePriorAttachCopy ? false : true,
+        failure_reason: failureNote,
+        agentTurn: {
+          text: outlet.keySpeakOriginal,
+          responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+          consultationIntent: { intent: "claude_first_direct" },
+          factBundle: { policies, policy_count, one_key_core: true },
         },
-      },
-      oneKeyCoreTrace: {
-        schema_version: "one-key-core-trace-claude-first-v1",
-        steps: [
-          {
-            step: usePriorAttachCopy
-              ? "prior_attach_reattach"
-              : "attach_process_fail_closed",
-            at_ms: relMs(startedAt),
-            payload: {
-              compose_mode: "key_claude_first_direct",
-              reason: failureNote,
-              document_id_present: true,
-              allow_latest_fallback: false,
-              claude_call_started: false,
+        modeDecision: null,
+        loadedContext,
+        contextSnapshot,
+        unifiedState,
+        customerContextBundle,
+        salesDirectorTrace: {
+          one_key_core: true,
+          one_key_core_s1: true,
+          compose_mode: "key_claude_first_direct",
+          key_compose_trace: {
+            compose_mode: "key_claude_first_direct",
+            key_voice_trace: {
+              provider: "claude_first_direct",
+              used_failure_mode: usePriorAttachCopy ? false : true,
+              fallback_reason: failureNote,
+              ...(usePriorAttachCopy
+                ? { prior_attach_follow_up: true }
+                : {
+                    attachment_fail_closed: true,
+                    explicit_document_id_present: true,
+                  }),
+              pdf_attached: false,
               ...(usePriorAttachCopy
                 ? {}
                 : {
                     attach_signals: pdf?.meta?.attach_signals ?? null,
                   }),
+              latency_marks: {
+                claude_full_emit: emitMark,
+                ttft_ms: relMs(startedAt),
+                ...(outlet.latency_marks
+                  ? {
+                      finalize: outlet.latency_marks.finalize ?? null,
+                      seal: outlet.latency_marks.seal ?? null,
+                    }
+                  : {}),
+                ...resolveDeployIdentity(env),
+              },
             },
           },
-        ],
-        legacy_paths_blocked: [
-          "claude_first_direct_call",
-          "latest_document_fallback",
-          "verified_customer_chart_substitute",
-          "phase_b_visual",
-          "s3_s6_compose",
-        ],
-      },
-    };
+        },
+        oneKeyCoreTrace: {
+          schema_version: "one-key-core-trace-claude-first-v1",
+          steps: [
+            {
+              step: usePriorAttachCopy
+                ? "prior_attach_reattach"
+                : "attach_process_fail_closed",
+              at_ms: relMs(startedAt),
+              payload: {
+                compose_mode: "key_claude_first_direct",
+                reason: failureNote,
+                document_id_present: true,
+                allow_latest_fallback: false,
+                claude_call_started: false,
+                ...(usePriorAttachCopy
+                  ? {}
+                  : {
+                      attach_signals: pdf?.meta?.attach_signals ?? null,
+                    }),
+              },
+            },
+          ],
+          legacy_paths_blocked: [
+            "claude_first_direct_call",
+            "latest_document_fallback",
+            "verified_customer_chart_substitute",
+            "phase_b_visual",
+            "s3_s6_compose",
+          ],
+        },
+      };
+    }
+    // else: stale deleted active on a normal question → Claude-first with verified facts
   }
 
-  // Client signals prior active attach but document is missing → reattach prompt (no keyword classify).
-  if (clientPriorAttach && !explicitDocumentId && pdf?.meta?.attached !== true) {
+  // Real prior-attach follow-up but document id missing → reattach prompt.
+  if (realPriorAttachFollowUp && !explicitDocumentId && pdf?.meta?.attached !== true) {
     const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
     if (streamHandlers?.onDelta) {
       streamHandlers.onDelta(sealed.key_speak_original);

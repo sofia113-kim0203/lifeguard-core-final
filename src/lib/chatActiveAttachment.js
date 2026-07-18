@@ -70,6 +70,21 @@ export function clearActiveAttachmentIfDocumentDeleted(activeAttachment = null, 
   return normalized;
 }
 
+/**
+ * Reuse conversation active attach only when the id is still in the live document list
+ * and not soft-deleted. Stale ids must not force prior_attach_follow_up on the next turn.
+ */
+export function isReusableActiveAttachmentId(activeId = null, documents = []) {
+  const id = String(activeId ?? "").trim();
+  if (!id) return false;
+  const rows = Array.isArray(documents) ? documents : [];
+  const row = rows.find((doc) => String(doc?.id ?? doc?.document_id ?? "").trim() === id);
+  if (!row) return false;
+  const deletedAt = row.deleted_at ?? row.deletedAt ?? null;
+  if (deletedAt) return false;
+  return true;
+}
+
 export function normalizeActiveAttachment(input = null) {
   if (!input || typeof input !== "object") return null;
   const id = String(input.active_attachment_id ?? input.document_id ?? input.id ?? "").trim();

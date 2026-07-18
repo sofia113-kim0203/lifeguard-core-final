@@ -21,6 +21,7 @@ import {
 import {
   clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
+  isReusableActiveAttachmentId,
   normalizeActiveAttachment,
   shouldClearActiveAttachmentAfterTurn,
 } from "../lib/chatActiveAttachment.js";
@@ -848,13 +849,27 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     let reusedActiveAttachment = false;
 
     // Physical conversation active attachment — every turn until cleared (no keyword pre-route).
+    // Skip deleted / missing ids so insurance questions are not blocked by stale attach state.
     if (!documentIdForTurn && activeAttachmentId) {
-      documentIdForTurn = activeAttachmentId;
-      attachTurnsForTurn = activeRotationQuarterTurns;
-      attachMimeForTurn = activeAttachmentMime;
-      attachIsImageForTurn =
-        !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
-      reusedActiveAttachment = true;
+      if (isReusableActiveAttachmentId(activeAttachmentId, documents)) {
+        documentIdForTurn = activeAttachmentId;
+        attachTurnsForTurn = activeRotationQuarterTurns;
+        attachMimeForTurn = activeAttachmentMime;
+        attachIsImageForTurn =
+          !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
+        reusedActiveAttachment = true;
+      } else {
+        setActiveAttachmentId(null);
+        setActiveAttachmentMime(null);
+        setActiveRotationQuarterTurns(0);
+        if (customerId) {
+          writeLifeguardChatSnapshot(customerId, {
+            sessionId,
+            messages,
+            activeAttachment: null,
+          });
+        }
+      }
     }
 
     setPanelView("chat");
@@ -1139,6 +1154,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       if (chatAttachDocumentId === deleted) {
         clearComposerAttach();
       }
+      const activeMatchesDeleted = String(activeAttachmentId ?? "").trim() === deleted;
       const nextActive = clearActiveAttachmentIfDocumentDeleted(
         {
           active_attachment_id: activeAttachmentId,
@@ -1147,7 +1163,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         },
         deleted,
       );
-      if (!nextActive && activeAttachmentId) {
+      // Deleted id matches current active → clear React state and snapshot together.
+      if (activeMatchesDeleted || (!nextActive && activeAttachmentId)) {
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
         setActiveRotationQuarterTurns(0);
@@ -1175,7 +1192,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     async (result, { setLocalError }) => {
       const did = String(result?.documentId ?? "").trim();
       // Soft-delete already took effect — never restore active document_id / prior_attach.
-      if (result?.clear_active_attachment && did) {
+      // Success or clear flag: drop matching activeAttachment from state + snapshot immediately.
+      if (did && (result?.success || result?.clear_active_attachment)) {
         applyDocumentDeletedLocally(did);
       }
       await reloadDocuments();

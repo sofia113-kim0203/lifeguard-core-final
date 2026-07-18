@@ -322,6 +322,8 @@ const ensureCustomerContext = async () => ({ customerId: "cust-1" });
 assert.match(UI_LOCALE, /일부 관련 기록을 정리하지 못했습니다\. 다시 시도해 주세요\./);
 assert.match(HOME_CHAT, /DOCUMENT_DELETE_REASON\.CLAIM_SCRUB_FAILED/);
 assert.match(HOME_CHAT, /clear_active_attachment/);
+assert.match(HOME_CHAT, /result\?\.success \|\| result\?\.clear_active_attachment/);
+assert.match(HOME_CHAT, /isReusableActiveAttachmentId/);
 assert.match(HOME_CHAT, /finishDocumentDeleteResult/);
 assert.match(DOCS_PANEL, /DOCUMENT_DELETE_REASON\.CLAIM_SCRUB_FAILED/);
 assert.match(DOCS_PANEL, /clear_active_attachment/);
