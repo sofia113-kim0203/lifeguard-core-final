@@ -196,7 +196,9 @@ function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
       : null;
   return [
     "원본 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
-    "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 기록한다.",
+    "접수·예고 문장으로 답하지 않는다. '기록하고 분석하겠습니다', '먼저 확인하겠습니다', '분석해 드릴게요'처럼 나중에 하겠다는 말은 금지한다.",
+    "원본에서 보이는 보험회사명·상품명·보험료·계약일·담보·보장금액·갱신 여부를 지금 바로 말한다. 안 보이면 확인되지 않음으로 말한다.",
+    "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 보관한다. 이 도구는 고객에게 말하지 않는다.",
     "추측·웹검색 일반정보·고객의 '아마' 발언·추천·해석(9999세→종신, 간편가입→건강이력 등)은 기록하지 않는다.",
     "literal_value는 원문 그대로 둔다.",
     docId ? `source_document_id 기본값: ${docId}` : "source_document_id를 알면 반드시 넣는다.",
@@ -1757,7 +1759,10 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Stale deleted active id on a normal insurance question must not block verified answers.
   const realPriorAttachFollowUp =
     clientPriorAttach === true &&
-    isPriorAttachFollowUpQuestion(question, { history }) === true;
+    isPriorAttachFollowUpQuestion(question, {
+      history,
+      priorAttachFollowUp: clientPriorAttach,
+    }) === true;
   if (explicitDocumentId && pdf?.meta?.attached !== true) {
     const staleActiveNotFollowUp =
       clientPriorAttach === true && realPriorAttachFollowUp !== true;

@@ -136,7 +136,8 @@ await runCase("S02-1-2 runOneKeyCoreTurn document 8-step trace", async () => {
   for (const step of ONE_KEY_CORE_DOCUMENT_STEPS) {
     assert.ok(steps.includes(step), `missing step ${step}`);
   }
-  assert.ok(String(result.customerFirstSentence ?? "").length > 0);
+  // Document intake no longer emits customer acknowledgment; Claude-first answers on question turn.
+  assert.equal(result.customerFirstSentence, null);
   assert.ok(result.workOrderId);
   assert.equal(result.intakeTrace.response_source, ONE_KEY_CORE_RESPONSE_SOURCE.DOCUMENT);
   assert.equal(result.intakeTrace.one_key_core_event, "document");
@@ -161,10 +162,10 @@ await runCase("S02-1-3 intake contract fields preserved", async () => {
   const trace = result.intakeTrace;
   assert.ok(Array.isArray(trace.trace_steps));
   assert.ok(trace.trace_steps.some((row) => row.step === "key_first_judgment"));
-  assert.ok(trace.trace_steps.some((row) => row.step === "key_first_speak"));
   assert.ok(trace.trace_steps.some((row) => row.step === "work_order_issued"));
   assert.ok(trace.dispatch_plan);
-  assert.match(String(result.customerFirstSentence), /KEY|받|문서/i);
+  assert.equal(result.customerFirstSentence, null);
+  assert.equal(result.personaMeta?.generation_mode, "suppressed_document_intake_speak");
 });
 
 await runCase("S02-1-4 shadow mode — no work order mint", async () => {

@@ -1,5 +1,6 @@
 /**
  * KU-2c — KEY first speak unit tests (Tom EXEC gate).
+ * Document intake customer acknowledgment is suppressed; Claude-first answers on the question turn.
  */
 import assert from "node:assert/strict";
 import { buildKeyFirstJudgment } from "../server/keyBrain/documentFirstJudgment.js";
@@ -21,7 +22,7 @@ const SAMPLE_DOC = {
   customer_hint_type: "insurance_policy",
 };
 
-function testCustomerFirstSentenceFromJudgment() {
+function testProvisionalMetadataHasNoCustomerAck() {
   const judgment = buildKeyFirstJudgment({
     document: SAMPLE_DOC,
     keyInterprets: {
@@ -29,13 +30,13 @@ function testCustomerFirstSentenceFromJudgment() {
       hold: { needed: false },
     },
   });
+  assert.equal(judgment.posture, "provisional_metadata");
   const sentence = buildCustomerFirstSentence(judgment, { document: SAMPLE_DOC });
-  assert.ok(sentence);
-  assert.match(sentence, /KEY/);
-  assert.doesNotMatch(sentence, /Gap|담보|추천/i);
+  // No intake acknowledgment without DU-1 context — customer hears Claude-first on question turn.
+  assert.equal(sentence, null);
 }
 
-function testConsentHoldSentence() {
+function testConsentHoldAlsoSilentWithoutDu1Context() {
   const judgment = buildKeyFirstJudgment({
     document: SAMPLE_DOC,
     keyInterprets: {
@@ -44,17 +45,17 @@ function testConsentHoldSentence() {
     },
   });
   const sentence = buildCustomerFirstSentence(judgment, { document: SAMPLE_DOC });
-  assert.match(sentence, /동의/);
+  assert.equal(sentence, null);
 }
 
-function testSpeakTraceOrder() {
+function testSpeakTraceOrderWhenSentencePresent() {
   const base = buildKeyDocumentIntakeShadowTrace({
     document: SAMPLE_DOC,
     hasAnalysisConsent: true,
     includeFirstJudgment: true,
   });
-  const judgment = base.key_first_judgment;
-  const sentence = buildCustomerFirstSentence(judgment, { document: SAMPLE_DOC });
+  // Explicit sentence for order validation only (not emitted by document intake path).
+  const sentence = "테스트용 KEY 발화.";
   const withSpeak = appendKeyFirstSpeakTrace(base, sentence);
   const withWorkOrder = {
     ...withSpeak,
@@ -87,9 +88,9 @@ function testSpeakAbsentWhenNoJudgment() {
 }
 
 const tests = [
-  testCustomerFirstSentenceFromJudgment,
-  testConsentHoldSentence,
-  testSpeakTraceOrder,
+  testProvisionalMetadataHasNoCustomerAck,
+  testConsentHoldAlsoSilentWithoutDu1Context,
+  testSpeakTraceOrderWhenSentencePresent,
   testSpeakAbsentWhenNoJudgment,
 ];
 for (const test of tests) test();

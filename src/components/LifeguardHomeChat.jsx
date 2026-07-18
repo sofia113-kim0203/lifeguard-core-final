@@ -469,9 +469,17 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       keyReturnJudgmentSentence = null,
       anchorJobId = null,
     } = {}) => {
+      // HomeChat: never inject document-intake / upload acknowledgment bubbles.
+      // Original + customer question go to Claude-first; only that answer is shown.
+      const hasNonUploadPresence =
+        String(keyInitiativeSentence ?? "").trim() ||
+        String(keyBridgeSentence ?? "").trim() ||
+        String(keyReturnJudgmentSentence ?? "").trim();
+      if (!hasNonUploadPresence) return;
+
       const presenceMessage = buildKeyChatPresenceMessage({
-        keyFirstSentence,
-        keyFollowUpSentence,
+        keyFirstSentence: null,
+        keyFollowUpSentence: null,
         keyInitiativeSentence,
         keyBridgeSentence,
         keyReturnJudgmentSentence,

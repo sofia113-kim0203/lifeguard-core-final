@@ -9,7 +9,17 @@ export const PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT =
 /** Strong / explicit photo references — always eligible when active exists. */
 export function isExplicitPriorAttachFollowUpQuestion(question = "") {
   const q = String(question ?? "");
-  return /이\s*사진|그\s*사진|방금\s*사진|첨부\s*사진|첨부한\s*사진|이\s*이미지|방금\s*첨부|잘못\s*읽었|잘못\s*읽은|사진만\s*분석|사진\s*다시/.test(
+  return /이\s*사진|그\s*사진|방금\s*사진|첨부\s*사진|첨부한\s*사진|이\s*이미지|방금\s*첨부|잘못\s*읽었|잘못\s*읽은|사진만\s*분석|사진\s*다시|이\s*파일|그\s*파일|올려\s*준\s*(?:사진|이미지|파일|문서)/.test(
+    q,
+  );
+}
+
+/** Short analyze asks that keep the current-chat attachment (not general insurance chat). */
+export function isAttachAnalyzeFollowUpQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(?:이\s*)?(?:사진|이미지|파일|문서)?\s*분석해\s*줘[.!]?$|^분석해\s*줘[.!]?$|^분석\s*부탁(?:해)?(?:요)?[.!]?$/.test(
     q,
   );
 }
@@ -54,6 +64,16 @@ export function hasRecentAttachReadoutContext({ history = [] } = {}) {
 export function isPriorAttachFollowUpQuestion(question = "", options = {}) {
   const q = String(question ?? "");
   if (isExplicitPriorAttachFollowUpQuestion(q)) return true;
+  if (isAttachAnalyzeFollowUpQuestion(q)) {
+    if (options.priorAttachFollowUp === true || options.prior_attach_follow_up === true) {
+      return true;
+    }
+    return (
+      hasRecentAttachReadoutContext(options) === true ||
+      (Array.isArray(options.history) &&
+        options.history.some((row) => /\(첨부:/.test(String(row?.content ?? ""))))
+    );
+  }
   if (isAmbiguousAttachRecheckQuestion(q)) {
     return hasRecentAttachReadoutContext(options) === true;
   }

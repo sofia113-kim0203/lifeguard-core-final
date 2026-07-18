@@ -12,8 +12,7 @@ import {
 } from "../keyBrain/documentIntakeShadow.js";
 import { buildKeyFirstJudgment } from "../keyBrain/documentFirstJudgment.js";
 import { appendKeyFirstSpeakTrace } from "../keyBrain/documentFirstSpeak.js";
-import { keySpeak, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
-import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
+import { KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import {
   buildDu1InputBundle,
   resolveDu1InputGates,
@@ -398,36 +397,29 @@ export async function runOneKeyCoreDocumentTurn({
   });
   recordStep("evidence", evidenceBundle);
 
-  // Metadata speak only — do not open original PDF/image here.
-  // First original reader is HomeChat Claude-first on the customer question turn.
-  const speakResult = keySpeak({
-    event: "document",
-    document,
-    keyFirstJudgment: keyJudgment,
-    contextSnapshot,
-    loadedContext,
-  });
+  // No customer-facing intake/acknowledgment speak.
+  // HomeChat: Storage save only → customer question → Claude-first reads the original.
   const documentDirectMeta = {
     document_direct_compose: false,
+    customer_speak_suppressed: true,
     reason: "deferred_to_claude_first_question_turn",
   };
 
   recordStep("speak", {
-    compose_mode:
-      speakResult.key_compose_trace?.compose_mode ?? "key_master_document",
-    static_draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
-    du1: true,
+    compose_mode: "key_document_intake_silent",
+    static_draft_preview: "",
+    du1: false,
     key_speak_master: true,
     document_direct: documentDirectMeta,
   });
 
+  // Keep path marker for traces; do not emit document speaker text to the customer.
   trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
 
-  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft);
-  const customerFirstSentence = outletResult.keySpeakOriginal;
+  const customerFirstSentence = null;
   const personaMeta = {
-    generation_mode: outletResult.generation_mode,
-    persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
+    generation_mode: "suppressed_document_intake_speak",
+    persona_rewrite_blocked: true,
     key_speak_master: true,
   };
 
