@@ -78,7 +78,7 @@ export const MAJOR_TREATMENT_REGIONS = Object.freeze([
     ]),
   }),
   Object.freeze({
-    id: "cardio",
+    id: "brain_heart",
     label: "뇌·심 주요치료비",
     axes: Object.freeze([
       Object.freeze({

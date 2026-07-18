@@ -2,6 +2,19 @@ import {
   assembleRidersFromCandidate,
   mergeCoverageSummary,
 } from "./coverageRiderPopulation.js";
+import {
+  normalizeKeyCoverageBaselineFacts,
+  mergeKeyCoverageBaselineFacts,
+  keyValidateCoverageBaselineFacts,
+  KEY_BASELINE_FACT_STATUSES,
+} from "../src/lib/keyCoverageBaselineFacts.js";
+
+export {
+  normalizeKeyCoverageBaselineFacts,
+  mergeKeyCoverageBaselineFacts,
+  keyValidateCoverageBaselineFacts,
+  KEY_BASELINE_FACT_STATUSES,
+};
 
 const EXTRACTOR_VERSION = "step4-ocr-policy-v3-multi";
 
@@ -320,6 +333,131 @@ export async function persistKeyConfirmedSourceFactsToPolicies({
       }
       updated_policy_ids.push(row.id);
       stored += docFacts.length;
+    }
+  }
+
+  return {
+    ok: errors.length === 0 && updated_policy_ids.length > 0,
+    attempted: true,
+    stored,
+    updated_policy_ids,
+    errors,
+  };
+}
+
+/**
+ * After customer answer is sealed — KEY-validate Claude baseline analysis and store.
+ * Never auto-verifies; never rewrites the customer answer; does not touch key_confirmed_source_facts.
+ */
+export async function persistKeyCoverageBaselineFactsToPolicies({
+  supabase = null,
+  customerId = null,
+  facts = [],
+  ownedDocumentIds = null,
+} = {}) {
+  const proposed = normalizeKeyCoverageBaselineFacts(facts);
+  if (!supabase || !customerId || proposed.length === 0) {
+    return {
+      ok: false,
+      attempted: Boolean(supabase && customerId && Array.isArray(facts) && facts.length),
+      reason: !supabase
+        ? "no_supabase"
+        : !customerId
+          ? "no_customer_id"
+          : proposed.length === 0
+            ? "no_valid_facts"
+            : "skip",
+      stored: 0,
+      updated_policy_ids: [],
+    };
+  }
+
+  const owned =
+    ownedDocumentIds != null
+      ? new Set([...ownedDocumentIds].map((id) => String(id).trim()).filter(Boolean))
+      : new Set(proposed.map((f) => f.source_document_id).filter(Boolean));
+
+  const byDoc = new Map();
+  for (const fact of proposed) {
+    if (!fact.source_document_id) continue;
+    const list = byDoc.get(fact.source_document_id) ?? [];
+    list.push(fact);
+    byDoc.set(fact.source_document_id, list);
+  }
+
+  const updated_policy_ids = [];
+  let stored = 0;
+  const errors = [];
+
+  for (const [documentId, docFacts] of byDoc.entries()) {
+    const { data: rows, error: selectError } = await supabase
+      .from("profile_insurance_policies")
+      .select("id, coverage_summary, is_active")
+      .eq("customer_id", customerId)
+      .eq("is_active", true);
+
+    if (selectError) {
+      errors.push({ document_id: documentId, stage: "select", message: selectError.message });
+      continue;
+    }
+
+    const matches = (rows ?? []).filter(
+      (row) => row?.coverage_summary?.source_document_id === documentId,
+    );
+    if (matches.length === 0) {
+      errors.push({ document_id: documentId, stage: "match", message: "no_policy_row_for_document" });
+      continue;
+    }
+
+    for (const row of matches) {
+      const existingSummary =
+        row.coverage_summary && typeof row.coverage_summary === "object"
+          ? row.coverage_summary
+          : {};
+      if (existingSummary.retired_reason) {
+        errors.push({
+          document_id: documentId,
+          policy_id: row.id,
+          stage: "retired",
+          message: "retired_policy_skipped",
+        });
+        continue;
+      }
+
+      const existingFacts = Array.isArray(existingSummary.key_coverage_baseline_facts)
+        ? existingSummary.key_coverage_baseline_facts
+        : [];
+      const validated = keyValidateCoverageBaselineFacts(docFacts, {
+        // Policy row match under customer_id already proves document linkage.
+        ownedDocumentIds: owned.size ? owned : [documentId],
+        existingFacts,
+        retiredPolicyDocumentIds: [],
+      });
+      const mergedFacts = mergeKeyCoverageBaselineFacts(existingFacts, validated);
+      const nextSummary = {
+        ...existingSummary,
+        key_coverage_baseline_facts: mergedFacts,
+      };
+      const { error: updateError } = await supabase
+        .from("profile_insurance_policies")
+        .update({
+          coverage_summary: nextSummary,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id)
+        .eq("customer_id", customerId);
+
+      if (updateError) {
+        errors.push({
+          document_id: documentId,
+          policy_id: row.id,
+          stage: "update",
+          message: updateError.message,
+        });
+        continue;
+      }
+      updated_policy_ids.push(row.id);
+      stored += validated.length;
     }
   }
 

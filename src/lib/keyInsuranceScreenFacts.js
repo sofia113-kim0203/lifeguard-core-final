@@ -11,6 +11,14 @@ import {
   BASELINE_STRUCTURED_AXES,
   MAJOR_TREATMENT_REGIONS,
 } from "./keyIndustryCoverageBaselineTable.js";
+import {
+  KEY_BASELINE_DIAGNOSIS_ITEM_IDS,
+  KEY_BASELINE_FACT_STATUSES,
+  KEY_BASELINE_STRUCTURED_ITEM_IDS,
+  collectKeyCoverageBaselineFactsFromPolicies,
+  isVerifiedBaselineFact,
+  policiesHaveKeyBaselineFacts,
+} from "./keyCoverageBaselineFacts.js";
 
 export const KEY_TURN_MIRROR_EMPTY = "\uC544\uC9C1 \uC774 \uB300\uD654\uC5D0\uC11C \uD655\uC778\uB41C \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
 
@@ -276,14 +284,13 @@ function parseCoverageAmount(value) {
 }
 
 /**
- * Major-treatment region for UI A/B split. One primary region only; never both.
- * @returns {"cancer"|"cardio"|null}
+ * Major-treatment region — limited name heuristic only (not primary judge).
+ * @returns {"cancer"|"brain_heart"|null}
  */
 export function classifyMajorTreatmentRegion(coverageName = "") {
   const n = normalizeCoverageName(coverageName);
   if (!n) return null;
 
-  // Ambiguous bare tokens — do not invent a region.
   if (n === "로봇수술" || n === "주요치료" || n === "방사선" || n === "수술") {
     return null;
   }
@@ -298,24 +305,23 @@ export function classifyMajorTreatmentRegion(coverageName = "") {
     (/암/.test(n) && /로봇/.test(n)) ||
     (/암/.test(n) && /주요치료/.test(n));
 
-  const cardioSignal =
+  const brainHeartSignal =
     (/뇌혈관/.test(n) && /치료|시술|수술|주요/.test(n) && !/진단/.test(n)) ||
     (/허혈성심장/.test(n) && /치료|시술|수술|주요/.test(n) && !/진단/.test(n)) ||
     /혈전용해|혈전제거/.test(n) ||
     (/중환자/.test(n) && /(뇌|심|혈관)/.test(n)) ||
     /심뇌혈관.*주요치료|주요치료.*심뇌/.test(n);
 
-  if (cancerSignal && cardioSignal) return null;
+  if (cancerSignal && brainHeartSignal) return null;
   if (cancerSignal) return "cancer";
-  if (cardioSignal) return "cardio";
+  if (brainHeartSignal) return "brain_heart";
   return null;
 }
 
 /**
- * Map a verified rider/coverage name to a baseline item (single primary attribution).
- * Narrow benefits must not map into wider disease families.
- * Ambiguous disease/treatment axis → null (미확인), never invent.
- * @returns {string|null} baseline item id or null
+ * Limited diagnosis-name fallback only — NOT the primary baseline classifier.
+ * Structured items (caregiving/hospital/surgery/major_treatment) always return null here.
+ * @returns {string|null} diagnosis baseline item id or null
  */
 export function classifyCoverageToBaselineItem(coverageName = "") {
   const n = normalizeCoverageName(coverageName);
@@ -326,12 +332,11 @@ export function classifyCoverageToBaselineItem(coverageName = "") {
     return null;
   }
 
-  // 1) 일반암 정액 진단비
+  // Diagnosis-only fallback scope (amount cards).
   if (/일반암|암진단/.test(n) || (/암/.test(n) && /진단/.test(n) && !/유사|소액|경계|제자리|상피내/.test(n))) {
     return "cancer_diagnosis";
   }
 
-  // 2) 광의 뇌혈관질환 정액 진단비 — not 뇌출혈 / 뇌졸중 alone.
   if (/뇌출혈|뇌경색|뇌졸중/.test(n) && !/뇌혈관/.test(n)) {
     return null;
   }
@@ -344,7 +349,6 @@ export function classifyCoverageToBaselineItem(coverageName = "") {
     return "cerebrovascular_diagnosis";
   }
 
-  // 3) 광의 허혈성심장질환 정액 진단비 — not 급성심근경색 alone.
   if (/급성심근|심근경색/.test(n) && !/허혈성심장/.test(n)) {
     return null;
   }
@@ -355,31 +359,7 @@ export function classifyCoverageToBaselineItem(coverageName = "") {
     return "ischemic_heart_diagnosis";
   }
 
-  // 4) 간병인 사용 입원 보장
-  if (/간병|간호간병|요양간병/.test(n)) return "caregiving";
-
-  // 5) 질병·상해 입원일당
-  if (/입원일당|입원급여|질병입원|상해입원/.test(n) || (/입원/.test(n) && /일당|하루|1일/.test(n))) {
-    return "hospital_daily";
-  }
-
-  // 6) 주요치료비 — cancer / cardio treatment (before general surgery)
-  const majorRegion = classifyMajorTreatmentRegion(coverageName);
-  if (majorRegion === "cancer" || majorRegion === "cardio") {
-    return "major_treatment";
-  }
-
-  // Bare ambiguous treatment/surgery tokens → 미확인
-  if (n === "로봇수술" || n === "주요치료" || n === "방사선") {
-    return null;
-  }
-
-  // 7) 일반 질병·상해 수술 → 수술 보장 구조 (암/뇌·심 치료 명시는 위에서 major로 귀속)
-  if (/수술/.test(n)) {
-    // Disease-axis unclear for robot/major without cancer/cardio signal → already null above.
-    return "surgery";
-  }
-
+  // Structured items: never classify via regex (Claude + KEY facts only).
   return null;
 }
 
@@ -410,8 +390,8 @@ function collectRiderRowsFromPolicy(policy) {
 }
 
 /**
- * Collect verified coverage rows from active (non-retired) policies.
- * Dedupes same policy + alias + amount once.
+ * Collect rider rows for drawer / limited diagnosis fallback.
+ * Attribution uses diagnosis-only regex; structured items stay unclassified here.
  */
 export function collectVerifiedCoverageRows(policies = []) {
   const out = [];
@@ -426,10 +406,6 @@ export function collectVerifiedCoverageRows(policies = []) {
       if (!name) continue;
       const amount = parseCoverageAmount(row.coverage_amount ?? row.amount);
       const itemId = classifyCoverageToBaselineItem(name);
-      const majorRegion =
-        itemId === "major_treatment" ? classifyMajorTreatmentRegion(name) : null;
-      // major_treatment without a clear A/B region → leave unattributed (미확인), no double count
-      if (itemId === "major_treatment" && !majorRegion) continue;
       const dedupeKey = `${policyId}::${normalizeCoverageName(name)}::${amount ?? "na"}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
@@ -440,66 +416,156 @@ export function collectVerifiedCoverageRows(policies = []) {
         coverage_name: name,
         coverage_amount: amount,
         baseline_item_id: itemId,
-        major_treatment_region: majorRegion,
+        major_treatment_region: null,
         has_amount: amount != null,
+        source: "rider_details",
       });
     }
   }
   return out;
 }
 
-function coverageNamesMatchPatterns(names = [], patterns = []) {
-  for (const raw of names) {
-    const n = normalizeCoverageName(raw);
-    if (!n) continue;
-    for (const re of patterns) {
-      if (re.test(n) || re.test(String(raw ?? ""))) return true;
-    }
+function axisIdsConfirmedByKeyFact(fact, itemId) {
+  const ids = new Set();
+  if (!isVerifiedBaselineFact(fact)) return ids;
+  if (fact.structured_axis_id) ids.add(String(fact.structured_axis_id));
+  if (itemId === "caregiving") {
+    if (fact.coverage_amount != null || fact.payment_unit) ids.add("daily_amount");
+    if (fact.maximum_payment_days != null) ids.add("max_days");
+    if (fact.renewal != null) ids.add("renewal");
+    if (fact.reduction_condition) ids.add("reduction");
   }
-  return false;
+  if (itemId === "hospital_daily") {
+    if (fact.maximum_payment_days != null) ids.add("max_pay_days");
+  }
+  if (itemId === "surgery" || itemId === "major_treatment") {
+    if (fact.payment_frequency) ids.add("repeat_pay");
+  }
+  if (itemId === "caregiving" && /간호간병|통합병동/.test(normalizeCoverageName(fact.original_coverage_name))) {
+    ids.add("nursing_integrated");
+  }
+  if (itemId === "caregiving" && /간병인/.test(normalizeCoverageName(fact.original_coverage_name))) {
+    ids.add("caregiver_direct");
+  }
+  return ids;
 }
 
 /**
- * Axis 확인됨/미확인 for structured cards — name heuristics only; no invented amounts.
+ * Structured axes — verified KEY baseline facts only (never regex 확인됨).
  */
-export function resolveStructuredAxisStates(itemId, includedCoverages = []) {
-  const names = (Array.isArray(includedCoverages) ? includedCoverages : [])
-    .map((row) => String(row?.coverage_name ?? "").trim())
-    .filter(Boolean);
+export function resolveStructuredAxisStates(itemId, verifiedKeyFacts = []) {
+  const facts = (Array.isArray(verifiedKeyFacts) ? verifiedKeyFacts : []).filter(
+    (f) => isVerifiedBaselineFact(f) && f.baseline_item_id === itemId,
+  );
 
   if (itemId === "major_treatment") {
     return MAJOR_TREATMENT_REGIONS.map((region) => {
-      const regionNames = (Array.isArray(includedCoverages) ? includedCoverages : [])
-        .filter((row) => row?.major_treatment_region === region.id)
-        .map((row) => String(row?.coverage_name ?? "").trim())
-        .filter(Boolean);
+      const regionFacts = facts.filter((f) => f.major_treatment_region === region.id);
+      const confirmedIds = new Set();
+      for (const fact of regionFacts) {
+        for (const id of axisIdsConfirmedByKeyFact(fact, itemId)) confirmedIds.add(id);
+      }
       return {
         id: region.id,
         label: region.label,
-        axes: region.axes.map((axis) => {
-          const confirmed = coverageNamesMatchPatterns(regionNames, axis.patterns);
-          return {
-            id: axis.id,
-            label: axis.label,
-            status: confirmed ? "확인됨" : "미확인",
-            detail: confirmed ? null : null,
-          };
-        }),
+        axes: region.axes.map((axis) => ({
+          id: axis.id,
+          label: axis.label,
+          status: confirmedIds.has(axis.id) ? "확인됨" : "미확인",
+          detail: null,
+        })),
       };
     });
   }
 
   const defs = BASELINE_STRUCTURED_AXES[itemId];
   if (!Array.isArray(defs)) return [];
-  return defs.map((axis) => {
-    const confirmed = coverageNamesMatchPatterns(names, axis.patterns);
-    return {
-      id: axis.id,
-      label: axis.label,
-      status: confirmed ? "확인됨" : "미확인",
-      detail: confirmed ? null : null,
-    };
-  });
+  const confirmedIds = new Set();
+  for (const fact of facts) {
+    for (const id of axisIdsConfirmedByKeyFact(fact, itemId)) confirmedIds.add(id);
+  }
+  return defs.map((axis) => ({
+    id: axis.id,
+    label: axis.label,
+    status: confirmedIds.has(axis.id) ? "확인됨" : "미확인",
+    detail: null,
+  }));
+}
+
+function riderAmountForName(policies, coverageName) {
+  const key = normalizeCoverageName(coverageName);
+  if (!key) return null;
+  for (const policy of Array.isArray(policies) ? policies : []) {
+    if (isRetiredPolicyRow(policy)) continue;
+    for (const row of collectRiderRowsFromPolicy(policy)) {
+      const name = String(row.coverage_name ?? row.rider_name ?? row.name ?? "").trim();
+      if (normalizeCoverageName(name) !== key) continue;
+      const amount = parseCoverageAmount(row.coverage_amount ?? row.amount);
+      if (amount != null) return amount;
+    }
+  }
+  return null;
+}
+
+/**
+ * Build included coverage rows for one baseline item (priority order).
+ * 1) verified key_coverage_baseline_facts
+ * 2) rider amount when KEY fact name matches but amount missing
+ * 3) diagnosis-only regex fallback when no KEY baseline facts exist at all
+ */
+function collectBaselineItemRows(policies, itemId) {
+  const allKeyFacts = collectKeyCoverageBaselineFactsFromPolicies(policies);
+  const hasKeyBaseline = allKeyFacts.length > 0;
+  const verified = allKeyFacts.filter(
+    (f) => isVerifiedBaselineFact(f) && f.baseline_item_id === itemId,
+  );
+
+  const out = [];
+  const seen = new Set();
+
+  for (const fact of verified) {
+    const identity = `${fact.source_document_id ?? ""}::${normalizeCoverageName(fact.original_coverage_name)}::${fact.baseline_item_id}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    let amount = fact.coverage_amount != null ? Number(fact.coverage_amount) : null;
+    if (amount == null || !Number.isFinite(amount)) {
+      amount = riderAmountForName(policies, fact.original_coverage_name);
+    }
+    out.push({
+      policy_id: fact.policy_id ?? "",
+      insurer_name: fact.insurer_name ?? null,
+      product_name: fact.product_name ?? null,
+      coverage_name: fact.original_coverage_name,
+      coverage_amount: amount,
+      baseline_item_id: itemId,
+      major_treatment_region: fact.major_treatment_region ?? null,
+      structured_axis_id: fact.structured_axis_id ?? null,
+      has_amount: amount != null,
+      source: "key_coverage_baseline_facts",
+      status: KEY_BASELINE_FACT_STATUSES.VERIFIED,
+      key_fact: fact,
+    });
+  }
+
+  if (out.length) return out;
+
+  // Limited fallback: only diagnosis amount cards, and only when KEY baseline facts are absent.
+  if (
+    hasKeyBaseline ||
+    !KEY_BASELINE_DIAGNOSIS_ITEM_IDS.includes(itemId) ||
+    KEY_BASELINE_STRUCTURED_ITEM_IDS.includes(itemId)
+  ) {
+    return out;
+  }
+
+  for (const row of collectVerifiedCoverageRows(policies)) {
+    if (row.baseline_item_id !== itemId) continue;
+    const dedupe = `${row.policy_id}::${normalizeCoverageName(row.coverage_name)}::${row.coverage_amount ?? "na"}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    out.push({ ...row, source: "rider_details_diagnosis_fallback" });
+  }
+  return out;
 }
 
 function formatWonAmount(value) {
@@ -623,18 +689,27 @@ function decideBaselineStatus({ item, matchedRows, sumAmount, compareMode }) {
 }
 /**
  * Build read-only industry baseline comparison for the right rail.
+ * Priority: verified key_coverage_baseline_facts → matching rider amount →
+ * diagnosis-only regex fallback when no KEY baseline facts exist.
  * Never invents industry numbers; never treats unknown as shortfall.
+ * pending/conflict/unresolved never enter amounts or 확인됨 counts.
  */
 export function buildIndustryCoverageBaseline(policies = []) {
-  const verifiedRows = collectVerifiedCoverageRows(policies);
+  const allKeyFacts = collectKeyCoverageBaselineFactsFromPolicies(policies);
+  const verifiedKeyFacts = allKeyFacts.filter(isVerifiedBaselineFact);
+
   const items = KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.map((item) => {
-    const matched = verifiedRows.filter((r) => r.baseline_item_id === item.id);
+    const matched = collectBaselineItemRows(policies, item.id);
     let sumAmount = null;
     if (item.compareMode === "lump_sum") {
       let sum = 0;
       let has = false;
       for (const row of matched) {
         if (row.coverage_amount == null) continue;
+        // Only verified KEY rows or diagnosis fallback rows (never pending/conflict).
+        if (row.status && row.status !== KEY_BASELINE_FACT_STATUSES.VERIFIED && row.source === "key_coverage_baseline_facts") {
+          continue;
+        }
         sum += row.coverage_amount;
         has = true;
       }
@@ -664,7 +739,10 @@ export function buildIndustryCoverageBaseline(policies = []) {
     const isAmountMode = item.compareMode === "lump_sum";
     const structuredAxes = isAmountMode
       ? null
-      : resolveStructuredAxisStates(item.id, includedCoverages);
+      : resolveStructuredAxisStates(
+          item.id,
+          verifiedKeyFacts.filter((f) => f.baseline_item_id === item.id),
+        );
 
     return {
       id: item.id,
@@ -696,6 +774,8 @@ export function buildIndustryCoverageBaseline(policies = []) {
       reason: decision.reason,
       includedCoverages,
       unclearParts: matched.filter((r) => !r.has_amount).map((r) => r.coverage_name),
+      key_baseline_fact_count: verifiedKeyFacts.filter((f) => f.baseline_item_id === item.id).length,
+      has_key_baseline_facts: policiesHaveKeyBaselineFacts(policies),
     };
   });
 

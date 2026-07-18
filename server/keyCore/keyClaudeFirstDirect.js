@@ -51,6 +51,9 @@ import {
   normalizeKeyConfirmedSourceFacts,
   mergeKeyConfirmedSourceFacts,
   persistKeyConfirmedSourceFactsToPolicies,
+  normalizeKeyCoverageBaselineFacts,
+  mergeKeyCoverageBaselineFacts,
+  persistKeyCoverageBaselineFactsToPolicies,
   normalizeKeyClaimCaseUpdates,
   mergeKeyActiveClaimCases,
   persistKeyActiveClaimCases,
@@ -110,6 +113,67 @@ export const RECORD_CONFIRMED_SOURCE_FACTS_TOOL = Object.freeze({
 /**
  * Same Claude-first call — internal claim-case card updates (not customer text).
  */
+/**
+ * Same Claude-first call — internal 7-item coverage baseline analysis (not customer text).
+ * KEY validates before storage; never self-verify.
+ */
+export const RECORD_COVERAGE_BASELINE_FACTS_TOOL = Object.freeze({
+  name: "record_coverage_baseline_facts",
+  description:
+    "원본 첨부 문서의 담보를 KEY 7개 기준선 항목으로 분석해 내부 보관한다. 고객 답변이 아니다. 추측·시장수치·업계기준금액 금지. 확인되지 않은 필드는 생략하거나 unresolved_reason만 남긴다. status는 KEY가 검증하므로 넣지 않는다.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      coverage_baseline_facts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            source_document_id: { type: "string" },
+            source_locator: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                page: {},
+                section: { type: "string" },
+                line: { type: "string" },
+                table_row: { type: "string" },
+                source_text: { type: "string" },
+                x: {},
+                y: {},
+              },
+            },
+            original_coverage_name: { type: "string" },
+            baseline_item_id: {
+              type: "string",
+              description:
+                "cancer_diagnosis|cerebrovascular_diagnosis|ischemic_heart_diagnosis|caregiving|hospital_daily|surgery|major_treatment|null",
+            },
+            major_treatment_region: {
+              type: "string",
+              description: "cancer|brain_heart|null — major_treatment만. 동시 지정 금지.",
+            },
+            structured_axis_id: { type: "string" },
+            coverage_amount: {},
+            payment_unit: { type: "string" },
+            payment_frequency: { type: "string" },
+            maximum_payment_days: {},
+            coverage_period: { type: "string" },
+            renewal: {},
+            reduction_condition: { type: "string" },
+            confidence: {},
+            unresolved_reason: { type: "string" },
+          },
+          required: ["original_coverage_name"],
+        },
+      },
+    },
+    required: ["coverage_baseline_facts"],
+  },
+});
+
 export const RECORD_CLAIM_CASE_UPDATES_TOOL = Object.freeze({
   name: "record_claim_case_updates",
   description:
@@ -199,7 +263,10 @@ function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
     "접수·예고 문장으로 답하지 않는다. '기록하고 분석하겠습니다', '먼저 확인하겠습니다', '분석해 드릴게요'처럼 나중에 하겠다는 말은 금지한다.",
     "원본에서 보이는 보험회사명·상품명·보험료·계약일·담보·보장금액·갱신 여부를 지금 바로 말한다. 안 보이면 확인되지 않음으로 말한다.",
     "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 보관한다. 이 도구는 고객에게 말하지 않는다.",
-    "추측·웹검색 일반정보·고객의 '아마' 발언·추천·해석(9999세→종신, 간편가입→건강이력 등)은 기록하지 않는다.",
+    "같은 응답에서 담보별 KEY 7개 기준선 분석은 record_coverage_baseline_facts로 내부 보관한다. 고객에게 도구명·JSON·내부 필드명을 말하지 않는다.",
+    "기준선 귀속: 일반암 정액 진단비→cancer_diagnosis, 광의 뇌혈관/허혈성심장 진단비→각 진단비, 일반 질병·상해 수술→surgery, 암 수술·항암·방사선·표적·면역→major_treatment+cancer, 뇌혈관·허혈성심장 치료 명시→major_treatment+brain_heart, 유사암·모호한 로봇수술만→baseline_item_id null + unresolved_reason.",
+    "한 담보는 baseline_item_id 하나만. cancer와 brain_heart를 동시에 지정하지 않는다. 수술과 주요치료에 이중 표시하지 않는다.",
+    "추측·웹검색 일반정보·고객의 '아마' 발언·추천·해석(9999세→종신, 간편가입→건강이력 등)·업계 기준금액은 기록하지 않는다.",
     "literal_value는 원문 그대로 둔다.",
     docId ? `source_document_id 기본값: ${docId}` : "source_document_id를 알면 반드시 넣는다.",
   ].join("\n");
@@ -244,8 +311,23 @@ function extractClaimCaseUpdatesFromContent(content = [], defaults = {}) {
   return cases;
 }
 
+function extractCoverageBaselineFactsFromContent(content = [], defaults = {}) {
+  const blocks = Array.isArray(content) ? content : [];
+  let facts = [];
+  for (const block of blocks) {
+    if (block?.type !== "tool_use") continue;
+    if (block?.name !== RECORD_COVERAGE_BASELINE_FACTS_TOOL.name) continue;
+    facts = mergeKeyCoverageBaselineFacts(
+      facts,
+      normalizeKeyCoverageBaselineFacts(block?.input?.coverage_baseline_facts, defaults),
+    );
+  }
+  return facts;
+}
+
 const KEY_CARD_CLIENT_TOOL_NAMES = new Set([
   RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+  RECORD_COVERAGE_BASELINE_FACTS_TOOL.name,
   RECORD_CLAIM_CASE_UPDATES_TOOL.name,
 ]);
 
@@ -1478,6 +1560,7 @@ async function callClaudeFirstDirect({
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
   let confirmedSourceFacts = [];
+  let coverageBaselineFacts = [];
   let claimCaseUpdates = [];
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
@@ -1489,11 +1572,12 @@ async function callClaudeFirstDirect({
     updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
 
-  // Plain text + web_search + claim-case tool; optional facts tool when original attached.
+  // Plain text + web_search + claim-case tool; optional facts/baseline tools when original attached.
   const answerTools = pdfAttached
     ? [
         ANTHROPIC_WEB_SEARCH_TOOL,
         RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
+        RECORD_COVERAGE_BASELINE_FACTS_TOOL,
         RECORD_CLAIM_CASE_UPDATES_TOOL,
       ]
     : [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CLAIM_CASE_UPDATES_TOOL];
@@ -1527,6 +1611,7 @@ async function callClaudeFirstDirect({
         detail: String(errText).slice(0, 400),
         model,
         confirmed_source_facts: confirmedSourceFacts,
+        coverage_baseline_facts: coverageBaselineFacts,
         claim_case_updates: claimCaseUpdates,
         web_search_trace: {
           ...webSearchTrace,
@@ -1576,6 +1661,12 @@ async function callClaudeFirstDirect({
       confirmedSourceFacts = mergeKeyConfirmedSourceFacts(
         confirmedSourceFacts,
         extractConfirmedSourceFactsFromContent(assistantContent, factDefaults),
+      );
+    }
+    if (cardToolBlocks.some((b) => b.name === RECORD_COVERAGE_BASELINE_FACTS_TOOL.name)) {
+      coverageBaselineFacts = mergeKeyCoverageBaselineFacts(
+        coverageBaselineFacts,
+        extractCoverageBaselineFactsFromContent(assistantContent, factDefaults),
       );
     }
     if (cardToolBlocks.some((b) => b.name === RECORD_CLAIM_CASE_UPDATES_TOOL.name)) {
@@ -1668,6 +1759,7 @@ async function callClaudeFirstDirect({
     ok: Boolean(customer_answer),
     customer_answer,
     confirmed_source_facts: confirmedSourceFacts,
+    coverage_baseline_facts: coverageBaselineFacts,
     claim_case_updates: claimCaseUpdates,
     visual_blocks: [],
     decision: lastPicked.decision,
@@ -2110,7 +2202,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // As-is delivery (no polish rewrite). Seal only.
   const sealed = sealKeyCustomerText(finalText);
 
-  // Customer answer is fixed. Persist facts/claim cases only — never rewrite answer on failure.
+  // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
   let keyConfirmedPersist = { attempted: false, ok: false, stored: 0 };
   const factsToPersist = Array.isArray(claude.confirmed_source_facts)
     ? claude.confirmed_source_facts
@@ -2130,6 +2222,36 @@ export async function runClaudeFirstDirectQuestionTurn({
         error: String(err?.message ?? err).slice(0, 200),
       };
       console.error("[key_confirmed_source_facts_persist]", keyConfirmedPersist);
+    }
+  }
+
+  let keyBaselinePersist = { attempted: false, ok: false, stored: 0 };
+  const baselineFactsToPersist = Array.isArray(claude.coverage_baseline_facts)
+    ? claude.coverage_baseline_facts
+    : [];
+  if (!usedFailure && baselineFactsToPersist.length > 0 && userSupabase && customerId) {
+    try {
+      const ownedDocumentIds = [
+        ...new Set(
+          baselineFactsToPersist
+            .map((f) => (f?.source_document_id != null ? String(f.source_document_id).trim() : ""))
+            .filter(Boolean),
+        ),
+      ];
+      keyBaselinePersist = await persistKeyCoverageBaselineFactsToPolicies({
+        supabase: userSupabase,
+        customerId,
+        facts: baselineFactsToPersist,
+        ownedDocumentIds,
+      });
+    } catch (err) {
+      keyBaselinePersist = {
+        attempted: true,
+        ok: false,
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_coverage_baseline_facts_persist]", keyBaselinePersist);
     }
   }
 
@@ -2179,6 +2301,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         one_key_core: true,
         claude_first_direct: true,
         key_confirmed_source_facts: factsToPersist,
+        key_coverage_baseline_facts: baselineFactsToPersist,
         active_claim_cases: claimCasesToPersist,
       },
     },

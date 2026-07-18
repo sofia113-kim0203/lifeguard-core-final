@@ -247,9 +247,13 @@ export function mergeCoverageSummary(existingSummary, nextScalars, riderPayload 
     context,
   );
 
-  // OCR/factory merge must never wipe KEY(Claude)-confirmed source facts.
+  // OCR/factory merge must never wipe KEY(Claude)-confirmed source facts
+  // or KEY-validated coverage baseline facts.
   const preservedKeyConfirmed = Array.isArray(existing.key_confirmed_source_facts)
     ? existing.key_confirmed_source_facts
+    : undefined;
+  const preservedBaselineFacts = Array.isArray(existing.key_coverage_baseline_facts)
+    ? existing.key_coverage_baseline_facts
     : undefined;
 
   const merged = {
@@ -260,6 +264,9 @@ export function mergeCoverageSummary(existingSummary, nextScalars, riderPayload 
   };
   if (preservedKeyConfirmed) {
     merged.key_confirmed_source_facts = preservedKeyConfirmed;
+  }
+  if (preservedBaselineFacts) {
+    merged.key_coverage_baseline_facts = preservedBaselineFacts;
   }
   return merged;
 }
