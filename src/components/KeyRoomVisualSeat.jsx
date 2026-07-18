@@ -1,6 +1,6 @@
 /**
- * Local visual seat for KEY ROOM + industry baseline captures.
- * No API / Claude / second KEY.
+ * Local visual seat for KEY ROOM + industry baseline.
+ * Renders the same rails/drawer/facts/table as production UI — no fake baseline panel.
  */
 import { useMemo, useState } from "react";
 import KeyMyInsuranceRail from "./KeyMyInsuranceRail.jsx";
@@ -13,7 +13,8 @@ import {
   buildPolicyDetailForDrawer,
 } from "../lib/keyInsuranceScreenFacts.js";
 
-const MOCK_POLICIES = [
+/** Verified sample contracts for visual seat only (not industry baseline inventing). */
+const VERIFIED_SEAT_POLICIES = [
   {
     id: "v1",
     insurer_name: "KB손해보험",
@@ -45,8 +46,8 @@ const MOCK_POLICIES = [
 
 function headerToggleBtn(active) {
   return {
-    border: `1px solid ${active ? "rgba(37, 99, 235, 0.35)" : LG.border}`,
-    background: active ? "rgba(37, 99, 235, 0.08)" : LG.surface,
+    border: `1px solid ${active ? LG.accent : LG.border}`,
+    background: active ? LG.accentSoft : LG.surface,
     color: active ? LG.navy : LG.textMuted,
     borderRadius: "999px",
     padding: "10px 16px",
@@ -63,20 +64,20 @@ export default function KeyRoomVisualSeat() {
   const [widthMode, setWidthMode] = useState("desktop");
   const [detail, setDetail] = useState(null);
 
-  const baseline = useMemo(() => buildIndustryCoverageBaseline(MOCK_POLICIES), []);
+  const baseline = useMemo(() => buildIndustryCoverageBaseline(VERIFIED_SEAT_POLICIES), []);
 
   const frameWidth = widthMode === "mobile" ? 390 : widthMode === "mid" ? 900 : 1600;
   const frameHeight = widthMode === "mobile" ? 780 : 900;
   const showInsuranceInline = insuranceOpen && widthMode !== "mobile";
   const showBaselineInline = baselineOpen && widthMode === "desktop";
   const columns = showBaselineInline
-    ? "260px minmax(700px, 1fr) 290px"
+    ? "255px minmax(700px, 1fr) 285px"
     : showInsuranceInline
-      ? "260px minmax(0, 1fr)"
+      ? "255px minmax(0, 1fr)"
       : "minmax(0, 1fr)";
 
   return (
-    <div style={{ minHeight: "100vh", background: "#E8E6E1", padding: "16px", fontFamily: LG.sans }}>
+    <div style={{ minHeight: "100vh", background: LG.bg, padding: "16px", fontFamily: LG.sans }}>
       <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
         {[
           ["desktop", "데스크톱"],
@@ -98,7 +99,7 @@ export default function KeyRoomVisualSeat() {
           background: LG.bg,
           borderRadius: "18px",
           overflow: "hidden",
-          boxShadow: LG.shadowSoft,
+          border: `1px solid ${LG.border}`,
           display: "flex",
           flexDirection: "column",
         }}
@@ -114,14 +115,14 @@ export default function KeyRoomVisualSeat() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <span style={{ fontSize: "24px", color: LG.navy }}>☰</span>
+            <span style={{ fontSize: "22px", color: LG.navy }}>☰</span>
             <span style={{ fontFamily: LG.serif, fontWeight: 600, color: LG.navy, fontSize: "18px" }}>LIFEGUARD</span>
           </div>
           <div style={{ textAlign: "center" }}>
             <div
               style={{
                 fontFamily: LG.serif,
-                fontSize: "44px",
+                fontSize: "40px",
                 fontWeight: 650,
                 color: LG.navy,
                 letterSpacing: "0.04em",
@@ -147,21 +148,27 @@ export default function KeyRoomVisualSeat() {
             flex: 1,
             display: "grid",
             gridTemplateColumns: columns,
-            gap: "18px",
-            padding: "0 20px 18px",
+            gap: "14px",
+            padding: "0 16px 16px",
             minHeight: 0,
             overflow: "hidden",
           }}
         >
           {showInsuranceInline ? (
             <KeyMyInsuranceRail
-              policies={MOCK_POLICIES}
+              policies={VERIFIED_SEAT_POLICIES}
               displayName="진우"
               onSelectPolicy={(row) => {
-                const full = MOCK_POLICIES.find((p) => p.id === row.id);
+                const full = VERIFIED_SEAT_POLICIES.find((p) => p.id === row.id);
                 setDetail(buildPolicyDetailForDrawer(full || row));
               }}
-              style={{ width: "260px", maxWidth: "260px", borderRadius: "20px", boxShadow: LG.shadowSoft }}
+              style={{
+                width: "255px",
+                maxWidth: "255px",
+                borderRadius: "16px",
+                border: `1px solid ${LG.border}`,
+                background: LG.bg,
+              }}
             />
           ) : null}
 
@@ -171,8 +178,8 @@ export default function KeyRoomVisualSeat() {
               flexDirection: "column",
               minWidth: 0,
               minHeight: 0,
-              borderRadius: "20px",
-              boxShadow: LG.shadowSoft,
+              borderRadius: "16px",
+              border: `1px solid ${LG.border}`,
               background: LG.bg,
             }}
           >
@@ -180,8 +187,8 @@ export default function KeyRoomVisualSeat() {
               style={{
                 flex: 1,
                 overflowY: "auto",
-                padding: "36px 28px 20px",
-                maxWidth: "820px",
+                padding: "32px 28px 20px",
+                maxWidth: "860px",
                 width: "100%",
                 margin: "0 auto",
               }}
@@ -196,6 +203,7 @@ export default function KeyRoomVisualSeat() {
                     color: LG.navy,
                     fontSize: "16px",
                     lineHeight: 1.7,
+                    border: `1px solid ${LG.border}`,
                   }}
                 >
                   내 암 보장은 어때?
@@ -228,7 +236,7 @@ export default function KeyRoomVisualSeat() {
                       background: LG.assistantBubble,
                       borderRadius: "6px 18px 18px 18px",
                       padding: "16px 18px",
-                      boxShadow: LG.shadowSoft,
+                      border: `1px solid ${LG.border}`,
                     }}
                   >
                     확인된 계약 기준으로 암진단비 합산이 보입니다. 오른쪽 기준선은 업계 자료가 채워지기 전에는 「기준 확인
@@ -237,7 +245,7 @@ export default function KeyRoomVisualSeat() {
                 </div>
               </div>
             </div>
-            <div style={{ padding: "14px 28px 24px", maxWidth: "820px", width: "100%", margin: "0 auto" }}>
+            <div style={{ padding: "14px 28px 24px", maxWidth: "860px", width: "100%", margin: "0 auto" }}>
               <div
                 style={{
                   display: "flex",
@@ -247,8 +255,7 @@ export default function KeyRoomVisualSeat() {
                   borderRadius: "999px",
                   border: `1px solid ${LG.border}`,
                   background: LG.surface,
-                  boxShadow: LG.shadowSoft,
-                  color: LG.textSoft,
+                  color: LG.textMuted,
                   fontSize: "16px",
                 }}
               >
@@ -275,7 +282,13 @@ export default function KeyRoomVisualSeat() {
             <KeyCoverageBaselineRail
               baseline={baseline}
               onSelectItem={(item) => setDetail(buildBaselineDetailForDrawer(item))}
-              style={{ width: "290px", maxWidth: "290px", borderRadius: "20px", boxShadow: LG.shadowSoft }}
+              style={{
+                width: "285px",
+                maxWidth: "285px",
+                borderRadius: "16px",
+                border: `1px solid ${LG.border}`,
+                background: LG.bg,
+              }}
             />
           ) : null}
         </div>

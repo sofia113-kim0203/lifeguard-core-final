@@ -232,11 +232,19 @@ export const BASELINE_STATUS = {
 };
 
 export const BASELINE_STATUS_COLOR = {
-  [BASELINE_STATUS.MET]: "#2563EB",
-  [BASELINE_STATUS.SHORT]: "#D97706",
+  [BASELINE_STATUS.MET]: "#167C6A",
+  [BASELINE_STATUS.SHORT]: "#C87516",
   [BASELINE_STATUS.NEED]: "#64748B",
-  [BASELINE_STATUS.OVERLAP]: "#7C3AED",
-  [BASELINE_STATUS.TABLE_PENDING]: "#94A3B8",
+  [BASELINE_STATUS.OVERLAP]: "#7656C8",
+  [BASELINE_STATUS.TABLE_PENDING]: "#64748B",
+};
+
+export const BASELINE_STATUS_BG = {
+  [BASELINE_STATUS.MET]: "#EAF7F3",
+  [BASELINE_STATUS.SHORT]: "#FFF4E5",
+  [BASELINE_STATUS.NEED]: "#F1F5F9",
+  [BASELINE_STATUS.OVERLAP]: "#F1EDFF",
+  [BASELINE_STATUS.TABLE_PENDING]: "#F1F5F9",
 };
 
 function normalizeCoverageName(name = "") {
@@ -373,11 +381,32 @@ function formatWonAmount(value) {
   return `${Math.round(n).toLocaleString("ko-KR")}원`;
 }
 
+/** Customer-facing manwon label (e.g. 8,000만원). Falls back to 원. */
+export function formatManwonAmount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n % 10000 === 0) {
+    return `${Math.round(n / 10000).toLocaleString("ko-KR")}만원`;
+  }
+  return formatWonAmount(n);
+}
+
 function formatIndustryRange(item) {
   if (item.industry_range_low == null || item.industry_range_high == null) {
     return "기준 확인 중";
   }
-  return `${formatWonAmount(item.industry_range_low)}~${formatWonAmount(item.industry_range_high)}`;
+  return `${formatManwonAmount(item.industry_range_low)}~${formatManwonAmount(item.industry_range_high)}`;
+}
+
+/** True when industry range/limit numbers are present — only then may UI show bars. */
+export function isIndustryBaselineTableReady(item = null) {
+  if (!item || typeof item !== "object") return false;
+  return (
+    item.industry_range_low != null &&
+    item.industry_range_high != null &&
+    Number.isFinite(Number(item.industry_range_low)) &&
+    Number.isFinite(Number(item.industry_range_high))
+  );
 }
 
 /** Pure lump-sum compare — used by UI builder and unit tests. */
@@ -494,10 +523,12 @@ export function buildIndustryCoverageBaseline(policies = []) {
 
     let currentDisplay = "확인 필요";
     if (item.compareMode === "lump_sum") {
-      currentDisplay = sumAmount != null ? formatWonAmount(sumAmount) : "확인 필요";
+      currentDisplay = sumAmount != null ? formatManwonAmount(sumAmount) : "확인 필요";
     } else if (matched.length) {
       currentDisplay = item.compareMode === "daily_structured" ? "일당·일수 확인 필요" : "범위·조건 확인 필요";
     }
+
+    const tableReady = isIndustryBaselineTableReady(item);
 
     return {
       id: item.id,
@@ -515,12 +546,21 @@ export function buildIndustryCoverageBaseline(policies = []) {
       apply_conditions: item.apply_conditions,
       source: item.source,
       source_kind: item.source_kind,
+      sourceDisplay: item.source_kind === "none" ? "미확보" : item.source,
       as_of: item.as_of,
       version: item.version,
       status: decision.status,
       statusColor: BASELINE_STATUS_COLOR[decision.status] || BASELINE_STATUS_COLOR[BASELINE_STATUS.NEED],
+      statusBg: BASELINE_STATUS_BG[decision.status] || BASELINE_STATUS_BG[BASELINE_STATUS.NEED],
+      tableReady,
+      /** Progress bars only when industry numbers exist. */
+      showCompareBar: tableReady,
       reason: decision.reason,
-      includedCoverages: matched,
+      includedCoverages: matched.map((row) => ({
+        ...row,
+        coverage_amount_display:
+          row.coverage_amount != null ? formatManwonAmount(row.coverage_amount) : null,
+      })),
       unclearParts: matched.filter((r) => !r.has_amount).map((r) => r.coverage_name),
     };
   });

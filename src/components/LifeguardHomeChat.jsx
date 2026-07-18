@@ -1442,9 +1442,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   };
 
   const roomGridColumns = showMirrorInline
-    ? "260px minmax(700px, 1fr) 290px"
+    ? "255px minmax(700px, 1fr) 285px"
     : showInsuranceInline
-      ? "260px minmax(0, 1fr)"
+      ? "255px minmax(0, 1fr)"
       : "minmax(0, 1fr)";
 
   const openPolicyDetail = (row) => {
@@ -1503,7 +1503,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               displayName={displayName}
               onClose={() => setInsuranceRailOpen(false)}
               onSelectPolicy={openPolicyDetail}
-              style={{ height: "100%", maxWidth: "none", width: "260px" }}
+              style={{ height: "100%", maxWidth: "none", width: "255px" }}
             />
           </div>
         </>
@@ -1536,7 +1536,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               baseline={coverageBaseline}
               onClose={() => setMirrorRailOpen(false)}
               onSelectItem={openBaselineDetail}
-              style={{ height: "100%", maxWidth: "none", width: "290px" }}
+              style={{ height: "100%", maxWidth: "none", width: "285px" }}
             />
           </div>
         </>
@@ -1659,8 +1659,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               displayName={displayName}
               onSelectPolicy={openPolicyDetail}
               style={{
-                width: "260px",
-                maxWidth: "260px",
+                width: "255px",
+                maxWidth: "255px",
                 borderRadius: "20px",
                 background: LG.bg,
                 boxShadow: LG.shadowSoft,
@@ -2173,8 +2173,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               onClose={() => setMirrorRailOpen(false)}
               onSelectItem={openBaselineDetail}
               style={{
-                width: "290px",
-                maxWidth: "290px",
+                width: "285px",
+                maxWidth: "285px",
                 borderRadius: "20px",
                 background: LG.bg,
                 boxShadow: LG.shadowSoft,

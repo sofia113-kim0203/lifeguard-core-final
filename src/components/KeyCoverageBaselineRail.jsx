@@ -5,19 +5,19 @@
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import { BASELINE_STATUS } from "../lib/keyInsuranceScreenFacts.js";
 
-function CountChip({ label, value, color }) {
+function CountChip({ label, value, color, bg }) {
   return (
     <div
       style={{
         flex: "1 1 46%",
-        minWidth: "110px",
+        minWidth: "108px",
         borderRadius: "12px",
-        background: LG.surface,
-        boxShadow: LG.shadow,
+        background: bg,
+        border: `1px solid ${LG.border}`,
         padding: "8px 10px",
       }}
     >
-      <div style={{ fontSize: "11px", color: LG.textSoft, marginBottom: "2px" }}>{label}</div>
+      <div style={{ fontSize: "11px", color: LG.textMuted, marginBottom: "2px" }}>{label}</div>
       <div style={{ fontSize: "18px", fontWeight: 750, color }}>{value}</div>
     </div>
   );
@@ -42,8 +42,8 @@ export default function KeyCoverageBaselineRail({
     <aside
       aria-label="KEY 업계누적 보장 기준선"
       style={{
-        width: "290px",
-        maxWidth: "290px",
+        width: "285px",
+        maxWidth: "285px",
         flexShrink: 0,
         background: LG.bg,
         display: "flex",
@@ -74,7 +74,7 @@ export default function KeyCoverageBaselineRail({
           >
             KEY 업계누적 보장 기준선
           </div>
-          <div style={{ marginTop: "4px", fontSize: "11px", color: LG.textSoft }}>
+          <div style={{ marginTop: "4px", fontSize: "12px", color: LG.textMuted }}>
             읽기 전용 · 답변을 바꾸지 않습니다
           </div>
         </div>
@@ -86,7 +86,7 @@ export default function KeyCoverageBaselineRail({
             style={{
               border: "none",
               background: "transparent",
-              color: LG.textSoft,
+              color: LG.textMuted,
               cursor: "pointer",
               fontSize: "18px",
               lineHeight: 1,
@@ -107,10 +107,10 @@ export default function KeyCoverageBaselineRail({
           flexShrink: 0,
         }}
       >
-        <CountChip label="충족" value={counts.met} color="#2563EB" />
-        <CountChip label="미달" value={counts.short} color="#D97706" />
-        <CountChip label="확인 필요" value={counts.need} color="#64748B" />
-        <CountChip label="중복 점검" value={counts.overlap} color="#7C3AED" />
+        <CountChip label="충족" value={counts.met} color={LG.verified} bg={LG.verifiedBg} />
+        <CountChip label="미달" value={counts.short} color={LG.needs} bg={LG.needsBg} />
+        <CountChip label="확인 필요" value={counts.need} color={LG.needCheck} bg={LG.needCheckBg} />
+        <CountChip label="중복 점검" value={counts.overlap} color={LG.overlap} bg={LG.overlapBg} />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 16px" }}>
@@ -122,11 +122,10 @@ export default function KeyCoverageBaselineRail({
             style={{
               width: "100%",
               textAlign: "left",
-              border: "none",
+              border: `1px solid ${LG.border}`,
               cursor: "pointer",
               background: LG.surface,
               borderRadius: "14px",
-              boxShadow: LG.shadow,
               padding: "12px 12px",
               marginBottom: "8px",
               fontFamily: LG.sans,
@@ -137,17 +136,19 @@ export default function KeyCoverageBaselineRail({
                 display: "flex",
                 justifyContent: "space-between",
                 gap: "8px",
-                alignItems: "center",
-                marginBottom: "6px",
+                alignItems: "flex-start",
+                marginBottom: "8px",
               }}
             >
-              <div style={{ fontSize: "13px", fontWeight: 700, color: LG.navy }}>{item.shortLabel}</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: LG.navy, lineHeight: 1.35 }}>
+                {item.label || item.shortLabel}
+              </div>
               <span
                 style={{
                   fontSize: "11px",
                   fontWeight: 700,
                   color: item.statusColor,
-                  background: `${item.statusColor}18`,
+                  background: item.statusBg || LG.needCheckBg,
                   borderRadius: "999px",
                   padding: "3px 8px",
                   flexShrink: 0,
@@ -156,17 +157,20 @@ export default function KeyCoverageBaselineRail({
                 {item.status}
               </span>
             </div>
-            <div style={{ fontSize: "12px", color: LG.textMuted, lineHeight: 1.45 }}>
-              {item.compareMode === "lump_sum"
-                ? `${item.currentDisplay} / ${item.industryRangeDisplay}`
-                : item.compareMode === "daily_structured"
-                  ? `${item.currentDisplay}`
-                  : `${item.currentDisplay}`}
+            <div style={{ fontSize: "13px", color: LG.text, lineHeight: 1.45, marginBottom: "4px" }}>
+              <span style={{ color: LG.textMuted }}>현재 </span>
+              <strong style={{ fontWeight: 700, color: LG.navy }}>{item.currentDisplay}</strong>
             </div>
+            <div style={{ fontSize: "12px", color: LG.textMuted, lineHeight: 1.45 }}>
+              {item.showCompareBar ? `업계 구간 ${item.industryRangeDisplay}` : "업계 기준 확인 중"}
+            </div>
+            {/* No progress / shortfall math while industry table is null. */}
+            {item.showCompareBar ? null : null}
           </button>
         ))}
-        <p style={{ margin: "8px 4px 0", fontSize: "11px", color: LG.textSoft, lineHeight: 1.5 }}>
-          기준자료가 없는 항목은 「{BASELINE_STATUS.TABLE_PENDING}」입니다. 미확인을 미달·0원으로 보지 않습니다.
+        <p style={{ margin: "8px 4px 0", fontSize: "11px", color: LG.textMuted, lineHeight: 1.5 }}>
+          기준자료가 없는 항목은 「{BASELINE_STATUS.TABLE_PENDING}」입니다. 미확인을 미달·0원으로 보지
+          않습니다.
         </p>
       </div>
     </aside>

@@ -22,7 +22,7 @@ function StatusTag({ confirmed }) {
         padding: "5px 10px",
         borderRadius: "999px",
         color: confirmed ? LG.verified : LG.needs,
-        background: confirmed ? "rgba(37, 99, 235, 0.10)" : "rgba(217, 119, 6, 0.12)",
+        background: confirmed ? LG.verifiedBg : LG.needsBg,
         lineHeight: 1.2,
       }}
     >
@@ -49,8 +49,8 @@ export default function KeyMyInsuranceRail({
     <aside
       aria-label="나의 보험 현황"
       style={{
-        width: "260px",
-        maxWidth: "260px",
+        width: "255px",
+        maxWidth: "255px",
         flexShrink: 0,
         background: LG.bg,
         display: "flex",
@@ -87,14 +87,15 @@ export default function KeyMyInsuranceRail({
                 width: "28px",
                 height: "28px",
                 borderRadius: "9px",
-                background: "rgba(37, 99, 235, 0.12)",
-                color: LG.verified,
+                background: LG.accentSoft,
+                color: LG.accent,
                 display: "grid",
                 placeItems: "center",
-                fontSize: "14px",
+                fontSize: "13px",
+                fontWeight: 750,
               }}
             >
-              {"\uD83D\uDEE1"}
+              保
             </span>
             나의 보험 현황
           </div>
@@ -143,7 +144,7 @@ export default function KeyMyInsuranceRail({
             marginBottom: "14px",
             borderRadius: "16px",
             background: LG.surface,
-            boxShadow: LG.shadowSoft,
+            border: `1px solid ${LG.border}`,
           }}
         >
           <div
@@ -202,7 +203,7 @@ export default function KeyMyInsuranceRail({
                 padding: "16px 14px",
                 background: LG.surface,
                 marginBottom: "12px",
-                boxShadow: LG.shadowSoft,
+                border: `1px solid ${LG.border}`,
                 minHeight: "88px",
                 cursor: clickable ? "pointer" : "default",
               }}
@@ -260,7 +261,7 @@ export default function KeyMyInsuranceRail({
             padding: "18px 16px 16px",
             borderRadius: "18px",
             background: LG.summaryBg,
-            boxShadow: LG.shadow,
+            border: `1px solid ${LG.border}`,
           }}
         >
           <div
@@ -277,8 +278,8 @@ export default function KeyMyInsuranceRail({
                 width: "32px",
                 height: "32px",
                 borderRadius: "999px",
-                background: "rgba(37, 99, 235, 0.14)",
-                color: LG.verified,
+                background: LG.accentSoft,
+                color: LG.accent,
                 display: "grid",
                 placeItems: "center",
                 fontSize: "15px",

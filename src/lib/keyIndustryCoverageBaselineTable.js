@@ -52,7 +52,7 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
   {
     id: "cerebrovascular_diagnosis",
     label: "뇌혈관질환 진단비",
-    shortLabel: "뇌혈관 진단비",
+    shortLabel: "뇌혈관질환 진단비",
     definition:
       "뇌혈관질환 범위가 확인된 진단비. 뇌출혈·뇌졸중 등 좁은 담보만 확인된 경우 이 기준선에 합산하지 않는다.",
     unit: "원",
@@ -69,7 +69,7 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
   {
     id: "ischemic_heart_diagnosis",
     label: "허혈성심장질환 진단비",
-    shortLabel: "허혈성심장",
+    shortLabel: "허혈성심장질환 진단비",
     definition:
       "허혈성심장질환 범위가 확인된 진단비. 급성심근경색 등 좁은 담보만 확인된 경우 합산하지 않는다.",
     unit: "원",

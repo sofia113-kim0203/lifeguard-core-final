@@ -10,6 +10,7 @@ import {
   classifyCoverageToBaselineItem,
   collectVerifiedCoverageRows,
   evaluateLumpSumBaselineStatus,
+  formatManwonAmount,
   isRetiredPolicyRow,
   sumConfirmedMonthlyPremium,
 } from "../src/lib/keyInsuranceScreenFacts.js";
@@ -169,6 +170,39 @@ const withRanges = buildIndustryCoverageBaseline([
   },
 ]);
 assert.equal(withRanges.items.find((i) => i.id === "cancer_diagnosis").currentAmount, 50000000);
+assert.equal(formatManwonAmount(80000000), "8,000만원");
+assert.equal(formatManwonAmount(50000000), "5,000만원");
+
+const seatLike = buildIndustryCoverageBaseline([
+  {
+    id: "v1",
+    insurer_name: "KB손해보험",
+    coverage_summary: {
+      rider_details: [
+        { rider_name: "암진단비", coverage_amount: 50000000 },
+        { rider_name: "뇌출혈 진단비", coverage_amount: 10000000 },
+      ],
+    },
+  },
+  {
+    id: "v2",
+    insurer_name: "한화생명",
+    coverage_summary: {
+      rider_details: [{ rider_name: "암진단비", coverage_amount: 30000000 }],
+    },
+  },
+]);
+const seatCancer = seatLike.items.find((i) => i.id === "cancer_diagnosis");
+assert.equal(seatCancer.currentDisplay, "8,000만원");
+assert.equal(seatCancer.status, BASELINE_STATUS.TABLE_PENDING);
+assert.equal(seatCancer.showCompareBar, false, "null 기준표에서는 진행률 막대 비활성");
+assert.equal(seatCancer.sourceDisplay, "미확보");
+assert.equal(
+  seatLike.items.find((i) => i.id === "cerebrovascular_diagnosis").includedCoverages.length,
+  0,
+  "뇌출혈 미합산",
+);
+assert.ok(seatLike.items.every((i) => i.status === BASELINE_STATUS.TABLE_PENDING));
 
 // Restaurant turn must not be intercepted by baseline (mirror empty; baseline still builds).
 const restaurantMirror = buildKeyTurnMirror({
