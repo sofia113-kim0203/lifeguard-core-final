@@ -8,6 +8,7 @@ import {
   KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS,
   KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
   KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
+  KEY_INDUSTRY_COMPARISON_BASELINE_TITLE,
   BASELINE_STRUCTURED_AXES,
   MAJOR_TREATMENT_REGIONS,
 } from "./keyIndustryCoverageBaselineTable.js";
@@ -673,18 +674,18 @@ function decideBaselineStatus({ item, matchedRows, sumAmount, compareMode }) {
   if (status === BASELINE_STATUS.SHORT) {
     return {
       status,
-      reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 업계 일반 구간 하단(${formatWonAmount(low)}) 미만입니다.`,
+      reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 비교 구간 하단(${formatWonAmount(low)}) 미만입니다. 부족 가능성.`,
     };
   }
   if (status === BASELINE_STATUS.OVERLAP) {
     return {
       status,
-      reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 업계 일반 구간 상단(${formatWonAmount(high)})을 초과해 중복 점검이 필요합니다.`,
+      reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 비교 구간 상단(${formatWonAmount(high)})을 초과합니다. 중복·보험료 점검(해지 권유 아님).`,
     };
   }
   return {
     status: BASELINE_STATUS.MET,
-    reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 업계 일반 구간 안에 있습니다.`,
+    reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 비교 구간(${formatWonAmount(low)}~${formatWonAmount(high)}) 안입니다. 적정 구간.`,
   };
 }
 /**
@@ -755,6 +756,7 @@ export function buildIndustryCoverageBaseline(policies = []) {
       currentDisplay,
       industryRangeDisplay: formatIndustryRange(item),
       industry_range_low: item.industry_range_low,
+      industry_representative: item.industry_representative ?? null,
       industry_range_high: item.industry_range_high,
       industry_cumulative_limit: item.industry_cumulative_limit,
       apply_conditions: item.apply_conditions,
@@ -795,7 +797,7 @@ export function buildIndustryCoverageBaseline(policies = []) {
   }
 
   return {
-    title: "KEY 업계누적 보장 기준선",
+    title: KEY_INDUSTRY_COMPARISON_BASELINE_TITLE,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     counts,

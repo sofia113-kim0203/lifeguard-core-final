@@ -156,7 +156,10 @@ const baselineEmptyTable = buildIndustryCoverageBaseline([
 const brainItem = baselineEmptyTable.items.find((i) => i.id === "cerebrovascular_diagnosis");
 assert.ok(brainItem);
 assert.equal(brainItem.includedCoverages.length, 0, "좁은 뇌출혈을 뇌혈관 합산에 넣지 않음");
-assert.equal(brainItem.status, BASELINE_STATUS.TABLE_PENDING, "기준자료 부재 → 기준 확인 중");
+assert.equal(brainItem.status, BASELINE_STATUS.NEED, "금액 미확인 → 현재 미확인(확인 필요)");
+assert.equal(brainItem.industry_range_low, 10000000);
+assert.equal(brainItem.industry_representative, 20000000);
+assert.equal(brainItem.industry_range_high, 30000000);
 
 const unclearBaseline = buildIndustryCoverageBaseline([
   {
@@ -168,10 +171,10 @@ const unclearBaseline = buildIndustryCoverageBaseline([
     },
   },
 ]);
-// Table pending wins when industry ranges are null (current v1 table).
+// Comparison baseline present; null current amount → 확인 필요 (현재 미확인).
 assert.equal(
   unclearBaseline.items.find((i) => i.id === "cancer_diagnosis").status,
-  BASELINE_STATUS.TABLE_PENDING,
+  BASELINE_STATUS.NEED,
 );
 
 // Inject temporary ranges only inside this test object to validate amount rules.
@@ -210,15 +213,23 @@ const seatLike = buildIndustryCoverageBaseline([
 ]);
 const seatCancer = seatLike.items.find((i) => i.id === "cancer_diagnosis");
 assert.equal(seatCancer.currentDisplay, "8,000만원");
-assert.equal(seatCancer.status, BASELINE_STATUS.TABLE_PENDING);
-assert.equal(seatCancer.showCompareBar, false, "null 기준표에서는 진행률 막대 비활성");
-assert.equal(seatCancer.sourceDisplay, "미확보");
+assert.equal(seatCancer.status, BASELINE_STATUS.OVERLAP, "8000만 > high 7000만 → 중복·보험료 점검");
+assert.equal(seatCancer.showCompareBar, true, "금액형 비교 기준선 있으면 그래프 활성");
+assert.equal(seatCancer.industry_representative, 50000000);
+assert.match(String(seatCancer.sourceDisplay), /비교 기준선/);
 assert.equal(
   seatLike.items.find((i) => i.id === "cerebrovascular_diagnosis").includedCoverages.length,
   0,
   "뇌출혈 미합산",
 );
-assert.ok(seatLike.items.every((i) => i.status === BASELINE_STATUS.TABLE_PENDING));
+assert.ok(
+  seatLike.items
+    .filter((i) =>
+      ["caregiving", "hospital_daily", "surgery", "major_treatment"].includes(i.id),
+    )
+    .every((i) => i.status === BASELINE_STATUS.TABLE_PENDING && i.industry_range_low == null),
+  "구조형 4개는 금액 기준선 null · 기준 확인 중",
+);
 
 // Restaurant turn must not be intercepted by baseline (mirror empty; baseline still builds).
 const restaurantMirror = buildKeyTurnMirror({
@@ -235,11 +246,37 @@ assert.equal(evaluateLumpSumBaselineStatus(50000000, 30000000, 100000000), BASEL
 assert.equal(evaluateLumpSumBaselineStatus(150000000, 30000000, 100000000), BASELINE_STATUS.OVERLAP);
 assert.equal(evaluateLumpSumBaselineStatus(50000000, null, null), BASELINE_STATUS.TABLE_PENDING);
 
-// v1 honesty: no invented industry amounts in the product table.
+// v1 comparison: amount cards have low/representative/high; structured stay null.
+const amountIds = new Set([
+  "cancer_diagnosis",
+  "cerebrovascular_diagnosis",
+  "ischemic_heart_diagnosis",
+]);
 for (const item of KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS) {
-  assert.equal(item.industry_range_low, null);
-  assert.equal(item.industry_range_high, null);
-  assert.equal(item.source_kind, "none");
+  if (amountIds.has(item.id)) {
+    assert.equal(typeof item.industry_range_low, "number");
+    assert.equal(typeof item.industry_representative, "number");
+    assert.equal(typeof item.industry_range_high, "number");
+    assert.equal(item.source_kind, "key_comparison_v1");
+  } else {
+    assert.equal(item.industry_range_low, null);
+    assert.equal(item.industry_representative, null);
+    assert.equal(item.industry_range_high, null);
+    assert.equal(item.source_kind, "none");
+  }
 }
+assert.equal(
+  KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.find((i) => i.id === "cancer_diagnosis").industry_range_low,
+  30000000,
+);
+assert.equal(
+  KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.find((i) => i.id === "cancer_diagnosis")
+    .industry_representative,
+  50000000,
+);
+assert.equal(
+  KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.find((i) => i.id === "cancer_diagnosis").industry_range_high,
+  70000000,
+);
 
 console.log("PASS key-insurance-screen-facts-unit-test");

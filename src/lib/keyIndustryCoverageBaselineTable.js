@@ -1,15 +1,15 @@
 /**
- * KEY 업계누적 보장 기준선 — versioned industry reference table (product data).
+ * KEY 업계 비교 기준선 — versioned industry comparison table (product data).
  *
- * Honesty rule: do not invent industry amounts. Until a cited source is
- * authorized and dated, range/limit stay null → UI status "기준 확인 중".
+ * Amount cards (3): approved comparison low / representative / high.
+ * Structured cards (4): amounts stay null — axis 확인됨/미확인 only.
  *
- * Open product-disclosure channels (e.g. 생보협회 공시실 / 보험다모아) are
- * NOT treated as cumulative underwriting limits.
+ * These ranges are comparison bands, not proven cumulative underwriting limits.
  */
 
-export const KEY_INDUSTRY_COVERAGE_BASELINE_VERSION = "v1.0.0-empty-sources";
+export const KEY_INDUSTRY_COVERAGE_BASELINE_VERSION = "v1.0.0-comparison";
 export const KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF = "2026-07-18";
+export const KEY_INDUSTRY_COMPARISON_BASELINE_TITLE = "KEY 업계 비교 기준선";
 
 /** @typedef {"cancer_diagnosis"|"cerebrovascular_diagnosis"|"ischemic_heart_diagnosis"|"caregiving"|"hospital_daily"|"surgery"|"major_treatment"} BaselineItemId */
 
@@ -116,11 +116,12 @@ export const MAJOR_TREATMENT_REGIONS = Object.freeze([
  *   unit: string,
  *   compareMode: "lump_sum"|"daily_structured"|"surgery_structured"|"treatment_structured",
  *   industry_range_low: number|null,
+ *   industry_representative: number|null,
  *   industry_range_high: number|null,
  *   industry_cumulative_limit: number|null,
  *   apply_conditions: string,
  *   source: string,
- *   source_kind: "none"|"insurer_uw"|"association_disclosure"|"product_summary",
+ *   source_kind: "none"|"insurer_uw"|"association_disclosure"|"product_summary"|"key_comparison_v1",
  *   as_of: string,
  *   version: string,
  * }>}
@@ -134,12 +135,13 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
       "일반암 진단 시 지급되는 진단비. 유사암·소액암·경계성종양은 별도 항목으로 다루며 일반암 합산에 넣지 않는다.",
     unit: "원",
     compareMode: "lump_sum",
-    industry_range_low: null,
-    industry_range_high: null,
+    industry_range_low: 30000000,
+    industry_representative: 50000000,
+    industry_range_high: 70000000,
     industry_cumulative_limit: null,
-    apply_conditions: "일반암 기준. 유사암·소액암 제외.",
-    source: "권한 있는 누적 인수기준 미확보 — 공개 상품공시 가입금액을 누적 한도로 사용하지 않음",
-    source_kind: "none",
+    apply_conditions: "일반암 기준. 유사암·소액암·경계성·제자리암·상피내암 제외.",
+    source: "KEY 업계 비교 기준선 v1 — 비교 구간(누적 인수한도 단정 아님)",
+    source_kind: "key_comparison_v1",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
   },
@@ -151,12 +153,13 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
       "뇌혈관질환 범위가 확인된 진단비. 뇌출혈·뇌졸중 등 좁은 담보만 확인된 경우 이 기준선에 합산하지 않는다.",
     unit: "원",
     compareMode: "lump_sum",
-    industry_range_low: null,
-    industry_range_high: null,
+    industry_range_low: 10000000,
+    industry_representative: 20000000,
+    industry_range_high: 30000000,
     industry_cumulative_limit: null,
-    apply_conditions: "담보명/약관상 뇌혈관질환(광의) 확인 시에만 합산.",
-    source: "권한 있는 누적 인수기준 미확보",
-    source_kind: "none",
+    apply_conditions: "광의 뇌혈관질환 진단비만 합산. 뇌출혈·뇌경색·뇌졸중 단독 제외.",
+    source: "KEY 업계 비교 기준선 v1 — 비교 구간(누적 인수한도 단정 아님)",
+    source_kind: "key_comparison_v1",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
   },
@@ -168,12 +171,13 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
       "허혈성심장질환 범위가 확인된 진단비. 급성심근경색 등 좁은 담보만 확인된 경우 합산하지 않는다.",
     unit: "원",
     compareMode: "lump_sum",
-    industry_range_low: null,
-    industry_range_high: null,
+    industry_range_low: 10000000,
+    industry_representative: 20000000,
+    industry_range_high: 30000000,
     industry_cumulative_limit: null,
-    apply_conditions: "담보명/약관상 허혈성심장질환(광의) 확인 시에만 합산.",
-    source: "권한 있는 누적 인수기준 미확보",
-    source_kind: "none",
+    apply_conditions: "허혈성심장질환 진단비만 합산. 급성심근경색 단독 제외.",
+    source: "KEY 업계 비교 기준선 v1 — 비교 구간(누적 인수한도 단정 아님)",
+    source_kind: "key_comparison_v1",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
   },
@@ -186,10 +190,11 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
     unit: "구조화",
     compareMode: "daily_structured",
     industry_range_low: null,
+    industry_representative: null,
     industry_range_high: null,
     industry_cumulative_limit: null,
     apply_conditions: "일당·일수·조건이 verified된 경우에만 비교. 금액만 있으면 확인 필요.",
-    source: "권한 있는 누적 인수기준 미확보",
+    source: "구조형 — 금액 기준선 미적용",
     source_kind: "none",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
@@ -202,10 +207,11 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
     unit: "구조화",
     compareMode: "daily_structured",
     industry_range_low: null,
+    industry_representative: null,
     industry_range_high: null,
     industry_cumulative_limit: null,
     apply_conditions: "일당·일수·면책·질병/상해 구분이 불명확하면 확인 필요.",
-    source: "권한 있는 누적 인수기준 미확보",
+    source: "구조형 — 금액 기준선 미적용",
     source_kind: "none",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
@@ -219,10 +225,11 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
     unit: "구조화",
     compareMode: "surgery_structured",
     industry_range_low: null,
+    industry_representative: null,
     industry_range_high: null,
     industry_cumulative_limit: null,
     apply_conditions: "수술 종류·회당 한도가 불명확하면 확인 필요. 전 수술 금액 단순합산 금지.",
-    source: "권한 있는 누적 인수기준 미확보",
+    source: "구조형 — 금액 기준선 미적용",
     source_kind: "none",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
@@ -236,10 +243,11 @@ export const KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS = [
     unit: "구조화",
     compareMode: "treatment_structured",
     industry_range_low: null,
+    industry_representative: null,
     industry_range_high: null,
     industry_cumulative_limit: null,
     apply_conditions: "치료 범위·연한도가 확인되지 않으면 확인 필요. A/B 합산 금지.",
-    source: "권한 있는 누적 인수기준 미확보",
+    source: "구조형 — 금액 기준선 미적용",
     source_kind: "none",
     as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
     version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,

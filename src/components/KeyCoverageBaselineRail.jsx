@@ -26,9 +26,9 @@ const ROW_ICONS = {
 };
 
 const VIEW_STATUS = {
-  SHORT: "부족",
-  MET: "적정",
-  OVERLAP: "초과",
+  SHORT: "부족 가능성",
+  MET: "적정 구간",
+  OVERLAP: "중복·보험료 점검",
   CURRENT_UNKNOWN: "현재 미확인",
   TABLE_PENDING: "기준 확인 중",
 };
@@ -103,8 +103,9 @@ function mapAmountViewStatus(item, currentAmount) {
   if (status === BASELINE_STATUS.SHORT) return VIEW_STATUS.SHORT;
   if (status === BASELINE_STATUS.MET) return VIEW_STATUS.MET;
   if (status === BASELINE_STATUS.OVERLAP) return VIEW_STATUS.OVERLAP;
-  if (currentAmount != null) return VIEW_STATUS.TABLE_PENDING;
-  return VIEW_STATUS.CURRENT_UNKNOWN;
+  if (status === BASELINE_STATUS.TABLE_PENDING) return VIEW_STATUS.TABLE_PENDING;
+  if (currentAmount == null) return VIEW_STATUS.CURRENT_UNKNOWN;
+  return VIEW_STATUS.TABLE_PENDING;
 }
 
 function formatCompactAmount(value) {
@@ -114,10 +115,11 @@ function formatCompactAmount(value) {
 function BaselineCompareGraph({
   currentAmount = null,
   baselineAmount = null,
+  rangeHigh = null,
   accent = LG.needCheck,
   muted = false,
 }) {
-  const max = Math.max(currentAmount || 0, baselineAmount || 0, 1);
+  const max = Math.max(currentAmount || 0, baselineAmount || 0, rangeHigh || 0, 1);
   const currentPct =
     currentAmount != null ? Math.max(2, Math.min(100, (currentAmount / max) * 100)) : null;
   const baselinePct =
@@ -187,7 +189,7 @@ function BaselineCompareGraph({
         }}
       >
         <span>0</span>
-        <span>{baselineAmount != null ? "기준" : currentAmount != null ? "현재" : ""}</span>
+        <span>{baselineAmount != null ? "대표" : currentAmount != null ? "현재" : ""}</span>
       </div>
     </div>
   );
@@ -285,16 +287,33 @@ function AmountCardBody({ item }) {
     item?.currentAmount != null && Number.isFinite(Number(item.currentAmount))
       ? Number(item.currentAmount)
       : null;
+  const representative =
+    item?.industry_representative != null &&
+    Number.isFinite(Number(item.industry_representative))
+      ? Number(item.industry_representative)
+      : null;
+  const rangeHigh =
+    item?.industry_range_high != null && Number.isFinite(Number(item.industry_range_high))
+      ? Number(item.industry_range_high)
+      : null;
+  const tableReady = item?.tableReady === true || item?.showCompareBar === true;
   const viewStatus = mapAmountViewStatus(item, currentAmount);
   const badgeColor = VIEW_STATUS_COLOR[viewStatus];
   const badgeBg = VIEW_STATUS_BG[viewStatus];
   const currentLabel =
     currentAmount != null ? formatCompactAmount(currentAmount) : "미확인";
-  const baselineLabel = "기준 확인 중";
-  const footnote =
-    currentAmount != null
+  const baselineLabel = tableReady
+    ? formatCompactAmount(representative) || item?.industryRangeDisplay || "—"
+    : "기준 확인 중";
+  const footnote = !tableReady
+    ? currentAmount != null
       ? "기준 확인 중 · 업계 구간 자료 등록 후 비교"
-      : "현재 미확인 / 자료 등록 후 비교 가능";
+      : "현재 미확인 / 자료 등록 후 비교 가능"
+    : currentAmount == null
+      ? "현재 미확인 · 해지 권유 아님"
+      : viewStatus === VIEW_STATUS.OVERLAP
+        ? "중복·보험료 점검 · 해지 권유 아님"
+        : `${item?.industryRangeDisplay || "비교 구간"} · 해지 권유 아님`;
 
   return (
     <>
@@ -363,9 +382,10 @@ function AmountCardBody({ item }) {
       <div style={{ paddingLeft: "24px" }}>
         <BaselineCompareGraph
           currentAmount={currentAmount}
-          baselineAmount={null}
+          baselineAmount={tableReady ? representative : null}
+          rangeHigh={tableReady ? rangeHigh : null}
           accent={badgeColor}
-          muted
+          muted={!tableReady}
         />
       </div>
       <div
@@ -448,12 +468,12 @@ export default function KeyCoverageBaselineRail({
     (row) => row.status === BASELINE_STATUS.TABLE_PENDING || !row.showCompareBar,
   );
   const summaryLine = allPending
-    ? "7개 항목 · 업계 기준 확인 중"
-    : `7개 항목 · 적정 ${baseline?.counts?.met ?? 0} · 부족 ${baseline?.counts?.short ?? 0}`;
+    ? "7개 항목 · 업계 비교 기준 확인 중"
+    : `7개 항목 · 적정 ${baseline?.counts?.met ?? 0} · 부족 가능성 ${baseline?.counts?.short ?? 0} · 중복점검 ${baseline?.counts?.overlap ?? 0}`;
 
   return (
     <aside
-      aria-label="KEY 업계누적 보장 기준선"
+      aria-label="KEY 업계 비교 기준선"
       style={{
         width: "280px",
         maxWidth: "280px",
@@ -479,7 +499,7 @@ export default function KeyCoverageBaselineRail({
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: "13px", fontWeight: 750, color: LG.navy, lineHeight: 1.25 }}>
-            KEY 업계누적 보장 기준선
+            KEY 업계 비교 기준선
           </div>
           <div style={{ marginTop: "3px", fontSize: "10px", color: LG.textMuted }}>
             {summaryLine}
