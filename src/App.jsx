@@ -27,6 +27,9 @@ import {
 } from "./lib/appRouting.js";
 import { supabase } from "./lib/supabase.js";
 import CustomerLifeguardShell from "./components/CustomerLifeguardShell.jsx";
+import KeyRoomVisualSeat, {
+  isLocalKeyRoomVisualSeat,
+} from "./components/KeyRoomVisualSeat.jsx";
 import { LG } from "./lib/lifeguardCustomerTheme.js";
 
 const CUSTOMER_DASHBOARD_MENU = "customer";
@@ -208,6 +211,10 @@ export default function App() {
   const handleNavigate = (menuId) => {
     handleMenuSelect(menuId);
   };
+
+  if (isLocalKeyRoomVisualSeat()) {
+    return <KeyRoomVisualSeat />;
+  }
 
   if (isResetPasswordPath(appPath)) {
     return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
