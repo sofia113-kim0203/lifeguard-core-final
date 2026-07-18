@@ -55,28 +55,33 @@ export function chatSnapshotStorageKey(customerId) {
   return `lifeguard_chat_snapshot:${customerId}`;
 }
 
-export function sanitizeMessagesForChatSnapshot(messages = []) {
+function mapChatSnapshotMessage(row, { preserveThinking = false } = {}) {
+  if (!row || (row.role !== "user" && row.role !== "assistant")) return null;
+  if (!preserveThinking && row.thinking === true) return null;
+  const out = {
+    role: row.role,
+    content: String(row.content ?? ""),
+  };
+  if (row.id) out.id = row.id;
+  if (preserveThinking && row.thinking === true) out.thinking = true;
+  if (row.turnId) out.turnId = String(row.turnId);
+  if (row.keyPresence === true) {
+    out.keyPresence = true;
+    out.keyPresenceSource = row.keyPresenceSource ?? null;
+  }
+  if (Array.isArray(row.visual_blocks) && row.visual_blocks.length > 0) {
+    out.visual_blocks = row.visual_blocks;
+  }
+  if (row.visual_blocks_gate && typeof row.visual_blocks_gate === "object") {
+    out.visual_blocks_gate = row.visual_blocks_gate;
+  }
+  return out;
+}
+
+export function sanitizeMessagesForChatSnapshot(messages = [], { preserveThinking = false } = {}) {
   return (Array.isArray(messages) ? messages : [])
-    .filter((row) => row && row.thinking !== true)
-    .map((row) => {
-      const out = {
-        role: row.role,
-        content: String(row.content ?? ""),
-      };
-      if (row.id) out.id = row.id;
-      if (row.keyPresence === true) {
-        out.keyPresence = true;
-        out.keyPresenceSource = row.keyPresenceSource ?? null;
-      }
-      if (Array.isArray(row.visual_blocks) && row.visual_blocks.length > 0) {
-        out.visual_blocks = row.visual_blocks;
-      }
-      if (row.visual_blocks_gate && typeof row.visual_blocks_gate === "object") {
-        out.visual_blocks_gate = row.visual_blocks_gate;
-      }
-      return out;
-    })
-    .filter((row) => row.role === "user" || row.role === "assistant");
+    .map((row) => mapChatSnapshotMessage(row, { preserveThinking }))
+    .filter(Boolean);
 }
 
 export function readLifeguardChatSnapshot(customerId) {
@@ -88,9 +93,12 @@ export function readLifeguardChatSnapshot(customerId) {
     if (!parsed?.sessionId || !Array.isArray(parsed.messages)) return null;
     return {
       sessionId: String(parsed.sessionId),
-      messages: sanitizeMessagesForChatSnapshot(parsed.messages),
+      // Remount mid-turn may have persisted thinking/wait + partial stream.
+      messages: sanitizeMessagesForChatSnapshot(parsed.messages, { preserveThinking: true }),
       activeAttachment: normalizeActiveAttachment(parsed.activeAttachment ?? null),
       updatedAt: parsed.updatedAt ?? null,
+      turnId: parsed.turnId ? String(parsed.turnId) : null,
+      phase: parsed.phase ? String(parsed.phase) : null,
     };
   } catch {
     return null;
@@ -99,10 +107,17 @@ export function readLifeguardChatSnapshot(customerId) {
 
 export function writeLifeguardChatSnapshot(
   customerId,
-  { sessionId, messages, activeAttachment = null } = {},
+  {
+    sessionId,
+    messages,
+    activeAttachment = null,
+    preserveThinking = false,
+    turnId = null,
+    phase = null,
+  } = {},
 ) {
   if (typeof window === "undefined" || !customerId || !sessionId) return;
-  const sanitized = sanitizeMessagesForChatSnapshot(messages);
+  const sanitized = sanitizeMessagesForChatSnapshot(messages, { preserveThinking });
   if (sanitized.length === 0) return;
   try {
     const payload = {
@@ -111,10 +126,107 @@ export function writeLifeguardChatSnapshot(
       updatedAt: new Date().toISOString(),
       activeAttachment: normalizeActiveAttachment(activeAttachment),
     };
+    if (turnId) payload.turnId = String(turnId);
+    if (phase) payload.phase = String(phase);
     window.sessionStorage.setItem(chatSnapshotStorageKey(customerId), JSON.stringify(payload));
   } catch {
     // ignore quota / privacy errors
   }
+}
+
+/** Module-level in-flight HomeChat turn — survives HomeChat unmount/remount (A). */
+let inflightHomeChatTurn = null;
+const inflightHomeChatListeners = new Set();
+
+function notifyInflightHomeChatTurn() {
+  const snapshot = inflightHomeChatTurn;
+  for (const listener of inflightHomeChatListeners) {
+    try {
+      listener(snapshot);
+    } catch {
+      // listener errors must not break the turn
+    }
+  }
+}
+
+export function readInflightHomeChatTurn(customerId = null) {
+  if (!inflightHomeChatTurn) return null;
+  if (customerId && String(inflightHomeChatTurn.customerId) !== String(customerId)) return null;
+  return inflightHomeChatTurn;
+}
+
+export function subscribeInflightHomeChatTurn(listener) {
+  if (typeof listener !== "function") return () => {};
+  inflightHomeChatListeners.add(listener);
+  return () => {
+    inflightHomeChatListeners.delete(listener);
+  };
+}
+
+export function beginInflightHomeChatTurn({
+  customerId,
+  sessionId,
+  turnId,
+  messages = [],
+  activeAttachment = null,
+} = {}) {
+  if (!customerId || !sessionId || !turnId) return null;
+  inflightHomeChatTurn = {
+    customerId: String(customerId),
+    sessionId: String(sessionId),
+    turnId: String(turnId),
+    messages: Array.isArray(messages) ? messages : [],
+    activeAttachment: normalizeActiveAttachment(activeAttachment),
+    phase: "awaiting",
+    loading: true,
+    streaming: false,
+    streamedCommitted: false,
+  };
+  writeLifeguardChatSnapshot(customerId, {
+    sessionId,
+    messages: inflightHomeChatTurn.messages,
+    activeAttachment: inflightHomeChatTurn.activeAttachment,
+    preserveThinking: true,
+    turnId,
+    phase: "awaiting",
+  });
+  notifyInflightHomeChatTurn();
+  return inflightHomeChatTurn;
+}
+
+export function patchInflightHomeChatTurn(turnId, patch = {}) {
+  if (!inflightHomeChatTurn || String(inflightHomeChatTurn.turnId) !== String(turnId)) return null;
+  inflightHomeChatTurn = {
+    ...inflightHomeChatTurn,
+    ...patch,
+    turnId: inflightHomeChatTurn.turnId,
+    customerId: inflightHomeChatTurn.customerId,
+    sessionId: patch.sessionId ? String(patch.sessionId) : inflightHomeChatTurn.sessionId,
+    messages: Array.isArray(patch.messages) ? patch.messages : inflightHomeChatTurn.messages,
+  };
+  writeLifeguardChatSnapshot(inflightHomeChatTurn.customerId, {
+    sessionId: inflightHomeChatTurn.sessionId,
+    messages: inflightHomeChatTurn.messages,
+    activeAttachment: inflightHomeChatTurn.activeAttachment,
+    preserveThinking: true,
+    turnId: inflightHomeChatTurn.turnId,
+    phase: inflightHomeChatTurn.phase,
+  });
+  notifyInflightHomeChatTurn();
+  return inflightHomeChatTurn;
+}
+
+export function endInflightHomeChatTurn(turnId = null) {
+  if (!inflightHomeChatTurn) return;
+  if (turnId && String(inflightHomeChatTurn.turnId) !== String(turnId)) return;
+  inflightHomeChatTurn = null;
+  notifyInflightHomeChatTurn();
+}
+
+export function isInflightHomeChatTurnActive(customerId = null) {
+  const turn = readInflightHomeChatTurn(customerId);
+  if (!turn) return false;
+  return turn.phase === "awaiting" || turn.phase === "streaming" || turn.phase === "committing";
 }
 
 export function clearLifeguardChatSnapshot(customerId) {
@@ -403,6 +515,7 @@ function sessionMessageIdentityKey(message = {}) {
 /**
  * Merge DB-restored rows with in-memory messages — preserve visual_blocks when restore omits them
  * and append in-flight turns that are not yet visible in the restored snapshot.
+ * B: never let a later restore wipe/empty a streamed customer_answer already shown for the turn.
  */
 export function mergeRestoredSessionMessages(inMemory = [], restored = []) {
   if (!Array.isArray(restored) || restored.length === 0) {
@@ -435,7 +548,37 @@ export function mergeRestoredSessionMessages(inMemory = [], restored = []) {
 
   const restoredKeys = new Set(restored.map(sessionMessageIdentityKey));
   const trailingInMemory = inMemory.filter((row) => !restoredKeys.has(sessionMessageIdentityKey(row)));
-  return trailingInMemory.length ? [...merged, ...trailingInMemory] : merged;
+  let next = trailingInMemory.length ? [...merged, ...trailingInMemory] : merged;
+
+  // Same-turn streamed answer may differ in content from a later empty/short DB row.
+  const memLast = inMemory[inMemory.length - 1];
+  const outLast = next[next.length - 1];
+  const memText = String(memLast?.content ?? "").trim();
+  const outText = String(outLast?.content ?? "").trim();
+  if (
+    memLast?.role === "assistant" &&
+    memLast.thinking !== true &&
+    memText &&
+    (outLast?.role !== "assistant" || outText.length < memText.length || !outText)
+  ) {
+    const memUser = [...inMemory].reverse().find((row) => row?.role === "user");
+    const outUser = [...next].reverse().find((row) => row?.role === "user");
+    const sameUserTurn =
+      memUser &&
+      outUser &&
+      String(memUser.content ?? "").trim() === String(outUser.content ?? "").trim();
+    const sameTurnId =
+      memLast.turnId && outLast?.turnId && String(memLast.turnId) === String(outLast.turnId);
+    if (sameUserTurn || sameTurnId || outLast?.role !== "assistant") {
+      if (outLast?.role === "assistant") {
+        next = [...next.slice(0, -1), memLast];
+      } else {
+        next = [...next, memLast];
+      }
+    }
+  }
+
+  return next;
 }
 
 export function buildKeyPresenceMetadata(

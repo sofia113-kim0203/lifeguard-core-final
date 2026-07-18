@@ -18,6 +18,7 @@ import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export {
   activeSessionStorageKey,
+  beginInflightHomeChatTurn,
   buildAssistantTurnMetadata,
   buildKeyPresenceMetadata,
   buildPersistableTurnTraceSummary,
@@ -25,15 +26,20 @@ export {
   chatSnapshotStorageKey,
   clearLifeguardChatSnapshot,
   createLifeguardSessionId,
+  endInflightHomeChatTurn,
+  isInflightHomeChatTurnActive,
   isLifeguardHomeChatRow,
   LIFEGUARD_HOME_CHAT_PHASE,
   LIFEGUARD_HOME_CHAT_SOURCE,
   mapSessionRowsToChatMessages,
   mergeRestoredSessionMessages,
+  patchInflightHomeChatTurn,
   readActiveSessionId,
+  readInflightHomeChatTurn,
   readLifeguardChatSnapshot,
   resolveActiveLifeguardSessionId,
   sanitizeMessagesForChatSnapshot,
+  subscribeInflightHomeChatTurn,
   writeActiveSessionId,
   writeLifeguardChatSnapshot,
 } from "./lifeguardChatSessionCore.js";

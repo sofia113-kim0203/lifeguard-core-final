@@ -25,19 +25,26 @@ import {
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
+  beginInflightHomeChatTurn,
   clearLifeguardChatSnapshot,
   createLifeguardSessionId,
+  endInflightHomeChatTurn,
+  isInflightHomeChatTurnActive,
   listLifeguardRecentSessions,
   loadLifeguardSessionMessages,
   mergeRestoredSessionMessages,
+  patchInflightHomeChatTurn,
   persistKeyPresenceMessage,
   persistLifeguardChatTurn,
   readActiveSessionId,
+  readInflightHomeChatTurn,
   readLifeguardChatSnapshot,
   resolveActiveLifeguardSessionId,
+  subscribeInflightHomeChatTurn,
   writeActiveSessionId,
   writeLifeguardChatSnapshot,
 } from "../lib/lifeguardChatSessions.js";
+import { appendHomeChatStreamTrace } from "../lib/keyAnalysisCompleteSessionTransition.js";
 import { supabase } from "../lib/supabase.js";
 import { buildKeyChatPresenceMessage } from "../lib/keyChatPresenceWire.js";
 import { buildLifeguardHomeGreeting } from "../lib/lifeguardGreeting.js";
@@ -391,6 +398,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const chatScrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const restoreForceScrollRef = useRef(false);
+  const messagesRef = useRef([]);
+  const threadRestoreReadyRef = useRef(false);
+  const inflightTurnIdRef = useRef(null);
   const displayName =
     displayNameProp ??
     session?.dashboardData?.displayName ??
@@ -436,6 +446,36 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const authUserRef = useRef(authUser);
   const customerIdRef = useRef(customerId);
   const trackedAnalysisJobIdRef = useRef(session?.trackedAnalysisJobId ?? null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    threadRestoreReadyRef.current = threadRestoreReady;
+  }, [threadRestoreReady]);
+
+  useEffect(() => {
+    appendHomeChatStreamTrace("home_chat_mount");
+    const unsubscribe = subscribeInflightHomeChatTurn((turn) => {
+      const cid = customerIdRef.current;
+      if (!turn || !cid || String(turn.customerId) !== String(cid)) return;
+      if (String(turn.sessionId) !== String(sessionIdRef.current)) {
+        setSessionId(turn.sessionId);
+      }
+      setMessages(turn.messages);
+      setLoading(Boolean(turn.loading));
+      setStreaming(Boolean(turn.streaming));
+      if (turn.activeAttachment?.active_attachment_id) {
+        setActiveAttachmentId(turn.activeAttachment.active_attachment_id);
+        setActiveAttachmentMime(turn.activeAttachment.active_attachment_mime ?? null);
+      }
+    });
+    return () => {
+      appendHomeChatStreamTrace("home_chat_unmount");
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -764,8 +804,39 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   useEffect(() => {
     if (!authUser || !customerId || loadingSession) return undefined;
     let cancelled = false;
-    setThreadRestoreReady(false);
-    restoreForceScrollRef.current = true;
+
+    // A: in-flight turn — keep central chat messages; do not reboot the thread.
+    const inflight = readInflightHomeChatTurn(customerId);
+    if (inflight && isInflightHomeChatTurnActive(customerId)) {
+      setSessionId(inflight.sessionId);
+      writeActiveSessionId(customerId, inflight.sessionId);
+      setMessages(inflight.messages);
+      setLoading(Boolean(inflight.loading));
+      setStreaming(Boolean(inflight.streaming));
+      if (inflight.activeAttachment?.active_attachment_id) {
+        setActiveAttachmentId(inflight.activeAttachment.active_attachment_id);
+        setActiveAttachmentMime(inflight.activeAttachment.active_attachment_mime ?? null);
+      }
+      setPanelView("chat");
+      setThreadRestoreReady(true);
+      restoreForceScrollRef.current = true;
+      // Rails/thread index may refresh; message list stays on inflight.
+      void listLifeguardRecentSessions(authUser, { customerId })
+        .then((recent) => {
+          if (!cancelled) setThreads(recent);
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const keepVisibleThread =
+      threadRestoreReadyRef.current && Array.isArray(messagesRef.current) && messagesRef.current.length > 0;
+    if (!keepVisibleThread) {
+      setThreadRestoreReady(false);
+      restoreForceScrollRef.current = true;
+    }
 
     (async () => {
       try {
@@ -791,13 +862,29 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         let restored = [];
         if (recent.some((entry) => entry.id === activeId)) {
           restored = await loadLifeguardSessionMessages(authUser, activeId, { customerId });
+          if (restored.length > 0) {
+            appendHomeChatStreamTrace("persisted_answer_reload");
+          }
         }
 
         if (cancelled) return;
 
+        // Re-check: a turn may have started while restore was in flight.
+        if (isInflightHomeChatTurnActive(customerId)) {
+          const live = readInflightHomeChatTurn(customerId);
+          if (live) {
+            setMessages(live.messages);
+            setLoading(Boolean(live.loading));
+            setStreaming(Boolean(live.streaming));
+            setThreadRestoreReady(true);
+            return;
+          }
+        }
+
         if (restored.length > 0) {
           setMessages((prev) => {
             const base = seed.length > 0 ? seed : prev;
+            // B: merge keeps streamed customer_answer; restored may only refresh older rows.
             return mergeRestoredSessionMessages(base, restored);
           });
           const fromRestored = extractActiveAttachmentFromSessionMessages(restored);
@@ -806,21 +893,21 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           if (active) {
             setActiveAttachmentId(active.active_attachment_id);
             setActiveAttachmentMime(active.active_attachment_mime);
-          } else {
+          } else if (!keepVisibleThread) {
             setActiveAttachmentId(null);
             setActiveAttachmentMime(null);
           }
           setPanelView("chat");
         } else if (seed.length > 0) {
           // Remount before DB indexed the just-completed turn — keep local snapshot.
-          setMessages(seed);
+          setMessages((prev) => mergeRestoredSessionMessages(seed.length > 0 ? seed : prev, []));
           const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
           if (fromSnap && String(snapshot?.sessionId) === String(activeId)) {
             setActiveAttachmentId(fromSnap.active_attachment_id);
             setActiveAttachmentMime(fromSnap.active_attachment_mime);
           }
           setPanelView("chat");
-        } else {
+        } else if (!keepVisibleThread) {
           setActiveAttachmentId(null);
           setActiveAttachmentMime(null);
         }
@@ -930,50 +1017,87 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
     setPanelView("chat");
     setSidebarOpen(false);
+    const turnId = createLifeguardSessionId();
+    inflightTurnIdRef.current = turnId;
+    appendHomeChatStreamTrace("chat_submit");
+    const activeAttachmentForTurn = activeAttachmentId
+      ? {
+          active_attachment_id: activeAttachmentId,
+          active_attachment_mime: activeAttachmentMime,
+          active_rotation_quarter_turns: 0,
+        }
+      : null;
     const userMessage = {
       role: "user",
       content: composerDocumentId
         ? `${trimmed}\n\n(첨부: ${composerFilename || "파일"})`
         : trimmed,
+      turnId,
     };
     const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
+    let liveMessages = [
+      ...nextMessages,
+      { role: "assistant", content: KEY_WAIT_STATUS, thinking: true, turnId },
+    ];
+    const syncLiveMessages = (nextLive, extra = {}) => {
+      liveMessages = nextLive;
+      setMessages(nextLive);
+      if (customerId) {
+        patchInflightHomeChatTurn(turnId, {
+          messages: nextLive,
+          activeAttachment: activeAttachmentForTurn,
+          ...extra,
+        });
+      }
+    };
+    setMessages(liveMessages);
     setInput("");
     focusChatInput();
     setLoading(true);
     setStreaming(false);
     setError("");
+    if (customerId) {
+      beginInflightHomeChatTurn({
+        customerId,
+        sessionId,
+        turnId,
+        messages: liveMessages,
+        activeAttachment: activeAttachmentForTurn,
+      });
+    }
 
     try {
       const history = nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
-      setMessages([
-        ...nextMessages,
-        { role: "assistant", content: KEY_WAIT_STATUS, thinking: true },
-      ]);
-      if (customerId) {
-        writeLifeguardChatSnapshot(customerId, {
-          sessionId,
-          messages: nextMessages,
-          activeAttachment: activeAttachmentId
-            ? {
-                active_attachment_id: activeAttachmentId,
-                active_attachment_mime: activeAttachmentMime,
-                active_rotation_quarter_turns: 0,
-              }
-            : null,
-        });
-      }
+      appendHomeChatStreamTrace("home_brain_request_start");
 
       let streamedText = "";
       let receivedDelta = false;
+      let sawFirstSseEvent = false;
+      let sawSseDone = false;
       let attachOptions = documentIdForTurn ? { documentId: documentIdForTurn } : {};
       // Reused active attachment — server re-verifies ownership (no latest-doc invent).
       if (reusedActiveAttachment) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
       }
+      const markFirstSse = () => {
+        if (sawFirstSseEvent) return;
+        sawFirstSseEvent = true;
+        appendHomeChatStreamTrace("sse_first_event");
+      };
+      const markSseDone = () => {
+        if (sawSseDone) return;
+        sawSseDone = true;
+        appendHomeChatStreamTrace("sse_done");
+      };
       const patchAssistantContent = (text, extra = {}) => {
-        setMessages((prev) =>
-          patchLastAssistantMessage(prev, { content: text, thinking: false, ...extra }),
+        syncLiveMessages(
+          patchLastAssistantMessage(liveMessages, {
+            content: text,
+            thinking: false,
+            turnId,
+            ...extra,
+          }),
+          { phase: "streaming", loading: false, streaming: true, streamedCommitted: true },
         );
       };
       const result = await fetchHomeBrainFactStream(
@@ -981,17 +1105,24 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         history,
         {
           onAck: (ackText) => {
+            markFirstSse();
             // Short customer status only — do not list internal search/doc stage names.
             const text = String(ackText ?? "").trim() || KEY_WAIT_STATUS;
             const safe =
               text.length > 80 || /SSE|Claude|tool|phase|trace/i.test(text)
                 ? KEY_WAIT_STATUS
                 : text;
-            setMessages((prev) =>
-              patchLastAssistantMessage(prev, { content: safe, thinking: true }),
+            syncLiveMessages(
+              patchLastAssistantMessage(liveMessages, {
+                content: safe,
+                thinking: true,
+                turnId,
+              }),
+              { phase: "awaiting", loading: true, streaming: false },
             );
           },
           onDelta: (chunk) => {
+            markFirstSse();
             const piece = String(chunk ?? "");
             if (!piece) return;
             receivedDelta = true;
@@ -1003,20 +1134,28 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           // E: already-shown text is never replaced by SSE replace.
           onReplace: () => {},
           onDone: (payload) => {
+            markFirstSse();
+            markSseDone();
             const mapped = mapHomeBrainFactPayload(payload ?? {});
             const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
             if (visualBlocks.length === 0) return;
-            setMessages((prev) =>
-              patchLastAssistantMessage(prev, {
+            syncLiveMessages(
+              patchLastAssistantMessage(liveMessages, {
                 visual_blocks: visualBlocks,
                 visual_blocks_gate: mapped.visualBlocksGate ?? null,
                 thinking: false,
+                turnId,
               }),
+              { phase: "committing", loading: false, streaming: true, streamedCommitted: true },
             );
           },
         },
         attachOptions,
       );
+      if (!sawFirstSseEvent) {
+        appendHomeChatStreamTrace("sse_first_event");
+      }
+      markSseDone();
 
       const sealedText = String(result.answerText ?? "");
       const merged = resolveAppendOnlyAssistantText(streamedText, sealedText || streamedText);
@@ -1065,11 +1204,18 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           role: "assistant",
           content: finalText,
           thinking: false,
+          turnId,
           visual_blocks: visualBlocks,
           visual_blocks_gate: visualBlocksGate,
         },
       ];
-      setMessages(completedMessages);
+      appendHomeChatStreamTrace("streamed_answer_commit");
+      syncLiveMessages(completedMessages, {
+        phase: "committing",
+        loading: false,
+        streaming: false,
+        streamedCommitted: true,
+      });
       // Turn mirror kept for internal continuity; right rail shows baseline (non-blocking).
       setTurnMirror(
         buildKeyTurnMirror({
@@ -1104,10 +1250,21 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       }
 
       if (customerId) {
+        patchInflightHomeChatTurn(turnId, {
+          messages: completedMessages,
+          activeAttachment: nextActive,
+          phase: "committing",
+          loading: false,
+          streaming: false,
+          streamedCommitted: true,
+        });
         writeLifeguardChatSnapshot(customerId, {
           sessionId,
           messages: completedMessages,
           activeAttachment: nextActive,
+          preserveThinking: false,
+          turnId,
+          phase: "committed",
         });
       }
       // Composer only — conversation active attachment stays.
@@ -1131,12 +1288,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           sessionId,
           messages: completedMessages,
           activeAttachment: nextActive,
+          turnId,
+          phase: "committed",
         });
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
         setThreads(recent);
       }
 
-      // KEY persist + deferred factory may update chart/baseline — refresh left/right rails.
+      // KEY persist + deferred factory may update chart/baseline — refresh left/right rails only.
+      // B: do not let unified-state refresh replace the streamed customer_answer for this turn.
       if (
         documentIdForTurn &&
         typeof session?.refreshSession === "function" &&
@@ -1147,10 +1307,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             event: "claude_first_attach_persisted",
             reloadJob: false,
           });
+          // Rails-only refresh: keep this turn's streamed answer as the screen value.
+          setMessages(completedMessages);
         } catch {
           /* next session load refreshes; do not block customer answer */
         }
       }
+      endInflightHomeChatTurn(turnId);
+      inflightTurnIdRef.current = null;
     } catch (err) {
       setMessages((prev) => {
         const copy = [...prev];
@@ -1160,6 +1324,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         }
         return copy;
       });
+      endInflightHomeChatTurn(turnId);
+      inflightTurnIdRef.current = null;
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
     } finally {
       setLoading(false);
@@ -1170,6 +1336,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const startNewChat = () => {
     const newSessionId = createLifeguardSessionId();
+    endInflightHomeChatTurn(inflightTurnIdRef.current);
+    inflightTurnIdRef.current = null;
     setSessionId(newSessionId);
     setMessages([]);
     setTurnMirror(null);

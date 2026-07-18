@@ -9,7 +9,10 @@ import {
 } from "../lib/customerUnifiedState.js";
 import { deriveMemoryStatusFromUnified } from "../lib/memoryStatus.js";
 import { postCustomerSystemMessage } from "../lib/customerConversations.js";
-import { writeEmitterTrace } from "../lib/keyAnalysisCompleteSessionTransition.js";
+import {
+  appendHomeChatStreamTrace,
+  writeEmitterTrace,
+} from "../lib/keyAnalysisCompleteSessionTransition.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const CustomerSessionContext = createContext(null);
@@ -95,6 +98,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         setLoading(true);
       }
       setError("");
+      appendHomeChatStreamTrace("unified_state_request_start");
       try {
         const { dashboard, unified } = await withTimeout(
           loadCustomerSessionRecords(user, event),
