@@ -30,6 +30,7 @@ import {
   normalizeActiveAttachment,
   extractActiveAttachmentFromSessionMessages,
   shouldClearActiveAttachmentAfterTurn,
+  clearActiveAttachmentIfDocumentDeleted,
 } from "../src/lib/chatActiveAttachment.js";
 import {
   buildSessionMetadata,
@@ -653,6 +654,16 @@ const activeNorm = normalizeActiveAttachment({
 });
 assert.equal(activeNorm.active_attachment_id, "doc-a");
 assert.equal(activeNorm.active_rotation_quarter_turns, 2);
+assert.equal(
+  clearActiveAttachmentIfDocumentDeleted(activeNorm, "doc-a"),
+  null,
+  "deleted document clears conversation active attach",
+);
+assert.equal(
+  clearActiveAttachmentIfDocumentDeleted(activeNorm, "doc-other")?.active_attachment_id,
+  "doc-a",
+  "unrelated delete keeps active attach",
+);
 assert.equal(normalizeActiveAttachment({ rotation_quarter_turns: 9 }), null); // no id
 assert.equal(
   normalizeActiveAttachment({
@@ -718,8 +729,17 @@ function makeAttachQuery(result) {
   const q = {
     select: () => q,
     eq: () => q,
-    is: () => q,
-    maybeSingle: async () => result,
+    is: (column, value) => {
+      if (column === "deleted_at" && value === null) q._requireDeletedAtNull = true;
+      return q;
+    },
+    maybeSingle: async () => {
+      if (result?.error) return result;
+      if (q._requireDeletedAtNull && result?.data?.deleted_at) {
+        return { data: null, error: null };
+      }
+      return result;
+    },
   };
   return q;
 }
@@ -861,6 +881,37 @@ const chartPolicies = {
     ) || String(result.failure_reason ?? "").length > 0,
   );
 }
+
+{
+  // Soft-deleted document (storage may still exist) must be excluded from KEY read.
+  let claudeCalls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 사진 다시 읽어줘",
+    history: [],
+    loadedContext: chartPolicies,
+    customerId: "cust-a",
+    attachedDocumentId: "doc-soft-deleted",
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-soft-deleted",
+        customer_id: "cust-a",
+        storage_path: "cust-a/doc-soft-deleted.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "gone.jpg",
+        deleted_at: "2026-07-12T00:00:00.000Z",
+      },
+    }),
+    env: failClosedEnv,
+    fetchImpl: async () => {
+      claudeCalls += 1;
+      throw new Error("claude_must_not_run_on_soft_deleted_doc");
+    },
+  });
+  assert.equal(claudeCalls, 0, "soft-deleted document must not reach Claude");
+  assert.equal(result.key_monopoly_failure, true);
+  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다|다시 첨부/);
+}
+
 
 {
   let claudeCalls = 0;

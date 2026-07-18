@@ -60,6 +60,16 @@ export function isPriorAttachFollowUpQuestion(question = "", options = {}) {
   return false;
 }
 
+/** Clear conversation active attach when that document was deleted from current insurance. */
+export function clearActiveAttachmentIfDocumentDeleted(activeAttachment = null, deletedDocumentId = null) {
+  const deleted = String(deletedDocumentId ?? "").trim();
+  if (!deleted) return normalizeActiveAttachment(activeAttachment);
+  const normalized = normalizeActiveAttachment(activeAttachment);
+  if (!normalized) return null;
+  if (normalized.active_attachment_id === deleted) return null;
+  return normalized;
+}
+
 export function normalizeActiveAttachment(input = null) {
   if (!input || typeof input !== "object") return null;
   const id = String(input.active_attachment_id ?? input.document_id ?? input.id ?? "").trim();

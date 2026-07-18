@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DOCUMENT_CATEGORIES,
+  DOCUMENT_DELETE_REASON,
   listDocuments,
   downloadDocument,
   softDeleteDocument,
@@ -9,6 +10,11 @@ import {
 import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
 import { useCustomerSession } from "../hooks/useCustomerSession.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
+import { clearActiveAttachmentIfDocumentDeleted } from "../lib/chatActiveAttachment.js";
+import {
+  readLifeguardChatSnapshot,
+  writeLifeguardChatSnapshot,
+} from "../lib/lifeguardChatSessions.js";
 import {
   DOCUMENT_UI_MESSAGES,
   formatDocClass,
@@ -217,9 +223,41 @@ export default function DocumentsPanel({ user }) {
     setError("");
     setSuccess("");
     try {
-      await softDeleteDocument(user, documentId);
-      setSuccess(DOCUMENT_UI_MESSAGES.deleteSuccess);
+      const result = await softDeleteDocument(user, documentId);
+      const customerId = result?.customerId;
+      // Soft-delete succeeded → never restore active attach / document_id on partial failure.
+      if (result?.clear_active_attachment && customerId && result.documentId) {
+        const snap = readLifeguardChatSnapshot(customerId);
+        if (snap) {
+          const nextActive = clearActiveAttachmentIfDocumentDeleted(
+            snap.activeAttachment,
+            result.documentId,
+          );
+          writeLifeguardChatSnapshot(customerId, {
+            sessionId: snap.sessionId,
+            messages: snap.messages,
+            activeAttachment: nextActive,
+          });
+        }
+      }
       await loadData();
+      if (result?.success) {
+        setSuccess(
+          `${DOCUMENT_UI_MESSAGES.deleteSuccess} ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`,
+        );
+        return;
+      }
+      if (result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED) {
+        setError(DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed);
+        return;
+      }
+      if (result?.reason === DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED) {
+        setError(DOCUMENT_UI_MESSAGES.deleteStorageRetryHint);
+        return;
+      }
+      setError(
+        result?.error_message || toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다."),
+      );
     } catch (err) {
       setError(toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다."));
     } finally {
@@ -330,9 +368,11 @@ export default function DocumentsPanel({ user }) {
                             type="button"
                             style={S.btnDanger}
                             disabled={busy}
+                            aria-label={DOCUMENT_UI_MESSAGES.deleteAction}
+                            title={DOCUMENT_UI_MESSAGES.deleteAction}
                             onClick={() => handleDelete(document.id)}
                           >
-                            {DOCUMENT_UI_MESSAGES.deleteAction}
+                            {busy ? "삭제 중…" : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
                           </button>
                         </div>
                       </td>

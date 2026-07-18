@@ -419,4 +419,108 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
   assert(stored[0].status === "preparing", "status truthfulness retained");
 }
 
+{
+  const {
+    claimCaseReferencesSourceDocument,
+    filterKeyActiveClaimCasesExcludingSourceDocument,
+    removeKeyActiveClaimCasesForSourceDocument,
+    KEY_ACTIVE_CLAIM_CASES_FACT_PATH,
+  } = await import("../server/documentPolicyUploadPersist.js");
+
+  assert(
+    claimCaseReferencesSourceDocument(
+      { medical_event: { source_document_id: "doc-wrong" } },
+      "doc-wrong",
+    ) === true,
+    "medical source_document_id ties claim to upload",
+  );
+  assert(
+    claimCaseReferencesSourceDocument(
+      { claim_case_key: "doc:doc-wrong:date:2026-07-12" },
+      "doc-wrong",
+    ) === true,
+    "stable doc: key ties claim to upload",
+  );
+  assert(
+    claimCaseReferencesSourceDocument(
+      { claim_case_key: "date:2026-07-12:kind:surgery" },
+      "doc-wrong",
+    ) === false,
+    "date/kind key without document must not be wiped on unrelated delete",
+  );
+
+  const kept = filterKeyActiveClaimCasesExcludingSourceDocument(
+    [
+      {
+        claim_case_key: "doc:doc-wrong:date:2026-07-12",
+        medical_event: { source_document_id: "doc-wrong", event_date: "2026-07-12" },
+        status: "preparing",
+      },
+      {
+        claim_case_key: "date:2026-01-01:kind:checkup",
+        medical_event: { event_date: "2026-01-01", event_kind: "checkup" },
+        status: "identified",
+      },
+    ],
+    "doc-wrong",
+  );
+  assert(kept.length === 1, "only document-sourced claim removed");
+  assert(kept[0].claim_case_key === "date:2026-01-01:kind:checkup", "other claim kept");
+
+  const healthWrites = [];
+  const supabase = {
+    from(table) {
+      assert(table === "profile_health", "claim scrub uses profile_health");
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        maybeSingle: async () => ({
+          data: {
+            customer_id: "cust-scrub",
+            details_json: {
+              [KEY_ACTIVE_CLAIM_CASES_FACT_PATH]: [
+                {
+                  claim_case_key: "doc:doc-wrong:date:2026-07-12",
+                  medical_event: { source_document_id: "doc-wrong", event_date: "2026-07-12" },
+                  status: "preparing",
+                },
+              ],
+            },
+          },
+          error: null,
+        }),
+        update(payload) {
+          healthWrites.push(payload);
+          return {
+            eq: async () => ({ error: null }),
+          };
+        },
+      };
+    },
+  };
+  const scrub = await removeKeyActiveClaimCasesForSourceDocument({
+    supabase,
+    customerId: "cust-scrub",
+    documentId: "doc-wrong",
+  });
+  assert(scrub.ok === true && scrub.removed === 1, "scrub removes document-sourced claim");
+  assert(healthWrites.length === 1, "one health write on scrub");
+  assert(
+    healthWrites[0].details_json[KEY_ACTIVE_CLAIM_CASES_FACT_PATH].length === 0,
+    "card JSON no longer holds deleted-doc claim",
+  );
+
+  const scrubAgain = await removeKeyActiveClaimCasesForSourceDocument({
+    supabase,
+    customerId: "cust-scrub",
+    documentId: "doc-wrong",
+  });
+  assert(scrubAgain.ok === true, "scrub is idempotent on second call");
+
+}
+
 console.log("PASS");

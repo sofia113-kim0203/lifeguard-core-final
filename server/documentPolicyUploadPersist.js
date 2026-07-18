@@ -574,6 +574,92 @@ export async function loadKeyActiveClaimCases({ supabase = null, customerId = nu
   return normalizeKeyClaimCaseUpdates(details[KEY_ACTIVE_CLAIM_CASES_FACT_PATH]);
 }
 
+/** True when a claim case is clearly sourced from this upload document. */
+export function claimCaseReferencesSourceDocument(row = null, documentId = null) {
+  const did = String(documentId ?? "").trim();
+  if (!did || !row || typeof row !== "object") return false;
+  const medical =
+    row.medical_event && typeof row.medical_event === "object" ? row.medical_event : {};
+  if (String(medical.source_document_id ?? "").trim() === did) return true;
+  if (String(row.source_document_id ?? "").trim() === did) return true;
+  const key = String(row.claim_case_key ?? "").trim();
+  if (key.startsWith(`doc:${did}:`)) return true;
+  return false;
+}
+
+/** Drop claim cases whose only clear provenance is the deleted document. */
+export function filterKeyActiveClaimCasesExcludingSourceDocument(
+  cases = [],
+  documentId = null,
+) {
+  const did = String(documentId ?? "").trim();
+  if (!did) return normalizeKeyClaimCaseUpdates(cases);
+  return normalizeKeyClaimCaseUpdates(cases).filter(
+    (row) => !claimCaseReferencesSourceDocument(row, did),
+  );
+}
+
+/**
+ * After source document soft-delete — remove clearly document-sourced claim cases
+ * from customer-card JSON. Does not invent replacements.
+ */
+export async function removeKeyActiveClaimCasesForSourceDocument({
+  supabase = null,
+  customerId = null,
+  documentId = null,
+} = {}) {
+  const did = String(documentId ?? "").trim();
+  if (!supabase || !customerId || !did) {
+    return {
+      ok: false,
+      attempted: false,
+      removed: 0,
+      reason: !supabase ? "no_supabase" : !customerId ? "no_customer_id" : "no_document_id",
+    };
+  }
+
+  const { data: row, error: selectError } = await supabase
+    .from("profile_health")
+    .select("customer_id, details_json")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+
+  if (selectError) {
+    return { ok: false, attempted: true, removed: 0, error: selectError.message };
+  }
+  if (!row?.customer_id) {
+    return { ok: true, attempted: true, removed: 0, reason: "no_profile_health_row" };
+  }
+
+  const existingDetails =
+    row.details_json && typeof row.details_json === "object" ? row.details_json : {};
+  const existing = normalizeKeyClaimCaseUpdates(
+    existingDetails[KEY_ACTIVE_CLAIM_CASES_FACT_PATH],
+  );
+  const next = filterKeyActiveClaimCasesExcludingSourceDocument(existing, did);
+  const removed = Math.max(0, existing.length - next.length);
+  if (removed === 0) {
+    return { ok: true, attempted: true, removed: 0, case_count: existing.length };
+  }
+
+  const nextDetails = {
+    ...existingDetails,
+    [KEY_ACTIVE_CLAIM_CASES_FACT_PATH]: next,
+  };
+  const { error: updateError } = await supabase
+    .from("profile_health")
+    .update({
+      details_json: nextDetails,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("customer_id", customerId);
+
+  if (updateError) {
+    return { ok: false, attempted: true, removed: 0, error: updateError.message };
+  }
+  return { ok: true, attempted: true, removed, case_count: next.length };
+}
+
 /**
  * Persist KEY claim-case updates into existing customer card JSON.
  * Failures must not rewrite the customer answer.

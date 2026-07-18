@@ -705,44 +705,241 @@ export async function downloadDocument(authUser, documentId) {
   };
 }
 
-export async function softDeleteDocument(authUser, documentId) {
-  const { customerId } = await ensureCustomerContext(authUser);
+/** Structured delete failure codes (partial-failure path). */
+export const DOCUMENT_DELETE_REASON = Object.freeze({
+  DOCUMENT_SOFT_DELETE_FAILED: "document_soft_delete_failed",
+  CLAIM_SCRUB_FAILED: "claim_scrub_failed",
+  STORAGE_REMOVE_FAILED: "storage_remove_failed",
+});
 
-  const { data: document, error: readError } = await supabase
+export function isStorageRemoveAlreadyGoneError(error = null) {
+  const msg = String(error?.message ?? error ?? "").toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes("not found") ||
+    msg.includes("no such file") ||
+    msg.includes("object not found") ||
+    msg.includes("404")
+  );
+}
+
+/**
+ * Wrong-upload forget path (reconstruction model).
+ * After RPC soft-delete succeeds, the document is immediately out of KEY/current-insurance
+ * lookup (deleted_at / retired policies). Final success requires claim scrub OK.
+ * Storage remove may fail independently — retry is idempotent; active attach is not restored.
+ *
+ * @param {object} [options] test injection: supabase, ensureCustomerContext, storageRemove
+ */
+export async function softDeleteDocument(authUser, documentId, options = {}) {
+  const client = options.supabase ?? supabase;
+  const ensureCtx = options.ensureCustomerContext ?? ensureCustomerContext;
+  const storageRemove =
+    options.storageRemove ??
+    (async (storagePath) => {
+      const { error } = await client.storage.from(STORAGE_BUCKET).remove([storagePath]);
+      if (error && !isStorageRemoveAlreadyGoneError(error)) {
+        return { ok: false, error };
+      }
+      return { ok: true, already_gone: Boolean(error) };
+    });
+
+  const { customerId } = await ensureCtx(authUser);
+  const did = String(documentId ?? "").trim();
+  if (!did) {
+    return {
+      success: false,
+      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+      documentId: null,
+      customerId,
+      current_insurance_invalidated: false,
+      clear_active_attachment: false,
+      error_message: "문서를 찾을 수 없습니다.",
+    };
+  }
+
+  // Include already soft-deleted rows so retry can finish scrub/storage idempotently.
+  const { data: document, error: readError } = await client
     .from("customer_documents")
-    .select("id, customer_id, storage_path")
-    .eq("id", documentId)
-    .is("deleted_at", null)
+    .select("id, customer_id, storage_path, deleted_at")
+    .eq("id", did)
     .maybeSingle();
 
   if (readError) {
-    throw new Error(toCustomerErrorMessage(readError, "문서 정보를 불러오지 못했습니다."));
+    return {
+      success: false,
+      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+      documentId: did,
+      customerId,
+      current_insurance_invalidated: false,
+      clear_active_attachment: false,
+      error_message: toCustomerErrorMessage(readError, "문서 정보를 불러오지 못했습니다."),
+    };
   }
 
   if (!document || document.customer_id !== customerId) {
-    throw new Error("문서를 찾을 수 없습니다.");
+    return {
+      success: false,
+      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+      documentId: did,
+      customerId,
+      current_insurance_invalidated: false,
+      clear_active_attachment: false,
+      error_message: "문서를 찾을 수 없습니다.",
+    };
   }
 
-  const { data: deletedDocument, error: rpcError } = await supabase.rpc(
-    "lifeguard_soft_delete_customer_document",
-    { p_document_id: documentId },
-  );
+  let deletedAt = document.deleted_at ?? null;
+  let softDeleteOk = Boolean(deletedAt);
 
-  if (rpcError) {
-    throw new Error(toCustomerErrorMessage(rpcError, "문서를 삭제하지 못했습니다."));
+  if (!softDeleteOk) {
+    const { data: deletedDocument, error: rpcError } = await client.rpc(
+      "lifeguard_soft_delete_customer_document",
+      { p_document_id: did },
+    );
+    if (rpcError) {
+      return {
+        success: false,
+        reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+        documentId: did,
+        customerId,
+        current_insurance_invalidated: false,
+        clear_active_attachment: false,
+        error_message: toCustomerErrorMessage(rpcError, "문서를 삭제하지 못했습니다."),
+      };
+    }
+    if (!deletedDocument) {
+      return {
+        success: false,
+        reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+        documentId: did,
+        customerId,
+        current_insurance_invalidated: false,
+        clear_active_attachment: false,
+        error_message: "문서를 찾을 수 없습니다.",
+      };
+    }
+    deletedAt = deletedDocument.deleted_at ?? new Date().toISOString();
+    softDeleteOk = true;
   }
 
-  if (!deletedDocument) {
-    throw new Error("문서를 찾을 수 없습니다.");
+  // From this point the document is excluded from KEY / search / current insurance.
+  const currentInsuranceInvalidated = true;
+  // Never re-attach a soft-deleted document_id on partial failure.
+  const clearActiveAttachment = true;
+
+  const claimCasesScrub = await scrubProfileClaimCasesForDeletedDocument(customerId, did, client);
+  if (!claimCasesScrub.ok) {
+    return {
+      success: false,
+      reason: DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED,
+      documentId: did,
+      customerId,
+      deletedAt,
+      current_insurance_invalidated: currentInsuranceInvalidated,
+      clear_active_attachment: clearActiveAttachment,
+      soft_delete_ok: softDeleteOk,
+      claim_cases_scrub: claimCasesScrub,
+      storage_remove_ok: null,
+      error_message: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
+    };
   }
 
-  // PR-D1: lifeguard_soft_delete_customer_document RPC also retires active policies where
-  // coverage_summary.source_document_id = documentId (same transaction as document soft-delete).
-  const deletedAt = deletedDocument.deleted_at ?? new Date().toISOString();
-
+  let storageRemoveOk = true;
   if (document.storage_path) {
-    await supabase.storage.from(STORAGE_BUCKET).remove([document.storage_path]);
+    const storageResult = await storageRemove(document.storage_path);
+    storageRemoveOk = storageResult?.ok === true;
+    if (!storageRemoveOk) {
+      return {
+        success: false,
+        reason: DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED,
+        documentId: did,
+        customerId,
+        deletedAt,
+        current_insurance_invalidated: currentInsuranceInvalidated,
+        clear_active_attachment: clearActiveAttachment,
+        soft_delete_ok: softDeleteOk,
+        claim_cases_scrub: claimCasesScrub,
+        storage_remove_ok: false,
+        error_message:
+          "파일 정보는 제외되었습니다. 원본 정리에 실패해 다시 시도해 주세요.",
+      };
+    }
   }
 
-  return { success: true, documentId, deletedAt };
+  return {
+    success: true,
+    reason: null,
+    documentId: did,
+    customerId,
+    deletedAt,
+    current_insurance_invalidated: currentInsuranceInvalidated,
+    clear_active_attachment: clearActiveAttachment,
+    soft_delete_ok: softDeleteOk,
+    claim_cases_scrub: claimCasesScrub,
+    storage_remove_ok: storageRemoveOk,
+    error_message: null,
+  };
+}
+
+export function claimCaseReferencesSourceDocument(row, documentId) {
+  const did = String(documentId ?? "").trim();
+  if (!did || !row || typeof row !== "object") return false;
+  const medical =
+    row.medical_event && typeof row.medical_event === "object" ? row.medical_event : {};
+  if (String(medical.source_document_id ?? "").trim() === did) return true;
+  if (String(row.source_document_id ?? "").trim() === did) return true;
+  const key = String(row.claim_case_key ?? "").trim();
+  if (key.startsWith(`doc:${did}:`)) return true;
+  return false;
+}
+
+async function scrubProfileClaimCasesForDeletedDocument(customerId, documentId, client = supabase) {
+  const did = String(documentId ?? "").trim();
+  if (!customerId || !did) {
+    return { ok: false, attempted: false, removed: 0, reason: "missing_ids" };
+  }
+  try {
+    const { data: row, error: selectError } = await client
+      .from("profile_health")
+      .select("customer_id, details_json")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (selectError) {
+      return { ok: false, attempted: true, removed: 0, error: selectError.message };
+    }
+    if (!row?.customer_id) {
+      // Idempotent: nothing to scrub.
+      return { ok: true, attempted: true, removed: 0, reason: "no_profile_health_row" };
+    }
+    const details =
+      row.details_json && typeof row.details_json === "object" ? row.details_json : {};
+    const existing = Array.isArray(details.key_active_claim_cases)
+      ? details.key_active_claim_cases
+      : [];
+    const next = existing.filter((c) => !claimCaseReferencesSourceDocument(c, did));
+    const removed = Math.max(0, existing.length - next.length);
+    if (removed === 0) {
+      // Idempotent: already clean.
+      return { ok: true, attempted: true, removed: 0, case_count: existing.length };
+    }
+    const { error: updateError } = await client
+      .from("profile_health")
+      .update({
+        details_json: { ...details, key_active_claim_cases: next },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("customer_id", customerId);
+    if (updateError) {
+      return { ok: false, attempted: true, removed: 0, error: updateError.message };
+    }
+    return { ok: true, attempted: true, removed, case_count: next.length };
+  } catch (err) {
+    return {
+      ok: false,
+      attempted: true,
+      removed: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

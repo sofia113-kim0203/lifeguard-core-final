@@ -6,7 +6,12 @@ import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js
 import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysisCompleteSessionTransition.js";
 import { useKeyBridgeSessionTransition } from "../hooks/useKeyBridgeSessionTransition.js";
 import { useKeyReturnJudgmentSessionTransition } from "../hooks/useKeyReturnJudgmentSessionTransition.js";
-import { listDocuments, uploadDocument } from "../lib/customerDocuments.js";
+import {
+  DOCUMENT_DELETE_REASON,
+  listDocuments,
+  softDeleteDocument,
+  uploadDocument,
+} from "../lib/customerDocuments.js";
 import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.js";
 import {
   normalizeQuarterTurns,
@@ -14,6 +19,7 @@ import {
   wrapQuarterTurns,
 } from "../lib/chatImageOrient.js";
 import {
+  clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
   normalizeActiveAttachment,
   shouldClearActiveAttachmentAfterTurn,
@@ -38,6 +44,7 @@ import { buildKeyChatPresenceMessage } from "../lib/keyChatPresenceWire.js";
 import { buildLifeguardHomeGreeting } from "../lib/lifeguardGreeting.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import {
+  DOCUMENT_UI_MESSAGES,
   formatDocClass,
   formatIngestStatus,
   formatUploadDate,
@@ -172,7 +179,13 @@ function CustomerInsuranceList({ policies, loading }) {
   );
 }
 
-function CustomerDocumentsList({ documents, loading, error }) {
+function CustomerDocumentsList({
+  documents,
+  loading,
+  error,
+  deletingId = null,
+  onDeleteDocument = null,
+}) {
   if (loading) {
     return <p style={{ margin: 0, color: LG.textMuted }}>문서를 불러오는 중…</p>;
   }
@@ -185,19 +198,53 @@ function CustomerDocumentsList({ documents, loading, error }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {documents.map((document) => (
-        <div key={document.id} style={listCardStyle()}>
-          <div style={{ fontWeight: 600, color: LG.text, marginBottom: "8px", wordBreak: "break-all" }}>
-            {document.original_filename ?? "—"}
+      {documents.map((document) => {
+        const busy = deletingId === document.id;
+        return (
+          <div key={document.id} style={listCardStyle()}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: "8px",
+                marginBottom: "8px",
+              }}
+            >
+              <div style={{ fontWeight: 600, color: LG.text, wordBreak: "break-all" }}>
+                {document.original_filename ?? "—"}
+              </div>
+              {typeof onDeleteDocument === "function" ? (
+                <button
+                  type="button"
+                  aria-label={DOCUMENT_UI_MESSAGES.deleteAction}
+                  title={DOCUMENT_UI_MESSAGES.deleteAction}
+                  disabled={busy}
+                  onClick={() => onDeleteDocument(document.id)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: busy ? LG.textSoft : "#B91C1C",
+                    cursor: busy ? "default" : "pointer",
+                    fontSize: "16px",
+                    lineHeight: 1,
+                    padding: "2px 4px",
+                    flexShrink: 0,
+                  }}
+                >
+                  {busy ? "…" : "🗑"}
+                </button>
+              ) : null}
+            </div>
+            <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
+              <div>문서 유형: {formatDocClass(document.doc_class)}</div>
+              <div>업로드일: {formatUploadDate(document.created_at)}</div>
+              <div>OCR: {formatOcrStatus(document)}</div>
+              <div>분석: {formatAnalysisComplete(document)}</div>
+            </div>
           </div>
-          <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
-            <div>문서 유형: {formatDocClass(document.doc_class)}</div>
-            <div>업로드일: {formatUploadDate(document.created_at)}</div>
-            <div>OCR: {formatOcrStatus(document)}</div>
-            <div>분석: {formatAnalysisComplete(document)}</div>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -338,6 +385,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsError, setDocumentsError] = useState("");
+  const [documentDeletingId, setDocumentDeletingId] = useState(null);
+  const [documentDeleteNotice, setDocumentDeleteNotice] = useState("");
   const [threadRestoreReady, setThreadRestoreReady] = useState(false);
   const [bridgeSettled, setBridgeSettled] = useState(false);
   const loadDocumentsRef = useRef(async () => {});
@@ -1083,8 +1132,113 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     }
   };
 
-  const handleComposerRemove = () => {
-    clearComposerAttach();
+  const applyDocumentDeletedLocally = useCallback(
+    (deletedDocumentId) => {
+      const deleted = String(deletedDocumentId ?? "").trim();
+      if (!deleted) return;
+      if (chatAttachDocumentId === deleted) {
+        clearComposerAttach();
+      }
+      const nextActive = clearActiveAttachmentIfDocumentDeleted(
+        {
+          active_attachment_id: activeAttachmentId,
+          active_attachment_mime: activeAttachmentMime,
+          active_rotation_quarter_turns: activeRotationQuarterTurns,
+        },
+        deleted,
+      );
+      if (!nextActive && activeAttachmentId) {
+        setActiveAttachmentId(null);
+        setActiveAttachmentMime(null);
+        setActiveRotationQuarterTurns(0);
+        if (customerId) {
+          writeLifeguardChatSnapshot(customerId, {
+            sessionId,
+            messages,
+            activeAttachment: null,
+          });
+        }
+      }
+    },
+    [
+      chatAttachDocumentId,
+      activeAttachmentId,
+      activeAttachmentMime,
+      activeRotationQuarterTurns,
+      customerId,
+      sessionId,
+      messages,
+    ],
+  );
+
+  const finishDocumentDeleteResult = useCallback(
+    async (result, { setLocalError }) => {
+      const did = String(result?.documentId ?? "").trim();
+      // Soft-delete already took effect — never restore active document_id / prior_attach.
+      if (result?.clear_active_attachment && did) {
+        applyDocumentDeletedLocally(did);
+      }
+      await reloadDocuments();
+      if (result?.success) {
+        setDocumentDeleteNotice(DOCUMENT_UI_MESSAGES.deleteSuccess);
+        setLocalError("");
+        return;
+      }
+      setDocumentDeleteNotice("");
+      if (result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED) {
+        setLocalError(DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed);
+        return;
+      }
+      if (result?.reason === DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED) {
+        setLocalError(DOCUMENT_UI_MESSAGES.deleteStorageRetryHint);
+        return;
+      }
+      setLocalError(
+        result?.error_message || toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다."),
+      );
+    },
+    [applyDocumentDeletedLocally, reloadDocuments],
+  );
+
+  const handleDeleteUploadedDocument = useCallback(
+    async (documentId) => {
+      if (!authUser || documentDeletingId) return;
+      const did = String(documentId ?? "").trim();
+      if (!did) return;
+      if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteConfirm)) return;
+      setDocumentDeletingId(did);
+      setDocumentsError("");
+      setDocumentDeleteNotice("");
+      try {
+        const result = await softDeleteDocument(authUser, did);
+        await finishDocumentDeleteResult(result, { setLocalError: setDocumentsError });
+      } catch (err) {
+        setDocumentsError(toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다."));
+      } finally {
+        setDocumentDeletingId(null);
+      }
+    },
+    [authUser, documentDeletingId, finishDocumentDeleteResult],
+  );
+
+  const handleComposerRemove = async () => {
+    const did = chatAttachDocumentId;
+    if (!did || !authUser) {
+      clearComposerAttach();
+      return;
+    }
+    if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteConfirm)) return;
+    setDocumentDeletingId(did);
+    setChatAttachError("");
+    setDocumentDeleteNotice("");
+    try {
+      const result = await softDeleteDocument(authUser, did);
+      await finishDocumentDeleteResult(result, { setLocalError: setChatAttachError });
+    } catch (err) {
+      setChatAttachError(toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다."));
+    } finally {
+      setDocumentDeletingId(null);
+    }
   };
 
   const handleAttachClick = () => {
@@ -1284,7 +1438,19 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 setActiveAnalysisJob={session?.setActiveAnalysisJob}
                 uploadHook={uploadFlow}
               />
-              <CustomerDocumentsList documents={documents} loading={documentsLoading} error={documentsError} />
+              {documentDeleteNotice ? (
+                <p style={{ margin: "0 0 12px", color: LG.text, fontSize: "14px", lineHeight: 1.55 }}>
+                  {documentDeleteNotice}{" "}
+                  <span style={{ color: LG.textMuted }}>{DOCUMENT_UI_MESSAGES.deleteUploadHint}</span>
+                </p>
+              ) : null}
+              <CustomerDocumentsList
+                documents={documents}
+                loading={documentsLoading}
+                error={documentsError}
+                deletingId={documentDeletingId}
+                onDeleteDocument={handleDeleteUploadedDocument}
+              />
             </LayerPanel>
           ) : null}
 
@@ -1506,17 +1672,23 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button
                     type="button"
-                    onClick={handleComposerRemove}
+                    aria-label={DOCUMENT_UI_MESSAGES.deleteAction}
+                    disabled={Boolean(documentDeletingId)}
+                    onClick={() => {
+                      void handleComposerRemove();
+                    }}
                     style={{
                       border: "none",
                       background: "transparent",
-                      color: LG.textMuted,
-                      cursor: "pointer",
+                      color: documentDeletingId ? LG.textSoft : "#B91C1C",
+                      cursor: documentDeletingId ? "default" : "pointer",
                       fontSize: "13px",
                       fontFamily: LG.sans,
                     }}
                   >
-                    제거
+                    {documentDeletingId === chatAttachDocumentId
+                      ? "삭제 중…"
+                      : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
                   </button>
                 </div>
               </div>
