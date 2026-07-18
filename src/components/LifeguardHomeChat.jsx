@@ -117,13 +117,13 @@ function sidebarBtn(active) {
 
 function headerToggleBtn(active) {
   return {
-    border: `1px solid ${active ? "rgba(37, 99, 235, 0.35)" : LG.border}`,
-    background: active ? "rgba(37, 99, 235, 0.08)" : LG.surface,
+    border: `1px solid ${active ? LG.accent : LG.border}`,
+    background: active ? LG.accentSoft : LG.surface,
     color: active ? LG.navy : LG.textMuted,
     borderRadius: "999px",
-    padding: "10px 16px",
+    padding: "8px 14px",
     cursor: "pointer",
-    fontSize: "14px",
+    fontSize: "13px",
     fontWeight: 600,
     fontFamily: LG.sans,
   };
@@ -1442,9 +1442,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   };
 
   const roomGridColumns = showMirrorInline
-    ? "255px minmax(700px, 1fr) 285px"
+    ? "245px minmax(780px, 1fr) 280px"
     : showInsuranceInline
-      ? "255px minmax(0, 1fr)"
+      ? "245px minmax(0, 1fr)"
       : "minmax(0, 1fr)";
 
   const openPolicyDetail = (row) => {
@@ -1503,7 +1503,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               displayName={displayName}
               onClose={() => setInsuranceRailOpen(false)}
               onSelectPolicy={openPolicyDetail}
-              style={{ height: "100%", maxWidth: "none", width: "255px" }}
+              style={{ height: "100%", maxWidth: "none", width: "245px" }}
             />
           </div>
         </>
@@ -1536,7 +1536,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               baseline={coverageBaseline}
               onClose={() => setMirrorRailOpen(false)}
               onSelectItem={openBaselineDetail}
-              style={{ height: "100%", maxWidth: "none", width: "285px" }}
+              style={{ height: "100%", maxWidth: "none", width: "280px" }}
             />
           </div>
         </>
@@ -1559,13 +1559,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             display: "grid",
             gridTemplateColumns: "1fr auto 1fr",
             alignItems: "center",
-            gap: "12px",
-            padding: "18px 24px 14px",
+            gap: "10px",
+            padding: "14px 20px 12px",
+            height: "82px",
+            boxSizing: "border-box",
             background: LG.bg,
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", justifySelf: "start" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", justifySelf: "start" }}>
             <button
               type="button"
               aria-label="메뉴 열기"
@@ -1576,10 +1578,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 background: "transparent",
                 color: LG.navy,
                 borderRadius: "8px",
-                width: "44px",
-                height: "44px",
+                width: "40px",
+                height: "40px",
                 cursor: "pointer",
-                fontSize: "24px",
+                fontSize: "22px",
               }}
             >
               ☰
@@ -1587,7 +1589,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             <span
               style={{
                 fontFamily: LG.serif,
-                fontSize: "18px",
+                fontSize: "16px",
                 fontWeight: 600,
                 color: LG.navy,
                 letterSpacing: "0.04em",
@@ -1601,7 +1603,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             <div
               style={{
                 fontFamily: LG.serif,
-                fontSize: "44px",
+                fontSize: "28px",
                 fontWeight: 650,
                 color: LG.navy,
                 letterSpacing: "0.04em",
@@ -1610,7 +1612,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             >
               LIFEGUARD
             </div>
-            <div style={{ fontSize: "15px", color: LG.textMuted, marginTop: "4px", letterSpacing: "0.02em" }}>
+            <div style={{ fontSize: "13px", color: LG.textMuted, marginTop: "2px", letterSpacing: "0.02em" }}>
               보험 AI KEY
             </div>
           </div>
@@ -1644,8 +1646,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             flex: 1,
             display: "grid",
             gridTemplateColumns: roomGridColumns,
-            gap: "18px",
-            padding: "0 20px 18px",
+            gap: "12px",
+            padding: "0 16px 14px",
             minHeight: 0,
             minWidth: 0,
             overflow: "hidden",
@@ -1659,11 +1661,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               displayName={displayName}
               onSelectPolicy={openPolicyDetail}
               style={{
-                width: "255px",
-                maxWidth: "255px",
-                borderRadius: "20px",
+                width: "245px",
+                maxWidth: "245px",
+                borderRadius: "16px",
                 background: LG.bg,
-                boxShadow: LG.shadowSoft,
+                border: `1px solid ${LG.border}`,
               }}
             />
           ) : null}
@@ -1675,8 +1677,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               minWidth: 0,
               minHeight: 0,
               background: LG.bg,
-              borderRadius: "20px",
-              boxShadow: LG.shadowSoft,
+              borderRadius: "16px",
+              border: `1px solid ${LG.border}`,
             }}
           >
         <div
@@ -1687,12 +1689,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             overflowY: "auto",
             overflowX: "hidden",
             minHeight: 0,
-            padding: "36px 28px 20px",
+            padding: "28px 24px 16px",
             display: "flex",
             flexDirection: "column",
             gap: "0",
             width: "100%",
-            maxWidth: "820px",
+            maxWidth: "920px",
             margin: "0 auto",
           }}
         >
@@ -1738,7 +1740,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               <div
                 style={{
                   fontFamily: LG.serif,
-                  fontSize: "44px",
+                  fontSize: "30px",
                   fontWeight: 600,
                   letterSpacing: "0.05em",
                   color: LG.text,
@@ -2173,8 +2175,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               onClose={() => setMirrorRailOpen(false)}
               onSelectItem={openBaselineDetail}
               style={{
-                width: "285px",
-                maxWidth: "285px",
+                width: "280px",
+                maxWidth: "280px",
                 borderRadius: "20px",
                 background: LG.bg,
                 boxShadow: LG.shadowSoft,

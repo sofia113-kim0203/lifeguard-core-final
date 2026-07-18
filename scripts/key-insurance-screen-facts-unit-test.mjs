@@ -65,6 +65,22 @@ assert.equal(
   "retired/deleted-source policies excluded from left rail",
 );
 
+const deduped = buildMyInsuranceStatus([
+  {
+    id: "d1",
+    insurer_name: "KB손해보험",
+    product_name: "자녀보험",
+    monthly_premium: 42860,
+  },
+  {
+    id: "d2",
+    insurer_name: "KB손해보험",
+    product_name: "자녀보험",
+    monthly_premium: 42860,
+  },
+]);
+assert.equal(deduped.totalCount, 1, "left rail drops duplicate insurer+product+premium cards");
+
 const emptyMirror = buildKeyTurnMirror({
   answerText: "분당에서 가족 식사하기 좋은 곳 알려드릴게요.",
   visualBlocks: [],

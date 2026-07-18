@@ -59,6 +59,7 @@ export function isRetiredPolicyRow(policy = null) {
 export function buildMyInsuranceStatus(policies = []) {
   const rows = Array.isArray(policies) ? policies : [];
   const visible = [];
+  const seen = new Set();
   for (const policy of rows) {
     if (isRetiredPolicyRow(policy)) continue;
     const insurer = String(policy.insurer_name ?? "").trim() || null;
@@ -66,6 +67,9 @@ export function buildMyInsuranceStatus(policies = []) {
     const premium = resolvePolicyPremium(policy);
     const hasCore = Boolean(insurer || product);
     if (!hasCore && premium == null) continue;
+    const dedupeKey = `${insurer ?? ""}::${product ?? ""}::${premium ?? "na"}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     const confirmed = Boolean(insurer && (product || premium != null));
     visible.push({
       id: String(policy.id ?? ""),

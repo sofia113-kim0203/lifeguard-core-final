@@ -1,6 +1,6 @@
 /**
- * Local visual seat for KEY ROOM + industry baseline.
- * Renders the same rails/drawer/facts/table as production UI — no fake baseline panel.
+ * Local visual seat that mirrors LifeguardHomeChat room chrome
+ * (same rails, drawer, layout tokens) for 1600×900 captures — no API/Claude.
  */
 import { useMemo, useState } from "react";
 import KeyMyInsuranceRail from "./KeyMyInsuranceRail.jsx";
@@ -13,7 +13,6 @@ import {
   buildPolicyDetailForDrawer,
 } from "../lib/keyInsuranceScreenFacts.js";
 
-/** Verified sample contracts for visual seat only (not industry baseline inventing). */
 const VERIFIED_SEAT_POLICIES = [
   {
     id: "v1",
@@ -50,9 +49,9 @@ function headerToggleBtn(active) {
     background: active ? LG.accentSoft : LG.surface,
     color: active ? LG.navy : LG.textMuted,
     borderRadius: "999px",
-    padding: "10px 16px",
+    padding: "8px 14px",
     cursor: "pointer",
-    fontSize: "14px",
+    fontSize: "13px",
     fontWeight: 600,
     fontFamily: LG.sans,
   };
@@ -61,43 +60,22 @@ function headerToggleBtn(active) {
 export default function KeyRoomVisualSeat() {
   const [insuranceOpen, setInsuranceOpen] = useState(true);
   const [baselineOpen, setBaselineOpen] = useState(true);
-  const [widthMode, setWidthMode] = useState("desktop");
   const [detail, setDetail] = useState(null);
-
   const baseline = useMemo(() => buildIndustryCoverageBaseline(VERIFIED_SEAT_POLICIES), []);
-
-  const frameWidth = widthMode === "mobile" ? 390 : widthMode === "mid" ? 900 : 1600;
-  const frameHeight = widthMode === "mobile" ? 780 : 900;
-  const showInsuranceInline = insuranceOpen && widthMode !== "mobile";
-  const showBaselineInline = baselineOpen && widthMode === "desktop";
-  const columns = showBaselineInline
-    ? "255px minmax(700px, 1fr) 285px"
-    : showInsuranceInline
-      ? "255px minmax(0, 1fr)"
-      : "minmax(0, 1fr)";
+  const columns = "245px minmax(780px, 1fr) 280px";
 
   return (
     <div style={{ minHeight: "100vh", background: LG.bg, padding: "16px", fontFamily: LG.sans }}>
-      <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
-        {[
-          ["desktop", "데스크톱"],
-          ["mid", "중간"],
-          ["mobile", "모바일"],
-        ].map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setWidthMode(id)} style={headerToggleBtn(widthMode === id)}>
-            {label}
-          </button>
-        ))}
-      </div>
       <div
+        data-lifeguard-home-chat="1"
         data-key-room-visual-seat="1"
         style={{
           width: "100%",
-          maxWidth: frameWidth,
+          maxWidth: 1600,
           margin: "0 auto",
-          height: frameHeight,
+          height: 900,
           background: LG.bg,
-          borderRadius: "18px",
+          borderRadius: "16px",
           overflow: "hidden",
           border: `1px solid ${LG.border}`,
           display: "flex",
@@ -109,20 +87,24 @@ export default function KeyRoomVisualSeat() {
             display: "grid",
             gridTemplateColumns: "1fr auto 1fr",
             alignItems: "center",
-            gap: "12px",
-            padding: "18px 24px 14px",
+            gap: "10px",
+            padding: "14px 20px 12px",
+            height: "82px",
+            boxSizing: "border-box",
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{ fontSize: "22px", color: LG.navy }}>☰</span>
-            <span style={{ fontFamily: LG.serif, fontWeight: 600, color: LG.navy, fontSize: "18px" }}>LIFEGUARD</span>
+            <span style={{ fontFamily: LG.serif, fontWeight: 600, color: LG.navy, fontSize: "16px" }}>
+              LIFEGUARD
+            </span>
           </div>
           <div style={{ textAlign: "center" }}>
             <div
               style={{
                 fontFamily: LG.serif,
-                fontSize: "40px",
+                fontSize: "28px",
                 fontWeight: 650,
                 color: LG.navy,
                 letterSpacing: "0.04em",
@@ -131,7 +113,7 @@ export default function KeyRoomVisualSeat() {
             >
               LIFEGUARD
             </div>
-            <div style={{ fontSize: "15px", color: LG.textMuted, marginTop: "4px" }}>보험 AI KEY</div>
+            <div style={{ fontSize: "13px", color: LG.textMuted, marginTop: "2px" }}>보험 AI KEY</div>
           </div>
           <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
             <button type="button" style={headerToggleBtn(insuranceOpen)} onClick={() => setInsuranceOpen((v) => !v)}>
@@ -148,13 +130,13 @@ export default function KeyRoomVisualSeat() {
             flex: 1,
             display: "grid",
             gridTemplateColumns: columns,
-            gap: "14px",
-            padding: "0 16px 16px",
+            gap: "12px",
+            padding: "0 16px 14px",
             minHeight: 0,
             overflow: "hidden",
           }}
         >
-          {showInsuranceInline ? (
+          {insuranceOpen ? (
             <KeyMyInsuranceRail
               policies={VERIFIED_SEAT_POLICIES}
               displayName="진우"
@@ -163,8 +145,8 @@ export default function KeyRoomVisualSeat() {
                 setDetail(buildPolicyDetailForDrawer(full || row));
               }}
               style={{
-                width: "255px",
-                maxWidth: "255px",
+                width: "245px",
+                maxWidth: "245px",
                 borderRadius: "16px",
                 border: `1px solid ${LG.border}`,
                 background: LG.bg,
@@ -187,19 +169,19 @@ export default function KeyRoomVisualSeat() {
               style={{
                 flex: 1,
                 overflowY: "auto",
-                padding: "32px 28px 20px",
-                maxWidth: "860px",
+                padding: "28px 24px 16px",
+                maxWidth: "920px",
                 width: "100%",
                 margin: "0 auto",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "18px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
                 <div
                   style={{
                     maxWidth: "72%",
                     background: LG.userBubble,
                     borderRadius: "18px 18px 6px 18px",
-                    padding: "14px 18px",
+                    padding: "12px 16px",
                     color: LG.navy,
                     fontSize: "16px",
                     lineHeight: 1.7,
@@ -235,7 +217,7 @@ export default function KeyRoomVisualSeat() {
                       color: LG.text,
                       background: LG.assistantBubble,
                       borderRadius: "6px 18px 18px 18px",
-                      padding: "16px 18px",
+                      padding: "14px 16px",
                       border: `1px solid ${LG.border}`,
                     }}
                   >
@@ -245,7 +227,7 @@ export default function KeyRoomVisualSeat() {
                 </div>
               </div>
             </div>
-            <div style={{ padding: "14px 28px 24px", maxWidth: "860px", width: "100%", margin: "0 auto" }}>
+            <div style={{ padding: "12px 24px 20px", maxWidth: "920px", width: "100%", margin: "0 auto" }}>
               <div
                 style={{
                   display: "flex",
@@ -278,13 +260,13 @@ export default function KeyRoomVisualSeat() {
             </div>
           </div>
 
-          {showBaselineInline ? (
+          {baselineOpen ? (
             <KeyCoverageBaselineRail
               baseline={baseline}
               onSelectItem={(item) => setDetail(buildBaselineDetailForDrawer(item))}
               style={{
-                width: "285px",
-                maxWidth: "285px",
+                width: "280px",
+                maxWidth: "280px",
                 borderRadius: "16px",
                 border: `1px solid ${LG.border}`,
                 background: LG.bg,

@@ -1,26 +1,47 @@
 /**
- * Right rail — KEY industry cumulative coverage baseline (read-only).
- * Does not call Claude, rewrite answers, or sell products.
+ * Right rail — KEY industry cumulative coverage baseline (read-only gauge).
+ * Fixed 7-row instrument panel: no internal scroll, no second judgment engine.
  */
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import { BASELINE_STATUS } from "../lib/keyInsuranceScreenFacts.js";
+import { KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS } from "../lib/keyIndustryCoverageBaselineTable.js";
 
-function CountChip({ label, value, color, bg }) {
-  return (
-    <div
-      style={{
-        flex: "1 1 46%",
-        minWidth: "108px",
-        borderRadius: "12px",
-        background: bg,
-        border: `1px solid ${LG.border}`,
-        padding: "8px 10px",
-      }}
-    >
-      <div style={{ fontSize: "11px", color: LG.textMuted, marginBottom: "2px" }}>{label}</div>
-      <div style={{ fontSize: "18px", fontWeight: 750, color }}>{value}</div>
-    </div>
+const ROW_ICONS = {
+  cancer_diagnosis: "◆",
+  cerebrovascular_diagnosis: "◇",
+  ischemic_heart_diagnosis: "◇",
+  caregiving: "○",
+  hospital_daily: "○",
+  surgery: "□",
+  major_treatment: "□",
+};
+
+function resolveRows(baseline) {
+  const byId = new Map(
+    (Array.isArray(baseline?.items) ? baseline.items : []).map((row) => [row.id, row]),
   );
+  return KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.map((def) => {
+    const hit = byId.get(def.id);
+    if (hit) return hit;
+    return {
+      id: def.id,
+      label: def.label,
+      shortLabel: def.shortLabel,
+      status: BASELINE_STATUS.TABLE_PENDING,
+      statusColor: LG.needCheck,
+      statusBg: LG.needCheckBg,
+      currentDisplay: "확인 필요",
+      showCompareBar: false,
+    };
+  });
+}
+
+function currentLine(item) {
+  const raw = String(item?.currentDisplay ?? "").trim() || "확인 필요";
+  if (raw === "확인 필요" || raw.startsWith("일당") || raw.startsWith("범위")) {
+    return "현재 확인 필요";
+  }
+  return `현재 ${raw}`;
 }
 
 export default function KeyCoverageBaselineRail({
@@ -29,33 +50,33 @@ export default function KeyCoverageBaselineRail({
   onClose = null,
   onSelectItem = null,
 }) {
-  const counts = baseline?.counts || {
-    met: 0,
-    short: 0,
-    need: 0,
-    overlap: 0,
-    tablePending: 0,
-  };
-  const items = Array.isArray(baseline?.items) ? baseline.items : [];
+  const items = resolveRows(baseline);
+  const allPending = items.every(
+    (row) => row.status === BASELINE_STATUS.TABLE_PENDING || !row.showCompareBar,
+  );
+  const summaryLine = allPending
+    ? "7개 항목 · 업계 기준 확인 중"
+    : `7개 항목 · 충족 ${baseline?.counts?.met ?? 0} · 미달 ${baseline?.counts?.short ?? 0}`;
 
   return (
     <aside
       aria-label="KEY 업계누적 보장 기준선"
       style={{
-        width: "285px",
-        maxWidth: "285px",
+        width: "280px",
+        maxWidth: "280px",
         flexShrink: 0,
         background: LG.bg,
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
+        height: "100%",
         overflow: "hidden",
         ...style,
       }}
     >
       <div
         style={{
-          padding: "18px 14px 10px",
+          padding: "14px 12px 8px",
           flexShrink: 0,
           display: "flex",
           alignItems: "flex-start",
@@ -63,19 +84,19 @@ export default function KeyCoverageBaselineRail({
           gap: "8px",
         }}
       >
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
-              fontSize: "15px",
+              fontSize: "14px",
               fontWeight: 750,
               color: LG.navy,
-              lineHeight: 1.35,
+              lineHeight: 1.3,
             }}
           >
             KEY 업계누적 보장 기준선
           </div>
-          <div style={{ marginTop: "4px", fontSize: "12px", color: LG.textMuted }}>
-            읽기 전용 · 답변을 바꾸지 않습니다
+          <div style={{ marginTop: "5px", fontSize: "12px", color: LG.textMuted, lineHeight: 1.35 }}>
+            {summaryLine}
           </div>
         </div>
         {typeof onClose === "function" ? (
@@ -91,6 +112,7 @@ export default function KeyCoverageBaselineRail({
               fontSize: "18px",
               lineHeight: 1,
               padding: "2px 4px",
+              flexShrink: 0,
             }}
           >
             ✕
@@ -100,78 +122,118 @@ export default function KeyCoverageBaselineRail({
 
       <div
         style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "hidden",
+          padding: "4px 10px 0",
           display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          padding: "0 14px 12px",
-          flexShrink: 0,
+          flexDirection: "column",
+          gap: "6px",
         }}
       >
-        <CountChip label="충족" value={counts.met} color={LG.verified} bg={LG.verifiedBg} />
-        <CountChip label="미달" value={counts.short} color={LG.needs} bg={LG.needsBg} />
-        <CountChip label="확인 필요" value={counts.need} color={LG.needCheck} bg={LG.needCheckBg} />
-        <CountChip label="중복 점검" value={counts.overlap} color={LG.overlap} bg={LG.overlapBg} />
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 16px" }}>
         {items.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => onSelectItem?.(item)}
             style={{
+              flex: "1 1 0",
+              minHeight: 0,
+              maxHeight: "72px",
               width: "100%",
               textAlign: "left",
               border: `1px solid ${LG.border}`,
               cursor: "pointer",
               background: LG.surface,
-              borderRadius: "14px",
-              padding: "12px 12px",
-              marginBottom: "8px",
+              borderRadius: "12px",
+              padding: "8px 10px",
               fontFamily: LG.sans,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
-            <div
+            <span
+              aria-hidden="true"
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "8px",
-                alignItems: "flex-start",
-                marginBottom: "8px",
+                width: "22px",
+                height: "22px",
+                borderRadius: "7px",
+                background: LG.accentSoft,
+                color: LG.accent,
+                display: "grid",
+                placeItems: "center",
+                fontSize: "11px",
+                flexShrink: 0,
               }}
             >
-              <div style={{ fontSize: "13px", fontWeight: 700, color: LG.navy, lineHeight: 1.35 }}>
-                {item.label || item.shortLabel}
-              </div>
-              <span
+              {ROW_ICONS[item.id] || "·"}
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
                 style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: item.statusColor,
-                  background: item.statusBg || LG.needCheckBg,
-                  borderRadius: "999px",
-                  padding: "3px 8px",
-                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "6px",
                 }}
               >
-                {item.status}
-              </span>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: LG.navy,
+                    lineHeight: 1.25,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {item.label || item.shortLabel}
+                </div>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    color: item.statusColor || LG.needCheck,
+                    background: item.statusBg || LG.needCheckBg,
+                    borderRadius: "999px",
+                    padding: "2px 7px",
+                    flexShrink: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.status || BASELINE_STATUS.TABLE_PENDING}
+                </span>
+              </div>
+              <div
+                style={{
+                  marginTop: "3px",
+                  fontSize: "12px",
+                  color: LG.textMuted,
+                  lineHeight: 1.25,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {currentLine(item)}
+              </div>
             </div>
-            <div style={{ fontSize: "13px", color: LG.text, lineHeight: 1.45, marginBottom: "4px" }}>
-              <span style={{ color: LG.textMuted }}>현재 </span>
-              <strong style={{ fontWeight: 700, color: LG.navy }}>{item.currentDisplay}</strong>
-            </div>
-            <div style={{ fontSize: "12px", color: LG.textMuted, lineHeight: 1.45 }}>
-              {item.showCompareBar ? `업계 구간 ${item.industryRangeDisplay}` : "업계 기준 확인 중"}
-            </div>
-            {/* No progress / shortfall math while industry table is null. */}
-            {item.showCompareBar ? null : null}
           </button>
         ))}
-        <p style={{ margin: "8px 4px 0", fontSize: "11px", color: LG.textMuted, lineHeight: 1.5 }}>
-          기준자료가 없는 항목은 「{BASELINE_STATUS.TABLE_PENDING}」입니다. 미확인을 미달·0원으로 보지
-          않습니다.
-        </p>
+      </div>
+
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "8px 12px 12px",
+          fontSize: "11px",
+          color: LG.textMuted,
+          lineHeight: 1.4,
+        }}
+      >
+        미확인은 미달·0원이 아닙니다. 판매 권유를 하지 않습니다.
       </div>
     </aside>
   );

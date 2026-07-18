@@ -49,8 +49,8 @@ export default function KeyMyInsuranceRail({
     <aside
       aria-label="나의 보험 현황"
       style={{
-        width: "255px",
-        maxWidth: "255px",
+        width: "245px",
+        maxWidth: "245px",
         flexShrink: 0,
         background: LG.bg,
         display: "flex",
@@ -60,22 +60,22 @@ export default function KeyMyInsuranceRail({
         ...style,
       }}
     >
-      <div style={{ padding: "22px 18px 10px", flexShrink: 0 }}>
+      <div style={{ padding: "14px 12px 8px", flexShrink: 0 }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: "8px",
-            marginBottom: "8px",
+            marginBottom: "6px",
           }}
         >
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "10px",
-              fontSize: "18px",
+              gap: "8px",
+              fontSize: "15px",
               fontWeight: 750,
               color: LG.navy,
               fontFamily: LG.sans,
@@ -134,15 +134,15 @@ export default function KeyMyInsuranceRail({
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px 20px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px 12px" }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "12px",
-            padding: "14px 14px",
-            marginBottom: "14px",
-            borderRadius: "16px",
+            gap: "10px",
+            padding: "10px 12px",
+            marginBottom: "10px",
+            borderRadius: "14px",
             background: LG.surface,
             border: `1px solid ${LG.border}`,
           }}
@@ -199,12 +199,12 @@ export default function KeyMyInsuranceRail({
                   : undefined
               }
               style={{
-                borderRadius: "16px",
-                padding: "16px 14px",
+                borderRadius: "14px",
+                padding: "12px 12px",
                 background: LG.surface,
-                marginBottom: "12px",
+                marginBottom: "8px",
                 border: `1px solid ${LG.border}`,
-                minHeight: "88px",
+                minHeight: "72px",
                 cursor: clickable ? "pointer" : "default",
               }}
             >
@@ -220,27 +220,27 @@ export default function KeyMyInsuranceRail({
                   <div
                     style={{
                       fontWeight: 750,
-                      fontSize: "16px",
+                      fontSize: "14px",
                       color: LG.navy,
-                      marginBottom: "4px",
-                      lineHeight: 1.35,
+                      marginBottom: "3px",
+                      lineHeight: 1.3,
                     }}
                   >
                     {row.insurer_name ?? "보험사 미확인"}
                   </div>
                   <div
                     style={{
-                      fontSize: "14px",
+                      fontSize: "12px",
                       color: row.product_name ? LG.textMuted : LG.needs,
-                      lineHeight: 1.4,
-                      marginBottom: "12px",
+                      lineHeight: 1.35,
+                      marginBottom: "8px",
                     }}
                   >
                     {row.product_name || "상품명 확인 필요"}
                   </div>
                   <div
                     style={{
-                      fontSize: "16px",
+                      fontSize: "14px",
                       fontWeight: 750,
                       color: premium ? LG.navy : LG.needs,
                       letterSpacing: "-0.01em",
