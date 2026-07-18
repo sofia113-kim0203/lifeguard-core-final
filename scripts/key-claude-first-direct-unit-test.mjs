@@ -39,22 +39,13 @@ import {
   buildAssistantTurnMetadata,
 } from "../src/lib/lifeguardChatSessionCore.js";
 import {
-  parseRotationQuarterTurns,
-  normalizeQuarterTurns,
-  quarterTurnsToDegrees,
-  normalizeImageRotationDegrees,
-  readJpegSizeFromBuffer,
-  requestHasForbiddenClientImageBytes,
-  detectImageSignature,
-  buildPreviewOrientationHint,
-  buildAttachOpsSignals,
-} from "../server/keyCore/keyClaudeImageOrient.js";
-import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicPdfDocumentBlock,
   buildAnthropicImageBlock,
   verifyAndFetchCustomerPdfOriginal,
   normalizeClaudeDirectAttachMediaType,
+  requestHasForbiddenClientImageBytes,
+  buildAttachOpsSignals,
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
 import {
   isChatPdfFile,
@@ -66,13 +57,14 @@ import { createHash } from "node:crypto";
 
 {
   const root = dirname(fileURLToPath(import.meta.url));
-  const orientSrc = readFileSync(join(root, "../server/keyCore/keyClaudeImageOrient.js"), "utf8");
   const directSrc = readFileSync(join(root, "../server/keyCore/keyClaudeFirstDirect.js"), "utf8");
-  assert.equal(/jpeg-js|pngjs|jpeg\.decode|jpeg\.encode|PNG\.sync/.test(orientSrc), false);
   assert.equal(
-    /rotateImageBufferQuarterTurns|jpeg-js|pngjs|server_ephemeral_rotate/.test(directSrc),
+    /keyClaudeImageOrient|preview_orientation_hint|rotation_quarter_turns|rotateImageBufferQuarterTurns|jpeg-js|pngjs|server_ephemeral_rotate/.test(
+      directSrc,
+    ),
     false,
   );
+  assert.equal(/지금 바로 말한다/.test(directSrc), false);
 }
 
 assert.equal(
@@ -490,32 +482,23 @@ assert.equal(
   attachPayload.available_verified_evidence?.personal?.subject_type,
   "individual",
 );
-assert.equal(
-  attachPayload.available_verified_evidence?.personal?.chart?.policy_count?.value,
-  22,
+assert.equal(attachPayload.available_verified_evidence?.personal?.chart, null);
+assert.deepEqual(
+  attachPayload.available_verified_evidence?.personal?.key_confirmed_source_facts,
+  [],
 );
 assert.equal(attachPayload.available_verified_evidence?.documents?.[0]?.attached, true);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(
+    attachPayload.available_verified_evidence?.documents?.[0] ?? {},
+    "preview_orientation_hint",
+  ),
+  false,
+);
 assert.deepEqual(attachPayload.available_verified_evidence?.public_evidence, []);
 assert.equal(Object.prototype.hasOwnProperty.call(attachPayload, "verified_customer_chart"), false);
 
-// --- rotation_quarter_turns trust policy (safe 0 for invalid) ---
-assert.equal(parseRotationQuarterTurns(0), 0);
-assert.equal(parseRotationQuarterTurns(1), 1);
-assert.equal(parseRotationQuarterTurns(2), 2);
-assert.equal(parseRotationQuarterTurns(3), 3);
-assert.equal(parseRotationQuarterTurns("0"), 0);
-assert.equal(parseRotationQuarterTurns("3"), 3);
-assert.equal(parseRotationQuarterTurns(-1), 0);
-assert.equal(parseRotationQuarterTurns(4), 0);
-assert.equal(parseRotationQuarterTurns(1.5), 0);
-assert.equal(parseRotationQuarterTurns("90"), 0);
-assert.equal(parseRotationQuarterTurns("abc"), 0);
-assert.equal(parseRotationQuarterTurns(null), 0);
-assert.equal(normalizeQuarterTurns(2), 2);
-assert.equal(quarterTurnsToDegrees(1), 90);
-assert.equal(normalizeImageRotationDegrees(90), 90);
-assert.equal(normalizeImageRotationDegrees(45), 0);
-
+// --- Storage original image attach (no rotate / no orientation hint) ---
 assert.equal(requestHasForbiddenClientImageBytes({}), false);
 assert.equal(
   requestHasForbiddenClientImageBytes({ claude_upright_image_base64: "abc" }),
@@ -530,21 +513,10 @@ assert.equal(
   true,
 );
 
-const tinyJpeg = Buffer.from([
-  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
-  0x00, 0x01, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x20, 0x00, 0x40, 0x01, 0x01, 0x11,
-  0x00, 0xff, 0xd9,
-]);
-const jpegSize = readJpegSizeFromBuffer(tinyJpeg);
-assert.equal(jpegSize?.width, 64);
-assert.equal(jpegSize?.height, 32);
-
-// Synthetic 4x2 JPEG (distinct pixels) for rotate geometry
 function sha256Hex(buf) {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-// Fixed JPEG fixtures (no jpeg-js/pngjs in product or tests).
 const srcJpeg = Buffer.from(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAf/AABEIAAQACAMBEQACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APx3tLS1sLW2sbG2t7KysreG0s7O0hjt7W0tbeNYbe2treFUigt4IkSKGGJEjijRURVVQA23JuUm222227tt6ttvVtvVt7iSSSSSSSSSSsklokktEktkf//Z",
   "base64",
@@ -555,36 +527,28 @@ const validJpeg8 = Buffer.from(
 );
 const clientB64 = validJpeg8.toString("base64");
 
-assert.equal(detectImageSignature(srcJpeg), "jpeg");
-assert.equal(buildPreviewOrientationHint(0), null);
-assert.match(buildPreviewOrientationHint(1), /시계 방향으로 1회/);
-assert.match(buildPreviewOrientationHint(1), /Storage 원본/);
-assert.equal(buildPreviewOrientationHint(1).includes("똑바로"), false);
-
 const storageB64 = srcJpeg.toString("base64");
 const storageHash = sha256Hex(srcJpeg);
-for (const turns of [0, 1, 2, 3]) {
-  const built = buildClaudeImageAttachFromStorageOriginal({
-    storageBase64: storageB64,
-    storageMediaType: "image/jpeg",
-    rotationQuarterTurns: turns,
-  });
-  assert.equal(built.ok, true, `turns=${turns} must attach`);
-  assert.equal(built.claude_image_source, "storage_original");
-  assert.equal(built.rotated, false);
-  assert.equal(built.base64, storageB64);
-  assert.equal(sha256Hex(Buffer.from(built.base64, "base64")), storageHash);
-  assert.equal(built.attach_signals?.attachment_block_built, true);
-  assert.equal(built.attach_signals?.attachment_attached, true);
-  assert.equal(built.attach_signals?.attachment_failed, false);
-  assert.equal(built.attach_signals?.rotation_requested, turns);
-  assert.equal(built.rotation_quarter_turns, turns);
-}
+const built = buildClaudeImageAttachFromStorageOriginal({
+  storageBase64: storageB64,
+  storageMediaType: "image/jpeg",
+});
+assert.equal(built.ok, true);
+assert.equal(built.claude_image_source, "storage_original");
+assert.equal(built.rotated, false);
+assert.equal(built.base64, storageB64);
+assert.equal(sha256Hex(Buffer.from(built.base64, "base64")), storageHash);
+assert.equal(built.attach_signals?.attachment_block_built, true);
+assert.equal(built.attach_signals?.attachment_attached, true);
+assert.equal(built.attach_signals?.attachment_failed, false);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(built.attach_signals ?? {}, "rotation_requested"),
+  false,
+);
 
 const builtMissing = buildClaudeImageAttachFromStorageOriginal({
   storageBase64: "",
   storageMediaType: "image/jpeg",
-  rotationQuarterTurns: 1,
 });
 assert.equal(builtMissing.ok, false);
 assert.equal(builtMissing.attach_signals?.attachment_failed, true);
@@ -593,10 +557,8 @@ assert.equal(builtMissing.attach_signals?.attachment_failure_code, "storage_imag
 const builtMime = buildClaudeImageAttachFromStorageOriginal({
   storageBase64: storageB64,
   storageMediaType: "image/heic",
-  rotationQuarterTurns: 1,
 });
 assert.equal(builtMime.ok, false);
-// Unsupported MIME normalizes to null → treated as missing attach media.
 assert.equal(builtMime.attach_signals?.attachment_failure_code, "storage_image_missing");
 assert.equal(builtMime.reason, "storage_image_missing");
 
@@ -606,13 +568,11 @@ assert.equal(
     attachment_attached: false,
     attachment_failed: true,
     attachment_failure_code: "block_build_failed",
-    rotation_requested: 2,
     attachment_block_built: false,
-  }).rotation_requested,
-  2,
+  }).attachment_failure_code,
+  "block_build_failed",
 );
 
-// client raw base64 must never be selected even if somehow passed elsewhere
 assert.equal(
   requestHasForbiddenClientImageBytes({
     document_id: "doc-x",
@@ -623,7 +583,7 @@ assert.equal(
 
 const promptTable = buildSystemPrompt();
 assert.match(promptTable, /보험 AI KEY/);
-assert.equal(/orientation|independently|column/i.test(promptTable), false);
+assert.equal(/orientation|independently|column|지금 바로 말한다/i.test(promptTable), false);
 
 {
   const payload = buildUserPayload({
@@ -633,13 +593,16 @@ assert.equal(/orientation|independently|column/i.test(promptTable), false);
     pdfMeta: {
       attached: true,
       mime_type: "image/jpeg",
-      rotation_quarter_turns: 1,
       document_id: "doc-hint",
     },
   });
-  assert.match(
-    payload.available_verified_evidence.documents[0].preview_orientation_hint,
-    /시계 방향으로 1회/,
+  assert.equal(payload.available_verified_evidence.personal.chart, null);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      payload.available_verified_evidence.documents[0],
+      "preview_orientation_hint",
+    ),
+    false,
   );
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
 }
@@ -838,15 +801,27 @@ const chartPolicies = {
   let claudeCalls = 0;
   let imageB64FromClaude = null;
   let sawHint = false;
+  let sawChartObject = false;
+  let sawFillPressure = false;
   const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
     const body = JSON.parse(String(opts?.body ?? "{}"));
     const content = body?.messages?.[0]?.content;
+    const system = String(body?.system ?? "");
+    sawFillPressure = /지금 바로 말한다/.test(system);
     if (Array.isArray(content)) {
       const img = content.find((b) => b?.type === "image");
       imageB64FromClaude = img?.source?.data ?? null;
       const text = content.find((b) => b?.type === "text")?.text ?? "";
-      sawHint = /시계 방향으로 1회/.test(text) && /Storage 원본/.test(text);
+      sawHint = /시계 방향으로|preview_orientation_hint/.test(text);
+      try {
+        const payload = JSON.parse(text);
+        sawChartObject =
+          payload?.available_verified_evidence?.personal?.chart != null &&
+          typeof payload.available_verified_evidence.personal.chart === "object";
+      } catch {
+        sawChartObject = /"insurer"\s*:\s*"삼성생명"/.test(text);
+      }
     }
     return {
       ok: true,
@@ -868,7 +843,6 @@ const chartPolicies = {
     loadedContext: chartPolicies,
     customerId: "cust-a",
     attachedDocumentId: "doc-rot-ok",
-    rotationQuarterTurns: 1,
     userSupabase: makeAttachSupabase({
       document: {
         id: "doc-rot-ok",
@@ -883,7 +857,7 @@ const chartPolicies = {
     env: failClosedEnv,
     fetchImpl,
   });
-  assert.equal(claudeCalls, 1, "turns=1 must call Claude-first once (no rotate fail-closed)");
+  assert.equal(claudeCalls, 1, "image original read must call Claude once (no rewrite call)");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(
     result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
@@ -891,13 +865,18 @@ const chartPolicies = {
   );
   assert.equal(imageB64FromClaude, validJpeg8.toString("base64"));
   assert.equal(sha256Hex(Buffer.from(imageB64FromClaude, "base64")), sha256Hex(validJpeg8));
-  assert.equal(sawHint, true);
+  assert.equal(sawHint, false);
+  assert.equal(sawChartObject, false);
+  assert.equal(sawFillPressure, false);
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
   assert.equal(signals?.attachment_attached, true);
   assert.equal(signals?.attachment_failed, false);
-  assert.equal(signals?.rotation_requested, 1);
   assert.equal(signals?.attachment_block_built, true);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(signals ?? {}, "rotation_requested"),
+    false,
+  );
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.image_rotate_observation,
     undefined,
@@ -1166,7 +1145,6 @@ const chartPolicies = {
     loadedContext: chartPolicies,
     customerId: "cust-a",
     attachedDocumentId: "doc-ok-jpg",
-    rotationQuarterTurns: 0,
     userSupabase: makeAttachSupabase({
       document: {
         id: "doc-ok-jpg",

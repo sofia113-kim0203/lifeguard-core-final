@@ -49,8 +49,9 @@ export default async function handler(req, res) {
     const attachedDocumentId = String(
       body?.document_id ?? body?.documentId ?? body?.attached_document_id ?? "",
     ).trim() || null;
-    const { requestHasForbiddenClientImageBytes, parseRotationQuarterTurns } =
-      await import("../server/keyCore/keyClaudeImageOrient.js");
+    const { requestHasForbiddenClientImageBytes } = await import(
+      "../server/keyCore/keyClaudeFullDocumentDirect.js"
+    );
     if (requestHasForbiddenClientImageBytes(body)) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
@@ -63,9 +64,6 @@ export default async function handler(req, res) {
       );
       return;
     }
-    const rotationQuarterTurns = parseRotationQuarterTurns(
-      body?.rotation_quarter_turns ?? body?.rotationQuarterTurns ?? 0,
-    );
     const priorAttachFollowUp = Boolean(
       body?.prior_attach_follow_up ?? body?.priorAttachFollowUp ?? false,
     );
@@ -125,7 +123,6 @@ export default async function handler(req, res) {
         question,
         history,
         attachedDocumentId,
-        rotationQuarterTurns,
         priorAttachFollowUp,
         shadowVisualBlocksOverride,
         accessToken: authHeader,
@@ -151,7 +148,6 @@ export default async function handler(req, res) {
       question,
       history,
       attachedDocumentId,
-      rotationQuarterTurns,
       priorAttachFollowUp,
       shadowVisualBlocksOverride,
       accessToken: authHeader,

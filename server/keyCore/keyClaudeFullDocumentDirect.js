@@ -41,6 +41,48 @@ export function isClaudeDirectImageMediaType(mimeType) {
   return mime === CLAUDE_FULL_JPEG_MEDIA_TYPE || mime === CLAUDE_FULL_PNG_MEDIA_TYPE;
 }
 
+/** True when request body tries to inject client image bytes for Claude. */
+export function requestHasForbiddenClientImageBytes(body = {}) {
+  if (!body || typeof body !== "object") return false;
+  const keys = [
+    "claude_upright_image_base64",
+    "claudeUprightImageBase64",
+    "claude_upright_image",
+    "claudeUprightImage",
+    "attach_image_base64",
+    "image_base64",
+  ];
+  for (const k of keys) {
+    const v = body[k];
+    if (v == null) continue;
+    if (typeof v === "string" && v.trim()) return true;
+    if (typeof v === "object" && String(v.base64 ?? "").trim()) return true;
+  }
+  return false;
+}
+
+/**
+ * Minimal attach ops signals (no orientation / no decode detail / no PII).
+ */
+export function buildAttachOpsSignals({
+  attachment_requested = false,
+  attachment_attached = false,
+  attachment_failed = false,
+  attachment_failure_code = null,
+  attachment_block_built = false,
+} = {}) {
+  const failed = attachment_failed === true;
+  return {
+    attachment_requested: attachment_requested === true,
+    attachment_attached: attachment_attached === true,
+    attachment_failed: failed,
+    attachment_failure_code: failed
+      ? String(attachment_failure_code ?? "attach_failed").slice(0, 80)
+      : null,
+    attachment_block_built: attachment_block_built === true,
+  };
+}
+
 /**
  * Redacted attach metrics — never include bytes/base64/url/storage_path.
  */

@@ -17,11 +17,6 @@ import {
 } from "../lib/customerDocuments.js";
 import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.js";
 import {
-  normalizeQuarterTurns,
-  quarterTurnsToDegrees,
-  wrapQuarterTurns,
-} from "../lib/chatImageOrient.js";
-import {
   clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
   isReusableActiveAttachmentId,
@@ -422,11 +417,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [chatAttachError, setChatAttachError] = useState("");
   const [chatAttachPreviewUrl, setChatAttachPreviewUrl] = useState("");
   const [chatAttachIsImage, setChatAttachIsImage] = useState(false);
-  const [chatAttachQuarterTurns, setChatAttachQuarterTurns] = useState(0);
   // Conversation-scoped active attachment (survives composer clear).
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
-  const [activeRotationQuarterTurns, setActiveRotationQuarterTurns] = useState(0);
   const [messages, setMessages] = useState([]);
   const [threads, setThreads] = useState([]);
   const [sessionId, setSessionId] = useState(() => createLifeguardSessionId());
@@ -819,11 +812,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           if (active) {
             setActiveAttachmentId(active.active_attachment_id);
             setActiveAttachmentMime(active.active_attachment_mime);
-            setActiveRotationQuarterTurns(active.active_rotation_quarter_turns);
           } else {
             setActiveAttachmentId(null);
             setActiveAttachmentMime(null);
-            setActiveRotationQuarterTurns(0);
           }
           setPanelView("chat");
         } else if (seed.length > 0) {
@@ -833,13 +824,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           if (fromSnap && String(snapshot?.sessionId) === String(activeId)) {
             setActiveAttachmentId(fromSnap.active_attachment_id);
             setActiveAttachmentMime(fromSnap.active_attachment_mime);
-            setActiveRotationQuarterTurns(fromSnap.active_rotation_quarter_turns);
           }
           setPanelView("chat");
         } else {
           setActiveAttachmentId(null);
           setActiveAttachmentMime(null);
-          setActiveRotationQuarterTurns(0);
         }
 
         setThreadRestoreReady(true);
@@ -879,11 +868,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         if (active) {
           setActiveAttachmentId(active.active_attachment_id);
           setActiveAttachmentMime(active.active_attachment_mime);
-          setActiveRotationQuarterTurns(active.active_rotation_quarter_turns);
         } else {
           setActiveAttachmentId(null);
           setActiveAttachmentMime(null);
-          setActiveRotationQuarterTurns(0);
         }
         writeLifeguardChatSnapshot(customerId, {
           sessionId: targetSessionId,
@@ -894,7 +881,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         setMessages([]);
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
-        setActiveRotationQuarterTurns(0);
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
@@ -914,12 +900,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     }
 
     const composerDocumentId = chatAttachDocumentId;
-    const composerTurns = chatAttachQuarterTurns;
     const composerIsImage = chatAttachIsImage;
     const composerFilename = chatAttachFilename;
 
     let documentIdForTurn = composerDocumentId;
-    let attachTurnsForTurn = composerTurns;
     let attachIsImageForTurn = composerIsImage;
     let attachMimeForTurn = composerIsImage
       ? "image/jpeg"
@@ -933,7 +917,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     if (!documentIdForTurn && activeAttachmentId) {
       if (isReusableActiveAttachmentId(activeAttachmentId, documents)) {
         documentIdForTurn = activeAttachmentId;
-        attachTurnsForTurn = activeRotationQuarterTurns;
         attachMimeForTurn = activeAttachmentMime;
         attachIsImageForTurn =
           !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
@@ -941,7 +924,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       } else {
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
-        setActiveRotationQuarterTurns(0);
         if (customerId) {
           writeLifeguardChatSnapshot(customerId, {
             sessionId,
@@ -982,7 +964,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             ? {
                 active_attachment_id: activeAttachmentId,
                 active_attachment_mime: activeAttachmentMime,
-                active_rotation_quarter_turns: activeRotationQuarterTurns,
+                active_rotation_quarter_turns: 0,
               }
             : null,
         });
@@ -991,12 +973,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       let streamedText = "";
       let receivedDelta = false;
       let attachOptions = documentIdForTurn ? { documentId: documentIdForTurn } : {};
-      if (documentIdForTurn && attachIsImageForTurn) {
-        attachOptions = {
-          ...attachOptions,
-          rotationQuarterTurns: normalizeQuarterTurns(attachTurnsForTurn),
-        };
-      }
       // Reused active attachment — server re-verifies ownership (no latest-doc invent).
       if (reusedActiveAttachment) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
@@ -1116,22 +1092,20 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         // Keep already-shown "(첨부: …)" message text in completedMessages.
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
-        setActiveRotationQuarterTurns(0);
         nextActive = null;
       } else if (documentIdForTurn) {
         nextActive = {
           active_attachment_id: documentIdForTurn,
           active_attachment_mime: attachMimeForTurn,
-          active_rotation_quarter_turns: normalizeQuarterTurns(attachTurnsForTurn),
+          active_rotation_quarter_turns: 0,
         };
         setActiveAttachmentId(documentIdForTurn);
         setActiveAttachmentMime(attachMimeForTurn);
-        setActiveRotationQuarterTurns(normalizeQuarterTurns(attachTurnsForTurn));
       } else if (activeAttachmentId) {
         nextActive = {
           active_attachment_id: activeAttachmentId,
           active_attachment_mime: activeAttachmentMime,
-          active_rotation_quarter_turns: activeRotationQuarterTurns,
+          active_rotation_quarter_turns: 0,
         };
       }
 
@@ -1193,7 +1167,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setError("");
     setActiveAttachmentId(null);
     setActiveAttachmentMime(null);
-    setActiveRotationQuarterTurns(0);
     clearComposerAttach();
     setPanelView("chat");
     setSidebarOpen(false);
@@ -1216,7 +1189,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setChatAttachError("");
     setAttachHint("");
     setChatAttachIsImage(false);
-    setChatAttachQuarterTurns(0);
     setChatAttachPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return "";
@@ -1227,7 +1199,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const clearActiveAttachment = () => {
     setActiveAttachmentId(null);
     setActiveAttachmentMime(null);
-    setActiveRotationQuarterTurns(0);
     if (customerId) {
       writeLifeguardChatSnapshot(customerId, {
         sessionId,
@@ -1249,7 +1220,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         {
           active_attachment_id: activeAttachmentId,
           active_attachment_mime: activeAttachmentMime,
-          active_rotation_quarter_turns: activeRotationQuarterTurns,
+          active_rotation_quarter_turns: 0,
         },
         deleted,
       );
@@ -1257,7 +1228,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       if (activeMatchesDeleted || (!nextActive && activeAttachmentId)) {
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
-        setActiveRotationQuarterTurns(0);
         if (customerId) {
           writeLifeguardChatSnapshot(customerId, {
             sessionId,
@@ -1271,7 +1241,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       chatAttachDocumentId,
       activeAttachmentId,
       activeAttachmentMime,
-      activeRotationQuarterTurns,
       customerId,
       sessionId,
       messages,
@@ -1388,7 +1357,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setChatAttachUploading(true);
     setChatAttachError("");
     setAttachHint("");
-    setChatAttachQuarterTurns(0);
     const isImage = String(file.type || "").startsWith("image/");
     setChatAttachIsImage(isImage);
     setChatAttachPreviewUrl((prev) => {
@@ -1957,52 +1925,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                         borderRadius: "8px",
                         background: "#fff",
                         border: `1px solid ${LG.border}`,
-                        transform: `rotate(${quarterTurnsToDegrees(chatAttachQuarterTurns)}deg)`,
                       }}
                     />
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: 0, flex: 1 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
                         첨부됨: {chatAttachFilename || "이미지"}
                       </span>
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChatAttachQuarterTurns((t) => wrapQuarterTurns(t - 1))
-                          }
-                          style={{
-                            border: `1px solid ${LG.border}`,
-                            background: LG.surface,
-                            borderRadius: "8px",
-                            padding: "4px 8px",
-                            cursor: "pointer",
-                            fontSize: "12px",
-                            fontFamily: LG.sans,
-                          }}
-                        >
-                          왼쪽 90°
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChatAttachQuarterTurns((t) => wrapQuarterTurns(t + 1))
-                          }
-                          style={{
-                            border: `1px solid ${LG.border}`,
-                            background: LG.surface,
-                            borderRadius: "8px",
-                            padding: "4px 8px",
-                            cursor: "pointer",
-                            fontSize: "12px",
-                            fontFamily: LG.sans,
-                          }}
-                        >
-                          오른쪽 90°
-                        </button>
-                        <span style={{ color: LG.textMuted, fontSize: "12px" }}>
-                          {quarterTurnsToDegrees(chatAttachQuarterTurns)}°
-                        </span>
-                      </div>
                     </div>
                   </div>
                 ) : (

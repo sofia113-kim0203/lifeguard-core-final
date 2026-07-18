@@ -22,14 +22,8 @@ import {
   CLAUDE_FULL_PDF_MAX_BYTES,
   isClaudeDirectImageMediaType,
   normalizeClaudeDirectAttachMediaType,
-} from "./keyClaudeFullDocumentDirect.js";
-import {
-  parseRotationQuarterTurns,
-  quarterTurnsToDegrees,
-  readImageSizeFromBuffer,
-  buildPreviewOrientationHint,
   buildAttachOpsSignals,
-} from "./keyClaudeImageOrient.js";
+} from "./keyClaudeFullDocumentDirect.js";
 import {
   isPriorAttachFollowUpQuestion,
   PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
@@ -253,23 +247,27 @@ export const RECORD_CLAIM_CASE_UPDATES_TOOL = Object.freeze({
   },
 });
 
+/** PDF-only internal tool hint — never used for image original reads. */
 function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
   const docId =
     pdfMeta?.document_id != null && String(pdfMeta.document_id).trim()
       ? String(pdfMeta.document_id).trim()
       : null;
   return [
-    "원본 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
+    "원본 PDF 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
     "접수·예고 문장으로 답하지 않는다. '기록하고 분석하겠습니다', '먼저 확인하겠습니다', '분석해 드릴게요'처럼 나중에 하겠다는 말은 금지한다.",
-    "원본에서 보이는 보험회사명·상품명·보험료·계약일·담보·보장금액·갱신 여부를 지금 바로 말한다. 안 보이면 확인되지 않음으로 말한다.",
     "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 보관한다. 이 도구는 고객에게 말하지 않는다.",
     "같은 응답에서 담보별 KEY 7개 기준선 분석은 record_coverage_baseline_facts로 내부 보관한다. 고객에게 도구명·JSON·내부 필드명을 말하지 않는다.",
     "기준선 귀속: 일반암 정액 진단비→cancer_diagnosis, 광의 뇌혈관/허혈성심장 진단비→각 진단비, 일반 질병·상해 수술→surgery, 암 수술·항암·방사선·표적·면역→major_treatment+cancer, 뇌혈관·허혈성심장 치료 명시→major_treatment+brain_heart, 유사암·모호한 로봇수술만→baseline_item_id null + unresolved_reason.",
     "한 담보는 baseline_item_id 하나만. cancer와 brain_heart를 동시에 지정하지 않는다. 수술과 주요치료에 이중 표시하지 않는다.",
-    "추측·웹검색 일반정보·고객의 '아마' 발언·추천·해석(9999세→종신, 간편가입→건강이력 등)·업계 기준금액은 기록하지 않는다.",
     "literal_value는 원문 그대로 둔다.",
     docId ? `source_document_id 기본값: ${docId}` : "source_document_id를 알면 반드시 넣는다.",
   ].join("\n");
+}
+
+function isImageAttachMeta(pdfMeta = null) {
+  const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type).toLowerCase() : "";
+  return pdfMeta?.attached === true && mime.startsWith("image/");
 }
 
 function buildClaimCaseUpdatesToolHint() {
@@ -583,9 +581,19 @@ function buildDocumentsEvidence(pdfMeta = null) {
   const attached = pdfMeta.attached === true;
   const mime = pdfMeta?.mime_type ? String(pdfMeta.mime_type) : null;
   const isImage = Boolean(mime && mime.startsWith("image/"));
-  const turns = parseRotationQuarterTurns(pdfMeta?.rotation_quarter_turns);
-  const previewHint = attached && isImage ? buildPreviewOrientationHint(turns) : null;
   if (!attached && !pdfMeta.document_id) return [];
+  // Image original reads: minimal identity only — no orientation / OCR / chart notes.
+  if (attached && isImage) {
+    return [
+      {
+        document_id: pdfMeta.document_id ?? null,
+        original_filename: pdfMeta.original_filename ?? null,
+        mime_type: mime,
+        attached: true,
+        evidence_state: "attached",
+      },
+    ];
+  }
   return [
     {
       document_id: pdfMeta.document_id ?? null,
@@ -593,12 +601,9 @@ function buildDocumentsEvidence(pdfMeta = null) {
       mime_type: mime,
       attached,
       note: attached
-        ? isImage
-          ? "Original image is attached as an image block."
-          : "Original PDF is attached as a document block."
+        ? "Original PDF is attached as a document block."
         : pdfMeta.note ?? "No document attached for this turn.",
       evidence_state: attached ? "attached" : "missing",
-      ...(previewHint ? { preview_orientation_hint: previewHint } : {}),
     },
   ];
 }
@@ -758,13 +763,51 @@ export function buildUserPayload({
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
+  const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
+
+  // Image original read: question + conversation + original image only.
+  // No factory chart / OCR / contracts / corporate / claim cards mixed in.
+  if (isImageAttachMeta(pdfMeta)) {
+    return {
+      current_question: String(question ?? ""),
+      current_context: {
+        current_datetime: clock.current_datetime,
+        current_date: clock.current_date,
+        timezone: clock.timezone,
+        conversation: {
+          recent_conversation_originals:
+            contextPack?.recent_conversation_originals ??
+            contextPack?.recent_turns ??
+            [],
+          older_conversation_summary:
+            contextPack?.older_conversation_summary ??
+            contextPack?.older_summary ??
+            null,
+          retained_past_originals: contextPack?.retained_past_originals ?? [],
+        },
+      },
+      available_verified_evidence: {
+        personal: {
+          subject_type: "individual",
+          chart: null,
+          key_confirmed_source_facts: [],
+          active_claim_cases: [],
+          provenance: null,
+          evidence_state: "unknown",
+        },
+        corporate: [],
+        documents,
+        public_evidence: [],
+      },
+    };
+  }
+
   const corporate = buildCorporateEvidenceEntries({
     corporateContexts,
     corporateGapEvidence,
     corporateRecommendationCandidates,
     corporateUnknowns,
   });
-  const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
   const keyConfirmed = Array.isArray(chart?.key_confirmed_source_facts)
     ? chart.key_confirmed_source_facts
     : [];
@@ -1136,15 +1179,12 @@ export function resolveClaudeFirstPdfDocumentId({
 
 /**
  * Build Claude image bytes from Storage original only.
- * Never trusts client-provided image bytes. Never decode/rotate/re-encode.
- * rotation_quarter_turns is recorded for UI/hint only — bytes stay Storage original.
+ * Never trusts client-provided image bytes. Never decode/rotate/resize/re-encode.
  */
 export function buildClaudeImageAttachFromStorageOriginal({
   storageBase64 = null,
   storageMediaType = null,
-  rotationQuarterTurns = 0,
 } = {}) {
-  const turns = parseRotationQuarterTurns(rotationQuarterTurns);
   const stored = String(storageBase64 ?? "").trim();
   const storedMime = normalizeClaudeDirectAttachMediaType(storageMediaType);
 
@@ -1155,15 +1195,12 @@ export function buildClaudeImageAttachFromStorageOriginal({
       base64: null,
       mediaType: null,
       claude_image_source: null,
-      rotation_quarter_turns: turns,
-      image_rotation_deg: quarterTurnsToDegrees(turns),
       rotated: false,
       attach_signals: buildAttachOpsSignals({
         attachment_requested: true,
         attachment_attached: false,
         attachment_failed: true,
         attachment_failure_code: "storage_image_missing",
-        rotation_requested: turns,
         attachment_block_built: false,
       }),
     };
@@ -1174,14 +1211,11 @@ export function buildClaudeImageAttachFromStorageOriginal({
       base64: stored,
       mediaType: storedMime,
       claude_image_source: "storage_original",
-      rotation_quarter_turns: 0,
-      image_rotation_deg: 0,
       rotated: false,
       attach_signals: buildAttachOpsSignals({
         attachment_requested: true,
         attachment_attached: true,
         attachment_failed: false,
-        rotation_requested: 0,
         attachment_block_built: true,
       }),
     };
@@ -1193,15 +1227,12 @@ export function buildClaudeImageAttachFromStorageOriginal({
       base64: null,
       mediaType: storedMime,
       claude_image_source: null,
-      rotation_quarter_turns: turns,
-      image_rotation_deg: quarterTurnsToDegrees(turns),
       rotated: false,
       attach_signals: buildAttachOpsSignals({
         attachment_requested: true,
         attachment_attached: false,
         attachment_failed: true,
         attachment_failure_code: "mime_not_image",
-        rotation_requested: turns,
         attachment_block_built: false,
       }),
     };
@@ -1215,21 +1246,17 @@ export function buildClaudeImageAttachFromStorageOriginal({
       base64: null,
       mediaType: storedMime,
       claude_image_source: null,
-      rotation_quarter_turns: turns,
-      image_rotation_deg: quarterTurnsToDegrees(turns),
       rotated: false,
       attach_signals: buildAttachOpsSignals({
         attachment_requested: true,
         attachment_attached: false,
         attachment_failed: true,
         attachment_failure_code: "image_too_large",
-        rotation_requested: turns,
         attachment_block_built: false,
       }),
     };
   }
 
-  const size = readImageSizeFromBuffer(rawBuf, storedMime);
   const block = buildAnthropicDirectAttachBlock({
     base64: stored,
     mediaType: storedMime,
@@ -1241,15 +1268,12 @@ export function buildClaudeImageAttachFromStorageOriginal({
       base64: null,
       mediaType: storedMime,
       claude_image_source: null,
-      rotation_quarter_turns: turns,
-      image_rotation_deg: quarterTurnsToDegrees(turns),
       rotated: false,
       attach_signals: buildAttachOpsSignals({
         attachment_requested: true,
         attachment_attached: false,
         attachment_failed: true,
         attachment_failure_code: "block_build_failed",
-        rotation_requested: turns,
         attachment_block_built: false,
       }),
     };
@@ -1260,18 +1284,11 @@ export function buildClaudeImageAttachFromStorageOriginal({
     base64: stored,
     mediaType: storedMime,
     claude_image_source: "storage_original",
-    rotation_quarter_turns: turns,
-    image_rotation_deg: quarterTurnsToDegrees(turns),
     rotated: false,
-    source_width: size?.width ?? null,
-    source_height: size?.height ?? null,
-    width: size?.width ?? null,
-    height: size?.height ?? null,
     attach_signals: buildAttachOpsSignals({
       attachment_requested: true,
       attachment_attached: true,
       attachment_failed: false,
-      rotation_requested: turns,
       attachment_block_built: true,
     }),
   };
@@ -1284,10 +1301,8 @@ async function resolveOptionalPdfAttachment({
   unifiedState = null,
   attachedDocumentId = null,
   env = process.env,
-  rotationQuarterTurns = 0,
   allowLatestFallback = true,
 } = {}) {
-  const turns = parseRotationQuarterTurns(rotationQuarterTurns);
   const documentId = resolveClaudeFirstPdfDocumentId({
     attachedDocumentId,
     loadedContext,
@@ -1304,7 +1319,6 @@ async function resolveOptionalPdfAttachment({
           attachment_requested: false,
           attachment_attached: false,
           attachment_failed: false,
-          rotation_requested: turns,
           attachment_block_built: false,
         }),
       },
@@ -1326,13 +1340,11 @@ async function resolveOptionalPdfAttachment({
           attached: false,
           document_id: documentId,
           note: failCode,
-          rotation_quarter_turns: turns,
           attach_signals: buildAttachOpsSignals({
             attachment_requested: true,
             attachment_attached: false,
             attachment_failed: true,
             attachment_failure_code: failCode,
-            rotation_requested: turns,
             attachment_block_built: false,
           }),
         },
@@ -1351,27 +1363,19 @@ async function resolveOptionalPdfAttachment({
           mime_type: fetched.mediaType,
           storage_mime_type: fetched.mediaType,
           claude_image_source: "storage_original",
-          rotation_quarter_turns: 0,
-          image_rotation_deg: 0,
           attach_signals: buildAttachOpsSignals({
             attachment_requested: true,
             attachment_attached: true,
             attachment_failed: false,
-            rotation_requested: 0,
             attachment_block_built: true,
           }),
         },
       };
     }
 
-    const storageSize = readImageSizeFromBuffer(
-      Buffer.from(String(fetched.pdfBase64), "base64"),
-      fetched.mediaType,
-    );
     const built = buildClaudeImageAttachFromStorageOriginal({
       storageBase64: fetched.pdfBase64,
       storageMediaType: fetched.mediaType,
-      rotationQuarterTurns: turns,
     });
     if (!built.ok || !built.base64) {
       return {
@@ -1381,7 +1385,6 @@ async function resolveOptionalPdfAttachment({
           attached: false,
           document_id: documentId,
           note: built.reason ?? "image_attach_failed",
-          rotation_quarter_turns: turns,
           attach_signals:
             built.attach_signals ??
             buildAttachOpsSignals({
@@ -1389,7 +1392,6 @@ async function resolveOptionalPdfAttachment({
               attachment_attached: false,
               attachment_failed: true,
               attachment_failure_code: built.reason ?? "image_attach_failed",
-              rotation_requested: turns,
               attachment_block_built: false,
             }),
         },
@@ -1406,19 +1408,12 @@ async function resolveOptionalPdfAttachment({
         mime_type: built.mediaType,
         storage_mime_type: fetched.mediaType ?? null,
         claude_image_source: built.claude_image_source,
-        rotation_quarter_turns: built.rotation_quarter_turns,
-        image_rotation_deg: built.image_rotation_deg,
-        storage_pixel_width: storageSize?.width ?? built.source_width ?? null,
-        storage_pixel_height: storageSize?.height ?? built.source_height ?? null,
-        claude_pixel_width: built.width ?? storageSize?.width ?? null,
-        claude_pixel_height: built.height ?? storageSize?.height ?? null,
         attach_signals:
           built.attach_signals ??
           buildAttachOpsSignals({
             attachment_requested: true,
             attachment_attached: true,
             attachment_failed: false,
-            rotation_requested: turns,
             attachment_block_built: true,
           }),
       },
@@ -1431,13 +1426,11 @@ async function resolveOptionalPdfAttachment({
         attached: false,
         document_id: documentId,
         note: "attach_error",
-        rotation_quarter_turns: turns,
         attach_signals: buildAttachOpsSignals({
           attachment_requested: true,
           attachment_attached: false,
           attachment_failed: true,
           attachment_failure_code: "attach_error",
-          rotation_requested: turns,
           attachment_block_built: false,
         }),
       },
@@ -1515,9 +1508,12 @@ async function callClaudeFirstDirect({
     return { ok: false, error: "ANTHROPIC_NOT_CONFIGURED" };
   }
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
-  const chart = buildVerifiedCustomerChart(reality);
+  const imageOriginalRead = isImageAttachMeta(pdfMeta) && Boolean(pdfBase64);
+  const chart = imageOriginalRead ? null : buildVerifiedCustomerChart(reality);
   // Allowlist stays KEY-internal for hard-only — never shown in Claude payload.
-  const allowlist = collectVerifiedSpeakAllowlistFromReality(reality);
+  const allowlist = imageOriginalRead
+    ? { allowed_numbers: [], allowed_entities: [] }
+    : collectVerifiedSpeakAllowlistFromReality(reality);
   const { pack: contextPack } = buildClaudeFullContextPack({
     history,
     question,
@@ -1528,17 +1524,22 @@ async function callClaudeFirstDirect({
     chart,
     contextPack,
     pdfMeta,
-    corporateContexts,
-    corporateGapEvidence,
-    corporateRecommendationCandidates,
-    corporateUnknowns,
+    corporateContexts: imageOriginalRead ? null : corporateContexts,
+    corporateGapEvidence: imageOriginalRead ? null : corporateGapEvidence,
+    corporateRecommendationCandidates: imageOriginalRead
+      ? null
+      : corporateRecommendationCandidates,
+    corporateUnknowns: imageOriginalRead ? null : corporateUnknowns,
     publicEvidence: [],
-    activeClaimCases,
+    activeClaimCases: imageOriginalRead ? null : activeClaimCases,
     now: requestNow,
   });
   const pdfAttached = Boolean(pdfBase64);
+  const pdfOriginalAttached =
+    pdfAttached && String(pdfMediaType ?? "").toLowerCase() === "application/pdf";
   let system = buildSystemPrompt();
-  if (pdfAttached) {
+  // Image original reads: no fill-pressure / OCR / orientation instructions — question+image+context only.
+  if (pdfOriginalAttached) {
     system = `${system}\n${buildConfirmedSourceFactsToolHint(pdfMeta)}`;
   }
   const userContent = buildClaudeFullUserContentWithPdf({
@@ -1572,8 +1573,9 @@ async function callClaudeFirstDirect({
     updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
 
-  // Plain text + web_search + claim-case tool; optional facts/baseline tools when original attached.
-  const answerTools = pdfAttached
+  // Image: web_search + claim tool only (no image-fill pressure tools).
+  // PDF: keep existing facts/baseline tools. No attach: web_search + claim.
+  const answerTools = pdfOriginalAttached
     ? [
         ANTHROPIC_WEB_SEARCH_TOOL,
         RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
@@ -1790,7 +1792,6 @@ export async function runClaudeFirstDirectQuestionTurn({
   authUserId = null,
   entityContext = null,
   attachedDocumentId = null,
-  rotationQuarterTurns = 0,
   priorAttachFollowUp = false,
   env = process.env,
   fetchImpl = fetch,
@@ -1843,7 +1844,6 @@ export async function runClaudeFirstDirectQuestionTurn({
     unifiedState,
     attachedDocumentId,
     env,
-    rotationQuarterTurns,
     allowLatestFallback,
   });
 
