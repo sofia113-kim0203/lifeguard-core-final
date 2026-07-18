@@ -215,10 +215,11 @@ export default function KeyRoomVisualSeat() {
                       fontSize: "16px",
                       lineHeight: 1.7,
                       color: LG.text,
-                      background: LG.assistantBubble,
-                      borderRadius: "6px 18px 18px 18px",
-                      padding: "14px 16px",
-                      border: `1px solid ${LG.border}`,
+                      background: "transparent",
+                      border: "none",
+                      borderRadius: 0,
+                      padding: 0,
+                      boxShadow: "none",
                     }}
                   >
                     확인된 계약 기준으로 암진단비 합산이 보입니다. 오른쪽 기준선은 업계 자료가 채워지기 전에는 「기준 확인
@@ -261,17 +262,37 @@ export default function KeyRoomVisualSeat() {
           </div>
 
           {baselineOpen ? (
-            <KeyCoverageBaselineRail
-              baseline={baseline}
-              onSelectItem={(item) => setDetail(buildBaselineDetailForDrawer(item))}
+            <div
+              data-key-baseline-outer-panel="1"
               style={{
                 width: "280px",
                 maxWidth: "280px",
+                minWidth: "280px",
+                minHeight: 0,
+                height: "100%",
+                alignSelf: "stretch",
+                boxSizing: "border-box",
                 borderRadius: "16px",
-                border: `1px solid ${LG.border}`,
                 background: LG.bg,
+                border: `1px solid ${LG.border}`,
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
               }}
-            />
+            >
+              <KeyCoverageBaselineRail
+                baseline={baseline}
+                onSelectItem={(item) => setDetail(buildBaselineDetailForDrawer(item))}
+                style={{
+                  width: "100%",
+                  maxWidth: "none",
+                  flex: 1,
+                  minHeight: 0,
+                  height: "100%",
+                  background: "transparent",
+                }}
+              />
+            </div>
           ) : null}
         </div>
       </div>

@@ -1881,10 +1881,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                             fontWeight: 450,
                             lineHeight: 1.7,
                             whiteSpace: msg.thinking ? "pre-wrap" : "normal",
-                            background: msg.thinking ? "transparent" : LG.assistantBubble,
-                            borderRadius: "6px 18px 18px 18px",
-                            padding: msg.thinking ? 0 : "16px 18px",
-                            boxShadow: msg.thinking ? "none" : LG.shadowSoft,
+                            background: "transparent",
+                            border: "none",
+                            borderRadius: 0,
+                            padding: 0,
+                            boxShadow: "none",
                           }}
                         >
                           {!msg.thinking ? (
@@ -2180,18 +2181,38 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           </div>
 
           {showMirrorInline ? (
-            <KeyCoverageBaselineRail
-              baseline={coverageBaseline}
-              onClose={() => setMirrorRailOpen(false)}
-              onSelectItem={openBaselineDetail}
+            <div
+              data-key-baseline-outer-panel="1"
               style={{
                 width: "280px",
                 maxWidth: "280px",
-                borderRadius: "20px",
+                minWidth: "280px",
+                minHeight: 0,
+                height: "100%",
+                alignSelf: "stretch",
+                boxSizing: "border-box",
+                borderRadius: "16px",
                 background: LG.bg,
-                boxShadow: LG.shadowSoft,
+                border: `1px solid ${LG.border}`,
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
               }}
-            />
+            >
+              <KeyCoverageBaselineRail
+                baseline={coverageBaseline}
+                onClose={() => setMirrorRailOpen(false)}
+                onSelectItem={openBaselineDetail}
+                style={{
+                  width: "100%",
+                  maxWidth: "none",
+                  flex: 1,
+                  minHeight: 0,
+                  height: "100%",
+                  background: "transparent",
+                }}
+              />
+            </div>
           ) : null}
         </div>
       </div>
