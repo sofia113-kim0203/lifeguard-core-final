@@ -1,8 +1,7 @@
 /**
  * Right rail — KEY 업계 비교 기준선 (read-only UI).
- * Amount cards: current sum + horizontal graph.
- * Structured cards: axis 확인됨/미확인 — no money bar graphs.
- * Colors follow approved per-item + status tokens (UI only).
+ * No panel header — cards start at top. Major treatment shows 2 region lines only.
+ * Data / amounts / Claude path unchanged — display mapping only.
  */
 import {
   BASELINE_STATUS,
@@ -24,7 +23,6 @@ const PANEL = {
   sans: 'Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
 };
 
-/** Per-item color tokens (approved). */
 const ITEM_COLORS = {
   cancer_diagnosis: { main: "#EC5C76", soft: "#FFF0F4", text: "#D93D5E" },
   cerebrovascular_diagnosis: { main: "#F59A3D", soft: "#FFF4E8", text: "#D97706" },
@@ -40,7 +38,6 @@ const MAJOR_REGION_COLORS = {
   brain_heart: { main: "#4C8FEF", soft: "#EAF8F5", text: "#1F8F7A" },
 };
 
-/** Status judgment colors (badge / graph / footnote). */
 const STATUS_COLORS = {
   SHORT: { text: "#E07A3A", bg: "#FFF4E8", main: "#F59A3D" },
   MET: { text: "#2D9B63", bg: "#EDF9F2", main: "#55BE83" },
@@ -133,7 +130,22 @@ function formatCompactAmount(value) {
   return formatManwonAmount(value) || "—";
 }
 
-function ItemIcon({ itemId, size = 42 }) {
+/** UI-only: map axis status → 있음 / 없음 / 미확인 */
+function displayPresence(status) {
+  if (status === "확인됨" || status === "있음") return "있음";
+  if (status === "없음") return "없음";
+  return "미확인";
+}
+
+function regionPresence(region) {
+  const axes = Array.isArray(region?.axes) ? region.axes : [];
+  if (!axes.length) return "미확인";
+  if (axes.some((a) => a.status === "확인됨" || a.status === "있음")) return "있음";
+  if (axes.every((a) => a.status === "없음")) return "없음";
+  return "미확인";
+}
+
+function ItemIcon({ itemId, size = 40 }) {
   const tone = itemTone(itemId);
   return (
     <span
@@ -146,12 +158,37 @@ function ItemIcon({ itemId, size = 42 }) {
         color: tone.main,
         display: "grid",
         placeItems: "center",
-        fontSize: size >= 40 ? "16px" : "12px",
+        fontSize: "15px",
         fontWeight: 700,
         flexShrink: 0,
       }}
     >
       {ROW_ICONS[itemId] || "·"}
+    </span>
+  );
+}
+
+function PresenceBadge({ value, tone }) {
+  const ok = value === "있음";
+  const none = value === "없음";
+  const color = ok
+    ? tone || STATUS_COLORS.MET
+    : none
+      ? { text: "#9CA3AF", bg: "#F3F4F6" }
+      : STATUS_COLORS.CURRENT_UNKNOWN;
+  return (
+    <span
+      style={{
+        flexShrink: 0,
+        fontSize: "9px",
+        fontWeight: 700,
+        color: color.text,
+        background: color.bg,
+        borderRadius: "999px",
+        padding: "2px 7px",
+      }}
+    >
+      {value}
     </span>
   );
 }
@@ -172,7 +209,7 @@ function BaselineCompareGraph({
   const line = muted ? "#CBD5E1" : statusMain;
 
   return (
-    <div style={{ marginTop: "6px", width: "100%" }} aria-hidden="true">
+    <div style={{ marginTop: "5px", width: "100%" }} aria-hidden="true">
       <div
         style={{
           position: "relative",
@@ -221,7 +258,6 @@ function BaselineCompareGraph({
               background: line,
               border: `2px solid ${PANEL.bg}`,
               boxSizing: "border-box",
-              boxShadow: muted ? "none" : `0 0 0 1px ${line}33`,
             }}
           />
         ) : null}
@@ -230,7 +266,7 @@ function BaselineCompareGraph({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          marginTop: "4px",
+          marginTop: "3px",
           fontSize: "9px",
           color: PANEL.textMuted,
         }}
@@ -242,45 +278,46 @@ function BaselineCompareGraph({
   );
 }
 
-function AxisRow({ label, status, confirmedTone }) {
-  const ok = status === "확인됨";
-  const tone = confirmedTone || STATUS_COLORS.MET;
+function StructuredRow({ label, presence, tone, detail = null }) {
   return (
     <div
       style={{
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "space-between",
-        gap: "6px",
-        fontSize: "10px",
-        lineHeight: 1.3,
-        color: PANEL.textMuted,
+        gap: "8px",
+        fontSize: "11px",
+        lineHeight: 1.35,
       }}
     >
-      <span
-        style={{
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          color: PANEL.text,
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          flexShrink: 0,
-          fontSize: "9px",
-          fontWeight: 700,
-          color: ok ? tone.text : STATUS_COLORS.CURRENT_UNKNOWN.text,
-          background: ok ? tone.bg : STATUS_COLORS.CURRENT_UNKNOWN.bg,
-          borderRadius: "999px",
-          padding: "2px 7px",
-        }}
-      >
-        {ok ? "확인됨" : "미확인"}
-      </span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            color: PANEL.text,
+            fontWeight: 600,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {label}
+        </div>
+        {detail ? (
+          <div
+            style={{
+              marginTop: "1px",
+              fontSize: "9px",
+              color: PANEL.textMuted,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {detail}
+          </div>
+        ) : null}
+      </div>
+      <PresenceBadge value={presence} tone={tone} />
     </div>
   );
 }
@@ -293,15 +330,17 @@ function StructuredAxesBlock({ item }) {
     main: itemTone(item.id).main,
   };
 
+  // Major treatment: only two region summary lines (no detailed therapy axes).
   if (item?.id === "major_treatment" && Array.isArray(axes)) {
+    const regions =
+      axes.length > 0
+        ? axes
+        : MAJOR_TREATMENT_REGIONS.map((r) => ({ id: r.id, label: r.label, axes: [] }));
     return (
-      <div style={{ paddingLeft: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
-        {axes.map((region, idx) => {
-          const regionTone =
-            MAJOR_REGION_COLORS[region.id] ||
-            (region.id === "cancer"
-              ? MAJOR_REGION_COLORS.cancer
-              : MAJOR_REGION_COLORS.brain_heart);
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
+        {regions.map((region, idx) => {
+          const regionTone = MAJOR_REGION_COLORS[region.id] || MAJOR_REGION_COLORS.cancer;
+          const presence = regionPresence(region);
           return (
             <div
               key={region.id}
@@ -310,42 +349,11 @@ function StructuredAxesBlock({ item }) {
                 borderTop: idx === 0 ? "none" : `1px solid ${PANEL.cardBorder}`,
               }}
             >
-              <div
-                style={{
-                  fontSize: "10px",
-                  fontWeight: 750,
-                  color: regionTone.text,
-                  marginBottom: "3px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <span
-                  style={{
-                    width: "6px",
-                    height: "6px",
-                    borderRadius: "999px",
-                    background: regionTone.main,
-                    flexShrink: 0,
-                  }}
-                />
-                {region.label}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                {(region.axes || []).map((axis) => (
-                  <AxisRow
-                    key={`${region.id}-${axis.id}`}
-                    label={axis.label}
-                    status={axis.status}
-                    confirmedTone={{
-                      text: regionTone.text,
-                      bg: regionTone.soft,
-                      main: regionTone.main,
-                    }}
-                  />
-                ))}
-              </div>
+              <StructuredRow
+                label={region.label}
+                presence={presence}
+                tone={{ text: regionTone.text, bg: regionTone.soft }}
+              />
             </div>
           );
         })}
@@ -355,28 +363,28 @@ function StructuredAxesBlock({ item }) {
 
   if (!Array.isArray(axes) || !axes.length) return null;
   return (
-    <div
-      style={{
-        paddingLeft: "8px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "2px",
-      }}
-    >
-      {axes.map((axis) => (
-        <AxisRow
-          key={axis.id}
-          label={axis.label}
-          status={axis.status}
-          confirmedTone={itemConfirmed}
-        />
-      ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: "5px", marginTop: "2px" }}>
+      {axes.map((axis) => {
+        const presence = displayPresence(axis.status);
+        const detail =
+          presence === "있음" && axis.detail
+            ? String(axis.detail).slice(0, 28)
+            : null;
+        return (
+          <StructuredRow
+            key={axis.id}
+            label={axis.label}
+            presence={presence}
+            tone={itemConfirmed}
+            detail={detail}
+          />
+        );
+      })}
     </div>
   );
 }
 
 function AmountCardBody({ item }) {
-  const tone = itemTone(item.id);
   const currentAmount =
     item?.currentAmount != null && Number.isFinite(Number(item.currentAmount))
       ? Number(item.currentAmount)
@@ -402,7 +410,7 @@ function AmountCardBody({ item }) {
   const footnote = !tableReady
     ? currentAmount != null
       ? "기준 확인 중 · 업계 구간 자료 등록 후 비교"
-      : "현재 미확인 / 자료 등록 후 비교 가능"
+      : "현재 미확인 · 해지 권유 아님"
     : currentAmount == null
       ? "현재 미확인 · 해지 권유 아님"
       : statusKey === "OVERLAP"
@@ -457,7 +465,14 @@ function AmountCardBody({ item }) {
       >
         <span>
           현재{" "}
-          <strong style={{ color: PANEL.text, fontWeight: 750 }}>{currentLabel}</strong>
+          <strong
+            style={{
+              color: currentAmount == null ? STATUS_COLORS.CURRENT_UNKNOWN.text : PANEL.text,
+              fontWeight: 750,
+            }}
+          >
+            {currentLabel}
+          </strong>
         </span>
         <span>
           기준{" "}
@@ -484,9 +499,6 @@ function AmountCardBody({ item }) {
       >
         {footnote}
       </div>
-      <div style={{ fontSize: "9px", color: tone.text, opacity: 0.75, marginTop: "1px" }}>
-        {item?.industryRangeDisplay && tableReady ? `구간 ${item.industryRangeDisplay}` : ""}
-      </div>
     </>
   );
 }
@@ -495,7 +507,7 @@ function StructuredCardBody({ item }) {
   const tone = itemTone(item.id);
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
         <ItemIcon itemId={item.id} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
@@ -535,7 +547,6 @@ function BaselineCard({ item, onSelectItem }) {
   const tone = itemTone(item.id);
   return (
     <button
-      key={item.id}
       type="button"
       data-baseline-item={item.id}
       onClick={() => onSelectItem?.(item)}
@@ -548,21 +559,22 @@ function BaselineCard({ item, onSelectItem }) {
         e.currentTarget.style.borderColor = PANEL.cardBorder;
       }}
       style={{
-        flex: amount ? "0.95 1 0" : item.id === "major_treatment" ? "1.55 1 0" : "1.1 1 0",
-        minHeight: 0,
+        flexShrink: 0,
         width: "100%",
         textAlign: "left",
         border: `1px solid ${PANEL.cardBorder}`,
+        borderTop: `3px solid ${tone.main}`,
         cursor: "pointer",
         background: PANEL.bg,
-        borderRadius: "17px",
-        padding: "10px 12px",
+        borderRadius: "16px",
+        padding: "11px 12px",
         fontFamily: PANEL.sans,
         display: "flex",
         flexDirection: "column",
-        justifyContent: "center",
+        justifyContent: "flex-start",
         gap: "2px",
-        overflow: "hidden",
+        overflow: "visible",
+        boxSizing: "border-box",
         transition: "background 120ms ease, border-color 120ms ease",
       }}
     >
@@ -578,12 +590,8 @@ export default function KeyCoverageBaselineRail({
   onSelectItem = null,
 }) {
   const items = resolveRows(baseline);
-  const allPending = items.every(
-    (row) => row.status === BASELINE_STATUS.TABLE_PENDING || !row.showCompareBar,
-  );
-  const summaryLine = allPending
-    ? "7개 항목 · 업계 비교 기준 확인 중"
-    : `7개 항목 · 적정 ${baseline?.counts?.met ?? 0} · 부족 가능성 ${baseline?.counts?.short ?? 0} · 중복점검 ${baseline?.counts?.overlap ?? 0}`;
+  // onClose kept for API compat — header removed, close control not rendered.
+  void onClose;
 
   return (
     <aside
@@ -607,58 +615,15 @@ export default function KeyCoverageBaselineRail({
     >
       <div
         style={{
-          padding: "12px 12px 6px",
-          flexShrink: 0,
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: "6px",
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: "13px",
-              fontWeight: 750,
-              color: PANEL.text,
-              lineHeight: 1.25,
-            }}
-          >
-            KEY 업계 비교 기준선
-          </div>
-          <div style={{ marginTop: "3px", fontSize: "10px", color: PANEL.textMuted }}>
-            {summaryLine}
-          </div>
-        </div>
-        {typeof onClose === "function" ? (
-          <button
-            type="button"
-            aria-label="기준선 닫기"
-            onClick={onClose}
-            style={{
-              border: "none",
-              background: "transparent",
-              color: PANEL.textMuted,
-              cursor: "pointer",
-              fontSize: "16px",
-              lineHeight: 1,
-              padding: "2px",
-            }}
-          >
-            ✕
-          </button>
-        ) : null}
-      </div>
-
-      <div
-        style={{
           flex: 1,
           minHeight: 0,
-          overflow: "hidden",
-          padding: "4px 10px 0",
+          overflowY: "auto",
+          overflowX: "hidden",
+          padding: "11px 10px 0",
           display: "flex",
           flexDirection: "column",
-          gap: "12px",
+          gap: "9px",
+          boxSizing: "border-box",
         }}
       >
         {items.map((item) => (
@@ -670,9 +635,11 @@ export default function KeyCoverageBaselineRail({
         style={{
           flexShrink: 0,
           padding: "8px 12px 10px",
+          marginTop: "4px",
           fontSize: "9px",
           color: PANEL.textMuted,
           lineHeight: 1.35,
+          borderTop: `1px solid ${PANEL.cardBorder}`,
         }}
       >
         미확인은 부족·0원이 아닙니다. 판매 권유를 하지 않습니다.
