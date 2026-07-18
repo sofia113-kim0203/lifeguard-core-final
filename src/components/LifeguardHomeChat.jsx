@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
 import KeyVisualBlocks from "./KeyVisualBlocks.jsx";
+import KeyMyInsuranceRail from "./KeyMyInsuranceRail.jsx";
+import KeyTurnMirrorRail from "./KeyTurnMirrorRail.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
 import { useKeyAnalysisCompleteSessionTransition } from "../hooks/useKeyAnalysisCompleteSessionTransition.js";
@@ -59,6 +61,7 @@ import {
   splitKeyAnswerMeaningUnits,
 } from "../lib/lifeguardChatScroll.js";
 import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
+import { buildKeyTurnMirror } from "../lib/keyInsuranceScreenFacts.js";
 
 const EXAMPLE_QUESTIONS = [
   "보험료 너무 비싼가?",
@@ -68,6 +71,7 @@ const EXAMPLE_QUESTIONS = [
 ];
 
 const DESKTOP_SIDEBAR_BREAKPOINT = 768;
+const INSURANCE_LAYOUT_BREAKPOINT = 1100;
 
 const KEY_WAIT_STATUS = "KEY가 확인하고 있어요.";
 const KEY_WAIT_ACK_FALLBACK = KEY_WAIT_STATUS;
@@ -129,7 +133,7 @@ function formatAnalysisComplete(document) {
 }
 
 function formatOcrStatus(document) {
-  if (document?.ingest_status === "ready") return "OCR 완료";
+  if (document?.ingest_status === "ready") return "KEY 확인 완료";
   return formatIngestStatus(document?.ingest_status);
 }
 
@@ -170,10 +174,15 @@ function CustomerInsuranceList({ policies, loading }) {
           {policy.product_name ? (
             <div style={{ fontSize: "14px", color: LG.textMuted, marginBottom: "4px" }}>{policy.product_name}</div>
           ) : null}
-          <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
-            <div>{formatMonthlyPremium(policy.monthly_premium)}</div>
-            <div>상태: {policy.is_active ? "active" : policy.policy_status ?? "—"}</div>
-          </div>
+            <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
+              <div>{formatMonthlyPremium(policy.monthly_premium)}</div>
+              <div>
+                상태:{" "}
+                {policy.insurer_name && (policy.product_name || policy.monthly_premium)
+                  ? "확인됨"
+                  : "확인 필요"}
+              </div>
+            </div>
         </div>
       ))}
     </div>
@@ -240,7 +249,7 @@ function CustomerDocumentsList({
             <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
               <div>문서 유형: {formatDocClass(document.doc_class)}</div>
               <div>업로드일: {formatUploadDate(document.created_at)}</div>
-              <div>OCR: {formatOcrStatus(document)}</div>
+              <div>확인: {formatOcrStatus(document)}</div>
               <div>분석: {formatAnalysisComplete(document)}</div>
             </div>
           </div>
@@ -316,7 +325,7 @@ function SidebarNav({
       )}
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
         <button type="button" style={sidebarBtn(panelView === "insurance")} onClick={() => onPanelChange("insurance")}>
-          내 보험
+          내 보험 점검
         </button>
         <button type="button" style={sidebarBtn(panelView === "documents")} onClick={() => onPanelChange("documents")}>
           내 문서
@@ -364,6 +373,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelView, setPanelView] = useState("chat");
+  const [turnMirror, setTurnMirror] = useState(null);
+  const [insuranceRailOpen, setInsuranceRailOpen] = useState(true);
+  const [mirrorRailOpen, setMirrorRailOpen] = useState(true);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -566,6 +578,20 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   }, [reloadDocuments]);
 
   const isDesktopSidebar = useMediaQuery(`(min-width: ${DESKTOP_SIDEBAR_BREAKPOINT}px)`);
+  const isWideInsuranceLayout = useMediaQuery(`(min-width: ${INSURANCE_LAYOUT_BREAKPOINT}px)`);
+
+  useEffect(() => {
+    if (isWideInsuranceLayout) {
+      setInsuranceRailOpen(true);
+      setMirrorRailOpen(true);
+    } else {
+      setInsuranceRailOpen(false);
+      setMirrorRailOpen(false);
+    }
+  }, [isWideInsuranceLayout]);
+
+  const showInsuranceRail = panelView === "chat" && insuranceRailOpen;
+  const showMirrorRail = panelView === "chat" && mirrorRailOpen;
 
   const greeting = useMemo(
     () => buildLifeguardHomeGreeting(displayName, session?.unifiedState),
@@ -1020,6 +1046,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         },
       ];
       setMessages(completedMessages);
+      setTurnMirror(
+        buildKeyTurnMirror({
+          answerText: finalText,
+          visualBlocks,
+          policies,
+        }),
+      );
       let nextActive = null;
       const clearFailedAttach = shouldClearActiveAttachmentAfterTurn(result);
       if (clearFailedAttach) {
@@ -1100,6 +1133,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     const newSessionId = createLifeguardSessionId();
     setSessionId(newSessionId);
     setMessages([]);
+    setTurnMirror(null);
     setInput("");
     setError("");
     setActiveAttachmentId(null);
@@ -1197,6 +1231,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         applyDocumentDeletedLocally(did);
       }
       await reloadDocuments();
+      // Re-hydrate customer card so left rail drops retired / deleted-source policies.
+      if (typeof session?.refreshSession === "function") {
+        try {
+          await session.refreshSession({ event: "document_soft_deleted", reloadJob: false });
+        } catch {
+          /* next session load refreshes; do not block delete UX */
+        }
+      }
       if (result?.success) {
         setDocumentDeleteNotice(DOCUMENT_UI_MESSAGES.deleteSuccess);
         setLocalError("");
@@ -1215,7 +1257,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         result?.error_message || toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다."),
       );
     },
-    [applyDocumentDeletedLocally, reloadDocuments],
+    [applyDocumentDeletedLocally, reloadDocuments, session],
   );
 
   const handleDeleteUploadedDocument = useCallback(
@@ -1423,8 +1465,69 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           >
             {sidebarOpen ? "✕" : "☰"}
           </button>
+          {panelView === "chat" ? (
+            <>
+              <button
+                type="button"
+                aria-pressed={insuranceRailOpen}
+                onClick={() => setInsuranceRailOpen((open) => !open)}
+                style={{
+                  border: `1px solid ${LG.border}`,
+                  background: insuranceRailOpen ? "#EFEFEB" : LG.surface,
+                  color: LG.text,
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontFamily: LG.sans,
+                }}
+              >
+                나의 보험
+              </button>
+              <button
+                type="button"
+                aria-pressed={mirrorRailOpen}
+                onClick={() => setMirrorRailOpen((open) => !open)}
+                style={{
+                  border: `1px solid ${LG.border}`,
+                  background: mirrorRailOpen ? "#EFEFEB" : LG.surface,
+                  color: LG.text,
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontFamily: LG.sans,
+                  marginLeft: "auto",
+                }}
+              >
+                KEY 확인
+              </button>
+            </>
+          ) : null}
         </header>
 
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            minHeight: 0,
+            minWidth: 0,
+            overflow: "hidden",
+          }}
+        >
+          {showInsuranceRail ? (
+            <KeyMyInsuranceRail policies={policies} loading={loadingSession} />
+          ) : null}
+
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+              minHeight: 0,
+            }}
+          >
         <div
           ref={chatScrollRef}
           onScroll={handleChatScroll}
@@ -1436,13 +1539,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             display: "flex",
             flexDirection: "column",
             gap: "0",
-            maxWidth: "720px",
+            maxWidth: showInsuranceRail || showMirrorRail ? "none" : "720px",
             width: "100%",
             margin: "0 auto",
           }}
         >
           {panelView === "insurance" ? (
-            <LayerPanel title="내 보험" onBack={goBackToChat}>
+            <LayerPanel title="내 보험 점검" onBack={goBackToChat}>
               <CustomerInsuranceList policies={policies} loading={loadingSession} />
             </LayerPanel>
           ) : null}
@@ -1592,7 +1695,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             style={{
               padding: "12px 20px 28px",
               borderTop: `1px solid ${LG.border}`,
-              maxWidth: "720px",
+              maxWidth: showInsuranceRail || showMirrorRail ? "none" : "720px",
               width: "100%",
               margin: "0 auto",
               background: LG.bg,
@@ -1836,6 +1939,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             </div>
           </div>
         ) : null}
+          </div>
+
+          {showMirrorRail ? <KeyTurnMirrorRail mirror={turnMirror} /> : null}
+        </div>
       </div>
     </div>
   );

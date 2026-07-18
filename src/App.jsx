@@ -37,7 +37,7 @@ const MENU_ITEMS = [
   { id: "home", label: "홈", mark: "H" },
   { id: CUSTOMER_DASHBOARD_MENU, label: "고객 분석", mark: "C" },
   { id: AI_CHAT_MENU, label: "AI 상담실", mark: "S" },
-  { id: "ai", label: "AI 보험 추천", mark: "R" },
+  { id: "ai", label: "내 보험 점검", mark: "R" },
   { id: "claim", label: "보험금 청구 확인", mark: "P" },
   { id: "documents", label: "문서 관리", mark: "D" },
   { id: "corporate", label: "법인장", mark: "B" },
