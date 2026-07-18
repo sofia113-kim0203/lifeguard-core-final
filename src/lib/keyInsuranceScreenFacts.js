@@ -1,8 +1,14 @@
 /**
  * KEY insurance screen facts — customer card + current KEY turn only.
  * No separate API / Claude / recommender.
+ * Also hosts read-only industry coverage baseline comparison (display only).
  */
 import { resolvePolicyPremium } from "./resolvePolicyPremium.js";
+import {
+  KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS,
+  KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
+  KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
+} from "./keyIndustryCoverageBaselineTable.js";
 
 export const KEY_TURN_MIRROR_EMPTY = "\uC544\uC9C1 \uC774 \uB300\uD654\uC5D0\uC11C \uD655\uC778\uB41C \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
 
@@ -213,5 +219,358 @@ export function buildKeyTurnMirror({
     judgment,
     confirmed,
     needsConfirmation,
+  };
+}
+
+/** Baseline status tokens — display only; never rewrite KEY answers. */
+export const BASELINE_STATUS = {
+  MET: "충족",
+  SHORT: "미달",
+  NEED: "확인 필요",
+  OVERLAP: "중복 점검",
+  TABLE_PENDING: "기준 확인 중",
+};
+
+export const BASELINE_STATUS_COLOR = {
+  [BASELINE_STATUS.MET]: "#2563EB",
+  [BASELINE_STATUS.SHORT]: "#D97706",
+  [BASELINE_STATUS.NEED]: "#64748B",
+  [BASELINE_STATUS.OVERLAP]: "#7C3AED",
+  [BASELINE_STATUS.TABLE_PENDING]: "#94A3B8",
+};
+
+function normalizeCoverageName(name = "") {
+  return String(name ?? "")
+    .replace(/\s+/g, "")
+    .replace(/[()[\]【】]/g, "")
+    .toLowerCase();
+}
+
+function parseCoverageAmount(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  const raw = String(value).replace(/,/g, "").trim();
+  if (!raw) return null;
+  const man = raw.match(/^(\d+(?:\.\d+)?)\s*만\s*원?$/);
+  if (man) return Math.round(Number(man[1]) * 10000);
+  const cheon = raw.match(/^(\d+(?:\.\d+)?)\s*천\s*만\s*원?$/);
+  if (cheon) return Math.round(Number(cheon[1]) * 10000000);
+  const digits = raw.replace(/[^\d.]/g, "");
+  const n = Number(digits);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/**
+ * Map a verified rider/coverage name to a baseline item.
+ * Narrow benefits must not map into wider disease families.
+ * @returns {string|null} baseline item id or null
+ */
+export function classifyCoverageToBaselineItem(coverageName = "") {
+  const n = normalizeCoverageName(coverageName);
+  if (!n) return null;
+
+  // Exclude micro/similar cancer from general cancer total.
+  if (/유사암|소액암|경계성|제자리암|상피내/.test(n) && !/일반암/.test(n)) {
+    return null;
+  }
+  if (/일반암|암진단/.test(n) || (/암/.test(n) && /진단/.test(n) && !/유사|소액|경계|제자리|상피내/.test(n))) {
+    return "cancer_diagnosis";
+  }
+
+  // Brain: only broad 뇌혈관질환 — not 뇌출혈 / 뇌졸중 alone.
+  if (/뇌출혈|뇌경색|뇌졸중/.test(n) && !/뇌혈관/.test(n)) {
+    return null;
+  }
+  if (/뇌혈관/.test(n) && /진단|담보|보험금|급여/.test(n)) {
+    return "cerebrovascular_diagnosis";
+  }
+  if (n === "뇌혈관질환" || n === "뇌혈관질환진단비" || /^뇌혈관질환진단/.test(n)) {
+    return "cerebrovascular_diagnosis";
+  }
+
+  // Heart: only broad 허혈성심장질환 — not 급성심근경색 alone.
+  if (/급성심근|심근경색/.test(n) && !/허혈성심장/.test(n)) {
+    return null;
+  }
+  if (/허혈성심장/.test(n)) {
+    return "ischemic_heart_diagnosis";
+  }
+
+  if (/간병|간호간병|요양간병/.test(n)) return "caregiving";
+  if (/입원일당|입원급여|질병입원|상해입원/.test(n) || (/입원/.test(n) && /일당|하루|1일/.test(n))) {
+    return "hospital_daily";
+  }
+  if (/수술/.test(n)) return "surgery";
+  if (/항암|방사선|표적|면역항암|로봇수술|주요치료/.test(n)) return "major_treatment";
+
+  return null;
+}
+
+function collectRiderRowsFromPolicy(policy) {
+  const summary =
+    policy?.coverage_summary && typeof policy.coverage_summary === "object"
+      ? policy.coverage_summary
+      : {};
+  const rows = [];
+  if (Array.isArray(summary.rider_details)) {
+    for (const detail of summary.rider_details) {
+      if (detail && typeof detail === "object") rows.push(detail);
+    }
+  }
+  if (Array.isArray(summary.riders)) {
+    for (const rider of summary.riders) {
+      if (rider && typeof rider === "object") rows.push(rider);
+    }
+  }
+  if (summary.coverage_name != null || summary.coverage_amount != null) {
+    rows.push({
+      coverage_name: summary.coverage_name,
+      rider_name: summary.rider_name,
+      coverage_amount: summary.coverage_amount,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Collect verified coverage rows from active (non-retired) policies.
+ * Dedupes same policy + alias + amount once.
+ */
+export function collectVerifiedCoverageRows(policies = []) {
+  const out = [];
+  const seen = new Set();
+  for (const policy of Array.isArray(policies) ? policies : []) {
+    if (isRetiredPolicyRow(policy)) continue;
+    const policyId = String(policy.id ?? "");
+    const insurer = String(policy.insurer_name ?? "").trim();
+    const product = String(policy.product_name ?? "").trim();
+    for (const row of collectRiderRowsFromPolicy(policy)) {
+      const name = String(row.coverage_name ?? row.rider_name ?? row.name ?? "").trim();
+      if (!name) continue;
+      const amount = parseCoverageAmount(row.coverage_amount ?? row.amount);
+      const itemId = classifyCoverageToBaselineItem(name);
+      const dedupeKey = `${policyId}::${normalizeCoverageName(name)}::${amount ?? "na"}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      out.push({
+        policy_id: policyId,
+        insurer_name: insurer || null,
+        product_name: product || null,
+        coverage_name: name,
+        coverage_amount: amount,
+        baseline_item_id: itemId,
+        has_amount: amount != null,
+      });
+    }
+  }
+  return out;
+}
+
+function formatWonAmount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `${Math.round(n).toLocaleString("ko-KR")}원`;
+}
+
+function formatIndustryRange(item) {
+  if (item.industry_range_low == null || item.industry_range_high == null) {
+    return "기준 확인 중";
+  }
+  return `${formatWonAmount(item.industry_range_low)}~${formatWonAmount(item.industry_range_high)}`;
+}
+
+/** Pure lump-sum compare — used by UI builder and unit tests. */
+export function evaluateLumpSumBaselineStatus(sumAmount, low, high) {
+  if (low == null || high == null || !Number.isFinite(Number(low)) || !Number.isFinite(Number(high))) {
+    return BASELINE_STATUS.TABLE_PENDING;
+  }
+  if (sumAmount == null || !Number.isFinite(Number(sumAmount))) {
+    return BASELINE_STATUS.NEED;
+  }
+  const n = Number(sumAmount);
+  const lo = Number(low);
+  const hi = Number(high);
+  if (n < lo) return BASELINE_STATUS.SHORT;
+  if (n > hi) return BASELINE_STATUS.OVERLAP;
+  return BASELINE_STATUS.MET;
+}
+
+function decideBaselineStatus({ item, matchedRows, sumAmount, compareMode }) {
+  const tableReady =
+    item.industry_range_low != null &&
+    item.industry_range_high != null &&
+    Number.isFinite(Number(item.industry_range_low)) &&
+    Number.isFinite(Number(item.industry_range_high));
+
+  if (!tableReady) {
+    return {
+      status: BASELINE_STATUS.TABLE_PENDING,
+      reason: "업계 누적/일반 구간 기준자료가 아직 확보되지 않았습니다. 공개 상품 가입금액을 한도로 쓰지 않습니다.",
+    };
+  }
+
+  if (compareMode !== "lump_sum") {
+    if (!matchedRows.length) {
+      return {
+        status: BASELINE_STATUS.NEED,
+        reason: "해당 담보의 일당·일수·범위·조건이 충분히 확인되지 않았습니다. 미확인을 미달로 보지 않습니다.",
+      };
+    }
+    const structuredReady = matchedRows.every((r) => r.has_amount);
+    if (!structuredReady) {
+      return {
+        status: BASELINE_STATUS.NEED,
+        reason: "금액·일수·범위 중 확인되지 않은 조건이 있어 확인 필요입니다.",
+      };
+    }
+    return {
+      status: BASELINE_STATUS.NEED,
+      reason: "구조화 비교에 필요한 일수·면책·범위 조건이 기준표와 함께 더 확인되어야 합니다.",
+    };
+  }
+
+  if (!matchedRows.length) {
+    return {
+      status: BASELINE_STATUS.NEED,
+      reason: "해당 담보 금액이 verified로 확인되지 않았습니다. 미확인은 0원·미가입·미달이 아닙니다.",
+    };
+  }
+
+  const unclear = matchedRows.some((r) => !r.has_amount);
+  if (unclear || sumAmount == null) {
+    return {
+      status: BASELINE_STATUS.NEED,
+      reason: "포함된 특약 중 금액이 확인되지 않은 항목이 있습니다.",
+    };
+  }
+
+  const low = Number(item.industry_range_low);
+  const high = Number(item.industry_range_high);
+  const status = evaluateLumpSumBaselineStatus(sumAmount, low, high);
+  if (status === BASELINE_STATUS.SHORT) {
+    return {
+      status,
+      reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 업계 일반 구간 하단(${formatWonAmount(low)}) 미만입니다.`,
+    };
+  }
+  if (status === BASELINE_STATUS.OVERLAP) {
+    return {
+      status,
+      reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 업계 일반 구간 상단(${formatWonAmount(high)})을 초과해 중복 점검이 필요합니다.`,
+    };
+  }
+  return {
+    status: BASELINE_STATUS.MET,
+    reason: `확인된 합산 ${formatWonAmount(sumAmount)}이 업계 일반 구간 안에 있습니다.`,
+  };
+}
+/**
+ * Build read-only industry baseline comparison for the right rail.
+ * Never invents industry numbers; never treats unknown as shortfall.
+ */
+export function buildIndustryCoverageBaseline(policies = []) {
+  const verifiedRows = collectVerifiedCoverageRows(policies);
+  const items = KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.map((item) => {
+    const matched = verifiedRows.filter((r) => r.baseline_item_id === item.id);
+    let sumAmount = null;
+    if (item.compareMode === "lump_sum") {
+      let sum = 0;
+      let has = false;
+      for (const row of matched) {
+        if (row.coverage_amount == null) continue;
+        sum += row.coverage_amount;
+        has = true;
+      }
+      sumAmount = has ? sum : null;
+    }
+
+    const decision = decideBaselineStatus({
+      item,
+      matchedRows: matched,
+      sumAmount,
+      compareMode: item.compareMode,
+    });
+
+    let currentDisplay = "확인 필요";
+    if (item.compareMode === "lump_sum") {
+      currentDisplay = sumAmount != null ? formatWonAmount(sumAmount) : "확인 필요";
+    } else if (matched.length) {
+      currentDisplay = item.compareMode === "daily_structured" ? "일당·일수 확인 필요" : "범위·조건 확인 필요";
+    }
+
+    return {
+      id: item.id,
+      label: item.label,
+      shortLabel: item.shortLabel,
+      definition: item.definition,
+      unit: item.unit,
+      compareMode: item.compareMode,
+      currentAmount: sumAmount,
+      currentDisplay,
+      industryRangeDisplay: formatIndustryRange(item),
+      industry_range_low: item.industry_range_low,
+      industry_range_high: item.industry_range_high,
+      industry_cumulative_limit: item.industry_cumulative_limit,
+      apply_conditions: item.apply_conditions,
+      source: item.source,
+      source_kind: item.source_kind,
+      as_of: item.as_of,
+      version: item.version,
+      status: decision.status,
+      statusColor: BASELINE_STATUS_COLOR[decision.status] || BASELINE_STATUS_COLOR[BASELINE_STATUS.NEED],
+      reason: decision.reason,
+      includedCoverages: matched,
+      unclearParts: matched.filter((r) => !r.has_amount).map((r) => r.coverage_name),
+    };
+  });
+
+  const counts = {
+    met: 0,
+    short: 0,
+    need: 0,
+    overlap: 0,
+    tablePending: 0,
+  };
+  for (const row of items) {
+    if (row.status === BASELINE_STATUS.MET) counts.met += 1;
+    else if (row.status === BASELINE_STATUS.SHORT) counts.short += 1;
+    else if (row.status === BASELINE_STATUS.OVERLAP) counts.overlap += 1;
+    else if (row.status === BASELINE_STATUS.TABLE_PENDING) counts.tablePending += 1;
+    else counts.need += 1;
+  }
+
+  return {
+    title: "KEY 업계누적 보장 기준선",
+    version: KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
+    as_of: KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
+    counts,
+    items,
+  };
+}
+
+export function buildPolicyDetailForDrawer(policy = null) {
+  if (!policy || typeof policy !== "object") return null;
+  if (isRetiredPolicyRow(policy)) return null;
+  const premium = resolvePolicyPremium(policy);
+  const coverages = collectVerifiedCoverageRows([policy]);
+  return {
+    kind: "policy",
+    title: String(policy.insurer_name ?? "보험사 미확인"),
+    subtitle: String(policy.product_name ?? "상품명 확인 필요"),
+    monthly_premium: premium,
+    monthly_premium_display: formatWonMonthly(premium) || "월 보험료 확인 필요",
+    coverages,
+    note: "삭제·retired 계약은 표시하지 않습니다.",
+  };
+}
+
+export function buildBaselineDetailForDrawer(baselineItem = null) {
+  if (!baselineItem || typeof baselineItem !== "object") return null;
+  return {
+    kind: "baseline",
+    title: baselineItem.label,
+    subtitle: baselineItem.status,
+    ...baselineItem,
   };
 }

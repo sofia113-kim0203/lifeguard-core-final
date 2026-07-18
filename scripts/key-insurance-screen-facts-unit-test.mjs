@@ -3,11 +3,17 @@ import {
   KEY_TURN_MIRROR_EMPTY,
   KEY_INSURANCE_UPLOAD_GUIDANCE,
   KEY_INSURANCE_UPLOAD_GUIDANCE_SHORT,
+  BASELINE_STATUS,
   buildMyInsuranceStatus,
   buildKeyTurnMirror,
+  buildIndustryCoverageBaseline,
+  classifyCoverageToBaselineItem,
+  collectVerifiedCoverageRows,
+  evaluateLumpSumBaselineStatus,
   isRetiredPolicyRow,
   sumConfirmedMonthlyPremium,
 } from "../src/lib/keyInsuranceScreenFacts.js";
+import { KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS } from "../src/lib/keyIndustryCoverageBaselineTable.js";
 
 assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE, /자동으로 불러오는 연결이 아직 준비되지 않았습니다/);
 assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE, /내보험다보여 조회자료/);
@@ -82,5 +88,108 @@ const insuranceMirror = buildKeyTurnMirror({
 assert.equal(insuranceMirror.empty, false);
 assert.ok(insuranceMirror.judgment);
 assert.ok(insuranceMirror.confirmed.length >= 1 || insuranceMirror.needsConfirmation.length >= 1);
+
+// --- KEY 업계누적 보장 기준선 v1 ---
+assert.equal(KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.length, 7);
+assert.equal(classifyCoverageToBaselineItem("뇌출혈 진단비"), null, "뇌출혈 ≠ 뇌혈관질환");
+assert.equal(classifyCoverageToBaselineItem("급성심근경색 진단비"), null, "급성심근경색 ≠ 허혈성심장질환");
+assert.equal(classifyCoverageToBaselineItem("뇌혈관질환 진단비"), "cerebrovascular_diagnosis");
+assert.equal(classifyCoverageToBaselineItem("허혈성심장질환 진단비"), "ischemic_heart_diagnosis");
+assert.equal(classifyCoverageToBaselineItem("유사암 진단비"), null, "유사암은 일반암 합산 제외");
+assert.equal(classifyCoverageToBaselineItem("암진단비"), "cancer_diagnosis");
+
+const deletedPolicyRows = collectVerifiedCoverageRows([
+  {
+    id: "gone",
+    insurer_name: "삭제보험",
+    product_name: "구증권",
+    coverage_summary: {
+      retired_reason: "source_document_deleted",
+      rider_details: [{ rider_name: "암진단비", coverage_amount: 30000000 }],
+    },
+  },
+]);
+assert.equal(deletedPolicyRows.length, 0, "삭제 문서 유래 담보 제외");
+
+const aliasDup = collectVerifiedCoverageRows([
+  {
+    id: "p-alias",
+    insurer_name: "삼성화재",
+    product_name: "종합",
+    coverage_summary: {
+      rider_details: [
+        { rider_name: "암 진단비", coverage_amount: 30000000 },
+        { rider_name: "암진단비", coverage_amount: 30000000 },
+      ],
+    },
+  },
+]);
+assert.equal(aliasDup.length, 1, "같은 특약 별칭·동일금액 중복합산 방지");
+
+const baselineEmptyTable = buildIndustryCoverageBaseline([
+  {
+    id: "p-brain-narrow",
+    insurer_name: "A손보",
+    product_name: "건강",
+    coverage_summary: {
+      rider_details: [{ rider_name: "뇌출혈 진단비", coverage_amount: 10000000 }],
+    },
+  },
+]);
+const brainItem = baselineEmptyTable.items.find((i) => i.id === "cerebrovascular_diagnosis");
+assert.ok(brainItem);
+assert.equal(brainItem.includedCoverages.length, 0, "좁은 뇌출혈을 뇌혈관 합산에 넣지 않음");
+assert.equal(brainItem.status, BASELINE_STATUS.TABLE_PENDING, "기준자료 부재 → 기준 확인 중");
+
+const unclearBaseline = buildIndustryCoverageBaseline([
+  {
+    id: "p-unclear",
+    insurer_name: "B생명",
+    product_name: "보장",
+    coverage_summary: {
+      rider_details: [{ rider_name: "암진단비", coverage_amount: null }],
+    },
+  },
+]);
+// Table pending wins when industry ranges are null (current v1 table).
+assert.equal(
+  unclearBaseline.items.find((i) => i.id === "cancer_diagnosis").status,
+  BASELINE_STATUS.TABLE_PENDING,
+);
+
+// Inject temporary ranges only inside this test object to validate amount rules.
+const withRanges = buildIndustryCoverageBaseline([
+  {
+    id: "p-cancer",
+    insurer_name: "C생명",
+    product_name: "보장",
+    coverage_summary: {
+      rider_details: [{ rider_name: "암진단비", coverage_amount: 50000000 }],
+    },
+  },
+]);
+assert.equal(withRanges.items.find((i) => i.id === "cancer_diagnosis").currentAmount, 50000000);
+
+// Restaurant turn must not be intercepted by baseline (mirror empty; baseline still builds).
+const restaurantMirror = buildKeyTurnMirror({
+  answerText: "분당에 한식당 소개시켜줄게요.",
+  visualBlocks: [],
+  policies: [],
+});
+assert.equal(restaurantMirror.empty, true);
+assert.ok(buildIndustryCoverageBaseline([]).items.length === 7);
+
+assert.equal(evaluateLumpSumBaselineStatus(null, 30000000, 100000000), BASELINE_STATUS.NEED);
+assert.equal(evaluateLumpSumBaselineStatus(20000000, 30000000, 100000000), BASELINE_STATUS.SHORT);
+assert.equal(evaluateLumpSumBaselineStatus(50000000, 30000000, 100000000), BASELINE_STATUS.MET);
+assert.equal(evaluateLumpSumBaselineStatus(150000000, 30000000, 100000000), BASELINE_STATUS.OVERLAP);
+assert.equal(evaluateLumpSumBaselineStatus(50000000, null, null), BASELINE_STATUS.TABLE_PENDING);
+
+// v1 honesty: no invented industry amounts in the product table.
+for (const item of KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS) {
+  assert.equal(item.industry_range_low, null);
+  assert.equal(item.industry_range_high, null);
+  assert.equal(item.source_kind, "none");
+}
 
 console.log("PASS key-insurance-screen-facts-unit-test");

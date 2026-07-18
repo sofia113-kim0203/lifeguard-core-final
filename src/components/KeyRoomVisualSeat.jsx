@@ -1,13 +1,17 @@
 /**
- * Local visual seat for KEY ROOM layout captures.
- * Reuses production rails + theme only — no API / Claude / second KEY.
- * Host must be localhost / 127.0.0.1.
+ * Local visual seat for KEY ROOM + industry baseline captures.
+ * No API / Claude / second KEY.
  */
 import { useMemo, useState } from "react";
 import KeyMyInsuranceRail from "./KeyMyInsuranceRail.jsx";
-import KeyTurnMirrorRail from "./KeyTurnMirrorRail.jsx";
+import KeyCoverageBaselineRail from "./KeyCoverageBaselineRail.jsx";
+import KeyInsuranceDetailDrawer from "./KeyInsuranceDetailDrawer.jsx";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
-import { buildKeyTurnMirror } from "../lib/keyInsuranceScreenFacts.js";
+import {
+  buildBaselineDetailForDrawer,
+  buildIndustryCoverageBaseline,
+  buildPolicyDetailForDrawer,
+} from "../lib/keyInsuranceScreenFacts.js";
 
 const MOCK_POLICIES = [
   {
@@ -15,18 +19,29 @@ const MOCK_POLICIES = [
     insurer_name: "KB손해보험",
     product_name: "KB 금쪽같은 자녀보험",
     monthly_premium: 42860,
+    coverage_summary: {
+      rider_details: [
+        { rider_name: "암진단비", coverage_amount: 50000000 },
+        { rider_name: "뇌출혈 진단비", coverage_amount: 10000000 },
+      ],
+    },
   },
   {
     id: "v2",
     insurer_name: "한화생명",
     product_name: "LIFEPLUS 심플한 종신보험",
     monthly_premium: 73000,
+    coverage_summary: {
+      rider_details: [{ rider_name: "암진단비", coverage_amount: 30000000 }],
+    },
+  },
+  {
+    id: "v3",
+    insurer_name: "DB손해보험",
+    product_name: null,
+    monthly_premium: null,
   },
 ];
-
-const MOCK_ANSWER =
-  "확인된 계약은 현재 2건입니다. KB손해보험과 한화생명 계약을 확인했습니다. " +
-  "월 보험료는 확인된 금액 기준으로 정리해 드리겠습니다.";
 
 function headerToggleBtn(active) {
   return {
@@ -34,9 +49,9 @@ function headerToggleBtn(active) {
     background: active ? "rgba(37, 99, 235, 0.08)" : LG.surface,
     color: active ? LG.navy : LG.textMuted,
     borderRadius: "999px",
-    padding: "8px 14px",
+    padding: "10px 16px",
     cursor: "pointer",
-    fontSize: "13px",
+    fontSize: "14px",
     fontWeight: 600,
     fontFamily: LG.sans,
   };
@@ -44,26 +59,20 @@ function headerToggleBtn(active) {
 
 export default function KeyRoomVisualSeat() {
   const [insuranceOpen, setInsuranceOpen] = useState(true);
-  const [mirrorOpen, setMirrorOpen] = useState(true);
+  const [baselineOpen, setBaselineOpen] = useState(true);
   const [widthMode, setWidthMode] = useState("desktop");
+  const [detail, setDetail] = useState(null);
 
-  const mirror = useMemo(
-    () =>
-      buildKeyTurnMirror({
-        answerText: MOCK_ANSWER,
-        visualBlocks: [],
-        policies: MOCK_POLICIES,
-      }),
-    [],
-  );
+  const baseline = useMemo(() => buildIndustryCoverageBaseline(MOCK_POLICIES), []);
 
-  const frameWidth = widthMode === "mobile" ? 390 : widthMode === "mid" ? 900 : 1440;
+  const frameWidth = widthMode === "mobile" ? 390 : widthMode === "mid" ? 900 : 1600;
+  const frameHeight = widthMode === "mobile" ? 780 : 900;
   const showInsuranceInline = insuranceOpen && widthMode !== "mobile";
-  const showMirrorInline = mirrorOpen && widthMode === "desktop" && !mirror.empty;
-  const columns = showMirrorInline
-    ? "300px minmax(0, 1fr) 340px"
+  const showBaselineInline = baselineOpen && widthMode === "desktop";
+  const columns = showBaselineInline
+    ? "260px minmax(700px, 1fr) 290px"
     : showInsuranceInline
-      ? "300px minmax(0, 1fr)"
+      ? "260px minmax(0, 1fr)"
       : "minmax(0, 1fr)";
 
   return (
@@ -74,12 +83,7 @@ export default function KeyRoomVisualSeat() {
           ["mid", "중간"],
           ["mobile", "모바일"],
         ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setWidthMode(id)}
-            style={headerToggleBtn(widthMode === id)}
-          >
+          <button key={id} type="button" onClick={() => setWidthMode(id)} style={headerToggleBtn(widthMode === id)}>
             {label}
           </button>
         ))}
@@ -90,9 +94,9 @@ export default function KeyRoomVisualSeat() {
           width: "100%",
           maxWidth: frameWidth,
           margin: "0 auto",
-          height: "860px",
+          height: frameHeight,
           background: LG.bg,
-          borderRadius: "16px",
+          borderRadius: "18px",
           overflow: "hidden",
           boxShadow: LG.shadowSoft,
           display: "flex",
@@ -105,42 +109,35 @@ export default function KeyRoomVisualSeat() {
             gridTemplateColumns: "1fr auto 1fr",
             alignItems: "center",
             gap: "12px",
-            padding: "12px 16px",
+            padding: "18px 24px 14px",
             flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "20px", color: LG.navy }}>☰</span>
-            <span style={{ fontFamily: LG.serif, fontWeight: 600, color: LG.navy }}>LIFEGUARD</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontSize: "24px", color: LG.navy }}>☰</span>
+            <span style={{ fontFamily: LG.serif, fontWeight: 600, color: LG.navy, fontSize: "18px" }}>LIFEGUARD</span>
           </div>
           <div style={{ textAlign: "center" }}>
             <div
               style={{
                 fontFamily: LG.serif,
-                fontSize: "26px",
+                fontSize: "44px",
                 fontWeight: 650,
                 color: LG.navy,
                 letterSpacing: "0.04em",
+                lineHeight: 1.05,
               }}
             >
               LIFEGUARD
             </div>
-            <div style={{ fontSize: "12px", color: LG.textMuted }}>보험 AI KEY</div>
+            <div style={{ fontSize: "15px", color: LG.textMuted, marginTop: "4px" }}>보험 AI KEY</div>
           </div>
           <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              style={headerToggleBtn(insuranceOpen)}
-              onClick={() => setInsuranceOpen((v) => !v)}
-            >
+            <button type="button" style={headerToggleBtn(insuranceOpen)} onClick={() => setInsuranceOpen((v) => !v)}>
               나의 보험
             </button>
-            <button
-              type="button"
-              style={headerToggleBtn(mirrorOpen)}
-              onClick={() => setMirrorOpen((v) => !v)}
-            >
-              KEY 확인
+            <button type="button" style={headerToggleBtn(baselineOpen)} onClick={() => setBaselineOpen((v) => !v)}>
+              기준선
             </button>
           </div>
         </header>
@@ -150,6 +147,8 @@ export default function KeyRoomVisualSeat() {
             flex: 1,
             display: "grid",
             gridTemplateColumns: columns,
+            gap: "18px",
+            padding: "0 20px 18px",
             minHeight: 0,
             overflow: "hidden",
           }}
@@ -158,70 +157,107 @@ export default function KeyRoomVisualSeat() {
             <KeyMyInsuranceRail
               policies={MOCK_POLICIES}
               displayName="진우"
-              style={{ borderRight: `1px solid ${LG.border}`, maxWidth: "none", width: "100%" }}
+              onSelectPolicy={(row) => {
+                const full = MOCK_POLICIES.find((p) => p.id === row.id);
+                setDetail(buildPolicyDetailForDrawer(full || row));
+              }}
+              style={{ width: "260px", maxWidth: "260px", borderRadius: "20px", boxShadow: LG.shadowSoft }}
             />
           ) : null}
 
-          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", maxWidth: "820px", width: "100%", margin: "0 auto" }}>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "14px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+              minHeight: 0,
+              borderRadius: "20px",
+              boxShadow: LG.shadowSoft,
+              background: LG.bg,
+            }}
+          >
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "36px 28px 20px",
+                maxWidth: "820px",
+                width: "100%",
+                margin: "0 auto",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "18px" }}>
                 <div
                   style={{
                     maxWidth: "72%",
                     background: LG.userBubble,
                     borderRadius: "18px 18px 6px 18px",
-                    padding: "12px 16px",
+                    padding: "14px 18px",
                     color: LG.navy,
-                    fontSize: "15px",
+                    fontSize: "16px",
+                    lineHeight: 1.7,
                   }}
                 >
-                  내보험 건수는?
+                  내 암 보장은 어때?
                 </div>
               </div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+              <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
                 <div
                   style={{
-                    width: "28px",
-                    height: "28px",
+                    width: "32px",
+                    height: "32px",
                     borderRadius: "999px",
                     background: LG.navy,
                     color: "#fff",
                     display: "grid",
                     placeItems: "center",
-                    fontSize: "12px",
+                    fontSize: "13px",
                     fontWeight: 700,
                     flexShrink: 0,
                   }}
                 >
                   K
                 </div>
-                <div>
-                  <div style={{ fontSize: "12px", fontWeight: 650, color: LG.navy, marginBottom: "4px" }}>KEY</div>
-                  <div style={{ fontSize: "15px", lineHeight: 1.75, color: LG.text }}>{MOCK_ANSWER}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: LG.navy, marginBottom: "8px" }}>KEY</div>
+                  <div
+                    style={{
+                      fontSize: "16px",
+                      lineHeight: 1.7,
+                      color: LG.text,
+                      background: LG.assistantBubble,
+                      borderRadius: "6px 18px 18px 18px",
+                      padding: "16px 18px",
+                      boxShadow: LG.shadowSoft,
+                    }}
+                  >
+                    확인된 계약 기준으로 암진단비 합산이 보입니다. 오른쪽 기준선은 업계 자료가 채워지기 전에는 「기준 확인
+                    중」으로만 표시됩니다. 뇌출혈만 확인된 금액은 뇌혈관질환 기준에 넣지 않습니다.
+                  </div>
                 </div>
               </div>
             </div>
-            <div style={{ padding: "12px 20px 20px", maxWidth: "820px", width: "100%", margin: "0 auto" }}>
+            <div style={{ padding: "14px 28px 24px", maxWidth: "820px", width: "100%", margin: "0 auto" }}>
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
-                  padding: "10px 14px",
+                  padding: "12px 16px",
                   borderRadius: "999px",
                   border: `1px solid ${LG.border}`,
                   background: LG.surface,
                   boxShadow: LG.shadowSoft,
                   color: LG.textSoft,
-                  fontSize: "15px",
+                  fontSize: "16px",
                 }}
               >
                 <span>+</span>
                 <span style={{ flex: 1 }}>무엇이든 편하게 말씀해 주세요.</span>
                 <span
                   style={{
-                    width: "36px",
-                    height: "36px",
+                    width: "40px",
+                    height: "40px",
                     borderRadius: "999px",
                     background: LG.accent,
                     color: "#fff",
@@ -235,14 +271,16 @@ export default function KeyRoomVisualSeat() {
             </div>
           </div>
 
-          {showMirrorInline ? (
-            <KeyTurnMirrorRail
-              mirror={mirror}
-              style={{ borderLeft: `1px solid ${LG.border}`, maxWidth: "none", width: "100%" }}
+          {showBaselineInline ? (
+            <KeyCoverageBaselineRail
+              baseline={baseline}
+              onSelectItem={(item) => setDetail(buildBaselineDetailForDrawer(item))}
+              style={{ width: "290px", maxWidth: "290px", borderRadius: "20px", boxShadow: LG.shadowSoft }}
             />
           ) : null}
         </div>
       </div>
+      <KeyInsuranceDetailDrawer detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }

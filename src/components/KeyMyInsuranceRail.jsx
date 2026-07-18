@@ -1,5 +1,6 @@
 /**
  * Left rail — my insurance status (verified customer data only, no separate API).
+ * Visual scale aligned to KEY ROOM target (300px rail, larger type/cards).
  */
 import { useState } from "react";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
@@ -16,12 +17,13 @@ function StatusTag({ confirmed }) {
     <span
       style={{
         flexShrink: 0,
-        fontSize: "11px",
-        fontWeight: 600,
-        padding: "3px 8px",
+        fontSize: "12px",
+        fontWeight: 700,
+        padding: "5px 10px",
         borderRadius: "999px",
         color: confirmed ? LG.verified : LG.needs,
-        background: confirmed ? "rgba(37, 99, 235, 0.08)" : "rgba(217, 119, 6, 0.10)",
+        background: confirmed ? "rgba(37, 99, 235, 0.10)" : "rgba(217, 119, 6, 0.12)",
+        lineHeight: 1.2,
       }}
     >
       {confirmed ? "확인됨" : "확인 필요"}
@@ -35,6 +37,7 @@ export default function KeyMyInsuranceRail({
   displayName = "고객",
   style = {},
   onClose = null,
+  onSelectPolicy = null,
 }) {
   const status = buildMyInsuranceStatus(policies);
   const confirmedPremium = sumConfirmedMonthlyPremium(status.policies);
@@ -46,8 +49,8 @@ export default function KeyMyInsuranceRail({
     <aside
       aria-label="나의 보험 현황"
       style={{
-        width: "100%",
-        maxWidth: "300px",
+        width: "260px",
+        maxWidth: "260px",
         flexShrink: 0,
         background: LG.bg,
         display: "flex",
@@ -57,7 +60,7 @@ export default function KeyMyInsuranceRail({
         ...style,
       }}
     >
-      <div style={{ padding: "18px 16px 10px", flexShrink: 0 }}>
+      <div style={{ padding: "22px 18px 10px", flexShrink: 0 }}>
         <div
           style={{
             display: "flex",
@@ -71,14 +74,26 @@ export default function KeyMyInsuranceRail({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "8px",
-              fontFamily: LG.serif,
-              fontSize: "16px",
-              fontWeight: 600,
+              gap: "10px",
+              fontSize: "18px",
+              fontWeight: 750,
               color: LG.navy,
+              fontFamily: LG.sans,
             }}
           >
-            <span aria-hidden="true" style={{ fontSize: "15px" }}>
+            <span
+              aria-hidden="true"
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "9px",
+                background: "rgba(37, 99, 235, 0.12)",
+                color: LG.verified,
+                display: "grid",
+                placeItems: "center",
+                fontSize: "14px",
+              }}
+            >
               {"\uD83D\uDEE1"}
             </span>
             나의 보험 현황
@@ -93,7 +108,7 @@ export default function KeyMyInsuranceRail({
                 background: "transparent",
                 color: LG.textSoft,
                 cursor: "pointer",
-                fontSize: "18px",
+                fontSize: "20px",
                 lineHeight: 1,
                 padding: "2px 4px",
               }}
@@ -103,9 +118,9 @@ export default function KeyMyInsuranceRail({
           ) : null}
         </div>
         {loading ? (
-          <p style={{ margin: 0, fontSize: "13px", color: LG.textMuted }}>불러오는 중…</p>
+          <p style={{ margin: 0, fontSize: "14px", color: LG.textMuted }}>불러오는 중…</p>
         ) : (
-          <p style={{ margin: 0, fontSize: "13px", color: LG.textMuted, lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: "14px", color: LG.textMuted, lineHeight: 1.5 }}>
             확인된 계약{" "}
             <strong style={{ color: LG.verified }}>{status.confirmedCount}</strong>건
             {" / "}
@@ -118,47 +133,46 @@ export default function KeyMyInsuranceRail({
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "4px 12px 16px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px 20px" }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "10px",
-            padding: "12px",
-            marginBottom: "12px",
-            borderRadius: "14px",
+            gap: "12px",
+            padding: "14px 14px",
+            marginBottom: "14px",
+            borderRadius: "16px",
             background: LG.surface,
-            border: `1px solid ${LG.border}`,
-            boxShadow: LG.shadow,
+            boxShadow: LG.shadowSoft,
           }}
         >
           <div
             aria-hidden="true"
             style={{
-              width: "36px",
-              height: "36px",
+              width: "40px",
+              height: "40px",
               borderRadius: "999px",
               background: LG.navy,
               color: "#fff",
               display: "grid",
               placeItems: "center",
-              fontSize: "14px",
-              fontWeight: 600,
+              fontSize: "15px",
+              fontWeight: 700,
               flexShrink: 0,
             }}
           >
             {monogram}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: "14px", color: LG.navy }}>{nameLabel}님</div>
-            <div style={{ fontSize: "12px", color: LG.textSoft, marginTop: "2px" }}>
+            <div style={{ fontWeight: 750, fontSize: "16px", color: LG.navy }}>{nameLabel}님</div>
+            <div style={{ fontSize: "13px", color: LG.textSoft, marginTop: "3px" }}>
               KEY가 현재 확인한 계약 기준
             </div>
           </div>
         </div>
 
         {!loading && status.totalCount === 0 ? (
-          <p style={{ margin: "4px 4px 12px", fontSize: "13px", color: LG.textMuted, lineHeight: 1.55 }}>
+          <p style={{ margin: "4px 2px 14px", fontSize: "14px", color: LG.textMuted, lineHeight: 1.55 }}>
             아직 확인된 보험이 없어요. 서류를 올리면 KEY가 확인합니다.
           </p>
         ) : null}
@@ -166,16 +180,31 @@ export default function KeyMyInsuranceRail({
         {status.policies.map((row) => {
           const premium = formatWonMonthly(row.monthly_premium);
           const confirmed = row.status === "확인됨";
+          const clickable = typeof onSelectPolicy === "function";
           return (
             <div
               key={row.id || `${row.insurer_name}-${row.product_name}`}
+              role={clickable ? "button" : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onClick={clickable ? () => onSelectPolicy(row) : undefined}
+              onKeyDown={
+                clickable
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onSelectPolicy(row);
+                      }
+                    }
+                  : undefined
+              }
               style={{
-                border: `1px solid ${LG.border}`,
-                borderRadius: "14px",
-                padding: "14px",
+                borderRadius: "16px",
+                padding: "16px 14px",
                 background: LG.surface,
-                marginBottom: "10px",
-                boxShadow: LG.shadow,
+                marginBottom: "12px",
+                boxShadow: LG.shadowSoft,
+                minHeight: "88px",
+                cursor: clickable ? "pointer" : "default",
               }}
             >
               <div
@@ -183,51 +212,108 @@ export default function KeyMyInsuranceRail({
                   display: "flex",
                   alignItems: "flex-start",
                   justifyContent: "space-between",
-                  gap: "8px",
-                  marginBottom: "4px",
+                  gap: "10px",
                 }}
               >
-                <div style={{ fontWeight: 650, fontSize: "14px", color: LG.navy, minWidth: 0 }}>
-                  {row.insurer_name ?? "보험사 미확인"}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      fontWeight: 750,
+                      fontSize: "16px",
+                      color: LG.navy,
+                      marginBottom: "4px",
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {row.insurer_name ?? "보험사 미확인"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      color: row.product_name ? LG.textMuted : LG.needs,
+                      lineHeight: 1.4,
+                      marginBottom: "12px",
+                    }}
+                  >
+                    {row.product_name || "상품명 확인 필요"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: 750,
+                      color: premium ? LG.navy : LG.needs,
+                      letterSpacing: "-0.01em",
+                    }}
+                  >
+                    {premium || "월 보험료 확인 필요"}
+                  </div>
                 </div>
                 <StatusTag confirmed={confirmed} />
-              </div>
-              {row.product_name ? (
-                <div style={{ fontSize: "13px", color: LG.textMuted, marginBottom: "8px", lineHeight: 1.4 }}>
-                  {row.product_name}
-                </div>
-              ) : (
-                <div style={{ fontSize: "13px", color: LG.needs, marginBottom: "8px" }}>상품명 확인 필요</div>
-              )}
-              <div
-                style={{
-                  fontSize: "13px",
-                  fontWeight: premium ? 600 : 500,
-                  color: premium ? LG.navy : LG.needs,
-                }}
-              >
-                {premium || "월 보험료 확인 필요"}
               </div>
             </div>
           );
         })}
 
-        {!loading ? (
+        <div
+          style={{
+            marginTop: "10px",
+            padding: "18px 16px 16px",
+            borderRadius: "18px",
+            background: LG.summaryBg,
+            boxShadow: LG.shadow,
+          }}
+        >
           <div
             style={{
-              marginTop: "4px",
-              marginBottom: "12px",
-              padding: "12px",
-              borderRadius: "12px",
-              background: "rgba(26, 43, 75, 0.03)",
-              border: `1px solid ${LG.border}`,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "10px",
             }}
           >
+            <span
+              aria-hidden="true"
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "999px",
+                background: "rgba(37, 99, 235, 0.14)",
+                color: LG.verified,
+                display: "grid",
+                placeItems: "center",
+                fontSize: "15px",
+                fontWeight: 700,
+              }}
+            >
+              ₩
+            </span>
+            <div style={{ fontSize: "14px", color: LG.textMuted }}>현재 월 보험료 확인분</div>
+          </div>
+          <div
+            style={{
+              fontSize: "26px",
+              fontWeight: 750,
+              color: LG.navy,
+              letterSpacing: "-0.03em",
+              lineHeight: 1.15,
+            }}
+          >
+            {confirmedPremium != null
+              ? `${Math.round(confirmedPremium).toLocaleString("ko-KR")} 원`
+              : "확인 필요"}
+          </div>
+          <div style={{ marginTop: "10px", fontSize: "13px", color: LG.textSoft }}>
+            확인된 보험료만 합산합니다
+          </div>
+        </div>
+
+        {!loading ? (
+          <div style={{ marginTop: "14px", padding: "0 2px" }}>
             <p
               style={{
                 margin: 0,
-                fontSize: "12px",
-                color: LG.textMuted,
+                fontSize: "13px",
+                color: LG.textSoft,
                 lineHeight: 1.55,
                 whiteSpace: "pre-line",
               }}
@@ -243,8 +329,8 @@ export default function KeyMyInsuranceRail({
                 background: "transparent",
                 color: LG.accent,
                 cursor: "pointer",
-                fontSize: "12px",
-                fontWeight: 600,
+                fontSize: "13px",
+                fontWeight: 650,
                 padding: 0,
                 fontFamily: LG.sans,
               }}
@@ -253,28 +339,6 @@ export default function KeyMyInsuranceRail({
             </button>
           </div>
         ) : null}
-
-        <div
-          style={{
-            marginTop: "4px",
-            padding: "14px",
-            borderRadius: "14px",
-            background: "rgba(59, 130, 246, 0.08)",
-            border: "1px solid rgba(59, 130, 246, 0.18)",
-          }}
-        >
-          <div style={{ fontSize: "12px", color: LG.textMuted, marginBottom: "6px" }}>
-            현재 월 보험료 확인분
-          </div>
-          <div style={{ fontSize: "20px", fontWeight: 700, color: LG.navy, letterSpacing: "-0.02em" }}>
-            {confirmedPremium != null
-              ? `${Math.round(confirmedPremium).toLocaleString("ko-KR")} 원`
-              : "확인 필요"}
-          </div>
-          <div style={{ marginTop: "8px", fontSize: "11px", color: LG.textSoft }}>
-            확인된 보험료만 합산합니다
-          </div>
-        </div>
       </div>
     </aside>
   );
