@@ -2,15 +2,19 @@ import assert from "node:assert/strict";
 import {
   KEY_TURN_MIRROR_EMPTY,
   KEY_INSURANCE_UPLOAD_GUIDANCE,
+  KEY_INSURANCE_UPLOAD_GUIDANCE_SHORT,
   buildMyInsuranceStatus,
   buildKeyTurnMirror,
   isRetiredPolicyRow,
+  sumConfirmedMonthlyPremium,
 } from "../src/lib/keyInsuranceScreenFacts.js";
 
 assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE, /자동으로 불러오는 연결이 아직 준비되지 않았습니다/);
 assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE, /내보험다보여 조회자료/);
 assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE, /자동조회 연동이 준비되면/);
 assert.equal(/지금 바로 조회|본인인증 버튼|클릭하여 조회/.test(KEY_INSURANCE_UPLOAD_GUIDANCE), false);
+assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE_SHORT, /자동으로 불러오는 연결이 아직 준비되지 않았습니다/);
+assert.match(KEY_INSURANCE_UPLOAD_GUIDANCE_SHORT, /보험자료를 올려주시면/);
 
 assert.equal(isRetiredPolicyRow({ coverage_summary: { retired_reason: "source_document_deleted" } }), true);
 assert.equal(
@@ -47,6 +51,7 @@ const status = buildMyInsuranceStatus([
 assert.equal(status.totalCount, 2);
 assert.equal(status.confirmedCount, 1);
 assert.equal(status.needsCount, 1);
+assert.equal(sumConfirmedMonthlyPremium(status.policies), 50000);
 assert.equal(
   status.policies.some((p) => p.id === "gone"),
   false,

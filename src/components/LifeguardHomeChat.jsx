@@ -70,8 +70,8 @@ const EXAMPLE_QUESTIONS = [
   "분당에서 가족이랑 갈 만한 곳 추천해줘",
 ];
 
-const DESKTOP_SIDEBAR_BREAKPOINT = 768;
-const INSURANCE_LAYOUT_BREAKPOINT = 1100;
+const ROOM_MID_BREAKPOINT = 768;
+const ROOM_WIDE_BREAKPOINT = 1200;
 
 const KEY_WAIT_STATUS = "KEY가 확인하고 있어요.";
 const KEY_WAIT_ACK_FALLBACK = KEY_WAIT_STATUS;
@@ -98,13 +98,27 @@ function sidebarBtn(active) {
     width: "100%",
     textAlign: "left",
     padding: "10px 12px",
-    borderRadius: "8px",
+    borderRadius: "10px",
     border: "none",
-    background: active ? "#EFEFEB" : "transparent",
-    color: active ? LG.text : LG.textMuted,
+    background: active ? "rgba(37, 99, 235, 0.08)" : "transparent",
+    color: active ? LG.navy : LG.textMuted,
     fontSize: "14px",
     fontWeight: active ? 600 : 400,
     cursor: "pointer",
+    fontFamily: LG.sans,
+  };
+}
+
+function headerToggleBtn(active) {
+  return {
+    border: `1px solid ${active ? "rgba(37, 99, 235, 0.35)" : LG.border}`,
+    background: active ? "rgba(37, 99, 235, 0.08)" : LG.surface,
+    color: active ? LG.navy : LG.textMuted,
+    borderRadius: "999px",
+    padding: "8px 14px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 600,
     fontFamily: LG.sans,
   };
 }
@@ -272,30 +286,44 @@ function SidebarNav({
 }) {
   return (
     <aside style={style}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <button type="button" onClick={onNewChat} style={{ ...sidebarBtn(false), flex: 1 }}>
-          새 대화
-        </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+        <div
+          style={{
+            flex: 1,
+            fontFamily: LG.serif,
+            fontSize: "18px",
+            fontWeight: 600,
+            color: LG.navy,
+            letterSpacing: "0.04em",
+          }}
+        >
+          LIFEGUARD
+        </div>
         {typeof onClose === "function" ? (
           <button
             type="button"
-            aria-label="사이드바 닫기"
+            aria-label="메뉴 닫기"
             onClick={onClose}
             style={{
-              border: `1px solid ${LG.border}`,
-              background: LG.surface,
-              color: LG.textMuted,
+              border: "none",
+              background: "transparent",
+              color: LG.textSoft,
               borderRadius: "8px",
-              width: "40px",
-              height: "40px",
+              width: "36px",
+              height: "36px",
               cursor: "pointer",
               flexShrink: 0,
-              fontSize: "16px",
+              fontSize: "18px",
             }}
           >
             ✕
           </button>
         ) : null}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+        <button type="button" onClick={onNewChat} style={{ ...sidebarBtn(false), flex: 1 }}>
+          새 대화
+        </button>
       </div>
       <div
         style={{
@@ -577,21 +605,26 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     loadDocumentsRef.current = reloadDocuments;
   }, [reloadDocuments]);
 
-  const isDesktopSidebar = useMediaQuery(`(min-width: ${DESKTOP_SIDEBAR_BREAKPOINT}px)`);
-  const isWideInsuranceLayout = useMediaQuery(`(min-width: ${INSURANCE_LAYOUT_BREAKPOINT}px)`);
+  const isMidRoom = useMediaQuery(`(min-width: ${ROOM_MID_BREAKPOINT}px)`);
+  const isWideRoom = useMediaQuery(`(min-width: ${ROOM_WIDE_BREAKPOINT}px)`);
 
   useEffect(() => {
-    if (isWideInsuranceLayout) {
+    if (isMidRoom) {
       setInsuranceRailOpen(true);
-      setMirrorRailOpen(true);
     } else {
       setInsuranceRailOpen(false);
-      setMirrorRailOpen(false);
     }
-  }, [isWideInsuranceLayout]);
+    setMirrorRailOpen(false);
+  }, [isMidRoom, isWideRoom]);
 
-  const showInsuranceRail = panelView === "chat" && insuranceRailOpen;
-  const showMirrorRail = panelView === "chat" && mirrorRailOpen;
+  const showInsuranceInline =
+    panelView === "chat" && insuranceRailOpen && isMidRoom;
+  const showInsuranceDrawer =
+    panelView === "chat" && insuranceRailOpen && !isMidRoom;
+  const showMirrorInline =
+    panelView === "chat" && mirrorRailOpen && isWideRoom;
+  const showMirrorDrawer =
+    panelView === "chat" && mirrorRailOpen && !isWideRoom;
 
   const greeting = useMemo(
     () => buildLifeguardHomeGreeting(displayName, session?.unifiedState),
@@ -690,9 +723,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const goBackToChat = useCallback(() => {
     setPanelView("chat");
-    if (!isDesktopSidebar) setSidebarOpen(false);
+    setSidebarOpen(false);
     focusChatInput();
-  }, [focusChatInput, isDesktopSidebar]);
+  }, [focusChatInput]);
 
   useEffect(() => {
     if (panelView === "chat") focusChatInput();
@@ -702,10 +735,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     if (panelView === "chat" && !loading) focusChatInput();
   }, [loading, panelView, messages.length, focusChatInput]);
 
-  // Desktop: sidebar starts open; mobile stays closed until menu.
+  // Menu is always an overlay drawer — never occupies main layout width.
   useEffect(() => {
-    setSidebarOpen(isDesktopSidebar);
-  }, [isDesktopSidebar]);
+    setSidebarOpen(false);
+  }, [isMidRoom]);
 
   useEffect(() => {
     if (panelView !== "documents" || !authUser) return undefined;
@@ -805,7 +838,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const openSession = useCallback(
     async (targetSessionId) => {
       setPanelView("chat");
-      if (!isDesktopSidebar) setSidebarOpen(false);
+      setSidebarOpen(false);
       if (!authUser || !customerId) {
         focusChatInput();
         return;
@@ -848,7 +881,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         focusChatInput();
       }
     },
-    [authUser, customerId, focusChatInput, isDesktopSidebar],
+    [authUser, customerId, focusChatInput],
   );
 
   const submitQuestion = async (value) => {
@@ -899,7 +932,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     }
 
     setPanelView("chat");
-    if (!isDesktopSidebar) setSidebarOpen(false);
+    setSidebarOpen(false);
     const userMessage = {
       role: "user",
       content: composerDocumentId
@@ -1046,13 +1079,19 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         },
       ];
       setMessages(completedMessages);
-      setTurnMirror(
-        buildKeyTurnMirror({
+      {
+        const nextMirror = buildKeyTurnMirror({
           answerText: finalText,
           visualBlocks,
           policies,
-        }),
-      );
+        });
+        setTurnMirror(nextMirror);
+        if (nextMirror?.empty) {
+          setMirrorRailOpen(false);
+        } else if (typeof window !== "undefined" && window.matchMedia(`(min-width: ${ROOM_WIDE_BREAKPOINT}px)`).matches) {
+          setMirrorRailOpen(true);
+        }
+      }
       let nextActive = null;
       const clearFailedAttach = shouldClearActiveAttachmentAfterTurn(result);
       if (clearFailedAttach) {
@@ -1141,7 +1180,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     setActiveRotationQuarterTurns(0);
     clearComposerAttach();
     setPanelView("chat");
-    if (!isDesktopSidebar) setSidebarOpen(false);
+    setSidebarOpen(false);
+    setMirrorRailOpen(false);
     restoreForceScrollRef.current = false;
     stickToBottomRef.current = true;
     if (chatScrollRef.current) {
@@ -1371,161 +1411,246 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     onOpenSession: openSession,
     onPanelChange: (view) => {
       setPanelView(view);
-      if (!isDesktopSidebar) setSidebarOpen(false);
+      setSidebarOpen(false);
     },
     onClose: () => setSidebarOpen(false),
     onSignOut: () => supabase.auth.signOut(),
   };
 
-  const desktopSidebarStyle = {
-    width: "280px",
-    flexShrink: 0,
-    position: "sticky",
-    top: 0,
-    alignSelf: "flex-start",
-    height: "100vh",
-    overflowY: "auto",
-    borderRight: `1px solid ${LG.border}`,
-    background: LG.sidebarBg,
-    padding: "20px 16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  };
-
-  const mobileSidebarStyle = {
+  const menuDrawerStyle = {
     position: "fixed",
     top: 0,
     left: 0,
     bottom: 0,
-    width: "280px",
-    zIndex: 30,
+    width: "min(300px, 86vw)",
+    zIndex: 40,
     borderRight: `1px solid ${LG.border}`,
-    background: LG.sidebarBg,
+    background: LG.surface,
     padding: "20px 16px",
     display: "flex",
     flexDirection: "column",
     gap: "4px",
-    boxShadow: "4px 0 24px rgba(0,0,0,0.06)",
+    boxShadow: LG.shadowSoft,
   };
+
+  const roomGridColumns = showMirrorInline
+    ? "300px minmax(0, 1fr) 340px"
+    : showInsuranceInline
+      ? "300px minmax(0, 1fr)"
+      : "minmax(0, 1fr)";
 
   return (
     <div
       style={{
-        display: "flex",
         height: "100vh",
         overflow: "hidden",
+        overflowX: "hidden",
         fontFamily: LG.sans,
         background: LG.bg,
         color: LG.text,
       }}
     >
-      {sidebarOpen && isDesktopSidebar ? (
-        <SidebarNav {...sidebarProps} style={desktopSidebarStyle} />
-      ) : null}
-
-      {sidebarOpen && !isDesktopSidebar ? (
+      {sidebarOpen ? (
         <>
           <div
             role="presentation"
             onClick={() => setSidebarOpen(false)}
-            style={{ position: "fixed", inset: 0, background: "rgba(17,17,17,0.18)", zIndex: 20 }}
+            style={{ position: "fixed", inset: 0, background: "rgba(26,43,75,0.28)", zIndex: 35 }}
           />
-          <SidebarNav {...sidebarProps} style={mobileSidebarStyle} />
+          <SidebarNav {...sidebarProps} style={menuDrawerStyle} />
         </>
       ) : null}
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
+      {showInsuranceDrawer ? (
+        <>
+          <div
+            role="presentation"
+            onClick={() => setInsuranceRailOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(26,43,75,0.28)", zIndex: 30 }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              bottom: 0,
+              width: "min(300px, 90vw)",
+              zIndex: 31,
+              background: LG.bg,
+              boxShadow: LG.shadowSoft,
+            }}
+          >
+            <KeyMyInsuranceRail
+              policies={policies}
+              loading={loadingSession}
+              displayName={displayName}
+              onClose={() => setInsuranceRailOpen(false)}
+              style={{ height: "100%", maxWidth: "none" }}
+            />
+          </div>
+        </>
+      ) : null}
+
+      {showMirrorDrawer ? (
+        <>
+          <div
+            role="presentation"
+            onClick={() => setMirrorRailOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(26,43,75,0.28)", zIndex: 30 }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: isMidRoom ? 0 : "auto",
+              right: 0,
+              bottom: 0,
+              left: isMidRoom ? "auto" : 0,
+              width: isMidRoom ? "min(340px, 90vw)" : "100%",
+              maxHeight: isMidRoom ? "100%" : "78vh",
+              zIndex: 31,
+              background: LG.bg,
+              boxShadow: LG.shadowSoft,
+              borderTopLeftRadius: isMidRoom ? 0 : "18px",
+              borderTopRightRadius: isMidRoom ? 0 : "18px",
+            }}
+          >
+            <KeyTurnMirrorRail
+              mirror={turnMirror}
+              onClose={() => setMirrorRailOpen(false)}
+              style={{ height: "100%", maxWidth: "none" }}
+            />
+          </div>
+        </>
+      ) : null}
+
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "1600px",
+          margin: "0 auto",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+          minHeight: 0,
+        }}
+      >
         <header
           style={{
-            display: "flex",
+            display: "grid",
+            gridTemplateColumns: "1fr auto 1fr",
             alignItems: "center",
             gap: "12px",
-            padding: "14px 20px",
-            borderBottom: `1px solid ${LG.border}`,
+            padding: "12px 16px",
             background: LG.bg,
             flexShrink: 0,
           }}
         >
-          <button
-            type="button"
-            aria-label={sidebarOpen ? "메뉴 닫기" : "메뉴 열기"}
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen((open) => !open)}
-            style={{
-              border: `1px solid ${LG.border}`,
-              background: LG.surface,
-              color: LG.text,
-              borderRadius: "8px",
-              width: "40px",
-              height: "40px",
-              cursor: "pointer",
-              fontSize: "18px",
-            }}
-          >
-            {sidebarOpen ? "✕" : "☰"}
-          </button>
-          {panelView === "chat" ? (
-            <>
-              <button
-                type="button"
-                aria-pressed={insuranceRailOpen}
-                onClick={() => setInsuranceRailOpen((open) => !open)}
-                style={{
-                  border: `1px solid ${LG.border}`,
-                  background: insuranceRailOpen ? "#EFEFEB" : LG.surface,
-                  color: LG.text,
-                  borderRadius: "8px",
-                  padding: "8px 12px",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  fontFamily: LG.sans,
-                }}
-              >
-                나의 보험
-              </button>
-              <button
-                type="button"
-                aria-pressed={mirrorRailOpen}
-                onClick={() => setMirrorRailOpen((open) => !open)}
-                style={{
-                  border: `1px solid ${LG.border}`,
-                  background: mirrorRailOpen ? "#EFEFEB" : LG.surface,
-                  color: LG.text,
-                  borderRadius: "8px",
-                  padding: "8px 12px",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  fontFamily: LG.sans,
-                  marginLeft: "auto",
-                }}
-              >
-                KEY 확인
-              </button>
-            </>
-          ) : null}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", justifySelf: "start" }}>
+            <button
+              type="button"
+              aria-label="메뉴 열기"
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: LG.navy,
+                borderRadius: "8px",
+                width: "40px",
+                height: "40px",
+                cursor: "pointer",
+                fontSize: "20px",
+              }}
+            >
+              ☰
+            </button>
+            <span
+              style={{
+                fontFamily: LG.serif,
+                fontSize: "15px",
+                fontWeight: 600,
+                color: LG.navy,
+                letterSpacing: "0.04em",
+              }}
+            >
+              LIFEGUARD
+            </span>
+          </div>
+
+          <div style={{ textAlign: "center", justifySelf: "center" }}>
+            <div
+              style={{
+                fontFamily: LG.serif,
+                fontSize: "clamp(22px, 3vw, 28px)",
+                fontWeight: 650,
+                color: LG.navy,
+                letterSpacing: "0.04em",
+                lineHeight: 1.1,
+              }}
+            >
+              LIFEGUARD
+            </div>
+            <div style={{ fontSize: "12px", color: LG.textMuted, marginTop: "2px", letterSpacing: "0.02em" }}>
+              보험 AI KEY
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", justifySelf: "end" }}>
+            {panelView === "chat" ? (
+              <>
+                <button
+                  type="button"
+                  aria-pressed={insuranceRailOpen}
+                  onClick={() => setInsuranceRailOpen((open) => !open)}
+                  style={headerToggleBtn(insuranceRailOpen)}
+                >
+                  나의 보험
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mirrorRailOpen}
+                  onClick={() => setMirrorRailOpen((open) => !open)}
+                  style={headerToggleBtn(mirrorRailOpen)}
+                >
+                  KEY 확인
+                </button>
+              </>
+            ) : null}
+          </div>
         </header>
 
         <div
           style={{
             flex: 1,
-            display: "flex",
+            display: "grid",
+            gridTemplateColumns: roomGridColumns,
             minHeight: 0,
             minWidth: 0,
             overflow: "hidden",
+            overflowX: "hidden",
           }}
         >
-          {showInsuranceRail ? (
-            <KeyMyInsuranceRail policies={policies} loading={loadingSession} />
+          {showInsuranceInline ? (
+            <KeyMyInsuranceRail
+              policies={policies}
+              loading={loadingSession}
+              displayName={displayName}
+              style={{
+                borderRight: `1px solid ${LG.border}`,
+                maxWidth: "none",
+                width: "100%",
+              }}
+            />
           ) : null}
 
           <div
             style={{
-              flex: 1,
               display: "flex",
               flexDirection: "column",
               minWidth: 0,
               minHeight: 0,
+              background: LG.bg,
             }}
           >
         <div
@@ -1534,13 +1659,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           style={{
             flex: 1,
             overflowY: "auto",
+            overflowX: "hidden",
             minHeight: 0,
-            padding: "24px 20px 16px",
+            padding: "12px 20px 16px",
             display: "flex",
             flexDirection: "column",
             gap: "0",
-            maxWidth: showInsuranceRail || showMirrorRail ? "none" : "720px",
             width: "100%",
+            maxWidth: "820px",
             margin: "0 auto",
           }}
         >
@@ -1652,39 +1778,91 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     width: "100%",
                     display: "flex",
                     justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-                    padding: msg.role === "user" ? "14px 0 6px" : "6px 0 22px",
+                    padding: msg.role === "user" ? "10px 0 6px" : "8px 0 18px",
                   }}
                 >
-                  <div
-                    style={{
-                      maxWidth: msg.role === "user" ? "88%" : "92%",
-                      textAlign: msg.role === "user" ? "right" : "left",
-                      color: msg.thinking ? LG.textMuted : LG.text,
-                      fontSize: msg.role === "user" ? "15px" : "16px",
-                      fontWeight: msg.role === "user" ? 400 : 450,
-                      lineHeight: 1.75,
-                      whiteSpace: msg.role === "assistant" && !msg.thinking ? "normal" : "pre-wrap",
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                    }}
-                    aria-live={msg.thinking ? "polite" : undefined}
-                  >
-                    {msg.role === "assistant" && !msg.thinking ? (
-                      <LifeguardAssistantMarkdown
-                        text={msg.content}
-                        muted={false}
-                        fontFamily={LG.sans}
-                      />
-                    ) : (
-                      msg.content
-                    )}
-                    {msg.role === "assistant" &&
-                    Array.isArray(msg.visual_blocks) &&
-                    msg.visual_blocks.length > 0 ? (
-                      <KeyVisualBlocks blocks={msg.visual_blocks} variant="home" />
-                    ) : null}
-                  </div>
+                  {msg.role === "user" ? (
+                    <div
+                      style={{
+                        maxWidth: "min(72%, 520px)",
+                        textAlign: "left",
+                        color: LG.navy,
+                        fontSize: "15px",
+                        lineHeight: 1.65,
+                        whiteSpace: "pre-wrap",
+                        background: LG.userBubble,
+                        borderRadius: "18px 18px 6px 18px",
+                        padding: "12px 16px",
+                      }}
+                    >
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        maxWidth: "min(92%, 640px)",
+                        display: "flex",
+                        gap: "10px",
+                        alignItems: "flex-start",
+                      }}
+                      aria-live={msg.thinking ? "polite" : undefined}
+                    >
+                      <div
+                        aria-hidden="true"
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          borderRadius: "999px",
+                          background: LG.navy,
+                          color: "#fff",
+                          display: "grid",
+                          placeItems: "center",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          flexShrink: 0,
+                          marginTop: "2px",
+                        }}
+                      >
+                        K
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: 650,
+                            color: LG.navy,
+                            marginBottom: "4px",
+                          }}
+                        >
+                          KEY
+                        </div>
+                        <div
+                          style={{
+                            color: msg.thinking ? LG.textMuted : LG.text,
+                            fontSize: "15px",
+                            fontWeight: 450,
+                            lineHeight: 1.75,
+                            whiteSpace: msg.thinking ? "pre-wrap" : "normal",
+                          }}
+                        >
+                          {!msg.thinking ? (
+                            <LifeguardAssistantMarkdown
+                              text={msg.content}
+                              muted={false}
+                              fontFamily={LG.sans}
+                            />
+                          ) : (
+                            msg.content
+                          )}
+                          {!msg.thinking &&
+                          Array.isArray(msg.visual_blocks) &&
+                          msg.visual_blocks.length > 0 ? (
+                            <KeyVisualBlocks blocks={msg.visual_blocks} variant="home" />
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             : null}
@@ -1693,10 +1871,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         {panelView === "chat" ? (
           <div
             style={{
-              padding: "12px 20px 28px",
-              borderTop: `1px solid ${LG.border}`,
-              maxWidth: showInsuranceRail || showMirrorRail ? "none" : "720px",
+              padding: "10px 20px 22px",
               width: "100%",
+              maxWidth: "820px",
               margin: "0 auto",
               background: LG.bg,
               flexShrink: 0,
@@ -1848,11 +2025,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
-                padding: "8px 12px",
-                borderRadius: "24px",
-                border: `1px solid ${LG.borderStrong}`,
+                padding: "10px 12px 10px 14px",
+                borderRadius: "999px",
+                border: `1px solid ${LG.border}`,
                 background: LG.surface,
-                boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                boxShadow: LG.shadowSoft,
               }}
             >
               <input
@@ -1873,15 +2050,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 style={{
                   border: "none",
                   background: "transparent",
-                  fontSize: "13px",
+                  fontSize: "20px",
                   fontWeight: 500,
                   color: LG.textMuted,
                   cursor: chatAttachUploading ? "default" : "pointer",
-                  padding: "4px 8px",
+                  padding: "0 4px",
                   fontFamily: LG.sans,
+                  lineHeight: 1,
                 }}
               >
-                첨부
+                +
               </button>
               <textarea
                 ref={inputRef}
@@ -1890,7 +2068,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 readOnly={false}
                 disabled={isDisabled || chatAttachUploading}
                 aria-label="질문 입력"
-                placeholder="무엇이든 편하게 물어보세요"
+                placeholder="무엇이든 편하게 말씀해 주세요."
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -1915,6 +2093,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               />
               <button
                 type="button"
+                aria-label="보내기"
                 disabled={
                   isDisabled ||
                   loading ||
@@ -1925,23 +2104,39 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 onClick={() => submitQuestion(input)}
                 style={{
                   border: "none",
-                  background: "transparent",
-                  color: input.trim() && !chatAttachUploading ? LG.text : LG.textSoft,
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "999px",
+                  background:
+                    input.trim() && !chatAttachUploading ? LG.accent : LG.borderStrong,
+                  color: "#fff",
                   fontSize: "14px",
-                  fontWeight: 600,
+                  fontWeight: 700,
                   cursor: input.trim() && !chatAttachUploading ? "pointer" : "default",
                   fontFamily: LG.sans,
-                  padding: "6px 8px",
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
                 }}
               >
-                보내기
+                ↑
               </button>
             </div>
           </div>
         ) : null}
           </div>
 
-          {showMirrorRail ? <KeyTurnMirrorRail mirror={turnMirror} /> : null}
+          {showMirrorInline ? (
+            <KeyTurnMirrorRail
+              mirror={turnMirror}
+              onClose={() => setMirrorRailOpen(false)}
+              style={{
+                borderLeft: `1px solid ${LG.border}`,
+                maxWidth: "none",
+                width: "100%",
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </div>

@@ -13,7 +13,7 @@ function renderInline(text, keyPrefix) {
     const key = `${keyPrefix}-i${i}`;
     if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
       return (
-        <strong key={key} style={{ fontWeight: 600 }}>
+        <strong key={key} style={{ fontWeight: 650, color: "#2563EB" }}>
           {part.slice(2, -2)}
         </strong>
       );
@@ -48,7 +48,7 @@ export function LifeguardAssistantMarkdown({ text, muted = false, fontFamily }) 
   const cleaned = prepareAssistantChatText(text);
   if (!cleaned) return null;
 
-  const color = muted ? "#666666" : "#111111";
+  const color = muted ? "#5B6475" : "#1A2B4B";
   const lines = cleaned.split("\n");
   const blocks = [];
   let listBuf = [];
