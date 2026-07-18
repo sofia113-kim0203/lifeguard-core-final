@@ -8,6 +8,8 @@ import {
   KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS,
   KEY_INDUSTRY_COVERAGE_BASELINE_VERSION,
   KEY_INDUSTRY_COVERAGE_BASELINE_AS_OF,
+  BASELINE_STRUCTURED_AXES,
+  MAJOR_TREATMENT_REGIONS,
 } from "./keyIndustryCoverageBaselineTable.js";
 
 export const KEY_TURN_MIRROR_EMPTY = "\uC544\uC9C1 \uC774 \uB300\uD654\uC5D0\uC11C \uD655\uC778\uB41C \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
@@ -274,47 +276,109 @@ function parseCoverageAmount(value) {
 }
 
 /**
- * Map a verified rider/coverage name to a baseline item.
+ * Major-treatment region for UI A/B split. One primary region only; never both.
+ * @returns {"cancer"|"cardio"|null}
+ */
+export function classifyMajorTreatmentRegion(coverageName = "") {
+  const n = normalizeCoverageName(coverageName);
+  if (!n) return null;
+
+  // Ambiguous bare tokens — do not invent a region.
+  if (n === "로봇수술" || n === "주요치료" || n === "방사선" || n === "수술") {
+    return null;
+  }
+
+  const cancerSignal =
+    /암수술|암.*수술/.test(n) ||
+    /항암/.test(n) ||
+    /표적/.test(n) ||
+    /면역항암/.test(n) ||
+    (/고가/.test(n) && /방사선/.test(n)) ||
+    (/암/.test(n) && /방사선/.test(n)) ||
+    (/암/.test(n) && /로봇/.test(n)) ||
+    (/암/.test(n) && /주요치료/.test(n));
+
+  const cardioSignal =
+    (/뇌혈관/.test(n) && /치료|시술|수술|주요/.test(n) && !/진단/.test(n)) ||
+    (/허혈성심장/.test(n) && /치료|시술|수술|주요/.test(n) && !/진단/.test(n)) ||
+    /혈전용해|혈전제거/.test(n) ||
+    (/중환자/.test(n) && /(뇌|심|혈관)/.test(n)) ||
+    /심뇌혈관.*주요치료|주요치료.*심뇌/.test(n);
+
+  if (cancerSignal && cardioSignal) return null;
+  if (cancerSignal) return "cancer";
+  if (cardioSignal) return "cardio";
+  return null;
+}
+
+/**
+ * Map a verified rider/coverage name to a baseline item (single primary attribution).
  * Narrow benefits must not map into wider disease families.
+ * Ambiguous disease/treatment axis → null (미확인), never invent.
  * @returns {string|null} baseline item id or null
  */
 export function classifyCoverageToBaselineItem(coverageName = "") {
   const n = normalizeCoverageName(coverageName);
   if (!n) return null;
 
-  // Exclude micro/similar cancer from general cancer total.
+  // Exclude micro/similar cancer from general cancer diagnosis total.
   if (/유사암|소액암|경계성|제자리암|상피내/.test(n) && !/일반암/.test(n)) {
     return null;
   }
+
+  // 1) 일반암 정액 진단비
   if (/일반암|암진단/.test(n) || (/암/.test(n) && /진단/.test(n) && !/유사|소액|경계|제자리|상피내/.test(n))) {
     return "cancer_diagnosis";
   }
 
-  // Brain: only broad 뇌혈관질환 — not 뇌출혈 / 뇌졸중 alone.
+  // 2) 광의 뇌혈관질환 정액 진단비 — not 뇌출혈 / 뇌졸중 alone.
   if (/뇌출혈|뇌경색|뇌졸중/.test(n) && !/뇌혈관/.test(n)) {
     return null;
   }
-  if (/뇌혈관/.test(n) && /진단|담보|보험금|급여/.test(n)) {
-    return "cerebrovascular_diagnosis";
-  }
-  if (n === "뇌혈관질환" || n === "뇌혈관질환진단비" || /^뇌혈관질환진단/.test(n)) {
+  if (
+    (/뇌혈관/.test(n) && /진단|담보|보험금|급여/.test(n)) ||
+    n === "뇌혈관질환" ||
+    n === "뇌혈관질환진단비" ||
+    /^뇌혈관질환진단/.test(n)
+  ) {
     return "cerebrovascular_diagnosis";
   }
 
-  // Heart: only broad 허혈성심장질환 — not 급성심근경색 alone.
+  // 3) 광의 허혈성심장질환 정액 진단비 — not 급성심근경색 alone.
   if (/급성심근|심근경색/.test(n) && !/허혈성심장/.test(n)) {
     return null;
   }
-  if (/허혈성심장/.test(n)) {
+  if (/허혈성심장/.test(n) && /진단|담보|보험금|급여/.test(n)) {
+    return "ischemic_heart_diagnosis";
+  }
+  if (/허혈성심장질환진단/.test(n) || n === "허혈성심장질환진단비") {
     return "ischemic_heart_diagnosis";
   }
 
+  // 4) 간병인 사용 입원 보장
   if (/간병|간호간병|요양간병/.test(n)) return "caregiving";
+
+  // 5) 질병·상해 입원일당
   if (/입원일당|입원급여|질병입원|상해입원/.test(n) || (/입원/.test(n) && /일당|하루|1일/.test(n))) {
     return "hospital_daily";
   }
-  if (/수술/.test(n)) return "surgery";
-  if (/항암|방사선|표적|면역항암|로봇수술|주요치료/.test(n)) return "major_treatment";
+
+  // 6) 주요치료비 — cancer / cardio treatment (before general surgery)
+  const majorRegion = classifyMajorTreatmentRegion(coverageName);
+  if (majorRegion === "cancer" || majorRegion === "cardio") {
+    return "major_treatment";
+  }
+
+  // Bare ambiguous treatment/surgery tokens → 미확인
+  if (n === "로봇수술" || n === "주요치료" || n === "방사선") {
+    return null;
+  }
+
+  // 7) 일반 질병·상해 수술 → 수술 보장 구조 (암/뇌·심 치료 명시는 위에서 major로 귀속)
+  if (/수술/.test(n)) {
+    // Disease-axis unclear for robot/major without cancer/cardio signal → already null above.
+    return "surgery";
+  }
 
   return null;
 }
@@ -362,6 +426,10 @@ export function collectVerifiedCoverageRows(policies = []) {
       if (!name) continue;
       const amount = parseCoverageAmount(row.coverage_amount ?? row.amount);
       const itemId = classifyCoverageToBaselineItem(name);
+      const majorRegion =
+        itemId === "major_treatment" ? classifyMajorTreatmentRegion(name) : null;
+      // major_treatment without a clear A/B region → leave unattributed (미확인), no double count
+      if (itemId === "major_treatment" && !majorRegion) continue;
       const dedupeKey = `${policyId}::${normalizeCoverageName(name)}::${amount ?? "na"}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
@@ -372,11 +440,66 @@ export function collectVerifiedCoverageRows(policies = []) {
         coverage_name: name,
         coverage_amount: amount,
         baseline_item_id: itemId,
+        major_treatment_region: majorRegion,
         has_amount: amount != null,
       });
     }
   }
   return out;
+}
+
+function coverageNamesMatchPatterns(names = [], patterns = []) {
+  for (const raw of names) {
+    const n = normalizeCoverageName(raw);
+    if (!n) continue;
+    for (const re of patterns) {
+      if (re.test(n) || re.test(String(raw ?? ""))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Axis 확인됨/미확인 for structured cards — name heuristics only; no invented amounts.
+ */
+export function resolveStructuredAxisStates(itemId, includedCoverages = []) {
+  const names = (Array.isArray(includedCoverages) ? includedCoverages : [])
+    .map((row) => String(row?.coverage_name ?? "").trim())
+    .filter(Boolean);
+
+  if (itemId === "major_treatment") {
+    return MAJOR_TREATMENT_REGIONS.map((region) => {
+      const regionNames = (Array.isArray(includedCoverages) ? includedCoverages : [])
+        .filter((row) => row?.major_treatment_region === region.id)
+        .map((row) => String(row?.coverage_name ?? "").trim())
+        .filter(Boolean);
+      return {
+        id: region.id,
+        label: region.label,
+        axes: region.axes.map((axis) => {
+          const confirmed = coverageNamesMatchPatterns(regionNames, axis.patterns);
+          return {
+            id: axis.id,
+            label: axis.label,
+            status: confirmed ? "확인됨" : "미확인",
+            detail: confirmed ? null : null,
+          };
+        }),
+      };
+    });
+  }
+
+  const defs = BASELINE_STRUCTURED_AXES[itemId];
+  if (!Array.isArray(defs)) return [];
+  return defs.map((axis) => {
+    const confirmed = coverageNamesMatchPatterns(names, axis.patterns);
+    return {
+      id: axis.id,
+      label: axis.label,
+      status: confirmed ? "확인됨" : "미확인",
+      detail: confirmed ? null : null,
+    };
+  });
 }
 
 function formatWonAmount(value) {
@@ -533,6 +656,15 @@ export function buildIndustryCoverageBaseline(policies = []) {
     }
 
     const tableReady = isIndustryBaselineTableReady(item);
+    const includedCoverages = matched.map((row) => ({
+      ...row,
+      coverage_amount_display:
+        row.coverage_amount != null ? formatManwonAmount(row.coverage_amount) : null,
+    }));
+    const isAmountMode = item.compareMode === "lump_sum";
+    const structuredAxes = isAmountMode
+      ? null
+      : resolveStructuredAxisStates(item.id, includedCoverages);
 
     return {
       id: item.id,
@@ -541,7 +673,7 @@ export function buildIndustryCoverageBaseline(policies = []) {
       definition: item.definition,
       unit: item.unit,
       compareMode: item.compareMode,
-      currentAmount: sumAmount,
+      currentAmount: isAmountMode ? sumAmount : null,
       currentDisplay,
       industryRangeDisplay: formatIndustryRange(item),
       industry_range_low: item.industry_range_low,
@@ -557,14 +689,12 @@ export function buildIndustryCoverageBaseline(policies = []) {
       statusColor: BASELINE_STATUS_COLOR[decision.status] || BASELINE_STATUS_COLOR[BASELINE_STATUS.NEED],
       statusBg: BASELINE_STATUS_BG[decision.status] || BASELINE_STATUS_BG[BASELINE_STATUS.NEED],
       tableReady,
-      /** Progress bars only when industry numbers exist. */
-      showCompareBar: tableReady,
+      /** Amount graphs only for lump_sum when industry numbers exist. */
+      showCompareBar: isAmountMode && tableReady,
+      isAmountMode,
+      structuredAxes,
       reason: decision.reason,
-      includedCoverages: matched.map((row) => ({
-        ...row,
-        coverage_amount_display:
-          row.coverage_amount != null ? formatManwonAmount(row.coverage_amount) : null,
-      })),
+      includedCoverages,
       unclearParts: matched.filter((r) => !r.has_amount).map((r) => r.coverage_name),
     };
   });
