@@ -13,6 +13,7 @@ import {
   extractPublicEvidenceFromClaudeContent,
   selectReplacingHardReasons,
   finalizeClaudeFirstStreamContentBlocks,
+  buildClaudeFirstToolResultAckBlocks,
   hasClientToolUse,
   resolveClaudeFirstPdfDocumentId,
   wantsClaudeFirstVisualBlocks,
@@ -4430,5 +4431,280 @@ console.log("key-claude-first-direct-unit-test: PASS");
   }
   assert.equal(Object.prototype.hasOwnProperty.call(wireDiag, "message"), false);
   console.log("PDF 400 DIAGNOSTIC TRACE LOCAL CHECKS OK");
+}
+
+// --- PDF MESSAGE SHAPE: ack every client tool_use on card-tool continue ---
+{
+  const ack = buildClaudeFirstToolResultAckBlocks([
+    {
+      type: "tool_use",
+      id: "tu_facts",
+      name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+      input: {},
+    },
+    {
+      type: "tool_use",
+      id: "tu_goal",
+      name: RECORD_SESSION_GOAL_TOOL.name,
+      input: { goal: "가입 계약 확인", status: "active" },
+    },
+    {
+      type: "tool_use",
+      id: "tu_basis",
+      name: RECORD_RECOMMENDATION_BASIS_TOOL.name,
+      input: { recommendation_basis: [] },
+    },
+    { type: "text", text: "" },
+    { type: "server_tool_use", id: "srv1", name: "web_search", input: {} },
+  ]);
+  assert.equal(ack.length, 3);
+  assert.deepEqual(
+    ack.map((b) => b.tool_use_id).sort(),
+    ["tu_basis", "tu_facts", "tu_goal"],
+  );
+  assert.equal(
+    ack.every(
+      (b) => b.type === "tool_result" && b.content === JSON.stringify({ ok: true }),
+    ),
+    true,
+  );
+
+  const tinyPdf = Buffer.from("%PDF-1.1\n%%EOF\n");
+  const answerText = "첨부에서 보험료는 미확인입니다. 더 궁금한 점 말씀해 주세요.";
+  let claudeCalls = 0;
+  let call2ToolResults = null;
+  let call2Roles = null;
+  const deltas = [];
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 증권에서 확인되는 내용만 짧게 정리해 주세요.",
+    history: [],
+    loadedContext: { policies: [], policy_count: 0 },
+    customerId: "cust-msg-shape",
+    attachedDocumentId: "doc-msg-shape",
+    userSupabase: makeAttachSupabase({
+      document: {
+        id: "doc-msg-shape",
+        customer_id: "cust-msg-shape",
+        storage_path: "cust-msg-shape/doc-msg-shape.pdf",
+        mime_type: "application/pdf",
+        original_filename: "shape.pdf",
+        deleted_at: null,
+      },
+      blob: makeBlobFromBuffer(tinyPdf),
+    }),
+    env: failClosedEnv,
+    fetchImpl: async (_url, opts) => {
+      claudeCalls += 1;
+      const body = JSON.parse(String(opts?.body ?? "{}"));
+      if (claudeCalls === 2) {
+        call2Roles = (body.messages ?? []).map((m) => m.role);
+        const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user");
+        call2ToolResults = Array.isArray(lastUser?.content)
+          ? lastUser.content.filter((b) => b?.type === "tool_result")
+          : [];
+        const assistantToolIds = (body.messages ?? [])
+          .filter((m) => m.role === "assistant")
+          .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+          .filter((b) => b?.type === "tool_use")
+          .map((b) => b.id);
+        const resultIds = call2ToolResults.map((b) => b.tool_use_id);
+        assert.equal(
+          assistantToolIds.every((id) => resultIds.includes(id)),
+          true,
+          "unmatched tool_use must be 0",
+        );
+        assert.deepEqual(call2Roles.slice(0, 3), ["user", "assistant", "user"]);
+      }
+      if (claudeCalls === 1) {
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu_facts",
+                  name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                  input: {
+                    confirmed_source_facts: [
+                      {
+                        fact_type: "premium",
+                        literal_value: "미확인",
+                        source_document_id: "doc-msg-shape",
+                      },
+                    ],
+                  },
+                },
+                {
+                  type: "tool_use",
+                  id: "tu_goal",
+                  name: RECORD_SESSION_GOAL_TOOL.name,
+                  input: { goal: "가입 계약 확인", status: "active" },
+                },
+                {
+                  type: "tool_use",
+                  id: "tu_basis",
+                  name: RECORD_RECOMMENDATION_BASIS_TOOL.name,
+                  input: {
+                    recommendation_basis: [
+                      {
+                        claim: "보장 공백 확인이 필요해 보입니다",
+                        refs: [{ kind: "document", id: "doc-msg-shape" }],
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+          },
+        };
+      }
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              { type: "text", text: answerText },
+              // Same-response basis extract (GO4) — call #2 overwrites turn-1 basis trace.
+              {
+                type: "tool_use",
+                id: "tu_basis_final",
+                name: RECORD_RECOMMENDATION_BASIS_TOOL.name,
+                input: {
+                  recommendation_basis: [
+                    {
+                      claim: "보장 공백 확인이 필요해 보입니다",
+                      refs: [{ kind: "document", id: "doc-msg-shape" }],
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+      };
+    },
+    streamHandlers: {
+      _emitted: false,
+      onDelta(t) {
+        this._emitted = true;
+        deltas.push(String(t ?? ""));
+      },
+      onFirstToken() {},
+      onReplace() {},
+    },
+  });
+
+  assert.equal(claudeCalls, 2, "provider call count normal = 2");
+  assert.ok(Array.isArray(call2ToolResults));
+  assert.equal(call2ToolResults.length, 3, "three tool_results on call #2");
+  assert.deepEqual(
+    call2ToolResults.map((b) => b.tool_use_id).sort(),
+    ["tu_basis", "tu_facts", "tu_goal"],
+  );
+  assert.equal(result.key_monopoly_failure, false);
+  assert.equal(result.customerText, answerText, "final answer ok");
+  assert.equal(result.keySpeakOriginal, answerText);
+  assert.equal(deltas.join(""), answerText, "SSE===sealed");
+  assert.equal(result.salesDirectorTrace?.decision, null);
+  assert.equal(result.salesDirectorTrace?.decision_persisted, false);
+  assert.equal(result.salesDirectorTrace?.session_goal?.goal, "가입 계약 확인");
+  assert.equal(result.salesDirectorTrace?.session_goal?.status, "active");
+  const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
+  assert.equal(voice?.recommendation_basis_tool_seen, true, "GO4 basis extract path live");
+
+  // Text nudge path: assistant has tool_use → tool_results first, then text.
+  {
+    let nudgeCalls = 0;
+    let nudgeUserContent = null;
+    await runClaudeFirstDirectQuestionTurn({
+      question: "이 PDF 한 번만 더 확인해 주세요.",
+      history: [],
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-msg-shape",
+      attachedDocumentId: "doc-msg-shape-nudge",
+      userSupabase: makeAttachSupabase({
+        document: {
+          id: "doc-msg-shape-nudge",
+          customer_id: "cust-msg-shape",
+          storage_path: "cust-msg-shape/doc-msg-shape-nudge.pdf",
+          mime_type: "application/pdf",
+          original_filename: "nudge.pdf",
+          deleted_at: null,
+        },
+        blob: makeBlobFromBuffer(tinyPdf),
+      }),
+      env: failClosedEnv,
+      fetchImpl: async (_url, opts) => {
+        nudgeCalls += 1;
+        const body = JSON.parse(String(opts?.body ?? "{}"));
+        if (nudgeCalls === 2) {
+          const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user");
+          nudgeUserContent = lastUser?.content;
+        }
+        if (nudgeCalls === 1) {
+          return {
+            ok: true,
+            async json() {
+              return {
+                content: [
+                  { type: "text", text: "정리해 드릴게요." },
+                  {
+                    type: "tool_use",
+                    id: "tu_goal_nudge",
+                    name: RECORD_SESSION_GOAL_TOOL.name,
+                    input: { goal: "가입 계약 확인", status: "active" },
+                  },
+                  // Empty facts → confirmedFactsToolSeen stays false → nudge continue.
+                  {
+                    type: "tool_use",
+                    id: "tu_facts_empty",
+                    name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                    input: { confirmed_source_facts: [] },
+                  },
+                ],
+              };
+            },
+          };
+        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tu_facts_nudge2",
+                  name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                  input: {
+                    confirmed_source_facts: [
+                      {
+                        fact_type: "premium",
+                        literal_value: "미확인",
+                        source_document_id: "doc-msg-shape-nudge",
+                      },
+                    ],
+                  },
+                },
+                { type: "text", text: answerText },
+              ],
+            };
+          },
+        };
+      },
+    });
+    assert.ok(Array.isArray(nudgeUserContent), "nudge user content is block array");
+    assert.equal(nudgeUserContent[0]?.type, "tool_result");
+    assert.equal(nudgeUserContent[1]?.type, "tool_result");
+    assert.deepEqual(
+      nudgeUserContent.filter((b) => b.type === "tool_result").map((b) => b.tool_use_id).sort(),
+      ["tu_facts_empty", "tu_goal_nudge"],
+    );
+    const textIdx = nudgeUserContent.findIndex((b) => b?.type === "text");
+    assert.ok(textIdx > 0, "text after tool_results");
+    assert.match(String(nudgeUserContent[textIdx]?.text ?? ""), /record_confirmed_source_facts/);
+  }
+
+  console.log("PDF MESSAGE SHAPE LOCAL CHECKS OK");
 }
 

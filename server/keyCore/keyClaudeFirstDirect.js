@@ -1852,6 +1852,20 @@ export function hasClientToolUse(content = []) {
   return (Array.isArray(content) ? content : []).some((b) => b?.type === "tool_use");
 }
 
+/**
+ * Anthropic-valid ack blocks for every client tool_use in an assistant turn.
+ * Continue is still gated by card tools; GO3/GO4 tools only need matching tool_result ids.
+ */
+export function buildClaudeFirstToolResultAckBlocks(assistantContent = []) {
+  return (Array.isArray(assistantContent) ? assistantContent : [])
+    .filter((b) => b?.type === "tool_use" && b?.id != null && String(b.id).trim())
+    .map((b) => ({
+      type: "tool_result",
+      tool_use_id: b.id,
+      content: JSON.stringify({ ok: true }),
+    }));
+}
+
 async function readAnthropicSseWithAnswerStream({
   res,
   startedAt,
@@ -2732,17 +2746,14 @@ async function callClaudeFirstDirect({
     }
 
     // Card tools only (no customer text yet) — acknowledge and continue for plain answer.
+    // Ack ALL client tool_use ids (incl. session_goal / recommendation_basis) for message_shape.
     if (cardToolBlocks.length && !picked.customer_answer && otherClientTools.length === 0) {
       messages = [
         ...messages,
         { role: "assistant", content: assistantContent },
         {
           role: "user",
-          content: cardToolBlocks.map((b) => ({
-            type: "tool_result",
-            tool_use_id: b.id,
-            content: JSON.stringify({ ok: true }),
-          })),
+          content: buildClaudeFirstToolResultAckBlocks(assistantContent),
         },
       ];
       continue;
@@ -2754,13 +2765,18 @@ async function callClaudeFirstDirect({
       onAnswerProgress?.(picked.customer_answer);
       // Text-only finish with original attached but facts tool never ran → one nudge.
       if (pdfAttached && confirmedFactsToolSeen !== true && turn < 3) {
+        const nudgeText =
+          "원본 첨부가 있다. record_confirmed_source_facts로 원본에 명시된 계약 사실만 지금 내부 보관하세요. 고객에게 도구명·JSON을 말하지 마세요.";
+        const toolResults = buildClaudeFirstToolResultAckBlocks(assistantContent);
         messages = [
           ...messages,
           { role: "assistant", content: assistantContent },
           {
             role: "user",
             content:
-              "원본 첨부가 있다. record_confirmed_source_facts로 원본에 명시된 계약 사실만 지금 내부 보관하세요. 고객에게 도구명·JSON을 말하지 마세요.",
+              toolResults.length > 0
+                ? [...toolResults, { type: "text", text: nudgeText }]
+                : nudgeText,
           },
         ];
         continue;
@@ -2781,11 +2797,7 @@ async function callClaudeFirstDirect({
         { role: "assistant", content: assistantContent },
         {
           role: "user",
-          content: cardToolBlocks.map((b) => ({
-            type: "tool_result",
-            tool_use_id: b.id,
-            content: JSON.stringify({ ok: true }),
-          })),
+          content: buildClaudeFirstToolResultAckBlocks(assistantContent),
         },
       ];
       continue;
