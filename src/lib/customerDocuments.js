@@ -6,6 +6,12 @@ import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export { DOCUMENT_CATEGORIES, resolveLegacyDocClass } from "./documentCategories.js";
+export {
+  filterPoliciesExcludingDeletedSourceDocuments,
+  filterPoliciesToActiveSourceDocuments,
+  loadActiveSourceDocumentIds,
+  loadDeletedSourceDocumentIds,
+} from "./policySourceDocumentFilter.js";
 
 export function isPolicyExtractionRetryEligible(document) {
   if (!document || document.ingest_status !== "ready") return false;
@@ -730,8 +736,10 @@ export async function downloadDocument(authUser, documentId) {
 /** Structured delete failure codes (partial-failure path). */
 export const DOCUMENT_DELETE_REASON = Object.freeze({
   DOCUMENT_SOFT_DELETE_FAILED: "document_soft_delete_failed",
+  POLICY_RETIRE_FAILED: "policy_retire_failed",
   CLAIM_SCRUB_FAILED: "claim_scrub_failed",
   STORAGE_REMOVE_FAILED: "storage_remove_failed",
+  MEMORY_SCRUB_FAILED: "memory_scrub_failed",
 });
 
 export function isStorageRemoveAlreadyGoneError(error = null) {
@@ -745,26 +753,78 @@ export function isStorageRemoveAlreadyGoneError(error = null) {
   );
 }
 
+const SOFT_DELETE_FINALIZE_PATH = "/api/customer-document-soft-delete-finalize";
+
+/**
+ * I-6 — post-RPC cleanup via service_role server path (document_id).
+ * Customer JWT must not re-SELECT soft-deleted rows to finish storage/claim/memory.
+ */
+export async function requestSoftDeleteFinalize(documentId, options = {}) {
+  const did = String(documentId ?? "").trim();
+  if (!did) {
+    return {
+      success: false,
+      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+      documentId: null,
+      error_message: "문서를 찾을 수 없습니다.",
+    };
+  }
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData?.session?.access_token) {
+    return {
+      success: false,
+      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
+      documentId: did,
+      error_message: "로그인이 필요합니다.",
+    };
+  }
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const response = await fetchImpl(SOFT_DELETE_FINALIZE_PATH, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionData.session.access_token}`,
+    },
+    body: JSON.stringify({ document_id: did }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return {
+    success: payload?.success === true || payload?.ok === true,
+    reason: payload?.reason ?? null,
+    documentId: payload?.documentId ?? did,
+    customerId: payload?.customerId ?? null,
+    deletedAt: payload?.deletedAt ?? null,
+    soft_delete_ok: payload?.soft_delete_ok ?? null,
+    current_insurance_invalidated: payload?.current_insurance_invalidated ?? true,
+    clear_active_attachment: payload?.clear_active_attachment ?? true,
+    policy_retire: payload?.policy_retire ?? null,
+    orphan_policy_retire: payload?.orphan_policy_retire ?? null,
+    claim_cases_scrub: payload?.claim_cases_scrub ?? null,
+    storage_remove_ok: payload?.storage_remove_ok ?? null,
+    retired_policy_ids: payload?.retired_policy_ids ?? null,
+    memory_scrub: payload?.memory_scrub ?? null,
+    error_message:
+      payload?.error_message ??
+      (payload?.success === true || payload?.ok === true
+        ? null
+        : "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요."),
+    finalize_via: payload?.finalize_via ?? "service_role_document_id",
+  };
+}
+
 /**
  * Wrong-upload forget path (reconstruction model).
- * After RPC soft-delete succeeds, the document is immediately out of KEY/current-insurance
- * lookup (deleted_at / retired policies). Final success requires claim scrub OK.
- * Storage remove may fail independently — retry is idempotent; active attach is not restored.
+ * RPC SSOT soft-deletes the row; I-6 finalize completes policy/claim/storage/memory
+ * via service_role by document_id (no customer JWT re-SELECT of soft-deleted rows).
  *
- * @param {object} [options] test injection: supabase, ensureCustomerContext, storageRemove
+ * @param {object} [options] test injection: supabase, ensureCustomerContext, finalizeSoftDelete
  */
 export async function softDeleteDocument(authUser, documentId, options = {}) {
   const client = options.supabase ?? supabase;
   const ensureCtx = options.ensureCustomerContext ?? ensureCustomerContext;
-  const storageRemove =
-    options.storageRemove ??
-    (async (storagePath) => {
-      const { error } = await client.storage.from(STORAGE_BUCKET).remove([storagePath]);
-      if (error && !isStorageRemoveAlreadyGoneError(error)) {
-        return { ok: false, error };
-      }
-      return { ok: true, already_gone: Boolean(error) };
-    });
+  const finalizeSoftDelete =
+    options.finalizeSoftDelete ??
+    ((did) => requestSoftDeleteFinalize(did, { fetchImpl: options.fetchImpl }));
 
   const { customerId } = await ensureCtx(authUser);
   const did = String(documentId ?? "").trim();
@@ -780,7 +840,7 @@ export async function softDeleteDocument(authUser, documentId, options = {}) {
     };
   }
 
-  // Include already soft-deleted rows so retry can finish scrub/storage idempotently.
+  // Active-row probe only. Soft-deleted rows are hidden by RLS — retry must not depend on this.
   const { data: document, error: readError } = await client
     .from("customer_documents")
     .select("id, customer_id, storage_path, deleted_at")
@@ -799,22 +859,10 @@ export async function softDeleteDocument(authUser, documentId, options = {}) {
     };
   }
 
-  if (!document || document.customer_id !== customerId) {
-    return {
-      success: false,
-      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
-      documentId: did,
-      customerId,
-      current_insurance_invalidated: false,
-      clear_active_attachment: false,
-      error_message: "문서를 찾을 수 없습니다.",
-    };
-  }
+  let softDeleteOk = false;
+  let deletedAt = null;
 
-  let deletedAt = document.deleted_at ?? null;
-  let softDeleteOk = Boolean(deletedAt);
-
-  if (!softDeleteOk) {
+  if (document && document.customer_id === customerId && !document.deleted_at) {
     const { data: deletedDocument, error: rpcError } = await client.rpc(
       "lifeguard_soft_delete_customer_document",
       { p_document_id: did },
@@ -843,64 +891,66 @@ export async function softDeleteDocument(authUser, documentId, options = {}) {
     }
     deletedAt = deletedDocument.deleted_at ?? new Date().toISOString();
     softDeleteOk = true;
-  }
-
-  // From this point the document is excluded from KEY / search / current insurance.
-  const currentInsuranceInvalidated = true;
-  // Never re-attach a soft-deleted document_id on partial failure.
-  const clearActiveAttachment = true;
-
-  const claimCasesScrub = await scrubProfileClaimCasesForDeletedDocument(customerId, did, client);
-  if (!claimCasesScrub.ok) {
+  } else if (document && document.customer_id === customerId && document.deleted_at) {
+    // Rare: RLS still visible soft-deleted row.
+    deletedAt = document.deleted_at;
+    softDeleteOk = true;
+  } else if (!document) {
+    // I-6: soft-deleted rows are invisible to customer JWT. Finalize by document_id.
+    softDeleteOk = true;
+  } else {
     return {
       success: false,
-      reason: DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED,
+      reason: DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED,
       documentId: did,
       customerId,
-      deletedAt,
-      current_insurance_invalidated: currentInsuranceInvalidated,
-      clear_active_attachment: clearActiveAttachment,
-      soft_delete_ok: softDeleteOk,
-      claim_cases_scrub: claimCasesScrub,
-      storage_remove_ok: null,
-      error_message: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
+      current_insurance_invalidated: false,
+      clear_active_attachment: false,
+      error_message: "문서를 찾을 수 없습니다.",
     };
   }
 
-  let storageRemoveOk = true;
-  if (document.storage_path) {
-    const storageResult = await storageRemove(document.storage_path);
-    storageRemoveOk = storageResult?.ok === true;
-    if (!storageRemoveOk) {
-      return {
-        success: false,
-        reason: DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED,
-        documentId: did,
-        customerId,
-        deletedAt,
-        current_insurance_invalidated: currentInsuranceInvalidated,
-        clear_active_attachment: clearActiveAttachment,
-        soft_delete_ok: softDeleteOk,
-        claim_cases_scrub: claimCasesScrub,
-        storage_remove_ok: false,
-        error_message:
-          "파일 정보는 제외되었습니다. 원본 정리에 실패해 다시 시도해 주세요.",
-      };
-    }
-  }
+  const finalized = await finalizeSoftDelete(did);
+  const reason = finalized?.reason ?? null;
+  const mappedReason =
+    reason === "policy_retire_failed"
+      ? DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED
+      : reason === "claim_scrub_failed"
+        ? DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED
+        : reason === "storage_remove_failed"
+          ? DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED
+          : reason === "memory_scrub_failed"
+            ? DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
+            : reason === "document_not_found" || reason === "ownership_mismatch"
+              ? DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED
+              : reason === "document_not_soft_deleted"
+                ? DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED
+                : finalized?.success
+                  ? null
+                  : reason || DOCUMENT_DELETE_REASON.DOCUMENT_SOFT_DELETE_FAILED;
 
   return {
-    success: true,
-    reason: null,
+    success: finalized?.success === true,
+    reason: mappedReason,
     documentId: did,
-    customerId,
-    deletedAt,
-    current_insurance_invalidated: currentInsuranceInvalidated,
-    clear_active_attachment: clearActiveAttachment,
-    soft_delete_ok: softDeleteOk,
-    claim_cases_scrub: claimCasesScrub,
-    storage_remove_ok: storageRemoveOk,
-    error_message: null,
+    customerId: finalized?.customerId ?? customerId,
+    deletedAt: finalized?.deletedAt ?? deletedAt,
+    soft_delete_ok: softDeleteOk || finalized?.soft_delete_ok === true,
+    current_insurance_invalidated:
+      finalized?.current_insurance_invalidated ?? softDeleteOk,
+    clear_active_attachment: finalized?.clear_active_attachment ?? softDeleteOk,
+    policy_retire: finalized?.policy_retire ?? null,
+    orphan_policy_retire: finalized?.orphan_policy_retire ?? null,
+    claim_cases_scrub: finalized?.claim_cases_scrub ?? null,
+    storage_remove_ok: finalized?.storage_remove_ok ?? null,
+    retired_policy_ids: finalized?.retired_policy_ids ?? null,
+    memory_scrub: finalized?.memory_scrub ?? null,
+    finalize_via: finalized?.finalize_via ?? "service_role_document_id",
+    error_message:
+      finalized?.success === true
+        ? null
+        : finalized?.error_message ??
+          "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
   };
 }
 
@@ -914,6 +964,191 @@ export function claimCaseReferencesSourceDocument(row, documentId) {
   const key = String(row.claim_case_key ?? "").trim();
   if (key.startsWith(`doc:${did}:`)) return true;
   return false;
+}
+
+/**
+ * Belt-and-suspenders after RPC soft-delete: retire KEY-confirmed / extract policy rows
+ * linked by coverage_summary.source_document_id so left rail cannot keep deleted-doc facts.
+ * Idempotent. softDeleteDocument treats ok !== true as POLICY_RETIRE_FAILED (not success).
+ */
+export async function retirePoliciesForSourceDocument(customerId, documentId, client = supabase) {
+  const cid = String(customerId ?? "").trim();
+  const did = String(documentId ?? "").trim();
+  if (!cid || !did) {
+    return { ok: false, attempted: false, retired: 0, reason: "missing_ids" };
+  }
+  return retirePoliciesForSourceDocumentIds(cid, [did], client, "source_document_deleted");
+}
+
+/**
+ * Retire active prior_facts whose source_document_id is not among active documents.
+ * RLS blocks SELECT of soft-deleted docs — so orphan = has source_document_id AND
+ * that id is absent from the active (deleted_at IS NULL) document list.
+ */
+export async function retireOrphanSourceDeletedPoliciesForCustomer(customerId, client = supabase) {
+  const cid = String(customerId ?? "").trim();
+  if (!cid) {
+    return { ok: false, attempted: false, retired: 0, reason: "missing_ids" };
+  }
+  try {
+    const { data: activeDocs, error: docsError } = await client
+      .from("customer_documents")
+      .select("id")
+      .eq("customer_id", cid)
+      .is("deleted_at", null);
+    if (docsError) {
+      return { ok: false, attempted: true, retired: 0, error: docsError.message };
+    }
+    const activeIds = new Set(
+      (Array.isArray(activeDocs) ? activeDocs : [])
+        .map((row) => String(row?.id ?? "").trim())
+        .filter(Boolean),
+    );
+
+    const { data: rows, error: selectError } = await client
+      .from("profile_insurance_policies")
+      .select("id, coverage_summary, is_active")
+      .eq("customer_id", cid)
+      .is("deleted_at", null);
+    if (selectError) {
+      return { ok: false, attempted: true, retired: 0, error: selectError.message };
+    }
+
+    const orphanIds = (Array.isArray(rows) ? rows : [])
+      .filter((row) => {
+        if (row?.is_active === false) return false;
+        const summary =
+          row?.coverage_summary && typeof row.coverage_summary === "object"
+            ? row.coverage_summary
+            : {};
+        if (String(summary.retired_reason ?? "").trim()) return false;
+        const sourceId = String(summary.source_document_id ?? "").trim();
+        if (!sourceId) return false;
+        return !activeIds.has(sourceId);
+      })
+      .map((row) => String(row.id));
+
+    if (orphanIds.length === 0) {
+      return {
+        ok: true,
+        attempted: true,
+        retired: 0,
+        retired_policy_ids: [],
+        reason: "no_orphan_source_policies",
+      };
+    }
+
+    return retirePoliciesForSourceDocumentIds(
+      cid,
+      (Array.isArray(rows) ? rows : [])
+        .filter((row) => orphanIds.includes(String(row.id)))
+        .map((row) => String(row.coverage_summary?.source_document_id ?? "").trim())
+        .filter(Boolean),
+      client,
+      "source_document_deleted_backfill",
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      attempted: true,
+      retired: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function retirePoliciesForSourceDocumentIds(
+  customerId,
+  documentIds,
+  client = supabase,
+  retiredReason = "source_document_deleted",
+) {
+  const cid = String(customerId ?? "").trim();
+  const idSet = new Set(
+    (Array.isArray(documentIds) ? documentIds : [])
+      .map((id) => String(id ?? "").trim())
+      .filter(Boolean),
+  );
+  if (!cid || idSet.size === 0) {
+    return { ok: false, attempted: false, retired: 0, reason: "missing_ids" };
+  }
+  try {
+    const { data: rows, error: selectError } = await client
+      .from("profile_insurance_policies")
+      .select("id, coverage_summary, is_active")
+      .eq("customer_id", cid)
+      .is("deleted_at", null);
+
+    if (selectError) {
+      return { ok: false, attempted: true, retired: 0, error: selectError.message };
+    }
+
+    const matches = (Array.isArray(rows) ? rows : []).filter((row) => {
+      if (row?.is_active === false) return false;
+      const summary =
+        row?.coverage_summary && typeof row.coverage_summary === "object"
+          ? row.coverage_summary
+          : {};
+      if (String(summary.retired_reason ?? "").trim()) return false;
+      return idSet.has(String(summary.source_document_id ?? "").trim());
+    });
+
+    if (matches.length === 0) {
+      return {
+        ok: true,
+        attempted: true,
+        retired: 0,
+        retired_policy_ids: [],
+        reason: "no_active_source_policies",
+      };
+    }
+
+    const retiredAt = new Date().toISOString();
+    let retired = 0;
+    const retiredPolicyIds = [];
+    const errors = [];
+    for (const row of matches) {
+      const summary =
+        row.coverage_summary && typeof row.coverage_summary === "object"
+          ? row.coverage_summary
+          : {};
+      const { error: updateError } = await client
+        .from("profile_insurance_policies")
+        .update({
+          is_active: false,
+          coverage_summary: {
+            ...summary,
+            retired_at: retiredAt,
+            retired_reason: retiredReason,
+          },
+          updated_at: retiredAt,
+        })
+        .eq("id", row.id)
+        .eq("customer_id", cid);
+      if (updateError) {
+        errors.push({ policy_id: row.id, message: updateError.message });
+        continue;
+      }
+      retired += 1;
+      retiredPolicyIds.push(String(row.id));
+    }
+
+    return {
+      ok: errors.length === 0,
+      attempted: true,
+      retired,
+      retired_policy_ids: retiredPolicyIds,
+      match_count: matches.length,
+      errors,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      attempted: true,
+      retired: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 async function scrubProfileClaimCasesForDeletedDocument(customerId, documentId, client = supabase) {

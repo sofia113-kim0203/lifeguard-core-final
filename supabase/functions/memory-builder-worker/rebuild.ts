@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { buildConsentSnapshot } from "./consent.ts";
-import { applyCandidateFacts, incrementMemoryVersion, summarizeFactActions } from "./facts.ts";
+import {
+  applyCandidateFacts,
+  incrementMemoryVersion,
+  parsePolicyIdFromInsuranceFactKey,
+  summarizeFactActions,
+  supersedeOrphanInsuranceMemoryFacts,
+} from "./facts.ts";
 import { extractConversationFacts } from "./extract-conversation.ts";
 import { extractCustomerConversationFacts } from "./extract-customer-conversation.ts";
 import { extractHealthFacts } from "./extract-health.ts";
@@ -45,11 +51,54 @@ export async function runProfileHealthPolicyExtract(
   const insurance = await extractInsuranceFacts(admin, customerId);
 
   const candidates = [...profile.facts, ...health.facts, ...insurance.facts];
-  const { results, changedCount, memoryVersion } = await applyFactsAndVersion(
+  const { results, changedCount, memoryVersion: versionAfterUpsert } = await applyFactsAndVersion(
     admin,
     customerId,
     candidates,
   );
+
+  // I-5: retire/orphan policy-keyed insurance facts + absent aggregates must not linger.
+  let orphanCleanup: {
+    orphan_keyed_superseded: number;
+    aggregate_superseded: number;
+    fact_keys: string[];
+  } | null = null;
+  let memoryVersion = versionAfterUpsert;
+  let factsChanged = changedCount;
+
+  if (!insurance.skipped) {
+    const { data: activePolicyRows, error: activePolicyError } = await admin
+      .from("active_profile_insurance_policies")
+      .select("id")
+      .eq("customer_id", customerId);
+    if (activePolicyError) {
+      throw new Error(`active_policies_load_failed: ${activePolicyError.message}`);
+    }
+    const activePolicyIds = (Array.isArray(activePolicyRows) ? activePolicyRows : [])
+      .map((row) => String(row.id ?? "").trim())
+      .filter(Boolean);
+    // Also accept policy ids referenced by this extract (belt for view lag).
+    for (const fact of insurance.facts) {
+      const fromKey = parsePolicyIdFromInsuranceFactKey(fact.fact_key);
+      if (fromKey) activePolicyIds.push(fromKey);
+    }
+
+    orphanCleanup = await supersedeOrphanInsuranceMemoryFacts(admin, customerId, {
+      activePolicyIds,
+      presentCandidateKeys: insurance.facts.map((fact) => fact.fact_key),
+    });
+
+    const orphanChanged =
+      (orphanCleanup.orphan_keyed_superseded ?? 0) + (orphanCleanup.aggregate_superseded ?? 0);
+    if (orphanChanged > 0) {
+      factsChanged += orphanChanged;
+      if (changedCount === 0) {
+        memoryVersion = await incrementMemoryVersion(admin, customerId);
+      } else {
+        memoryVersion = versionAfterUpsert;
+      }
+    }
+  }
 
   return {
     consent_snapshot: consentSnapshot,
@@ -72,9 +121,10 @@ export async function runProfileHealthPolicyExtract(
     },
     fact_results: results,
     fact_action_summary: summarizeFactActions(results),
-    facts_changed: changedCount,
+    facts_changed: factsChanged,
     memory_version: memoryVersion,
     fact_keys: results.map((result) => result.fact_key),
+    orphan_insurance_cleanup: orphanCleanup,
   };
 }
 

@@ -55,6 +55,51 @@ export function chatSnapshotStorageKey(customerId) {
   return `lifeguard_chat_snapshot:${customerId}`;
 }
 
+/** Soft-deleted document_ids that must not be reinjected as active attach on restore. */
+export function clearedActiveAttachmentStorageKey(customerId) {
+  return `lifeguard_cleared_active_attachment_ids:${customerId}`;
+}
+
+export function readClearedActiveAttachmentIds(customerId) {
+  if (typeof window === "undefined" || !customerId) return [];
+  try {
+    const raw = window.sessionStorage.getItem(clearedActiveAttachmentStorageKey(customerId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((id) => String(id ?? "").trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Remember a soft-deleted document_id so refresh cannot restore it as prior attach. */
+export function rememberClearedActiveAttachmentId(customerId, documentId) {
+  if (typeof window === "undefined" || !customerId) return;
+  const did = String(documentId ?? "").trim();
+  if (!did) return;
+  try {
+    const prev = readClearedActiveAttachmentIds(customerId);
+    if (prev.includes(did)) return;
+    const next = [...prev, did].slice(-50);
+    window.sessionStorage.setItem(
+      clearedActiveAttachmentStorageKey(customerId),
+      JSON.stringify(next),
+    );
+  } catch {
+    // ignore quota / privacy errors
+  }
+}
+
+/** Drop restored active attach when its document_id was soft-deleted this tab. */
+export function rejectClearedActiveAttachment(activeAttachment = null, customerId = null) {
+  const normalized = normalizeActiveAttachment(activeAttachment);
+  if (!normalized) return null;
+  const cleared = readClearedActiveAttachmentIds(customerId);
+  if (cleared.includes(normalized.active_attachment_id)) return null;
+  return normalized;
+}
+
 function mapChatSnapshotMessage(row, { preserveThinking = false } = {}) {
   if (!row || (row.role !== "user" && row.role !== "assistant")) return null;
   if (!preserveThinking && row.thinking === true) return null;

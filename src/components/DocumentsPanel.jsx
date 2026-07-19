@@ -10,9 +10,13 @@ import {
 import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
 import { useCustomerSession } from "../hooks/useCustomerSession.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
-import { clearActiveAttachmentIfDocumentDeleted } from "../lib/chatActiveAttachment.js";
+import {
+  clearActiveAttachmentIfDocumentDeleted,
+  scrubDeletedDocumentFromMessageActiveAttachments,
+} from "../lib/chatActiveAttachment.js";
 import {
   readLifeguardChatSnapshot,
+  rememberClearedActiveAttachmentId,
   writeLifeguardChatSnapshot,
 } from "../lib/lifeguardChatSessions.js";
 import {
@@ -225,8 +229,14 @@ export default function DocumentsPanel({ user }) {
     try {
       const result = await softDeleteDocument(user, documentId);
       const customerId = result?.customerId;
-      // Soft-delete succeeded → never restore active attach / document_id on partial failure.
-      if (result?.clear_active_attachment && customerId && result.documentId) {
+      // Soft-delete took effect → never restore active attach / document_id on partial failure.
+      // Same Hand contract as LifeguardHomeChat.finishDocumentDeleteResult.
+      if (
+        (result?.success || result?.clear_active_attachment) &&
+        customerId &&
+        result.documentId
+      ) {
+        rememberClearedActiveAttachmentId(customerId, result.documentId);
         const snap = readLifeguardChatSnapshot(customerId);
         if (snap) {
           const nextActive = clearActiveAttachmentIfDocumentDeleted(
@@ -235,19 +245,37 @@ export default function DocumentsPanel({ user }) {
           );
           writeLifeguardChatSnapshot(customerId, {
             sessionId: snap.sessionId,
-            messages: snap.messages,
+            messages: scrubDeletedDocumentFromMessageActiveAttachments(
+              snap.messages,
+              result.documentId,
+            ),
             activeAttachment: nextActive,
           });
         }
       }
       await loadData();
+      // Re-hydrate unifiedState / left rail after soft-delete (parity with HomeChat).
+      if (
+        (result?.success || result?.clear_active_attachment) &&
+        typeof refreshSession === "function"
+      ) {
+        try {
+          await refreshSession({ event: "document_soft_deleted", reloadJob: false });
+        } catch {
+          /* next session load refreshes; do not block delete UX */
+        }
+      }
       if (result?.success) {
         setSuccess(
           `${DOCUMENT_UI_MESSAGES.deleteSuccess} ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`,
         );
         return;
       }
-      if (result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED) {
+      if (
+        result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED ||
+        result?.reason === DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED ||
+        result?.reason === DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
+      ) {
         setError(DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed);
         return;
       }

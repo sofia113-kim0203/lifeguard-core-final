@@ -14,7 +14,39 @@ import {
   ANTHROPIC_WEB_SEARCH_TOOL,
 } from "./keyBorrowedSensesSpeak.js";
 import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js";
-import { buildClaudeFullContextPack } from "./keyClaudeFullContextPack.js";
+import {
+  buildClaudeFullContextPack,
+  isDeletedDocumentRecheckQuestion,
+  mergeCurrentTurnDocumentIntoActiveDocuments,
+} from "./keyClaudeFullContextPack.js";
+
+/**
+ * Active (non-deleted) documents for Claude history scrub.
+ * Fail-closed: missing client/ids/query errors → [] (never null fail-open).
+ */
+async function loadActiveCustomerDocumentsForHistoryFilter({
+  supabase = null,
+  customerId = null,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  if (!supabase || !cid) return [];
+  try {
+    const { data, error } = await supabase
+      .from("customer_documents")
+      .select("id, original_filename")
+      .eq("customer_id", cid)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(80);
+    if (error) return [];
+    return (Array.isArray(data) ? data : []).map((row) => ({
+      id: row?.id != null ? String(row.id) : null,
+      original_filename: row?.original_filename ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
 import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicDirectAttachBlock,
@@ -44,6 +76,7 @@ import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
 import { createSentenceCommitStream } from "./keyClaudeFirstSentenceCommit.js";
+import { createClient } from "@supabase/supabase-js";
 import {
   normalizeKeyConfirmedSourceFacts,
   mergeKeyConfirmedSourceFacts,
@@ -56,6 +89,11 @@ import {
   persistKeyActiveClaimCases,
   loadKeyActiveClaimCases,
 } from "../documentPolicyUploadPersist.js";
+import {
+  rebuildCustomerMemoryFoundation,
+  resolveServiceRoleKey,
+  resolveSupabaseUrl,
+} from "../customerMemoryFoundation.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -262,7 +300,7 @@ function buildConfirmedSourceFactsToolHint(pdfMeta = null) {
   return [
     "원본 첨부가 있다. 고객 답변은 평문 한국어로만 작성한다 (형식·톤 재작성 금지).",
     "접수·예고 문장으로 답하지 않는다. '기록하고 분석하겠습니다', '먼저 확인하겠습니다', '분석해 드릴게요'처럼 나중에 하겠다는 말은 금지한다.",
-    "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 보관한다. 이 도구는 고객에게 말하지 않는다.",
+    "같은 응답에서 원본에 명시된 계약 사실만 record_confirmed_source_facts 도구로 내부 보관한다. 빈 배열 금지. 최소 insurer(또는 insurer_name)와 product_name(또는 monthly_premium/premium)을 넣는다. 이 도구는 고객에게 말하지 않는다.",
     "같은 응답에서 담보별 KEY 7개 기준선 분석은 record_coverage_baseline_facts로 내부 보관한다. 고객에게 도구명·JSON·내부 필드명을 말하지 않는다.",
     "기준선 귀속: 일반암 정액 진단비→cancer_diagnosis, 광의 뇌혈관/허혈성심장 진단비→각 진단비, 일반 질병·상해 수술→surgery, 암 수술·항암·방사선·표적·면역→major_treatment+cancer, 뇌혈관·허혈성심장 치료 명시→major_treatment+brain_heart, 유사암·모호한 로봇수술만→baseline_item_id null + unresolved_reason.",
     "한 담보는 baseline_item_id 하나만. cancer와 brain_heart를 동시에 지정하지 않는다. 수술과 주요치료에 이중 표시하지 않는다.",
@@ -1528,6 +1566,7 @@ async function callClaudeFirstDirect({
   corporateRecommendationCandidates = null,
   corporateUnknowns = null,
   activeClaimCases = null,
+  activeDocuments = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -1540,9 +1579,29 @@ async function callClaudeFirstDirect({
   const allowlist = imageOriginalRead
     ? { allowed_numbers: [], allowed_entities: [] }
     : collectVerifiedSpeakAllowlistFromReality(reality);
+  // Soft-deleted source turns must not re-enter Claude conversation pack.
+  // Loader miss (null) → [] fail-closed. This-turn explicit document_id stays active.
+  // Deleted-doc recheck (no current attach bytes) forces full attach scrub.
+  const deletedDocRecheck =
+    !pdfBase64 && isDeletedDocumentRecheckQuestion(question) === true;
+  const currentTurnDocument =
+    pdfMeta?.document_id || pdfMeta?.original_filename
+      ? {
+          document_id: pdfMeta?.document_id ?? null,
+          original_filename: pdfMeta?.original_filename ?? null,
+        }
+      : null;
+  const activeDocsForPack = mergeCurrentTurnDocumentIntoActiveDocuments(
+    Array.isArray(activeDocuments) ? activeDocuments : [],
+    deletedDocRecheck ? null : currentTurnDocument,
+  );
   const { pack: contextPack } = buildClaudeFullContextPack({
     history,
     question,
+    activeDocuments: activeDocsForPack,
+    currentTurnDocument: deletedDocRecheck ? null : currentTurnDocument,
+    forceScrubAttachSegments: deletedDocRecheck,
+    scrubIdentityReadouts: deletedDocRecheck,
   });
   const requestNow = startedAt instanceof Date ? startedAt : new Date(startedAt);
   const userPayload = buildUserPayload({
@@ -1586,6 +1645,7 @@ async function callClaudeFirstDirect({
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
   let confirmedSourceFacts = [];
+  let confirmedFactsToolSeen = false;
   let coverageBaselineFacts = [];
   let claimCaseUpdates = [];
   let messagesRequestCount = 0;
@@ -1609,13 +1669,19 @@ async function callClaudeFirstDirect({
       ]
     : [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CLAIM_CASE_UPDATES_TOOL];
   for (let turn = 0; turn < 4; turn += 1) {
+    // Original attached: require confirmed-source facts tool once before text-only finish.
+    // Prevents "정리해 드릴게요" deferral with empty left-rail persist.
+    const forceConfirmedFactsTool =
+      pdfAttached === true && confirmedFactsToolSeen !== true && turn < 2;
     const body = {
       model,
       max_tokens: 4096,
       temperature: 0.4,
       system,
       tools: answerTools,
-      tool_choice: { type: "auto" },
+      tool_choice: forceConfirmedFactsTool
+        ? { type: "tool", name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name }
+        : { type: "auto" },
       messages,
       stream: true,
     };
@@ -1685,10 +1751,16 @@ async function callClaudeFirstDirect({
       (b) => b?.type === "tool_use" && KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name),
     );
     if (cardToolBlocks.some((b) => b.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name)) {
+      const extractedFacts = extractConfirmedSourceFactsFromContent(
+        assistantContent,
+        factDefaults,
+      );
       confirmedSourceFacts = mergeKeyConfirmedSourceFacts(
         confirmedSourceFacts,
-        extractConfirmedSourceFactsFromContent(assistantContent, factDefaults),
+        extractedFacts,
       );
+      // Empty tool payload must not count as "seen" — otherwise rail stay at 0 with no nudge.
+      if (extractedFacts.length > 0) confirmedFactsToolSeen = true;
     }
     if (cardToolBlocks.some((b) => b.name === RECORD_COVERAGE_BASELINE_FACTS_TOOL.name)) {
       coverageBaselineFacts = mergeKeyCoverageBaselineFacts(
@@ -1729,6 +1801,19 @@ async function callClaudeFirstDirect({
     if (picked.customer_answer && otherClientTools.length === 0) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
+      // Text-only finish with original attached but facts tool never ran → one nudge.
+      if (pdfAttached && confirmedFactsToolSeen !== true && turn < 3) {
+        messages = [
+          ...messages,
+          { role: "assistant", content: assistantContent },
+          {
+            role: "user",
+            content:
+              "원본 첨부가 있다. record_confirmed_source_facts로 원본에 명시된 계약 사실만 지금 내부 보관하세요. 고객에게 도구명·JSON을 말하지 마세요.",
+          },
+        ];
+        continue;
+      }
       messages = [...messages, { role: "assistant", content: assistantContent }];
       break;
     }
@@ -2122,6 +2207,12 @@ export async function runClaudeFirstDirectQuestionTurn({
     document_mention_resolve: documentMentionResolve?.reason ?? null,
   };
 
+  // Active documents for history pack filter (RLS: soft-deleted rows are invisible).
+  const activeDocumentsForHistory = await loadActiveCustomerDocumentsForHistoryFilter({
+    supabase: userSupabase,
+    customerId,
+  });
+
   const claude = await callClaudeFirstDirect({
     question,
     history,
@@ -2147,6 +2238,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     corporateRecommendationCandidates,
     corporateUnknowns,
     activeClaimCases,
+    activeDocuments: activeDocumentsForHistory,
   });
   const emitMark = span.end();
   // Completeness: progressive extract can lag the final customer_answer.
@@ -2279,6 +2371,74 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  // Hand after KEY seal + policy persist — never rewrite customer_answer.
+  // profile_health_policy rebuild so insurance.* memory can form from active policies.
+  let keyMemoryRebuild = {
+    attempted: false,
+    ok: false,
+    reason: "not_run",
+    customer_id: customerId ? String(customerId) : null,
+  };
+  if (keyConfirmedPersist?.ok === true && customerId) {
+    keyMemoryRebuild.attempted = true;
+    try {
+      const supabaseUrl = resolveSupabaseUrl(env);
+      const serviceRoleKey = resolveServiceRoleKey(env);
+      if (!supabaseUrl || !serviceRoleKey) {
+        keyMemoryRebuild = {
+          attempted: true,
+          ok: false,
+          reason: "service_role_not_configured",
+          customer_id: String(customerId),
+        };
+        console.error("[key_policy_memory_rebuild]", keyMemoryRebuild);
+      } else {
+        const admin = createClient(supabaseUrl, serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const rebuild = await rebuildCustomerMemoryFoundation({
+          supabase: admin,
+          supabaseUrl,
+          serviceRoleKey,
+          customerId: String(customerId),
+          includeConversation: false,
+        });
+        const profileBody = rebuild?.profile_health_policy?.body ?? null;
+        const insuranceKeys = Array.isArray(profileBody?.fact_keys)
+          ? profileBody.fact_keys
+              .map((key) => String(key ?? "").trim())
+              .filter((key) => key.startsWith("insurance."))
+              .slice(0, 24)
+          : [];
+        keyMemoryRebuild = {
+          attempted: true,
+          ok: rebuild?.ok === true,
+          reason: "profile_health_policy_rebuild",
+          customer_id: String(customerId),
+          scope: "profile_health_policy",
+          facts_changed: profileBody?.facts_changed ?? null,
+          insurance_fact_keys: insuranceKeys,
+          updated_policy_ids: Array.isArray(keyConfirmedPersist?.updated_policy_ids)
+            ? keyConfirmedPersist.updated_policy_ids
+            : [],
+        };
+        if (keyMemoryRebuild.ok !== true) {
+          console.error("[key_policy_memory_rebuild]", keyMemoryRebuild);
+        }
+      }
+    } catch (err) {
+      keyMemoryRebuild = {
+        attempted: true,
+        ok: false,
+        reason: err?.code ?? "memory_rebuild_failed",
+        customer_id: String(customerId),
+        error: String(err?.message ?? err).slice(0, 200),
+        partial: err?.partial === true,
+      };
+      console.error("[key_policy_memory_rebuild]", keyMemoryRebuild);
+    }
+  }
+
   let keyBaselinePersist = { attempted: false, ok: false, stored: 0 };
   const baselineFactsToPersist = Array.isArray(claude.coverage_baseline_facts)
     ? claude.coverage_baseline_facts
@@ -2390,6 +2550,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
           confirmed_source_facts_count: factsToPersist.length,
           key_confirmed_persist: keyConfirmedPersist,
+          key_memory_rebuild: keyMemoryRebuild,
           active_claim_cases_hydrated: activeClaimCases.length,
           claim_case_updates_count: claimCasesToPersist.length,
           key_claim_case_persist: claimCasePersist,

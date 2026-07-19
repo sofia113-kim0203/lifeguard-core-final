@@ -33,6 +33,9 @@ import {
   extractActiveAttachmentFromSessionMessages,
   shouldClearActiveAttachmentAfterTurn,
   clearActiveAttachmentIfDocumentDeleted,
+  extractMentionedFilenamesFromChat,
+  hasRecentAttachReadoutContext,
+  readChatTurnText,
 } from "../src/lib/chatActiveAttachment.js";
 import {
   buildSessionMetadata,
@@ -639,6 +642,31 @@ assert.equal(
   false,
 );
 
+// Claude-first history remap uses `.text` — attach helpers must dual-read content/text.
+assert.equal(readChatTurnText({ text: "hello" }), "hello");
+assert.equal(readChatTurnText({ content: "c", text: "t" }), "c");
+assert.deepEqual(
+  extractMentionedFilenamesFromChat("내 문서 확인해봐", [
+    { role: "user", text: "방금 올렸어요.\n\n(첨부: policy-scan.jpg)" },
+  ]),
+  ["policy-scan.jpg"],
+);
+assert.equal(
+  hasRecentAttachReadoutContext({
+    history: [{ role: "user", text: "확인\n\n(첨부: a.png)" }],
+  }),
+  true,
+);
+assert.equal(
+  isPriorAttachFollowUpQuestion("다시 확인해줘", {
+    history: [
+      { role: "user", text: "이 첨부 사진만 분석해줘.\n\n(첨부: a.jpg)" },
+      { role: "assistant", text: "첨부 이미지 판독 결과\n| 보험사 | 미확인 |" },
+    ],
+  }),
+  true,
+);
+
 assert.equal(
   wantsClaudeFirstVisualBlocks("잘못 읽은 것 같아", { documentAttached: true }),
   false,
@@ -804,12 +832,14 @@ const chartPolicies = {
   let sawChartObject = false;
   let sawFillPressure = false;
   let toolNames = [];
+  let firstToolChoice = null;
   const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
     const body = JSON.parse(String(opts?.body ?? "{}"));
     const content = body?.messages?.[0]?.content;
     const system = String(body?.system ?? "");
     toolNames = (Array.isArray(body?.tools) ? body.tools : []).map((t) => t?.name).filter(Boolean);
+    if (claudeCalls === 1) firstToolChoice = body?.tool_choice ?? null;
     sawFillPressure = /지금 바로 말한다/.test(system);
     if (Array.isArray(content)) {
       const img = content.find((b) => b?.type === "image");
@@ -824,6 +854,32 @@ const chartPolicies = {
       } catch {
         sawChartObject = /"insurer"\s*:\s*"삼성생명"/.test(text);
       }
+    }
+    // Turn 1: forced facts tool. Turn 2: customer answer (no rewrite pipeline).
+    if (claudeCalls === 1) {
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              {
+                type: "tool_use",
+                id: "fact-img-1",
+                name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                input: {
+                  confirmed_source_facts: [
+                    {
+                      fact_type: "insurer",
+                      literal_value: "미확인",
+                      source_document_id: "doc-rot-ok",
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+      };
     }
     return {
       ok: true,
@@ -859,7 +915,11 @@ const chartPolicies = {
     env: failClosedEnv,
     fetchImpl,
   });
-  assert.equal(claudeCalls, 1, "image original read must call Claude once (no rewrite call)");
+  assert.equal(
+    claudeCalls,
+    2,
+    "image original: facts tool turn + answer turn (no rewrite call)",
+  );
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(
     result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
@@ -872,6 +932,10 @@ const chartPolicies = {
   assert.equal(sawFillPressure, false);
   assert.equal(toolNames.includes("record_confirmed_source_facts"), true);
   assert.equal(toolNames.includes("record_coverage_baseline_facts"), true);
+  assert.deepEqual(firstToolChoice, {
+    type: "tool",
+    name: "record_confirmed_source_facts",
+  });
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
   assert.equal(signals?.attachment_attached, true);
@@ -1129,12 +1193,26 @@ const chartPolicies = {
         imageHash = sha256Hex(Buffer.from(img.source.data, "base64"));
       }
     }
-    // Phase A only — attach readout must not open Phase B (second call).
+    // Facts tool + answer in one Claude-first call (not Phase B rewrite).
     return {
       ok: true,
       async json() {
         return {
           content: [
+            {
+              type: "tool_use",
+              id: "fact-ok-jpg",
+              name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+              input: {
+                confirmed_source_facts: [
+                  {
+                    fact_type: "insurer",
+                    literal_value: "미확인",
+                    source_document_id: "doc-ok-jpg",
+                  },
+                ],
+              },
+            },
             {
               type: "text",
               text: "첨부 이미지에서 보험사 칸은 미확인입니다. 더 궁금한 점 말씀해 주세요.",
@@ -1210,6 +1288,20 @@ const chartPolicies = {
         async json() {
           return {
             content: [
+              {
+                type: "tool_use",
+                id: "fact-ok-pdf",
+                name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                input: {
+                  confirmed_source_facts: [
+                    {
+                      fact_type: "premium",
+                      literal_value: "미확인",
+                      source_document_id: "doc-ok-pdf",
+                    },
+                  ],
+                },
+              },
               {
                 type: "text",
                 text: "첨부 문서에서 보험료 칸은 미확인입니다. 더 궁금한 점 말씀해 주세요.",

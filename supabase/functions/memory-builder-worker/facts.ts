@@ -165,3 +165,101 @@ export function summarizeFactActions(results: FactUpsertResult[]): Record<FactUp
 
   return summary;
 }
+
+/** Aggregate insurance keys rewritten from active policies; absent ⇒ supersede. */
+export const INSURANCE_AGGREGATE_FACT_KEYS = [
+  "insurance.policy.count",
+  "insurance.indemnity.held",
+  "insurance.policies.active_summary",
+  "insurance.carrier_product.summary",
+] as const;
+
+const POLICY_KEYED_INSURANCE_RE =
+  /^insurance\.policy\.([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.(summary|riders)$/;
+
+export function parsePolicyIdFromInsuranceFactKey(factKey: string): string | null {
+  const match = String(factKey ?? "").trim().match(POLICY_KEYED_INSURANCE_RE);
+  return match?.[1] ?? null;
+}
+
+export async function supersedeActiveFactKeys(
+  admin: SupabaseClient,
+  customerId: string,
+  factKeys: string[],
+): Promise<{ superseded_count: number; fact_keys: string[] }> {
+  const keys = [...new Set(factKeys.map((key) => String(key).trim()).filter(Boolean))];
+  if (keys.length === 0) {
+    return { superseded_count: 0, fact_keys: [] };
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await admin
+    .from("customer_memory_facts")
+    .update({ superseded_at: now })
+    .eq("customer_id", customerId)
+    .is("superseded_at", null)
+    .in("fact_key", keys)
+    .select("id, fact_key");
+
+  if (error) {
+    throw new Error(`fact_supersede_keys_failed: ${error.message}`);
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    superseded_count: rows.length,
+    fact_keys: rows.map((row) => String(row.fact_key)),
+  };
+}
+
+/**
+ * I-5 — After insurance extract: supersede policy-keyed facts for retired/inactive
+ * policies, and supersede aggregate keys missing from the new candidate set.
+ */
+export async function supersedeOrphanInsuranceMemoryFacts(
+  admin: SupabaseClient,
+  customerId: string,
+  {
+    activePolicyIds,
+    presentCandidateKeys,
+  }: {
+    activePolicyIds: Iterable<string>;
+    presentCandidateKeys: Iterable<string>;
+  },
+): Promise<{
+  orphan_keyed_superseded: number;
+  aggregate_superseded: number;
+  fact_keys: string[];
+}> {
+  const active = new Set([...activePolicyIds].map((id) => String(id).trim()).filter(Boolean));
+  const present = new Set([...presentCandidateKeys].map((key) => String(key).trim()).filter(Boolean));
+
+  const { data: keyedRows, error: keyedError } = await admin
+    .from("customer_memory_facts")
+    .select("fact_key")
+    .eq("customer_id", customerId)
+    .is("superseded_at", null)
+    .like("fact_key", "insurance.policy.%");
+
+  if (keyedError) {
+    throw new Error(`orphan_insurance_facts_load_failed: ${keyedError.message}`);
+  }
+
+  const orphanKeys = (Array.isArray(keyedRows) ? keyedRows : [])
+    .map((row) => String(row.fact_key ?? "").trim())
+    .filter((factKey) => {
+      const policyId = parsePolicyIdFromInsuranceFactKey(factKey);
+      return Boolean(policyId && !active.has(policyId));
+    });
+
+  const absentAggregates = INSURANCE_AGGREGATE_FACT_KEYS.filter((key) => !present.has(key));
+
+  const orphanResult = await supersedeActiveFactKeys(admin, customerId, orphanKeys);
+  const aggregateResult = await supersedeActiveFactKeys(admin, customerId, [...absentAggregates]);
+
+  return {
+    orphan_keyed_superseded: orphanResult.superseded_count,
+    aggregate_superseded: aggregateResult.superseded_count,
+    fact_keys: [...orphanResult.fact_keys, ...aggregateResult.fact_keys],
+  };
+}

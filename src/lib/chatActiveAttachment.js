@@ -53,9 +53,15 @@ export function extractMentionedFilenamesFromChat(question = "", history = []) {
   };
   scan(question);
   for (const row of Array.isArray(history) ? history : []) {
-    scan(row?.content);
+    // Dual-read: Claude-first history may use `.text` (oneKeyCoreTurn remap).
+    scan(row?.content ?? row?.text ?? row?.message);
   }
   return names;
+}
+
+/** Prefer content, then text/message — same shape as context pack / Claude-first history. */
+export function readChatTurnText(row = null) {
+  return String(row?.content ?? row?.text ?? row?.message ?? "");
 }
 
 /**
@@ -76,7 +82,7 @@ export function hasRecentAttachReadoutContext({ history = [] } = {}) {
   const window = rows.slice(-6);
   for (let i = window.length - 1; i >= 0; i -= 1) {
     const row = window[i];
-    const c = String(row?.content ?? "");
+    const c = readChatTurnText(row);
     if (/\(첨부:/.test(c)) return true;
     if (isExplicitPriorAttachFollowUpQuestion(c)) return true;
     if (row?.metadata?.active_attachment_id) return true;
@@ -105,7 +111,7 @@ export function isPriorAttachFollowUpQuestion(question = "", options = {}) {
     return (
       hasRecentAttachReadoutContext(options) === true ||
       (Array.isArray(options.history) &&
-        options.history.some((row) => /\(첨부:/.test(String(row?.content ?? ""))))
+        options.history.some((row) => /\(첨부:/.test(readChatTurnText(row))))
     );
   }
   if (isAmbiguousAttachRecheckQuestion(q)) {
@@ -122,6 +128,42 @@ export function clearActiveAttachmentIfDocumentDeleted(activeAttachment = null, 
   if (!normalized) return null;
   if (normalized.active_attachment_id === deleted) return null;
   return normalized;
+}
+
+/**
+ * Strip deleted document_id from in-memory message metadata so refresh cannot
+ * reinject it via extractActiveAttachmentFromSessionMessages.
+ * Does not rewrite bubble text (e.g. "(첨부: …)" history lines stay).
+ */
+export function scrubDeletedDocumentFromMessageActiveAttachments(
+  messages = [],
+  deletedDocumentId = null,
+) {
+  const deleted = String(deletedDocumentId ?? "").trim();
+  const rows = Array.isArray(messages) ? messages : [];
+  if (!deleted) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : null;
+    if (!meta) return row;
+    const id = String(meta.active_attachment_id ?? "").trim();
+    const nestedId = String(meta.active_attachment?.active_attachment_id ?? "").trim();
+    if (id !== deleted && nestedId !== deleted) return row;
+    const nextMeta = { ...meta };
+    if (id === deleted) {
+      delete nextMeta.active_attachment_id;
+      delete nextMeta.active_attachment_mime;
+      delete nextMeta.active_rotation_quarter_turns;
+    }
+    if (nestedId === deleted) {
+      delete nextMeta.active_attachment;
+    }
+    const next = { ...row, metadata: nextMeta };
+    if (Object.keys(nextMeta).length === 0) {
+      delete next.metadata;
+    }
+    return next;
+  });
 }
 
 /**

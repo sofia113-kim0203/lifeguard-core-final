@@ -22,6 +22,148 @@ function mapTurn(turn = null) {
   };
 }
 
+function normalizeFilenameKey(name = "") {
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** Filenames from HomeChat "(첨부: …)" markers only — not whole-thread filename guessing. */
+export function extractAttachMarkerFilenamesFromTurnText(text = "") {
+  const out = [];
+  const s = String(text ?? "");
+  for (const match of s.matchAll(/\(첨부:\s*([^)]+)\)/g)) {
+    const name = String(match[1] ?? "").trim();
+    if (!name || name === "파일") continue;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** Customer asks to restate a soft-deleted document — history must not re-supply its facts. */
+export function isDeletedDocumentRecheckQuestion(question = "") {
+  const q = String(question ?? "");
+  if (!/삭제\s*한|삭제한|삭제된|지운|지웠/.test(q)) return false;
+  return /문서|파일|사진|첨부|증권|보험/.test(q);
+}
+
+/** KEY/document identity readout that must not survive after source soft-delete. */
+export function isDocumentIdentityReadoutText(text = "") {
+  const t = String(text ?? "");
+  if (!t.trim()) return false;
+  if (/계약자\s*\/?\s*피보험자|피보험자\s*[:：]|계약자\s*[:：]/.test(t) && /보험사/.test(t)) {
+    return true;
+  }
+  if (/보험사\s*[:：]/.test(t) && /상품명\s*[:：]/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Seed this turn's explicit attach into the active set so loader miss/[] cannot
+ * treat a live document_id as inactive. Does not re-open deleted-doc history.
+ */
+export function mergeCurrentTurnDocumentIntoActiveDocuments(
+  activeDocuments = null,
+  currentTurnDocument = null,
+) {
+  const base = Array.isArray(activeDocuments) ? [...activeDocuments] : [];
+  if (!currentTurnDocument || typeof currentTurnDocument !== "object") return base;
+  const id = String(
+    currentTurnDocument.document_id ?? currentTurnDocument.id ?? "",
+  ).trim();
+  const filename = String(
+    currentTurnDocument.original_filename ?? currentTurnDocument.filename ?? "",
+  ).trim();
+  if (!id && !filename) return base;
+  const already = base.some((doc) => {
+    if (typeof doc === "string") {
+      return filename && normalizeFilenameKey(doc) === normalizeFilenameKey(filename);
+    }
+    const docId = String(doc?.document_id ?? doc?.id ?? "").trim();
+    const docName = normalizeFilenameKey(doc?.original_filename ?? doc?.filename ?? "");
+    if (id && docId && docId === id) return true;
+    if (filename && docName && docName === normalizeFilenameKey(filename)) return true;
+    return false;
+  });
+  if (already) return base;
+  base.push({
+    id: id || null,
+    original_filename: filename || null,
+  });
+  return base;
+}
+
+/**
+ * Drop history turns derived from soft-deleted / inactive source documents so they
+ * cannot re-enter Claude conversation pack (recent / older summary / retained).
+ *
+ * activeDocuments (fail-closed):
+ *   - null/undefined → loader miss / unknown active set; treat as [] (never fail-open)
+ *   - [] → no proven active docs; suppress from first inactive attach onward
+ *   - [{ id, original_filename }] → suppress while conversation is on an inactive attach
+ *
+ * options.currentTurnDocument: explicit this-turn attach — always merged as active
+ *   (loader miss must not scrub the live document_id / filename segment).
+ * options.forceScrubAttachSegments: treat every attach as inactive (deleted-doc recheck).
+ * options.scrubIdentityReadouts: also drop assistant identity readouts (attach-marker miss).
+ * Does not delete UI chat.
+ */
+export function filterHistoryExcludingInactiveDocumentAttachments(
+  history = [],
+  activeDocuments = null,
+  options = {},
+) {
+  const forceScrub = options?.forceScrubAttachSegments === true;
+  const scrubReadouts = options?.scrubIdentityReadouts === true;
+  const rows = Array.isArray(history) ? history : [];
+  const activeKeys = new Set();
+  const activeIds = new Set();
+  // null loader result ≡ empty active set (fail-closed). Never pass history through unfiltered.
+  // Current-turn explicit document_id is still seeded as active (unless forceScrub).
+  const mergedActive = forceScrub
+    ? []
+    : mergeCurrentTurnDocumentIntoActiveDocuments(
+        activeDocuments,
+        options?.currentTurnDocument ?? null,
+      );
+  if (!forceScrub) {
+    for (const doc of mergedActive) {
+      if (typeof doc === "string") {
+        const key = normalizeFilenameKey(doc);
+        if (key) activeKeys.add(key);
+        continue;
+      }
+      const key = normalizeFilenameKey(doc?.original_filename ?? doc?.filename ?? "");
+      if (key) activeKeys.add(key);
+      const id = String(doc?.document_id ?? doc?.id ?? "").trim();
+      if (id) activeIds.add(id);
+    }
+  }
+
+  let suppress = false;
+  const kept = [];
+  for (const turn of rows) {
+    const text = turnText(turn);
+    const names = extractAttachMarkerFilenamesFromTurnText(text);
+    if (names.length > 0) {
+      const inactive =
+        forceScrub || names.some((n) => !activeKeys.has(normalizeFilenameKey(n)));
+      suppress = inactive;
+    }
+    const turnDocId = String(turn?.document_id ?? turn?.source_document_id ?? "").trim();
+    if (turnDocId) {
+      suppress = forceScrub || !activeIds.has(turnDocId);
+    }
+    if (suppress) continue;
+    if (scrubReadouts && turn?.role === "assistant" && isDocumentIdentityReadoutText(text)) {
+      continue;
+    }
+    kept.push(turn);
+  }
+  return kept;
+}
+
 function summarizeOlderTurns(older = []) {
   if (!Array.isArray(older) || older.length === 0) return null;
   const parts = [];
@@ -87,9 +229,22 @@ export function buildClaudeFullContextPack({
   question = "",
   documentEvidence = null,
   relatedPastOriginals = null,
+  activeDocuments = null,
+  /** Explicit this-turn attach — preserved even when activeDocuments loader returns null/[]. */
+  currentTurnDocument = null,
+  /** When true (deleted-doc recheck, no current attach), scrub all attach-derived turns. */
+  forceScrubAttachSegments = false,
+  scrubIdentityReadouts = false,
 } = {}) {
   const started = Date.now();
-  const mapped = (Array.isArray(history) ? history : []).map(mapTurn).filter((t) => t.text);
+  const historyForPack = filterHistoryExcludingInactiveDocumentAttachments(
+    history,
+    activeDocuments,
+    { forceScrubAttachSegments, scrubIdentityReadouts, currentTurnDocument },
+  );
+  const mapped = (Array.isArray(historyForPack) ? historyForPack : [])
+    .map(mapTurn)
+    .filter((t) => t.text);
   const n = Math.max(1, Number(recentTurnCount) || DEFAULT_RECENT_TURN_COUNT);
   const recent = mapped.length <= n ? mapped : mapped.slice(-n);
   const older = mapped.length <= n ? [] : mapped.slice(0, mapped.length - n);

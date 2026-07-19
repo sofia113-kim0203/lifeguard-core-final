@@ -265,6 +265,8 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
       "document_contract_not_customer_profile",
     "subject scope separated from customer profile",
   );
+  // DB CHECK allows signup|upload_extract|manual|import only — not key_confirmed_source_facts.
+  assert(fields.source === "manual", "insert source must satisfy DB CHECK");
 
   const inserts = [];
   const supabase = {
@@ -332,6 +334,7 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
   assert(created.ok === true, "create-on-missing-row should succeed");
   assert(created.created_policy_ids?.includes("pol-created"), "created policy id recorded");
   assert(inserts.length === 1, "one policy insert");
+  assert(inserts[0].payload.source === "manual", "created row source satisfies DB CHECK");
   assert(inserts[0].payload.coverage_summary.source_document_id === "doc-new", "linked to document");
   assert(
     inserts[0].payload.coverage_summary.parties.subject_scope === "document_contract",

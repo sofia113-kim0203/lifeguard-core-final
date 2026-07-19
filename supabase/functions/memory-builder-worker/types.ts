@@ -53,6 +53,12 @@ export type ExtractRebuildResult = {
   facts_changed: number;
   memory_version: number | null;
   fact_keys: string[];
+  /** I-5 — present when insurance extract ran and orphan/aggregate cleanup executed */
+  orphan_insurance_cleanup?: {
+    orphan_keyed_superseded: number;
+    aggregate_superseded: number;
+    fact_keys: string[];
+  } | null;
 };
 
 export type MemoryBuilderRequestBody = {

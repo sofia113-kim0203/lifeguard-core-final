@@ -21,6 +21,7 @@ import {
   extractActiveAttachmentFromSessionMessages,
   isReusableActiveAttachmentId,
   normalizeActiveAttachment,
+  scrubDeletedDocumentFromMessageActiveAttachments,
   shouldClearActiveAttachmentAfterTurn,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
@@ -39,6 +40,8 @@ import {
   readActiveSessionId,
   readInflightHomeChatTurn,
   readLifeguardChatSnapshot,
+  rejectClearedActiveAttachment,
+  rememberClearedActiveAttachmentId,
   resolveActiveLifeguardSessionId,
   subscribeInflightHomeChatTurn,
   writeActiveSessionId,
@@ -889,7 +892,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           });
           const fromRestored = extractActiveAttachmentFromSessionMessages(restored);
           const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
-          const active = fromRestored || (String(snapshot?.sessionId) === String(activeId) ? fromSnap : null);
+          const candidate =
+            fromRestored ||
+            (String(snapshot?.sessionId) === String(activeId) ? fromSnap : null);
+          // Soft-deleted document_ids stay cleared across refresh (message metadata may still name them).
+          const active = rejectClearedActiveAttachment(candidate, customerId);
           if (active) {
             setActiveAttachmentId(active.active_attachment_id);
             setActiveAttachmentMime(active.active_attachment_mime);
@@ -902,9 +909,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           // Remount before DB indexed the just-completed turn — keep local snapshot.
           setMessages((prev) => mergeRestoredSessionMessages(seed.length > 0 ? seed : prev, []));
           const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
-          if (fromSnap && String(snapshot?.sessionId) === String(activeId)) {
-            setActiveAttachmentId(fromSnap.active_attachment_id);
-            setActiveAttachmentMime(fromSnap.active_attachment_mime);
+          const active =
+            fromSnap && String(snapshot?.sessionId) === String(activeId)
+              ? rejectClearedActiveAttachment(fromSnap, customerId)
+              : null;
+          if (active) {
+            setActiveAttachmentId(active.active_attachment_id);
+            setActiveAttachmentMime(active.active_attachment_mime);
+          } else {
+            setActiveAttachmentId(null);
+            setActiveAttachmentMime(null);
           }
           setPanelView("chat");
         } else if (!keepVisibleThread) {
@@ -945,7 +959,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
         setMessages(restored);
-        const active = extractActiveAttachmentFromSessionMessages(restored);
+        const active = rejectClearedActiveAttachment(
+          extractActiveAttachmentFromSessionMessages(restored),
+          customerId,
+        );
         if (active) {
           setActiveAttachmentId(active.active_attachment_id);
           setActiveAttachmentMime(active.active_attachment_mime);
@@ -1394,7 +1411,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       if (chatAttachDocumentId === deleted) {
         clearComposerAttach();
       }
-      const activeMatchesDeleted = String(activeAttachmentId ?? "").trim() === deleted;
+      // Always tombstone + scrub message metadata — refresh reloads DB metadata otherwise.
+      if (customerId) {
+        rememberClearedActiveAttachmentId(customerId, deleted);
+      }
       const nextActive = clearActiveAttachmentIfDocumentDeleted(
         {
           active_attachment_id: activeAttachmentId,
@@ -1403,18 +1423,21 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         },
         deleted,
       );
-      // Deleted id matches current active → clear React state and snapshot together.
-      if (activeMatchesDeleted || (!nextActive && activeAttachmentId)) {
+      if (!nextActive) {
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
-        if (customerId) {
+      }
+      setMessages((prev) => {
+        const scrubbed = scrubDeletedDocumentFromMessageActiveAttachments(prev, deleted);
+        if (customerId && sessionId) {
           writeLifeguardChatSnapshot(customerId, {
             sessionId,
-            messages,
-            activeAttachment: null,
+            messages: scrubbed,
+            activeAttachment: nextActive,
           });
         }
-      }
+        return scrubbed;
+      });
     },
     [
       chatAttachDocumentId,
@@ -1422,7 +1445,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       activeAttachmentMime,
       customerId,
       sessionId,
-      messages,
     ],
   );
 
@@ -1449,7 +1471,11 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         return;
       }
       setDocumentDeleteNotice("");
-      if (result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED) {
+      if (
+        result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED ||
+        result?.reason === DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED ||
+        result?.reason === DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
+      ) {
         setLocalError(DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed);
         return;
       }
@@ -1556,8 +1582,26 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       if (!documentId) {
         throw new Error("문서 업로드 후 식별자를 받지 못했습니다.");
       }
+      const mime =
+        String(doc?.mime_type ?? file.type ?? "").trim() ||
+        (isImage ? "image/jpeg" : "application/pdf");
       setChatAttachDocumentId(documentId);
       setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "파일").trim());
+      // Seed conversation active attach at upload — do not wait for a successful turn.
+      // Follow-ups ("방금 올린/내 문서") must resend document_id even if composer chip is cleared.
+      setActiveAttachmentId(documentId);
+      setActiveAttachmentMime(mime);
+      if (customerId) {
+        writeLifeguardChatSnapshot(customerId, {
+          sessionId,
+          messages,
+          activeAttachment: {
+            active_attachment_id: documentId,
+            active_attachment_mime: mime,
+            active_rotation_quarter_turns: 0,
+          },
+        });
+      }
       await loadDocumentsRef.current?.();
     } catch (err) {
       clearComposerAttach();

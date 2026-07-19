@@ -15,6 +15,10 @@ import {
   assessMemorySyncNeed,
   resolveMemoryDisplayStatus,
 } from "./memoryObservability.js";
+import {
+  filterPoliciesToActiveSourceDocuments,
+  loadActiveSourceDocumentIds,
+} from "../src/lib/policySourceDocumentFilter.js";
 import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 
 export {
@@ -182,7 +186,11 @@ export async function loadSalesDirectorMinimalRawRecords(supabase, customerId) {
   }
 
   const profile = profileResult.data ?? null;
-  const policies = policiesResult.data ?? [];
+  const activeSourceIds = await loadActiveSourceDocumentIds(customerId, supabase);
+  const policies = filterPoliciesToActiveSourceDocuments(
+    policiesResult.data ?? [],
+    activeSourceIds,
+  );
 
   return {
     profile,
@@ -257,7 +265,12 @@ export async function loadRawCustomerRecords(supabase, customerId) {
 
   const profile = profileResult.data ?? null;
   const health = healthResult.data ?? null;
-  const policies = policiesResult.data ?? [];
+  // Full active id set (preview list is capped — do not use it for prior_facts filter).
+  const activeIdsForFilter = await loadActiveSourceDocumentIds(customerId, supabase);
+  const policies = filterPoliciesToActiveSourceDocuments(
+    policiesResult.data ?? [],
+    activeIdsForFilter,
+  );
   const documents = documentsResult.data ?? [];
   const documentCount = documentsCountResult.count ?? 0;
   const documentsPreviewCount = documents.length;

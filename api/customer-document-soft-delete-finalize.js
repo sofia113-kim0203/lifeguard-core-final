@@ -1,11 +1,13 @@
 /**
- * Phase 26 Step 1A — POST /api/customer-memory-load
- * Customer login → rebuild memory foundation → return snapshot.
+ * I-6 — POST /api/customer-document-soft-delete-finalize
+ * Customer JWT proves ownership; service_role finishes post-RPC cleanup by document_id.
+ * Does not soft-delete (RPC SSOT). Does not re-activate deleted docs/policies.
  */
 
-import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
 import { createClient } from "@supabase/supabase-js";
+import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
 import { resolveSupabaseConfig } from "../server/policyTermsQaCore.js";
+import { finalizeCustomerDocumentSoftDelete } from "../server/documentSoftDeleteFinalize.js";
 
 function createUserSupabaseClient(authHeader) {
   const { url, anonKey } = resolveSupabaseConfig();
@@ -38,15 +40,15 @@ export default async function handler(req, res) {
 
   try {
     const authHeader = req.headers?.authorization ?? req.headers?.Authorization ?? "";
-    const supabase = createUserSupabaseClient(authHeader);
-    if (!supabase) {
+    const userClient = createUserSupabaseClient(authHeader);
+    if (!userClient) {
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ ok: false, reason: "SUPABASE_NOT_CONFIGURED" }));
       return;
     }
 
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await userClient.auth.getUser();
     if (authError || !authData?.user) {
       res.statusCode = 401;
       res.setHeader("Content-Type", "application/json");
@@ -54,7 +56,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await userClient
       .from("customer_profiles")
       .select("id")
       .eq("user_id", authData.user.id)
@@ -67,67 +69,50 @@ export default async function handler(req, res) {
     }
 
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
-    const scrubInsuranceMemory = body?.scrub_insurance_memory === true;
-    const retiredPolicyIds = Array.isArray(body?.retired_policy_ids)
-      ? body.retired_policy_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
-      : [];
-    // Soft-delete Hand: scrub only (no full rebuild). Default login path still rebuilds.
-    const rebuild = scrubInsuranceMemory ? body?.rebuild === true : body?.rebuild !== false;
-
-    const serviceRoleKey = process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
-    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? null;
-
-    const admin = serviceRoleKey && supabaseUrl
-      ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
-      : supabase;
-
-    if (scrubInsuranceMemory) {
-      if (!serviceRoleKey) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, reason: "SERVICE_ROLE_REQUIRED" }));
-        return;
-      }
-      const { scrubInsuranceMemoryForRetiredPolicies } = await import(
-        "../server/customerMemoryFoundation.js"
-      );
-      const scrub = await scrubInsuranceMemoryForRetiredPolicies({
-        supabase: admin,
-        customerId: profile.id,
-        retiredPolicyIds,
-      });
-      res.statusCode = 200;
+    const documentId = String(body?.document_id ?? "").trim();
+    if (!documentId) {
+      res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: true,
-          customer_id: profile.id,
-          scrub_insurance_memory: scrub,
-        }),
-      );
+      res.end(JSON.stringify({ ok: false, reason: "DOCUMENT_ID_REQUIRED" }));
       return;
     }
 
-    const { loadCustomerMemoryOnLogin } = await import("../server/customerMemoryFoundation.js");
-    const result = await loadCustomerMemoryOnLogin({
-      supabase: admin,
-      supabaseUrl,
-      serviceRoleKey,
-      customerId: profile.id,
-      rebuild: rebuild && Boolean(serviceRoleKey),
+    const serviceRoleKey =
+      process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
+    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? null;
+    if (!serviceRoleKey || !supabaseUrl) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, reason: "SERVICE_ROLE_REQUIRED" }));
+      return;
+    }
+
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    res.statusCode = 200;
+    const result = await finalizeCustomerDocumentSoftDelete({
+      admin,
+      customerId: profile.id,
+      documentId,
+    });
+
+    res.statusCode = result.success ? 200 : 409;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: true, ...result }));
-  } catch (error) {
+    res.end(
+      JSON.stringify({
+        ok: result.success === true,
+        ...result,
+      }),
+    );
+  } catch (err) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
-        reason: "SERVER_ERROR",
-        error_message: error instanceof Error ? error.message : "Customer memory load failed.",
+        reason: "FINALIZE_EXCEPTION",
+        error_message: err instanceof Error ? err.message : String(err),
       }),
     );
   }

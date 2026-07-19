@@ -396,10 +396,15 @@ async function runOneKeyCoreQuestionTurn({
   // No intent/Decision/leadership/S3–S6. Probe / active_partial do not divert this path.
   if (shouldRunClaudeFirstHomeChatQuestion(coreEnv)) {
     const conversationHistory = (history ?? [])
-      .map((turn) => ({
-        role: turn.role === "assistant" ? "assistant" : "user",
-        text: String(turn.content ?? turn.text ?? turn.message ?? "").trim(),
-      }))
+      .map((turn) => {
+        const text = String(turn.content ?? turn.text ?? turn.message ?? "").trim();
+        // Keep both fields: Claude-first payload uses `.text`; attach helpers dual-read content/text.
+        return {
+          role: turn.role === "assistant" ? "assistant" : "user",
+          text,
+          content: text,
+        };
+      })
       .filter((t) => t.text);
     return runClaudeFirstDirectQuestionTurn({
       question,

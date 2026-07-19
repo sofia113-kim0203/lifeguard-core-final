@@ -310,7 +310,9 @@ export function buildPolicyFieldsFromKeyConfirmedFacts(documentId, docFacts = []
     product_name: product,
     monthly_premium: monthlyPremium != null && Number.isFinite(monthlyPremium) ? monthlyPremium : null,
     coverage_summary,
-    source: "key_confirmed_source_facts",
+    // DB CHECK: profile_insurance_policies.source IN (signup|upload_extract|manual|import).
+    // KEY provenance stays in coverage_summary.key_confirmed_source_facts / confirmation_source.
+    source: "manual",
     is_active: true,
     updated_at: new Date().toISOString(),
   };
