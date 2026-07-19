@@ -12,6 +12,7 @@ import {
 import {
   buildVerifiedCustomerChart,
   ANTHROPIC_WEB_SEARCH_TOOL,
+  shouldEnablePublicWebSearch,
 } from "./keyBorrowedSensesSpeak.js";
 import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js";
 import {
@@ -555,6 +556,42 @@ export const RECORD_RECOMMENDATION_BASIS_TOOL = Object.freeze({
 });
 
 const RECOMMENDATION_BASIS_TOOL_NAME = RECORD_RECOMMENDATION_BASIS_TOOL.name;
+
+/**
+ * Assemble Claude-first answer tools from confirmed turn context only.
+ * No new keyword/intent router — document attach bytes, loaded claim cases,
+ * and the existing public web-search path decide inclusion.
+ * Tool definitions and validation stay intact; this only chooses which schemas to send.
+ */
+export function buildClaudeFirstAnswerTools({
+  pdfAttached = false,
+  activeClaimCases = null,
+  question = "",
+  history = [],
+} = {}) {
+  const tools = [];
+  const hasDoc = pdfAttached === true;
+  const hasClaim =
+    Array.isArray(activeClaimCases) && activeClaimCases.length > 0;
+  // Document-read / contract-confirm turns: web_search off by default (existing path).
+  const includeWeb =
+    !hasDoc && shouldEnablePublicWebSearch({ question, history });
+
+  if (includeWeb) tools.push(ANTHROPIC_WEB_SEARCH_TOOL);
+  if (hasDoc) {
+    tools.push(RECORD_CONFIRMED_SOURCE_FACTS_TOOL, RECORD_COVERAGE_BASELINE_FACTS_TOOL);
+  }
+  if (hasClaim) tools.push(RECORD_CLAIM_CASE_UPDATES_TOOL);
+  // GO3 + GO4A optional tools — never force an extra provider round-trip.
+  tools.push(RECORD_SESSION_GOAL_TOOL, RECORD_RECOMMENDATION_BASIS_TOOL);
+  return tools;
+}
+
+export function listClaudeFirstAnswerToolNames(opts = {}) {
+  return buildClaudeFirstAnswerTools(opts)
+    .map((t) => t?.name)
+    .filter(Boolean);
+}
 
 const FORBIDDEN_RECOMMENDATION_BASIS_PAYLOAD_RE =
   /가입하세요|해지해도\s*됩니다|무조건\s*(?:이\s*)?상품|갈아타세요|01[016789]-?\d{3,4}-?\d{4}|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\d{1,3}(?:,\d{3})+\s*원|부족(?:액|금액)?\s*\d/i;
@@ -2359,23 +2396,14 @@ async function callClaudeFirstDirect({
     updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
 
-  // Image|PDF original: facts + baseline + claim + optional session_goal / recommendation_basis.
+  // Tool schemas only for confirmed turn context — definitions/validation unchanged.
   // session_goal + recommendation_basis never add a provider round-trip.
-  const answerTools = pdfAttached
-    ? [
-        ANTHROPIC_WEB_SEARCH_TOOL,
-        RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
-        RECORD_COVERAGE_BASELINE_FACTS_TOOL,
-        RECORD_CLAIM_CASE_UPDATES_TOOL,
-        RECORD_SESSION_GOAL_TOOL,
-        RECORD_RECOMMENDATION_BASIS_TOOL,
-      ]
-    : [
-        ANTHROPIC_WEB_SEARCH_TOOL,
-        RECORD_CLAIM_CASE_UPDATES_TOOL,
-        RECORD_SESSION_GOAL_TOOL,
-        RECORD_RECOMMENDATION_BASIS_TOOL,
-      ];
+  const answerTools = buildClaudeFirstAnswerTools({
+    pdfAttached,
+    activeClaimCases,
+    question,
+    history,
+  });
   for (let turn = 0; turn < 4; turn += 1) {
     // Original attached: require confirmed-source facts tool once before text-only finish.
     // Prevents "정리해 드릴게요" deferral with empty left-rail persist.

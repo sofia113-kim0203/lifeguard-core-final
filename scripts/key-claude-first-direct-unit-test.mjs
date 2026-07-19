@@ -24,6 +24,8 @@ import {
   RECORD_CLAIM_CASE_UPDATES_TOOL,
   RECORD_SESSION_GOAL_TOOL,
   RECORD_RECOMMENDATION_BASIS_TOOL,
+  buildClaudeFirstAnswerTools,
+  listClaudeFirstAnswerToolNames,
   extractSessionGoalFromContent,
   extractRecommendationBasisFromContent,
   buildRecommendationEvidenceCatalog,
@@ -3941,3 +3943,233 @@ async function runGo2ConflictTurn({
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");
+
+// --- REQUEST LIGHTENING: confirmed-context tool assembly (no new keyword router) ---
+{
+  const BEFORE = {
+    general: [
+      "web_search",
+      "record_claim_case_updates",
+      "record_session_goal",
+      "record_recommendation_basis",
+    ],
+    pdf: [
+      "web_search",
+      "record_confirmed_source_facts",
+      "record_coverage_baseline_facts",
+      "record_claim_case_updates",
+      "record_session_goal",
+      "record_recommendation_basis",
+    ],
+  };
+
+  // A: general question — facts/baseline/claim excluded; session_goal/basis included
+  {
+    const names = listClaudeFirstAnswerToolNames({
+      question: "안녕하세요. 짧게만 인사해 주세요.",
+      history: [],
+      pdfAttached: false,
+      activeClaimCases: [],
+    });
+    assert.equal(names.includes("record_session_goal"), true, "A: session_goal");
+    assert.equal(names.includes("record_recommendation_basis"), true, "A: basis");
+    assert.equal(names.includes("record_confirmed_source_facts"), false, "A: no facts");
+    assert.equal(names.includes("record_coverage_baseline_facts"), false, "A: no baseline");
+    assert.equal(names.includes("record_claim_case_updates"), false, "A: no claim");
+    assert.equal(names.includes("web_search"), false, "A: no web on plain greeting");
+    assert.deepEqual(
+      names,
+      ["record_session_goal", "record_recommendation_basis"],
+      "A: exact tool list",
+    );
+
+    const hello = "안녕하세요. KEY입니다.";
+    const counter = { n: 0 };
+    let sawTools = null;
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "안녕하세요",
+      history: [],
+      loadedContext: { policies: [], policy_count: 0 },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: async (_url, opts) => {
+        counter.n += 1;
+        const body = JSON.parse(String(opts?.body ?? "{}"));
+        sawTools = (body.tools ?? []).map((t) => t?.name).filter(Boolean);
+        return {
+          ok: true,
+          async json() {
+            return { content: [{ type: "text", text: hello }] };
+          },
+        };
+      },
+    });
+    assert.equal(counter.n, 1, "A: provider 1");
+    assert.equal(result.customerText, hello, "A: answer");
+    assert.equal(result.keySpeakOriginal, hello, "A: sealed");
+    assert.deepEqual(
+      sawTools,
+      ["record_session_goal", "record_recommendation_basis"],
+      "A: request tools",
+    );
+  }
+
+  // B: PDF document question — facts/baseline on; web/claim off without claim context
+  {
+    const names = listClaudeFirstAnswerToolNames({
+      question: "이 첨부 증권 내용 정리해 주세요.",
+      history: [],
+      pdfAttached: true,
+      activeClaimCases: [],
+    });
+    assert.equal(names.includes("record_confirmed_source_facts"), true, "B: facts");
+    assert.equal(names.includes("record_coverage_baseline_facts"), true, "B: baseline");
+    assert.equal(names.includes("record_session_goal"), true, "B: session_goal");
+    assert.equal(names.includes("record_recommendation_basis"), true, "B: basis");
+    assert.equal(names.includes("web_search"), false, "B: no web on document turn");
+    assert.equal(names.includes("record_claim_case_updates"), false, "B: no claim");
+    assert.equal(names.length, 4, "B: tool count 4");
+
+    const tools = buildClaudeFirstAnswerTools({
+      pdfAttached: true,
+      activeClaimCases: [],
+      question: "이 첨부 증권 내용 정리해 주세요.",
+    });
+    assert.equal(
+      tools.some((t) => t === RECORD_CONFIRMED_SOURCE_FACTS_TOOL),
+      true,
+      "B: same tool object",
+    );
+  }
+
+  // C: claim context present / absent
+  {
+    const withClaim = listClaudeFirstAnswerToolNames({
+      question: "청구 진행 어디까지야?",
+      pdfAttached: false,
+      activeClaimCases: [{ claim_case_key: "date:2026-07-12:kind:surgery" }],
+    });
+    const withoutClaim = listClaudeFirstAnswerToolNames({
+      question: "청구 진행 어디까지야?",
+      pdfAttached: false,
+      activeClaimCases: [],
+    });
+    assert.equal(withClaim.includes("record_claim_case_updates"), true, "C: claim on");
+    assert.equal(withoutClaim.includes("record_claim_case_updates"), false, "C: claim off");
+    assert.equal(
+      withoutClaim.filter((n) => n === "record_claim_case_updates").length,
+      0,
+      "C: claim tool 0",
+    );
+  }
+
+  // D: recommendation_basis still available on natural recommend; no extra provider call
+  {
+    const names = listClaudeFirstAnswerToolNames({
+      question: "암 보장 보완 방향 짧게 추천해 주세요.",
+      pdfAttached: false,
+      activeClaimCases: [],
+    });
+    assert.equal(names.includes("record_recommendation_basis"), true, "D: basis available");
+    const answerText = "확인된 계약을 기준으로 암 진단비 축부터 보면 좋겠습니다.";
+    const counter = { n: 0 };
+    const DOC = "doc-light-d";
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 보완 방향 짧게 추천해 주세요.",
+      history: [],
+      loadedContext: {
+        policies: [
+          {
+            id: "pol-light-d",
+            is_active: true,
+            insurer_name: "삼성화재",
+            product_name: "테스트상품",
+            coverage_summary: {
+              source_document_id: DOC,
+              key_confirmed_source_facts: [
+                {
+                  fact_type: "insurer_name",
+                  literal_value: "삼성화재",
+                  source_document_id: DOC,
+                  confirmation_source: "key_claude_original_document",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: async () => {
+        counter.n += 1;
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [
+                { type: "text", text: answerText },
+                {
+                  type: "tool_use",
+                  id: "basis-light-d",
+                  name: "record_recommendation_basis",
+                  input: {
+                    recommendations: [
+                      {
+                        recommendation_id: "r1",
+                        recommendation_type: "coverage_gap_review",
+                        evidence_refs: ["personal.contract:pol-light-d"],
+                        gap_or_axis: "insurer_name",
+                        why_relevant: "확인된 계약 기준",
+                        uncertainty: "금액 미확인",
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+    assert.equal(counter.n, 1, "D: provider 1 — no extra call");
+    assert.equal(result.customerText, answerText, "D: answer unchanged");
+    assert.equal(result.keySpeakOriginal, answerText, "D: sealed unchanged");
+    assert.equal(
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace
+        ?.recommendation_basis_tool_seen,
+      true,
+      "D: tool_seen",
+    );
+  }
+
+  // G: request size — tool counts only (no prompt/PII dump)
+  {
+    const afterGeneral = listClaudeFirstAnswerToolNames({
+      question: "안녕하세요",
+      pdfAttached: false,
+      activeClaimCases: [],
+    });
+    const afterPdf = listClaudeFirstAnswerToolNames({
+      question: "첨부 증권 정리",
+      pdfAttached: true,
+      activeClaimCases: [],
+    });
+    console.log(
+      JSON.stringify({
+        request_lightening_tool_counts: {
+          general_before: BEFORE.general.length,
+          general_after: afterGeneral.length,
+          general_before_names: BEFORE.general,
+          general_after_names: afterGeneral,
+          pdf_before: BEFORE.pdf.length,
+          pdf_after: afterPdf.length,
+          pdf_before_names: BEFORE.pdf,
+          pdf_after_names: afterPdf,
+        },
+      }),
+    );
+    assert.ok(afterGeneral.length < BEFORE.general.length, "G: general lighter");
+    assert.ok(afterPdf.length < BEFORE.pdf.length, "G: pdf lighter");
+  }
+
+  console.log("REQUEST LIGHTENING LOCAL CHECKS OK");
+}
+
