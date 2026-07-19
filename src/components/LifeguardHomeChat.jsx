@@ -1084,14 +1084,19 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     }
 
     try {
-      const history = nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+      const historyMessages = nextMessages.slice(0, -1);
+      const history = historyMessages.map((m) => ({ role: m.role, content: m.content }));
       appendHomeChatStreamTrace("home_brain_request_start");
 
       let streamedText = "";
       let receivedDelta = false;
       let sawFirstSseEvent = false;
       let sawSseDone = false;
-      let attachOptions = documentIdForTurn ? { documentId: documentIdForTurn } : {};
+      // GO3: session_id only — server SSOT loads session_goal; never send prior_session_goal.
+      let attachOptions = {
+        sessionId,
+        ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
+      };
       // Reused active attachment — server re-verifies ownership (no latest-doc invent).
       if (reusedActiveAttachment) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
@@ -1215,6 +1220,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
       const visualBlocksGate = result.visualBlocksGate ?? null;
+      const turnSessionGoal =
+        result.sessionGoal && typeof result.sessionGoal === "object"
+          ? result.sessionGoal
+          : null;
       const completedMessages = [
         ...nextMessages,
         {
@@ -1224,6 +1233,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           turnId,
           visual_blocks: visualBlocks,
           visual_blocks_gate: visualBlocksGate,
+          ...(turnSessionGoal
+            ? {
+                session_goal: turnSessionGoal,
+                metadata: { session_goal: turnSessionGoal },
+              }
+            : {}),
         },
       ];
       appendHomeChatStreamTrace("streamed_answer_commit");
@@ -1288,18 +1303,23 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       clearComposerAttach();
 
       if (authUser && customerId) {
-        await persistLifeguardChatTurn(authUser, {
-          sessionId,
-          customerId,
-          userMessage: trimmed,
-          assistantMessage: finalText,
-          visualBlocks,
-          visualBlocksGate,
-          composeMode: result.composeMode ?? null,
-          responseLatencyMs: result.responseLatencyMs ?? null,
-          oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
-          activeAttachment: nextActive,
-        });
+        try {
+          await persistLifeguardChatTurn(authUser, {
+            sessionId,
+            customerId,
+            userMessage: trimmed,
+            assistantMessage: finalText,
+            visualBlocks,
+            visualBlocksGate,
+            composeMode: result.composeMode ?? null,
+            responseLatencyMs: result.responseLatencyMs ?? null,
+            oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
+            activeAttachment: nextActive,
+            sessionGoal: turnSessionGoal,
+          });
+        } catch {
+          // Fail-soft: customer answer already on screen; do not retry (would duplicate rows).
+        }
         writeActiveSessionId(customerId, sessionId);
         writeLifeguardChatSnapshot(customerId, {
           sessionId,

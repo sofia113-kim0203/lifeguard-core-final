@@ -42,6 +42,7 @@ export {
   rejectClearedActiveAttachment,
   rememberClearedActiveAttachmentId,
   resolveActiveLifeguardSessionId,
+  resolveActiveSessionGoalFromMessages,
   sanitizeMessagesForChatSnapshot,
   subscribeInflightHomeChatTurn,
   writeActiveSessionId,
@@ -181,19 +182,34 @@ export async function persistLifeguardChatTurn(
     responseLatencyMs = null,
     oneKeyCoreTraceSummary = null,
     activeAttachment = null,
+    sessionGoal = null,
   },
 ) {
   if (!sessionId) throw new Error("session_id_required");
   const customerId = await resolveCustomerId(authUser, knownCustomerId);
   const metadata = buildSessionMetadata(sessionId, { activeAttachment });
-  const assistantMetadata = buildAssistantTurnMetadata(sessionId, {
-    visualBlocks,
-    visualBlocksGate,
-    composeMode,
-    responseLatencyMs,
-    oneKeyCoreTraceSummary,
-    activeAttachment,
-  });
+  let assistantMetadata;
+  try {
+    assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+      visualBlocks,
+      visualBlocksGate,
+      composeMode,
+      responseLatencyMs,
+      oneKeyCoreTraceSummary,
+      activeAttachment,
+      sessionGoal,
+    });
+  } catch {
+    // Fail-soft: session_goal must never block customer answer persistence.
+    assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+      visualBlocks,
+      visualBlocksGate,
+      composeMode,
+      responseLatencyMs,
+      oneKeyCoreTraceSummary,
+      activeAttachment,
+    });
+  }
   const userRow = await insertLifeguardConversationMessage(customerId, {
     role: "user",
     message: userMessage,

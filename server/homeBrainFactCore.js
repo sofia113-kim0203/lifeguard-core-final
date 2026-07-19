@@ -44,8 +44,14 @@ export function buildClaudeFactoryDirectionFromTurn({
   const facts = Array.isArray(coreResult?.agentTurn?.factBundle?.key_confirmed_source_facts)
     ? coreResult.agentTurn.factBundle.key_confirmed_source_facts
     : [];
-  const decision = trace.decision ?? null;
+  const decision = null;
   const session_goal = trace.session_goal ?? null;
+  const sessionGoalText =
+    session_goal && typeof session_goal === "object"
+      ? String(session_goal.goal ?? "").trim() || null
+      : session_goal != null
+        ? String(session_goal).trim() || null
+        : null;
   const recheck = facts
     .map((fact) => fact?.field ?? fact?.fact_key ?? fact?.label ?? null)
     .filter(Boolean)
@@ -55,12 +61,10 @@ export function buildClaudeFactoryDirectionFromTurn({
     source: "claude_first_direct",
     document_id: documentId,
     customer_question_focus: String(question ?? "").trim().slice(0, 500),
-    session_goal,
+    session_goal: sessionGoalText,
     decision,
     document_understanding:
-      decision?.key_judgment ??
-      decision?.situation_key ??
-      session_goal ??
+      sessionGoalText ??
       (facts.length ? "confirmed_source_facts_present" : null),
     confirm_items: facts.slice(0, 40).map((fact) => ({
       field: fact?.field ?? fact?.fact_key ?? null,
@@ -71,13 +75,13 @@ export function buildClaudeFactoryDirectionFromTurn({
       .filter((fact) => fact?.uncertain === true || fact?.confidence === "low")
       .slice(0, 20),
     recheck_on_original: recheck,
-    compare_or_calc_basis: decision?.key_next_move ?? session_goal ?? null,
+    compare_or_calc_basis: sessionGoalText,
     pdf_attached: voice.pdf_attached === true,
     gaps: {
-      decision_null: decision == null,
-      session_goal_null: session_goal == null,
+      decision_null: true,
+      session_goal_null: sessionGoalText == null,
       note:
-        "plain_text Claude-first path often leaves decision/session_goal null; direction uses question + confirmed_source_facts",
+        "Claude-first: decision never persisted; session_goal is short-term work state only (or null)",
     },
   };
 }
@@ -419,6 +423,7 @@ export async function handleHomeBrainFactRequest({
   history = [],
   attachedDocumentId = null,
   priorAttachFollowUp = false,
+  sessionId = null,
   shadowVisualBlocksOverride = null,
   accessToken = null,
   env = process.env,
@@ -493,6 +498,7 @@ export async function handleHomeBrainFactRequest({
     history,
     attachedDocumentId,
     priorAttachFollowUp,
+    sessionId,
     shadowVisualBlocksOverride,
     streamHandlers: activeStreamHandlers,
     env: keyEnv,
@@ -674,6 +680,9 @@ export async function handleHomeBrainFactRequest({
       one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
       key_monopoly_failure: coreResult.key_monopoly_failure === true,
       failure_reason: coreResult.failure_reason ?? null,
+      // GO3 — short-term session work state for client metadata persist (not decision/memory).
+      session_goal: coreResult.salesDirectorTrace?.session_goal ?? null,
+      decision_persisted: false,
       factsUsed,
       claude_factory_direction: claudeFactoryDirection,
       factory_enqueue: attachedId

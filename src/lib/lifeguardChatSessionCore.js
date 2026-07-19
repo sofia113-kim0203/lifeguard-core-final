@@ -523,6 +523,33 @@ export function buildSessionMetadata(
   return metadata;
 }
 
+/**
+ * GO3 — latest short-term session_goal from same-session assistant metadata (active only).
+ * Newest assistant row that carries a session_goal slot wins; completed → null.
+ */
+export function resolveActiveSessionGoalFromMessages(messages = []) {
+  const rows = Array.isArray(messages) ? messages : [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (row?.role !== "assistant") continue;
+    const sg = row.session_goal ?? row.metadata?.session_goal ?? null;
+    if (!sg || typeof sg !== "object") continue;
+    const status = String(sg.status ?? "").trim();
+    if (status === "completed") return null;
+    if (status === "active") {
+      const goal = String(sg.goal ?? "").trim();
+      if (!goal) return null;
+      return {
+        goal,
+        status: "active",
+        updated_at: sg.updated_at ?? null,
+      };
+    }
+    return null;
+  }
+  return null;
+}
+
 export function buildAssistantTurnMetadata(
   sessionId,
   {
@@ -532,6 +559,7 @@ export function buildAssistantTurnMetadata(
     responseLatencyMs = null,
     oneKeyCoreTraceSummary = null,
     activeAttachment = null,
+    sessionGoal = null,
   } = {},
 ) {
   const metadata = buildSessionMetadata(sessionId, { activeAttachment });
@@ -549,6 +577,26 @@ export function buildAssistantTurnMetadata(
   }
   if (oneKeyCoreTraceSummary && typeof oneKeyCoreTraceSummary === "object") {
     metadata.one_key_core_trace_summary = oneKeyCoreTraceSummary;
+  }
+  // GO3 — short-term work state only; omit when absent (do not invent / clear by null).
+  if (
+    sessionGoal &&
+    typeof sessionGoal === "object" &&
+    (String(sessionGoal.status ?? "").trim() === "active" ||
+      String(sessionGoal.status ?? "").trim() === "completed")
+  ) {
+    const status = String(sessionGoal.status).trim();
+    const goal =
+      sessionGoal.goal == null ? null : String(sessionGoal.goal).trim() || null;
+    if (status === "active" && !goal) {
+      // invalid active — skip persist
+    } else {
+      metadata.session_goal = {
+        goal,
+        status,
+        updated_at: sessionGoal.updated_at ?? null,
+      };
+    }
   }
   return metadata;
 }
@@ -728,9 +776,25 @@ export function mapSessionRowsToChatMessages(rows, sessionId) {
       if (metadata.visual_blocks_gate && typeof metadata.visual_blocks_gate === "object") {
         message.visual_blocks_gate = metadata.visual_blocks_gate;
       }
+      if (metadata.session_goal && typeof metadata.session_goal === "object") {
+        message.session_goal = {
+          goal: metadata.session_goal.goal ?? null,
+          status: metadata.session_goal.status ?? null,
+          updated_at: metadata.session_goal.updated_at ?? null,
+        };
+        message.metadata = {
+          ...(message.metadata && typeof message.metadata === "object"
+            ? message.metadata
+            : {}),
+          session_goal: message.session_goal,
+        };
+      }
       const active = normalizeActiveAttachment(metadata);
       if (active) {
         message.metadata = {
+          ...(message.metadata && typeof message.metadata === "object"
+            ? message.metadata
+            : {}),
           active_attachment_id: active.active_attachment_id,
           active_attachment_mime: active.active_attachment_mime,
           active_rotation_quarter_turns: active.active_rotation_quarter_turns,

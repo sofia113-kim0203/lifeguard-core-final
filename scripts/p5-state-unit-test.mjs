@@ -15,6 +15,7 @@ import {
   mapSessionRowsToChatMessages,
   mergeRestoredSessionMessages,
   resolveActiveLifeguardSessionId,
+  resolveActiveSessionGoalFromMessages,
   sanitizeMessagesForChatSnapshot,
   LIFEGUARD_HOME_CHAT_PHASE,
 } from "../src/lib/lifeguardChatSessionCore.js";
@@ -333,6 +334,65 @@ async function main() {
 
       const merged = mergeRestoredSessionMessages(sanitized, []);
       assert.equal(merged.length, 2);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("T13 GO3 session_goal — metadata persist + completed beats active", () => {
+      const meta = buildAssistantTurnMetadata("s-goal", {
+        sessionGoal: {
+          goal: "보험료 부담을 줄일 선택지 비교",
+          status: "active",
+          updated_at: "2026-07-19T12:00:00.000Z",
+        },
+      });
+      assert.equal(meta.session_goal.status, "active");
+      assert.equal(meta.session_goal.goal, "보험료 부담을 줄일 선택지 비교");
+
+      const rows = [
+        {
+          id: "u1",
+          role: "user",
+          message: "보험료 줄이고 싶어요",
+          metadata: {
+            phase: LIFEGUARD_HOME_CHAT_PHASE,
+            session_id: "s-goal",
+            source: "lifeguard_home_chat",
+          },
+          createdAt: "2026-07-19T12:00:00.000Z",
+        },
+        {
+          id: "a1",
+          role: "assistant",
+          message: "선택지를 비교해 볼게요.",
+          metadata: meta,
+          createdAt: "2026-07-19T12:00:01.000Z",
+        },
+      ];
+      const msgs = mapSessionRowsToChatMessages(rows, "s-goal");
+      assert.equal(resolveActiveSessionGoalFromMessages(msgs)?.goal, "보험료 부담을 줄일 선택지 비교");
+
+      const completedMeta = buildAssistantTurnMetadata("s-goal", {
+        sessionGoal: {
+          goal: null,
+          status: "completed",
+          updated_at: "2026-07-19T12:05:00.000Z",
+        },
+      });
+      assert.equal(completedMeta.session_goal.status, "completed");
+      assert.equal(completedMeta.session_goal.goal, null);
+      const afterDone = [
+        ...msgs,
+        {
+          role: "assistant",
+          content: "오늘은 여기까지요.",
+          session_goal: completedMeta.session_goal,
+        },
+      ];
+      assert.equal(resolveActiveSessionGoalFromMessages(afterDone), null, "completed beats active");
+      assert.equal(buildAssistantTurnMetadata("s-goal", {}).session_goal, undefined);
     })
   ) {
     passed += 1;

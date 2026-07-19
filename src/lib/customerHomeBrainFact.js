@@ -151,6 +151,14 @@ export function mapHomeBrainFactPayload(payload) {
     visualBlocksGate: resolveVisualBlocksGateFromPayload(payload, visualBlocks),
     keyMonopolyFailure: payload.key_monopoly_failure === true,
     failureReason: payload.failure_reason ?? null,
+    sessionGoal:
+      payload.session_goal && typeof payload.session_goal === "object"
+        ? {
+            goal: payload.session_goal.goal ?? null,
+            status: payload.session_goal.status ?? null,
+            updated_at: payload.session_goal.updated_at ?? null,
+          }
+        : null,
   };
 }
 

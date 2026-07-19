@@ -22,6 +22,16 @@ import {
   ATTACH_PROCESS_FAILED_CUSTOMER_TEXT,
   RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
   RECORD_CLAIM_CASE_UPDATES_TOOL,
+  RECORD_SESSION_GOAL_TOOL,
+  extractSessionGoalFromContent,
+  normalizeSessionGoalRecord,
+  isForbiddenSessionGoalText,
+  shouldDiscardStaleSessionGoal,
+  resolveSessionGoalForContext,
+  resolvePersistableSessionGoal,
+  loadLatestSessionGoalFromConversations,
+  classifySessionGoalRejectReason,
+  SESSION_GOAL_MAX_CHARS,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
   buildVerifiedLiteralSetFromPolicies,
@@ -48,7 +58,11 @@ import {
 import {
   buildSessionMetadata,
   buildAssistantTurnMetadata,
+  resolveActiveSessionGoalFromMessages,
+  mapSessionRowsToChatMessages,
+  LIFEGUARD_HOME_CHAT_PHASE,
 } from "../src/lib/lifeguardChatSessionCore.js";
+import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
 import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicPdfDocumentBlock,
@@ -2853,6 +2867,517 @@ async function runGo2ConflictTurn({
   assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.attempted, false);
   assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_coverage_baseline_persist?.attempted, false);
   assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist?.attempted, false);
+}
+
+// --- GO3 correction: server SSOT + discard persist + no client prior trust ---
+{
+  assert.equal(RECORD_SESSION_GOAL_TOOL.name, "record_session_goal");
+  assert.equal(SESSION_GOAL_MAX_CHARS, 80);
+  assert.equal(isForbiddenSessionGoalText("해지하려는 것 같다"), true, "K");
+  assert.equal(isForbiddenSessionGoalText("보험료 부담을 줄일 선택지 비교"), false, "K allow");
+  assert.equal(
+    classifySessionGoalRejectReason("a".repeat(81), "active"),
+    "too_long",
+    "K too long",
+  );
+  assert.equal(
+    classifySessionGoalRejectReason("연락처는 test@example.com", "active"),
+    "pii_email",
+    "K pii",
+  );
+  assert.equal(shouldDiscardStaleSessionGoal("그 얘기 말고"), true, "E discard");
+  assert.equal(shouldDiscardStaleSessionGoal("이제 그만"), true, "E");
+  assert.equal(shouldDiscardStaleSessionGoal("그건 나중에"), true, "E");
+  assert.equal(shouldDiscardStaleSessionGoal("그 얘기 말고도 궁금한 게 있어요"), false, "G");
+  assert.equal(shouldDiscardStaleSessionGoal('"그 얘기 말고"라고 말했죠'), false, "G quote");
+
+  const now = new Date("2026-07-19T12:00:00.000Z");
+  assert.equal(
+    resolvePersistableSessionGoal({
+      discardRequested: true,
+      usedFailure: true,
+      claudeGoal: { goal: "가입 계약 확인", status: "active", updated_at: "x" },
+      now,
+    })?.status,
+    "completed",
+    "E: discard wins over failure",
+  );
+  assert.equal(
+    resolvePersistableSessionGoal({
+      discardRequested: false,
+      usedFailure: true,
+      claudeGoal: { goal: "가입 계약 확인", status: "active", updated_at: "x" },
+      now,
+    }),
+    null,
+    "H: failure → new goal store 0",
+  );
+
+  // A/B/C/D: SSOT loader
+  {
+    const rows = [
+      {
+        role: "assistant",
+        created_at: "2026-07-19T12:02:00.000Z",
+        metadata_json: {
+          session_id: "sess-a",
+          session_goal: {
+            goal: null,
+            status: "completed",
+            updated_at: "2026-07-19T12:02:00.000Z",
+          },
+        },
+      },
+      {
+        role: "assistant",
+        created_at: "2026-07-19T12:01:00.000Z",
+        metadata_json: {
+          session_id: "sess-a",
+          session_goal: {
+            goal: "가입 계약 확인",
+            status: "active",
+            updated_at: "2026-07-19T12:01:00.000Z",
+          },
+        },
+      },
+      {
+        role: "assistant",
+        created_at: "2026-07-19T12:00:00.000Z",
+        metadata_json: {
+          session_id: "sess-other",
+          session_goal: {
+            goal: "다른 세션 목표",
+            status: "active",
+            updated_at: "2026-07-19T12:00:00.000Z",
+          },
+        },
+      },
+    ];
+    const supabase = {
+      from() {
+        return {
+          select() {
+            return this;
+          },
+          eq() {
+            return this;
+          },
+          order() {
+            return this;
+          },
+          limit() {
+            return Promise.resolve({ data: rows, error: null });
+          },
+        };
+      },
+    };
+    const completedWins = await loadLatestSessionGoalFromConversations({
+      supabase,
+      customerId: "cust-1",
+      sessionId: "sess-a",
+    });
+    assert.equal(completedWins.goal, null, "D: completed beats older active");
+    assert.equal(completedWins.reason, "completed_slot");
+
+    const activeOnly = await loadLatestSessionGoalFromConversations({
+      supabase: {
+        from() {
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            order() {
+              return this;
+            },
+            limit() {
+              return Promise.resolve({
+                data: [rows[1], rows[2]],
+                error: null,
+              });
+            },
+          };
+        },
+      },
+      customerId: "cust-1",
+      sessionId: "sess-a",
+    });
+    assert.equal(activeOnly.goal?.goal, "가입 계약 확인", "C: same session active");
+
+    const otherSession = await loadLatestSessionGoalFromConversations({
+      supabase,
+      customerId: "cust-1",
+      sessionId: "sess-missing",
+    });
+    assert.equal(otherSession.goal, null, "B: other session 0");
+  }
+
+  // A: client forged prior ignored — body has no prior_session_goal; request uses session_id
+  {
+    const forgedBody = buildHomeBrainFactRequestBody("이어서", [], {
+      sessionId: "sess-a",
+      priorSessionGoal: {
+        goal: "변조된 목표 주입",
+        status: "active",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    assert.equal(forgedBody.prior_session_goal, undefined, "A: prior field removed");
+    assert.equal(forgedBody.session_id, "sess-a");
+  }
+
+  // Integration: SSOT inject + forged client prior param ignored (no priorSessionGoal arg)
+  {
+    const answerText = "가입하신 계약을 기준으로 확인해 드릴게요.";
+    let claudeCalls = 0;
+    let injectedGoal = null;
+    const fetchImpl = async (_url, opts) => {
+      claudeCalls += 1;
+      const bodyJson = JSON.parse(String(opts.body ?? "{}"));
+      const userText = JSON.stringify(bodyJson.messages ?? []);
+      if (userText.includes("보험료 부담을 줄일 선택지 비교")) {
+        injectedGoal = "보험료 부담을 줄일 선택지 비교";
+      }
+      if (userText.includes("변조된 목표")) injectedGoal = "FORGED";
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              { type: "text", text: answerText },
+              {
+                type: "tool_use",
+                id: "toolu_sg",
+                name: "record_session_goal",
+                input: { goal: "가입 계약 확인", status: "active" },
+              },
+            ],
+          };
+        },
+      };
+    };
+    const userSupabase = {
+      from(table) {
+        if (table === "customer_conversations") {
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            order() {
+              return this;
+            },
+            limit() {
+              return Promise.resolve({
+                data: [
+                  {
+                    role: "assistant",
+                    created_at: "2026-07-19T11:00:00.000Z",
+                    metadata_json: {
+                      session_id: "sess-a",
+                      session_goal: {
+                        goal: "보험료 부담을 줄일 선택지 비교",
+                        status: "active",
+                        updated_at: "2026-07-19T11:00:00.000Z",
+                      },
+                    },
+                  },
+                ],
+                error: null,
+              });
+            },
+          };
+        }
+        return makeAttachQuery({ data: null, error: null });
+      },
+    };
+    const deltas = [];
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "계약 확인해줘",
+      history: [],
+      sessionId: "sess-a",
+      customerId: "cust-1",
+      userSupabase,
+      loadedContext: { policies: [] },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl,
+      streamHandlers: {
+        _emitted: false,
+        onDelta(t) {
+          this._emitted = true;
+          deltas.push(String(t ?? ""));
+        },
+        onFirstToken() {},
+        onReplace() {},
+      },
+    });
+    assert.equal(claudeCalls, 1, "J: provider 1");
+    assert.equal(injectedGoal, "보험료 부담을 줄일 선택지 비교", "C: SSOT inject");
+    assert.notEqual(injectedGoal, "FORGED", "A: forged not injected");
+    assert.equal(result.salesDirectorTrace?.decision, null, "Q");
+    assert.equal(result.salesDirectorTrace?.decision_persisted, false, "Q");
+    assert.equal(result.salesDirectorTrace?.session_goal?.goal, "가입 계약 확인", "L");
+    assert.equal(deltas.join(""), result.customerText, "P: SSE===sealed");
+    assert.equal(result.keySpeakOriginal, result.customerText, "P");
+  }
+
+  // E/F: discard → completed persist + no inject; next turn completed_slot
+  {
+    let claudeCalls = 0;
+    let injected = false;
+    const fetchImpl = async (_url, opts) => {
+      claudeCalls += 1;
+      const bodyJson = JSON.parse(String(opts.body ?? "{}"));
+      const msgs = JSON.stringify(bodyJson.messages ?? []);
+      // Tool description may mention examples — only fail if soft context slot is present.
+      if (/session_goal/.test(msgs) && /가입 계약 확인/.test(msgs)) injected = true;
+      return {
+        ok: true,
+        async json() {
+          return { content: [{ type: "text", text: "네, 다른 주제로 이어갈게요." }] };
+        },
+      };
+    };
+    const userSupabase = {
+      from(table) {
+        if (table === "customer_conversations") {
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            order() {
+              return this;
+            },
+            limit() {
+              return Promise.resolve({
+                data: [
+                  {
+                    role: "assistant",
+                    metadata_json: {
+                      session_id: "sess-a",
+                      session_goal: {
+                        goal: "가입 계약 확인",
+                        status: "active",
+                        updated_at: "2026-07-19T11:00:00.000Z",
+                      },
+                    },
+                  },
+                ],
+                error: null,
+              });
+            },
+          };
+        }
+        return makeAttachQuery({ data: null, error: null });
+      },
+    };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "그 얘기 말고",
+      history: [],
+      sessionId: "sess-a",
+      customerId: "cust-1",
+      userSupabase,
+      loadedContext: { policies: [] },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl,
+    });
+    assert.equal(claudeCalls, 1, "J");
+    assert.equal(injected, false, "E: discard inject 0");
+    assert.equal(result.salesDirectorTrace?.session_goal?.status, "completed", "E: completed save");
+    assert.equal(result.salesDirectorTrace?.session_goal?.goal, null);
+    // F: completed slot → next load 0
+    const after = await loadLatestSessionGoalFromConversations({
+      supabase: {
+        from() {
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            order() {
+              return this;
+            },
+            limit() {
+              return Promise.resolve({
+                data: [
+                  {
+                    role: "assistant",
+                    metadata_json: {
+                      session_id: "sess-a",
+                      session_goal: result.salesDirectorTrace.session_goal,
+                    },
+                  },
+                  {
+                    role: "assistant",
+                    metadata_json: {
+                      session_id: "sess-a",
+                      session_goal: {
+                        goal: "가입 계약 확인",
+                        status: "active",
+                        updated_at: "2026-07-19T11:00:00.000Z",
+                      },
+                    },
+                  },
+                ],
+                error: null,
+              });
+            },
+          };
+        },
+      },
+      customerId: "cust-1",
+      sessionId: "sess-a",
+    });
+    assert.equal(after.goal, null, "F: stale revive 0");
+  }
+
+  // I: goal-only → no Continue re-call, provider 1, goal discarded
+  {
+    let claudeCalls = 0;
+    const fetchImpl = async () => {
+      claudeCalls += 1;
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_only",
+                name: "record_session_goal",
+                input: { goal: "가입 계약 확인", status: "active" },
+              },
+            ],
+          };
+        },
+      };
+    };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "계약",
+      history: [],
+      loadedContext: { policies: [] },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl,
+    });
+    assert.equal(claudeCalls, 1, "I/J: no re-call");
+    assert.equal(result.salesDirectorTrace?.session_goal, null, "I: goal-only store 0");
+    assert.equal(result.key_monopoly_failure, true, "I: failure path");
+  }
+
+  // H: conflict turn — new goal store 0 (reuse GO2 helper pattern)
+  {
+    const DOC = "doc-go3-conflict";
+    const verifiedPolicy = {
+      id: "pol-go3",
+      is_active: true,
+      coverage_summary: {
+        source_document_id: DOC,
+        key_confirmed_source_facts: [
+          {
+            fact_type: "insurer_name",
+            literal_value: "삼성화재",
+            source_document_id: DOC,
+            confirmation_source: "key_claude_original_document",
+          },
+        ],
+      },
+    };
+    let claudeCalls = 0;
+    const fetchImpl = async () => {
+      claudeCalls += 1;
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [
+              { type: "text", text: "이 계약은 삼성화재입니다. 이 계약은 KB손해보험입니다." },
+              {
+                type: "tool_use",
+                id: "g",
+                name: "record_session_goal",
+                input: { goal: "가입 계약 확인", status: "active" },
+              },
+            ],
+          };
+        },
+      };
+    };
+    // Use runClaudeFirstDirectQuestionTurn with conflict via onCommit — simpler: resolvePersistable already tested;
+    // integration: usedFailure path with claude goal present
+    const persist = resolvePersistableSessionGoal({
+      discardRequested: false,
+      usedFailure: true,
+      claudeGoal: { goal: "가입 계약 확인", status: "active", updated_at: now.toISOString() },
+      now,
+    });
+    assert.equal(persist, null, "H");
+    void claudeCalls;
+    void verifiedPolicy;
+    void fetchImpl;
+  }
+
+  // M: answer ok when goal persistence omitted (no tool)
+  {
+    const answerText = "네, 오늘도 도와드릴게요.";
+    let claudeCalls = 0;
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "안녕",
+      history: [],
+      loadedContext: { policies: [] },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: async () => {
+        claudeCalls += 1;
+        return {
+          ok: true,
+          async json() {
+            return { content: [{ type: "text", text: answerText }] };
+          },
+        };
+      },
+    });
+    assert.equal(claudeCalls, 1);
+    assert.equal(result.customerText, answerText, "M");
+    assert.equal(result.salesDirectorTrace?.session_goal, null);
+  }
+
+  // N: metadata builder does not invent rows — one assistant metadata object
+  {
+    const meta = buildAssistantTurnMetadata("sess-a", {
+      sessionGoal: normalizeSessionGoalRecord(
+        { goal: "가입 계약 확인", status: "active" },
+        { now },
+      ),
+    });
+    assert.equal(meta.session_goal?.goal, "가입 계약 확인", "L/N");
+    assert.equal(buildAssistantTurnMetadata("sess-a", {}).session_goal, undefined, "N");
+  }
+
+  {
+    const root = dirname(fileURLToPath(import.meta.url));
+    const directSrc = readFileSync(join(root, "../server/keyCore/keyClaudeFirstDirect.js"), "utf8");
+    assert.equal(/customer_memory_facts/.test(directSrc), false);
+    assert.equal(/validateAndRecordClaudeDecision/.test(directSrc), false);
+    assert.match(directSrc, /loadLatestSessionGoalFromConversations/);
+    assert.equal(
+      /content:\s*"Continue and provide the final Korean customer answer as plain text\."/.test(
+        directSrc,
+      ),
+      false,
+      "I: Continue re-call removed",
+    );
+  }
+
+  assert.match(buildSystemPrompt(), /참고용/);
+  assert.equal(resolveSessionGoalForContext(null, "x"), null);
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");

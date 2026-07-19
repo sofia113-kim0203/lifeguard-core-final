@@ -67,6 +67,10 @@ export default async function handler(req, res) {
     const priorAttachFollowUp = Boolean(
       body?.prior_attach_follow_up ?? body?.priorAttachFollowUp ?? false,
     );
+    // GO3: session_id scopes server SSOT goal load. Ignore any client prior_session_goal.
+    const sessionId = String(body?.session_id ?? body?.sessionId ?? "").trim() || null;
+    void body?.prior_session_goal;
+    void body?.priorSessionGoal;
     const { parseEntityContextFromRequestBody } = await import(
       "../server/entity/entityApiContextPassthrough.js"
     );
@@ -124,6 +128,7 @@ export default async function handler(req, res) {
         history,
         attachedDocumentId,
         priorAttachFollowUp,
+        sessionId,
         shadowVisualBlocksOverride,
         accessToken: authHeader,
         streamHandlers,
@@ -149,6 +154,7 @@ export default async function handler(req, res) {
       history,
       attachedDocumentId,
       priorAttachFollowUp,
+      sessionId,
       shadowVisualBlocksOverride,
       accessToken: authHeader,
     });

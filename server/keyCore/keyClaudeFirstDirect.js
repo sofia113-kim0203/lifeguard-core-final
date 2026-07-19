@@ -479,6 +479,244 @@ const KEY_CARD_CLIENT_TOOL_NAMES = new Set([
 ]);
 
 /**
+ * GO3 — same Claude-first response only. Short-term session work state (not decision/memory).
+ * Never drives an extra provider round-trip for tool_result.
+ */
+export const RECORD_SESSION_GOAL_TOOL = Object.freeze({
+  name: "record_session_goal",
+  description:
+    "선택. 현재 대화 세션의 단기 작업 목표만 내부 기록한다. 고객에게 보이는 답변이 아니다. " +
+    "허용 예: 가입 계약 확인, 보험료 부담을 줄일 선택지 비교, 수술 보험금 청구 가능성 확인. " +
+    "금지: 감정·성격 추정, 미확정 해지/가입 의도, 건강·계약·가족 사실, 추천 결론/근거, 장기 프로필. " +
+    "고객 답변에 목표를 억지로 언급하지 않는다. status는 active 또는 completed.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      goal: {
+        type: ["string", "null"],
+        description: "짧은 단기 작업 목표. completed면 null 허용.",
+      },
+      status: {
+        type: "string",
+        enum: ["active", "completed"],
+      },
+    },
+    required: ["status"],
+  },
+});
+
+const SESSION_GOAL_TOOL_NAME = RECORD_SESSION_GOAL_TOOL.name;
+export const SESSION_GOAL_MAX_CHARS = 80;
+
+/**
+ * Explicit abort of prior short-term goal.
+ * Avoids 그 얘기 말고도 / quoted phrases / incidental fragments.
+ */
+export function shouldDiscardStaleSessionGoal(question = "") {
+  let q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  // Quoted spans do not count as customer abort directives.
+  q = q
+    .replace(/"[^"]*"/g, " ")
+    .replace(/'[^']*'/g, " ")
+    .replace(/“[^”]*”/g, " ")
+    .replace(/‘[^’]*’/g, " ")
+    .replace(/「[^」]*」/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  // (?!도) blocks "그 얘기 말고도"
+  if (/그\s*얘기\s*말고(?!도)/.test(q)) return true;
+  if (/그\s*주제\s*말고(?!도)/.test(q)) return true;
+  if (/이건\s*됐어/.test(q)) return true;
+  if (/다른\s*얘기/.test(q)) return true;
+  if (/이제\s*그만/.test(q)) return true;
+  if (/그건\s*나중에/.test(q)) return true;
+  if (/그만\s*하자/.test(q)) return true;
+  return false;
+}
+
+/** Reason code only — never echo goal text into traces. */
+export function classifySessionGoalRejectReason(goal = "", status = "active") {
+  const st = String(status ?? "").trim();
+  if (st !== "active" && st !== "completed") return "invalid_status";
+  let g = goal == null ? null : String(goal).trim() || null;
+  if (st === "completed") return null;
+  if (!g) return "empty_goal";
+  if (g.length > SESSION_GOAL_MAX_CHARS) return "too_long";
+  if (/[\r\n]/.test(g) || /•|^\s*[-*]\s+/m.test(g) || /\d+\.\s+\S/.test(g)) {
+    return "multiline_or_list";
+  }
+  if (/그리고|,|\/|;|·/.test(g) && /확인|비교|청구|선택/.test(g) && g.split(/그리고|,|\/|;|·/).length > 2) {
+    return "multi_goal";
+  }
+  if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(g)) return "pii_email";
+  if (/01[016789]-?\d{3,4}-?\d{4}/.test(g)) return "pii_phone";
+  if (/\d{6}-?[1-4]\d{6}/.test(g)) return "pii_rrn";
+  if (/\d{1,3}(,?\d{3})+\s*원|\d+\s*원|\d+\s*%/.test(g)) return "literal_money_or_rate";
+  if (/(삼성|현대|KB|메리츠|한화|교보|DB|흥국|라이나|AIA|푸르덴셜)\s*(생명|화재|손해|보험)?/.test(g)) {
+    return "literal_product_or_insurer";
+  }
+  if (/[가-힣]{2,4}\s*(님|씨)/.test(g)) return "literal_person_name";
+  if (/감정|성격|불안|화나|우울|외로|성향|성격상/.test(g)) return "emotion_or_personality";
+  if (
+    /해지하려는|해지할\s*것\s*같|해지하고\s*싶어\s*하는\s*것\s*같|가입하려는\s*것\s*같|해지\s*의도/.test(
+      g,
+    )
+  ) {
+    return "uncertain_cancel_intent";
+  }
+  if (/건강\s*상태|가족\s*관계|수익자\s*는|계약자\s*는|장기\s*프로필|고객\s*프로필|페르소나/.test(g)) {
+    return "fact_or_profile";
+  }
+  if (/가입하세요|해지해도|추천\s*결론|반드시\s*가입|이\s*상품이\s*맞/.test(g)) {
+    return "recommend_verdict";
+  }
+  return null;
+}
+
+export function isForbiddenSessionGoalText(goal = "") {
+  return classifySessionGoalRejectReason(goal, "active") != null;
+}
+
+/** Server stamps updated_at. Returns null when tool input must not be persisted. */
+export function normalizeSessionGoalRecord(raw = null, { now = new Date() } = {}) {
+  if (!raw || typeof raw !== "object") return null;
+  const status = String(raw.status ?? "").trim();
+  if (status !== "active" && status !== "completed") return null;
+  let goal = raw.goal == null ? null : String(raw.goal).replace(/\s+/g, " ").trim() || null;
+  if (status === "active") {
+    if (classifySessionGoalRejectReason(goal, "active")) return null;
+  } else if (goal && classifySessionGoalRejectReason(goal, "active")) {
+    goal = null;
+  }
+  const stamp = now instanceof Date ? now : new Date(now);
+  const updated_at = Number.isFinite(stamp.getTime())
+    ? stamp.toISOString()
+    : new Date().toISOString();
+  return { goal, status, updated_at };
+}
+
+export function extractSessionGoalFromContent(content = [], { now = new Date() } = {}) {
+  const blocks = Array.isArray(content) ? content : [];
+  let found = null;
+  for (const block of blocks) {
+    if (block?.type === "tool_use" && block?.name === SESSION_GOAL_TOOL_NAME) {
+      found = block.input && typeof block.input === "object" ? block.input : null;
+    }
+  }
+  if (!found) return { record: null, tool_seen: false, rejected: false, reject_reason: null };
+  const status = String(found.status ?? "").trim();
+  const reject_reason =
+    status === "active"
+      ? classifySessionGoalRejectReason(found.goal, "active")
+      : status !== "completed"
+        ? "invalid_status"
+        : null;
+  const record = normalizeSessionGoalRecord(found, { now });
+  if (!record) {
+    return {
+      record: null,
+      tool_seen: true,
+      rejected: true,
+      reject_reason: reject_reason || "rejected",
+    };
+  }
+  return { record, tool_seen: true, rejected: false, reject_reason: null };
+}
+
+/** Soft hydrate from server SSOT active goal only. */
+export function resolveSessionGoalForContext(priorGoal = null, question = "") {
+  if (!priorGoal || typeof priorGoal !== "object") return null;
+  if (String(priorGoal.status ?? "").trim() !== "active") return null;
+  const goal = String(priorGoal.goal ?? "").trim();
+  if (!goal || isForbiddenSessionGoalText(goal)) return null;
+  if (shouldDiscardStaleSessionGoal(question)) return null;
+  return {
+    goal,
+    status: "active",
+    updated_at: priorGoal.updated_at ?? null,
+  };
+}
+
+/**
+ * Server SSOT — latest assistant metadata_json.session_goal for customer_id + session_id.
+ * Newest slot with session_goal wins; completed stops lookback (no revive of older active).
+ */
+export async function loadLatestSessionGoalFromConversations({
+  supabase = null,
+  customerId = null,
+  sessionId = null,
+  limit = 40,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  const sid = String(sessionId ?? "").trim();
+  if (!supabase || !cid || !sid) {
+    return { goal: null, reason: "missing_scope" };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("customer_conversations")
+      .select("role, metadata_json, created_at")
+      .eq("customer_id", cid)
+      .eq("role", "assistant")
+      .order("created_at", { ascending: false })
+      .limit(Math.max(1, Number(limit) || 40));
+    if (error) return { goal: null, reason: "query_failed" };
+    for (const row of data ?? []) {
+      const meta = row?.metadata_json && typeof row.metadata_json === "object"
+        ? row.metadata_json
+        : {};
+      if (String(meta.session_id ?? "").trim() !== sid) continue;
+      const sg = meta.session_goal;
+      if (!sg || typeof sg !== "object") continue;
+      const status = String(sg.status ?? "").trim();
+      if (status === "completed") return { goal: null, reason: "completed_slot" };
+      if (status === "active") {
+        const g = String(sg.goal ?? "").trim();
+        if (!g || isForbiddenSessionGoalText(g)) {
+          return { goal: null, reason: "invalid_active_slot" };
+        }
+        return {
+          goal: {
+            goal: g,
+            status: "active",
+            updated_at: sg.updated_at ?? null,
+          },
+          reason: "active",
+        };
+      }
+      return { goal: null, reason: "invalid_slot" };
+    }
+    return { goal: null, reason: "none" };
+  } catch {
+    return { goal: null, reason: "query_exception" };
+  }
+}
+
+/** What may be written to assistant metadata this turn (never invents on failure). */
+export function resolvePersistableSessionGoal({
+  discardRequested = false,
+  usedFailure = false,
+  claudeGoal = null,
+  now = new Date(),
+} = {}) {
+  const stamp = now instanceof Date ? now : new Date(now);
+  const updated_at = Number.isFinite(stamp.getTime())
+    ? stamp.toISOString()
+    : new Date().toISOString();
+  if (discardRequested === true) {
+    return { goal: null, status: "completed", updated_at };
+  }
+  if (usedFailure === true) return null;
+  if (claudeGoal && typeof claudeGoal === "object") return claudeGoal;
+  return null;
+}
+
+/**
  * Explicit attach was requested but ownership/fetch/rotate/block failed.
  * One honest sentence — no chart / latest-doc / Claude substitute.
  */
@@ -634,6 +872,8 @@ export function buildSystemPrompt() {
     "입력이 충분하면 지분·금액·구조의 의미를 직접 계산·판단한다. 무조건 전문가에게만 넘기며 판단을 회피하지 않는다.",
     "고객에게 내부 필드명·도구명·시스템 경로를 말하지 않는다.",
     "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
+    "record_session_goal은 선택 도구다. 현재 세션의 단기 작업 목표만 기록한다. 감정·성격·미확정 의도·건강/계약/가족 사실·추천 결론·장기 프로필은 금지한다. 고객 답변에 목표를 억지로 언급하지 않는다.",
+    "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     buildClaimCaseUpdatesToolHint(),
   ].join("\n");
 }
@@ -928,11 +1168,23 @@ export function buildUserPayload({
   corporateUnknowns = null,
   publicEvidence = null,
   activeClaimCases = null,
+  sessionGoal = null,
   now = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
   const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
+  const softSessionGoal =
+    sessionGoal &&
+    typeof sessionGoal === "object" &&
+    String(sessionGoal.status ?? "").trim() === "active" &&
+    String(sessionGoal.goal ?? "").trim()
+      ? {
+          goal: String(sessionGoal.goal).trim(),
+          status: "active",
+          updated_at: sessionGoal.updated_at ?? null,
+        }
+      : null;
 
   // Image original read: question + conversation + original image only.
   // No factory chart / OCR / contracts / corporate / claim cards mixed in.
@@ -954,6 +1206,7 @@ export function buildUserPayload({
             null,
           retained_past_originals: contextPack?.retained_past_originals ?? [],
         },
+        ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
       },
       available_verified_evidence: {
         personal: {
@@ -1011,6 +1264,8 @@ export function buildUserPayload({
           null,
         retained_past_originals: contextPack?.retained_past_originals ?? [],
       },
+      // Soft reference only — never above current_question / conversation / verified evidence.
+      ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
     },
     available_verified_evidence: {
       personal: {
@@ -1672,6 +1927,8 @@ async function callClaudeFirstDirect({
   corporateUnknowns = null,
   activeClaimCases = null,
   activeDocuments = null,
+  /** Server-SSOT soft goal only — never from client body. */
+  sessionGoalForContext = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -1709,6 +1966,10 @@ async function callClaudeFirstDirect({
     scrubIdentityReadouts: deletedDocRecheck,
   });
   const requestNow = startedAt instanceof Date ? startedAt : new Date(startedAt);
+  const softGoal =
+    sessionGoalForContext && typeof sessionGoalForContext === "object"
+      ? sessionGoalForContext
+      : null;
   const userPayload = buildUserPayload({
     question,
     chart,
@@ -1722,6 +1983,7 @@ async function callClaudeFirstDirect({
     corporateUnknowns: imageOriginalRead ? null : corporateUnknowns,
     publicEvidence: [],
     activeClaimCases: imageOriginalRead ? null : activeClaimCases,
+    sessionGoal: softGoal,
     now: requestNow,
   });
   const pdfAttached = Boolean(pdfBase64);
@@ -1753,6 +2015,11 @@ async function callClaudeFirstDirect({
   let confirmedFactsToolSeen = false;
   let coverageBaselineFacts = [];
   let claimCaseUpdates = [];
+  /** GO3 — tool output from this provider turn only; null if tool absent/rejected/goal-only. */
+  let sessionGoalRecord = null;
+  let sessionGoalToolSeen = false;
+  let sessionGoalRejected = false;
+  let sessionGoalRejectReason = null;
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
   const factDefaults = {
@@ -1763,16 +2030,17 @@ async function callClaudeFirstDirect({
     updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
 
-  // Image|PDF original: facts + baseline + claim tools in the same Claude-first turn.
-  // No attach: web_search + claim only.
+  // Image|PDF original: facts + baseline + claim + optional session_goal in the same Claude-first turn.
+  // No attach: web_search + claim + optional session_goal. session_goal never adds a provider round-trip.
   const answerTools = pdfAttached
     ? [
         ANTHROPIC_WEB_SEARCH_TOOL,
         RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
         RECORD_COVERAGE_BASELINE_FACTS_TOOL,
         RECORD_CLAIM_CASE_UPDATES_TOOL,
+        RECORD_SESSION_GOAL_TOOL,
       ]
-    : [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CLAIM_CASE_UPDATES_TOOL];
+    : [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CLAIM_CASE_UPDATES_TOOL, RECORD_SESSION_GOAL_TOOL];
   for (let turn = 0; turn < 4; turn += 1) {
     // Original attached: require confirmed-source facts tool once before text-only finish.
     // Prevents "정리해 드릴게요" deferral with empty left-rail persist.
@@ -1880,10 +2148,41 @@ async function callClaudeFirstDirect({
       );
     }
 
+    // GO3: parse session_goal from the same response; never continue for tool_result.
+    const goalExtract = extractSessionGoalFromContent(assistantContent, {
+      now: requestNow,
+    });
+    if (goalExtract.tool_seen) {
+      sessionGoalToolSeen = true;
+      if (goalExtract.rejected) {
+        sessionGoalRejected = true;
+        sessionGoalRejectReason = goalExtract.reject_reason || "rejected";
+      }
+      if (goalExtract.record) sessionGoalRecord = goalExtract.record;
+    }
+
+    // session_goal must not count as "other" client tool (would force a follow-up provider call).
     const otherClientTools = assistantContent.filter(
-      (b) => b?.type === "tool_use" && !KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name),
+      (b) =>
+        b?.type === "tool_use" &&
+        !KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name) &&
+        b?.name !== SESSION_GOAL_TOOL_NAME,
     );
-    const hasToolUse = hasClientToolUse(assistantContent);
+    const hasToolUse = assistantContent.some(
+      (b) =>
+        b?.type === "tool_use" &&
+        b?.name !== SESSION_GOAL_TOOL_NAME,
+    );
+
+    // GO3: goal-only (no customer_answer, no card tools) → drop goal, end (no Continue re-call).
+    if (
+      !picked.customer_answer &&
+      cardToolBlocks.length === 0 &&
+      otherClientTools.length === 0
+    ) {
+      sessionGoalRecord = null;
+      break;
+    }
 
     // Card tools only (no customer text yet) — acknowledge and continue for plain answer.
     if (cardToolBlocks.length && !picked.customer_answer && otherClientTools.length === 0) {
@@ -1942,18 +2241,19 @@ async function callClaudeFirstDirect({
           })),
         },
       ];
-    } else {
-      messages = [
-        ...messages,
-        { role: "assistant", content: assistantContent },
-        {
-          role: "user",
-          content: "Continue and provide the final Korean customer answer as plain text.",
-        },
-      ];
+      continue;
+    }
+
+    // Unknown client tools with no answer — do not invent a Continue loop for session_goal.
+    if (otherClientTools.length > 0 && !picked.customer_answer) {
+      sessionGoalRecord = null;
+      break;
     }
 
     if (picked.customer_answer && !hasToolUse) break;
+    // No answer path left without card-tool continue — fail closed (no Continue re-call).
+    sessionGoalRecord = null;
+    break;
   }
 
   const customer_answer = String(
@@ -1979,8 +2279,14 @@ async function callClaudeFirstDirect({
     coverage_baseline_facts: coverageBaselineFacts,
     claim_case_updates: claimCaseUpdates,
     visual_blocks: [],
-    decision: lastPicked.decision,
-    session_goal: lastPicked.session_goal,
+    // GO3: decision never generated/persisted on Claude-first.
+    decision: null,
+    session_goal: sessionGoalRecord,
+    session_goal_tool_seen: sessionGoalToolSeen,
+    session_goal_rejected: sessionGoalRejected,
+    session_goal_reject_reason: sessionGoalRejectReason,
+    session_goal_injected: Boolean(softGoal),
+    decision_persisted: false,
     answer_source: lastPicked.source || (customer_answer ? "plain_text" : null),
     ttft_ms: lastTtft,
     chart,
@@ -2008,6 +2314,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   entityContext = null,
   attachedDocumentId = null,
   priorAttachFollowUp = false,
+  sessionId = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -2015,6 +2322,27 @@ export async function runClaudeFirstDirectQuestionTurn({
   loadAllowedCorporateContextsForClaudeImpl = loadAllowedCorporateContextsForClaude,
 } = {}) {
   const span = startSpan(startedAt);
+
+  // GO3 SSOT — never trust client prior_session_goal; load from conversations only.
+  const discardRequested = shouldDiscardStaleSessionGoal(question) === true;
+  let ssotGoal = null;
+  let ssotReason = "not_loaded";
+  if (!discardRequested && userSupabase && customerId && sessionId) {
+    const loaded = await loadLatestSessionGoalFromConversations({
+      supabase: userSupabase,
+      customerId,
+      sessionId,
+    });
+    ssotGoal = loaded.goal;
+    ssotReason = loaded.reason;
+  } else if (discardRequested) {
+    ssotReason = "discard_requested";
+  } else {
+    ssotReason = "missing_scope";
+  }
+  const sessionGoalForContext = discardRequested
+    ? null
+    : resolveSessionGoalForContext(ssotGoal, question);
 
   // Membership-scoped corporate contexts only. Client entity_id never widens access.
   // Do not fail the personal turn when a stale/foreign entity hint is present.
@@ -2119,6 +2447,12 @@ export async function runClaudeFirstDirectQuestionTurn({
         streamHandlers.onFirstToken?.(relMs(startedAt));
       }
       const emitMark = span.end();
+      const attachPersistGoal = resolvePersistableSessionGoal({
+        discardRequested,
+        usedFailure: usePriorAttachCopy ? false : true,
+        claudeGoal: null,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+      });
       return {
         ok: true,
         customerText: outlet.customerText,
@@ -2141,12 +2475,17 @@ export async function runClaudeFirstDirectQuestionTurn({
           one_key_core: true,
           one_key_core_s1: true,
           compose_mode: "key_claude_first_direct",
+          decision: null,
+          session_goal: attachPersistGoal,
+          decision_persisted: false,
           key_compose_trace: {
             compose_mode: "key_claude_first_direct",
             key_voice_trace: {
               provider: "claude_first_direct",
               used_failure_mode: usePriorAttachCopy ? false : true,
               fallback_reason: failureNote,
+              session_goal_discard_requested: discardRequested === true,
+              session_goal_ssot_reason: ssotReason,
               ...(usePriorAttachCopy
                 ? { prior_attach_follow_up: true }
                 : {
@@ -2397,6 +2736,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     corporateUnknowns,
     activeClaimCases,
     activeDocuments: activeDocumentsForHistory,
+    sessionGoalForContext,
   });
   const emitMark = span.end();
   // Completeness: progressive extract can lag the final customer_answer.
@@ -2424,6 +2764,12 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   if (!claude.ok || !claude.customer_answer) {
     const sealed = sealKeyCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    const emptyPersistGoal = resolvePersistableSessionGoal({
+      discardRequested,
+      usedFailure: true,
+      claudeGoal: claude.session_goal ?? null,
+      now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+    });
     return {
       ok: true,
       customerText: sealed.key_speak_original,
@@ -2446,11 +2792,17 @@ export async function runClaudeFirstDirectQuestionTurn({
         one_key_core: true,
         one_key_core_s1: true,
         compose_mode: "key_claude_first_direct",
+        decision: null,
+        session_goal: emptyPersistGoal,
+        decision_persisted: false,
         key_compose_trace: {
           compose_mode: "key_claude_first_direct",
           key_voice_trace: {
             used_failure_mode: true,
             fallback_reason: claude.error ?? "claude_first_empty",
+            decision_persisted: false,
+            session_goal_discard_requested: discardRequested === true,
+            session_goal_ssot_reason: ssotReason,
             latency_marks: {
               claude_full_emit: emitMark,
               ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
@@ -2524,6 +2876,14 @@ export async function runClaudeFirstDirectQuestionTurn({
   // As-is delivery (no polish rewrite). Seal only.
   // Conflict path: seal exactly sseEmittedText (already includes failure closer once).
   const sealed = sealKeyCustomerText(finalText);
+
+  // GO3: discard → completed metadata; failure → never store Claude's new goal; else tool goal.
+  const persistableSessionGoal = resolvePersistableSessionGoal({
+    discardRequested,
+    usedFailure,
+    claudeGoal: claude.session_goal ?? null,
+    now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+  });
 
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
   // GO1: KEY confirm gate — active doc + ownership + schema + source match — before persist.
@@ -2735,8 +3095,9 @@ export async function runClaudeFirstDirectQuestionTurn({
       one_key_core: true,
       one_key_core_s1: true,
       compose_mode: "key_claude_first_direct",
-      decision: claude.decision ?? null,
-      session_goal: claude.session_goal ?? null,
+      decision: null,
+      session_goal: persistableSessionGoal,
+      decision_persisted: false,
       key_compose_trace: {
         compose_mode: "key_claude_first_direct",
         key_voice_trace: {
@@ -2751,6 +3112,14 @@ export async function runClaudeFirstDirectQuestionTurn({
           replacing_hard_reasons: replacingHard,
           jailbreak_detail: safety.jailbreak_detail,
           answer_source: claude.answer_source ?? null,
+          decision_persisted: false,
+          session_goal_tool_seen: claude.session_goal_tool_seen === true,
+          session_goal_rejected: claude.session_goal_rejected === true,
+          session_goal_reject_reason: claude.session_goal_reject_reason ?? null,
+          session_goal_injected: claude.session_goal_injected === true,
+          session_goal_ssot_reason: ssotReason,
+          session_goal_discard_requested: discardRequested === true,
+          session_goal_status: persistableSessionGoal?.status ?? null,
           pdf_attached: claude.pdf_attached === true,
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
