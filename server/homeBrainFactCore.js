@@ -557,6 +557,8 @@ export async function handleHomeBrainFactRequest({
   }
 
   if (coreResult.key_monopoly_failure === true) {
+    // Keep internal traces (incl. anthropic_upstream_diag on key_voice_trace).
+    // Do not rebuild observability — customer text / SSE stay monopoly pass-through.
     return buildDonePayload({
       coreResult,
       answerText,
@@ -570,6 +572,7 @@ export async function handleHomeBrainFactRequest({
         key_monopoly_failure: true,
         failure_reason: coreResult.failure_reason ?? null,
         one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
+        sales_director_trace: salesDirectorTrace ?? null,
       },
     });
   }

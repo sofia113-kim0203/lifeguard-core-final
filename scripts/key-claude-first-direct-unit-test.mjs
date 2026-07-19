@@ -71,6 +71,7 @@ import {
   LIFEGUARD_HOME_CHAT_PHASE,
 } from "../src/lib/lifeguardChatSessionCore.js";
 import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
+import { handleHomeBrainFactRequest } from "../server/homeBrainFactCore.js";
 import {
   buildClaudeFullUserContentWithPdf,
   buildAnthropicPdfDocumentBlock,
@@ -4270,5 +4271,164 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(dumped.includes("Unable to process PDF"), false);
   assert.equal(dumped.includes("detail\""), false);
   console.log("PDF 400 DIAGNOSTIC LOCAL CHECKS OK");
+}
+
+// --- PDF 400 DIAGNOSTIC TRACE: homeBrain monopoly early-return forwards sales_director_trace ---
+{
+  const root = dirname(fileURLToPath(import.meta.url));
+  const homeSrc = readFileSync(join(root, "../server/homeBrainFactCore.js"), "utf8");
+  const monopolyBlock = homeSrc.slice(
+    homeSrc.indexOf("if (coreResult.key_monopoly_failure === true)"),
+    homeSrc.indexOf("const intent = agentTurn.consultationIntent"),
+  );
+  assert.match(
+    monopolyBlock,
+    /sales_director_trace:\s*salesDirectorTrace/,
+    "monopoly early return must forward salesDirectorTrace",
+  );
+  assert.match(
+    homeSrc,
+    /sales_director_trace:\s*observability\.sales_director_trace/,
+    "success path still uses observability.sales_director_trace",
+  );
+  const successIdx = homeSrc.indexOf("sales_director_trace: observability.sales_director_trace");
+  const monopolyIdx = homeSrc.indexOf("if (coreResult.key_monopoly_failure === true)");
+  assert.ok(successIdx > monopolyIdx, "success path remains after monopoly branch");
+
+  const diagCustomerId = "cust-monopoly-diag";
+  const wireSecret = "SECRET_UPSTREAM_MSG_do_not_surface";
+  function buildMonopolyDiagSupabase(customerId = diagCustomerId) {
+    return {
+      from(table) {
+        const chain = {
+          select() {
+            return chain;
+          },
+          eq() {
+            return chain;
+          },
+          is() {
+            return chain;
+          },
+          order() {
+            return chain;
+          },
+          limit() {
+            return chain;
+          },
+          maybeSingle: async () => ({
+            data: { id: customerId, display_name: "DiagQA", memory_version: 1 },
+            error: null,
+          }),
+          then(onFulfilled, onRejected) {
+            let payload = { data: [], error: null, count: 0 };
+            if (table === "active_profile_insurance_policies") {
+              payload = { data: [], error: null };
+            }
+            if (table === "customer_memory_facts") {
+              payload = { data: [], error: null, count: 0 };
+            }
+            if (table === "analysis_jobs") {
+              payload = { data: [], error: null };
+            }
+            return Promise.resolve(payload).then(onFulfilled, onRejected);
+          },
+        };
+        return chain;
+      },
+    };
+  }
+
+  let providerCalls = 0;
+  const deltas = [];
+  const done = await handleHomeBrainFactRequest({
+    userSupabase: buildMonopolyDiagSupabase(),
+    customerId: diagCustomerId,
+    question: "문서 확인 부탁해요",
+    history: [],
+    env: {
+      ...process.env,
+      ONE_KEY_CORE_S1: "1",
+      KEY_CLAUDE_FIRST_DIRECT: "1",
+      SALES_DIRECTOR_KEY_ORCHESTRATOR: "1",
+      SALES_DIRECTOR_KEY_LEGACY_FALLBACK: "0",
+      ANTHROPIC_API_KEY: "test-key",
+    },
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return {
+        ok: false,
+        status: 400,
+        async text() {
+          return JSON.stringify({
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: `Unable to process PDF document :: ${wireSecret}`,
+            },
+          });
+        },
+      };
+    },
+    streamHandlers: {
+      _emitted: false,
+      onDelta(text) {
+        deltas.push(text);
+      },
+      onFirstToken() {},
+    },
+  });
+
+  assert.equal(providerCalls, 1, "provider call count unchanged (single attempt)");
+  assert.equal(done.ok, true);
+  assert.equal(done.key_monopoly_failure, true);
+  assert.equal(done.failure_reason, "ANTHROPIC_HTTP_400");
+  assert.ok(done.sales_director_trace, "monopoly done extras must include sales_director_trace");
+  assert.equal(done.answerText, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT, "customer byte-equal");
+  assert.equal(done.key_speak_original, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+  assert.equal(done.key_text_equal, true);
+  assert.equal(done.key_text_integrity?.ok, true, "SSE===sealed integrity ok");
+  assert.equal(done.key_text_integrity?.text_equal, true);
+  assert.equal(
+    deltas.join(""),
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "SSE delta customer text byte-equal monopoly",
+  );
+  assert.equal(
+    done.answerText.includes("anthropic_upstream_diag"),
+    false,
+    "diag never in customer visible text",
+  );
+
+  const wireDiag =
+    done.sales_director_trace?.key_compose_trace?.key_voice_trace?.anthropic_upstream_diag ??
+    done.one_key_core_trace?.steps?.find((s) => s.step === "claude_first_direct")?.payload
+      ?.anthropic_upstream_diag ??
+    null;
+  assert.ok(wireDiag, "400 monopoly done payload must carry anthropic_upstream_diag");
+  assert.equal(wireDiag.upstream_status, 400);
+  assert.equal(wireDiag.error_type, "invalid_request_error");
+  assert.equal(wireDiag.message_category, "invalid_document");
+  assert.equal(wireDiag.request_phase, "claude_first_messages_request");
+  assert.equal(typeof wireDiag.pdf_attached_attempted, "boolean");
+  assert.equal(typeof wireDiag.tool_count === "number" || wireDiag.tool_count === null, true);
+  assert.equal(wireDiag.provider_call_number, 1);
+  assert.ok(
+    done.sales_director_trace?.key_compose_trace?.key_voice_trace?.anthropic_upstream_diag,
+    "diag reachable via sales_director_trace.key_compose_trace.key_voice_trace",
+  );
+
+  const doneDump = JSON.stringify(done);
+  assert.equal(doneDump.includes(wireSecret), false, "raw Anthropic message not in done");
+  assert.equal(doneDump.includes("Unable to process PDF"), false);
+  for (const forbidden of ["base64", "message_raw", "errText", "detail"]) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(wireDiag, forbidden),
+      false,
+      `diag must not expose ${forbidden}`,
+    );
+  }
+  assert.equal(Object.prototype.hasOwnProperty.call(wireDiag, "message"), false);
+  console.log("PDF 400 DIAGNOSTIC TRACE LOCAL CHECKS OK");
 }
 
