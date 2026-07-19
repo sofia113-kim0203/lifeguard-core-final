@@ -23,6 +23,14 @@ import {
   RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
   RECORD_CLAIM_CASE_UPDATES_TOOL,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  buildVerifiedLiteralSetFromPolicies,
+  detectKeyVerifiedLiteralConflict,
+} from "../server/keyCore/keyVerifiedLiteralConflict.js";
+import {
+  finalizeKeyCustomerText,
+  KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+} from "../server/keyCore/keyCustomerMonopoly.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import { sentenceHardLiteBlocks } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
 import {
@@ -2006,6 +2014,21 @@ const chartPolicies = {
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.ok,
     true,
   );
+  // GO2-M / GO1 gate regression: accepted/rejected counts stay on confirm path.
+  {
+    const gate =
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_fact_gate;
+    assert.equal(gate?.attempted, true, "GO1 gate attempted");
+    assert.equal(gate?.accepted_count, 2, "GO1 gate accepted_count regression");
+    assert.equal(gate?.ownership_ok, true, "GO1 gate ownership_ok");
+    assert.equal(gate?.active_document_present, true, "GO1 gate active_document_present");
+    assert.equal(
+      typeof gate?.rejected_reason_counts,
+      "object",
+      "GO1 gate rejected_reason_counts present",
+    );
+    // priority dropped before/at gate — must not appear in accepted persist set (above).
+  }
 }
 
 {
@@ -2413,6 +2436,423 @@ const chartPolicies = {
       ?.ok,
     false,
   );
+}
+
+// --- GO2: KEY verified literal conflict (sentence pre-commit) ---
+{
+  const DOC = "doc-go2-a";
+  function keyFact(type, value, docId = DOC) {
+    return {
+      fact_type: type,
+      literal_value: value,
+      source_document_id: docId,
+      confirmation_source: "key_claude_original_document",
+    };
+  }
+  function keyPolicy(facts, { id = "pol-go2", docId = DOC, active = true } = {}) {
+    return {
+      id,
+      is_active: active,
+      coverage_summary: {
+        source_document_id: docId,
+        key_confirmed_source_facts: facts,
+      },
+    };
+  }
+
+  const samsungSet = buildVerifiedLiteralSetFromPolicies(
+    [
+      keyPolicy([
+        keyFact("insurer_name", "삼성화재"),
+        keyFact("product_name", "무배당 삼성화재 자녀보험 NEW마이슈퍼스타(2404.3)"),
+        keyFact("monthly_premium", "52000"),
+        keyFact("insured", "김수정"),
+      ]),
+    ],
+    { activeDocumentId: DOC },
+  );
+
+  // Baseline: accurate insurer / wrong insurer / compare / question / assume / premium
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("이 계약의 보험사는 삼성화재입니다.", samsungSet).conflict,
+    false,
+  );
+  {
+    const b = detectKeyVerifiedLiteralConflict("이 계약은 KB손해보험입니다.", samsungSet);
+    assert.equal(b.conflict, true);
+    assert.equal(b.field, "insurer_name");
+  }
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("KB손해보험 상품과 비교하면 보장 구성이 달라요.", samsungSet)
+      .conflict,
+    false,
+  );
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("이 계약 보험사가 삼성화재가 아닌가요?", samsungSet).conflict,
+    false,
+  );
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("보험료가 8만 원이라고 가정하면 부담이 커요.", samsungSet)
+      .conflict,
+    false,
+  );
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("이 계약의 월 보험료는 52,000원입니다.", samsungSet).conflict,
+    false,
+  );
+
+  // A: activeDocumentId fact 0 + other-doc facts only → pass (fail-closed, no fall-through)
+  {
+    const otherOnly = buildVerifiedLiteralSetFromPolicies(
+      [keyPolicy([keyFact("insurer_name", "현대해상", "doc-other")], { id: "p-other", docId: "doc-other" })],
+      { activeDocumentId: DOC },
+    );
+    assert.equal(
+      detectKeyVerifiedLiteralConflict("이 계약은 KB손해보험입니다.", otherOnly).conflict,
+      false,
+      "A: activeDocumentId with 0 matching facts → pass",
+    );
+    assert.equal(
+      detectKeyVerifiedLiteralConflict("이 계약은 KB손해보험입니다.", otherOnly).reason,
+      "active_document_no_verified_facts",
+    );
+  }
+
+  // B/C: negation → pass (never treat as positive conflict)
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("이 계약은 KB손해보험이 아닙니다.", samsungSet).conflict,
+    false,
+    "B: negation of wrong insurer → pass",
+  );
+  assert.equal(
+    detectKeyVerifiedLiteralConflict("이 계약은 삼성화재가 아닙니다.", samsungSet).conflict,
+    false,
+    "C: negation of verified insurer → pass",
+  );
+
+  // D/E: premium role-bound only
+  assert.equal(
+    detectKeyVerifiedLiteralConflict(
+      "이 계약의 보험료는 미확인이고 진단비는 3,000만 원입니다.",
+      samsungSet,
+    ).conflict,
+    false,
+    "D: uncertain premium + diagnosis amount → pass",
+  );
+  {
+    const e = detectKeyVerifiedLiteralConflict("월 보험료는 87,000원입니다.", samsungSet);
+    assert.equal(e.conflict, true, "E: wrong monthly premium → block");
+    assert.equal(e.field, "monthly_premium");
+  }
+
+  // F/G: 증권상 — distinction pass vs bare false party assert block
+  assert.equal(
+    detectKeyVerifiedLiteralConflict(
+      "증권상 피보험자는 김수정이고 로그인 고객과 다릅니다.",
+      samsungSet,
+    ).conflict,
+    false,
+    "F: doc vs login distinction → pass",
+  );
+  {
+    const g = detectKeyVerifiedLiteralConflict("증권상 피보험자는 조무연입니다.", samsungSet);
+    assert.equal(g.conflict, true, "G: bare 증권상 wrong party → block");
+    assert.equal(g.field, "insured");
+  }
+
+  // H/I: 반면 alone does not soft-pass; clear comparison does
+  {
+    const h = detectKeyVerifiedLiteralConflict(
+      "반면 이 계약은 KB손해보험입니다.",
+      samsungSet,
+    );
+    assert.equal(h.conflict, true, "H: bare 반면 + wrong insurer → block");
+  }
+  assert.equal(
+    detectKeyVerifiedLiteralConflict(
+      "다른 KB 간편실속 상품과 비교하면 담보가 다릅니다.",
+      samsungSet,
+    ).conflict,
+    false,
+    "I: clear comparison → pass",
+  );
+
+  // product abbrev / multi-contract ambiguous / OCR excluded
+  assert.equal(
+    detectKeyVerifiedLiteralConflict(
+      "이 계약의 상품명은 NEW마이슈퍼스타입니다.",
+      samsungSet,
+    ).conflict,
+    false,
+  );
+  {
+    const multi = buildVerifiedLiteralSetFromPolicies(
+      [
+        keyPolicy([keyFact("insurer_name", "삼성화재", "doc-1")], { id: "p1", docId: "doc-1" }),
+        keyPolicy([keyFact("insurer_name", "현대해상", "doc-2")], { id: "p2", docId: "doc-2" }),
+      ],
+      { activeDocumentId: null },
+    );
+    assert.equal(
+      detectKeyVerifiedLiteralConflict("이 계약은 KB손해보험입니다.", multi).conflict,
+      false,
+    );
+  }
+  {
+    const ocrOnly = buildVerifiedLiteralSetFromPolicies(
+      [
+        {
+          id: "pol-ocr",
+          is_active: true,
+          coverage_summary: {
+            source_document_id: DOC,
+            key_confirmed_source_facts: [
+              {
+                fact_type: "insurer_name",
+                literal_value: "OCR보험",
+                source_document_id: DOC,
+                confirmation_source: "upload_extract",
+              },
+            ],
+          },
+        },
+      ],
+      { activeDocumentId: DOC },
+    );
+    assert.equal(ocrOnly.entries.length, 0);
+  }
+}
+
+async function runGo2ConflictTurn({
+  answerText,
+  verifiedPolicy,
+  docId,
+  extras = {},
+}) {
+  const expectedCloser = finalizeKeyCustomerText("", { failureMode: true }).keySpeakOriginal;
+  let claudeCalls = 0;
+  let confirmedPersistCalls = 0;
+  let baselinePersistCalls = 0;
+  let claimPersistCalls = 0;
+  const deltas = [];
+  const fetchImpl = async () => {
+    claudeCalls += 1;
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            { type: "text", text: answerText },
+            {
+              type: "tool_use",
+              id: "fact-conflict",
+              name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+              input: {
+                confirmed_source_facts: [
+                  {
+                    fact_type: "insurer_name",
+                    literal_value: "KB손해보험",
+                    source_document_id: docId,
+                  },
+                ],
+              },
+            },
+            {
+              type: "tool_use",
+              id: "baseline-conflict",
+              name: "record_coverage_baseline_facts",
+              input: {
+                coverage_baseline_facts: [
+                  {
+                    baseline_item_id: "cancer_diagnosis",
+                    amount_literal: "1000만원",
+                    source_document_id: docId,
+                  },
+                ],
+              },
+            },
+            {
+              type: "tool_use",
+              id: "claim-conflict",
+              name: RECORD_CLAIM_CASE_UPDATES_TOOL.name,
+              input: {
+                claim_case_updates: [
+                  { claim_case_id: "cc-1", status: "open", note: "x" },
+                ],
+              },
+            },
+          ],
+        };
+      },
+    };
+  };
+  const userSupabase = {
+    from(table) {
+      if (table === "profile_insurance_policies") {
+        let mode = "select";
+        const api = {
+          select() {
+            mode = "select";
+            return api;
+          },
+          update() {
+            mode = "update";
+            confirmedPersistCalls += 1;
+            baselinePersistCalls += 1;
+            return api;
+          },
+          insert() {
+            mode = "insert";
+            confirmedPersistCalls += 1;
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          then(resolve) {
+            if (mode === "select") {
+              resolve({ data: [verifiedPolicy], error: null });
+              return;
+            }
+            resolve({ data: null, error: null });
+          },
+        };
+        return api;
+      }
+      if (table === "customer_claim_cases" || table === "claim_cases") {
+        claimPersistCalls += 1;
+        return makeAttachQuery({ data: null, error: null });
+      }
+      return makeAttachQuery({ data: null, error: null });
+    },
+  };
+  const streamHandlers = {
+    _emitted: false,
+    onDelta(text) {
+      deltas.push(String(text ?? ""));
+      streamHandlers._emitted = true;
+    },
+    onFirstToken() {},
+  };
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "이 증권 보험사만 확인해 주세요",
+    history: [],
+    loadedContext: { policy_count: 1, policies: [verifiedPolicy] },
+    customerContextBundle: { policies: [verifiedPolicy], policy_count: 1 },
+    unifiedState: { policies: [verifiedPolicy], policy_count: 1 },
+    customerId: "cust-go2",
+    userSupabase,
+    env: failClosedEnv,
+    fetchImpl,
+    streamHandlers,
+    ...extras,
+  });
+  return {
+    result,
+    deltas,
+    claudeCalls,
+    confirmedPersistCalls,
+    baselinePersistCalls,
+    claimPersistCalls,
+    expectedCloser,
+  };
+}
+
+{
+  // J: good sentence then conflict — keep first, block rest, closer once, SSE===seal
+  const DOC = "doc-go2-stream-j";
+  const verifiedPolicy = {
+    id: "pol-go2-j",
+    is_active: true,
+    coverage_summary: {
+      source_document_id: DOC,
+      key_confirmed_source_facts: [
+        {
+          fact_type: "insurer_name",
+          literal_value: "삼성화재",
+          source_document_id: DOC,
+          confirmation_source: "key_claude_original_document",
+        },
+      ],
+    },
+  };
+  const good = "확인해 보니 증권 내용은 이렇게 정리됩니다.";
+  const conflict = " 이 계약은 KB손해보험입니다.";
+  const after = " 추가로 진단비도 있습니다.";
+  const answerText = good + conflict + after;
+  const run = await runGo2ConflictTurn({ answerText, verifiedPolicy, docId: DOC });
+  const sseJoined = run.deltas.join("");
+  assert.equal(run.claudeCalls, 1, "N: Claude provider call === 1");
+  assert.equal(run.deltas[0], good, "J: first good sentence kept");
+  assert.equal(
+    run.deltas.filter((d) => d.includes("KB손해보험")).length,
+    0,
+    "J: conflict sentence 0",
+  );
+  assert.equal(sseJoined.includes("추가로 진단비"), false, "J: later sentence 0");
+  assert.equal(
+    run.deltas.filter((d) => d === run.expectedCloser).length,
+    1,
+    "J: closer 1회",
+  );
+  assert.equal(sseJoined, good + run.expectedCloser);
+  assert.equal(run.result.customerText, sseJoined, "J: SSE === sealed === return");
+  assert.equal(run.result.keySpeakOriginal, sseJoined);
+  assert.equal(
+    run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sentence_commit
+      ?.committed_len,
+    good.length,
+    "J: getCommitted length = good only (no conflict/after)",
+  );
+  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.attempted, false);
+  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_coverage_baseline_persist?.attempted, false);
+  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist?.attempted, false);
+  assert.equal(run.confirmedPersistCalls, 0, "L: confirmed persist calls 0");
+  assert.equal(run.baselinePersistCalls, 0, "L: baseline persist calls 0");
+  assert.equal(run.claimPersistCalls, 0, "L: claim persist calls 0");
+}
+
+{
+  // K: tiny answer conflict (no progressive boundaries until flush)
+  const DOC = "doc-go2-stream-k";
+  const verifiedPolicy = {
+    id: "pol-go2-k",
+    is_active: true,
+    coverage_summary: {
+      source_document_id: DOC,
+      key_confirmed_source_facts: [
+        {
+          fact_type: "insurer_name",
+          literal_value: "삼성화재",
+          source_document_id: DOC,
+          confirmation_source: "key_claude_original_document",
+        },
+      ],
+    },
+  };
+  // No ASCII sentence terminator — flushAll commits as one tiny unit.
+  const tinyConflict = "이 계약은 KB손해보험입니다";
+  const run = await runGo2ConflictTurn({ answerText: tinyConflict, verifiedPolicy, docId: DOC });
+  const sseJoined = run.deltas.join("");
+  assert.equal(run.claudeCalls, 1, "K/N: Claude 1");
+  assert.equal(sseJoined.includes("KB손해보험"), false, "K: conflict not in SSE");
+  assert.equal(run.deltas.join(""), run.expectedCloser);
+  assert.equal(run.result.customerText, run.expectedCloser);
+  assert.equal(run.result.keySpeakOriginal, run.expectedCloser);
+  assert.equal(
+    run.deltas.filter((d) => d === run.expectedCloser).length,
+    1,
+    "K: closer 1",
+  );
+  assert.equal(
+    run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sentence_commit
+      ?.committed_len,
+    0,
+    "K: committed stays 0 (conflict not kept)",
+  );
+  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.attempted, false);
+  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_coverage_baseline_persist?.attempted, false);
+  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist?.attempted, false);
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");

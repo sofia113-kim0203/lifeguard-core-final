@@ -75,7 +75,111 @@ import {
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
-import { createSentenceCommitStream } from "./keyClaudeFirstSentenceCommit.js";
+import { findNextCommitEnd } from "./keyClaudeFirstSentenceCommit.js";
+import {
+  buildVerifiedLiteralSetFromPolicies,
+  detectKeyVerifiedLiteralConflict,
+} from "./keyVerifiedLiteralConflict.js";
+
+/**
+ * GO2 — sentence commit with abort: conflict slice is never appended to committed,
+ * and drain stops so later sentences cannot accumulate in getCommitted().
+ * onCommit(slice) → { keep: true } | { keep: false, abort: true, reason?: string }
+ */
+function createAbortableSentenceCommitStream({
+  onCommit = null,
+  safetyBufferChars = 8,
+} = {}) {
+  let pending = "";
+  let committed = "";
+  let lastSeen = "";
+  let catchUpAppended = false;
+  let aborted = false;
+  let abortReason = null;
+
+  function commitSlice(slice) {
+    if (!slice || aborted) return;
+    const decision = onCommit?.(slice) ?? { keep: true };
+    if (decision?.abort === true) {
+      aborted = true;
+      abortReason = decision.reason ?? "aborted";
+      pending = "";
+      return;
+    }
+    if (decision?.keep === false) return;
+    committed += slice;
+  }
+
+  function drain({ flushAll = false } = {}) {
+    while (!aborted) {
+      const end = findNextCommitEnd(pending, { flushAll, safetyBufferChars });
+      if (end < 0) break;
+      const slice = pending.slice(0, end);
+      pending = pending.slice(end);
+      commitSlice(slice);
+    }
+    if (aborted) {
+      pending = "";
+      return;
+    }
+    if (flushAll && pending) {
+      commitSlice(pending);
+      pending = "";
+    }
+  }
+
+  return {
+    pushAnswerText(fullText = "") {
+      if (aborted) return { aborted: true };
+      const next = String(fullText ?? "");
+      if (next.length <= lastSeen.length) return { aborted: false };
+      pending += next.slice(lastSeen.length);
+      lastSeen = next;
+      drain({ flushAll: false });
+      return { aborted };
+    },
+    catchUpFinalAnswer(finalAnswer = "") {
+      if (aborted) return { aborted: true, appended: false, reason: "already_aborted" };
+      const final = String(finalAnswer ?? "");
+      if (!final) {
+        return { aborted: false, appended: false, reason: "empty_final" };
+      }
+      if (!final.startsWith(committed)) {
+        return { aborted: false, appended: false, reason: "final_not_prefix_of_committed" };
+      }
+      if (final.length <= committed.length) {
+        pending = "";
+        lastSeen = final;
+        return { aborted: false, appended: false, reason: "already_complete" };
+      }
+      pending = final.slice(committed.length);
+      lastSeen = final;
+      catchUpAppended = true;
+      drain({ flushAll: false });
+      return { aborted, appended: !aborted, suffix_len: final.length - committed.length };
+    },
+    flush() {
+      if (aborted) return { aborted: true };
+      drain({ flushAll: true });
+      return { aborted };
+    },
+    getCommitted() {
+      return committed;
+    },
+    getPending() {
+      return pending;
+    },
+    isAborted() {
+      return aborted;
+    },
+    getAbortReason() {
+      return abortReason;
+    },
+    didCatchUpAppend() {
+      return catchUpAppended;
+    },
+  };
+}
 import { createClient } from "@supabase/supabase-js";
 import {
   normalizeKeyConfirmedSourceFacts,
@@ -2176,15 +2280,68 @@ export async function runClaudeFirstDirectQuestionTurn({
   let firstTokenMs = null;
   let sentenceStreamAborted = false;
   let sentenceAbortReason = null;
-  const commitStream = createSentenceCommitStream({
+  // GO2 — KEY verified literal conflict (pre onDelta). Track exact SSE bytes for seal parity.
+  let streamAbortedByConflict = false;
+  let conflictTrace = null;
+  let failureCloserEmitted = false;
+  let sseEmittedText = "";
+  const verifiedLiteralSet = buildVerifiedLiteralSetFromPolicies(policies, {
+    activeDocumentId: String(pdf?.meta?.document_id ?? "").trim() || null,
+  });
+  const commitStream = createAbortableSentenceCommitStream({
     onCommit(sentence) {
-      if (!streamHandlers?.onDelta) return;
-      streamHandlers.onDelta(sentence);
-      streamHandlers._emitted = true;
-      if (firstTokenMs == null) {
-        firstTokenMs = relMs(startedAt);
-        streamHandlers.onFirstToken?.(firstTokenMs);
+      if (streamAbortedByConflict) {
+        return { keep: false, abort: true, reason: "key_verified_literal_conflict" };
       }
+
+      const hit = detectKeyVerifiedLiteralConflict(sentence, verifiedLiteralSet);
+      if (hit?.conflict === true) {
+        streamAbortedByConflict = true;
+        sentenceStreamAborted = true;
+        sentenceAbortReason = "key_verified_literal_conflict";
+        conflictTrace = {
+          conflict_detected: true,
+          field: hit.field ?? null,
+          source_scope: hit.source_scope ?? null,
+          sentence_blocked: true,
+          stream_aborted: true,
+          persist_blocked: true,
+          reason: hit.reason ?? "direct_assertion_mismatch",
+        };
+        // Existing monopoly failure outlet only — never raw KEY_MONOPOLY_FAILURE constant.
+        if (!failureCloserEmitted) {
+          const outlet = finalizeKeyCustomerText("", {
+            failureMode: true,
+            startedAt,
+          });
+          const closer = String(outlet.keySpeakOriginal ?? "").trim();
+          if (closer) {
+            if (streamHandlers?.onDelta) {
+              streamHandlers.onDelta(closer);
+              streamHandlers._emitted = true;
+              if (firstTokenMs == null) {
+                firstTokenMs = relMs(startedAt);
+                streamHandlers.onFirstToken?.(firstTokenMs);
+              }
+            }
+            sseEmittedText += closer;
+            failureCloserEmitted = true;
+          }
+        }
+        // Do not append conflict sentence to committed; stop further drain.
+        return { keep: false, abort: true, reason: "key_verified_literal_conflict" };
+      }
+
+      sseEmittedText += String(sentence ?? "");
+      if (streamHandlers?.onDelta) {
+        streamHandlers.onDelta(sentence);
+        streamHandlers._emitted = true;
+        if (firstTokenMs == null) {
+          firstTokenMs = relMs(startedAt);
+          streamHandlers.onFirstToken?.(firstTokenMs);
+        }
+      }
+      return { keep: true };
     },
   });
 
@@ -2245,14 +2402,21 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Completeness: progressive extract can lag the final customer_answer.
   // Append-only catch-up — exact suffix after committed; never replace sent text.
   let sentenceCatchUp = null;
-  if (!sentenceStreamAborted && claude.ok && claude.customer_answer) {
+  if (
+    !sentenceStreamAborted &&
+    !streamAbortedByConflict &&
+    claude.ok &&
+    claude.customer_answer
+  ) {
     sentenceCatchUp = commitStream.catchUpFinalAnswer(claude.customer_answer);
     if (sentenceCatchUp?.aborted) {
       sentenceStreamAborted = true;
       sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
     }
   }
-  commitStream.flush();
+  if (!streamAbortedByConflict) {
+    commitStream.flush();
+  }
   if (commitStream.isAborted()) {
     sentenceStreamAborted = true;
     sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
@@ -2310,43 +2474,55 @@ export async function runClaudeFirstDirectQuestionTurn({
     };
   }
 
-  const safety = hardOnlySafetyCheck(claude.customer_answer, {
-    allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
-    allowed_entities: claude.allowlist?.allowed_entities ?? [],
-  });
-
-  // Native Claude-first: do not replace a real answer with monopoly for jailbreak_fact alone
-  // (citations / derived math / place names from web_search). Gate body unchanged —
-  // call-site only chooses which CLOSED reasons may swap customer text.
-  // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
-  const replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
-
-  // Slice 8: always prefer full Claude original when no CLOSED replacing hard.
-  // sentence_hard_lite must not truncate normal contract-structure answers.
-  const alreadyCommitted = Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
   let finalText = String(claude.customer_answer ?? "").trim();
   let usedFailure = false;
   let failureReason = null;
+  let safety = { hard_fail: false, hard: [], soft: [], jailbreak_detail: null };
+  let replacingHard = [];
+  let alreadyCommitted =
+    Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
 
-  if (!String(finalText ?? "").trim()) {
-    finalText = commitStream.getCommitted() || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-    if (!commitStream.getCommitted()) {
-      usedFailure = true;
-      failureReason = "empty_answer";
-    }
-  } else if (replacingHard.length > 0 && !alreadyCommitted) {
-    // Only monopoly-replace when nothing was already shown to the customer.
-    finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+  if (streamAbortedByConflict) {
+    // GO2: customer-visible text is exactly what SSE already sent (good + one failure closer).
     usedFailure = true;
-    failureReason = replacingHard.join(";") || "closed_hard";
-  } else if (replacingHard.length > 0 && alreadyCommitted) {
-    // E: keep committed text; do not yank.
-    finalText = commitStream.getCommitted() || finalText;
-    failureReason = `committed_no_replace:${replacingHard.join(";")}`;
+    failureReason = "key_verified_literal_conflict";
+    finalText = sseEmittedText;
+    alreadyCommitted = true;
+  } else {
+    safety = hardOnlySafetyCheck(claude.customer_answer, {
+      allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
+      allowed_entities: claude.allowlist?.allowed_entities ?? [],
+    });
+
+    // Native Claude-first: do not replace a real answer with monopoly for jailbreak_fact alone
+    // (citations / derived math / place names from web_search). Gate body unchanged —
+    // call-site only chooses which CLOSED reasons may swap customer text.
+    // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
+    replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
+
+    // Slice 8: always prefer full Claude original when no CLOSED replacing hard.
+    // sentence_hard_lite must not truncate normal contract-structure answers.
+    if (!String(finalText ?? "").trim()) {
+      finalText = commitStream.getCommitted() || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+      if (!commitStream.getCommitted()) {
+        usedFailure = true;
+        failureReason = "empty_answer";
+      }
+    } else if (replacingHard.length > 0 && !alreadyCommitted) {
+      // Only monopoly-replace when nothing was already shown to the customer.
+      finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+      usedFailure = true;
+      failureReason = replacingHard.join(";") || "closed_hard";
+    } else if (replacingHard.length > 0 && alreadyCommitted) {
+      // E: keep committed text; do not yank.
+      finalText = commitStream.getCommitted() || finalText;
+      failureReason = `committed_no_replace:${replacingHard.join(";")}`;
+    }
+    // else: seal Claude original as-is (no sentence_hard_lite truncation).
   }
-  // else: seal Claude original as-is (no sentence_hard_lite truncation).
 
   // As-is delivery (no polish rewrite). Seal only.
+  // Conflict path: seal exactly sseEmittedText (already includes failure closer once).
   const sealed = sealKeyCustomerText(finalText);
 
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
@@ -2516,9 +2692,16 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
 
   // If nothing was sentence-committed (e.g. tiny answer without boundary), emit once.
-  if (streamHandlers?.onDelta && !streamHandlers._emitted) {
+  // Conflict path already emitted failure closer — never duplicate.
+  if (
+    streamHandlers?.onDelta &&
+    !streamHandlers._emitted &&
+    !streamAbortedByConflict &&
+    !failureCloserEmitted
+  ) {
     streamHandlers.onDelta(sealed.key_speak_original);
     streamHandlers._emitted = true;
+    sseEmittedText = String(sealed.key_speak_original ?? "");
     streamHandlers.onFirstToken?.(firstTokenMs ?? claude.ttft_ms ?? relMs(startedAt));
   }
 
@@ -2575,6 +2758,8 @@ export async function runClaudeFirstDirectQuestionTurn({
           confirmed_source_facts_count: factsToPersist.length,
           key_confirmed_fact_gate: keyConfirmedFactGate,
           key_confirmed_persist: keyConfirmedPersist,
+          key_coverage_baseline_persist: keyBaselinePersist,
+          key_verified_literal_conflict: conflictTrace,
           key_memory_rebuild: keyMemoryRebuild,
           active_claim_cases_hydrated: activeClaimCases.length,
           claim_case_updates_count: claimCasesToPersist.length,
@@ -2638,6 +2823,11 @@ export async function runClaudeFirstDirectQuestionTurn({
             compose_mode: "key_claude_first_direct",
             draft_preview: String(sealed.key_speak_original).slice(0, 300),
           },
+        },
+        {
+          step: "key_verified_literal_conflict",
+          at_ms: relMs(startedAt),
+          payload: conflictTrace,
         },
         {
           step: "key_confirmed_fact_gate",
