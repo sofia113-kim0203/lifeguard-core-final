@@ -206,6 +206,144 @@ import {
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
+/** Non-PII byte-size bucket for attach diagnostics (never stores bytes/base64). */
+export function bucketDocumentBytes(byteLength = null) {
+  const n = Number(byteLength);
+  if (!Number.isFinite(n) || n <= 0) return "none";
+  if (n < 1024) return "lt_1kb";
+  if (n < 100 * 1024) return "1kb_100kb";
+  if (n < 1024 * 1024) return "100kb_1mb";
+  if (n < 5 * 1024 * 1024) return "1mb_5mb";
+  if (n < 20 * 1024 * 1024) return "5mb_20mb";
+  return "gt_20mb";
+}
+
+const ANTHROPIC_MESSAGE_CATEGORIES = Object.freeze([
+  "invalid_document",
+  "document_too_large",
+  "invalid_request",
+  "tool_schema",
+  "message_shape",
+  "rate_or_transient",
+  "unknown_upstream_400",
+]);
+
+/**
+ * Classify Anthropic error body into a fixed message_category code.
+ * Scans message text for keywords only — never returns or stores the message.
+ */
+export function classifyAnthropicMessageCategory({
+  status = null,
+  errorType = null,
+  errorMessage = "",
+} = {}) {
+  const st = Number(status);
+  const t = String(errorType ?? "").toLowerCase();
+  const m = String(errorMessage ?? "").toLowerCase();
+  if (
+    st === 429 ||
+    st === 529 ||
+    t.includes("rate_limit") ||
+    t.includes("overloaded") ||
+    /rate\s*limit|overloaded|temporarily|try again|timeout/.test(m)
+  ) {
+    return "rate_or_transient";
+  }
+  if (
+    /too\s*large|maximum.*(?:size|bytes|pages)|request.*(too\s*large|exceed)|payload.*large|max_tokens|context\s*length/.test(
+      m,
+    )
+  ) {
+    return "document_too_large";
+  }
+  if (
+    /(?:invalid|corrupt|unable|could not|failed).*(?:pdf|document)|(?:pdf|document).*(?:invalid|corrupt|unable|parse|process)|unsupported\s*media|media_type/.test(
+      m,
+    )
+  ) {
+    return "invalid_document";
+  }
+  if (/tool_choice|input_schema|tools\.|\btools\b.*invalid|invalid.*\btool/.test(m)) {
+    return "tool_schema";
+  }
+  if (
+    /messages\.|content\s*block|invalid.*(?:message|content)|content\.\d+|unexpected.*(?:role|block)/.test(
+      m,
+    )
+  ) {
+    return "message_shape";
+  }
+  if (t.includes("invalid_request") || t === "invalid_request_error") {
+    return "invalid_request";
+  }
+  if (st === 400 || !Number.isFinite(st)) return "unknown_upstream_400";
+  return "unknown_upstream_400";
+}
+
+/**
+ * Build codes-only Anthropic upstream diagnostic (no secrets, no PII, no raw message).
+ */
+export function buildAnthropicUpstreamDiag({
+  status = null,
+  errText = "",
+  pdfAttachedAttempted = false,
+  pdfBase64 = null,
+  toolCount = null,
+  providerCallNumber = null,
+  requestPhase = "claude_first_messages_request",
+} = {}) {
+  let errorType = null;
+  let errorCode = null;
+  let scanMessage = "";
+  const raw = String(errText ?? "");
+  try {
+    const j = JSON.parse(raw);
+    const errObj = j?.error && typeof j.error === "object" ? j.error : j;
+    errorType =
+      errObj?.type != null
+        ? String(errObj.type).slice(0, 80)
+        : j?.type != null
+          ? String(j.type).slice(0, 80)
+          : null;
+    errorCode =
+      errObj?.code != null
+        ? String(errObj.code).slice(0, 80)
+        : null;
+    scanMessage = String(errObj?.message ?? j?.message ?? "");
+  } catch {
+    scanMessage = raw;
+  }
+  // Cap scan buffer; never persist scanMessage on the returned object.
+  scanMessage = scanMessage.slice(0, 800);
+  const estimatedBytes =
+    pdfAttachedAttempted && pdfBase64
+      ? Math.floor((String(pdfBase64).length * 3) / 4)
+      : 0;
+  const message_category = classifyAnthropicMessageCategory({
+    status,
+    errorType,
+    errorMessage: scanMessage,
+  });
+  const category = ANTHROPIC_MESSAGE_CATEGORIES.includes(message_category)
+    ? message_category
+    : "unknown_upstream_400";
+  return {
+    upstream_status: Number.isFinite(Number(status)) ? Number(status) : null,
+    error_type: errorType,
+    error_code: errorCode,
+    message_category: category,
+    request_phase: String(requestPhase ?? "claude_first_messages_request"),
+    pdf_attached_attempted: pdfAttachedAttempted === true,
+    document_byte_bucket: bucketDocumentBytes(
+      pdfAttachedAttempted ? estimatedBytes : 0,
+    ),
+    tool_count: Number.isFinite(Number(toolCount)) ? Number(toolCount) : null,
+    provider_call_number: Number.isFinite(Number(providerCallNumber))
+      ? Number(providerCallNumber)
+      : null,
+  };
+}
+
 /**
  * Same Claude-first call — internal only. Customer never sees this tool output.
  * customer_answer stays plain text; facts are storage materials for the customer card.
@@ -2434,14 +2572,25 @@ async function callClaudeFirstDirect({
     messagesRequestCount += 1;
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      const anthropic_upstream_diag = buildAnthropicUpstreamDiag({
+        status: res.status,
+        errText,
+        pdfAttachedAttempted: pdfAttached === true,
+        pdfBase64,
+        toolCount: Array.isArray(answerTools) ? answerTools.length : null,
+        providerCallNumber: messagesRequestCount,
+        requestPhase: "claude_first_messages_request",
+      });
       return {
         ok: false,
         error: `ANTHROPIC_HTTP_${res.status}`,
-        detail: String(errText).slice(0, 400),
+        anthropic_upstream_diag,
         model,
         confirmed_source_facts: confirmedSourceFacts,
         coverage_baseline_facts: coverageBaselineFacts,
         claim_case_updates: claimCaseUpdates,
+        pdf_attached: false,
+        pdf_attached_attempted: pdfAttached === true,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -3226,6 +3375,9 @@ export async function runClaudeFirstDirectQuestionTurn({
             decision_persisted: false,
             session_goal_discard_requested: discardRequested === true,
             session_goal_ssot_reason: ssotReason,
+            anthropic_upstream_diag: claude.anthropic_upstream_diag ?? null,
+            pdf_attached: claude.pdf_attached === true,
+            pdf_attached_attempted: claude.pdf_attached_attempted === true,
             recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
             recommendation_basis_count: Number(claude.recommendation_basis_count ?? 0) || 0,
             recommendation_basis_rejected_count:
@@ -3251,7 +3403,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           {
             step: "claude_first_direct",
             at_ms: emitMark?.exit_ms ?? relMs(startedAt),
-            payload: { error: claude.error ?? "empty", ttft_ms: firstTokenMs ?? claude.ttft_ms },
+            payload: {
+              error: claude.error ?? "empty",
+              ttft_ms: firstTokenMs ?? claude.ttft_ms,
+              anthropic_upstream_diag: claude.anthropic_upstream_diag ?? null,
+            },
           },
         ],
         legacy_paths_blocked: ["interpret", "decision", "planner", "s3_s6_compose"],

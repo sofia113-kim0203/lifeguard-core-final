@@ -37,6 +37,9 @@ import {
   loadLatestSessionGoalFromConversations,
   classifySessionGoalRejectReason,
   SESSION_GOAL_MAX_CHARS,
+  bucketDocumentBytes,
+  classifyAnthropicMessageCategory,
+  buildAnthropicUpstreamDiag,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
   buildVerifiedLiteralSetFromPolicies,
@@ -4171,5 +4174,101 @@ console.log("key-claude-first-direct-unit-test: PASS");
   }
 
   console.log("REQUEST LIGHTENING LOCAL CHECKS OK");
+}
+
+// --- PDF 400 DIAGNOSTIC: codes-only upstream trace (no raw message / base64) ---
+{
+  assert.equal(bucketDocumentBytes(0), "none");
+  assert.equal(bucketDocumentBytes(500), "lt_1kb");
+  assert.equal(bucketDocumentBytes(50 * 1024), "1kb_100kb");
+
+  assert.equal(
+    classifyAnthropicMessageCategory({
+      status: 400,
+      errorType: "invalid_request_error",
+      errorMessage: "Could not process PDF document",
+    }),
+    "invalid_document",
+  );
+  assert.equal(
+    classifyAnthropicMessageCategory({
+      status: 400,
+      errorType: "invalid_request_error",
+      errorMessage: "tools.2.custom.input_schema: invalid",
+    }),
+    "tool_schema",
+  );
+  assert.equal(
+    classifyAnthropicMessageCategory({
+      status: 429,
+      errorType: "rate_limit_error",
+      errorMessage: "Rate limit exceeded",
+    }),
+    "rate_or_transient",
+  );
+
+  const secretMsg = "SECRET_PDF_FAIL_TOKEN_do_not_persist";
+  const diag = buildAnthropicUpstreamDiag({
+    status: 400,
+    errText: JSON.stringify({
+      type: "error",
+      error: { type: "invalid_request_error", message: secretMsg },
+    }),
+    pdfAttachedAttempted: true,
+    pdfBase64: Buffer.from("%PDF-1.4 minimal").toString("base64"),
+    toolCount: 4,
+    providerCallNumber: 1,
+  });
+  assert.equal(diag.upstream_status, 400);
+  assert.equal(diag.error_type, "invalid_request_error");
+  assert.equal(diag.message_category, "invalid_request");
+  assert.equal(diag.pdf_attached_attempted, true);
+  assert.equal(diag.document_byte_bucket, "lt_1kb");
+  assert.equal(diag.tool_count, 4);
+  assert.equal(diag.provider_call_number, 1);
+  assert.equal(diag.request_phase, "claude_first_messages_request");
+  assert.equal(Object.prototype.hasOwnProperty.call(diag, "message"), false);
+  assert.equal(JSON.stringify(diag).includes(secretMsg), false);
+  assert.equal(JSON.stringify(diag).includes("%PDF"), false);
+
+  const monopolyText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
+  let calls = 0;
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "안녕하세요",
+    history: [],
+    loadedContext: { policies: [], policy_count: 0 },
+    env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+    fetchImpl: async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 400,
+        async text() {
+          return JSON.stringify({
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: `Unable to process PDF document :: ${secretMsg}`,
+            },
+          });
+        },
+      };
+    },
+  });
+  assert.equal(calls, 1, "provider call count unchanged");
+  assert.equal(result.key_monopoly_failure, true);
+  assert.equal(result.customerText, monopolyText, "customer byte-equal monopoly");
+  assert.equal(result.keySpeakOriginal, monopolyText);
+  assert.equal(result.failure_reason, "ANTHROPIC_HTTP_400");
+  const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
+  assert.equal(voice?.anthropic_upstream_diag?.upstream_status, 400);
+  assert.equal(voice?.anthropic_upstream_diag?.error_type, "invalid_request_error");
+  assert.equal(voice?.anthropic_upstream_diag?.message_category, "invalid_document");
+  assert.equal(voice?.anthropic_upstream_diag?.pdf_attached_attempted, false);
+  const dumped = JSON.stringify(result);
+  assert.equal(dumped.includes(secretMsg), false, "raw Anthropic message not in result");
+  assert.equal(dumped.includes("Unable to process PDF"), false);
+  assert.equal(dumped.includes("detail\""), false);
+  console.log("PDF 400 DIAGNOSTIC LOCAL CHECKS OK");
 }
 
