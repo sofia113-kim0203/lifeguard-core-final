@@ -3386,6 +3386,23 @@ async function runGo2ConflictTurn({
 // --- GO4A: recommendation_basis trace-only (no answer mutation / Continue 0) ---
 {
   assert.equal(RECORD_RECOMMENDATION_BASIS_TOOL.name, "record_recommendation_basis");
+  assert.match(
+    RECORD_RECOMMENDATION_BASIS_TOOL.description,
+    /같은 응답에서/,
+    "GO4A: tool description same-response cue",
+  );
+  {
+    const sys = buildSystemPrompt();
+    assert.match(sys, /record_session_goal은 선택 도구다/);
+    assert.match(
+      sys,
+      /record_recommendation_basis는 선택 도구다\. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만, 같은 응답에서 available_verified_evidence와 이번 응답에서 KEY가 검증한 coverage baseline의 실제 ref로 내부 근거를 기록한다\. 추천이 없으면 호출하지 않는다\. 고객에게 도구명이나 JSON을 말하지 말고, 고객 답변은 평문으로 완성한다\./,
+      "GO4A: system prompt basis instruction",
+    );
+    const goalAt = sys.indexOf("record_session_goal은 선택 도구다");
+    const basisAt = sys.indexOf("record_recommendation_basis는 선택 도구다");
+    assert.ok(goalAt >= 0 && basisAt > goalAt, "GO4A: basis instruction immediately after session_goal");
+  }
 
   const DOC = "doc-go4a-owned";
   const go4Policies = [
@@ -3436,7 +3453,28 @@ async function runGo2ConflictTurn({
     ],
   };
 
-  // A: no basis → answer unchanged baseline for equality
+  // A: non-recommend question — no forced basis; answer normal; provider 1
+  {
+    const hello = "안녕하세요. KEY입니다.";
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "안녕하세요",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch([{ type: "text", text: hello }], counter),
+    });
+    assert.equal(counter.n, 1, "A: provider 1");
+    assert.equal(result.customerText, hello, "A: answer");
+    assert.equal(result.keySpeakOriginal, hello, "A: sealed");
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "A: tool_seen");
+    assert.equal(voice(result)?.recommendation_basis_ok, true, "A: ok default — missing tool not blocked");
+    assert.equal(result.salesDirectorTrace?.decision, null, "G: decision null");
+    assert.equal(result.salesDirectorTrace?.decision_persisted, false, "G");
+    assert.equal(voice(result)?.decision_persisted, false, "G voice");
+  }
+
+  // A2: recommend question without basis tool — still ok (no force)
   {
     const counter = { n: 0 };
     const result = await runClaudeFirstDirectQuestionTurn({
@@ -3446,14 +3484,11 @@ async function runGo2ConflictTurn({
       env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
       fetchImpl: makeJsonFetch([{ type: "text", text: answerText }], counter),
     });
-    assert.equal(counter.n, 1, "A: provider 1");
-    assert.equal(result.customerText, answerText, "A: answer");
-    assert.equal(result.keySpeakOriginal, answerText, "A: sealed");
-    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "A: tool_seen");
-    assert.equal(voice(result)?.recommendation_basis_ok, true, "A: ok default");
-    assert.equal(result.salesDirectorTrace?.decision, null, "K: decision null");
-    assert.equal(result.salesDirectorTrace?.decision_persisted, false, "K");
-    assert.equal(voice(result)?.decision_persisted, false, "K voice");
+    assert.equal(counter.n, 1, "A2: provider 1");
+    assert.equal(result.customerText, answerText, "A2: answer");
+    assert.equal(result.keySpeakOriginal, answerText, "A2: sealed");
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "A2: tool_seen");
+    assert.equal(voice(result)?.recommendation_basis_ok, true, "A2: ok default");
   }
 
   // B: valid basis → answer/SSE/sealed byte-equal to A path

@@ -518,7 +518,7 @@ export const SESSION_GOAL_MAX_CHARS = 80;
 export const RECORD_RECOMMENDATION_BASIS_TOOL = Object.freeze({
   name: "record_recommendation_basis",
   description:
-    "선택. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만 내부 근거를 기록한다. " +
+    "선택. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만, 같은 응답에서 내부 근거를 기록한다. " +
     "고객에게 보이는 답변이 아니다. evidence_refs는 available_verified_evidence 또는 " +
     "이번 응답에서 KEY가 검증한 coverage baseline 항목만. " +
     "부족액·가입/해지 확정·임의 고객 사실 금지. 추천이 없으면 호출하지 않는다.",
@@ -1199,6 +1199,7 @@ export function buildSystemPrompt() {
     "고객에게 내부 필드명·도구명·시스템 경로를 말하지 않는다.",
     "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
     "record_session_goal은 선택 도구다. 현재 세션의 단기 작업 목표만 기록한다. 감정·성격·미확정 의도·건강/계약/가족 사실·추천 결론·장기 프로필은 금지한다. 고객 답변에 목표를 억지로 언급하지 않는다.",
+    "record_recommendation_basis는 선택 도구다. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만, 같은 응답에서 available_verified_evidence와 이번 응답에서 KEY가 검증한 coverage baseline의 실제 ref로 내부 근거를 기록한다. 추천이 없으면 호출하지 않는다. 고객에게 도구명이나 JSON을 말하지 말고, 고객 답변은 평문으로 완성한다.",
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     buildClaimCaseUpdatesToolHint(),
   ].join("\n");
