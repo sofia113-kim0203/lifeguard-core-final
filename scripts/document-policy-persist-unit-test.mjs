@@ -9,7 +9,12 @@ import {
   resolveExistingPolicyForCandidate,
   normalizeKeyConfirmedSourceFacts,
   mergeKeyConfirmedSourceFacts,
+  assertOwnedActiveSourceDocument,
+  selectKeyConfirmableSourceFacts,
+  resolveKeyConfirmableFactsForPersist,
+  buildKeyConfirmedFactGateTrace,
   persistKeyConfirmedSourceFactsToPolicies,
+  buildPolicyFieldsFromKeyConfirmedFacts,
 } from "../server/documentPolicyUploadPersist.js";
 import { mergeCoverageSummary } from "../server/coverageRiderPopulation.js";
 
@@ -638,6 +643,236 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
   });
   assert(scrubAgain.ok === true, "scrub is idempotent on second call");
 
+}
+
+// --- GO1 보정: KEY confirm gate ---
+{
+  let ownershipQueries = 0;
+  const trackingSupabase = (maybeSingleResult) => ({
+    from(table) {
+      assert(table === "customer_documents", "ownership checks documents only");
+      ownershipQueries += 1;
+      const q = {
+        select() {
+          return q;
+        },
+        eq() {
+          return q;
+        },
+        is() {
+          return q;
+        },
+        maybeSingle: async () => maybeSingleResult,
+      };
+      return q;
+    },
+  });
+
+  // A: rawFacts=[] → ownership query 0
+  ownershipQueries = 0;
+  const emptyResolved = await resolveKeyConfirmableFactsForPersist({
+    supabase: trackingSupabase({ data: { id: documentId }, error: null }),
+    customerId: "cust-gate",
+    activeDocumentId: documentId,
+    facts: [],
+  });
+  assert(emptyResolved.accepted.length === 0, "A: empty raw → accepted 0");
+  assert(emptyResolved.gate.ownership_query_count === 0, "A: ownership_query_count 0");
+  assert(ownershipQueries === 0, "A: assertOwnedActiveSourceDocument call 0");
+
+  // B: missing source_document_id
+  const missingSrc = selectKeyConfirmableSourceFacts({
+    facts: [
+      {
+        fact_type: "insurer_name",
+        literal_value: "삼성화재",
+        confirmation_source: "claude_guess",
+      },
+    ],
+    activeDocumentId: documentId,
+    ownedActiveDocumentId: documentId,
+    ownershipFailed: false,
+  });
+  assert(missingSrc.accepted.length === 0, "B: missing source → accepted 0");
+  assert(
+    missingSrc.rejected.some((r) => r.reason === "missing_source_document_id"),
+    "B: missing_source_document_id",
+  );
+  assert(
+    !JSON.stringify(missingSrc.rejected).includes(documentId),
+    "B: reject payload must not embed document_id",
+  );
+
+  // C: invalid fact shape
+  const invalidShape = selectKeyConfirmableSourceFacts({
+    facts: [null, "x", 1, ["arr"]],
+    activeDocumentId: documentId,
+    ownedActiveDocumentId: documentId,
+    ownershipFailed: false,
+  });
+  assert(invalidShape.accepted.length === 0, "C: invalid → accepted 0");
+  assert(
+    invalidShape.rejected.length === 4 &&
+      invalidShape.rejected.every((r) => r.reason === "invalid_fact_shape"),
+    "C: invalid_fact_shape for every non-object",
+  );
+
+  // D: duplicate_fact
+  const dup = selectKeyConfirmableSourceFacts({
+    facts: [
+      {
+        fact_type: "product_name",
+        literal_value: "실손",
+        source_document_id: documentId,
+      },
+      {
+        fact_type: "product_name",
+        literal_value: "실손",
+        source_document_id: documentId,
+      },
+    ],
+    activeDocumentId: documentId,
+    ownedActiveDocumentId: documentId,
+    ownershipFailed: false,
+  });
+  assert(dup.accepted.length === 1, "D: one accepted");
+  assert(
+    dup.rejected.some((r) => r.reason === "duplicate_fact"),
+    "D: duplicate_fact",
+  );
+
+  // E: DB error → ownership_lookup_error
+  ownershipQueries = 0;
+  const lookupErr = await assertOwnedActiveSourceDocument({
+    supabase: trackingSupabase({ data: null, error: { message: "db_down" } }),
+    customerId: "cust-gate",
+    documentId,
+  });
+  assert(lookupErr.ok === false && lookupErr.reason === "ownership_lookup_error", "E");
+  const lookupResolved = await resolveKeyConfirmableFactsForPersist({
+    supabase: trackingSupabase({ data: null, error: { message: "db_down" } }),
+    customerId: "cust-gate",
+    activeDocumentId: documentId,
+    facts: [
+      {
+        fact_type: "insurer_name",
+        literal_value: "삼성화재",
+        source_document_id: documentId,
+      },
+    ],
+  });
+  assert(lookupResolved.accepted.length === 0, "E: persist 0");
+  assert(
+    lookupResolved.gate.ownership_reason === "ownership_lookup_error",
+    "E: gate ownership_reason",
+  );
+  assert(
+    lookupResolved.gate.rejected_reason_counts.ownership_lookup_error === 1,
+    "E: rejected count",
+  );
+
+  // F: row 없음 → ownership_or_deleted
+  const notOwned = await assertOwnedActiveSourceDocument({
+    supabase: trackingSupabase({ data: null, error: null }),
+    customerId: "cust-gate",
+    documentId,
+  });
+  assert(notOwned.ok === false && notOwned.reason === "ownership_or_deleted", "F");
+  const deletedResolved = await resolveKeyConfirmableFactsForPersist({
+    supabase: trackingSupabase({ data: null, error: null }),
+    customerId: "cust-gate",
+    activeDocumentId: documentId,
+    facts: [
+      {
+        fact_type: "insurer_name",
+        literal_value: "삼성화재",
+        source_document_id: documentId,
+      },
+    ],
+  });
+  assert(deletedResolved.accepted.length === 0, "F: persist 0");
+  assert(
+    deletedResolved.gate.rejected_reason_counts.ownership_or_deleted === 1,
+    "F: ownership_or_deleted count",
+  );
+
+  // G: trace must not include real document_id string
+  ownershipQueries = 0;
+  const okResolved = await resolveKeyConfirmableFactsForPersist({
+    supabase: trackingSupabase({ data: { id: documentId }, error: null }),
+    customerId: "cust-gate",
+    activeDocumentId: documentId,
+    facts: [
+      {
+        fact_type: "insurer_name",
+        literal_value: "삼성화재",
+        source_document_id: documentId,
+        confirmation_source: "claude_guess",
+      },
+      {
+        fact_type: "product_name",
+        literal_value: "실손",
+        source_document_id: "doc-other-id",
+      },
+      {
+        fact_type: "priority",
+        literal_value: "추측",
+        source_document_id: documentId,
+      },
+    ],
+  });
+  const gateJson = JSON.stringify(okResolved.gate);
+  assert(!gateJson.includes(documentId), "G: no documentId in gate trace");
+  assert(!gateJson.includes("doc-other-id"), "G: no foreign doc id in gate trace");
+  assert(!gateJson.includes("삼성화재"), "G: no literal in gate trace");
+  assert(okResolved.gate.active_document_present === true, "G: present flag");
+  assert(okResolved.gate.ownership_ok === true, "G: ownership_ok");
+  assert(okResolved.gate.accepted_count === 1, "G: accepted_count");
+  assert(
+    okResolved.gate.rejected_reason_counts.source_document_mismatch === 1,
+    "G: mismatch count",
+  );
+  assert(
+    okResolved.gate.rejected_reason_counts.unsupported_fact_type === 1,
+    "G: unsupported count",
+  );
+  assert(!("active_document_id" in okResolved.gate), "G: no active_document_id field");
+  assert(!("rejected" in okResolved.gate), "G: no rejected array in trace");
+
+  // I: server confirmation_source only on accepted
+  assert(okResolved.accepted.length === 1, "I: one accepted");
+  assert(
+    okResolved.accepted[0].confirmation_source === "key_claude_original_document",
+    "I: KEY stamps confirmation_source",
+  );
+  assert(
+    okResolved.accepted.every((f) => f.confirmation_source === "key_claude_original_document"),
+    "I: all accepted stamped",
+  );
+
+  const partyFields = buildPolicyFieldsFromKeyConfirmedFacts(
+    documentId,
+    okResolved.accepted,
+    null,
+  );
+  assert(
+    partyFields.coverage_summary?.key_confirmed_subject_scope ===
+      "document_contract_not_customer_profile",
+    "parties stay document_contract scope",
+  );
+
+  const traceOnly = buildKeyConfirmedFactGateTrace({
+    attempted: true,
+    accepted: okResolved.accepted,
+    rejected: [
+      { reason: "source_document_mismatch", fact_type: "product_name" },
+      { reason: "unsupported_fact_type", fact_type: "priority" },
+    ],
+    ownership_ok: true,
+    ownership_query_count: 1,
+    active_document_present: true,
+  });
+  assert(!JSON.stringify(traceOnly).includes(documentId), "trace builder strips ids");
 }
 
 console.log("PASS");

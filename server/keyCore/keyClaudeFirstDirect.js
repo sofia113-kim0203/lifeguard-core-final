@@ -80,6 +80,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   normalizeKeyConfirmedSourceFacts,
   mergeKeyConfirmedSourceFacts,
+  resolveKeyConfirmableFactsForPersist,
   persistKeyConfirmedSourceFactsToPolicies,
   normalizeKeyCoverageBaselineFacts,
   mergeKeyCoverageBaselineFacts,
@@ -2349,25 +2350,48 @@ export async function runClaudeFirstDirectQuestionTurn({
   const sealed = sealKeyCustomerText(finalText);
 
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
+  // GO1: KEY confirm gate — active doc + ownership + schema + source match — before persist.
   let keyConfirmedPersist = { attempted: false, ok: false, stored: 0 };
-  const factsToPersist = Array.isArray(claude.confirmed_source_facts)
-    ? claude.confirmed_source_facts
-    : [];
-  if (!usedFailure && factsToPersist.length > 0 && userSupabase && customerId) {
-    try {
-      keyConfirmedPersist = await persistKeyConfirmedSourceFactsToPolicies({
-        supabase: userSupabase,
-        customerId,
-        facts: factsToPersist,
-      });
-    } catch (err) {
-      keyConfirmedPersist = {
-        attempted: true,
-        ok: false,
-        stored: 0,
-        error: String(err?.message ?? err).slice(0, 200),
-      };
-      console.error("[key_confirmed_source_facts_persist]", keyConfirmedPersist);
+  let keyConfirmedFactGate = {
+    attempted: false,
+    accepted_count: 0,
+    rejected_reason_counts: {},
+    ownership_ok: false,
+    ownership_query_count: 0,
+    active_document_present: false,
+  };
+  let factsToPersist = [];
+  if (!usedFailure && userSupabase && customerId) {
+    const rawFacts = Array.isArray(claude.confirmed_source_facts)
+      ? claude.confirmed_source_facts
+      : [];
+    const activeDocumentId =
+      String(pdf?.meta?.document_id ?? "").trim() || null;
+    const resolved = await resolveKeyConfirmableFactsForPersist({
+      supabase: userSupabase,
+      customerId,
+      activeDocumentId,
+      facts: rawFacts,
+    });
+    keyConfirmedFactGate = resolved.gate;
+    factsToPersist = resolved.accepted;
+
+    if (factsToPersist.length > 0) {
+      try {
+        keyConfirmedPersist = await persistKeyConfirmedSourceFactsToPolicies({
+          supabase: userSupabase,
+          customerId,
+          facts: factsToPersist,
+        });
+      } catch (err) {
+        keyConfirmedPersist = {
+          attempted: true,
+          ok: false,
+          stored: 0,
+          error: String(err?.message ?? err).slice(0, 200),
+        };
+        console.error("[key_confirmed_source_facts_persist]", keyConfirmedPersist);
+      }
     }
   }
 
@@ -2549,6 +2573,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
           confirmed_source_facts_count: factsToPersist.length,
+          key_confirmed_fact_gate: keyConfirmedFactGate,
           key_confirmed_persist: keyConfirmedPersist,
           key_memory_rebuild: keyMemoryRebuild,
           active_claim_cases_hydrated: activeClaimCases.length,
@@ -2613,6 +2638,11 @@ export async function runClaudeFirstDirectQuestionTurn({
             compose_mode: "key_claude_first_direct",
             draft_preview: String(sealed.key_speak_original).slice(0, 300),
           },
+        },
+        {
+          step: "key_confirmed_fact_gate",
+          at_ms: relMs(startedAt),
+          payload: keyConfirmedFactGate,
         },
         {
           step: "key_confirmed_source_facts_persist",

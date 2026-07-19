@@ -243,6 +243,284 @@ export function mergeKeyConfirmedSourceFacts(existing = [], incoming = []) {
   return [...map.values()];
 }
 
+/**
+ * Lightweight ownership check for KEY fact confirm — no Storage download.
+ * Pass only when JWT customer owns document_id and deleted_at IS NULL.
+ * Distinguishes lookup error vs missing/deleted/foreign row — both block persist.
+ */
+export async function assertOwnedActiveSourceDocument({
+  supabase = null,
+  customerId = null,
+  documentId = null,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  const did = String(documentId ?? "").trim();
+  if (!supabase || !cid || !did) {
+    return {
+      ok: false,
+      reason: !did ? "no_active_document" : "ownership_or_deleted",
+    };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("customer_documents")
+      .select("id")
+      .eq("id", did)
+      .eq("customer_id", cid)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) {
+      return { ok: false, reason: "ownership_lookup_error" };
+    }
+    if (!data?.id) {
+      return { ok: false, reason: "ownership_or_deleted" };
+    }
+    return { ok: true, reason: null };
+  } catch {
+    return { ok: false, reason: "ownership_lookup_error" };
+  }
+}
+
+function countRejectedReasons(rejected = []) {
+  const counts = {};
+  for (const row of Array.isArray(rejected) ? rejected : []) {
+    const reason = String(row?.reason ?? "unknown").trim() || "unknown";
+    counts[reason] = (counts[reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/** Trace-safe gate summary — no document_id, literals, or source text. */
+export function buildKeyConfirmedFactGateTrace({
+  attempted = false,
+  accepted = [],
+  rejected = [],
+  ownership_ok = false,
+  ownership_query_count = 0,
+  active_document_present = false,
+  ownership_reason = null,
+} = {}) {
+  const trace = {
+    attempted: attempted === true,
+    accepted_count: Array.isArray(accepted) ? accepted.length : 0,
+    rejected_reason_counts: countRejectedReasons(rejected),
+    ownership_ok: ownership_ok === true,
+    ownership_query_count: Number(ownership_query_count) || 0,
+    active_document_present: active_document_present === true,
+  };
+  if (ownership_reason != null && String(ownership_reason).trim()) {
+    trace.ownership_reason = String(ownership_reason).trim();
+  }
+  return trace;
+}
+
+/**
+ * KEY confirm gate before persistKeyConfirmedSourceFactsToPolicies.
+ * Claude confirmation_source is ignored — KEY stamps key_claude_original_document
+ * only on accepted rows. Does not rewrite customer_answer.
+ * Rejected entries carry reason (+ fact_type when known) only — never document_id/literals.
+ */
+export function selectKeyConfirmableSourceFacts({
+  facts = [],
+  activeDocumentId = null,
+  ownedActiveDocumentId = null,
+  ownershipFailed = false,
+  ownershipFailReason = null,
+} = {}) {
+  const rows = Array.isArray(facts) ? facts : [];
+  const activeId = String(activeDocumentId ?? "").trim() || null;
+  const ownedId = String(ownedActiveDocumentId ?? "").trim() || null;
+  const rejected = [];
+  const accepted = [];
+
+  const pushReject = (reason, fact_type = null) => {
+    const entry = { reason: String(reason) };
+    if (fact_type != null && String(fact_type).trim()) {
+      entry.fact_type = String(fact_type).trim().toLowerCase();
+    }
+    rejected.push(entry);
+  };
+
+  if (!activeId) {
+    for (const row of rows) {
+      if (row == null || typeof row !== "object" || Array.isArray(row)) {
+        pushReject("invalid_fact_shape");
+        continue;
+      }
+      pushReject("no_active_document", row.fact_type ?? null);
+    }
+    return {
+      accepted: [],
+      rejected,
+      ownership_ok: false,
+      active_document_present: false,
+    };
+  }
+
+  if (ownershipFailed === true || !ownedId || ownedId !== activeId) {
+    const failReason =
+      ownershipFailReason === "ownership_lookup_error"
+        ? "ownership_lookup_error"
+        : "ownership_or_deleted";
+    for (const row of rows) {
+      if (row == null || typeof row !== "object" || Array.isArray(row)) {
+        pushReject("invalid_fact_shape");
+        continue;
+      }
+      pushReject(failReason, row.fact_type ?? null);
+    }
+    return {
+      accepted: [],
+      rejected,
+      ownership_ok: false,
+      active_document_present: true,
+    };
+  }
+
+  const seen = new Set();
+  const confirmedAt = new Date().toISOString();
+  for (const row of rows) {
+    if (row == null || typeof row !== "object" || Array.isArray(row)) {
+      pushReject("invalid_fact_shape");
+      continue;
+    }
+    const fact_type = String(row.fact_type ?? "")
+      .trim()
+      .toLowerCase();
+    if (!fact_type || !KEY_CONFIRMED_FACT_TYPE_SET.has(fact_type)) {
+      pushReject("unsupported_fact_type", fact_type || row?.fact_type || null);
+      continue;
+    }
+    if (row.literal_value == null || String(row.literal_value).trim() === "") {
+      pushReject("empty_literal_value", fact_type);
+      continue;
+    }
+    if (row.source_document_id == null || !String(row.source_document_id).trim()) {
+      pushReject("missing_source_document_id", fact_type);
+      continue;
+    }
+    const source_document_id = String(row.source_document_id).trim();
+    if (source_document_id !== activeId) {
+      pushReject("source_document_mismatch", fact_type);
+      continue;
+    }
+
+    let source_locator = null;
+    if (row.source_locator && typeof row.source_locator === "object") {
+      const loc = row.source_locator;
+      source_locator = {
+        ...(loc.page != null ? { page: loc.page } : {}),
+        ...(loc.section != null ? { section: String(loc.section) } : {}),
+        ...(loc.table_row != null ? { table_row: String(loc.table_row) } : {}),
+        ...(loc.row != null && loc.table_row == null ? { table_row: String(loc.row) } : {}),
+        ...(loc.source_text != null ? { source_text: String(loc.source_text) } : {}),
+      };
+      if (Object.keys(source_locator).length === 0) source_locator = null;
+    }
+
+    const fact = {
+      fact_type,
+      literal_value: String(row.literal_value),
+      source_document_id: activeId,
+      source_locator,
+      confirmed_at:
+        row.confirmed_at != null && String(row.confirmed_at).trim()
+          ? String(row.confirmed_at).trim()
+          : confirmedAt,
+      // KEY server stamp — never trust Claude-supplied confirmation_source.
+      confirmation_source: "key_claude_original_document",
+    };
+    const key = keyConfirmedSourceFactDedupeKey(fact);
+    if (seen.has(key)) {
+      pushReject("duplicate_fact", fact_type);
+      continue;
+    }
+    seen.add(key);
+    accepted.push(fact);
+  }
+
+  return {
+    accepted,
+    rejected,
+    ownership_ok: true,
+    active_document_present: true,
+  };
+}
+
+/**
+ * Full KEY confirm path used by Claude-first: ownership query only when rawFacts > 0.
+ * Returns accepted facts + trace-safe gate (no document_id strings).
+ */
+export async function resolveKeyConfirmableFactsForPersist({
+  supabase = null,
+  customerId = null,
+  activeDocumentId = null,
+  facts = [],
+} = {}) {
+  const rawFacts = Array.isArray(facts) ? facts : [];
+  const activeId = String(activeDocumentId ?? "").trim() || null;
+  const activePresent = Boolean(activeId);
+
+  if (rawFacts.length === 0) {
+    return {
+      accepted: [],
+      gate: buildKeyConfirmedFactGateTrace({
+        attempted: false,
+        accepted: [],
+        rejected: [],
+        ownership_ok: false,
+        ownership_query_count: 0,
+        active_document_present: activePresent,
+      }),
+    };
+  }
+
+  if (!activeId) {
+    const gated = selectKeyConfirmableSourceFacts({
+      facts: rawFacts,
+      activeDocumentId: null,
+      ownedActiveDocumentId: null,
+      ownershipFailed: false,
+    });
+    return {
+      accepted: gated.accepted,
+      gate: buildKeyConfirmedFactGateTrace({
+        attempted: true,
+        accepted: gated.accepted,
+        rejected: gated.rejected,
+        ownership_ok: false,
+        ownership_query_count: 0,
+        active_document_present: false,
+      }),
+    };
+  }
+
+  const owned = await assertOwnedActiveSourceDocument({
+    supabase,
+    customerId,
+    documentId: activeId,
+  });
+  const gated = selectKeyConfirmableSourceFacts({
+    facts: rawFacts,
+    activeDocumentId: activeId,
+    ownedActiveDocumentId: owned.ok === true ? activeId : null,
+    ownershipFailed: owned.ok !== true,
+    ownershipFailReason: owned.reason ?? null,
+  });
+  return {
+    accepted: gated.accepted,
+    gate: buildKeyConfirmedFactGateTrace({
+      attempted: true,
+      accepted: gated.accepted,
+      rejected: gated.rejected,
+      ownership_ok: owned.ok === true,
+      ownership_query_count: 1,
+      active_document_present: true,
+      ownership_reason: owned.ok === true ? null : owned.reason,
+    }),
+  };
+}
+
 function literalFactValue(docFacts, ...types) {
   const set = new Set(types.map((t) => String(t).toLowerCase()));
   for (const fact of docFacts ?? []) {
