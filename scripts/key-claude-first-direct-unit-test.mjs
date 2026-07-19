@@ -23,7 +23,10 @@ import {
   RECORD_CONFIRMED_SOURCE_FACTS_TOOL,
   RECORD_CLAIM_CASE_UPDATES_TOOL,
   RECORD_SESSION_GOAL_TOOL,
+  RECORD_RECOMMENDATION_BASIS_TOOL,
   extractSessionGoalFromContent,
+  extractRecommendationBasisFromContent,
+  buildRecommendationEvidenceCatalog,
   normalizeSessionGoalRecord,
   isForbiddenSessionGoalText,
   shouldDiscardStaleSessionGoal,
@@ -3378,6 +3381,528 @@ async function runGo2ConflictTurn({
 
   assert.match(buildSystemPrompt(), /참고용/);
   assert.equal(resolveSessionGoalForContext(null, "x"), null);
+}
+
+// --- GO4A: recommendation_basis trace-only (no answer mutation / Continue 0) ---
+{
+  assert.equal(RECORD_RECOMMENDATION_BASIS_TOOL.name, "record_recommendation_basis");
+
+  const DOC = "doc-go4a-owned";
+  const go4Policies = [
+    {
+      id: "pol-go4a",
+      is_active: true,
+      insurer_name: "삼성화재",
+      product_name: "테스트상품",
+      coverage_summary: {
+        source_document_id: DOC,
+        key_confirmed_source_facts: [
+          {
+            fact_type: "insurer_name",
+            literal_value: "삼성화재",
+            source_document_id: DOC,
+            confirmation_source: "key_claude_original_document",
+          },
+        ],
+      },
+    },
+  ];
+  const answerText = "확인된 계약을 기준으로 암 진단비 축부터 보면 좋겠습니다.";
+  const voice = (result) =>
+    result?.salesDirectorTrace?.key_compose_trace?.key_voice_trace ?? null;
+
+  function makeJsonFetch(content, counter) {
+    return async () => {
+      counter.n += 1;
+      return {
+        ok: true,
+        async json() {
+          return { content };
+        },
+      };
+    };
+  }
+
+  const validBasisInput = {
+    recommendations: [
+      {
+        recommendation_id: "r1",
+        recommendation_type: "coverage_gap_review",
+        evidence_refs: [`personal.contract:pol-go4a`, "personal.fact:insurer_name"],
+        gap_or_axis: "insurer_name",
+        why_relevant: "확인된 보험사 사실과 계약 기준",
+        uncertainty: "암 진단비 금액은 미확인",
+      },
+    ],
+  };
+
+  // A: no basis → answer unchanged baseline for equality
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch([{ type: "text", text: answerText }], counter),
+    });
+    assert.equal(counter.n, 1, "A: provider 1");
+    assert.equal(result.customerText, answerText, "A: answer");
+    assert.equal(result.keySpeakOriginal, answerText, "A: sealed");
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "A: tool_seen");
+    assert.equal(voice(result)?.recommendation_basis_ok, true, "A: ok default");
+    assert.equal(result.salesDirectorTrace?.decision, null, "K: decision null");
+    assert.equal(result.salesDirectorTrace?.decision_persisted, false, "K");
+    assert.equal(voice(result)?.decision_persisted, false, "K voice");
+  }
+
+  // B: valid basis → answer/SSE/sealed byte-equal to A path
+  {
+    const counter = { n: 0 };
+    const deltas = [];
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          { type: "text", text: answerText },
+          {
+            type: "tool_use",
+            id: "toolu_rb",
+            name: "record_recommendation_basis",
+            input: validBasisInput,
+          },
+        ],
+        counter,
+      ),
+      streamHandlers: {
+        onDelta(t) {
+          deltas.push(t);
+        },
+      },
+    });
+    assert.equal(counter.n, 1, "B/G: provider 1");
+    assert.equal(result.customerText, answerText, "B: answer unchanged");
+    assert.equal(result.keySpeakOriginal, answerText, "B: sealed unchanged");
+    assert.equal(deltas.join(""), answerText, "B: SSE unchanged");
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, true, "B: seen");
+    assert.equal(voice(result)?.recommendation_basis_ok, true, "B: ok");
+    assert.equal(voice(result)?.recommendation_basis_count, 1, "B: count");
+    assert.equal(voice(result)?.recommendation_basis_rejected_count, 0, "B");
+    assert.deepEqual(voice(result)?.recommendation_basis_reject_reasons, [], "B");
+    assert.equal(result.salesDirectorTrace?.decision, null, "K");
+    assert.equal(result.salesDirectorTrace?.decision_persisted, false, "K");
+  }
+
+  // C: unknown ref
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          { type: "text", text: answerText },
+          {
+            type: "tool_use",
+            id: "toolu_rb",
+            name: "record_recommendation_basis",
+            input: {
+              recommendations: [
+                {
+                  recommendation_id: "r1",
+                  recommendation_type: "coverage_gap_review",
+                  evidence_refs: ["personal.contract:does-not-exist"],
+                  gap_or_axis: "contract",
+                  why_relevant: "없는 계약",
+                  uncertainty: "미확인",
+                },
+              ],
+            },
+          },
+        ],
+        counter,
+      ),
+    });
+    assert.equal(counter.n, 1, "C: provider 1");
+    assert.equal(result.customerText, answerText, "C: answer unchanged");
+    assert.equal(voice(result)?.recommendation_basis_ok, false, "C");
+    assert.ok(
+      voice(result)?.recommendation_basis_reject_reasons?.includes("unknown_ref"),
+      "C: unknown_ref",
+    );
+  }
+
+  // D: foreign document ref
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          { type: "text", text: answerText },
+          {
+            type: "tool_use",
+            id: "toolu_rb",
+            name: "record_recommendation_basis",
+            input: {
+              recommendations: [
+                {
+                  recommendation_id: "r1",
+                  recommendation_type: "coverage_gap_review",
+                  evidence_refs: [`personal.fact:insurer_name@doc-foreign-other`],
+                  gap_or_axis: "insurer_name",
+                  why_relevant: "타 문서",
+                  uncertainty: "미확인",
+                },
+              ],
+            },
+          },
+        ],
+        counter,
+      ),
+    });
+    assert.equal(result.customerText, answerText, "D: answer unchanged");
+    assert.ok(
+      voice(result)?.recommendation_basis_reject_reasons?.includes("foreign_document_ref"),
+      "D: foreign_document_ref",
+    );
+  }
+
+  // E: axis mismatch
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          { type: "text", text: answerText },
+          {
+            type: "tool_use",
+            id: "toolu_rb",
+            name: "record_recommendation_basis",
+            input: {
+              recommendations: [
+                {
+                  recommendation_id: "r1",
+                  recommendation_type: "coverage_gap_review",
+                  evidence_refs: ["personal.fact:insurer_name"],
+                  gap_or_axis: "cancer_diagnosis",
+                  why_relevant: "축 불일치",
+                  uncertainty: "미확인",
+                },
+              ],
+            },
+          },
+        ],
+        counter,
+      ),
+    });
+    assert.equal(result.customerText, answerText, "E: answer unchanged");
+    assert.ok(
+      voice(result)?.recommendation_basis_reject_reasons?.includes("axis_mismatch"),
+      "E: axis_mismatch",
+    );
+  }
+
+  // F: invalid schema / empty refs
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          { type: "text", text: answerText },
+          {
+            type: "tool_use",
+            id: "toolu_rb",
+            name: "record_recommendation_basis",
+            input: {
+              recommendations: [
+                {
+                  recommendation_id: "r1",
+                  recommendation_type: "coverage_gap_review",
+                  evidence_refs: [],
+                  gap_or_axis: "insurer_name",
+                  why_relevant: "refs 없음",
+                  uncertainty: "미확인",
+                },
+              ],
+            },
+          },
+        ],
+        counter,
+      ),
+    });
+    assert.equal(result.customerText, answerText, "F: answer unchanged");
+    assert.ok(
+      voice(result)?.recommendation_basis_reject_reasons?.includes("empty_refs"),
+      "F: empty_refs",
+    );
+
+    const badSchema = extractRecommendationBasisFromContent(
+      [
+        {
+          type: "tool_use",
+          name: "record_recommendation_basis",
+          input: { recommendations: [{ recommendation_id: "x" }] },
+        },
+      ],
+      { userPayload: null, validatedBaselineFacts: [] },
+    );
+    assert.equal(badSchema.recommendation_basis_ok, false, "F: invalid_schema");
+    assert.ok(
+      badSchema.recommendation_basis_reject_reasons.includes("invalid_schema"),
+      "F: invalid_schema reason",
+    );
+  }
+
+  // H: basis-only → provider 1, no answer re-call
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "암 보장 추천해줘",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          {
+            type: "tool_use",
+            id: "toolu_rb",
+            name: "record_recommendation_basis",
+            input: validBasisInput,
+          },
+        ],
+        counter,
+      ),
+    });
+    assert.equal(counter.n, 1, "H: provider 1");
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, true, "H: seen");
+    assert.equal(voice(result)?.recommendation_basis_count, 0, "H: dropped accepted");
+    assert.equal(result.key_monopoly_failure, true, "H: empty → failure path");
+  }
+
+  // Pure catalog unit: foreign vs unknown
+  {
+    const catalog = buildRecommendationEvidenceCatalog({
+      userPayload: {
+        available_verified_evidence: {
+          personal: {
+            chart: {
+              contracts: [{ index: 0, contract_id: "pol-go4a", coverages: [] }],
+              key_confirmed_source_facts: [
+                {
+                  fact_type: "insurer_name",
+                  literal_value: "삼성화재",
+                  source_document_id: DOC,
+                },
+              ],
+            },
+            key_confirmed_source_facts: [
+              {
+                fact_type: "insurer_name",
+                literal_value: "삼성화재",
+                source_document_id: DOC,
+              },
+            ],
+          },
+          corporate: [],
+          documents: [{ document_id: DOC }],
+        },
+      },
+      validatedBaselineFacts: [],
+    });
+    assert.equal(catalog.catalog.has("personal.fact:insurer_name"), true);
+    assert.equal(catalog.allowedDocuments.has(DOC), true);
+  }
+
+  // Catalog: VERIFIED baseline accepted; PENDING baseline excluded → unknown_ref
+  {
+    const catalog = buildRecommendationEvidenceCatalog({
+      userPayload: {
+        available_verified_evidence: {
+          personal: { chart: { contracts: [] }, key_confirmed_source_facts: [] },
+          corporate: [],
+          documents: [{ document_id: DOC }],
+        },
+      },
+      validatedBaselineFacts: [
+        {
+          baseline_item_id: "cancer_diagnosis",
+          status: "verified",
+          source_document_id: DOC,
+        },
+        {
+          baseline_item_id: "surgery",
+          status: "pending",
+          source_document_id: DOC,
+        },
+      ],
+    });
+    assert.equal(
+      catalog.catalog.has("baseline:cancer_diagnosis"),
+      true,
+      "VERIFIED baseline in catalog",
+    );
+    assert.equal(
+      catalog.catalog.has("baseline:surgery"),
+      false,
+      "PENDING baseline excluded from catalog",
+    );
+
+    const pendingReject = extractRecommendationBasisFromContent(
+      [
+        {
+          type: "tool_use",
+          name: "record_recommendation_basis",
+          input: {
+            recommendations: [
+              {
+                recommendation_id: "r-pending",
+                recommendation_type: "coverage_gap_review",
+                evidence_refs: ["baseline:surgery"],
+                gap_or_axis: "surgery",
+                why_relevant: "PENDING baseline 인용",
+                uncertainty: "미확인",
+              },
+            ],
+          },
+        },
+      ],
+      {
+        userPayload: {
+          available_verified_evidence: {
+            personal: { chart: { contracts: [] }, key_confirmed_source_facts: [] },
+            corporate: [],
+            documents: [{ document_id: DOC }],
+          },
+        },
+        validatedBaselineFacts: [
+          {
+            baseline_item_id: "surgery",
+            status: "pending",
+            source_document_id: DOC,
+          },
+        ],
+      },
+    );
+    assert.equal(pendingReject.recommendation_basis_ok, false, "PENDING ref not accepted");
+    assert.ok(
+      pendingReject.recommendation_basis_reject_reasons.includes("unknown_ref"),
+      "PENDING baseline ref → unknown_ref",
+    );
+
+    const verifiedOk = extractRecommendationBasisFromContent(
+      [
+        {
+          type: "tool_use",
+          name: "record_recommendation_basis",
+          input: {
+            recommendations: [
+              {
+                recommendation_id: "r-verified",
+                recommendation_type: "coverage_gap_review",
+                evidence_refs: ["baseline:cancer_diagnosis"],
+                gap_or_axis: "cancer_diagnosis",
+                why_relevant: "VERIFIED baseline 인용",
+                uncertainty: "금액 미확인",
+              },
+            ],
+          },
+        },
+      ],
+      {
+        userPayload: {
+          available_verified_evidence: {
+            personal: { chart: { contracts: [] }, key_confirmed_source_facts: [] },
+            corporate: [],
+            documents: [{ document_id: DOC }],
+          },
+        },
+        validatedBaselineFacts: [
+          {
+            baseline_item_id: "cancer_diagnosis",
+            status: "verified",
+            source_document_id: DOC,
+          },
+        ],
+      },
+    );
+    assert.equal(verifiedOk.recommendation_basis_ok, true, "VERIFIED baseline accepted");
+    assert.equal(verifiedOk.recommendation_basis_count, 1, "VERIFIED count");
+    assert.deepEqual(verifiedOk.recommendation_basis_reject_reasons, []);
+  }
+
+  // I: GO2 conflict regression still present in source + helper
+  {
+    const set = buildVerifiedLiteralSetFromPolicies(go4Policies, {
+      activeDocumentId: DOC,
+    });
+    const hit = detectKeyVerifiedLiteralConflict("이 계약의 보험사는 KB손해보험입니다.", set);
+    assert.equal(hit?.conflict, true, "I: conflict still detects");
+  }
+
+  // J: GO3 session_goal regression — answer+goal still Continue 0 / decision null
+  {
+    const counter = { n: 0 };
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "계약 확인",
+      history: [],
+      loadedContext: { policies: go4Policies },
+      env: { ANTHROPIC_API_KEY: "test-key", KEY_CLAUDE_FIRST_DIRECT: "1" },
+      fetchImpl: makeJsonFetch(
+        [
+          { type: "text", text: answerText },
+          {
+            type: "tool_use",
+            id: "g",
+            name: "record_session_goal",
+            input: { goal: "가입 계약 확인", status: "active" },
+          },
+        ],
+        counter,
+      ),
+    });
+    assert.equal(counter.n, 1, "J: provider 1");
+    assert.equal(result.customerText, answerText, "J: answer");
+    assert.equal(result.salesDirectorTrace?.session_goal?.status, "active", "J: goal");
+    assert.equal(result.salesDirectorTrace?.decision, null, "J/K");
+    assert.equal(result.salesDirectorTrace?.decision_persisted, false, "J/K");
+  }
+
+  {
+    const root = dirname(fileURLToPath(import.meta.url));
+    const directSrc = readFileSync(join(root, "../server/keyCore/keyClaudeFirstDirect.js"), "utf8");
+    assert.match(directSrc, /record_recommendation_basis/);
+    assert.equal(/keyBorrowedSensesStage2|keyBorrowedSensesStage3/.test(directSrc), false);
+    assert.equal(/customerCoverageGapCore/.test(directSrc), false);
+    assert.equal(/recommendation_basis_persist|reinject_recommendation/.test(directSrc), false);
+    // PENDING baseline excluded: catalog + validateSameResponse filter are VERIFIED-only
+    assert.match(
+      directSrc,
+      /KEY-confirmed baseline only — PENDING \(structured_details_incomplete\) excluded/,
+    );
+    assert.equal(
+      /status !== KEY_BASELINE_FACT_STATUSES\.PENDING/.test(directSrc) === false &&
+        /status === KEY_BASELINE_FACT_STATUSES\.PENDING/.test(directSrc) === false,
+      true,
+      "no PENDING allow in recommendation_basis catalog path",
+    );
+  }
 }
 
 console.log("key-claude-first-direct-unit-test: PASS");

@@ -188,6 +188,8 @@ import {
   persistKeyConfirmedSourceFactsToPolicies,
   normalizeKeyCoverageBaselineFacts,
   mergeKeyCoverageBaselineFacts,
+  keyValidateCoverageBaselineFacts,
+  KEY_BASELINE_FACT_STATUSES,
   persistKeyCoverageBaselineFactsToPolicies,
   normalizeKeyClaimCaseUpdates,
   mergeKeyActiveClaimCases,
@@ -508,6 +510,330 @@ export const RECORD_SESSION_GOAL_TOOL = Object.freeze({
 
 const SESSION_GOAL_TOOL_NAME = RECORD_SESSION_GOAL_TOOL.name;
 export const SESSION_GOAL_MAX_CHARS = 80;
+
+/**
+ * GO4A — same Claude-first response only. Trace-only recommendation evidence link.
+ * Never persists, never reinjects, never rewrites customer_answer, never Continue.
+ */
+export const RECORD_RECOMMENDATION_BASIS_TOOL = Object.freeze({
+  name: "record_recommendation_basis",
+  description:
+    "선택. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만 내부 근거를 기록한다. " +
+    "고객에게 보이는 답변이 아니다. evidence_refs는 available_verified_evidence 또는 " +
+    "이번 응답에서 KEY가 검증한 coverage baseline 항목만. " +
+    "부족액·가입/해지 확정·임의 고객 사실 금지. 추천이 없으면 호출하지 않는다.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      recommendations: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            recommendation_id: { type: "string" },
+            recommendation_type: { type: "string" },
+            evidence_refs: { type: "array", items: { type: "string" } },
+            gap_or_axis: { type: "string" },
+            why_relevant: { type: "string" },
+            uncertainty: { type: "string" },
+          },
+          required: [
+            "recommendation_id",
+            "recommendation_type",
+            "evidence_refs",
+            "gap_or_axis",
+            "why_relevant",
+            "uncertainty",
+          ],
+        },
+      },
+    },
+    required: ["recommendations"],
+  },
+});
+
+const RECOMMENDATION_BASIS_TOOL_NAME = RECORD_RECOMMENDATION_BASIS_TOOL.name;
+
+const FORBIDDEN_RECOMMENDATION_BASIS_PAYLOAD_RE =
+  /가입하세요|해지해도\s*됩니다|무조건\s*(?:이\s*)?상품|갈아타세요|01[016789]-?\d{3,4}-?\d{4}|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\d{1,3}(?:,\d{3})+\s*원|부족(?:액|금액)?\s*\d/i;
+
+function emptyRecommendationBasisTrace() {
+  return {
+    recommendation_basis_tool_seen: false,
+    recommendation_basis_count: 0,
+    recommendation_basis_rejected_count: 0,
+    recommendation_basis_reject_reasons: [],
+    recommendation_basis_ok: true,
+  };
+}
+
+/**
+ * Build structural evidence catalog from this turn's Claude user payload +
+ * same-response KEY-validated coverage baseline rows only.
+ * Returns ref → { axes: string[], document_ids: string[] } (no PII payloads).
+ */
+export function buildRecommendationEvidenceCatalog({
+  userPayload = null,
+  validatedBaselineFacts = [],
+} = {}) {
+  const catalog = new Map();
+  const allowedDocuments = new Set();
+
+  const addRef = (ref, { axes = [], document_ids = [] } = {}) => {
+    const key = String(ref ?? "").trim();
+    if (!key) return;
+    const prev = catalog.get(key) ?? { axes: new Set(), document_ids: new Set() };
+    for (const a of axes) {
+      const axis = String(a ?? "").trim();
+      if (axis) prev.axes.add(axis);
+    }
+    for (const d of document_ids) {
+      const doc = String(d ?? "").trim();
+      if (doc) {
+        prev.document_ids.add(doc);
+        allowedDocuments.add(doc);
+      }
+    }
+    catalog.set(key, prev);
+  };
+
+  const evidence =
+    userPayload?.available_verified_evidence &&
+    typeof userPayload.available_verified_evidence === "object"
+      ? userPayload.available_verified_evidence
+      : null;
+  const personal = evidence?.personal && typeof evidence.personal === "object"
+    ? evidence.personal
+    : null;
+  const chart = personal?.chart && typeof personal.chart === "object" ? personal.chart : null;
+
+  for (const doc of Array.isArray(evidence?.documents) ? evidence.documents : []) {
+    const did = String(doc?.document_id ?? doc?.id ?? "").trim();
+    if (did) allowedDocuments.add(did);
+  }
+
+  const contracts = Array.isArray(chart?.contracts) ? chart.contracts : [];
+  for (const c of contracts) {
+    const cid = String(c?.contract_id ?? "").trim();
+    const idx = c?.index;
+    const axes = [];
+    const coverages = Array.isArray(c?.coverages)
+      ? c.coverages
+      : Array.isArray(c?.verified_fields?.coverages)
+        ? c.verified_fields.coverages
+        : [];
+    for (const cov of coverages) {
+      const label =
+        typeof cov === "string"
+          ? cov
+          : cov?.name ?? cov?.coverage_name ?? cov?.label ?? null;
+      if (label != null && String(label).trim()) axes.push(String(label).trim());
+    }
+    if (cid) {
+      addRef(`personal.contract:${cid}`, { axes: axes.length ? axes : ["contract"] });
+      for (const label of axes) {
+        addRef(`personal.coverage:${cid}:${label}`, { axes: [label] });
+      }
+    }
+    if (idx != null && Number.isFinite(Number(idx))) {
+      addRef(`personal.contract_index:${Number(idx)}`, {
+        axes: axes.length ? axes : ["contract"],
+      });
+    }
+  }
+
+  const facts = Array.isArray(personal?.key_confirmed_source_facts)
+    ? personal.key_confirmed_source_facts
+    : Array.isArray(chart?.key_confirmed_source_facts)
+      ? chart.key_confirmed_source_facts
+      : [];
+  for (const f of facts) {
+    const ft = String(f?.fact_type ?? "").trim();
+    if (!ft) continue;
+    const doc = String(f?.source_document_id ?? "").trim();
+    addRef(`personal.fact:${ft}`, {
+      axes: [ft],
+      document_ids: doc ? [doc] : [],
+    });
+    if (doc) {
+      addRef(`personal.fact:${ft}@${doc}`, { axes: [ft], document_ids: [doc] });
+    }
+  }
+
+  for (const corp of Array.isArray(evidence?.corporate) ? evidence.corporate : []) {
+    const eid = String(corp?.entity_id ?? "").trim();
+    if (!eid) continue;
+    for (const g of Array.isArray(corp?.gap_evidence) ? corp.gap_evidence : []) {
+      const item = String(g?.item ?? "").trim();
+      if (!item) continue;
+      addRef(`corporate.gap:${eid}:${item}`, { axes: [item] });
+    }
+    for (const r of Array.isArray(corp?.recommendation_candidates)
+      ? corp.recommendation_candidates
+      : []) {
+      const item = String(r?.item ?? "").trim();
+      if (!item) continue;
+      addRef(`corporate.rec:${eid}:${item}`, { axes: [item] });
+    }
+  }
+
+  const baselineRows = Array.isArray(validatedBaselineFacts) ? validatedBaselineFacts : [];
+  for (const row of baselineRows) {
+    const status = String(row?.status ?? "").trim();
+    // GO4A: KEY-confirmed baseline only — PENDING (structured_details_incomplete) excluded.
+    if (status !== KEY_BASELINE_FACT_STATUSES.VERIFIED) {
+      continue;
+    }
+    const item = String(row?.baseline_item_id ?? "").trim();
+    if (!item) continue;
+    const doc = String(row?.source_document_id ?? "").trim();
+    addRef(`baseline:${item}`, { axes: [item], document_ids: doc ? [doc] : [] });
+    if (doc) {
+      addRef(`baseline:${item}@${doc}`, { axes: [item], document_ids: [doc] });
+    }
+  }
+
+  return { catalog, allowedDocuments };
+}
+
+function classifyRecommendationBasisRow(row, catalogState) {
+  if (!row || typeof row !== "object") return "invalid_schema";
+  const recommendation_id = String(row.recommendation_id ?? "").trim();
+  const recommendation_type = String(row.recommendation_type ?? "").trim();
+  const gap_or_axis = String(row.gap_or_axis ?? "").trim();
+  const why_relevant = String(row.why_relevant ?? "").trim();
+  const uncertainty = String(row.uncertainty ?? "").trim();
+  const refs = Array.isArray(row.evidence_refs)
+    ? row.evidence_refs.map((r) => String(r ?? "").trim()).filter(Boolean)
+    : null;
+
+  if (
+    !recommendation_id ||
+    !recommendation_type ||
+    !gap_or_axis ||
+    !why_relevant ||
+    !uncertainty ||
+    refs == null
+  ) {
+    return "invalid_schema";
+  }
+  if (refs.length === 0) return "empty_refs";
+
+  const blob = [recommendation_type, gap_or_axis, why_relevant, uncertainty, ...refs].join(" ");
+  if (FORBIDDEN_RECOMMENDATION_BASIS_PAYLOAD_RE.test(blob)) return "forbidden_payload";
+
+  const { catalog, allowedDocuments } = catalogState;
+  const citedAxes = new Set();
+  for (const ref of refs) {
+    let meta = catalog.get(ref);
+    if (!meta) {
+      const at = ref.lastIndexOf("@");
+      if (at > 0) {
+        const base = ref.slice(0, at);
+        const docFromRef = ref.slice(at + 1).trim();
+        if (
+          catalog.has(base) &&
+          docFromRef &&
+          !docFromRef.includes(":") &&
+          allowedDocuments.size > 0 &&
+          !allowedDocuments.has(docFromRef)
+        ) {
+          return "foreign_document_ref";
+        }
+      }
+      return "unknown_ref";
+    }
+    for (const doc of meta.document_ids) {
+      if (allowedDocuments.size > 0 && !allowedDocuments.has(doc)) {
+        return "foreign_document_ref";
+      }
+    }
+    for (const axis of meta.axes) citedAxes.add(axis);
+  }
+
+  if (!citedAxes.has(gap_or_axis)) return "axis_mismatch";
+  return null;
+}
+
+/** Extract + structurally validate. Trace-only — never returns customer text or raw why_relevant. */
+export function extractRecommendationBasisFromContent(
+  content = [],
+  { userPayload = null, validatedBaselineFacts = [] } = {},
+) {
+  const blocks = Array.isArray(content) ? content : [];
+  let found = null;
+  for (const block of blocks) {
+    if (block?.type === "tool_use" && block?.name === RECOMMENDATION_BASIS_TOOL_NAME) {
+      found = block.input && typeof block.input === "object" ? block.input : null;
+    }
+  }
+  if (!found) {
+    return emptyRecommendationBasisTrace();
+  }
+
+  const catalogState = buildRecommendationEvidenceCatalog({
+    userPayload,
+    validatedBaselineFacts,
+  });
+  const rows = Array.isArray(found.recommendations) ? found.recommendations : null;
+  if (rows == null) {
+    return {
+      recommendation_basis_tool_seen: true,
+      recommendation_basis_count: 0,
+      recommendation_basis_rejected_count: 1,
+      recommendation_basis_reject_reasons: ["invalid_schema"],
+      recommendation_basis_ok: false,
+    };
+  }
+  if (rows.length === 0) {
+    return {
+      recommendation_basis_tool_seen: true,
+      recommendation_basis_count: 0,
+      recommendation_basis_rejected_count: 1,
+      recommendation_basis_reject_reasons: ["invalid_schema"],
+      recommendation_basis_ok: false,
+    };
+  }
+
+  const reasonCounts = new Map();
+  let accepted = 0;
+  let rejected = 0;
+  for (const row of rows) {
+    const reason = classifyRecommendationBasisRow(row, catalogState);
+    if (reason) {
+      rejected += 1;
+      reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+    } else {
+      accepted += 1;
+    }
+  }
+  const reject_reasons = [...reasonCounts.keys()].sort();
+  return {
+    recommendation_basis_tool_seen: true,
+    recommendation_basis_count: accepted,
+    recommendation_basis_rejected_count: rejected,
+    recommendation_basis_reject_reasons: reject_reasons,
+    recommendation_basis_ok: rejected === 0 && accepted > 0,
+  };
+}
+
+function validateSameResponseBaselineForCatalog(
+  normalizedFacts = [],
+  { ownedDocumentIds = [] } = {},
+) {
+  const validated = keyValidateCoverageBaselineFacts(normalizedFacts, {
+    ownedDocumentIds,
+  });
+  return (Array.isArray(validated) ? validated : []).filter((row) => {
+    const status = String(row?.status ?? "").trim();
+    return (
+      status === KEY_BASELINE_FACT_STATUSES.VERIFIED &&
+      String(row?.baseline_item_id ?? "").trim()
+    );
+  });
+}
 
 /**
  * Explicit abort of prior short-term goal.
@@ -2020,6 +2346,8 @@ async function callClaudeFirstDirect({
   let sessionGoalToolSeen = false;
   let sessionGoalRejected = false;
   let sessionGoalRejectReason = null;
+  /** GO4A — trace-only; never persisted / never reinjected. */
+  let recommendationBasisTrace = emptyRecommendationBasisTrace();
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
   const factDefaults = {
@@ -2030,8 +2358,8 @@ async function callClaudeFirstDirect({
     updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
   };
 
-  // Image|PDF original: facts + baseline + claim + optional session_goal in the same Claude-first turn.
-  // No attach: web_search + claim + optional session_goal. session_goal never adds a provider round-trip.
+  // Image|PDF original: facts + baseline + claim + optional session_goal / recommendation_basis.
+  // session_goal + recommendation_basis never add a provider round-trip.
   const answerTools = pdfAttached
     ? [
         ANTHROPIC_WEB_SEARCH_TOOL,
@@ -2039,8 +2367,14 @@ async function callClaudeFirstDirect({
         RECORD_COVERAGE_BASELINE_FACTS_TOOL,
         RECORD_CLAIM_CASE_UPDATES_TOOL,
         RECORD_SESSION_GOAL_TOOL,
+        RECORD_RECOMMENDATION_BASIS_TOOL,
       ]
-    : [ANTHROPIC_WEB_SEARCH_TOOL, RECORD_CLAIM_CASE_UPDATES_TOOL, RECORD_SESSION_GOAL_TOOL];
+    : [
+        ANTHROPIC_WEB_SEARCH_TOOL,
+        RECORD_CLAIM_CASE_UPDATES_TOOL,
+        RECORD_SESSION_GOAL_TOOL,
+        RECORD_RECOMMENDATION_BASIS_TOOL,
+      ];
   for (let turn = 0; turn < 4; turn += 1) {
     // Original attached: require confirmed-source facts tool once before text-only finish.
     // Prevents "정리해 드릴게요" deferral with empty left-rail persist.
@@ -2161,26 +2495,61 @@ async function callClaudeFirstDirect({
       if (goalExtract.record) sessionGoalRecord = goalExtract.record;
     }
 
-    // session_goal must not count as "other" client tool (would force a follow-up provider call).
+    // GO4A: same-response validated baseline only (normalize → KEY validate → VERIFIED).
+    const ownedForBaseline = [
+      ...new Set(
+        [
+          factDefaults.source_document_id,
+          ...(Array.isArray(userPayload?.available_verified_evidence?.documents)
+            ? userPayload.available_verified_evidence.documents.map(
+                (d) => d?.document_id ?? d?.id ?? null,
+              )
+            : []),
+        ]
+          .map((id) => (id != null ? String(id).trim() : ""))
+          .filter(Boolean),
+      ),
+    ];
+    const validatedBaselineForCatalog = validateSameResponseBaselineForCatalog(
+      coverageBaselineFacts,
+      { ownedDocumentIds: ownedForBaseline },
+    );
+    // GO4A: extract basis after content is complete; trace only — never Continue.
+    recommendationBasisTrace = extractRecommendationBasisFromContent(assistantContent, {
+      userPayload,
+      validatedBaselineFacts: validatedBaselineForCatalog,
+    });
+
+    // session_goal + recommendation_basis must not count as "other" client tools.
     const otherClientTools = assistantContent.filter(
       (b) =>
         b?.type === "tool_use" &&
         !KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name) &&
-        b?.name !== SESSION_GOAL_TOOL_NAME,
+        b?.name !== SESSION_GOAL_TOOL_NAME &&
+        b?.name !== RECOMMENDATION_BASIS_TOOL_NAME,
     );
     const hasToolUse = assistantContent.some(
       (b) =>
         b?.type === "tool_use" &&
-        b?.name !== SESSION_GOAL_TOOL_NAME,
+        b?.name !== SESSION_GOAL_TOOL_NAME &&
+        b?.name !== RECOMMENDATION_BASIS_TOOL_NAME,
     );
 
-    // GO3: goal-only (no customer_answer, no card tools) → drop goal, end (no Continue re-call).
+    // GO3/GO4A: goal/basis-only (no customer_answer, no card tools) → drop, end (Continue 0).
     if (
       !picked.customer_answer &&
       cardToolBlocks.length === 0 &&
       otherClientTools.length === 0
     ) {
       sessionGoalRecord = null;
+      // Basis-only: drop accepted count (no customer answer); keep tool_seen + reject reasons.
+      if (recommendationBasisTrace.recommendation_basis_tool_seen) {
+        recommendationBasisTrace = {
+          ...recommendationBasisTrace,
+          recommendation_basis_count: 0,
+          recommendation_basis_ok: false,
+        };
+      }
       break;
     }
 
@@ -2244,15 +2613,29 @@ async function callClaudeFirstDirect({
       continue;
     }
 
-    // Unknown client tools with no answer — do not invent a Continue loop for session_goal.
+    // Unknown client tools with no answer — do not invent a Continue loop for goal/basis.
     if (otherClientTools.length > 0 && !picked.customer_answer) {
       sessionGoalRecord = null;
+      if (recommendationBasisTrace.recommendation_basis_tool_seen) {
+        recommendationBasisTrace = {
+          ...recommendationBasisTrace,
+          recommendation_basis_count: 0,
+          recommendation_basis_ok: false,
+        };
+      }
       break;
     }
 
     if (picked.customer_answer && !hasToolUse) break;
     // No answer path left without card-tool continue — fail closed (no Continue re-call).
     sessionGoalRecord = null;
+    if (recommendationBasisTrace.recommendation_basis_tool_seen) {
+      recommendationBasisTrace = {
+        ...recommendationBasisTrace,
+        recommendation_basis_count: 0,
+        recommendation_basis_ok: false,
+      };
+    }
     break;
   }
 
@@ -2286,6 +2669,17 @@ async function callClaudeFirstDirect({
     session_goal_rejected: sessionGoalRejected,
     session_goal_reject_reason: sessionGoalRejectReason,
     session_goal_injected: Boolean(softGoal),
+    recommendation_basis_tool_seen:
+      recommendationBasisTrace.recommendation_basis_tool_seen === true,
+    recommendation_basis_count: recommendationBasisTrace.recommendation_basis_count ?? 0,
+    recommendation_basis_rejected_count:
+      recommendationBasisTrace.recommendation_basis_rejected_count ?? 0,
+    recommendation_basis_reject_reasons: Array.isArray(
+      recommendationBasisTrace.recommendation_basis_reject_reasons,
+    )
+      ? recommendationBasisTrace.recommendation_basis_reject_reasons
+      : [],
+    recommendation_basis_ok: recommendationBasisTrace.recommendation_basis_ok !== false,
     decision_persisted: false,
     answer_source: lastPicked.source || (customer_answer ? "plain_text" : null),
     ttft_ms: lastTtft,
@@ -2803,6 +3197,16 @@ export async function runClaudeFirstDirectQuestionTurn({
             decision_persisted: false,
             session_goal_discard_requested: discardRequested === true,
             session_goal_ssot_reason: ssotReason,
+            recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
+            recommendation_basis_count: Number(claude.recommendation_basis_count ?? 0) || 0,
+            recommendation_basis_rejected_count:
+              Number(claude.recommendation_basis_rejected_count ?? 0) || 0,
+            recommendation_basis_reject_reasons: Array.isArray(
+              claude.recommendation_basis_reject_reasons,
+            )
+              ? claude.recommendation_basis_reject_reasons
+              : [],
+            recommendation_basis_ok: claude.recommendation_basis_ok !== false,
             latency_marks: {
               claude_full_emit: emitMark,
               ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
@@ -3120,6 +3524,16 @@ export async function runClaudeFirstDirectQuestionTurn({
           session_goal_ssot_reason: ssotReason,
           session_goal_discard_requested: discardRequested === true,
           session_goal_status: persistableSessionGoal?.status ?? null,
+          recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
+          recommendation_basis_count: Number(claude.recommendation_basis_count ?? 0) || 0,
+          recommendation_basis_rejected_count:
+            Number(claude.recommendation_basis_rejected_count ?? 0) || 0,
+          recommendation_basis_reject_reasons: Array.isArray(
+            claude.recommendation_basis_reject_reasons,
+          )
+            ? claude.recommendation_basis_reject_reasons
+            : [],
+          recommendation_basis_ok: claude.recommendation_basis_ok !== false,
           pdf_attached: claude.pdf_attached === true,
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
