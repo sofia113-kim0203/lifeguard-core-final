@@ -4177,6 +4177,15 @@ console.log("key-claude-first-direct-unit-test: PASS");
     }),
     "rate_or_transient",
   );
+  assert.equal(
+    classifyAnthropicMessageCategory({
+      status: 400,
+      errorType: "invalid_request_error",
+      errorMessage:
+        "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+    }),
+    "billing_or_credits",
+  );
 
   const secretMsg = "SECRET_PDF_FAIL_TOKEN_do_not_persist";
   const diag = buildAnthropicUpstreamDiag({

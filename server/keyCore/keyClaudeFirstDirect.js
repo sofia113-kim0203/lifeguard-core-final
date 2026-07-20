@@ -236,6 +236,12 @@ const ANTHROPIC_ERROR_FINGERPRINT_KEYWORDS = Object.freeze([
   "array",
   "object",
   "string",
+  "credit",
+  "balance",
+  "billing",
+  "credits",
+  "upgrade",
+  "purchase",
 ]);
 
 /**
@@ -254,22 +260,10 @@ export function buildAnthropicErrorMessageFingerprint(errorMessage = "") {
     .map((m) => m[0])
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 6);
-  // English/schema tokens only — never Hangul/email/long digits (PII-safe).
-  const token_sample = [
-    ...raw.matchAll(/[A-Za-z][A-Za-z0-9_.-]{2,48}/g),
-  ]
-    .map((m) => m[0].toLowerCase())
-    .filter((t) => !t.includes("@") && !/^\d+$/.test(t))
-    .filter((t, i, a) => a.indexOf(t) === i)
-    .slice(0, 24);
-  // Structure-only redacted preview for TEMP/debug (no Hangul, no emails, no long numbers).
-  const redacted_preview = raw
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[uuid]")
-    .replace(/[가-힣]+/g, "[ko]")
-    .replace(/\d{5,}/g, "[num]")
-    .replace(/sk-[A-Za-z0-9_-]+/g, "[key]")
-    .slice(0, 220);
+  // Curated tokens only — never free-form error text (prevents secret/token leak on wire).
+  const token_sample = matched_keywords.slice(0, 24);
+  const redacted_preview =
+    [...path_tokens, ...matched_keywords].slice(0, 16).join(" | ") || null;
   const message_sha256_16 = createHash("sha256")
     .update(raw)
     .digest("hex")
@@ -303,6 +297,7 @@ const ANTHROPIC_MESSAGE_CATEGORIES = Object.freeze([
   "tool_schema",
   "message_shape",
   "rate_or_transient",
+  "billing_or_credits",
   "unknown_upstream_400",
 ]);
 
@@ -318,6 +313,14 @@ export function classifyAnthropicMessageCategory({
   const st = Number(status);
   const t = String(errorType ?? "").toLowerCase();
   const m = String(errorMessage ?? "").toLowerCase();
+  if (
+    /credit\s*balance|too\s*low.*(?:access|api)|plans\s*&\s*billing|purchase\s*credits|billing|insufficient\s*(?:credit|quota|funds)/.test(
+      m,
+    ) ||
+    t.includes("billing")
+  ) {
+    return "billing_or_credits";
+  }
   if (
     st === 429 ||
     st === 529 ||
