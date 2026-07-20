@@ -171,8 +171,7 @@ assert.match(prompt, /일상 대화/);
 assert.match(prompt, /자연스럽게 상담으로 이끈다/);
 assert.match(prompt, /가입·유지·정리·보완/);
 assert.match(prompt, /최종 KEY 답변/);
-assert.match(prompt, /웹 검색어/);
-assert.match(prompt, /검색어로 외부에 내보내지 않는다/);
+assert.equal(/웹 검색어|record_session_goal|record_recommendation_basis|record_claim_case_updates|record_confirmed_source_facts/.test(prompt), false);
 assert.match(prompt, /보험 추천·맞춤 추천/);
 assert.match(prompt, /첫 문장부터 바로 말한다/);
 assert.match(prompt, /확인되지 않음/);
@@ -447,7 +446,7 @@ assert.equal(heicDenied.reason, "mime_not_supported_for_direct");
 
 const promptImage = buildSystemPrompt();
 assert.match(promptImage, /유일한 보험 설계사 KEY/);
-assert.match(promptImage, /웹 검색어/);
+assert.equal(/웹 검색어|record_confirmed_source_facts|record_session_goal/.test(promptImage), false);
 assert.equal(/9999세|종신형|ATTACHED FILE|emit_claude_full|Tone \(required\)/i.test(promptImage), false);
 
 assert.equal(
@@ -953,9 +952,14 @@ const chartPolicies = {
   assert.equal(sawHint, false);
   assert.equal(sawChartObject, false);
   assert.equal(sawFillPressure, false);
-  assert.equal(toolNames.includes("record_confirmed_source_facts"), true);
-  assert.equal(toolNames.includes("record_coverage_baseline_facts"), true);
-  assert.deepEqual(firstToolChoice, { type: "auto" });
+  assert.deepEqual(toolNames, [], "customer-answer path: tools absent");
+  assert.equal(firstToolChoice, null, "customer-answer path: tool_choice absent");
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
+      ?.tools_sent,
+    0,
+    "tools_sent=0",
+  );
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
   assert.equal(signals?.attachment_attached, true);
@@ -2010,7 +2014,7 @@ const chartPolicies = {
   });
 
   assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
-  assert.equal(sawFactsTool, true);
+  assert.equal(sawFactsTool, false, "customer-answer: tools not sent");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, customerAnswer);
   assert.equal(
@@ -2022,31 +2026,17 @@ const chartPolicies = {
       ?.phase_b_call_count,
     0,
   );
-  assert.equal(policyUpdates.length, 1);
-  const stored =
-    policyUpdates[0].coverage_summary.key_confirmed_source_facts ?? [];
-  assert.equal(stored.length, 2);
-  assert.equal(stored.some((f) => f.literal_value === "9999세"), true);
-  assert.equal(stored.some((f) => f.fact_type === "priority"), false);
+  // Mid-turn fact tool extraction skipped — no persist from this path.
+  assert.equal(policyUpdates.length, 0);
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.ok,
-    true,
+    false,
   );
-  // GO2-M / GO1 gate regression: accepted/rejected counts stay on confirm path.
-  {
-    const gate =
-      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_fact_gate;
-    assert.equal(gate?.attempted, true, "GO1 gate attempted");
-    assert.equal(gate?.accepted_count, 2, "GO1 gate accepted_count regression");
-    assert.equal(gate?.ownership_ok, true, "GO1 gate ownership_ok");
-    assert.equal(gate?.active_document_present, true, "GO1 gate active_document_present");
-    assert.equal(
-      typeof gate?.rejected_reason_counts,
-      "object",
-      "GO1 gate rejected_reason_counts present",
-    );
-    // priority dropped before/at gate — must not appear in accepted persist set (above).
-  }
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
+      ?.tools_sent,
+    0,
+  );
 }
 
 {
@@ -2149,7 +2139,7 @@ const chartPolicies = {
 // --- Active claim cases → customer card (profile_health.details_json) ---
 {
   assert.equal(RECORD_CLAIM_CASE_UPDATES_TOOL.name, "record_claim_case_updates");
-  assert.ok(String(buildSystemPrompt()).includes("record_claim_case_updates"));
+  assert.equal(String(buildSystemPrompt()).includes("record_claim_case_updates"), false);
 
   const hydratePayload = buildUserPayload({
     question: "지난 청구는 지금 어디까지 진행됐지?",
@@ -2337,7 +2327,7 @@ const chartPolicies = {
   });
 
   assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
-  assert.equal(sawClaimTool, true);
+  assert.equal(sawClaimTool, false, "customer-answer: tools not sent");
   assert.equal(sawHydratedCase, true);
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, customerAnswer);
@@ -2354,16 +2344,17 @@ const chartPolicies = {
     result.oneKeyCoreTrace?.legacy_paths_blocked?.includes("claim_bridge_speak"),
     true,
   );
-  assert.equal(healthWrites.length, 1);
-  const stored = healthWrites[0].payload.details_json.key_active_claim_cases;
-  assert.equal(stored.length, 1, "same claim case must not duplicate");
-  assert.equal(stored[0].available_documents.includes("영수증"), true);
-  assert.equal(stored[0].missing_documents.includes("수술기록"), true);
-  assert.equal(stored[0].status, "preparing");
+  // Mid-turn claim tool extraction skipped — no health write from this path.
+  assert.equal(healthWrites.length, 0);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
+      ?.tools_sent,
+    0,
+  );
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist
       ?.ok,
-    true,
+    false,
   );
   assert.equal(JSON.stringify(result.customerText).includes("claim_case_key"), false);
   assert.equal(JSON.stringify(result.customerText).includes("record_claim_case"), false);
@@ -3099,7 +3090,8 @@ async function runGo2ConflictTurn({
     assert.notEqual(injectedGoal, "FORGED", "A: forged not injected");
     assert.equal(result.salesDirectorTrace?.decision, null, "Q");
     assert.equal(result.salesDirectorTrace?.decision_persisted, false, "Q");
-    assert.equal(result.salesDirectorTrace?.session_goal?.goal, "가입 계약 확인", "L");
+    // Mid-turn session_goal tool skipped — no new goal from this answer call.
+    assert.equal(result.salesDirectorTrace?.session_goal, null, "L: tool goal skipped");
     assert.equal(deltas.join(""), result.customerText, "P: SSE===sealed");
     assert.equal(result.keySpeakOriginal, result.customerText, "P");
   }
@@ -3369,15 +3361,8 @@ async function runGo2ConflictTurn({
   );
   {
     const sys = buildSystemPrompt();
-    assert.match(sys, /record_session_goal은 선택 도구다/);
-    assert.match(
-      sys,
-      /record_recommendation_basis는 선택 도구다\. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만, 같은 응답에서 available_verified_evidence와 이번 응답에서 KEY가 검증한 coverage baseline의 실제 ref로 내부 근거를 기록한다\. 추천이 없으면 호출하지 않는다\. 고객에게 도구명이나 JSON을 말하지 말고, 고객 답변은 평문으로 완성한다\./,
-      "GO4A: system prompt basis instruction",
-    );
-    const goalAt = sys.indexOf("record_session_goal은 선택 도구다");
-    const basisAt = sys.indexOf("record_recommendation_basis는 선택 도구다");
-    assert.ok(goalAt >= 0 && basisAt > goalAt, "GO4A: basis instruction immediately after session_goal");
+    assert.equal(/record_session_goal|record_recommendation_basis/.test(sys), false);
+    assert.match(sys, /참고용이다/, "GO4A: soft session_goal still reference-only");
   }
 
   const DOC = "doc-go4a-owned";
@@ -3498,11 +3483,10 @@ async function runGo2ConflictTurn({
     assert.equal(result.customerText, answerText, "B: answer unchanged");
     assert.equal(result.keySpeakOriginal, answerText, "B: sealed unchanged");
     assert.equal(deltas.join(""), answerText, "B: SSE unchanged");
-    assert.equal(voice(result)?.recommendation_basis_tool_seen, true, "B: seen");
-    assert.equal(voice(result)?.recommendation_basis_ok, true, "B: ok");
-    assert.equal(voice(result)?.recommendation_basis_count, 1, "B: count");
-    assert.equal(voice(result)?.recommendation_basis_rejected_count, 0, "B");
-    assert.deepEqual(voice(result)?.recommendation_basis_reject_reasons, [], "B");
+    // Mid-turn basis tool extraction skipped on customer-answer path.
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "B: seen skipped");
+    assert.equal(voice(result)?.recommendation_basis_ok, true, "B: ok default");
+    assert.equal(voice(result)?.recommendation_basis_count, 0, "B: count");
     assert.equal(result.salesDirectorTrace?.decision, null, "K");
     assert.equal(result.salesDirectorTrace?.decision_persisted, false, "K");
   }
@@ -3541,11 +3525,8 @@ async function runGo2ConflictTurn({
     });
     assert.equal(counter.n, 1, "C: provider 1");
     assert.equal(result.customerText, answerText, "C: answer unchanged");
-    assert.equal(voice(result)?.recommendation_basis_ok, false, "C");
-    assert.ok(
-      voice(result)?.recommendation_basis_reject_reasons?.includes("unknown_ref"),
-      "C: unknown_ref",
-    );
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "C: mid-turn skipped");
+    assert.equal(voice(result)?.recommendation_basis_ok, true, "C: default ok");
   }
 
   // D: foreign document ref
@@ -3581,10 +3562,7 @@ async function runGo2ConflictTurn({
       ),
     });
     assert.equal(result.customerText, answerText, "D: answer unchanged");
-    assert.ok(
-      voice(result)?.recommendation_basis_reject_reasons?.includes("foreign_document_ref"),
-      "D: foreign_document_ref",
-    );
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "D: mid-turn skipped");
   }
 
   // E: axis mismatch
@@ -3620,10 +3598,7 @@ async function runGo2ConflictTurn({
       ),
     });
     assert.equal(result.customerText, answerText, "E: answer unchanged");
-    assert.ok(
-      voice(result)?.recommendation_basis_reject_reasons?.includes("axis_mismatch"),
-      "E: axis_mismatch",
-    );
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "E: mid-turn skipped");
   }
 
   // F: invalid schema / empty refs
@@ -3659,10 +3634,7 @@ async function runGo2ConflictTurn({
       ),
     });
     assert.equal(result.customerText, answerText, "F: answer unchanged");
-    assert.ok(
-      voice(result)?.recommendation_basis_reject_reasons?.includes("empty_refs"),
-      "F: empty_refs",
-    );
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "F: mid-turn skipped");
 
     const badSchema = extractRecommendationBasisFromContent(
       [
@@ -3702,8 +3674,8 @@ async function runGo2ConflictTurn({
       ),
     });
     assert.equal(counter.n, 1, "H: provider 1");
-    assert.equal(voice(result)?.recommendation_basis_tool_seen, true, "H: seen");
-    assert.equal(voice(result)?.recommendation_basis_count, 0, "H: dropped accepted");
+    assert.equal(voice(result)?.recommendation_basis_tool_seen, false, "H: mid-turn skipped");
+    assert.equal(voice(result)?.recommendation_basis_count, 0, "H: count 0");
     assert.equal(result.key_monopoly_failure, true, "H: empty → failure path");
   }
 
@@ -3890,7 +3862,7 @@ async function runGo2ConflictTurn({
     });
     assert.equal(counter.n, 1, "J: provider 1");
     assert.equal(result.customerText, answerText, "J: answer");
-    assert.equal(result.salesDirectorTrace?.session_goal?.status, "active", "J: goal");
+    assert.equal(result.salesDirectorTrace?.session_goal, null, "J: goal tool skipped");
     assert.equal(result.salesDirectorTrace?.decision, null, "J/K");
     assert.equal(result.salesDirectorTrace?.decision_persisted, false, "J/K");
   }
@@ -3980,10 +3952,12 @@ console.log("key-claude-first-direct-unit-test: PASS");
     assert.equal(counter.n, 1, "A: provider 1");
     assert.equal(result.customerText, hello, "A: answer");
     assert.equal(result.keySpeakOriginal, hello, "A: sealed");
-    assert.deepEqual(
-      sawTools,
-      ["record_session_goal", "record_recommendation_basis"],
-      "A: request tools",
+    assert.deepEqual(sawTools, [], "A: customer-answer request tools absent");
+    assert.equal(
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
+        ?.tools_sent,
+      0,
+      "A: tools_sent=0",
     );
   }
 
@@ -4109,8 +4083,14 @@ console.log("key-claude-first-direct-unit-test: PASS");
     assert.equal(
       result.salesDirectorTrace?.key_compose_trace?.key_voice_trace
         ?.recommendation_basis_tool_seen,
-      true,
-      "D: tool_seen",
+      false,
+      "D: mid-turn basis skipped",
+    );
+    assert.equal(
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
+        ?.tools_sent,
+      0,
+      "D: tools_sent=0",
     );
   }
 
@@ -4545,17 +4525,17 @@ console.log("key-claude-first-direct-unit-test: PASS");
   });
 
   assert.equal(claudeCalls, 1, "provider call count = 1 (no continue)");
-  assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice always auto");
+  assert.equal(firstToolChoice, null, "tool_choice absent on customer-answer");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, answerText, "final answer ok");
   assert.equal(result.keySpeakOriginal, answerText);
   assert.equal(deltas.join(""), answerText, "SSE===sealed");
   assert.equal(result.salesDirectorTrace?.decision, null);
   assert.equal(result.salesDirectorTrace?.decision_persisted, false);
-  assert.equal(result.salesDirectorTrace?.session_goal?.goal, "가입 계약 확인");
-  assert.equal(result.salesDirectorTrace?.session_goal?.status, "active");
+  assert.equal(result.salesDirectorTrace?.session_goal, null, "session_goal tool skipped");
   const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
-  assert.equal(voice?.recommendation_basis_tool_seen, true, "GO4 basis extract path live");
+  assert.equal(voice?.recommendation_basis_tool_seen, false, "GO4 mid-turn skipped");
+  assert.equal(voice?.empty_answer_diag?.input?.tools_sent, 0, "tools_sent=0");
 
   // Text-nudge continue removed: first-call answer kept; provider_calls stays 1.
   {

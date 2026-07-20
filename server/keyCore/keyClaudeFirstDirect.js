@@ -1618,7 +1618,7 @@ export function buildSystemPrompt() {
     "보험 유도는 고객의 걱정과 현재 상황을 먼저 이해한 뒤, 지금 보장에서 함께 확인하면 좋은 점·필요한 서류·다음 점검을 제안하는 방식으로 한다. 실제 필요성이 확인되면 가입·유지·정리·보완을 근거와 함께 자신 있게 제안한다.",
     "보험 유도는 강요가 아니다. 근거 없는 상품 추천, 고객이 거절했는데 밀어붙이는 행동, '지금 가입하세요/해지해도 됩니다/무조건 이 상품' 같은 확정 지시, 모든 대화를 보험으로 끝내려는 기계적 행동은 하지 않는다.",
     "고객이 지금은 일상 이야기만 하고 싶어 하거나 보험 상담을 원하지 않으면 그 선택을 존중한다. 나중에 필요할 때 보험과 보장을 함께 볼 수 있다는 관계는 자연스럽게 남긴다.",
-    "제공된 질문, 대화, 검증 사실, 원본 첨부, 이전 상담 참고와 도구를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
+    "제공된 질문, 대화, 검증 사실, 원본 첨부, 이전 상담 참고를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
     "네가 완성한 답변이 고객이 듣는 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·판단·답변한다. 답변의 길이·구조·표현·표·후속 질문은 고객에게 가장 도움이 되는 방식으로 네가 자유롭게 결정한다.",
     "검증된 고객 계약 사실과 법령·공공 기준을 구분하고, 고객 계약·담보·보험료 사실은 available_verified_evidence의 현재 검증 자료에만 근거한다.",
     "과거 대화·이전 KEY 답변·삭제·retired 자료에 나온 계약·담보·보험료를 현재 사실처럼 말하지 않는다. 검증되지 않은 값을 '실손·운전자만 보유', '암·뇌·심장 없음', 특정 월 보험료 합계처럼 단정하지 않는다.",
@@ -1630,13 +1630,10 @@ export function buildSystemPrompt() {
     "자동조회·본인인증 기능이 실제 작동하는 것처럼 말하지 않는다. 내보험다보여·보험다보여 안내를 자동으로 붙이지 않는다. 추가 자료가 정말 필요할 때만 보험증권 또는 보장내역서 업로드를 한 번 자연스럽게 요청할 수 있다. 추천 답변을 내보험다보여 안내로 끝내지 않는다.",
     "입력이 충분하면 지분·금액·구조의 의미를 직접 계산·판단한다. 무조건 전문가에게만 넘기며 판단을 회피하지 않는다.",
     "같은 고객과 같은 대화를 이어서 본다. 앞에서 확인한 사실·걱정·목표·약속을 잊고 매번 처음 만난 사람처럼 대하지 않는다.",
-    "고객에게 내부 필드명·도구명·시스템 경로를 말하지 않는다.",
-    "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
-    "record_session_goal은 선택 도구다. 현재 세션의 단기 작업 목표만 기록한다. 감정·성격·미확정 의도·건강/계약/가족 사실·추천 결론·장기 프로필은 금지한다. 고객 답변에 목표를 억지로 언급하지 않는다.",
-    "record_recommendation_basis는 선택 도구다. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만, 같은 응답에서 available_verified_evidence와 이번 응답에서 KEY가 검증한 coverage baseline의 실제 ref로 내부 근거를 기록한다. 추천이 없으면 호출하지 않는다. 고객에게 도구명이나 JSON을 말하지 말고, 고객 답변은 평문으로 완성한다.",
+    "고객에게 내부 필드명·시스템 경로를 말하지 않는다.",
+    "의료사건·수술·입원·병원비·진단이 보이면 고객카드 계약과 비교해 청구 필요성을 직접 판단한다. 근거가 충분하면 선제적으로 청구 확인을 제안한다. 청구했습니다/접수 완료/심사 중/지급됐습니다는 확인 근거 없이 고객에게 말하지 않는다.",
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
-    buildClaimCaseUpdatesToolHint(),
   ].join("\n");
 }
 
@@ -2176,6 +2173,7 @@ function buildEmptyAnswerInputDiag({
   } catch {
     request_body_chars = 0;
   }
+  const tools_sent = Array.isArray(body?.tools) ? body.tools.length : 0;
   return {
     question_present: String(question ?? "").trim().length > 0,
     conversation_message_count: recent.length + retained.length,
@@ -2190,6 +2188,7 @@ function buildEmptyAnswerInputDiag({
     original_attachment_count: pdfBase64 ? 1 : 0,
     system_prompt_chars: String(system ?? "").length,
     request_body_chars,
+    tools_sent,
   };
 }
 
@@ -2938,12 +2937,9 @@ async function callClaudeFirstDirect({
     now: requestNow,
   });
   const pdfAttached = Boolean(pdfBase64);
-  let system = buildSystemPrompt();
-  // Original attach (image|PDF): enable internal save tools in the same provider turn.
-  // User payload for images stays chart-free; tools are not pre-read materials.
-  if (pdfAttached) {
-    system = `${system}\n${buildConfirmedSourceFactsToolHint(pdfMeta)}`;
-  }
+  // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
+  // Fact save · consultation · visual blocks remain KEY work after this answer (no second call).
+  const system = buildSystemPrompt();
   const userContent = buildClaudeFullUserContentWithPdf({
     userPayload,
     pdfBase64,
@@ -2962,36 +2958,19 @@ async function callClaudeFirstDirect({
   let streamedAnswer = "";
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
-  let confirmedSourceFacts = [];
-  let confirmedFactsToolSeen = false;
-  let coverageBaselineFacts = [];
-  let claimCaseUpdates = [];
-  /** GO3 — tool output from this provider turn only; null if tool absent/rejected/goal-only. */
-  let sessionGoalRecord = null;
-  let sessionGoalToolSeen = false;
-  let sessionGoalRejected = false;
-  let sessionGoalRejectReason = null;
-  /** GO4A — trace-only; never persisted / never reinjected. */
-  let recommendationBasisTrace = emptyRecommendationBasisTrace();
+  // Mid-turn client tool extraction skipped on customer-answer path (tools not sent).
+  const confirmedSourceFacts = [];
+  const coverageBaselineFacts = [];
+  const claimCaseUpdates = [];
+  const sessionGoalRecord = null;
+  const sessionGoalToolSeen = false;
+  const sessionGoalRejected = false;
+  const sessionGoalRejectReason = null;
+  const recommendationBasisTrace = emptyRecommendationBasisTrace();
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
-  const factDefaults = {
-    source_document_id: pdfMeta?.document_id ?? null,
-    confirmed_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
-  };
-  const claimDefaults = {
-    updated_at: buildRequestClock(requestNow, REQUEST_TIMEZONE).current_datetime,
-  };
 
-  // Tool schemas only for confirmed turn context — definitions/validation unchanged.
-  // session_goal + recommendation_basis never add a provider round-trip.
-  const answerTools = buildClaudeFirstAnswerTools({
-    pdfAttached,
-    activeClaimCases,
-    question,
-    history,
-  });
-  // SINGLE provider call only — no Continue / text-nudge / card-tool-only re-call / force tool_choice.
+  // SINGLE provider call only — no Continue / tool_result re-call / force tool_choice.
   let emptyAnswerDiag = {
     input: null,
     response: null,
@@ -3002,8 +2981,6 @@ async function callClaudeFirstDirect({
       max_tokens: 4096,
       temperature: 0.4,
       system,
-      tools: answerTools,
-      tool_choice: { type: "auto" },
       messages,
       stream: true,
     };
@@ -3035,7 +3012,7 @@ async function callClaudeFirstDirect({
         errText,
         pdfAttachedAttempted: pdfAttached === true,
         pdfBase64,
-        toolCount: Array.isArray(answerTools) ? answerTools.length : null,
+        toolCount: 0,
         providerCallNumber: messagesRequestCount,
         requestPhase: "claude_first_messages_request",
       });
@@ -3107,143 +3084,15 @@ async function callClaudeFirstDirect({
       }
     }
 
-    const cardToolBlocks = assistantContent.filter(
-      (b) => b?.type === "tool_use" && KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name),
-    );
-    if (cardToolBlocks.some((b) => b.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name)) {
-      const extractedFacts = extractConfirmedSourceFactsFromContent(
-        assistantContent,
-        factDefaults,
-      );
-      confirmedSourceFacts = mergeKeyConfirmedSourceFacts(
-        confirmedSourceFacts,
-        extractedFacts,
-      );
-      // Empty tool payload must not count as "seen" — otherwise rail stay at 0 with no nudge.
-      if (extractedFacts.length > 0) confirmedFactsToolSeen = true;
-    }
-    if (cardToolBlocks.some((b) => b.name === RECORD_COVERAGE_BASELINE_FACTS_TOOL.name)) {
-      coverageBaselineFacts = mergeKeyCoverageBaselineFacts(
-        coverageBaselineFacts,
-        extractCoverageBaselineFactsFromContent(assistantContent, factDefaults),
-      );
-    }
-    if (cardToolBlocks.some((b) => b.name === RECORD_CLAIM_CASE_UPDATES_TOOL.name)) {
-      claimCaseUpdates = mergeKeyActiveClaimCases(
-        claimCaseUpdates,
-        extractClaimCaseUpdatesFromContent(assistantContent, claimDefaults),
-      );
-    }
-
-    // GO3: parse session_goal from the same response; never continue for tool_result.
-    const goalExtract = extractSessionGoalFromContent(assistantContent, {
-      now: requestNow,
-    });
-    if (goalExtract.tool_seen) {
-      sessionGoalToolSeen = true;
-      if (goalExtract.rejected) {
-        sessionGoalRejected = true;
-        sessionGoalRejectReason = goalExtract.reject_reason || "rejected";
-      }
-      if (goalExtract.record) sessionGoalRecord = goalExtract.record;
-    }
-
-    // GO4A: same-response validated baseline only (normalize → KEY validate → VERIFIED).
-    const ownedForBaseline = [
-      ...new Set(
-        [
-          factDefaults.source_document_id,
-          ...(Array.isArray(userPayload?.available_verified_evidence?.documents)
-            ? userPayload.available_verified_evidence.documents.map(
-                (d) => d?.document_id ?? d?.id ?? null,
-              )
-            : []),
-        ]
-          .map((id) => (id != null ? String(id).trim() : ""))
-          .filter(Boolean),
-      ),
-    ];
-    const validatedBaselineForCatalog = validateSameResponseBaselineForCatalog(
-      coverageBaselineFacts,
-      { ownedDocumentIds: ownedForBaseline },
-    );
-    // GO4A: extract basis after content is complete; trace only — never Continue.
-    recommendationBasisTrace = extractRecommendationBasisFromContent(assistantContent, {
-      userPayload,
-      validatedBaselineFacts: validatedBaselineForCatalog,
-    });
-
-    // session_goal + recommendation_basis must not count as "other" client tools.
-    const otherClientTools = assistantContent.filter(
-      (b) =>
-        b?.type === "tool_use" &&
-        !KEY_CARD_CLIENT_TOOL_NAMES.has(b?.name) &&
-        b?.name !== SESSION_GOAL_TOOL_NAME &&
-        b?.name !== RECOMMENDATION_BASIS_TOOL_NAME,
-    );
-    const hasToolUse = assistantContent.some(
-      (b) =>
-        b?.type === "tool_use" &&
-        b?.name !== SESSION_GOAL_TOOL_NAME &&
-        b?.name !== RECOMMENDATION_BASIS_TOOL_NAME,
-    );
-
-    // GO3/GO4A: goal/basis-only (no customer_answer, no card tools) → drop, end (Continue 0).
-    if (
-      !picked.customer_answer &&
-      cardToolBlocks.length === 0 &&
-      otherClientTools.length === 0
-    ) {
-      sessionGoalRecord = null;
-      // Basis-only: drop accepted count (no customer answer); keep tool_seen + reject reasons.
-      if (recommendationBasisTrace.recommendation_basis_tool_seen) {
-        recommendationBasisTrace = {
-          ...recommendationBasisTrace,
-          recommendation_basis_count: 0,
-          recommendation_basis_ok: false,
-        };
-      }
-      break;
-    }
-
-    // Card tools only / tools+answer / tool-less answer: parse tools above; never second Anthropic call.
+    // Text answer only — never second Anthropic call for tools / Continue.
     if (picked.customer_answer) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
       break;
     }
 
-    // No customer_answer after one call → empty failure (tools may still be parsed for storage).
-    if (
-      !picked.customer_answer &&
-      (cardToolBlocks.length > 0 || otherClientTools.length > 0 || hasToolUse)
-    ) {
-      if (otherClientTools.length > 0 || cardToolBlocks.length > 0) {
-        // Keep card-tool facts already extracted; drop goal/basis-only when no answer.
-        if (cardToolBlocks.length === 0) {
-          sessionGoalRecord = null;
-          if (recommendationBasisTrace.recommendation_basis_tool_seen) {
-            recommendationBasisTrace = {
-              ...recommendationBasisTrace,
-              recommendation_basis_count: 0,
-              recommendation_basis_ok: false,
-            };
-          }
-        }
-      }
-      break;
-    }
-
     if (!assistantContent.length) break;
-    // Fail closed — empty customer answer, no Continue re-call.
-    sessionGoalRecord = null;
-    if (recommendationBasisTrace.recommendation_basis_tool_seen) {
-      recommendationBasisTrace = {
-        ...recommendationBasisTrace,
-        recommendation_basis_count: 0,
-        recommendation_basis_ok: false,
-      };
-    }
+    // Fail closed — empty customer answer, no Continue / tool_result re-call.
     break;
   }
 
