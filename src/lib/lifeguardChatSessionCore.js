@@ -596,6 +596,12 @@ export function buildAssistantTurnMetadata(
         goal,
         status,
         updated_at: sessionGoal.updated_at ?? null,
+        ...(sessionGoal.evidence && typeof sessionGoal.evidence === "object"
+          ? { evidence: sessionGoal.evidence }
+          : {}),
+        ...(sessionGoal.source_link && typeof sessionGoal.source_link === "object"
+          ? { source_link: sessionGoal.source_link }
+          : {}),
       };
     }
   }

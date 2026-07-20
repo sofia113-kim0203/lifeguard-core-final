@@ -1348,9 +1348,10 @@ export async function loadCustomerPriorConsultationForClaude({
     return { prior: null, reason: "missing_scope" };
   }
   try {
+    // customer_conversations column is `message` (not content). Filter by customer_id only.
     const { data, error } = await supabase
       .from("customer_conversations")
-      .select("role, content, metadata_json, created_at")
+      .select("role, message, metadata_json, created_at")
       .eq("customer_id", cid)
       .order("created_at", { ascending: false })
       .limit(Math.max(4, Number(limit) || 24));
@@ -1366,7 +1367,7 @@ export async function loadCustomerPriorConsultationForClaude({
       const sid = String(meta.session_id ?? "").trim();
       if (currentSid && sid === currentSid) continue;
       const role = String(row?.role ?? "").trim();
-      const content = String(row?.content ?? "").trim().slice(0, 600);
+      const content = String(row?.message ?? "").trim().slice(0, 600);
       if ((role === "user" || role === "assistant") && content) {
         turns.push({
           role,
@@ -1413,6 +1414,204 @@ export async function loadCustomerPriorConsultationForClaude({
   }
 }
 
+/**
+ * Source link for goal / outcomes / consultation record.
+ * Prefer source_turn_id → message_id → session_id + turn_ord.
+ */
+export function resolveConsultationSourceLink({
+  sourceTurnId = null,
+  messageId = null,
+  sessionId = null,
+  turnOrd = null,
+} = {}) {
+  const sid = String(sessionId ?? "").trim() || null;
+  const ord =
+    turnOrd == null || turnOrd === ""
+      ? null
+      : Number.isFinite(Number(turnOrd))
+        ? Number(turnOrd)
+        : null;
+  const st = String(sourceTurnId ?? "").trim();
+  if (st) {
+    return {
+      method: "source_turn_id",
+      source_turn_id: st,
+      message_id: null,
+      session_id: sid,
+      turn_ord: ord,
+    };
+  }
+  const mid = String(messageId ?? "").trim();
+  if (mid) {
+    return {
+      method: "message_id",
+      source_turn_id: null,
+      message_id: mid,
+      session_id: sid,
+      turn_ord: ord,
+    };
+  }
+  if (sid && ord != null) {
+    return {
+      method: "session_turn_ord",
+      source_turn_id: null,
+      message_id: null,
+      session_id: sid,
+      turn_ord: ord,
+    };
+  }
+  if (sid) {
+    return {
+      method: "session_id",
+      source_turn_id: null,
+      message_id: null,
+      session_id: sid,
+      turn_ord: ord,
+    };
+  }
+  return {
+    method: "none",
+    source_turn_id: null,
+    message_id: null,
+    session_id: null,
+    turn_ord: ord,
+  };
+}
+
+/**
+ * KEY post-writer — explicit customer preference/goal from utterance only.
+ * Never parse Claude answer. Returns short goal string or null.
+ */
+export function extractCustomerStatedGoalFromUtterance(question = "") {
+  const q = String(question ?? "").trim();
+  if (!q) return null;
+  // Customer preference markers only (싶어/할래/하고 싶) — reject Claude-like advice prose.
+  const rules = [
+    {
+      re: /새\s*보험부터\s*가입하기보다.{0,40}기존\s*보험을?\s*먼저.{0,24}(보고\s*싶|보고\s*싶어|확인할래|확인하고\s*싶)/,
+      goal: "기존 보험을 먼저 보고 싶음",
+    },
+    {
+      re: /기존\s*보험을?\s*먼저.{0,24}(제대로\s*)?(보고\s*싶|보고\s*싶어|확인할래|확인하고\s*싶)/,
+      goal: "기존 보험을 먼저 보고 싶음",
+    },
+    {
+      re: /기존\s*보험\s*먼저.{0,16}(보고\s*싶|보고\s*싶어|확인할래|확인하고\s*싶)/,
+      goal: "기존 보험을 먼저 보고 싶음",
+    },
+    {
+      re: /(먼저\s*보고\s*싶|먼저\s*확인하고\s*싶).{0,20}기존\s*보험/,
+      goal: "기존 보험을 먼저 보고 싶음",
+    },
+  ];
+  for (const rule of rules) {
+    if (!rule.re.test(q)) continue;
+    if (isForbiddenSessionGoalText(rule.goal)) return null;
+    return rule.goal;
+  }
+  return null;
+}
+
+/**
+ * Explicit customer result phrases only — never Claude judgment/recommendation text.
+ */
+export function extractCustomerStatedOutcomesFromUtterance(question = "") {
+  const q = String(question ?? "").trim();
+  if (!q) return [];
+  const out = [];
+  if (
+    /유지하기로\s*했|당분간\s*유지|기존\s*보험은?\s*.{0,24}유지하기로|유지하기로\s*결정/.test(q)
+  ) {
+    out.push({
+      kind: "policy_keep_decision",
+      detail: "기존 보험 유지 결정",
+      evidence: { customer_utterance: q.slice(0, 240) },
+    });
+  }
+  if (/서류.{0,16}(오늘\s*)?(올렸|올렸고|업로드했|제출했)|오늘\s*올렸/.test(q)) {
+    out.push({
+      kind: "document_upload_stated",
+      detail: "서류 제출 발언",
+      evidence: { customer_utterance: q.slice(0, 240) },
+    });
+  }
+  if (/청구.{0,12}(접수|넣었|했어|신청했)|클레임.{0,8}(접수|넣었)/.test(q)) {
+    out.push({
+      kind: "claim_filed_stated",
+      detail: "청구 접수 발언",
+      evidence: { customer_utterance: q.slice(0, 240) },
+    });
+  }
+  if (/결과\s*서류|결과\s*문서|확인서.{0,8}(받았|올렸)/.test(q)) {
+    out.push({
+      kind: "result_document_stated",
+      detail: "결과 문서 발언",
+      evidence: { customer_utterance: q.slice(0, 240) },
+    });
+  }
+  return out;
+}
+
+/**
+ * System-confirmed turn events (upload / contract / claim) — not Claude text.
+ */
+export function collectSystemConfirmedOutcomes({
+  pdfAttached = false,
+  documentId = null,
+  systemEvents = null,
+} = {}) {
+  const out = [];
+  const docId = String(documentId ?? "").trim() || null;
+  if (pdfAttached === true && docId) {
+    out.push({
+      kind: "document_uploaded",
+      detail: `document:${docId.slice(0, 80)}`,
+      evidence: { document_id: docId, system_event: true },
+    });
+  }
+  const events = Array.isArray(systemEvents) ? systemEvents : [];
+  for (const ev of events) {
+    if (!ev || typeof ev !== "object") continue;
+    const kind = String(ev.kind ?? "").trim();
+    if (!kind) continue;
+    if (kind === "document_uploaded" && docId) continue; // already from pdf attach
+    out.push({
+      kind,
+      detail: String(ev.detail ?? kind).slice(0, 200),
+      evidence:
+        ev.evidence && typeof ev.evidence === "object"
+          ? { ...ev.evidence, system_event: true }
+          : { system_event: true },
+    });
+  }
+  return out;
+}
+
+export function collectConsultationOutcomes({
+  question = "",
+  pdfAttached = false,
+  documentId = null,
+  systemEvents = null,
+  sourceLink = null,
+} = {}) {
+  const merged = [
+    ...extractCustomerStatedOutcomesFromUtterance(question),
+    ...collectSystemConfirmedOutcomes({ pdfAttached, documentId, systemEvents }),
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const item of merged) {
+    const key = `${item.kind}|${item.detail}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      ...item,
+      ...(sourceLink && typeof sourceLink === "object" ? { source_link: sourceLink } : {}),
+    });
+  }
+  return out;
+}
+
 /** Structured consultation memory kinds (A–F) for assistant metadata — not verified fact. */
 export function buildKeyConsultationRecord({
   question = "",
@@ -1421,6 +1620,9 @@ export function buildKeyConsultationRecord({
   recommendationBasisCount = 0,
   pdfAttached = false,
   documentId = null,
+  outcomes = undefined,
+  systemEvents = null,
+  sourceLink = null,
 } = {}) {
   const q = String(question ?? "").trim().slice(0, 800);
   const a = String(claudeAnswer ?? "").trim().slice(0, 1200);
@@ -1429,6 +1631,14 @@ export function buildKeyConsultationRecord({
       ? {
           goal: String(sessionGoal.goal).trim().slice(0, 240),
           status: String(sessionGoal.status ?? "active"),
+          ...(sessionGoal.source_link && typeof sessionGoal.source_link === "object"
+            ? { source_link: sessionGoal.source_link }
+            : sourceLink && typeof sourceLink === "object"
+              ? { source_link: sourceLink }
+              : {}),
+          ...(sessionGoal.evidence && typeof sessionGoal.evidence === "object"
+            ? { evidence: sessionGoal.evidence }
+            : {}),
         }
       : null;
   const next_tasks = [];
@@ -1436,6 +1646,15 @@ export function buildKeyConsultationRecord({
   if (pdfAttached && documentId) {
     next_tasks.push({ kind: "document_followup", detail: `document:${String(documentId).slice(0, 80)}` });
   }
+  const resolvedOutcomes = Array.isArray(outcomes)
+    ? outcomes
+    : collectConsultationOutcomes({
+        question: q,
+        pdfAttached,
+        documentId,
+        systemEvents,
+        sourceLink,
+      });
   return {
     schema: "key_consultation_record_v1",
     customer_utterance: q || null,
@@ -1449,8 +1668,9 @@ export function buildKeyConsultationRecord({
     },
     unverified_items: [],
     next_tasks,
-    outcomes: null,
+    outcomes: resolvedOutcomes,
     session_goal: goal,
+    ...(sourceLink && typeof sourceLink === "object" ? { source_link: sourceLink } : {}),
   };
 }
 
@@ -3681,12 +3901,40 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Seal Claude original as-is (no monopoly stub, no soft rewrite, no truncation).
   const sealed = sealKeyCustomerText(finalText);
 
-  // GO3: discard → completed metadata; failure → never store Claude's new goal; else tool goal.
+  // KEY LIFE LEDGER — source link + post-seal customer-utterance goal (never Claude answer).
+  const sourceLink = resolveConsultationSourceLink({
+    sourceTurnId: null,
+    messageId: null,
+    sessionId,
+    turnOrd: Array.isArray(history) ? history.length + 1 : 1,
+  });
+  const nowStamp = startedAt instanceof Date ? startedAt : new Date(startedAt);
+  const customerStatedGoalText =
+    !usedFailure && discardRequested !== true
+      ? extractCustomerStatedGoalFromUtterance(question)
+      : null;
+  const customerUtteranceGoal =
+    customerStatedGoalText && !isForbiddenSessionGoalText(customerStatedGoalText)
+      ? {
+          goal: customerStatedGoalText,
+          status: "active",
+          updated_at: Number.isFinite(nowStamp.getTime())
+            ? nowStamp.toISOString()
+            : new Date().toISOString(),
+          evidence: {
+            kind: "customer_utterance",
+            text: String(question ?? "").trim().slice(0, 240),
+          },
+          source_link: sourceLink,
+        }
+      : null;
+
+  // discard → completed; failure → never store; else KEY post-writer from customer utterance only.
   const persistableSessionGoal = resolvePersistableSessionGoal({
     discardRequested,
     usedFailure,
-    claudeGoal: claude.session_goal ?? null,
-    now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+    claudeGoal: customerUtteranceGoal,
+    now: nowStamp,
   });
 
   const keyConsultationRecord = usedFailure
@@ -3698,6 +3946,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         recommendationBasisCount: Number(claude.recommendation_basis_count ?? 0) || 0,
         pdfAttached: claude.pdf_attached === true,
         documentId: pdf?.meta?.document_id ?? null,
+        sourceLink,
       });
 
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
@@ -3925,6 +4174,12 @@ export async function runClaudeFirstDirectQuestionTurn({
           key_consultation_record: keyConsultationRecord,
           prior_consultation_injected: Boolean(priorConsultationForContext),
           prior_consultation_reason: priorConsultationReason,
+          source_link: sourceLink,
+          session_goal_writer: customerUtteranceGoal
+            ? "customer_utterance"
+            : persistableSessionGoal?.status === "completed"
+              ? "discard"
+              : null,
           jailbreak_detail: safety.jailbreak_detail,
           answer_source: claude.answer_source ?? null,
           decision_persisted: false,

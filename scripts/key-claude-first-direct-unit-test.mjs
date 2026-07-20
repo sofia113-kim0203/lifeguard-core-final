@@ -36,6 +36,12 @@ import {
   resolveSessionGoalForContext,
   resolvePersistableSessionGoal,
   loadLatestSessionGoalFromConversations,
+  loadCustomerPriorConsultationForClaude,
+  buildKeyConsultationRecord,
+  extractCustomerStatedGoalFromUtterance,
+  extractCustomerStatedOutcomesFromUtterance,
+  collectConsultationOutcomes,
+  resolveConsultationSourceLink,
   classifySessionGoalRejectReason,
   SESSION_GOAL_MAX_CHARS,
   bucketDocumentBytes,
@@ -4647,5 +4653,235 @@ console.log("key-claude-first-direct-unit-test: PASS");
   }
 
   console.log("PDF MESSAGE SHAPE LOCAL CHECKS OK");
+}
+
+// --- KEY LIFE LEDGER v1 (prior / customer-utterance goal / outcomes) ---
+{
+  // prior select uses `message` (not content)
+  {
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../server/keyCore/keyClaudeFirstDirect.js"),
+      "utf8",
+    );
+    assert.match(
+      src,
+      /loadCustomerPriorConsultationForClaude[\s\S]*?\.select\("role, message, metadata_json, created_at"\)/,
+      "prior: select message column",
+    );
+    assert.equal(
+      /loadCustomerPriorConsultationForClaude[\s\S]*?\.select\("role, content, metadata_json, created_at"\)/.test(
+        src,
+      ),
+      false,
+      "prior: must not select content",
+    );
+
+    let selectCols = null;
+    let filterCustomerId = null;
+    const supabase = {
+      from(table) {
+        assert.equal(table, "customer_conversations");
+        return {
+          select(cols) {
+            selectCols = cols;
+            return this;
+          },
+          eq(col, val) {
+            if (col === "customer_id") filterCustomerId = val;
+            return this;
+          },
+          order() {
+            return this;
+          },
+          limit() {
+            return Promise.resolve({
+              data: [
+                {
+                  role: "user",
+                  message: "지난번 이어서",
+                  metadata_json: { session_id: "prior-sess" },
+                  created_at: "2026-07-20T10:00:00.000Z",
+                },
+                {
+                  role: "assistant",
+                  message: "네, 이어서 볼게요.",
+                  metadata_json: {
+                    session_id: "prior-sess",
+                    session_goal: {
+                      goal: "기존 보험을 먼저 보고 싶음",
+                      status: "active",
+                      updated_at: "2026-07-20T10:00:01.000Z",
+                    },
+                  },
+                  created_at: "2026-07-20T10:00:01.000Z",
+                },
+              ],
+              error: null,
+            });
+          },
+        };
+      },
+    };
+    const loaded = await loadCustomerPriorConsultationForClaude({
+      supabase,
+      customerId: "cust-ledger",
+      currentSessionId: "current-sess",
+    });
+    assert.equal(selectCols, "role, message, metadata_json, created_at");
+    assert.equal(filterCustomerId, "cust-ledger");
+    assert.equal(loaded.reason, "ok");
+    assert.equal(loaded.prior?.related_turns?.some((t) => t.content === "지난번 이어서"), true);
+    assert.equal(loaded.prior?.open_goals?.[0]?.goal, "기존 보험을 먼저 보고 싶음");
+
+    const failSb = {
+      from() {
+        return {
+          select() {
+            return this;
+          },
+          eq() {
+            return this;
+          },
+          order() {
+            return this;
+          },
+          limit() {
+            return Promise.resolve({ data: null, error: { message: "boom" } });
+          },
+        };
+      },
+    };
+    const failed = await loadCustomerPriorConsultationForClaude({
+      supabase: failSb,
+      customerId: "cust-ledger",
+    });
+    assert.equal(failed.prior, null);
+    assert.equal(failed.reason, "query_failed");
+  }
+
+  // goal from customer utterance only
+  assert.equal(
+    extractCustomerStatedGoalFromUtterance(
+      "나는 새 보험부터 가입하기보다 기존 보험을 먼저 제대로 보고 싶어.",
+    ),
+    "기존 보험을 먼저 보고 싶음",
+  );
+  assert.equal(
+    extractCustomerStatedGoalFromUtterance("기존 보험을 먼저 확인하시는 게 좋겠습니다."),
+    null,
+    "no goal from Claude-like advice alone",
+  );
+  assert.equal(extractCustomerStatedGoalFromUtterance("안녕하세요."), null);
+
+  // outcomes [] not null; upload event + keep decision
+  {
+    const emptyRec = buildKeyConsultationRecord({
+      question: "안녕하세요.",
+      claudeAnswer: "안녕하세요!",
+    });
+    assert.ok(Array.isArray(emptyRec.outcomes));
+    assert.equal(emptyRec.outcomes.length, 0);
+    assert.notEqual(emptyRec.outcomes, null);
+    assert.ok(Array.isArray(emptyRec.unverified_items));
+
+    const link = resolveConsultationSourceLink({
+      sessionId: "sess-t9",
+      turnOrd: 2,
+    });
+    assert.equal(link.method, "session_turn_ord");
+    const outcomes = collectConsultationOutcomes({
+      question:
+        "지난번 이야기 이어서 보자. 그리고 지난번에 말한 서류는 오늘 올렸고, 기존 보험은 당분간 유지하기로 했어.",
+      pdfAttached: true,
+      documentId: "doc-upload-1",
+      sourceLink: link,
+    });
+    assert.ok(outcomes.some((o) => o.kind === "document_uploaded"));
+    assert.ok(outcomes.some((o) => o.kind === "policy_keep_decision"));
+    assert.ok(outcomes.some((o) => o.kind === "document_upload_stated"));
+    assert.equal(outcomes[0].source_link?.method, "session_turn_ord");
+
+    const stated = extractCustomerStatedOutcomesFromUtterance(
+      "기존 보험을 유지하시는 게 좋겠습니다.",
+    );
+    assert.equal(stated.length, 0, "no outcome from Claude-like text");
+  }
+
+  // integration: customer goal utterance → persistable session_goal; monopoly/tools absent
+  {
+    let providerCalls = 0;
+    let toolsSent = null;
+    const goalQ =
+      "나는 새 보험부터 가입하기보다 기존 보험을 먼저 제대로 보고 싶어.";
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: goalQ,
+      history: [],
+      sessionId: "sess-ledger-t7",
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-ledger-t7",
+      userSupabase: {
+        from() {
+          return {
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            is() {
+              return this;
+            },
+            order() {
+              return this;
+            },
+            limit() {
+              return Promise.resolve({ data: [], error: null });
+            },
+          };
+        },
+      },
+      env: {
+        ANTHROPIC_API_KEY: "test-key",
+        KEY_CLAUDE_FIRST_DIRECT: "1",
+        VERCEL_ENV: "preview",
+      },
+      fetchImpl: async (_url, init) => {
+        providerCalls += 1;
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        toolsSent = Array.isArray(body.tools) ? body.tools.length : 0;
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [{ type: "text", text: "네, 기존 보험부터 같이 보겠습니다." }],
+            };
+          },
+        };
+      },
+    });
+    assert.equal(providerCalls, 1);
+    assert.equal(toolsSent, 0, "tools absent on answer path");
+    assert.equal(result.key_monopoly_failure, false);
+    assert.equal(result.salesDirectorTrace?.session_goal?.goal, "기존 보험을 먼저 보고 싶음");
+    assert.equal(result.salesDirectorTrace?.session_goal?.status, "active");
+    assert.equal(
+      result.salesDirectorTrace?.session_goal?.evidence?.kind,
+      "customer_utterance",
+    );
+    const rec = result.salesDirectorTrace?.key_consultation_record;
+    assert.equal(rec?.schema, "key_consultation_record_v1");
+    assert.ok(Array.isArray(rec?.outcomes));
+    assert.ok(Array.isArray(rec?.unverified_items));
+    assert.equal(
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.session_goal_writer,
+      "customer_utterance",
+    );
+    assert.equal(
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.source_link?.method,
+      "session_turn_ord",
+    );
+  }
+
+  console.log("KEY LIFE LEDGER V1 LOCAL CHECKS OK");
 }
 
