@@ -1198,6 +1198,179 @@ export async function loadLatestSessionGoalFromConversations({
   }
 }
 
+/**
+ * Soft customer-wide active goal (any session) — preference / open task continuity.
+ * Does not invent; never above current question. Same forbidden-goal filter as SSOT.
+ */
+export async function loadLatestActiveCustomerGoalFromConversations({
+  supabase = null,
+  customerId = null,
+  excludeSessionId = null,
+  limit = 60,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  if (!supabase || !cid) {
+    return { goal: null, reason: "missing_scope" };
+  }
+  const excludeSid = String(excludeSessionId ?? "").trim();
+  try {
+    const { data, error } = await supabase
+      .from("customer_conversations")
+      .select("role, metadata_json, created_at")
+      .eq("customer_id", cid)
+      .eq("role", "assistant")
+      .order("created_at", { ascending: false })
+      .limit(Math.max(1, Number(limit) || 60));
+    if (error) return { goal: null, reason: "query_failed" };
+    for (const row of data ?? []) {
+      const meta =
+        row?.metadata_json && typeof row.metadata_json === "object" ? row.metadata_json : {};
+      if (excludeSid && String(meta.session_id ?? "").trim() === excludeSid) continue;
+      const sg = meta.session_goal;
+      if (!sg || typeof sg !== "object") continue;
+      const status = String(sg.status ?? "").trim();
+      if (status === "completed") continue;
+      if (status !== "active") continue;
+      const g = String(sg.goal ?? "").trim();
+      if (!g || isForbiddenSessionGoalText(g)) continue;
+      return {
+        goal: {
+          goal: g,
+          status: "active",
+          updated_at: sg.updated_at ?? null,
+          source_session_id: String(meta.session_id ?? "").trim() || null,
+        },
+        reason: "customer_active",
+      };
+    }
+    return { goal: null, reason: "none" };
+  } catch {
+    return { goal: null, reason: "query_exception" };
+  }
+}
+
+/**
+ * Prior consultation pack for revisit — system KEY provides related history to Claude.
+ * Separates customer speech / Claude speech / open goals. Never promotes judgment to verified fact.
+ */
+export async function loadCustomerPriorConsultationForClaude({
+  supabase = null,
+  customerId = null,
+  currentSessionId = null,
+  limit = 24,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  const currentSid = String(currentSessionId ?? "").trim();
+  if (!supabase || !cid) {
+    return { prior: null, reason: "missing_scope" };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("customer_conversations")
+      .select("role, content, metadata_json, created_at")
+      .eq("customer_id", cid)
+      .order("created_at", { ascending: false })
+      .limit(Math.max(4, Number(limit) || 24));
+    if (error) return { prior: null, reason: "query_failed" };
+
+    const turns = [];
+    const open_goals = [];
+    const open_tasks = [];
+    const seenGoal = new Set();
+    for (const row of data ?? []) {
+      const meta =
+        row?.metadata_json && typeof row.metadata_json === "object" ? row.metadata_json : {};
+      const sid = String(meta.session_id ?? "").trim();
+      if (currentSid && sid === currentSid) continue;
+      const role = String(row?.role ?? "").trim();
+      const content = String(row?.content ?? "").trim().slice(0, 600);
+      if ((role === "user" || role === "assistant") && content) {
+        turns.push({
+          role,
+          content,
+          session_id: sid || null,
+          created_at: row?.created_at ?? null,
+        });
+      }
+      if (role === "assistant") {
+        const sg = meta.session_goal;
+        if (sg && typeof sg === "object" && String(sg.status ?? "") === "active") {
+          const g = String(sg.goal ?? "").trim();
+          if (g && !isForbiddenSessionGoalText(g) && !seenGoal.has(g)) {
+            seenGoal.add(g);
+            open_goals.push({ goal: g, status: "active", updated_at: sg.updated_at ?? null });
+            open_tasks.push({ kind: "session_goal", detail: g });
+          }
+        }
+        const rec = meta.key_consultation_record;
+        if (rec && typeof rec === "object" && Array.isArray(rec.next_tasks)) {
+          for (const t of rec.next_tasks.slice(0, 4)) {
+            const detail = String(t?.detail ?? t ?? "").trim();
+            if (detail) open_tasks.push({ kind: "next_task", detail: detail.slice(0, 200) });
+          }
+        }
+      }
+      if (turns.length >= 16) break;
+    }
+    turns.reverse();
+    if (!turns.length && !open_goals.length) {
+      return { prior: null, reason: "none" };
+    }
+    return {
+      prior: {
+        related_turns: turns.slice(-12),
+        open_goals: open_goals.slice(0, 3),
+        open_tasks: open_tasks.slice(0, 6),
+        note: "prior_consultation_reference_only_not_verified_fact",
+      },
+      reason: "ok",
+    };
+  } catch {
+    return { prior: null, reason: "query_exception" };
+  }
+}
+
+/** Structured consultation memory kinds (A–F) for assistant metadata — not verified fact. */
+export function buildKeyConsultationRecord({
+  question = "",
+  claudeAnswer = "",
+  sessionGoal = null,
+  recommendationBasisCount = 0,
+  pdfAttached = false,
+  documentId = null,
+} = {}) {
+  const q = String(question ?? "").trim().slice(0, 800);
+  const a = String(claudeAnswer ?? "").trim().slice(0, 1200);
+  const goal =
+    sessionGoal && typeof sessionGoal === "object" && String(sessionGoal.goal ?? "").trim()
+      ? {
+          goal: String(sessionGoal.goal).trim().slice(0, 240),
+          status: String(sessionGoal.status ?? "active"),
+        }
+      : null;
+  const next_tasks = [];
+  if (goal?.goal) next_tasks.push({ kind: "session_goal", detail: goal.goal });
+  if (pdfAttached && documentId) {
+    next_tasks.push({ kind: "document_followup", detail: `document:${String(documentId).slice(0, 80)}` });
+  }
+  return {
+    schema: "key_consultation_record_v1",
+    customer_utterance: q || null,
+    verified_fact_refs: documentId
+      ? [{ kind: "document", id: String(documentId) }]
+      : [],
+    claude_judgment: {
+      answer_preview: a || null,
+      recommendation_basis_count: Number(recommendationBasisCount) || 0,
+      not_verified_customer_fact: true,
+    },
+    unverified_items: [],
+    next_tasks,
+    outcomes: null,
+    session_goal: goal,
+  };
+}
+
 /** What may be written to assistant metadata this turn (never invents on failure). */
 export function resolvePersistableSessionGoal({
   discardRequested = false,
@@ -1353,29 +1526,33 @@ export function extractPartialCustomerAnswer(partialJson = "") {
 
 export function buildSystemPrompt() {
   return [
-    "너는 고객이 만나는 보험 AI KEY다.",
-    "너는 보험의 전문성을 바탕으로 고객의 삶과 재산을 평생 지키며, 필요한 보험을 근거와 함께 정확하게 안내한다.",
-    "일상 대화와 생활 정보 탐색은 고객을 이해하고 신뢰를 쌓는 보험 전문가의 기본 능력이다.",
-    "고객의 일상 질문에도 네 모든 이해·검색·대화 능력을 사용해 충실히 답한다.",
-    "고객에게 보험이 실제로 필요하다는 근거가 확인되면, 그 이유를 분명히 설명하고 가입·유지·정리·보완을 자신 있게 제안한다.",
-    "보험이 관련되지 않은 순간에는 고객이 지금 묻는 문제를 온전히 해결한다.",
-    "제공된 질문, 대화, 검증 사실, 원본 첨부와 도구를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
-    "네 답변이 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·판단·답변한다.",
+    // OUR CLAUDE — 보험 설계사 KEY 제품 정체성 (사후 검열용 gate 아님)
+    "너는 고객이 만나는 유일한 보험 설계사 KEY다.",
+    "보험 전문성을 바탕으로 고객의 삶·건강·가족·재산을 오래 지키고, 필요한 보험을 근거와 함께 고객에게 딱 맞게 안내한다.",
+    "고객의 현재 질문과 감정, 전체 대화의 흐름을 먼저 이해한다. 질문에 직접 답하고, 설계사답게 친절하고 쉽게 설명하며, 필요한 내용을 충분히 마무리한다. 한두 문장으로 대화를 끊지 않는다.",
+    "일상 대화·안부·맛집·생활 정보에도 질문 자체에 충실히 답한다. 순수한 일상 질문 한가운데 보험을 기계적으로 끼워 넣지 않는다. 인사나 맛집 질문에 갑자기 보험료 절감 이야기를 삽입하지 않는다.",
+    "그러나 고객의 말에서 삶·건강·가족·재산·돈·보장·계약·서류·사고·질병·걱정과 같이 보험으로 연결할 수 있는 신호가 보이면, 보험 설계사답게 자연스럽게 상담으로 이끈다.",
+    "보험 유도는 고객의 걱정과 현재 상황을 먼저 이해한 뒤, 지금 보장에서 함께 확인하면 좋은 점·필요한 서류·다음 점검을 제안하는 방식으로 한다. 실제 필요성이 확인되면 가입·유지·정리·보완을 근거와 함께 자신 있게 제안한다.",
+    "보험 유도는 강요가 아니다. 근거 없는 상품 추천, 고객이 거절했는데 밀어붙이는 행동, '지금 가입하세요/해지해도 됩니다/무조건 이 상품' 같은 확정 지시, 모든 대화를 보험으로 끝내려는 기계적 행동은 하지 않는다.",
+    "고객이 지금은 일상 이야기만 하고 싶어 하거나 보험 상담을 원하지 않으면 그 선택을 존중한다. 나중에 필요할 때 보험과 보장을 함께 볼 수 있다는 관계는 자연스럽게 남긴다.",
+    "제공된 질문, 대화, 검증 사실, 원본 첨부, 이전 상담 참고와 도구를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
+    "네가 완성한 답변이 고객이 듣는 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·판단·답변한다. 답변의 길이·구조·표현·표·후속 질문은 고객에게 가장 도움이 되는 방식으로 네가 자유롭게 결정한다.",
     "검증된 고객 계약 사실과 법령·공공 기준을 구분하고, 고객 계약·담보·보험료 사실은 available_verified_evidence의 현재 검증 자료에만 근거한다.",
     "과거 대화·이전 KEY 답변·삭제·retired 자료에 나온 계약·담보·보험료를 현재 사실처럼 말하지 않는다. 검증되지 않은 값을 '실손·운전자만 보유', '암·뇌·심장 없음', 특정 월 보험료 합계처럼 단정하지 않는다.",
     "계약상 수익자와 법정상속인을 같은 개념으로 취급하지 않는다. 가족관계·자금 부담자를 이름만으로 추정하지 않는다.",
     "보험 추천·맞춤 추천 질문에서는 정보 부족 감사·상황 요약 표·공백 표·나이·성별·가족·소득 필수 질문지로 답변을 축소하거나 멈추지 않는다. 현재 자료로 할 수 있는 판단과 추천을 첫 문장부터 바로 말한다.",
     "확인된 계약·담보는 정확히 설명하고, 부족·보완이 검증된 축은 구체적으로 추천한다. 확인되지 않은 부분은 '없음/미가입/공백'이 아니라 '확인되지 않음'으로 말한다.",
-    "정보가 일부 부족해도 가능한 범위의 추천을 먼저 제공한다. 추가 질문은 추천을 끝낸 뒤 정말 필요한 것 하나만 자연스럽게 묻는다.",
-    "보험 추천 자체를 금지하지 않는다. 근거가 있는 필요 보험·방향은 분명하게 추천한다. 다만 '지금 가입하세요/해지해도 됩니다/무조건 이 상품' 같은 확정 가입·해지 지시는 하지 않는다.",
-    "고정된 표·제목·문단 순서·'현재 확인된 상황 요약'·'지금 자료로 보이는 공백'·'추천을 제대로 드리려면' 같은 감사 템플릿을 강요하지 않는다. 표현과 구성은 네가 맡는다.",
+    "자료가 부족할 때에는 대화를 짧게 포기하지 않고, 지금 판단 가능한 범위와 다음에 필요한 자료·확인 방법을 안내한다. 추가 질문은 정말 필요한 것 하나만 자연스럽게 묻는다.",
+    "고정된 표·제목·문단 순서·'현재 확인된 상황 요약'·'지금 자료로 보이는 공백'·'추천을 제대로 드리려면' 같은 감사 템플릿을 강요하지 않는다.",
     "자동조회·본인인증 기능이 실제 작동하는 것처럼 말하지 않는다. 내보험다보여·보험다보여 안내를 자동으로 붙이지 않는다. 추가 자료가 정말 필요할 때만 보험증권 또는 보장내역서 업로드를 한 번 자연스럽게 요청할 수 있다. 추천 답변을 내보험다보여 안내로 끝내지 않는다.",
     "입력이 충분하면 지분·금액·구조의 의미를 직접 계산·판단한다. 무조건 전문가에게만 넘기며 판단을 회피하지 않는다.",
+    "같은 고객과 같은 대화를 이어서 본다. 앞에서 확인한 사실·걱정·목표·약속을 잊고 매번 처음 만난 사람처럼 대하지 않는다.",
     "고객에게 내부 필드명·도구명·시스템 경로를 말하지 않는다.",
     "웹 검색어에는 공개된 상품명·약관명·법령명·제도명 등만 사용하고, 고객의 이름·연락처·계약번호·건강·재산·가족 및 법인 비공개 정보는 검색어로 외부에 내보내지 않는다.",
     "record_session_goal은 선택 도구다. 현재 세션의 단기 작업 목표만 기록한다. 감정·성격·미확정 의도·건강/계약/가족 사실·추천 결론·장기 프로필은 금지한다. 고객 답변에 목표를 억지로 언급하지 않는다.",
     "record_recommendation_basis는 선택 도구다. 이번 고객 답변에 보험 추천·보완·방향 제안이 있을 때만, 같은 응답에서 available_verified_evidence와 이번 응답에서 KEY가 검증한 coverage baseline의 실제 ref로 내부 근거를 기록한다. 추천이 없으면 호출하지 않는다. 고객에게 도구명이나 JSON을 말하지 말고, 고객 답변은 평문으로 완성한다.",
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
+    "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
     buildClaimCaseUpdatesToolHint(),
   ].join("\n");
 }
@@ -1671,6 +1848,7 @@ export function buildUserPayload({
   publicEvidence = null,
   activeClaimCases = null,
   sessionGoal = null,
+  priorConsultation = null,
   now = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
@@ -1685,6 +1863,21 @@ export function buildUserPayload({
           goal: String(sessionGoal.goal).trim(),
           status: "active",
           updated_at: sessionGoal.updated_at ?? null,
+        }
+      : null;
+  const softPrior =
+    priorConsultation && typeof priorConsultation === "object"
+      ? {
+          related_turns: Array.isArray(priorConsultation.related_turns)
+            ? priorConsultation.related_turns.slice(0, 12)
+            : [],
+          open_goals: Array.isArray(priorConsultation.open_goals)
+            ? priorConsultation.open_goals.slice(0, 3)
+            : [],
+          open_tasks: Array.isArray(priorConsultation.open_tasks)
+            ? priorConsultation.open_tasks.slice(0, 6)
+            : [],
+          note: "prior_consultation_reference_only_not_verified_fact",
         }
       : null;
 
@@ -1709,6 +1902,7 @@ export function buildUserPayload({
           retained_past_originals: contextPack?.retained_past_originals ?? [],
         },
         ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
+        ...(softPrior ? { prior_consultation: softPrior } : {}),
       },
       available_verified_evidence: {
         personal: {
@@ -1768,6 +1962,7 @@ export function buildUserPayload({
       },
       // Soft reference only — never above current_question / conversation / verified evidence.
       ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
+      ...(softPrior ? { prior_consultation: softPrior } : {}),
     },
     available_verified_evidence: {
       personal: {
@@ -2445,6 +2640,8 @@ async function callClaudeFirstDirect({
   activeDocuments = null,
   /** Server-SSOT soft goal only — never from client body. */
   sessionGoalForContext = null,
+  /** Soft prior consultation pack — never verified fact. */
+  priorConsultationForContext = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -2500,6 +2697,10 @@ async function callClaudeFirstDirect({
     publicEvidence: [],
     activeClaimCases: imageOriginalRead ? null : activeClaimCases,
     sessionGoal: softGoal,
+    priorConsultation:
+      priorConsultationForContext && typeof priorConsultationForContext === "object"
+        ? priorConsultationForContext
+        : null,
     now: requestNow,
   });
   const pdfAttached = Boolean(pdfBase64);
@@ -2919,6 +3120,18 @@ export async function runClaudeFirstDirectQuestionTurn({
     });
     ssotGoal = loaded.goal;
     ssotReason = loaded.reason;
+    // Same-customer open preference/goal when this session has none (revisit continuity).
+    if (!ssotGoal) {
+      const customerGoal = await loadLatestActiveCustomerGoalFromConversations({
+        supabase: userSupabase,
+        customerId,
+        excludeSessionId: sessionId,
+      });
+      if (customerGoal.goal) {
+        ssotGoal = customerGoal.goal;
+        ssotReason = customerGoal.reason;
+      }
+    }
   } else if (discardRequested) {
     ssotReason = "discard_requested";
   } else {
@@ -2927,6 +3140,18 @@ export async function runClaudeFirstDirectQuestionTurn({
   const sessionGoalForContext = discardRequested
     ? null
     : resolveSessionGoalForContext(ssotGoal, question);
+
+  let priorConsultationForContext = null;
+  let priorConsultationReason = "not_loaded";
+  if (userSupabase && customerId) {
+    const priorLoaded = await loadCustomerPriorConsultationForClaude({
+      supabase: userSupabase,
+      customerId,
+      currentSessionId: sessionId,
+    });
+    priorConsultationForContext = priorLoaded.prior;
+    priorConsultationReason = priorLoaded.reason;
+  }
 
   // Membership-scoped corporate contexts only. Client entity_id never widens access.
   // Do not fail the personal turn when a stale/foreign entity hint is present.
@@ -3321,6 +3546,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     activeClaimCases,
     activeDocuments: activeDocumentsForHistory,
     sessionGoalForContext,
+    priorConsultationForContext,
   });
   const emitMark = span.end();
   // Completeness: progressive extract can lag the final customer_answer.
@@ -3436,42 +3662,28 @@ export async function runClaudeFirstDirectQuestionTurn({
     Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
 
   if (streamAbortedByConflict) {
-    // GO2: customer-visible text is exactly what SSE already sent (good + one failure closer).
+    // Separate path: verified-literal conflict abort (not normal-answer rewrite).
+    // Customer-visible text is exactly what SSE already sent (good + one failure closer).
     usedFailure = true;
     failureReason = "key_verified_literal_conflict";
     finalText = sseEmittedText;
     alreadyCommitted = true;
   } else {
+    // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
     safety = hardOnlySafetyCheck(claude.customer_answer, {
       allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
       allowed_entities: claude.allowlist?.allowed_entities ?? [],
     });
+    replacingHard = [];
 
-    // Native Claude-first: do not replace a real answer with monopoly for jailbreak_fact alone
-    // (citations / derived math / place names from web_search). Gate body unchanged —
-    // call-site only chooses which CLOSED reasons may swap customer text.
-    // Monopoly A: recommendation_or_termination → monopoly only for enroll/cancel/close push.
-    replacingHard = selectReplacingHardReasons(safety.hard, claude.customer_answer);
-
-    // Slice 8: always prefer full Claude original when no CLOSED replacing hard.
-    // sentence_hard_lite must not truncate normal contract-structure answers.
     if (!String(finalText ?? "").trim()) {
       finalText = commitStream.getCommitted() || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
       if (!commitStream.getCommitted()) {
         usedFailure = true;
         failureReason = "empty_answer";
       }
-    } else if (replacingHard.length > 0 && !alreadyCommitted) {
-      // Only monopoly-replace when nothing was already shown to the customer.
-      finalText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-      usedFailure = true;
-      failureReason = replacingHard.join(";") || "closed_hard";
-    } else if (replacingHard.length > 0 && alreadyCommitted) {
-      // E: keep committed text; do not yank.
-      finalText = commitStream.getCommitted() || finalText;
-      failureReason = `committed_no_replace:${replacingHard.join(";")}`;
     }
-    // else: seal Claude original as-is (no sentence_hard_lite truncation).
+    // else: seal Claude original as-is (no monopoly, no soft rewrite, no truncation).
   }
 
   // As-is delivery (no polish rewrite). Seal only.
@@ -3485,6 +3697,17 @@ export async function runClaudeFirstDirectQuestionTurn({
     claudeGoal: claude.session_goal ?? null,
     now: startedAt instanceof Date ? startedAt : new Date(startedAt),
   });
+
+  const keyConsultationRecord = usedFailure
+    ? null
+    : buildKeyConsultationRecord({
+        question,
+        claudeAnswer: sealed.key_speak_original,
+        sessionGoal: persistableSessionGoal,
+        recommendationBasisCount: Number(claude.recommendation_basis_count ?? 0) || 0,
+        pdfAttached: claude.pdf_attached === true,
+        documentId: pdf?.meta?.document_id ?? null,
+      });
 
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
   // GO1: KEY confirm gate — active doc + ownership + schema + source match — before persist.
@@ -3699,6 +3922,8 @@ export async function runClaudeFirstDirectQuestionTurn({
       decision: null,
       session_goal: persistableSessionGoal,
       decision_persisted: false,
+      key_consultation_record: keyConsultationRecord,
+      prior_consultation_reason: priorConsultationReason,
       key_compose_trace: {
         compose_mode: "key_claude_first_direct",
         key_voice_trace: {
@@ -3711,6 +3936,10 @@ export async function runClaudeFirstDirectQuestionTurn({
           soft_reasons_ignored: safety.soft,
           hard_reasons: safety.hard,
           replacing_hard_reasons: replacingHard,
+          normal_answer_post_replace: false,
+          key_consultation_record: keyConsultationRecord,
+          prior_consultation_injected: Boolean(priorConsultationForContext),
+          prior_consultation_reason: priorConsultationReason,
           jailbreak_detail: safety.jailbreak_detail,
           answer_source: claude.answer_source ?? null,
           decision_persisted: false,

@@ -1316,6 +1316,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
             activeAttachment: nextActive,
             sessionGoal: turnSessionGoal,
+            keyConsultationRecord: result.keyConsultationRecord ?? null,
           });
         } catch {
           // Fail-soft: customer answer already on screen; do not retry (would duplicate rows).

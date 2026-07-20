@@ -560,6 +560,7 @@ export function buildAssistantTurnMetadata(
     oneKeyCoreTraceSummary = null,
     activeAttachment = null,
     sessionGoal = null,
+    keyConsultationRecord = null,
   } = {},
 ) {
   const metadata = buildSessionMetadata(sessionId, { activeAttachment });
@@ -597,6 +598,14 @@ export function buildAssistantTurnMetadata(
         updated_at: sessionGoal.updated_at ?? null,
       };
     }
+  }
+  // OUR CLAUDE — consultation kinds (Claude judgment ≠ verified fact).
+  if (
+    keyConsultationRecord &&
+    typeof keyConsultationRecord === "object" &&
+    keyConsultationRecord.schema === "key_consultation_record_v1"
+  ) {
+    metadata.key_consultation_record = keyConsultationRecord;
   }
   return metadata;
 }

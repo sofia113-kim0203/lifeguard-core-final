@@ -159,6 +159,10 @@ export function mapHomeBrainFactPayload(payload) {
             updated_at: payload.session_goal.updated_at ?? null,
           }
         : null,
+    keyConsultationRecord:
+      payload.key_consultation_record && typeof payload.key_consultation_record === "object"
+        ? payload.key_consultation_record
+        : null,
   };
 }
 

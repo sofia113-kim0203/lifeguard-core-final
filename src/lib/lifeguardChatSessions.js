@@ -183,6 +183,7 @@ export async function persistLifeguardChatTurn(
     oneKeyCoreTraceSummary = null,
     activeAttachment = null,
     sessionGoal = null,
+    keyConsultationRecord = null,
   },
 ) {
   if (!sessionId) throw new Error("session_id_required");
@@ -198,6 +199,7 @@ export async function persistLifeguardChatTurn(
       oneKeyCoreTraceSummary,
       activeAttachment,
       sessionGoal,
+      keyConsultationRecord,
     });
   } catch {
     // Fail-soft: session_goal must never block customer answer persistence.

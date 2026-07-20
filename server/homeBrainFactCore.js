@@ -685,6 +685,8 @@ export async function handleHomeBrainFactRequest({
       failure_reason: coreResult.failure_reason ?? null,
       // GO3 — short-term session work state for client metadata persist (not decision/memory).
       session_goal: coreResult.salesDirectorTrace?.session_goal ?? null,
+      // OUR CLAUDE memory loop — consultation kinds for assistant metadata (not verified fact).
+      key_consultation_record: coreResult.salesDirectorTrace?.key_consultation_record ?? null,
       decision_persisted: false,
       factsUsed,
       claude_factory_direction: claudeFactoryDirection,
