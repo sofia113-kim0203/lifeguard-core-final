@@ -110,6 +110,14 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         setMemoryStatus(deriveMemoryStatusFromUnified(unified));
         if (event) setLastEvent(event);
 
+        // Triangle T2 — login bootstrap READY CARD warm (no Claude; fire-and-forget).
+        try {
+          const { warmKeyReadyCardFireAndForget } = await import("../lib/keyReadyCardWarm.js");
+          warmKeyReadyCardFireAndForget({ sessionId: null });
+        } catch {
+          // Warm must never block session UI.
+        }
+
         if (reloadJob) {
           try {
             const latestJob = await fetchLatestAnalysisJob();

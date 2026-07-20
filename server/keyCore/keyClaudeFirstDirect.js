@@ -77,6 +77,11 @@ import {
   decidePdfAttachMode,
   loadCustomerDocumentChunksByDocumentId,
 } from "./keyClaudePdfAttachPolicy.js";
+import {
+  resolveReadyCardForQuestionTurn,
+  materialsFromReadyCard,
+  buildReadyCardClaudeMeta,
+} from "./keyReadyCardBuild.js";
 
 /**
  * GO2 — sentence commit with abort: conflict slice is never appended to committed,
@@ -2182,10 +2187,13 @@ export function buildUserPayload({
   sessionGoal = null,
   priorConsultation = null,
   now = null,
+  readyCardMeta = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
   const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
+  const ready_card =
+    readyCardMeta && typeof readyCardMeta === "object" ? readyCardMeta : null;
   const softSessionGoal =
     sessionGoal &&
     typeof sessionGoal === "object" &&
@@ -2235,6 +2243,7 @@ export function buildUserPayload({
         },
         ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
         ...(softPrior ? { prior_consultation: softPrior } : {}),
+        ...(ready_card ? { ready_card } : {}),
       },
       available_verified_evidence: {
         personal: {
@@ -2295,6 +2304,7 @@ export function buildUserPayload({
       // Soft reference only — never above current_question / conversation / verified evidence.
       ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
       ...(softPrior ? { prior_consultation: softPrior } : {}),
+      ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
       personal: {
@@ -3125,6 +3135,8 @@ async function callClaudeFirstDirect({
   priorConsultationForContext = null,
   /** Prepared document excerpts (document_extracted_unverified). */
   documentEvidence = null,
+  /** Triangle T2 READY CARD meta for Claude (status / as-of / miss note). */
+  readyCardMeta = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -3190,6 +3202,7 @@ async function callClaudeFirstDirect({
         ? priorConsultationForContext
         : null,
     now: requestNow,
+    readyCardMeta: imageOriginalRead ? null : readyCardMeta,
   });
   const pdfAttached = Boolean(pdfBase64);
   // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
@@ -3432,78 +3445,70 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   // GO3 SSOT — never trust client prior_session_goal; load from conversations only.
   const discardRequested = shouldDiscardStaleSessionGoal(question) === true;
-  let ssotGoal = null;
-  let ssotReason = "not_loaded";
-  if (!discardRequested && userSupabase && customerId && sessionId) {
-    const loaded = await loadLatestSessionGoalFromConversations({
-      supabase: userSupabase,
-      customerId,
-      sessionId,
-    });
-    ssotGoal = loaded.goal;
-    ssotReason = loaded.reason;
-    // Same-customer open preference/goal when this session has none (revisit continuity).
-    if (!ssotGoal) {
-      const customerGoal = await loadLatestActiveCustomerGoalFromConversations({
-        supabase: userSupabase,
-        customerId,
-        excludeSessionId: sessionId,
-      });
-      if (customerGoal.goal) {
-        ssotGoal = customerGoal.goal;
-        ssotReason = customerGoal.reason;
-      }
-    }
-  } else if (discardRequested) {
-    ssotReason = "discard_requested";
-  } else {
-    ssotReason = "missing_scope";
-  }
+
+  // Triangle T2 — reuse prewarmed READY CARD (parallel SSOT). Skip serial goal→prior→…
+  const readyResolved = await resolveReadyCardForQuestionTurn({
+    userSupabase,
+    customerId,
+    sessionId,
+    authUserId,
+    loadedContext,
+    unifiedState,
+    customerContextBundle,
+    discardGoal: discardRequested,
+    backgroundRefresh: true,
+    buildDeps: {
+      extractPoliciesFromContext,
+      loadLatestSessionGoalFromConversations,
+      loadLatestActiveCustomerGoalFromConversations,
+      loadCustomerPriorConsultationForClaude,
+      loadAllowedCorporateContextsForClaude: loadAllowedCorporateContextsForClaudeImpl,
+      loadKeyActiveClaimCases,
+      loadActiveCustomerDocuments: loadActiveCustomerDocumentsForHistoryFilter,
+    },
+  });
+  const readyCard = readyResolved?.card ?? null;
+  const readyCardStatus = String(readyResolved?.ready_card_status ?? "miss");
+  const readyCardMs =
+    typeof readyResolved?.ready_card_ms === "number" ? readyResolved.ready_card_ms : null;
+  const readyMaterials = materialsFromReadyCard(readyCard);
+  const readyCardMeta = buildReadyCardClaudeMeta(readyCard, readyCardStatus);
+
+  // Hit/stale/miss: materials always come from READY CARD path (miss rebuilds in parallel).
+  let ssotGoal = discardRequested ? null : readyMaterials.ssotGoal;
+  let ssotReason = discardRequested
+    ? "discard_requested"
+    : !customerId
+      ? "missing_scope"
+      : readyMaterials.ssotReason;
+  let priorConsultationForContext = readyMaterials.priorConsultation;
+  let priorConsultationReason = readyMaterials.priorConsultationReason;
+  let corporateContexts = readyMaterials.corporateContexts;
+  let corporateGapEvidence = readyMaterials.corporateGapEvidence;
+  let corporateRecommendationCandidates = readyMaterials.corporateRecommendationCandidates;
+  let corporateUnknowns = readyMaterials.corporateUnknowns;
+  const activeClaimCasesFromCard = readyMaterials.activeClaimCases;
+  const activeDocumentsFromCard = readyMaterials.activeDocuments;
+
+  // entityContext from older clients is ignored for data access scope.
+  void entityContext;
+
   const sessionGoalForContext = discardRequested
     ? null
     : resolveSessionGoalForContext(ssotGoal, question);
 
-  let priorConsultationForContext = null;
-  let priorConsultationReason = "not_loaded";
-  if (userSupabase && customerId) {
-    const priorLoaded = await loadCustomerPriorConsultationForClaude({
-      supabase: userSupabase,
-      customerId,
-      currentSessionId: sessionId,
-    });
-    priorConsultationForContext = priorLoaded.prior;
-    priorConsultationReason = priorLoaded.reason;
-  }
-
-  // Membership-scoped corporate contexts only. Client entity_id never widens access.
-  // Do not fail the personal turn when a stale/foreign entity hint is present.
-  const corporateLoaded = await loadAllowedCorporateContextsForClaudeImpl({
-    userSupabase,
-    customerId,
-    authUserId,
-  });
-  const corporateContexts = Array.isArray(corporateLoaded?.corporate_contexts)
-    ? corporateLoaded.corporate_contexts
-    : [];
-  const corporateGapEvidence = Array.isArray(corporateLoaded?.corporate_gap_evidence)
-    ? corporateLoaded.corporate_gap_evidence
-    : [];
-  const corporateRecommendationCandidates = Array.isArray(
-    corporateLoaded?.corporate_recommendation_candidates,
-  )
-    ? corporateLoaded.corporate_recommendation_candidates
-    : [];
-  const corporateUnknowns = Array.isArray(corporateLoaded?.corporate_unknowns)
-    ? corporateLoaded.corporate_unknowns
-    : [];
-  // entityContext from older clients is ignored for data access scope.
-  void entityContext;
-
-  const { policies, policy_count } = extractPoliciesFromContext({
+  const extracted = extractPoliciesFromContext({
     loadedContext,
     customerContextBundle,
     unifiedState,
   });
+  // Prefer live turn-context policies when present; else READY CARD brief.
+  const policies =
+    extracted.policies.length > 0 ? extracted.policies : readyMaterials.policies;
+  const policy_count =
+    extracted.policies.length > 0
+      ? extracted.policy_count
+      : readyMaterials.policy_count;
   const reality = { policies, policy_count };
 
   // Physical active attachment only — never invent latest document; never keyword-classify the question.
@@ -3840,16 +3845,20 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
   });
 
-  // Existing customer-card claim cases — materials only; never invent cross-customer rows.
-  let activeClaimCases = [];
-  try {
-    activeClaimCases = await loadKeyActiveClaimCases({
-      supabase: userSupabase,
-      customerId,
-    });
-  } catch (err) {
-    console.error("[key_active_claim_cases_load]", String(err?.message ?? err).slice(0, 200));
-    activeClaimCases = [];
+  // Existing customer-card claim cases — READY CARD reuse; never invent cross-customer rows.
+  let activeClaimCases = Array.isArray(activeClaimCasesFromCard)
+    ? activeClaimCasesFromCard
+    : [];
+  if (!Array.isArray(activeClaimCasesFromCard)) {
+    try {
+      activeClaimCases = await loadKeyActiveClaimCases({
+        supabase: userSupabase,
+        customerId,
+      });
+    } catch (err) {
+      console.error("[key_active_claim_cases_load]", String(err?.message ?? err).slice(0, 200));
+      activeClaimCases = [];
+    }
   }
 
   const pdfMetaForClaude = {
@@ -3860,11 +3869,13 @@ export async function runClaudeFirstDirectQuestionTurn({
     document_mention_resolve: documentMentionResolve?.reason ?? null,
   };
 
-  // Active documents for history pack filter (RLS: soft-deleted rows are invisible).
-  const activeDocumentsForHistory = await loadActiveCustomerDocumentsForHistoryFilter({
-    supabase: userSupabase,
-    customerId,
-  });
+  // Active documents for history pack filter — prefer READY CARD; fall back only if absent.
+  const activeDocumentsForHistory = Array.isArray(activeDocumentsFromCard)
+    ? activeDocumentsFromCard
+    : await loadActiveCustomerDocumentsForHistoryFilter({
+        supabase: userSupabase,
+        customerId,
+      });
 
   const questionClaudeStartMs = relMs(startedAt);
   const claude = await callClaudeFirstDirect({
@@ -3896,6 +3907,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     sessionGoalForContext,
     priorConsultationForContext,
     documentEvidence: documentChunksForClaude,
+    readyCardMeta,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -3907,8 +3919,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     Number(claude?.empty_answer_diag?.input?.request_body_chars) || null;
   const triangleT0 = {
     customer_question_received_ms: 0,
-    ready_card_ms: null,
-    ready_card_status: "not_implemented_t2",
+    ready_card_ms: readyCardMs,
+    ready_card_build_ms:
+      typeof readyCard?.build_ms === "number" && Number.isFinite(readyCard.build_ms)
+        ? readyCard.build_ms
+        : null,
+    ready_card_status: ["hit", "stale", "miss"].includes(readyCardStatus)
+      ? readyCardStatus
+      : "miss",
     question_claude_start_ms: questionClaudeStartMs,
     anthropic_first_byte_ms: claude.ttft_ms ?? firstTokenMs ?? null,
     first_delta_sent_ms: firstTokenMs ?? claude.ttft_ms ?? null,
@@ -4390,6 +4408,9 @@ export async function runClaudeFirstDirectQuestionTurn({
             policy_count,
             policy_rows: policies.length,
             active_claim_cases_hydrated: activeClaimCases.length,
+            ready_card_status: readyCardStatus,
+            ready_card_ms: readyCardMs,
+            ready_card_materials_connected: readyCard?.materials_connected === true,
           },
         },
         {

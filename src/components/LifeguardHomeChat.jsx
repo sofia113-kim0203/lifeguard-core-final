@@ -25,6 +25,7 @@ import {
   shouldClearActiveAttachmentAfterTurn,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
+import { warmKeyReadyCardFireAndForget } from "../lib/keyReadyCardWarm.js";
 import {
   beginInflightHomeChatTurn,
   clearLifeguardChatSnapshot,
@@ -823,6 +824,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setPanelView("chat");
       setThreadRestoreReady(true);
       restoreForceScrollRef.current = true;
+      warmKeyReadyCardFireAndForget({ sessionId: inflight.sessionId });
       // Rails/thread index may refresh; message list stays on inflight.
       void listLifeguardRecentSessions(authUser, { customerId })
         .then((recent) => {
@@ -880,6 +882,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             setLoading(Boolean(live.loading));
             setStreaming(Boolean(live.streaming));
             setThreadRestoreReady(true);
+            warmKeyReadyCardFireAndForget({ sessionId: live.sessionId || activeId });
             return;
           }
         }
@@ -927,6 +930,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         }
 
         setThreadRestoreReady(true);
+        warmKeyReadyCardFireAndForget({ sessionId: activeId });
       } catch (err) {
         if (!cancelled) {
           setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
@@ -983,6 +987,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
         setThreadRestoreReady(true);
+        warmKeyReadyCardFireAndForget({ sessionId: targetSessionId });
         focusChatInput();
       }
     },
