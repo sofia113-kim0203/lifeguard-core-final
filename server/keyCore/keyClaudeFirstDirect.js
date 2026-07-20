@@ -254,14 +254,33 @@ export function buildAnthropicErrorMessageFingerprint(errorMessage = "") {
     .map((m) => m[0])
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 6);
+  // English/schema tokens only — never Hangul/email/long digits (PII-safe).
+  const token_sample = [
+    ...raw.matchAll(/[A-Za-z][A-Za-z0-9_.-]{2,48}/g),
+  ]
+    .map((m) => m[0].toLowerCase())
+    .filter((t) => !t.includes("@") && !/^\d+$/.test(t))
+    .filter((t, i, a) => a.indexOf(t) === i)
+    .slice(0, 24);
+  // Structure-only redacted preview for TEMP/debug (no Hangul, no emails, no long numbers).
+  const redacted_preview = raw
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[uuid]")
+    .replace(/[가-힣]+/g, "[ko]")
+    .replace(/\d{5,}/g, "[num]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[key]")
+    .slice(0, 220);
   const message_sha256_16 = createHash("sha256")
     .update(raw)
     .digest("hex")
     .slice(0, 16);
   return {
     message_sha256_16,
+    message_len: raw.length,
     matched_keywords,
     path_tokens,
+    token_sample,
+    redacted_preview,
   };
 }
 
