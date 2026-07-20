@@ -2144,6 +2144,138 @@ export function buildClaudeFirstToolResultAckBlocks(assistantContent = []) {
     }));
 }
 
+/** PII-safe empty-answer input counts only — never store prompt/body text. */
+function buildEmptyAnswerInputDiag({
+  question = null,
+  contextPack = null,
+  chart = null,
+  softGoal = null,
+  priorConsultation = null,
+  pdfBase64 = null,
+  system = "",
+  body = null,
+} = {}) {
+  const recent = Array.isArray(contextPack?.recent_conversation_originals)
+    ? contextPack.recent_conversation_originals
+    : Array.isArray(contextPack?.recent_turns)
+      ? contextPack.recent_turns
+      : [];
+  const retained = Array.isArray(contextPack?.retained_past_originals)
+    ? contextPack.retained_past_originals
+    : [];
+  const facts = Array.isArray(chart?.key_confirmed_source_facts)
+    ? chart.key_confirmed_source_facts
+    : [];
+  const contracts = Array.isArray(chart?.contracts) ? chart.contracts : [];
+  const relatedTurns = Array.isArray(priorConsultation?.related_turns)
+    ? priorConsultation.related_turns
+    : [];
+  let request_body_chars = 0;
+  try {
+    request_body_chars = body != null ? JSON.stringify(body).length : 0;
+  } catch {
+    request_body_chars = 0;
+  }
+  return {
+    question_present: String(question ?? "").trim().length > 0,
+    conversation_message_count: recent.length + retained.length,
+    verified_fact_count: facts.length,
+    verified_policy_count: contracts.length,
+    prior_consultation_count: relatedTurns.length,
+    active_goal_present: Boolean(
+      softGoal &&
+        typeof softGoal === "object" &&
+        String(softGoal.goal ?? "").trim(),
+    ),
+    original_attachment_count: pdfBase64 ? 1 : 0,
+    system_prompt_chars: String(system ?? "").length,
+    request_body_chars,
+  };
+}
+
+/** PII-safe Anthropic response shape — lengths/counts only, never answer text. */
+function buildEmptyAnswerResponseDiag({
+  http_status = null,
+  sse_event_counts = null,
+  cumulative_text_delta_chars = 0,
+  stop_reason = null,
+  dataRaw = null,
+  picked = null,
+} = {}) {
+  const content = Array.isArray(dataRaw?.content) ? dataRaw.content : [];
+  const content_block_type_counts = {
+    text: 0,
+    tool_use: 0,
+    server_tool_use: 0,
+    thinking: 0,
+    other: 0,
+  };
+  const text_block_lengths = [];
+  for (const block of content) {
+    const type = String(block?.type ?? "");
+    if (type === "text") {
+      content_block_type_counts.text += 1;
+      text_block_lengths.push(String(block?.text ?? "").length);
+    } else if (type === "tool_use") {
+      content_block_type_counts.tool_use += 1;
+    } else if (type === "server_tool_use") {
+      content_block_type_counts.server_tool_use += 1;
+    } else if (type === "thinking") {
+      content_block_type_counts.thinking += 1;
+    } else {
+      content_block_type_counts.other += 1;
+    }
+  }
+  const pick_before_text_chars = text_block_lengths.reduce((a, n) => a + n, 0);
+  const pick_after_text_chars = String(picked?.customer_answer ?? "").length;
+  const resolvedStop =
+    stop_reason != null
+      ? String(stop_reason)
+      : dataRaw?.stop_reason != null
+        ? String(dataRaw.stop_reason)
+        : null;
+  return {
+    http_status: Number.isFinite(Number(http_status)) ? Number(http_status) : null,
+    sse_event_counts: sse_event_counts ?? {
+      message_start: 0,
+      content_block_start: 0,
+      content_block_delta: 0,
+      content_block_stop: 0,
+      message_delta: 0,
+      message_stop: 0,
+      other: 0,
+    },
+    content_block_type_counts,
+    text_block_lengths,
+    has_thinking_block: content_block_type_counts.thinking > 0,
+    has_tool_block:
+      content_block_type_counts.tool_use > 0 ||
+      content_block_type_counts.server_tool_use > 0,
+    stop_reason: resolvedStop,
+    cumulative_text_delta_chars: Number(cumulative_text_delta_chars) || 0,
+    pick_before_text_chars,
+    pick_after_text_chars,
+  };
+}
+
+function emptySseEventCounts() {
+  return {
+    message_start: 0,
+    content_block_start: 0,
+    content_block_delta: 0,
+    content_block_stop: 0,
+    message_delta: 0,
+    message_stop: 0,
+    other: 0,
+  };
+}
+
+function bumpSseEventCount(counts, type) {
+  const key = String(type ?? "");
+  if (Object.prototype.hasOwnProperty.call(counts, key)) counts[key] += 1;
+  else counts.other += 1;
+}
+
 async function readAnthropicSseWithAnswerStream({
   res,
   startedAt,
@@ -2160,6 +2292,9 @@ async function readAnthropicSseWithAnswerStream({
       ttft_ms: startedAt != null ? relMs(startedAt) : null,
       streamed_answer: picked.customer_answer || "",
       answer_complete_before_end: false,
+      sse_event_counts: emptySseEventCounts(),
+      cumulative_text_delta_chars: 0,
+      stop_reason: dataRaw?.stop_reason != null ? String(dataRaw.stop_reason) : null,
     };
   }
   const decoder = new TextDecoder();
@@ -2171,6 +2306,9 @@ async function readAnthropicSseWithAnswerStream({
   let streamedAnswer = "";
   let answerComplete = false;
   let firstContentNotified = false;
+  const sse_event_counts = emptySseEventCounts();
+  let cumulative_text_delta_chars = 0;
+  let stop_reason = null;
 
   const markTtft = () => {
     if (ttft_ms == null && startedAt != null) {
@@ -2209,9 +2347,11 @@ async function readAnthropicSseWithAnswerStream({
         continue;
       }
       const type = String(evt?.type ?? "");
+      bumpSseEventCount(sse_event_counts, type);
       if (type === "message_start" && evt.message) {
         message = evt.message;
         if (Array.isArray(message.content)) contentBlocks = [...message.content];
+        if (message?.stop_reason != null) stop_reason = String(message.stop_reason);
       } else if (type === "content_block_start") {
         markTtft();
         const idx = Number(evt.index);
@@ -2230,7 +2370,9 @@ async function readAnthropicSseWithAnswerStream({
         if (!Number.isFinite(idx)) continue;
         if (!contentBlocks[idx]) contentBlocks[idx] = { type: "text", text: "" };
         if (delta.type === "text_delta") {
-          contentBlocks[idx].text = `${contentBlocks[idx].text ?? ""}${delta.text ?? ""}`;
+          const deltaText = String(delta.text ?? "");
+          cumulative_text_delta_chars += deltaText.length;
+          contentBlocks[idx].text = `${contentBlocks[idx].text ?? ""}${deltaText}`;
           publishProgress();
         } else if (delta.type === "input_json_delta") {
           contentBlocks[idx].input_json =
@@ -2245,6 +2387,7 @@ async function readAnthropicSseWithAnswerStream({
         }
       } else if (type === "message_delta") {
         if (evt.usage) usage = { ...(usage ?? {}), ...evt.usage };
+        if (evt.delta?.stop_reason != null) stop_reason = String(evt.delta.stop_reason);
       }
     }
   }
@@ -2256,10 +2399,14 @@ async function readAnthropicSseWithAnswerStream({
       ...(message && typeof message === "object" ? message : {}),
       content,
       usage: usage ?? message?.usage ?? null,
+      ...(stop_reason != null ? { stop_reason } : {}),
     },
     ttft_ms,
     streamed_answer: streamedAnswer,
     answer_complete_before_end: answerComplete,
+    sse_event_counts,
+    cumulative_text_delta_chars,
+    stop_reason,
   };
 }
 
@@ -2728,7 +2875,11 @@ async function callClaudeFirstDirect({
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
-    return { ok: false, error: "ANTHROPIC_NOT_CONFIGURED" };
+    return {
+      ok: false,
+      error: "ANTHROPIC_NOT_CONFIGURED",
+      empty_answer_diag: { input: null, response: null },
+    };
   }
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
   const imageOriginalRead = isImageAttachMeta(pdfMeta) && Boolean(pdfBase64);
@@ -2841,6 +2992,10 @@ async function callClaudeFirstDirect({
     history,
   });
   // SINGLE provider call only — no Continue / text-nudge / card-tool-only re-call / force tool_choice.
+  let emptyAnswerDiag = {
+    input: null,
+    response: null,
+  };
   for (let turn = 0; turn < 1; turn += 1) {
     const body = {
       model,
@@ -2852,6 +3007,16 @@ async function callClaudeFirstDirect({
       messages,
       stream: true,
     };
+    emptyAnswerDiag.input = buildEmptyAnswerInputDiag({
+      question,
+      contextPack,
+      chart,
+      softGoal,
+      priorConsultation: priorConsultationForContext,
+      pdfBase64,
+      system,
+      body,
+    });
 
     const res = await fetchImpl(ANTHROPIC_URL, {
       method: "POST",
@@ -2874,10 +3039,19 @@ async function callClaudeFirstDirect({
         providerCallNumber: messagesRequestCount,
         requestPhase: "claude_first_messages_request",
       });
+      emptyAnswerDiag.response = buildEmptyAnswerResponseDiag({
+        http_status: res.status,
+        sse_event_counts: emptySseEventCounts(),
+        cumulative_text_delta_chars: 0,
+        stop_reason: null,
+        dataRaw: null,
+        picked: { customer_answer: "" },
+      });
       return {
         ok: false,
         error: `ANTHROPIC_HTTP_${res.status}`,
         anthropic_upstream_diag,
+        empty_answer_diag: emptyAnswerDiag,
         model,
         confirmed_source_facts: confirmedSourceFacts,
         coverage_baseline_facts: coverageBaselineFacts,
@@ -2902,6 +3076,14 @@ async function callClaudeFirstDirect({
     if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
 
     const picked = pickCustomerAnswer(streamed.dataRaw);
+    emptyAnswerDiag.response = buildEmptyAnswerResponseDiag({
+      http_status: res.status ?? 200,
+      sse_event_counts: streamed.sse_event_counts,
+      cumulative_text_delta_chars: streamed.cumulative_text_delta_chars,
+      stop_reason: streamed.stop_reason,
+      dataRaw: streamed.dataRaw,
+      picked,
+    });
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
@@ -3114,6 +3296,7 @@ async function callClaudeFirstDirect({
     pdf_attached: Boolean(pdfBase64),
     web_search_trace: webSearchTrace,
     public_evidence: publicEvidence,
+    empty_answer_diag: emptyAnswerDiag,
     error: customer_answer ? null : "empty_customer_answer",
   };
 }
@@ -3585,6 +3768,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             session_goal_discard_requested: discardRequested === true,
             session_goal_ssot_reason: ssotReason,
             anthropic_upstream_diag: claude.anthropic_upstream_diag ?? null,
+            empty_answer_diag: claude.empty_answer_diag ?? null,
             web_search: claude.web_search_trace ?? null,
             pdf_attached: claude.pdf_attached === true,
             pdf_attached_attempted: claude.pdf_attached_attempted === true,
@@ -3617,6 +3801,7 @@ export async function runClaudeFirstDirectQuestionTurn({
               error: claude.error ?? "empty",
               ttft_ms: firstTokenMs ?? claude.ttft_ms,
               anthropic_upstream_diag: claude.anthropic_upstream_diag ?? null,
+              empty_answer_diag: claude.empty_answer_diag ?? null,
             },
           },
         ],
@@ -3915,6 +4100,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
+          empty_answer_diag: claude.empty_answer_diag ?? null,
           confirmed_source_facts_count: factsToPersist.length,
           key_confirmed_fact_gate: keyConfirmedFactGate,
           key_confirmed_persist: keyConfirmedPersist,
