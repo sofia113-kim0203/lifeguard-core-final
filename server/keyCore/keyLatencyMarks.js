@@ -191,6 +191,18 @@ export function buildPersistableLatencyMarks(latencyMarks = null, env = process.
             ready_card_ms: numOrNull(latencyMarks.triangle_t0.ready_card_ms),
             ready_card_build_ms: numOrNull(latencyMarks.triangle_t0.ready_card_build_ms),
             ready_card_status: strOrNull(latencyMarks.triangle_t0.ready_card_status, 24),
+            ready_card_source: strOrNull(latencyMarks.triangle_t0.ready_card_source, 32),
+            ready_card_hit:
+              latencyMarks.triangle_t0.ready_card_hit === true
+                ? true
+                : latencyMarks.triangle_t0.ready_card_hit === false
+                  ? false
+                  : null,
+            token_validation_ms: numOrNull(latencyMarks.triangle_t0.token_validation_ms),
+            token_reject_reason: strOrNull(
+              latencyMarks.triangle_t0.token_reject_reason,
+              48,
+            ),
             question_claude_start_ms: numOrNull(
               latencyMarks.triangle_t0.question_claude_start_ms,
             ),

@@ -113,7 +113,10 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         // Triangle T2 — login bootstrap READY CARD warm (no Claude; fire-and-forget).
         try {
           const { warmKeyReadyCardFireAndForget } = await import("../lib/keyReadyCardWarm.js");
-          warmKeyReadyCardFireAndForget({ sessionId: null });
+          warmKeyReadyCardFireAndForget({
+            sessionId: null,
+            customerId: unified?.customer_id ?? dashboard?.customerId ?? null,
+          });
         } catch {
           // Warm must never block session UI.
         }

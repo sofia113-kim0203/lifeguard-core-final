@@ -8,6 +8,7 @@ import {
   writeReadyCardCache,
   READY_CARD_CACHE_TTL_MS,
 } from "./keyReadyCardCache.js";
+import { openReadyCardHandoff } from "./keyReadyCardHandoff.js";
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
 
@@ -357,6 +358,8 @@ export async function warmAndStoreKeyReadyCard(args = {}) {
     materials_connected: card.materials_connected === true,
     customer_id: card.customer_id,
     session_id: card.session_id,
+    // Server-only — warm API seals into opaque token; never send plaintext to client.
+    card,
   };
 }
 
@@ -375,9 +378,10 @@ export async function resolveReadyCardForQuestionTurn({
   discardGoal = false,
   buildDeps = {},
   backgroundRefresh = true,
+  handoffToken = null,
+  env = process.env,
 } = {}) {
   const resolveStarted = Date.now();
-  const cached = readReadyCardCache(customerId, sessionId);
   const warmArgs = {
     userSupabase,
     customerId,
@@ -389,6 +393,51 @@ export async function resolveReadyCardForQuestionTurn({
     discardGoal,
     ...buildDeps,
   };
+
+  let handoffRejectReason = null;
+  let tokenValidationMs = null;
+
+  // T2.1 — opaque login handoff first (cross-instance). Never trust client card JSON.
+  if (handoffToken) {
+    const opened = openReadyCardHandoff(handoffToken, {
+      customerId,
+      authUserId,
+      sessionId,
+      env,
+    });
+    if (opened.ok) {
+      const cid = String(customerId ?? "").trim();
+      const sid = String(sessionId ?? "").trim() || null;
+      if (cid) {
+        writeReadyCardCache(cid, sid, opened.card);
+        if (sid) writeReadyCardCache(cid, null, opened.card);
+      }
+      return {
+        card: {
+          ...opened.card,
+          freshness: {
+            ...(opened.card.freshness || {}),
+            age_ms: 0,
+            reason: "login_handoff",
+          },
+          build_ms: 0,
+        },
+        ready_card_status: "hit",
+        ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+        ready_card_build_ms: 0,
+        ready_card_source: "login_handoff",
+        ready_card_hit: true,
+        token_validation_ms: opened.validation_ms,
+        token_reject_reason: null,
+        reused: true,
+      };
+    }
+    // Fall through to memory / parallel rebuild — do not trust token contents.
+    handoffRejectReason = opened.reason ?? "handoff_rejected";
+    tokenValidationMs = opened.validation_ms ?? null;
+  }
+
+  const cached = readReadyCardCache(customerId, sessionId);
 
   // Never reuse an unconnected card as hit/stale — rebuild so Claude gets real SSOT.
   const cachedReusable =
@@ -408,6 +457,12 @@ export async function resolveReadyCardForQuestionTurn({
       },
       ready_card_status: "hit",
       ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+      ready_card_build_ms:
+        typeof cached.card.build_ms === "number" ? cached.card.build_ms : null,
+      ready_card_source: "memory_cache",
+      ready_card_hit: true,
+      token_validation_ms: tokenValidationMs,
+      token_reject_reason: handoffRejectReason,
       reused: true,
     };
   }
@@ -428,6 +483,12 @@ export async function resolveReadyCardForQuestionTurn({
       },
       ready_card_status: "stale",
       ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+      ready_card_build_ms:
+        typeof cached.card.build_ms === "number" ? cached.card.build_ms : null,
+      ready_card_source: "memory_cache_stale",
+      ready_card_hit: true,
+      token_validation_ms: tokenValidationMs,
+      token_reject_reason: handoffRejectReason,
       reused: true,
     };
   }
@@ -445,6 +506,11 @@ export async function resolveReadyCardForQuestionTurn({
     // Verification vocabulary: miss = was not prewarmed (even if rebuilt now).
     ready_card_status: "miss",
     ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+    ready_card_build_ms: card.build_ms ?? null,
+    ready_card_source: "rebuilt_miss",
+    ready_card_hit: false,
+    token_validation_ms: tokenValidationMs,
+    token_reject_reason: handoffRejectReason,
     reused: false,
     built_on_miss: true,
   };

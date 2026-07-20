@@ -11,6 +11,10 @@ import {
 } from "../server/requireCustomerAuth.js";
 import { warmAndStoreKeyReadyCard } from "../server/keyCore/keyReadyCardBuild.js";
 import {
+  resolveReadyCardHandoffSecret,
+  sealReadyCardHandoff,
+} from "../server/keyCore/keyReadyCardHandoff.js";
+import {
   extractPoliciesFromContext,
   loadLatestSessionGoalFromConversations,
   loadLatestActiveCustomerGoalFromConversations,
@@ -107,11 +111,12 @@ export default async function handler(req, res) {
       loadedContext = null;
     }
 
+    const authUserId = auth.user?.id ?? null;
     const result = await warmAndStoreKeyReadyCard({
       userSupabase,
       customerId,
       sessionId,
-      authUserId: auth.user?.id ?? null,
+      authUserId,
       loadedContext,
       unifiedState,
       customerContextBundle,
@@ -125,9 +130,34 @@ export default async function handler(req, res) {
       loadActiveCustomerDocuments,
     });
 
+    let handoff = null;
+    let handoff_reason = null;
+    if (result.materials_connected === true && result.card) {
+      const secretRes = resolveReadyCardHandoffSecret(process.env);
+      if (!secretRes.ok) {
+        handoff_reason = secretRes.reason;
+      } else {
+        const sealed = sealReadyCardHandoff(result.card, {
+          authUserId,
+          env: process.env,
+        });
+        if (sealed.ok) {
+          handoff = {
+            token: sealed.token,
+            expires_at: sealed.expires_at,
+            token_bytes: sealed.token_bytes,
+          };
+        } else {
+          handoff_reason = sealed.reason;
+        }
+      }
+    } else {
+      handoff_reason = "handoff_empty_or_unconnected";
+    }
+
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
-    // Client gets status only — not the full card (no dump to browser).
+    // Opaque token only — never plaintext READY CARD JSON.
     res.end(
       JSON.stringify({
         ok: true,
@@ -137,6 +167,10 @@ export default async function handler(req, res) {
         card_version: result.card_version,
         ready_card_build_ms: result.build_ms,
         materials_connected: result.materials_connected,
+        ready_card_handoff_token: handoff?.token ?? null,
+        ready_card_handoff_expires_at: handoff?.expires_at ?? null,
+        handoff_token_bytes: handoff?.token_bytes ?? null,
+        handoff_reason,
       }),
     );
   } catch (err) {

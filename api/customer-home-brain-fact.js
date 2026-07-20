@@ -69,8 +69,14 @@ export default async function handler(req, res) {
     );
     // GO3: session_id scopes server SSOT goal load. Ignore any client prior_session_goal.
     const sessionId = String(body?.session_id ?? body?.sessionId ?? "").trim() || null;
+    // T2.1 — opaque handoff token only (never accept client plaintext card JSON).
+    const readyCardHandoffToken =
+      String(body?.ready_card_handoff_token ?? body?.readyCardHandoffToken ?? "").trim() ||
+      null;
     void body?.prior_session_goal;
     void body?.priorSessionGoal;
+    void body?.ready_card;
+    void body?.readyCard;
     const { parseEntityContextFromRequestBody } = await import(
       "../server/entity/entityApiContextPassthrough.js"
     );
@@ -129,6 +135,7 @@ export default async function handler(req, res) {
         attachedDocumentId,
         priorAttachFollowUp,
         sessionId,
+        readyCardHandoffToken,
         shadowVisualBlocksOverride,
         accessToken: authHeader,
         streamHandlers,
@@ -155,6 +162,7 @@ export default async function handler(req, res) {
       attachedDocumentId,
       priorAttachFollowUp,
       sessionId,
+      readyCardHandoffToken,
       shadowVisualBlocksOverride,
       accessToken: authHeader,
     });

@@ -3435,6 +3435,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   attachedDocumentId = null,
   priorAttachFollowUp = false,
   sessionId = null,
+  readyCardHandoffToken = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -3446,7 +3447,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // GO3 SSOT — never trust client prior_session_goal; load from conversations only.
   const discardRequested = shouldDiscardStaleSessionGoal(question) === true;
 
-  // Triangle T2 — reuse prewarmed READY CARD (parallel SSOT). Skip serial goal→prior→…
+  // Triangle T2/T2.1 — handoff token → memory → parallel rebuild. Never trust client card JSON.
   const readyResolved = await resolveReadyCardForQuestionTurn({
     userSupabase,
     customerId,
@@ -3457,6 +3458,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     customerContextBundle,
     discardGoal: discardRequested,
     backgroundRefresh: true,
+    handoffToken: readyCardHandoffToken,
+    env,
     buildDeps: {
       extractPoliciesFromContext,
       loadLatestSessionGoalFromConversations,
@@ -3471,6 +3474,19 @@ export async function runClaudeFirstDirectQuestionTurn({
   const readyCardStatus = String(readyResolved?.ready_card_status ?? "miss");
   const readyCardMs =
     typeof readyResolved?.ready_card_ms === "number" ? readyResolved.ready_card_ms : null;
+  const readyCardSource = String(readyResolved?.ready_card_source ?? "rebuilt_miss");
+  const readyCardHit = readyResolved?.ready_card_hit === true;
+  const tokenValidationMs =
+    typeof readyResolved?.token_validation_ms === "number"
+      ? readyResolved.token_validation_ms
+      : null;
+  const tokenRejectReason = readyResolved?.token_reject_reason ?? null;
+  const readyBuildMs =
+    typeof readyResolved?.ready_card_build_ms === "number"
+      ? readyResolved.ready_card_build_ms
+      : typeof readyCard?.build_ms === "number" && Number.isFinite(readyCard.build_ms)
+        ? readyCard.build_ms
+        : null;
   const readyMaterials = materialsFromReadyCard(readyCard);
   const readyCardMeta = buildReadyCardClaudeMeta(readyCard, readyCardStatus);
 
@@ -3920,13 +3936,16 @@ export async function runClaudeFirstDirectQuestionTurn({
   const triangleT0 = {
     customer_question_received_ms: 0,
     ready_card_ms: readyCardMs,
-    ready_card_build_ms:
-      typeof readyCard?.build_ms === "number" && Number.isFinite(readyCard.build_ms)
-        ? readyCard.build_ms
-        : null,
+    ready_card_build_ms: readyBuildMs,
     ready_card_status: ["hit", "stale", "miss"].includes(readyCardStatus)
       ? readyCardStatus
       : "miss",
+    ready_card_source: readyCardSource.slice(0, 32),
+    ready_card_hit: readyCardHit,
+    token_validation_ms: tokenValidationMs,
+    token_reject_reason: tokenRejectReason
+      ? String(tokenRejectReason).slice(0, 48)
+      : null,
     question_claude_start_ms: questionClaudeStartMs,
     anthropic_first_byte_ms: claude.ttft_ms ?? firstTokenMs ?? null,
     first_delta_sent_ms: firstTokenMs ?? claude.ttft_ms ?? null,
@@ -4410,6 +4429,10 @@ export async function runClaudeFirstDirectQuestionTurn({
             active_claim_cases_hydrated: activeClaimCases.length,
             ready_card_status: readyCardStatus,
             ready_card_ms: readyCardMs,
+            ready_card_source: readyCardSource,
+            ready_card_hit: readyCardHit,
+            token_validation_ms: tokenValidationMs,
+            token_reject_reason: tokenRejectReason,
             ready_card_materials_connected: readyCard?.materials_connected === true,
           },
         },
