@@ -87,7 +87,7 @@ function drainHomeBrainFactSseBuffer(buffer, handlers, assignFinal) {
   return nextBuffer;
 }
 
-/** Flush-safe SSE consumer — preserves final `done` chunk when stream closes mid-block. */
+/** Flush-safe SSE consumer — returns on first `done` (T4); drains remainder in background. */
 async function consumeHomeBrainFactSseForClient(response, handlers = {}) {
   if (!response.body) {
     throw new Error("Streaming response body unavailable.");
@@ -97,25 +97,42 @@ async function consumeHomeBrainFactSseForClient(response, handlers = {}) {
   const decoder = new TextDecoder();
   let buffer = "";
   let finalPayload = null;
+  let settleDone = null;
+  const doneGate = new Promise((resolve) => {
+    settleDone = resolve;
+  });
   const assignFinal = (data) => {
+    if (finalPayload != null) return;
     finalPayload = data;
+    settleDone?.(data);
+    settleDone = null;
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (value) {
-      buffer += decoder.decode(value, { stream: !done });
-      buffer = drainHomeBrainFactSseBuffer(buffer, handlers, assignFinal);
+  const drainToClose = (async () => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
+          buffer = drainHomeBrainFactSseBuffer(buffer, handlers, assignFinal);
+        }
+        if (done) break;
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        drainHomeBrainFactSseBuffer(`${buffer}\n\n`, handlers, assignFinal);
+      }
+      return finalPayload;
+    } finally {
+      settleDone?.(finalPayload);
+      settleDone = null;
     }
-    if (done) break;
-  }
+  })();
 
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    drainHomeBrainFactSseBuffer(`${buffer}\n\n`, handlers, assignFinal);
-  }
-
-  return finalPayload;
+  // Customer UI must not wait for post-done persist/probe on an open SSE body.
+  const early = await Promise.race([doneGate, drainToClose]);
+  void drainToClose.catch(() => {});
+  return early ?? finalPayload;
 }
 
 export function mapHomeBrainFactPayload(payload) {

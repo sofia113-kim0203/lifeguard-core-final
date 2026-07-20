@@ -108,8 +108,10 @@ export default async function handler(req, res) {
     if (stream) {
       initHomeBrainFactSseResponse(res);
       const requestStartedAt = Date.now();
+      let earlyDoneSent = false;
       const streamHandlers = {
         _emitted: false,
+        _earlyCustomerDone: false,
         onKeyWaitAck(text) {
           writeHomeBrainFactSseEvent(res, "ack", { text: String(text ?? "") });
         },
@@ -122,6 +124,13 @@ export default async function handler(req, res) {
         },
         onReplace(_text) {
           // KEY monopoly — post-KEY replace forbidden on customer stream
+        },
+        // T4 — customer screen completes before persist/probe (request stays open).
+        onEarlyCustomerDone(payload) {
+          if (earlyDoneSent || !payload) return;
+          earlyDoneSent = true;
+          streamHandlers._earlyCustomerDone = true;
+          writeHomeBrainFactSseEvent(res, "done", payload);
         },
       };
 
@@ -143,11 +152,30 @@ export default async function handler(req, res) {
       });
 
       if (!result.ok) {
-        writeHomeBrainFactSseError(res, result);
+        if (!earlyDoneSent) writeHomeBrainFactSseError(res, result);
+        res.end();
         return;
       }
 
-      writeHomeBrainFactSseEvent(res, "done", result);
+      // Early done already closed the customer UI; do not emit a second done.
+      if (!earlyDoneSent) {
+        writeHomeBrainFactSseEvent(res, "done", result);
+      } else {
+        // Trailing marks only — client ignores; seat evidence for persist timing.
+        const lm =
+          result?.sales_director_trace?.key_compose_trace?.key_voice_trace?.latency_marks ??
+          null;
+        const t0 = lm?.triangle_t0 ?? null;
+        writeHomeBrainFactSseEvent(res, "marks", {
+          triangle_t0: t0,
+          streamed_equals_sealed:
+            t0?.streamed_equals_sealed ??
+            result?.sales_director_trace?.key_compose_trace?.streamed_equals_sealed ??
+            null,
+          ttft_ms: lm?.ttft_ms ?? null,
+          git_commit_sha: lm?.git_commit_sha ?? null,
+        });
+      }
       res.end();
       return;
     }

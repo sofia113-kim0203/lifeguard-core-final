@@ -3,9 +3,83 @@
  * Committed sentences are never replaced (KEY monopoly / no onReplace).
  * Slice 8: hard-lite word abort removed from the normal customer path —
  * stream is transmission stability only. Real enroll/cancel pressure uses hard-only.
+ * T4: createImmediateAnswerDeltaStream — no sentence/paragraph wait (customer first paint).
  */
 
 const DEFAULT_SAFETY_BUFFER = 8;
+
+/**
+ * Triangle T4 — emit every new non-empty chunk immediately (no sentence boundary wait).
+ * onCommit(slice) → { keep: true } | { keep: false, abort: true, reason?: string }
+ */
+export function createImmediateAnswerDeltaStream({ onCommit = null } = {}) {
+  let committed = "";
+  let lastSeen = "";
+  let catchUpAppended = false;
+  let aborted = false;
+  let abortReason = null;
+
+  function commitSlice(slice) {
+    if (!slice || aborted) return;
+    const decision = onCommit?.(slice) ?? { keep: true };
+    if (decision?.abort === true) {
+      aborted = true;
+      abortReason = decision.reason ?? "aborted";
+      return;
+    }
+    if (decision?.keep === false) return;
+    committed += slice;
+  }
+
+  return {
+    pushAnswerText(fullText = "") {
+      if (aborted) return { aborted: true };
+      const next = String(fullText ?? "");
+      if (next.length <= lastSeen.length) return { aborted: false };
+      const chunk = next.slice(lastSeen.length);
+      lastSeen = next;
+      if (chunk) commitSlice(chunk);
+      return { aborted };
+    },
+    catchUpFinalAnswer(finalAnswer = "") {
+      if (aborted) return { aborted: true, appended: false, reason: "already_aborted" };
+      const final = String(finalAnswer ?? "");
+      if (!final) {
+        return { aborted: false, appended: false, reason: "empty_final" };
+      }
+      if (!final.startsWith(committed)) {
+        return { aborted: false, appended: false, reason: "final_not_prefix_of_committed" };
+      }
+      if (final.length <= committed.length) {
+        lastSeen = final;
+        return { aborted: false, appended: false, reason: "already_complete" };
+      }
+      const suffix = final.slice(committed.length);
+      lastSeen = final;
+      catchUpAppended = true;
+      commitSlice(suffix);
+      return { aborted, appended: !aborted, suffix_len: suffix.length };
+    },
+    flush() {
+      return { aborted };
+    },
+    getCommitted() {
+      return committed;
+    },
+    getPending() {
+      return "";
+    },
+    isAborted() {
+      return aborted;
+    },
+    getAbortReason() {
+      return abortReason;
+    },
+    didCatchUpAppend() {
+      return catchUpAppended;
+    },
+  };
+}
 
 /** @deprecated Slice 8 — closer unused; kept for import compatibility. */
 export const SENTENCE_COMMIT_ABORT_CLOSER =

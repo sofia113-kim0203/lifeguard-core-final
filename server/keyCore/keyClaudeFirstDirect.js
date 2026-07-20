@@ -72,7 +72,7 @@ import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity, buildPersistableLatencyMarks } from "./keyLatencyMarks.js";
-import { findNextCommitEnd } from "./keyClaudeFirstSentenceCommit.js";
+import { createImmediateAnswerDeltaStream } from "./keyClaudeFirstSentenceCommit.js";
 import {
   decidePdfAttachMode,
   loadCustomerDocumentChunksByDocumentId,
@@ -82,106 +82,6 @@ import {
   materialsFromReadyCard,
   buildReadyCardClaudeMeta,
 } from "./keyReadyCardBuild.js";
-
-/**
- * GO2 — sentence commit with abort: conflict slice is never appended to committed,
- * and drain stops so later sentences cannot accumulate in getCommitted().
- * onCommit(slice) → { keep: true } | { keep: false, abort: true, reason?: string }
- */
-function createAbortableSentenceCommitStream({
-  onCommit = null,
-  safetyBufferChars = 8,
-} = {}) {
-  let pending = "";
-  let committed = "";
-  let lastSeen = "";
-  let catchUpAppended = false;
-  let aborted = false;
-  let abortReason = null;
-
-  function commitSlice(slice) {
-    if (!slice || aborted) return;
-    const decision = onCommit?.(slice) ?? { keep: true };
-    if (decision?.abort === true) {
-      aborted = true;
-      abortReason = decision.reason ?? "aborted";
-      pending = "";
-      return;
-    }
-    if (decision?.keep === false) return;
-    committed += slice;
-  }
-
-  function drain({ flushAll = false } = {}) {
-    while (!aborted) {
-      const end = findNextCommitEnd(pending, { flushAll, safetyBufferChars });
-      if (end < 0) break;
-      const slice = pending.slice(0, end);
-      pending = pending.slice(end);
-      commitSlice(slice);
-    }
-    if (aborted) {
-      pending = "";
-      return;
-    }
-    if (flushAll && pending) {
-      commitSlice(pending);
-      pending = "";
-    }
-  }
-
-  return {
-    pushAnswerText(fullText = "") {
-      if (aborted) return { aborted: true };
-      const next = String(fullText ?? "");
-      if (next.length <= lastSeen.length) return { aborted: false };
-      pending += next.slice(lastSeen.length);
-      lastSeen = next;
-      drain({ flushAll: false });
-      return { aborted };
-    },
-    catchUpFinalAnswer(finalAnswer = "") {
-      if (aborted) return { aborted: true, appended: false, reason: "already_aborted" };
-      const final = String(finalAnswer ?? "");
-      if (!final) {
-        return { aborted: false, appended: false, reason: "empty_final" };
-      }
-      if (!final.startsWith(committed)) {
-        return { aborted: false, appended: false, reason: "final_not_prefix_of_committed" };
-      }
-      if (final.length <= committed.length) {
-        pending = "";
-        lastSeen = final;
-        return { aborted: false, appended: false, reason: "already_complete" };
-      }
-      pending = final.slice(committed.length);
-      lastSeen = final;
-      catchUpAppended = true;
-      drain({ flushAll: false });
-      return { aborted, appended: !aborted, suffix_len: final.length - committed.length };
-    },
-    flush() {
-      if (aborted) return { aborted: true };
-      drain({ flushAll: true });
-      return { aborted };
-    },
-    getCommitted() {
-      return committed;
-    },
-    getPending() {
-      return pending;
-    },
-    isAborted() {
-      return aborted;
-    },
-    getAbortReason() {
-      return abortReason;
-    },
-    didCatchUpAppend() {
-      return catchUpAppended;
-    },
-  };
-}
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -3894,15 +3794,17 @@ export async function runClaudeFirstDirectQuestionTurn({
   let firstTokenMs = null;
   let sentenceStreamAborted = false;
   let sentenceAbortReason = null;
-  // Pass Claude original through — no KEY closer, no verified-literal stream abort.
+  // T4 — pass Claude original through immediately (no sentence/paragraph wait).
   let sseEmittedText = "";
-  const commitStream = createAbortableSentenceCommitStream({
-    onCommit(sentence) {
-      sseEmittedText += String(sentence ?? "");
+  const commitStream = createImmediateAnswerDeltaStream({
+    onCommit(chunk) {
+      const slice = String(chunk ?? "");
+      if (!slice) return { keep: true };
+      sseEmittedText += slice;
       if (streamHandlers?.onDelta) {
-        streamHandlers.onDelta(sentence);
+        streamHandlers.onDelta(slice);
         streamHandlers._emitted = true;
-        if (firstTokenMs == null) {
+        if (firstTokenMs == null && slice.trim()) {
           firstTokenMs = relMs(startedAt);
           streamHandlers.onFirstToken?.(firstTokenMs);
         }
@@ -4109,7 +4011,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     };
   }
 
-  let finalText = String(claude.customer_answer ?? "").trim();
+  let finalText = String(claude.customer_answer ?? "");
   let usedFailure = false;
   let failureReason = null;
   // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
@@ -4123,13 +4025,69 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   if (!String(finalText ?? "").trim()) {
     finalText = commitStream.getCommitted() || "";
-    if (!commitStream.getCommitted()) {
+    if (!String(commitStream.getCommitted() ?? "").trim()) {
       usedFailure = true;
       failureReason = "empty_answer";
     }
   }
   // Seal Claude original as-is (no monopoly stub, no soft rewrite, no truncation).
   const sealed = sealKeyCustomerText(finalText);
+  // Catch up any trailing gap so streamed text matches sealed before customer done.
+  if (!sentenceStreamAborted && sealed.key_speak_original) {
+    const sealedCatchUp = commitStream.catchUpFinalAnswer(sealed.key_speak_original);
+    if (sealedCatchUp?.aborted) {
+      sentenceStreamAborted = true;
+      sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
+    }
+  }
+  const streamedEqualsSealed =
+    String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? "");
+  const customerDoneMs = relMs(startedAt);
+  // T4 — customer screen completes before fact persist / probe (request stays open).
+  if (typeof streamHandlers?.onEarlyCustomerDone === "function") {
+    try {
+      streamHandlers.onEarlyCustomerDone({
+        ok: true,
+        answerText: sealed.key_speak_original,
+        key_speak_original: sealed.key_speak_original,
+        response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        key_monopoly_failure: usedFailure === true,
+        failure_reason: failureReason,
+        customer_done_ms: customerDoneMs,
+        streamed_equals_sealed: streamedEqualsSealed,
+        sales_director_trace: {
+          one_key_core: true,
+          compose_mode: "key_claude_first_direct",
+          key_compose_trace: {
+            compose_mode: "key_claude_first_direct",
+            key_voice_trace: {
+              provider: "claude_first_direct",
+              latency_marks: {
+                ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+                triangle_t0: {
+                  customer_question_received_ms: 0,
+                  anthropic_first_byte_ms: claude.ttft_ms ?? firstTokenMs ?? null,
+                  first_delta_sent_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+                  claude_complete_ms: claudeCompleteMs,
+                  customer_done_ms: customerDoneMs,
+                  persist_start_ms: null,
+                  persist_complete_ms: null,
+                  streamed_equals_sealed: streamedEqualsSealed,
+                },
+                ...resolveDeployIdentity(env),
+              },
+            },
+          },
+        },
+      });
+      streamHandlers._earlyCustomerDone = true;
+    } catch (err) {
+      console.error(
+        "[early_customer_done]",
+        String(err?.message ?? err).slice(0, 200),
+      );
+    }
+  }
 
   // KEY LIFE LEDGER — source link + post-seal customer-utterance goal (never Claude answer).
   const sourceLink = resolveConsultationSourceLink({
@@ -4178,6 +4136,11 @@ export async function runClaudeFirstDirectQuestionTurn({
         documentId: pdf?.meta?.document_id ?? null,
         sourceLink,
       });
+
+  // T4 marks — customer done already signaled; persist must not rewrite answer.
+  triangleT0.customer_done_ms = customerDoneMs;
+  triangleT0.streamed_equals_sealed = streamedEqualsSealed;
+  triangleT0.persist_start_ms = relMs(startedAt);
 
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
   // GO1: KEY confirm gate — active doc + ownership + schema + source match — before persist.
@@ -4345,13 +4308,17 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
-  // If nothing was sentence-committed (e.g. tiny answer without boundary), emit once.
+  // If nothing was streamed (e.g. empty path), emit once.
   if (streamHandlers?.onDelta && !streamHandlers._emitted) {
     streamHandlers.onDelta(sealed.key_speak_original);
     streamHandlers._emitted = true;
     sseEmittedText = String(sealed.key_speak_original ?? "");
     streamHandlers.onFirstToken?.(firstTokenMs ?? claude.ttft_ms ?? relMs(startedAt));
   }
+
+  triangleT0.persist_complete_ms = relMs(startedAt);
+  triangleT0.streamed_equals_sealed =
+    String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? "");
 
   return {
     ok: true,
@@ -4446,9 +4413,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           key_claim_case_persist: claimCasePersist,
           sealed_matches_claude:
             !usedFailure &&
-            String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? "").trim(),
+            String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),
+          streamed_equals_sealed:
+            String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? ""),
           sentence_commit: {
-            mode: "sentence_unit_e",
+            mode: "immediate_delta_t4",
             aborted: sentenceStreamAborted,
             abort_reason: sentenceAbortReason,
             committed_len: String(commitStream.getCommitted() ?? "").length,

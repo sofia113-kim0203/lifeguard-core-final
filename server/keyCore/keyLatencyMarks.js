@@ -213,6 +213,13 @@ export function buildPersistableLatencyMarks(latencyMarks = null, env = process.
             claude_complete_ms: numOrNull(latencyMarks.triangle_t0.claude_complete_ms),
             persist_start_ms: numOrNull(latencyMarks.triangle_t0.persist_start_ms),
             persist_complete_ms: numOrNull(latencyMarks.triangle_t0.persist_complete_ms),
+            customer_done_ms: numOrNull(latencyMarks.triangle_t0.customer_done_ms),
+            streamed_equals_sealed:
+              latencyMarks.triangle_t0.streamed_equals_sealed === true
+                ? true
+                : latencyMarks.triangle_t0.streamed_equals_sealed === false
+                  ? false
+                  : null,
             pdf_fetch_ms: numOrNull(latencyMarks.triangle_t0.pdf_fetch_ms),
             pdf_payload_bytes: numOrNull(latencyMarks.triangle_t0.pdf_payload_bytes),
             pdf_attachment_count: numOrNull(latencyMarks.triangle_t0.pdf_attachment_count),
