@@ -810,6 +810,8 @@ function makeAttachQuery(result) {
       if (column === "deleted_at" && value === null) q._requireDeletedAtNull = true;
       return q;
     },
+    order: () => q,
+    limit: () => q,
     maybeSingle: async () => {
       if (result?.error) return result;
       if (q._requireDeletedAtNull && result?.data?.deleted_at) {
@@ -817,6 +819,7 @@ function makeAttachQuery(result) {
       }
       return result;
     },
+    then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
   };
   return q;
 }
@@ -1108,7 +1111,10 @@ const chartPolicies = {
 }
 
 {
+  // T1: prior-attach follow-up must NOT rebroadcast full original / fail-closed on missing bytes.
   let claudeCalls = 0;
+  let sawBinaryAttach = false;
+  const sseText = "이전에 보신 첨부 기준으로 이어서 볼게요. 더 궁금한 점 말씀해 주세요.";
   const result = await runClaudeFirstDirectQuestionTurn({
     question: "이 사진 다시 봐줘",
     history: [
@@ -1121,24 +1127,52 @@ const chartPolicies = {
     priorAttachFollowUp: true,
     userSupabase: makeAttachSupabase({ document: null }),
     env: failClosedEnv,
-    fetchImpl: async () => {
+    fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
-      throw new Error("claude_must_not_run_on_prior_attach_miss");
+      const body = JSON.parse(String(opts?.body ?? "{}"));
+      const content = body?.messages?.[0]?.content;
+      if (Array.isArray(content)) {
+        sawBinaryAttach = content.some((b) => b?.type === "document" || b?.type === "image");
+      }
+      const payload = [
+        `data: ${JSON.stringify({ type: "message_start", message: { role: "assistant", content: [] } })}`,
+        `data: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}`,
+        `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: sseText } })}`,
+        `data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}`,
+        `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" } })}`,
+        `data: ${JSON.stringify({ type: "message_stop" })}`,
+        "",
+      ].join("\n\n");
+      const bytes = Buffer.from(payload, "utf8");
+      return {
+        ok: true,
+        body: {
+          getReader() {
+            let sent = false;
+            return {
+              read: async () => {
+                if (sent) return { done: true, value: undefined };
+                sent = true;
+                return { done: false, value: bytes };
+              },
+            };
+          },
+        },
+      };
     },
   });
-  assert.equal(claudeCalls, 0);
-  assert.equal(result.failure_reason, "prior_attach_missing");
-  assert.equal(result.customerText, "", "prior attach miss: empty customer text");
-  assert.equal(result.keySpeakOriginal, "");
+  assert.equal(claudeCalls, 1);
+  assert.equal(sawBinaryAttach, false, "T1 prior follow-up: no full original rebroadcast");
+  assert.equal(result.key_monopoly_failure, false);
+  assert.equal(result.failure_reason == null || result.failure_reason === false, true);
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.pdf_attach_mode,
+    "reuse_no_repeat",
+  );
   assert.equal(
     result.customerText.includes(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT),
     false,
   );
-  assert.equal(
-    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.prior_attach_follow_up,
-    true,
-  );
-  assert.equal(result.key_monopoly_failure, true);
 }
 
 {
@@ -4883,5 +4917,51 @@ console.log("key-claude-first-direct-unit-test: PASS");
   }
 
   console.log("KEY LIFE LEDGER V1 LOCAL CHECKS OK");
+}
+
+{
+  const {
+    decidePdfAttachMode,
+    isFullPrecisionDocumentReviewQuestion,
+  } = await import("../server/keyCore/keyClaudePdfAttachPolicy.js");
+  assert.equal(isFullPrecisionDocumentReviewQuestion("이 서류 전체를 설명해줘"), true);
+  assert.equal(isFullPrecisionDocumentReviewQuestion("이 서류에서 중요한 보장만"), false);
+  assert.equal(
+    decidePdfAttachMode({
+      documentId: "d1",
+      priorAttachFollowUp: true,
+      question: "이어서 봐줘",
+      chunkCount: 0,
+    }).mode,
+    "reuse_no_repeat",
+  );
+  assert.equal(
+    decidePdfAttachMode({
+      documentId: "d1",
+      priorAttachFollowUp: false,
+      question: "중요한 보장 설명해줘",
+      chunkCount: 3,
+    }).attach_full_base64,
+    false,
+  );
+  assert.equal(
+    decidePdfAttachMode({
+      documentId: "d1",
+      priorAttachFollowUp: false,
+      question: "문서 전체 분석해줘",
+      chunkCount: 3,
+    }).attach_full_base64,
+    true,
+  );
+  assert.equal(
+    decidePdfAttachMode({
+      documentId: "d1",
+      priorAttachFollowUp: false,
+      question: "이 서류에서 중요한 보장을 설명해줘",
+      chunkCount: 0,
+    }).mode,
+    "full_original_once",
+  );
+  console.log("T1 PDF ATTACH POLICY CHECKS OK");
 }
 

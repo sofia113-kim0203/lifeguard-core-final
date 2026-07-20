@@ -71,8 +71,12 @@ import {
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
-import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
+import { startSpan, resolveDeployIdentity, buildPersistableLatencyMarks } from "./keyLatencyMarks.js";
 import { findNextCommitEnd } from "./keyClaudeFirstSentenceCommit.js";
+import {
+  decidePdfAttachMode,
+  loadCustomerDocumentChunksByDocumentId,
+} from "./keyClaudePdfAttachPolicy.js";
 
 /**
  * GO2 — sentence commit with abort: conflict slice is never appended to committed,
@@ -1959,7 +1963,26 @@ function buildDocumentsEvidence(pdfMeta = null) {
           attached: false,
         }))
     : [];
-  if (!attached && !pdfMeta.document_id && listing.length === 0) return [];
+  const reviewScope =
+    typeof pdfMeta.document_review_scope === "string" && pdfMeta.document_review_scope.trim()
+      ? pdfMeta.document_review_scope.trim().slice(0, 240)
+      : null;
+  const evidenceStatus =
+    typeof pdfMeta.document_evidence_status === "string" &&
+    pdfMeta.document_evidence_status.trim()
+      ? pdfMeta.document_evidence_status.trim().slice(0, 64)
+      : null;
+  const attachMode =
+    typeof pdfMeta.pdf_attach_mode === "string" && pdfMeta.pdf_attach_mode.trim()
+      ? pdfMeta.pdf_attach_mode.trim().slice(0, 40)
+      : null;
+  const reviewFields = {
+    ...(reviewScope ? { document_review_scope: reviewScope } : {}),
+    ...(evidenceStatus ? { evidence_status: evidenceStatus } : {}),
+    ...(attachMode ? { pdf_attach_mode: attachMode } : {}),
+    verified_insurance_fact: false,
+  };
+  if (!attached && !pdfMeta.document_id && listing.length === 0 && !reviewScope) return [];
   // Image original reads: minimal identity only — no orientation / OCR / chart notes.
   if (attached && isImage) {
     return [
@@ -1972,11 +1995,12 @@ function buildDocumentsEvidence(pdfMeta = null) {
         // C: document parties are not the logged-in customer profile.
         document_subject_vs_customer:
           "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields.",
+        ...reviewFields,
       },
       ...listing.filter((row) => String(row.document_id) !== String(pdfMeta.document_id ?? "")),
     ];
   }
-  if (attached || pdfMeta.document_id) {
+  if (attached || pdfMeta.document_id || reviewScope) {
     return [
       {
         document_id: pdfMeta.document_id ?? null,
@@ -1985,10 +2009,18 @@ function buildDocumentsEvidence(pdfMeta = null) {
         attached,
         note: attached
           ? "Original PDF is attached as a document block."
-          : pdfMeta.note ?? "No document attached for this turn.",
-        evidence_state: attached ? "attached" : "missing",
+          : pdfMeta.note ??
+            (pdfMeta.reuse_without_bytes === true
+              ? "Prior document context reused; full original not rebroadcast this turn."
+              : "No document attached for this turn."),
+        evidence_state: attached
+          ? "attached"
+          : pdfMeta.reuse_without_bytes === true
+            ? "reused_without_full_original"
+            : "missing",
         document_subject_vs_customer:
           "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields.",
+        ...reviewFields,
       },
       ...listing.filter((row) => String(row.document_id) !== String(pdfMeta.document_id ?? "")),
     ];
@@ -3091,6 +3123,8 @@ async function callClaudeFirstDirect({
   sessionGoalForContext = null,
   /** Soft prior consultation pack — never verified fact. */
   priorConsultationForContext = null,
+  /** Prepared document excerpts (document_extracted_unverified). */
+  documentEvidence = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -3130,6 +3164,7 @@ async function callClaudeFirstDirect({
     currentTurnDocument: deletedDocRecheck ? null : currentTurnDocument,
     forceScrubAttachSegments: deletedDocRecheck,
     scrubIdentityReadouts: deletedDocRecheck,
+    documentEvidence: Array.isArray(documentEvidence) ? documentEvidence : [],
   });
   const requestNow = startedAt instanceof Date ? startedAt : new Date(startedAt);
   const softGoal =
@@ -3497,17 +3532,96 @@ export async function runClaudeFirstDirectQuestionTurn({
   const allowLatestFallback = false;
   const clientPriorAttach = priorAttachFollowUp === true;
 
-  const pdf = await resolveOptionalPdfAttachment({
-    userSupabase,
-    customerId,
-    loadedContext,
-    unifiedState,
-    attachedDocumentId: explicitDocumentId || null,
-    env,
-    allowLatestFallback,
+  // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
+  let documentChunksForClaude = [];
+  let pdfFetchMs = null;
+  if (explicitDocumentId && userSupabase && customerId) {
+    const chunkLoadStarted = Date.now();
+    documentChunksForClaude = await loadCustomerDocumentChunksByDocumentId({
+      supabase: userSupabase,
+      customerId,
+      documentId: explicitDocumentId,
+      limit: 40,
+    });
+    // chunk load is not Storage PDF fetch; pdf_fetch_ms set only on original fetch below.
+    void chunkLoadStarted;
+  }
+
+  const attachModeDecision = decidePdfAttachMode({
+    documentId: explicitDocumentId || null,
+    priorAttachFollowUp: clientPriorAttach,
+    question,
+    chunkCount: documentChunksForClaude.length,
+    mediaType: null,
   });
 
+  let pdf = {
+    pdfBase64: null,
+    mediaType: null,
+    meta: {
+      attached: false,
+      document_id: explicitDocumentId || null,
+      reuse_without_bytes: false,
+      pdf_attach_mode: attachModeDecision.mode,
+      document_review_scope: attachModeDecision.review_scope,
+      document_evidence_status: attachModeDecision.evidence_status,
+      note: attachModeDecision.reason,
+      attach_signals: buildAttachOpsSignals({
+        attachment_requested: Boolean(explicitDocumentId),
+        attachment_attached: false,
+        attachment_failed: false,
+        attachment_block_built: false,
+      }),
+    },
+  };
+
+  if (explicitDocumentId && attachModeDecision.attach_full_base64 === true) {
+    const fetchStarted = Date.now();
+    pdf = await resolveOptionalPdfAttachment({
+      userSupabase,
+      customerId,
+      loadedContext,
+      unifiedState,
+      attachedDocumentId: explicitDocumentId || null,
+      env,
+      allowLatestFallback,
+    });
+    pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+    pdf = {
+      ...pdf,
+      meta: {
+        ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
+        pdf_attach_mode: attachModeDecision.mode,
+        document_review_scope: attachModeDecision.review_scope,
+        document_evidence_status: attachModeDecision.evidence_status,
+        reuse_without_bytes: false,
+      },
+    };
+  } else if (explicitDocumentId && attachModeDecision.attach_full_base64 === false) {
+    // T1: skip Storage original rebroadcast; keep document identity + scope for Claude.
+    pdf = {
+      pdfBase64: null,
+      mediaType: null,
+      meta: {
+        attached: false,
+        document_id: explicitDocumentId,
+        reuse_without_bytes: true,
+        pdf_attach_mode: attachModeDecision.mode,
+        document_review_scope: attachModeDecision.review_scope,
+        document_evidence_status: attachModeDecision.evidence_status,
+        note: attachModeDecision.reason,
+        attach_signals: buildAttachOpsSignals({
+          attachment_requested: true,
+          attachment_attached: false,
+          attachment_failed: false,
+          attachment_block_built: false,
+        }),
+      },
+    };
+  }
+
   // Explicit attach requested this turn but processing failed → fail-closed.
+  // Intentional T1 reuse (no bytes) is not a failure.
   // Stale deleted active id on a normal insurance question must not block verified answers.
   const realPriorAttachFollowUp =
     clientPriorAttach === true &&
@@ -3515,7 +3629,11 @@ export async function runClaudeFirstDirectQuestionTurn({
       history,
       priorAttachFollowUp: clientPriorAttach,
     }) === true;
-  if (explicitDocumentId && pdf?.meta?.attached !== true) {
+  if (
+    explicitDocumentId &&
+    pdf?.meta?.attached !== true &&
+    pdf?.meta?.reuse_without_bytes !== true
+  ) {
     const staleActiveNotFollowUp =
       clientPriorAttach === true && realPriorAttachFollowUp !== true;
     if (!staleActiveNotFollowUp) {
@@ -3748,6 +3866,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     customerId,
   });
 
+  const questionClaudeStartMs = relMs(startedAt);
   const claude = await callClaudeFirstDirect({
     question,
     history,
@@ -3776,8 +3895,32 @@ export async function runClaudeFirstDirectQuestionTurn({
     activeDocuments: activeDocumentsForHistory,
     sessionGoalForContext,
     priorConsultationForContext,
+    documentEvidence: documentChunksForClaude,
   });
   const emitMark = span.end();
+  const claudeCompleteMs = relMs(startedAt);
+  const pdfPayloadBytes = pdf?.pdfBase64
+    ? Math.floor((String(pdf.pdfBase64).length * 3) / 4)
+    : 0;
+  const pdfAttachmentCount = pdf?.pdfBase64 ? 1 : 0;
+  const requestBodyChars =
+    Number(claude?.empty_answer_diag?.input?.request_body_chars) || null;
+  const triangleT0 = {
+    customer_question_received_ms: 0,
+    ready_card_ms: null,
+    ready_card_status: "not_implemented_t2",
+    question_claude_start_ms: questionClaudeStartMs,
+    anthropic_first_byte_ms: claude.ttft_ms ?? firstTokenMs ?? null,
+    first_delta_sent_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+    claude_complete_ms: claudeCompleteMs,
+    persist_start_ms: null,
+    persist_complete_ms: null,
+    pdf_fetch_ms: pdfFetchMs,
+    pdf_payload_bytes: pdfPayloadBytes,
+    pdf_attachment_count: pdfAttachmentCount,
+    pdf_attach_mode: String(pdfMetaForClaude?.pdf_attach_mode ?? attachModeDecision.mode ?? ""),
+    request_body_chars: requestBodyChars,
+  };
   // Completeness: progressive extract can lag the final customer_answer.
   // Append-only catch-up — exact suffix after committed; never replace sent text.
   let sentenceCatchUp = null;
@@ -4226,11 +4369,14 @@ export async function runClaudeFirstDirectQuestionTurn({
             catch_up_appended: commitStream.didCatchUpAppend?.() === true,
             catch_up_reason: sentenceCatchUp?.reason ?? null,
           },
-          latency_marks: {
+          latency_marks: buildPersistableLatencyMarks({
             claude_full_emit: emitMark,
             ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+            triangle_t0: triangleT0,
             ...resolveDeployIdentity(env),
-          },
+          }),
+          pdf_attach_mode: triangleT0.pdf_attach_mode,
+          document_review_scope: pdfMetaForClaude?.document_review_scope ?? null,
         },
       },
     },

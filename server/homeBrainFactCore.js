@@ -597,7 +597,15 @@ export async function handleHomeBrainFactRequest({
   }
 
   const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
+  const triangleT0 =
+    salesDirectorTrace?.key_compose_trace?.key_voice_trace?.latency_marks?.triangle_t0 ?? null;
+  if (triangleT0 && typeof triangleT0 === "object") {
+    triangleT0.persist_start_ms = Math.max(0, Date.now() - startedAt);
+  }
   const storedFactoryProbe = await probeStoredFactoryRecords(userSupabase, customerId);
+  if (triangleT0 && typeof triangleT0 === "object") {
+    triangleT0.persist_complete_ms = Math.max(0, Date.now() - startedAt);
+  }
   const factoryAudit = buildSalesDirectorFactoryAudit({
     customerContextBundle,
     loadedContext,

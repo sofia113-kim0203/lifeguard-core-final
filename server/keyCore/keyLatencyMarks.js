@@ -178,6 +178,35 @@ export function buildPersistableLatencyMarks(latencyMarks = null, env = process.
         }
       : null;
     const identity = resolveDeployIdentity(env);
+    const numOrNull = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const strOrNull = (v, max = 64) =>
+      typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+    // Triangle v2.2 T0 — numbers/status only (no PII / no bytes payload).
+    const triangle_t0 =
+      latencyMarks.triangle_t0 && typeof latencyMarks.triangle_t0 === "object"
+        ? {
+            customer_question_received_ms: numOrNull(
+              latencyMarks.triangle_t0.customer_question_received_ms,
+            ),
+            ready_card_ms: numOrNull(latencyMarks.triangle_t0.ready_card_ms),
+            ready_card_status: strOrNull(latencyMarks.triangle_t0.ready_card_status, 24),
+            question_claude_start_ms: numOrNull(
+              latencyMarks.triangle_t0.question_claude_start_ms,
+            ),
+            anthropic_first_byte_ms: numOrNull(
+              latencyMarks.triangle_t0.anthropic_first_byte_ms,
+            ),
+            first_delta_sent_ms: numOrNull(latencyMarks.triangle_t0.first_delta_sent_ms),
+            claude_complete_ms: numOrNull(latencyMarks.triangle_t0.claude_complete_ms),
+            persist_start_ms: numOrNull(latencyMarks.triangle_t0.persist_start_ms),
+            persist_complete_ms: numOrNull(latencyMarks.triangle_t0.persist_complete_ms),
+            pdf_fetch_ms: numOrNull(latencyMarks.triangle_t0.pdf_fetch_ms),
+            pdf_payload_bytes: numOrNull(latencyMarks.triangle_t0.pdf_payload_bytes),
+            pdf_attachment_count: numOrNull(latencyMarks.triangle_t0.pdf_attachment_count),
+            pdf_attach_mode: strOrNull(latencyMarks.triangle_t0.pdf_attach_mode, 40),
+            request_body_chars: numOrNull(latencyMarks.triangle_t0.request_body_chars),
+          }
+        : null;
     const out = {
       borrowed_shadow_probe: pickSpan(latencyMarks.borrowed_shadow_probe),
       claude_full_emit: pickSpan(latencyMarks.claude_full_emit),
@@ -187,6 +216,8 @@ export function buildPersistableLatencyMarks(latencyMarks = null, env = process.
       seal: pickSpan(latencyMarks.seal),
       provider,
       provider_speed: providerSpeed,
+      ...(triangle_t0 ? { triangle_t0 } : {}),
+      ttft_ms: numOrNull(latencyMarks.ttft_ms),
       git_commit_sha:
         typeof latencyMarks.git_commit_sha === "string"
           ? latencyMarks.git_commit_sha.slice(0, 40)
