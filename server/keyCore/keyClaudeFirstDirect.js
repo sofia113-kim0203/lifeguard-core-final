@@ -2403,6 +2403,36 @@ export function buildClaudeFirstToolResultAckBlocks(assistantContent = []) {
     }));
 }
 
+/** PII-safe fingerprint of question text — length / sha256 / newlines only (never raw text). */
+export function fingerprintRawQuestion(question = "") {
+  const q = String(question ?? "");
+  return {
+    question_chars: q.length,
+    question_sha256: createHash("sha256").update(q, "utf8").digest("hex"),
+    question_newline_count: (q.match(/\n/g) || []).length,
+  };
+}
+
+/**
+ * Count how many times the question appears as a JSON string value in Claude user payload.
+ * Uses JSON-escaped form so newlines match stringify packaging (not raw newline search).
+ */
+export function countCurrentQuestionOccurrences(userPayloadText = "", question = "") {
+  const q = String(question ?? "");
+  const src = String(userPayloadText ?? "");
+  if (!q || !src) return 0;
+  const needle = JSON.stringify(q); // includes surrounding quotes + escapes
+  let count = 0;
+  let idx = 0;
+  while (idx < src.length) {
+    const at = src.indexOf(needle, idx);
+    if (at < 0) break;
+    count += 1;
+    idx = at + Math.max(1, needle.length);
+  }
+  return count;
+}
+
 /** PII-safe empty-answer input counts only — never store prompt/body text. */
 function buildEmptyAnswerInputDiag({
   question = null,
@@ -2413,6 +2443,7 @@ function buildEmptyAnswerInputDiag({
   pdfBase64 = null,
   system = "",
   body = null,
+  userPayload = null,
 } = {}) {
   const recent = Array.isArray(contextPack?.recent_conversation_originals)
     ? contextPack.recent_conversation_originals
@@ -2430,14 +2461,32 @@ function buildEmptyAnswerInputDiag({
     ? priorConsultation.related_turns
     : [];
   let request_body_chars = 0;
+  let user_payload_text = "";
   try {
     request_body_chars = body != null ? JSON.stringify(body).length : 0;
   } catch {
     request_body_chars = 0;
   }
+  try {
+    user_payload_text =
+      userPayload != null ? JSON.stringify(userPayload) : "";
+  } catch {
+    user_payload_text = "";
+  }
   const tools_sent = Array.isArray(body?.tools) ? body.tools.length : 0;
+  const qFp = fingerprintRawQuestion(question);
+  const current_question_occurrences = countCurrentQuestionOccurrences(
+    user_payload_text,
+    question,
+  );
+  const ready_card_present =
+    userPayload?.current_context?.ready_card != null &&
+    typeof userPayload.current_context.ready_card === "object";
   return {
     question_present: String(question ?? "").trim().length > 0,
+    ...qFp,
+    current_question_occurrences,
+    ready_card_separated: ready_card_present,
     conversation_message_count: recent.length + retained.length,
     verified_fact_count: facts.length,
     verified_policy_count: contracts.length,
@@ -3261,6 +3310,7 @@ async function callClaudeFirstDirect({
       pdfBase64,
       system,
       body,
+      userPayload,
     });
 
     const res = await fetchImpl(ANTHROPIC_URL, {

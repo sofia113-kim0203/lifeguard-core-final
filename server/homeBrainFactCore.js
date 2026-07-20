@@ -401,8 +401,16 @@ export function isP5BrainResponseSource(responseSource) {
   return P5_BRAIN_RESPONSE_SOURCES.has(responseSource);
 }
 
+/**
+ * Triangle T3 — raw question direct.
+ * Trim ends only. Do NOT collapse newlines/spaces (no rewrite / spell-fix / intent reshape).
+ */
+export function normalizeHomeBrainQuestion(question) {
+  return String(question ?? "").trim();
+}
+
 function normalizeQuestion(question) {
-  return String(question ?? "").replace(/\s+/g, " ").trim();
+  return normalizeHomeBrainQuestion(question);
 }
 
 export function applyHomeInventoryHardGuard(text = "") {
