@@ -40,7 +40,8 @@ export function finalizeKeyCustomerText(
   const trimmed = String(speakDraft ?? "").trim();
   if (!trimmed && failureMode) {
     const sealSpan = typeof startedAt === "number" ? startSpan(startedAt) : null;
-    const sealed = sealKeyCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    // Failure: seal empty — never invent KEY counseling / monopoly stub for the customer.
+    const sealed = sealKeyCustomerText("");
     const sealMark = sealSpan ? sealSpan.end() : null;
     const finalizeMark = finalizeSpan ? finalizeSpan.end() : null;
     return {
@@ -56,7 +57,7 @@ export function finalizeKeyCustomerText(
   const guarded = guardKeyCustomerTextCompleteness(trimmed);
   const cleaned = polishLifeguardCustomerText(guarded.customerText);
   const sealSpan = typeof startedAt === "number" ? startSpan(startedAt) : null;
-  const sealed = sealKeyCustomerText(cleaned || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+  const sealed = sealKeyCustomerText(cleaned);
   const sealMark = sealSpan ? sealSpan.end() : null;
   const finalizeMark = finalizeSpan ? finalizeSpan.end() : null;
   return {
@@ -115,7 +116,7 @@ export function coerceKeyMonopolyCustomerText({ answerText = "", responseSource 
     };
   }
   return {
-    answerText: KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    answerText: "",
     response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
     key_monopoly_coerced: true,
     key_monopoly_coerce_reason: check.reason,

@@ -272,6 +272,20 @@ function passThroughKeyCustomerText(coreResult) {
   const responseSource =
     coreResult.agentTurn?.responseSource ?? ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION;
   const answerText = keySpeakOriginal;
+  // Monopoly failure with empty customer text: allow pass-through (do not invent KEY copy).
+  if (coreResult.key_monopoly_failure === true && !String(keySpeakOriginal).trim()) {
+    return {
+      answerText: "",
+      responseSource,
+      keySpeakOriginal: "",
+      key_text_integrity: {
+        ok: true,
+        reason: "key_monopoly_failure_empty",
+        text_equal: true,
+        response_source: responseSource,
+      },
+    };
+  }
   const integrity = enforceKeyCustomerTextIntegrity({
     keySpeakOriginal,
     finalCustomerText: answerText,
@@ -295,12 +309,17 @@ function buildKeyCustomerFactReturn({
   startedAt,
   extras = {},
 }) {
-  enforceKeyCustomerTextIntegrity({
-    keySpeakOriginal,
-    finalCustomerText: answerText,
-    responseSource,
-    postMutators: [],
-  });
+  const allowEmptyMonopolyFailure =
+    (coreResult?.key_monopoly_failure === true || extras?.key_monopoly_failure === true) &&
+    !String(keySpeakOriginal ?? "").trim();
+  if (!allowEmptyMonopolyFailure) {
+    enforceKeyCustomerTextIntegrity({
+      keySpeakOriginal,
+      finalCustomerText: answerText,
+      responseSource,
+      postMutators: [],
+    });
+  }
   return {
     ok: true,
     answerText,

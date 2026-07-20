@@ -62,25 +62,17 @@ import {
   isPriorAttachFollowUpQuestion,
   isExplicitDocumentBoxMentionQuestion,
   extractMentionedFilenamesFromChat,
-  PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
   recommendationOrTerminationRisk,
 } from "./keyVoiceGate.js";
-import {
-  finalizeKeyCustomerText,
-  KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
-} from "./keyCustomerMonopoly.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity } from "./keyLatencyMarks.js";
 import { findNextCommitEnd } from "./keyClaudeFirstSentenceCommit.js";
-import {
-  buildVerifiedLiteralSetFromPolicies,
-  detectKeyVerifiedLiteralConflict,
-} from "./keyVerifiedLiteralConflict.js";
 
 /**
  * GO2 — sentence commit with abort: conflict slice is never appended to committed,
@@ -2757,20 +2749,15 @@ async function callClaudeFirstDirect({
     question,
     history,
   });
-  for (let turn = 0; turn < 4; turn += 1) {
-    // Original attached: require confirmed-source facts tool once before text-only finish.
-    // Prevents "정리해 드릴게요" deferral with empty left-rail persist.
-    const forceConfirmedFactsTool =
-      pdfAttached === true && confirmedFactsToolSeen !== true && turn < 2;
+  // SINGLE provider call only — no Continue / text-nudge / card-tool-only re-call / force tool_choice.
+  for (let turn = 0; turn < 1; turn += 1) {
     const body = {
       model,
       max_tokens: 4096,
       temperature: 0.4,
       system,
       tools: answerTools,
-      tool_choice: forceConfirmedFactsTool
-        ? { type: "tool", name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name }
-        : { type: "auto" },
+      tool_choice: { type: "auto" },
       messages,
       stream: true,
     };
@@ -2946,79 +2933,36 @@ async function callClaudeFirstDirect({
       break;
     }
 
-    // Card tools only (no customer text yet) — acknowledge and continue for plain answer.
-    // Ack ALL client tool_use ids (incl. session_goal / recommendation_basis) for message_shape.
-    if (cardToolBlocks.length && !picked.customer_answer && otherClientTools.length === 0) {
-      messages = [
-        ...messages,
-        { role: "assistant", content: assistantContent },
-        {
-          role: "user",
-          content: buildClaudeFirstToolResultAckBlocks(assistantContent),
-        },
-      ];
-      continue;
-    }
-
-    // Answer ready (optionally with card tools in same response).
-    if (picked.customer_answer && otherClientTools.length === 0) {
+    // Card tools only / tools+answer / tool-less answer: parse tools above; never second Anthropic call.
+    if (picked.customer_answer) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
-      // Text-only finish with original attached but facts tool never ran → one nudge.
-      if (pdfAttached && confirmedFactsToolSeen !== true && turn < 3) {
-        const nudgeText =
-          "원본 첨부가 있다. record_confirmed_source_facts로 원본에 명시된 계약 사실만 지금 내부 보관하세요. 고객에게 도구명·JSON을 말하지 마세요.";
-        const toolResults = buildClaudeFirstToolResultAckBlocks(assistantContent);
-        messages = [
-          ...messages,
-          { role: "assistant", content: assistantContent },
-          {
-            role: "user",
-            content:
-              toolResults.length > 0
-                ? [...toolResults, { type: "text", text: nudgeText }]
-                : nudgeText,
-          },
-        ];
-        continue;
-      }
-      messages = [...messages, { role: "assistant", content: assistantContent }];
       break;
     }
 
-    if (picked.customer_answer && hasToolUse) {
-      lastPicked = { ...picked, source: picked.source || "plain_text" };
-      onAnswerProgress?.(picked.customer_answer);
+    // No customer_answer after one call → empty failure (tools may still be parsed for storage).
+    if (
+      !picked.customer_answer &&
+      (cardToolBlocks.length > 0 || otherClientTools.length > 0 || hasToolUse)
+    ) {
+      if (otherClientTools.length > 0 || cardToolBlocks.length > 0) {
+        // Keep card-tool facts already extracted; drop goal/basis-only when no answer.
+        if (cardToolBlocks.length === 0) {
+          sessionGoalRecord = null;
+          if (recommendationBasisTrace.recommendation_basis_tool_seen) {
+            recommendationBasisTrace = {
+              ...recommendationBasisTrace,
+              recommendation_basis_count: 0,
+              recommendation_basis_ok: false,
+            };
+          }
+        }
+      }
+      break;
     }
 
     if (!assistantContent.length) break;
-    if (cardToolBlocks.length && otherClientTools.length === 0) {
-      messages = [
-        ...messages,
-        { role: "assistant", content: assistantContent },
-        {
-          role: "user",
-          content: buildClaudeFirstToolResultAckBlocks(assistantContent),
-        },
-      ];
-      continue;
-    }
-
-    // Unknown client tools with no answer — do not invent a Continue loop for goal/basis.
-    if (otherClientTools.length > 0 && !picked.customer_answer) {
-      sessionGoalRecord = null;
-      if (recommendationBasisTrace.recommendation_basis_tool_seen) {
-        recommendationBasisTrace = {
-          ...recommendationBasisTrace,
-          recommendation_basis_count: 0,
-          recommendation_basis_ok: false,
-        };
-      }
-      break;
-    }
-
-    if (picked.customer_answer && !hasToolUse) break;
-    // No answer path left without card-tool continue — fail closed (no Continue re-call).
+    // Fail closed — empty customer answer, no Continue re-call.
     sessionGoalRecord = null;
     if (recommendationBasisTrace.recommendation_basis_tool_seen) {
       recommendationBasisTrace = {
@@ -3236,29 +3180,15 @@ export async function runClaudeFirstDirectQuestionTurn({
       const failureNote = usePriorAttachCopy
         ? "prior_attach_missing"
         : String(pdf?.meta?.note ?? "").trim() || "attach_process_failed";
-      let outlet;
-      if (usePriorAttachCopy) {
-        const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
-        outlet = {
-          customerText: sealed.key_speak_original,
-          keySpeakOriginal: sealed.key_speak_original,
-          latency_marks: null,
-        };
-      } else {
-        outlet = finalizeKeyCustomerText(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT, {
-          failureMode: true,
-          startedAt,
-        });
-      }
-      if (streamHandlers?.onDelta) {
-        streamHandlers.onDelta(outlet.keySpeakOriginal);
-        streamHandlers._emitted = true;
-        streamHandlers.onFirstToken?.(relMs(startedAt));
-      }
+      // No KEY substitute sentences — empty customer text + failure_reason only.
+      const outlet = finalizeKeyCustomerText("", {
+        failureMode: true,
+        startedAt,
+      });
       const emitMark = span.end();
       const attachPersistGoal = resolvePersistableSessionGoal({
         discardRequested,
-        usedFailure: usePriorAttachCopy ? false : true,
+        usedFailure: true,
         claudeGoal: null,
         now: startedAt instanceof Date ? startedAt : new Date(startedAt),
       });
@@ -3267,7 +3197,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         customerText: outlet.customerText,
         keySpeakOriginal: outlet.keySpeakOriginal,
         visualBlocks: [],
-        key_monopoly_failure: usePriorAttachCopy ? false : true,
+        key_monopoly_failure: true,
         failure_reason: failureNote,
         agentTurn: {
           text: outlet.keySpeakOriginal,
@@ -3291,7 +3221,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             compose_mode: "key_claude_first_direct",
             key_voice_trace: {
               provider: "claude_first_direct",
-              used_failure_mode: usePriorAttachCopy ? false : true,
+              used_failure_mode: true,
               fallback_reason: failureNote,
               session_goal_discard_requested: discardRequested === true,
               session_goal_ssot_reason: ssotReason,
@@ -3356,24 +3286,22 @@ export async function runClaudeFirstDirectQuestionTurn({
     // else: stale deleted active on a normal question → Claude-first with verified facts
   }
 
-  // Real prior-attach follow-up but document id missing → reattach prompt.
+  // Real prior-attach follow-up but document id missing → empty failure (no reattach KEY copy).
   if (realPriorAttachFollowUp && !explicitDocumentId && pdf?.meta?.attached !== true) {
-    const sealed = sealKeyCustomerText(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
-    if (streamHandlers?.onDelta) {
-      streamHandlers.onDelta(sealed.key_speak_original);
-      streamHandlers._emitted = true;
-      streamHandlers.onFirstToken?.(relMs(startedAt));
-    }
+    const outlet = finalizeKeyCustomerText("", {
+      failureMode: true,
+      startedAt,
+    });
     const emitMark = span.end();
     return {
       ok: true,
-      customerText: sealed.key_speak_original,
-      keySpeakOriginal: sealed.key_speak_original,
+      customerText: outlet.customerText,
+      keySpeakOriginal: outlet.keySpeakOriginal,
       visualBlocks: [],
-      key_monopoly_failure: false,
+      key_monopoly_failure: true,
       failure_reason: "prior_attach_missing",
       agentTurn: {
-        text: sealed.key_speak_original,
+        text: outlet.keySpeakOriginal,
         responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
         consultationIntent: { intent: "claude_first_direct" },
         factBundle: { policies, policy_count, one_key_core: true },
@@ -3391,13 +3319,19 @@ export async function runClaudeFirstDirectQuestionTurn({
           compose_mode: "key_claude_first_direct",
           key_voice_trace: {
             provider: "claude_first_direct",
-            used_failure_mode: false,
+            used_failure_mode: true,
             fallback_reason: "prior_attach_missing",
             prior_attach_follow_up: true,
             pdf_attached: false,
             latency_marks: {
               claude_full_emit: emitMark,
               ttft_ms: relMs(startedAt),
+              ...(outlet.latency_marks
+                ? {
+                    finalize: outlet.latency_marks.finalize ?? null,
+                    seal: outlet.latency_marks.seal ?? null,
+                  }
+                : {}),
               ...resolveDeployIdentity(env),
             },
           },
@@ -3428,58 +3362,10 @@ export async function runClaudeFirstDirectQuestionTurn({
   let firstTokenMs = null;
   let sentenceStreamAborted = false;
   let sentenceAbortReason = null;
-  // GO2 — KEY verified literal conflict (pre onDelta). Track exact SSE bytes for seal parity.
-  let streamAbortedByConflict = false;
-  let conflictTrace = null;
-  let failureCloserEmitted = false;
+  // Pass Claude original through — no KEY closer, no verified-literal stream abort.
   let sseEmittedText = "";
-  const verifiedLiteralSet = buildVerifiedLiteralSetFromPolicies(policies, {
-    activeDocumentId: String(pdf?.meta?.document_id ?? "").trim() || null,
-  });
   const commitStream = createAbortableSentenceCommitStream({
     onCommit(sentence) {
-      if (streamAbortedByConflict) {
-        return { keep: false, abort: true, reason: "key_verified_literal_conflict" };
-      }
-
-      const hit = detectKeyVerifiedLiteralConflict(sentence, verifiedLiteralSet);
-      if (hit?.conflict === true) {
-        streamAbortedByConflict = true;
-        sentenceStreamAborted = true;
-        sentenceAbortReason = "key_verified_literal_conflict";
-        conflictTrace = {
-          conflict_detected: true,
-          field: hit.field ?? null,
-          source_scope: hit.source_scope ?? null,
-          sentence_blocked: true,
-          stream_aborted: true,
-          persist_blocked: true,
-          reason: hit.reason ?? "direct_assertion_mismatch",
-        };
-        // Existing monopoly failure outlet only — never raw KEY_MONOPOLY_FAILURE constant.
-        if (!failureCloserEmitted) {
-          const outlet = finalizeKeyCustomerText("", {
-            failureMode: true,
-            startedAt,
-          });
-          const closer = String(outlet.keySpeakOriginal ?? "").trim();
-          if (closer) {
-            if (streamHandlers?.onDelta) {
-              streamHandlers.onDelta(closer);
-              streamHandlers._emitted = true;
-              if (firstTokenMs == null) {
-                firstTokenMs = relMs(startedAt);
-                streamHandlers.onFirstToken?.(firstTokenMs);
-              }
-            }
-            sseEmittedText += closer;
-            failureCloserEmitted = true;
-          }
-        }
-        // Do not append conflict sentence to committed; stop further drain.
-        return { keep: false, abort: true, reason: "key_verified_literal_conflict" };
-      }
-
       sseEmittedText += String(sentence ?? "");
       if (streamHandlers?.onDelta) {
         streamHandlers.onDelta(sentence);
@@ -3552,28 +3438,22 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Completeness: progressive extract can lag the final customer_answer.
   // Append-only catch-up — exact suffix after committed; never replace sent text.
   let sentenceCatchUp = null;
-  if (
-    !sentenceStreamAborted &&
-    !streamAbortedByConflict &&
-    claude.ok &&
-    claude.customer_answer
-  ) {
+  if (!sentenceStreamAborted && claude.ok && claude.customer_answer) {
     sentenceCatchUp = commitStream.catchUpFinalAnswer(claude.customer_answer);
     if (sentenceCatchUp?.aborted) {
       sentenceStreamAborted = true;
       sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
     }
   }
-  if (!streamAbortedByConflict) {
-    commitStream.flush();
-  }
+  commitStream.flush();
   if (commitStream.isAborted()) {
     sentenceStreamAborted = true;
     sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
   }
 
   if (!claude.ok || !claude.customer_answer) {
-    const sealed = sealKeyCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+    // Empty customer text — keep failure_reason + anthropic_upstream_diag; never invent KEY copy.
+    const sealed = sealKeyCustomerText("");
     const emptyPersistGoal = resolvePersistableSessionGoal({
       discardRequested,
       usedFailure: true,
@@ -3656,38 +3536,23 @@ export async function runClaudeFirstDirectQuestionTurn({
   let finalText = String(claude.customer_answer ?? "").trim();
   let usedFailure = false;
   let failureReason = null;
-  let safety = { hard_fail: false, hard: [], soft: [], jailbreak_detail: null };
+  // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
+  let safety = hardOnlySafetyCheck(claude.customer_answer, {
+    allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
+    allowed_entities: claude.allowlist?.allowed_entities ?? [],
+  });
   let replacingHard = [];
   let alreadyCommitted =
     Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
 
-  if (streamAbortedByConflict) {
-    // Separate path: verified-literal conflict abort (not normal-answer rewrite).
-    // Customer-visible text is exactly what SSE already sent (good + one failure closer).
-    usedFailure = true;
-    failureReason = "key_verified_literal_conflict";
-    finalText = sseEmittedText;
-    alreadyCommitted = true;
-  } else {
-    // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
-    safety = hardOnlySafetyCheck(claude.customer_answer, {
-      allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
-      allowed_entities: claude.allowlist?.allowed_entities ?? [],
-    });
-    replacingHard = [];
-
-    if (!String(finalText ?? "").trim()) {
-      finalText = commitStream.getCommitted() || KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
-      if (!commitStream.getCommitted()) {
-        usedFailure = true;
-        failureReason = "empty_answer";
-      }
+  if (!String(finalText ?? "").trim()) {
+    finalText = commitStream.getCommitted() || "";
+    if (!commitStream.getCommitted()) {
+      usedFailure = true;
+      failureReason = "empty_answer";
     }
-    // else: seal Claude original as-is (no monopoly, no soft rewrite, no truncation).
   }
-
-  // As-is delivery (no polish rewrite). Seal only.
-  // Conflict path: seal exactly sseEmittedText (already includes failure closer once).
+  // Seal Claude original as-is (no monopoly stub, no soft rewrite, no truncation).
   const sealed = sealKeyCustomerText(finalText);
 
   // GO3: discard → completed metadata; failure → never store Claude's new goal; else tool goal.
@@ -3876,13 +3741,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
 
   // If nothing was sentence-committed (e.g. tiny answer without boundary), emit once.
-  // Conflict path already emitted failure closer — never duplicate.
-  if (
-    streamHandlers?.onDelta &&
-    !streamHandlers._emitted &&
-    !streamAbortedByConflict &&
-    !failureCloserEmitted
-  ) {
+  if (streamHandlers?.onDelta && !streamHandlers._emitted) {
     streamHandlers.onDelta(sealed.key_speak_original);
     streamHandlers._emitted = true;
     sseEmittedText = String(sealed.key_speak_original ?? "");
@@ -3968,7 +3827,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           key_confirmed_fact_gate: keyConfirmedFactGate,
           key_confirmed_persist: keyConfirmedPersist,
           key_coverage_baseline_persist: keyBaselinePersist,
-          key_verified_literal_conflict: conflictTrace,
+          key_verified_literal_conflict: null,
           key_memory_rebuild: keyMemoryRebuild,
           active_claim_cases_hydrated: activeClaimCases.length,
           claim_case_updates_count: claimCasesToPersist.length,
@@ -4036,7 +3895,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         {
           step: "key_verified_literal_conflict",
           at_ms: relMs(startedAt),
-          payload: conflictTrace,
+          payload: null,
         },
         {
           step: "key_confirmed_fact_gate",

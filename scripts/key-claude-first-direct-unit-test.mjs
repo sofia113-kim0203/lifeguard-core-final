@@ -46,10 +46,7 @@ import {
   buildVerifiedLiteralSetFromPolicies,
   detectKeyVerifiedLiteralConflict,
 } from "../server/keyCore/keyVerifiedLiteralConflict.js";
-import {
-  finalizeKeyCustomerText,
-  KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
-} from "../server/keyCore/keyCustomerMonopoly.js";
+import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "../server/keyCore/keyCustomerMonopoly.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import { sentenceHardLiteBlocks } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
 import {
@@ -887,37 +884,26 @@ const chartPolicies = {
         sawChartObject = /"insurer"\s*:\s*"삼성생명"/.test(text);
       }
     }
-    // Turn 1: forced facts tool. Turn 2: customer answer (no rewrite pipeline).
-    if (claudeCalls === 1) {
-      return {
-        ok: true,
-        async json() {
-          return {
-            content: [
-              {
-                type: "tool_use",
-                id: "fact-img-1",
-                name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
-                input: {
-                  confirmed_source_facts: [
-                    {
-                      fact_type: "insurer",
-                      literal_value: "미확인",
-                      source_document_id: "doc-rot-ok",
-                    },
-                  ],
-                },
-              },
-            ],
-          };
-        },
-      };
-    }
+    // Single provider call: tools + customer answer in the same response.
     return {
       ok: true,
       async json() {
         return {
           content: [
+            {
+              type: "tool_use",
+              id: "fact-img-1",
+              name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+              input: {
+                confirmed_source_facts: [
+                  {
+                    fact_type: "insurer",
+                    literal_value: "미확인",
+                    source_document_id: "doc-rot-ok",
+                  },
+                ],
+              },
+            },
             {
               type: "text",
               text: "첨부 이미지에서 보험사 칸은 미확인입니다. 더 궁금한 점 말씀해 주세요.",
@@ -949,13 +935,18 @@ const chartPolicies = {
   });
   assert.equal(
     claudeCalls,
-    2,
-    "image original: facts tool turn + answer turn (no rewrite call)",
+    1,
+    "image original: single provider call (no force-tool / continue)",
   );
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(
     result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
     false,
+  );
+  assert.equal(
+    result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+    false,
+    "success path must not inject monopoly stub",
   );
   assert.equal(imageB64FromClaude, validJpeg8.toString("base64"));
   assert.equal(sha256Hex(Buffer.from(imageB64FromClaude, "base64")), sha256Hex(validJpeg8));
@@ -964,10 +955,7 @@ const chartPolicies = {
   assert.equal(sawFillPressure, false);
   assert.equal(toolNames.includes("record_confirmed_source_facts"), true);
   assert.equal(toolNames.includes("record_coverage_baseline_facts"), true);
-  assert.deepEqual(firstToolChoice, {
-    type: "tool",
-    name: "record_confirmed_source_facts",
-  });
+  assert.deepEqual(firstToolChoice, { type: "auto" });
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
   assert.equal(signals?.attachment_attached, true);
@@ -1004,8 +992,12 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.key_monopoly_failure, true);
-  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
-  assertNoChartLeak(result.customerText);
+  assert.equal(result.customerText, "", "attach fail: empty customer text");
+  assert.equal(result.keySpeakOriginal, "");
+  assert.equal(
+    result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+    false,
+  );
   assert.ok(
     ["document_ownership_denied", "pdf_attach_skipped", "attach_process_failed"].includes(
       result.failure_reason,
@@ -1040,7 +1032,7 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0, "soft-deleted document must not reach Claude");
   assert.equal(result.key_monopoly_failure, true);
-  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다|다시 첨부/);
+  assert.equal(result.customerText, "", "soft-deleted attach fail: empty customer text");
 }
 
 
@@ -1072,8 +1064,7 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.key_monopoly_failure, true);
-  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
-  assertNoChartLeak(result.customerText);
+  assert.equal(result.customerText, "", "download fail: empty customer text");
 }
 
 {
@@ -1103,8 +1094,7 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.key_monopoly_failure, true);
-  assert.match(result.customerText, /첨부 파일을 처리하지 못했습니다/);
-  assertNoChartLeak(result.customerText);
+  assert.equal(result.customerText, "", "heic block: empty customer text");
 }
 
 {
@@ -1128,13 +1118,17 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.failure_reason, "prior_attach_missing");
-  assert.equal(result.customerText, PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT);
-  assertNoChartLeak(result.customerText);
+  assert.equal(result.customerText, "", "prior attach miss: empty customer text");
+  assert.equal(result.keySpeakOriginal, "");
+  assert.equal(
+    result.customerText.includes(PRIOR_ATTACH_REATTACH_CUSTOMER_TEXT),
+    false,
+  );
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.prior_attach_follow_up,
     true,
   );
-  assert.equal(result.key_monopoly_failure, false);
+  assert.equal(result.key_monopoly_failure, true);
 }
 
 {
@@ -2653,7 +2647,8 @@ async function runGo2ConflictTurn({
   docId,
   extras = {},
 }) {
-  const expectedCloser = finalizeKeyCustomerText("", { failureMode: true }).keySpeakOriginal;
+  // Failure closer removed — Claude original passes through (no KEY substitute).
+  const expectedCloser = "";
   let claudeCalls = 0;
   let confirmedPersistCalls = 0;
   let baselinePersistCalls = 0;
@@ -2783,7 +2778,7 @@ async function runGo2ConflictTurn({
 }
 
 {
-  // J: good sentence then conflict — keep first, block rest, closer once, SSE===seal
+  // J: conflict no longer aborts — Claude original passes through (no KEY closer)
   const DOC = "doc-go2-stream-j";
   const verifiedPolicy = {
     id: "pol-go2-j",
@@ -2807,37 +2802,21 @@ async function runGo2ConflictTurn({
   const run = await runGo2ConflictTurn({ answerText, verifiedPolicy, docId: DOC });
   const sseJoined = run.deltas.join("");
   assert.equal(run.claudeCalls, 1, "N: Claude provider call === 1");
-  assert.equal(run.deltas[0], good, "J: first good sentence kept");
+  assert.equal(run.result.key_monopoly_failure, false, "J: no KEY failure closer");
   assert.equal(
-    run.deltas.filter((d) => d.includes("KB손해보험")).length,
-    0,
-    "J: conflict sentence 0",
+    run.result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+    false,
+    "J: monopoly stub not injected",
   );
-  assert.equal(sseJoined.includes("추가로 진단비"), false, "J: later sentence 0");
-  assert.equal(
-    run.deltas.filter((d) => d === run.expectedCloser).length,
-    1,
-    "J: closer 1회",
-  );
-  assert.equal(sseJoined, good + run.expectedCloser);
-  assert.equal(run.result.customerText, sseJoined, "J: SSE === sealed === return");
-  assert.equal(run.result.keySpeakOriginal, sseJoined);
-  assert.equal(
-    run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sentence_commit
-      ?.committed_len,
-    good.length,
-    "J: getCommitted length = good only (no conflict/after)",
-  );
-  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.attempted, false);
-  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_coverage_baseline_persist?.attempted, false);
-  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist?.attempted, false);
-  assert.equal(run.confirmedPersistCalls, 0, "L: confirmed persist calls 0");
-  assert.equal(run.baselinePersistCalls, 0, "L: baseline persist calls 0");
-  assert.equal(run.claimPersistCalls, 0, "L: claim persist calls 0");
+  assert.equal(run.result.customerText, answerText, "J: Claude original sealed");
+  assert.equal(run.result.keySpeakOriginal, answerText);
+  assert.equal(sseJoined, answerText, "J: SSE === sealed === Claude original");
+  assert.equal(sseJoined.includes("KB손해보험"), true, "J: conflict text passes through");
+  assert.equal(run.expectedCloser, "", "J: no KEY closer");
 }
 
 {
-  // K: tiny answer conflict (no progressive boundaries until flush)
+  // K: tiny conflict answer also passes through (no KEY closer)
   const DOC = "doc-go2-stream-k";
   const verifiedPolicy = {
     id: "pol-go2-k",
@@ -2854,29 +2833,19 @@ async function runGo2ConflictTurn({
       ],
     },
   };
-  // No ASCII sentence terminator — flushAll commits as one tiny unit.
   const tinyConflict = "이 계약은 KB손해보험입니다";
   const run = await runGo2ConflictTurn({ answerText: tinyConflict, verifiedPolicy, docId: DOC });
   const sseJoined = run.deltas.join("");
   assert.equal(run.claudeCalls, 1, "K/N: Claude 1");
-  assert.equal(sseJoined.includes("KB손해보험"), false, "K: conflict not in SSE");
-  assert.equal(run.deltas.join(""), run.expectedCloser);
-  assert.equal(run.result.customerText, run.expectedCloser);
-  assert.equal(run.result.keySpeakOriginal, run.expectedCloser);
+  assert.equal(sseJoined.includes("KB손해보험"), true, "K: conflict passes through");
+  assert.equal(run.result.customerText, tinyConflict);
+  assert.equal(run.result.keySpeakOriginal, tinyConflict);
   assert.equal(
-    run.deltas.filter((d) => d === run.expectedCloser).length,
-    1,
-    "K: closer 1",
+    run.result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+    false,
+    "K: no monopoly stub",
   );
-  assert.equal(
-    run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.sentence_commit
-      ?.committed_len,
-    0,
-    "K: committed stays 0 (conflict not kept)",
-  );
-  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.attempted, false);
-  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_coverage_baseline_persist?.attempted, false);
-  assert.equal(run.result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist?.attempted, false);
+  assert.equal(run.result.key_monopoly_failure, false);
 }
 
 // --- GO3 correction: server SSOT + discard persist + no client prior trust ---
@@ -4233,7 +4202,6 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(JSON.stringify(diag).includes(secretMsg), false);
   assert.equal(JSON.stringify(diag).includes("%PDF"), false);
 
-  const monopolyText = KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT;
   let calls = 0;
   const result = await runClaudeFirstDirectQuestionTurn({
     question: "안녕하세요",
@@ -4259,8 +4227,12 @@ console.log("key-claude-first-direct-unit-test: PASS");
   });
   assert.equal(calls, 1, "provider call count unchanged");
   assert.equal(result.key_monopoly_failure, true);
-  assert.equal(result.customerText, monopolyText, "customer byte-equal monopoly");
-  assert.equal(result.keySpeakOriginal, monopolyText);
+  assert.equal(result.customerText, "", "400: empty customer text (no monopoly stub)");
+  assert.equal(result.keySpeakOriginal, "");
+  assert.equal(
+    result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+    false,
+  );
   assert.equal(result.failure_reason, "ANTHROPIC_HTTP_400");
   const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
   assert.equal(voice?.anthropic_upstream_diag?.upstream_status, 400);
@@ -4385,15 +4357,19 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(done.key_monopoly_failure, true);
   assert.equal(done.failure_reason, "ANTHROPIC_HTTP_400");
   assert.ok(done.sales_director_trace, "monopoly done extras must include sales_director_trace");
-  assert.equal(done.answerText, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT, "customer byte-equal");
-  assert.equal(done.key_speak_original, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
+  assert.equal(done.answerText, "", "customer empty on 400 (no monopoly stub)");
+  assert.equal(done.key_speak_original, "");
   assert.equal(done.key_text_equal, true);
-  assert.equal(done.key_text_integrity?.ok, true, "SSE===sealed integrity ok");
+  assert.equal(done.key_text_integrity?.ok, true, "empty monopoly failure integrity ok");
   assert.equal(done.key_text_integrity?.text_equal, true);
   assert.equal(
+    done.answerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+    false,
+  );
+  assert.equal(
     deltas.join(""),
-    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
-    "SSE delta customer text byte-equal monopoly",
+    "",
+    "SSE delta empty on 400 (no KEY substitute)",
   );
   assert.equal(
     done.answerText.includes("anthropic_upstream_diag"),
@@ -4433,7 +4409,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   console.log("PDF 400 DIAGNOSTIC TRACE LOCAL CHECKS OK");
 }
 
-// --- PDF MESSAGE SHAPE: ack every client tool_use on card-tool continue ---
+// --- PDF MESSAGE SHAPE: single provider call (tools + answer same response; no continue/nudge) ---
 {
   const ack = buildClaudeFirstToolResultAckBlocks([
     {
@@ -4472,8 +4448,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   const tinyPdf = Buffer.from("%PDF-1.1\n%%EOF\n");
   const answerText = "첨부에서 보험료는 미확인입니다. 더 궁금한 점 말씀해 주세요.";
   let claudeCalls = 0;
-  let call2ToolResults = null;
-  let call2Roles = null;
+  let firstToolChoice = null;
   const deltas = [];
   const result = await runClaudeFirstDirectQuestionTurn({
     question: "이 증권에서 확인되는 내용만 짧게 정리해 주세요.",
@@ -4496,79 +4471,35 @@ console.log("key-claude-first-direct-unit-test: PASS");
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
       const body = JSON.parse(String(opts?.body ?? "{}"));
-      if (claudeCalls === 2) {
-        call2Roles = (body.messages ?? []).map((m) => m.role);
-        const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user");
-        call2ToolResults = Array.isArray(lastUser?.content)
-          ? lastUser.content.filter((b) => b?.type === "tool_result")
-          : [];
-        const assistantToolIds = (body.messages ?? [])
-          .filter((m) => m.role === "assistant")
-          .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
-          .filter((b) => b?.type === "tool_use")
-          .map((b) => b.id);
-        const resultIds = call2ToolResults.map((b) => b.tool_use_id);
-        assert.equal(
-          assistantToolIds.every((id) => resultIds.includes(id)),
-          true,
-          "unmatched tool_use must be 0",
-        );
-        assert.deepEqual(call2Roles.slice(0, 3), ["user", "assistant", "user"]);
-      }
-      if (claudeCalls === 1) {
-        return {
-          ok: true,
-          async json() {
-            return {
-              content: [
-                {
-                  type: "tool_use",
-                  id: "tu_facts",
-                  name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
-                  input: {
-                    confirmed_source_facts: [
-                      {
-                        fact_type: "premium",
-                        literal_value: "미확인",
-                        source_document_id: "doc-msg-shape",
-                      },
-                    ],
-                  },
-                },
-                {
-                  type: "tool_use",
-                  id: "tu_goal",
-                  name: RECORD_SESSION_GOAL_TOOL.name,
-                  input: { goal: "가입 계약 확인", status: "active" },
-                },
-                {
-                  type: "tool_use",
-                  id: "tu_basis",
-                  name: RECORD_RECOMMENDATION_BASIS_TOOL.name,
-                  input: {
-                    recommendation_basis: [
-                      {
-                        claim: "보장 공백 확인이 필요해 보입니다",
-                        refs: [{ kind: "document", id: "doc-msg-shape" }],
-                      },
-                    ],
-                  },
-                },
-              ],
-            };
-          },
-        };
-      }
+      firstToolChoice = body?.tool_choice ?? null;
       return {
         ok: true,
         async json() {
           return {
             content: [
-              { type: "text", text: answerText },
-              // Same-response basis extract (GO4) — call #2 overwrites turn-1 basis trace.
               {
                 type: "tool_use",
-                id: "tu_basis_final",
+                id: "tu_facts",
+                name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                input: {
+                  confirmed_source_facts: [
+                    {
+                      fact_type: "premium",
+                      literal_value: "미확인",
+                      source_document_id: "doc-msg-shape",
+                    },
+                  ],
+                },
+              },
+              {
+                type: "tool_use",
+                id: "tu_goal",
+                name: RECORD_SESSION_GOAL_TOOL.name,
+                input: { goal: "가입 계약 확인", status: "active" },
+              },
+              {
+                type: "tool_use",
+                id: "tu_basis",
                 name: RECORD_RECOMMENDATION_BASIS_TOOL.name,
                 input: {
                   recommendation_basis: [
@@ -4579,6 +4510,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
                   ],
                 },
               },
+              { type: "text", text: answerText },
             ],
           };
         },
@@ -4595,13 +4527,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
     },
   });
 
-  assert.equal(claudeCalls, 2, "provider call count normal = 2");
-  assert.ok(Array.isArray(call2ToolResults));
-  assert.equal(call2ToolResults.length, 3, "three tool_results on call #2");
-  assert.deepEqual(
-    call2ToolResults.map((b) => b.tool_use_id).sort(),
-    ["tu_basis", "tu_facts", "tu_goal"],
-  );
+  assert.equal(claudeCalls, 1, "provider call count = 1 (no continue)");
+  assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice always auto");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, answerText, "final answer ok");
   assert.equal(result.keySpeakOriginal, answerText);
@@ -4613,11 +4540,10 @@ console.log("key-claude-first-direct-unit-test: PASS");
   const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
   assert.equal(voice?.recommendation_basis_tool_seen, true, "GO4 basis extract path live");
 
-  // Text nudge path: assistant has tool_use → tool_results first, then text.
+  // Text-nudge continue removed: first-call answer kept; provider_calls stays 1.
   {
     let nudgeCalls = 0;
-    let nudgeUserContent = null;
-    await runClaudeFirstDirectQuestionTurn({
+    const nudgeResult = await runClaudeFirstDirectQuestionTurn({
       question: "이 PDF 한 번만 더 확인해 주세요.",
       history: [],
       loadedContext: { policies: [], policy_count: 0 },
@@ -4635,38 +4561,60 @@ console.log("key-claude-first-direct-unit-test: PASS");
         blob: makeBlobFromBuffer(tinyPdf),
       }),
       env: failClosedEnv,
-      fetchImpl: async (_url, opts) => {
+      fetchImpl: async () => {
         nudgeCalls += 1;
-        const body = JSON.parse(String(opts?.body ?? "{}"));
-        if (nudgeCalls === 2) {
-          const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user");
-          nudgeUserContent = lastUser?.content;
-        }
-        if (nudgeCalls === 1) {
-          return {
-            ok: true,
-            async json() {
-              return {
-                content: [
-                  { type: "text", text: "정리해 드릴게요." },
-                  {
-                    type: "tool_use",
-                    id: "tu_goal_nudge",
-                    name: RECORD_SESSION_GOAL_TOOL.name,
-                    input: { goal: "가입 계약 확인", status: "active" },
-                  },
-                  // Empty facts → confirmedFactsToolSeen stays false → nudge continue.
-                  {
-                    type: "tool_use",
-                    id: "tu_facts_empty",
-                    name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
-                    input: { confirmed_source_facts: [] },
-                  },
-                ],
-              };
-            },
-          };
-        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [
+                { type: "text", text: "정리해 드릴게요." },
+                {
+                  type: "tool_use",
+                  id: "tu_goal_nudge",
+                  name: RECORD_SESSION_GOAL_TOOL.name,
+                  input: { goal: "가입 계약 확인", status: "active" },
+                },
+                {
+                  type: "tool_use",
+                  id: "tu_facts_empty",
+                  name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                  input: { confirmed_source_facts: [] },
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+    assert.equal(nudgeCalls, 1, "nudge continue removed — single provider call");
+    assert.equal(nudgeResult.customerText, "정리해 드릴게요.");
+    assert.equal(nudgeResult.key_monopoly_failure, false);
+  }
+
+  // Tools-only (no customer_answer) → empty failure, provider_calls=1
+  {
+    let toolsOnlyCalls = 0;
+    const toolsOnly = await runClaudeFirstDirectQuestionTurn({
+      question: "이 증권만 짧게 봐 주세요.",
+      history: [],
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-msg-shape",
+      attachedDocumentId: "doc-msg-shape-tools-only",
+      userSupabase: makeAttachSupabase({
+        document: {
+          id: "doc-msg-shape-tools-only",
+          customer_id: "cust-msg-shape",
+          storage_path: "cust-msg-shape/doc-msg-shape-tools-only.pdf",
+          mime_type: "application/pdf",
+          original_filename: "tools-only.pdf",
+          deleted_at: null,
+        },
+        blob: makeBlobFromBuffer(tinyPdf),
+      }),
+      env: failClosedEnv,
+      fetchImpl: async () => {
+        toolsOnlyCalls += 1;
         return {
           ok: true,
           async json() {
@@ -4674,35 +4622,31 @@ console.log("key-claude-first-direct-unit-test: PASS");
               content: [
                 {
                   type: "tool_use",
-                  id: "tu_facts_nudge2",
+                  id: "tu_facts_only",
                   name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
                   input: {
                     confirmed_source_facts: [
                       {
                         fact_type: "premium",
                         literal_value: "미확인",
-                        source_document_id: "doc-msg-shape-nudge",
+                        source_document_id: "doc-msg-shape-tools-only",
                       },
                     ],
                   },
                 },
-                { type: "text", text: answerText },
               ],
             };
           },
         };
       },
     });
-    assert.ok(Array.isArray(nudgeUserContent), "nudge user content is block array");
-    assert.equal(nudgeUserContent[0]?.type, "tool_result");
-    assert.equal(nudgeUserContent[1]?.type, "tool_result");
-    assert.deepEqual(
-      nudgeUserContent.filter((b) => b.type === "tool_result").map((b) => b.tool_use_id).sort(),
-      ["tu_facts_empty", "tu_goal_nudge"],
+    assert.equal(toolsOnlyCalls, 1, "tools-only: no second call");
+    assert.equal(toolsOnly.key_monopoly_failure, true);
+    assert.equal(toolsOnly.customerText, "", "tools-only: empty customer text");
+    assert.equal(
+      toolsOnly.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
+      false,
     );
-    const textIdx = nudgeUserContent.findIndex((b) => b?.type === "text");
-    assert.ok(textIdx > 0, "text after tool_results");
-    assert.match(String(nudgeUserContent[textIdx]?.text ?? ""), /record_confirmed_source_facts/);
   }
 
   console.log("PDF MESSAGE SHAPE LOCAL CHECKS OK");
