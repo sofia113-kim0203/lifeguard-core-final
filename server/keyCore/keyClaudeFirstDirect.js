@@ -3494,6 +3494,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             session_goal_discard_requested: discardRequested === true,
             session_goal_ssot_reason: ssotReason,
             anthropic_upstream_diag: claude.anthropic_upstream_diag ?? null,
+            web_search: claude.web_search_trace ?? null,
             pdf_attached: claude.pdf_attached === true,
             pdf_attached_attempted: claude.pdf_attached_attempted === true,
             recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
