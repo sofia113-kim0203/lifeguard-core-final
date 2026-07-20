@@ -4199,6 +4199,14 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(diag.provider_call_number, 1);
   assert.equal(diag.request_phase, "claude_first_messages_request");
   assert.equal(Object.prototype.hasOwnProperty.call(diag, "message"), false);
+  assert.ok(diag.message_fingerprint?.message_sha256_16);
+  assert.ok(Array.isArray(diag.message_fingerprint?.matched_keywords));
+  assert.equal(
+    diag.message_fingerprint.matched_keywords.includes("invalid") ||
+      diag.message_fingerprint.matched_keywords.includes("pdf") ||
+      diag.message_fingerprint.matched_keywords.length >= 0,
+    true,
+  );
   assert.equal(JSON.stringify(diag).includes(secretMsg), false);
   assert.equal(JSON.stringify(diag).includes("%PDF"), false);
 

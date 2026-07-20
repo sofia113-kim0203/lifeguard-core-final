@@ -173,6 +173,7 @@ function createAbortableSentenceCommitStream({
     },
   };
 }
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
   normalizeKeyConfirmedSourceFacts,
@@ -197,6 +198,72 @@ import {
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+
+/** Curated non-PII tokens used only for Anthropic error fingerprinting. */
+const ANTHROPIC_ERROR_FINGERPRINT_KEYWORDS = Object.freeze([
+  "tools",
+  "tool",
+  "tool_choice",
+  "input_schema",
+  "schema",
+  "oneof",
+  "anyof",
+  "allof",
+  "null",
+  "nullable",
+  "additionalproperties",
+  "messages",
+  "content",
+  "model",
+  "max_tokens",
+  "temperature",
+  "system",
+  "web_search",
+  "server_tool",
+  "invalid",
+  "required",
+  "properties",
+  "type",
+  "enum",
+  "custom",
+  "does not support",
+  "unexpected",
+  "field required",
+  "record_session_goal",
+  "record_recommendation_basis",
+  "record_confirmed_source_facts",
+  "json",
+  "array",
+  "object",
+  "string",
+]);
+
+/**
+ * Safe fingerprint of Anthropic error.message — keywords + path tokens + short hash.
+ * Never returns the raw message or customer content.
+ */
+export function buildAnthropicErrorMessageFingerprint(errorMessage = "") {
+  const raw = String(errorMessage ?? "").slice(0, 800);
+  const lower = raw.toLowerCase();
+  const matched_keywords = ANTHROPIC_ERROR_FINGERPRINT_KEYWORDS.filter((k) =>
+    lower.includes(k),
+  ).slice(0, 24);
+  const path_tokens = [
+    ...raw.matchAll(/\btools\.\d+(?:\.[A-Za-z0-9_]+)+/g),
+  ]
+    .map((m) => m[0])
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .slice(0, 6);
+  const message_sha256_16 = createHash("sha256")
+    .update(raw)
+    .digest("hex")
+    .slice(0, 16);
+  return {
+    message_sha256_16,
+    matched_keywords,
+    path_tokens,
+  };
+}
 
 /** Non-PII byte-size bucket for attach diagnostics (never stores bytes/base64). */
 export function bucketDocumentBytes(byteLength = null) {
@@ -319,6 +386,7 @@ export function buildAnthropicUpstreamDiag({
   const category = ANTHROPIC_MESSAGE_CATEGORIES.includes(message_category)
     ? message_category
     : "unknown_upstream_400";
+  const fingerprint = buildAnthropicErrorMessageFingerprint(scanMessage);
   return {
     upstream_status: Number.isFinite(Number(status)) ? Number(status) : null,
     error_type: errorType,
@@ -333,6 +401,7 @@ export function buildAnthropicUpstreamDiag({
     provider_call_number: Number.isFinite(Number(providerCallNumber))
       ? Number(providerCallNumber)
       : null,
+    message_fingerprint: fingerprint,
   };
 }
 
