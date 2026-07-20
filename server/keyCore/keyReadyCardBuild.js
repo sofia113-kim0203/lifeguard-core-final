@@ -390,7 +390,13 @@ export async function resolveReadyCardForQuestionTurn({
     ...buildDeps,
   };
 
-  if (cached.status === "normal" && cached.card) {
+  // Never reuse an unconnected card as hit/stale — rebuild so Claude gets real SSOT.
+  const cachedReusable =
+    cached.card &&
+    cached.card.materials_connected === true &&
+    String(cached.card.customer_id ?? "").trim() === String(customerId ?? "").trim();
+
+  if (cached.status === "normal" && cachedReusable) {
     return {
       card: {
         ...cached.card,
@@ -406,7 +412,7 @@ export async function resolveReadyCardForQuestionTurn({
     };
   }
 
-  if (cached.status === "stale" && cached.card) {
+  if (cached.status === "stale" && cachedReusable) {
     if (backgroundRefresh) {
       void warmAndStoreKeyReadyCard(warmArgs).catch(() => {});
     }

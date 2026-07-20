@@ -18,6 +18,10 @@ import {
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { loadAllowedCorporateContextsForClaude } from "../server/keyCore/keyClaudeCorporateContext.js";
 import { loadKeyActiveClaimCases } from "../server/documentPolicyUploadPersist.js";
+import {
+  loadSalesDirectorTurnContext,
+  snapshotToContextBundle,
+} from "../server/customerContextSnapshot.js";
 
 async function loadActiveCustomerDocuments({ supabase = null, customerId = null } = {}) {
   const cid = String(customerId ?? "").trim();
@@ -83,13 +87,34 @@ export default async function handler(req, res) {
   }
 
   const sessionId = String(body.session_id ?? "").trim() || null;
-  const customerId = String(auth.customer_id ?? "").trim();
+  const customerId = String(auth.customerId ?? auth.customer_id ?? "").trim();
 
   try {
+    // Existing turn-context SSOT (cached) — policies/profile without a new truth DB.
+    let unifiedState = null;
+    let customerContextBundle = null;
+    let loadedContext = null;
+    try {
+      const turnCtx = await loadSalesDirectorTurnContext(userSupabase, customerId, {
+        requestHistory: [],
+      });
+      unifiedState = turnCtx?.unifiedState ?? null;
+      customerContextBundle = snapshotToContextBundle(turnCtx?.snapshot) ?? null;
+      loadedContext = customerContextBundle;
+    } catch {
+      unifiedState = null;
+      customerContextBundle = null;
+      loadedContext = null;
+    }
+
     const result = await warmAndStoreKeyReadyCard({
       userSupabase,
       customerId,
       sessionId,
+      authUserId: auth.user?.id ?? null,
+      loadedContext,
+      unifiedState,
+      customerContextBundle,
       discardGoal: false,
       extractPoliciesFromContext,
       loadLatestSessionGoalFromConversations,

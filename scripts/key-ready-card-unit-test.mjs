@@ -248,6 +248,50 @@ clearReadyCardCache();
   assert.notEqual(a.card.customer_id, b.card.customer_id);
 }
 
+// --- unconnected cached card must not count as hit ---
+clearReadyCardCache();
+{
+  writeReadyCardCache("cust-empty", "s1", {
+    customer_id: "cust-empty",
+    prepared_at: new Date().toISOString(),
+    status: "miss",
+    materials_connected: false,
+    insurance_card: { policy_count: 0, policies: [] },
+  });
+  let rebuilt = 0;
+  const resolved = await resolveReadyCardForQuestionTurn({
+    userSupabase: { from() { return this; } },
+    customerId: "cust-empty",
+    sessionId: "s1",
+    buildDeps: {
+      extractPoliciesFromContext: () => {
+        rebuilt += 1;
+        return {
+          policies: [
+            { id: "p1", product_name: "암보험", insurer_name: "테스트", is_active: true },
+          ],
+          policy_count: 1,
+        };
+      },
+      loadLatestSessionGoalFromConversations: async () => ({ goal: null, reason: "none" }),
+      loadLatestActiveCustomerGoalFromConversations: async () => ({ goal: null, reason: "none" }),
+      loadCustomerPriorConsultationForClaude: async () => ({ prior: null, reason: "none" }),
+      loadAllowedCorporateContextsForClaude: async () => ({
+        corporate_contexts: [],
+        corporate_gap_evidence: [],
+        corporate_recommendation_candidates: [],
+        corporate_unknowns: [],
+      }),
+      loadKeyActiveClaimCases: async () => [],
+      loadActiveCustomerDocuments: async () => [],
+    },
+  });
+  assert.equal(resolved.ready_card_status, "miss");
+  assert.equal(resolved.reused, false);
+  assert.ok(rebuilt >= 1);
+  assert.equal(resolved.card.materials_connected, true);
+}
+
 assert.ok(READY_CARD_CACHE_TTL_MS > 0);
 assert.ok(readyCardCacheSizeForTests() >= 2);
 
