@@ -128,6 +128,15 @@ import {
   syncClaimEvidenceFromCases,
 } from "./keyClaimEvidenceVault.js";
 import {
+  buildLifeLedgerHandBrief,
+  buildLifeLedgerUpdatesFromUtterance,
+  filterLifeLedgerByScope,
+  loadLifeLedgerItems,
+  persistLifeLedgerItems,
+  softLifeLedgerContext,
+  syncLifeLedgerOutcomesFromClaims,
+} from "./keyLifeLedger.js";
+import {
   buildInsuranceClocksFromPolicyDateFacts,
   buildPolicyDateFactsFromUtterance,
   loadPolicyDateFacts,
@@ -1989,6 +1998,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
     "입력 current_context.insurance_clock이 있으면 KEY가 소유한 보험 기한 참고다. upcoming·overdue·unknown_date·completed_recent만 사용한다. 날짜를 새로 발명하지 말고, unknown_date는 정확한 날짜를 확인한다. completed·cancelled는 현재 할 일처럼 말하지 않는다. 법정 시효·‘보통 3년’ 같은 일반론을 고객 고유 due_at처럼 말하지 않는다.",
     "입력 current_context.claim_evidence가 있으면 KEY가 소유한 청구 증거 패키지 참고다. held/submitted/insurer/outcome과 verification_status(original·customer_reported·insurer_verified·unverified)만 사용한다. 문서에 없는 사실·거절 사유를 만들지 말고, 고객 진술을 보험사 확인처럼 말하지 않는다. 원본·추출·해석을 섞지 않는다.",
+    "입력 current_context.life_ledger가 있으면 KEY가 소유한 고객 장기 맥락 참고다. goals·decisions·open_questions·outcomes만 사용한다. 참고용이며 답변 템플릿·강제 추천·답변 차단에 쓰지 않는다. 저장되지 않은 목표·선호를 만들지 말고, 고객이 말하지 않은 의사를 단정하지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -2474,6 +2484,7 @@ export function buildUserPayload({
   activeClaimCases = null,
   insuranceClockBrief = null,
   claimEvidenceBrief = null,
+  lifeLedgerBrief = null,
   sessionGoal = null,
   priorConsultation = null,
   now = null,
@@ -2522,6 +2533,7 @@ export function buildUserPayload({
       : null;
   const softClock = softInsuranceClockContext(insuranceClockBrief);
   const softClaimEvidence = softClaimEvidenceContext(claimEvidenceBrief);
+  const softLifeLedger = softLifeLedgerContext(lifeLedgerBrief);
 
   // Image original read: question + conversation + original image only.
   // No factory chart / OCR / contracts / corporate / claim cards mixed in.
@@ -2643,6 +2655,7 @@ export function buildUserPayload({
         : {}),
       ...(softClock ? softClock : {}),
       ...(softClaimEvidence ? softClaimEvidence : {}),
+      ...(softLifeLedger ? softLifeLedger : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -3524,6 +3537,7 @@ async function callClaudeFirstDirect({
   /** Insurance Clock Hand brief — KEY-owned dates only. */
   insuranceClockBrief = null,
   claimEvidenceBrief = null,
+  lifeLedgerBrief = null,
   /** Server-SSOT soft goal only — never from client body. */
   sessionGoalForContext = null,
   /** Soft prior consultation pack — never verified fact. */
@@ -3607,6 +3621,8 @@ async function callClaudeFirstDirect({
       presenceTurn === true || imageOriginalRead ? null : insuranceClockBrief,
     claimEvidenceBrief:
       presenceTurn === true || imageOriginalRead ? null : claimEvidenceBrief,
+    lifeLedgerBrief:
+      presenceTurn === true || imageOriginalRead ? null : lifeLedgerBrief,
     sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
       priorConsultationForContext && typeof priorConsultationForContext === "object"
@@ -4564,6 +4580,35 @@ export async function runClaudeFirstDirectQuestionTurn({
           evidenceItems: claimEvidenceItemsScoped,
         });
 
+  // Life Ledger Slice 1 — soft long-context; Claude judges freely (no control).
+  let lifeLedgerItemsAll = Array.isArray(readyMaterials.lifeLedgerItems)
+    ? readyMaterials.lifeLedgerItems
+    : [];
+  if (!Array.isArray(readyMaterials.lifeLedgerItems) && userSupabase && customerId) {
+    try {
+      lifeLedgerItemsAll = await loadLifeLedgerItems({
+        supabase: userSupabase,
+        customerId,
+      });
+    } catch (err) {
+      console.error("[key_life_ledger_load]", String(err?.message ?? err).slice(0, 200));
+      lifeLedgerItemsAll = [];
+    }
+  }
+  const lifeLedgerItemsScoped = filterLifeLedgerByScope(lifeLedgerItemsAll, {
+    entityId: selectedCorporateEntityId,
+    mode:
+      viewModeForClock === "corporate"
+        ? "corporate"
+        : viewModeForClock === "both"
+          ? "both"
+          : "personal",
+  });
+  const lifeLedgerBrief =
+    readyMaterials.lifeLedgerBrief && viewModeForClock === "both"
+      ? readyMaterials.lifeLedgerBrief
+      : buildLifeLedgerHandBrief(lifeLedgerItemsScoped);
+
   // Slice 3 D — claim entity ≠ chart auto-select. Personal turns stay personal.
   const claimSelectedEntityId = resolveClaimSelectedEntityId({
     selectedEntityIdHint,
@@ -4685,6 +4730,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
     insuranceClockBrief: isPresenceTurn ? null : insuranceClockBrief,
     claimEvidenceBrief: isPresenceTurn ? null : claimEvidenceBrief,
+    lifeLedgerBrief: isPresenceTurn ? null : lifeLedgerBrief,
     sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
     priorConsultationForContext,
     documentEvidence: isPresenceTurn ? [] : documentChunksForClaude,
@@ -5551,6 +5597,86 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  // Life Ledger Slice 1 — post-answer soft memory (no answer rewrite / no Claude control).
+  let lifeLedgerSidecar = {
+    attempted: false,
+    ok: false,
+    reason: null,
+    action: "skip",
+    stored: 0,
+  };
+  let lifeLedgerPersist = null;
+  if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
+    try {
+      const llEntityId =
+        claimTurnScope.claim_scope === "corporate" && claimTurnScope.entity_id
+          ? claimTurnScope.entity_id
+          : null;
+      const llMessageId = `llmsg_${customerId.slice(0, 8)}_${Date.now().toString(36)}`;
+      const casesForLl = Array.isArray(claimCasesToPersist) && claimCasesToPersist.length
+        ? claimCasesToPersist
+        : activeClaimCasesAll;
+      const outcomeUpdates = syncLifeLedgerOutcomesFromClaims({
+        cases: casesForLl,
+        existingLedger: lifeLedgerItemsAll,
+        customerId,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+      });
+      const uttered = buildLifeLedgerUpdatesFromUtterance({
+        question,
+        existingLedger: [...lifeLedgerItemsAll, ...outcomeUpdates],
+        customerId,
+        entityId: llEntityId,
+        messageId: llMessageId,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+      });
+      const updates = [
+        ...outcomeUpdates,
+        ...(uttered?.ok === true && Array.isArray(uttered.updates) ? uttered.updates : []),
+      ];
+      lifeLedgerSidecar = {
+        attempted: true,
+        ok: updates.length > 0,
+        reason:
+          updates.length > 0
+            ? uttered?.ok === true
+              ? uttered.reason
+              : "synced_claim_outcomes"
+            : uttered?.reason || "no_ledger_updates",
+        action: updates.length > 0 ? "create" : "skip",
+        stored: 0,
+        ledger_type: updates[0]?.type ?? null,
+        source: updates[0]?.source ?? null,
+      };
+      if (updates.length) {
+        lifeLedgerPersist = await persistLifeLedgerItems({
+          supabase: userSupabase,
+          customerId,
+          ledgerUpdates: updates,
+        });
+        lifeLedgerSidecar.stored = Number(lifeLedgerPersist?.stored ?? 0) || 0;
+        lifeLedgerSidecar.persist_ok = lifeLedgerPersist?.ok === true;
+        if (lifeLedgerPersist?.ok === true) {
+          try {
+            invalidateReadyCardCacheForCustomer(customerId);
+          } catch {
+            /* non-blocking */
+          }
+        }
+      }
+    } catch (err) {
+      lifeLedgerSidecar = {
+        attempted: true,
+        ok: false,
+        reason: "sidecar_threw",
+        action: "skip",
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_life_ledger_sidecar]", lifeLedgerSidecar);
+    }
+  }
+
   if (
     !usedFailure &&
     claimCasesToPersist.length > 0 &&
@@ -5713,6 +5839,15 @@ export async function runClaudeFirstDirectQuestionTurn({
           },
           key_claim_evidence_sidecar: claimEvidenceSidecar,
           key_claim_evidence_persist: claimEvidencePersist,
+          life_ledger_hydrated: lifeLedgerItemsScoped.length,
+          life_ledger_brief: {
+            goals: lifeLedgerBrief?.goals?.length ?? 0,
+            decisions: lifeLedgerBrief?.decisions?.length ?? 0,
+            open_questions: lifeLedgerBrief?.open_questions?.length ?? 0,
+            outcomes: lifeLedgerBrief?.outcomes?.length ?? 0,
+          },
+          key_life_ledger_sidecar: lifeLedgerSidecar,
+          key_life_ledger_persist: lifeLedgerPersist,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),
@@ -5818,6 +5953,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           step: "key_claim_evidence_persist",
           at_ms: relMs(startedAt),
           payload: claimEvidencePersist,
+        },
+        {
+          step: "key_life_ledger_persist",
+          at_ms: relMs(startedAt),
+          payload: lifeLedgerPersist,
         },
       ],
       legacy_paths_blocked: [

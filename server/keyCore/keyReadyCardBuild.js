@@ -26,6 +26,10 @@ import {
   loadClaimEvidenceItems,
 } from "./keyClaimEvidenceVault.js";
 import {
+  buildLifeLedgerHandBrief,
+  loadLifeLedgerItems,
+} from "./keyLifeLedger.js";
+import {
   canLoadCorporateProfileHand,
   loadHolderAuthorityGrants,
 } from "../entity/entityAuthorityConsent.js";
@@ -322,6 +326,7 @@ export async function buildKeyReadyCard({
   loadInsuranceClockItemsImpl = loadInsuranceClockItems,
   loadPolicyDateFactsImpl = loadPolicyDateFacts,
   loadClaimEvidenceItemsImpl = loadClaimEvidenceItems,
+  loadLifeLedgerItemsImpl = loadLifeLedgerItems,
 } = {}) {
   const cid = String(customerId ?? "").trim();
   const sid = String(sessionId ?? "").trim() || null;
@@ -366,6 +371,16 @@ export async function buildKeyReadyCard({
         note: "key_owns_claim_evidence; claude_explains_only",
         _items: [],
       },
+      life_ledger: {
+        goals: [],
+        decisions: [],
+        open_questions: [],
+        outcomes: [],
+        item_count: 0,
+        packs_separated: true,
+        note: "key_owns_life_ledger; soft_reference_only; claude_judges_freely",
+        _items: [],
+      },
       corporate: {
         corporate_contexts: [],
         corporate_gap_evidence: [],
@@ -398,6 +413,7 @@ export async function buildKeyReadyCard({
     storedClocks,
     policyDateFacts,
     claimEvidenceItems,
+    lifeLedgerItems,
   ] = await Promise.all([
     discardGoal || !sid || typeof loadLatestSessionGoalFromConversations !== "function"
       ? Promise.resolve({ goal: null, reason: discardGoal ? "discard_requested" : "skipped" })
@@ -449,6 +465,9 @@ export async function buildKeyReadyCard({
       : Promise.resolve([]),
     typeof loadClaimEvidenceItemsImpl === "function"
       ? loadClaimEvidenceItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      : Promise.resolve([]),
+    typeof loadLifeLedgerItemsImpl === "function"
+      ? loadLifeLedgerItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -513,6 +532,10 @@ export async function buildKeyReadyCard({
     }),
     _items: Array.isArray(claimEvidenceItems) ? claimEvidenceItems : [],
   };
+  const life_ledger = {
+    ...buildLifeLedgerHandBrief(lifeLedgerItems),
+    _items: Array.isArray(lifeLedgerItems) ? lifeLedgerItems : [],
+  };
 
   // Connected when any verified/soft SSOT material is present for this customer.
   const lifeThreadCount = Array.isArray(prior?.life_threads) ? prior.life_threads.length : 0;
@@ -525,6 +548,7 @@ export async function buildKeyReadyCard({
     docs.length > 0 ||
     claims_brief.length > 0 ||
     (claim_evidence.item_count || 0) > 0 ||
+    (life_ledger.item_count || 0) > 0 ||
     clockLiveCount > 0 ||
     Boolean(goal) ||
     Boolean(prior) ||
@@ -584,6 +608,7 @@ export async function buildKeyReadyCard({
     },
     insurance_clock,
     claim_evidence,
+    life_ledger,
     // T8.1 — independent of materials_connected; no live insurer API in this slice.
     insurer_source: defaultInsurerSource(),
     corporate: {
@@ -976,6 +1001,8 @@ export function materialsFromReadyCard(card = null) {
       insuranceClockBrief: null,
       claimEvidenceItems: null,
       claimEvidenceBrief: null,
+      lifeLedgerItems: null,
+      lifeLedgerBrief: null,
     };
   }
   const goalObj = card.active_goal?._goal_object ?? null;
@@ -1039,6 +1066,21 @@ export function materialsFromReadyCard(card = null) {
             item_count: card.claim_evidence.item_count ?? 0,
             packs_separated: card.claim_evidence.packs_separated === true,
             note: card.claim_evidence.note ?? null,
+          }
+        : null,
+    lifeLedgerItems: Array.isArray(card.life_ledger?._items)
+      ? card.life_ledger._items
+      : null,
+    lifeLedgerBrief:
+      card.life_ledger && typeof card.life_ledger === "object"
+        ? {
+            goals: card.life_ledger.goals || [],
+            decisions: card.life_ledger.decisions || [],
+            open_questions: card.life_ledger.open_questions || [],
+            outcomes: card.life_ledger.outcomes || [],
+            item_count: card.life_ledger.item_count ?? 0,
+            packs_separated: card.life_ledger.packs_separated === true,
+            note: card.life_ledger.note ?? null,
           }
         : null,
   };

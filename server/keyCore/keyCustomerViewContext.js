@@ -114,6 +114,10 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     baseContext.claim_evidence && typeof baseContext.claim_evidence === "object"
       ? baseContext.claim_evidence
       : null;
+  const ledgerRaw =
+    baseContext.life_ledger && typeof baseContext.life_ledger === "object"
+      ? baseContext.life_ledger
+      : null;
 
   function scopeKeep(row, scopeMode) {
     const eid = String(row?.entity_id ?? "").trim();
@@ -155,6 +159,25 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     };
   }
 
+  function scopeLifeLedgerBrief(brief, scopeMode) {
+    if (!brief) return null;
+    const goals = (brief.goals || []).filter((row) => scopeKeep(row, scopeMode));
+    const decisions = (brief.decisions || []).filter((row) => scopeKeep(row, scopeMode));
+    const open_questions = (brief.open_questions || []).filter((row) =>
+      scopeKeep(row, scopeMode),
+    );
+    const outcomes = (brief.outcomes || []).filter((row) => scopeKeep(row, scopeMode));
+    return {
+      ...brief,
+      goals,
+      decisions,
+      open_questions,
+      outcomes,
+      item_count: goals.length + decisions.length + open_questions.length + outcomes.length,
+      packs_separated: true,
+    };
+  }
+
   const current_context = {
     ...baseContext,
     customer_view: {
@@ -169,6 +192,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   if (mode === "personal") {
     const insurance_clock = scopeClockBrief(clockRaw, "personal");
     const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "personal");
+    const life_ledger = scopeLifeLedgerBrief(ledgerRaw, "personal");
     const personalContext = {
       ...current_context,
       corporate_turn: {
@@ -181,6 +205,8 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     else delete personalContext.insurance_clock;
     if (claim_evidence) personalContext.claim_evidence = claim_evidence;
     else delete personalContext.claim_evidence;
+    if (life_ledger) personalContext.life_ledger = life_ledger;
+    else delete personalContext.life_ledger;
     return {
       ...userPayload,
       current_context: personalContext,
@@ -198,12 +224,14 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   if (mode === "corporate") {
     const insurance_clock = scopeClockBrief(clockRaw, "corporate");
     const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "corporate");
+    const life_ledger = scopeLifeLedgerBrief(ledgerRaw, "corporate");
     return {
       ...userPayload,
       current_context: {
         ...current_context,
         ...(insurance_clock ? { insurance_clock } : {}),
         ...(claim_evidence ? { claim_evidence } : {}),
+        ...(life_ledger ? { life_ledger } : {}),
       },
       available_verified_evidence: {
         ...evidence,
@@ -229,6 +257,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   // both — keep separated packs; never merge.
   const insurance_clock = scopeClockBrief(clockRaw, "both");
   const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "both");
+  const life_ledger = scopeLifeLedgerBrief(ledgerRaw, "both");
   return {
     ...userPayload,
     current_context: {
@@ -241,6 +270,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
       },
       ...(insurance_clock ? { insurance_clock } : {}),
       ...(claim_evidence ? { claim_evidence } : {}),
+      ...(life_ledger ? { life_ledger } : {}),
     },
     available_verified_evidence: {
       ...evidence,
