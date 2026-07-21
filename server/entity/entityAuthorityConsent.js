@@ -196,6 +196,8 @@ export async function revokeAuthorityGrant({
   supabase = null,
   grantId = null,
   now = new Date(),
+  invalidateReadyCardForCustomerIds = [],
+  invalidateReadyCardCacheForCustomerImpl = null,
 } = {}) {
   const id = String(grantId ?? "").trim();
   if (!supabase || !id) return { ok: false, reason: "missing_args" };
@@ -210,6 +212,15 @@ export async function revokeAuthorityGrant({
     .eq("id", id)
     .eq("status", "active");
   if (error) return { ok: false, reason: error.message || "revoke_failed" };
+  if (typeof invalidateReadyCardCacheForCustomerImpl === "function") {
+    for (const cid of invalidateReadyCardForCustomerIds || []) {
+      try {
+        invalidateReadyCardCacheForCustomerImpl(cid);
+      } catch {
+        /* non-blocking */
+      }
+    }
+  }
   return { ok: true, reason: null, revoked_at: stamp };
 }
 

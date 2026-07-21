@@ -3821,14 +3821,46 @@ export async function runClaudeFirstDirectQuestionTurn({
       : readyMaterials.ssotReason;
   let priorConsultationForContext = readyMaterials.priorConsultation;
   let priorConsultationReason = readyMaterials.priorConsultationReason;
-  let corporateContexts = readyMaterials.corporateContexts;
-  let corporateGapEvidence = readyMaterials.corporateGapEvidence;
-  let corporateRecommendationCandidates = readyMaterials.corporateRecommendationCandidates;
-  let corporateUnknowns = readyMaterials.corporateUnknowns;
-  const corporateAuthorizationDenied =
-    readyMaterials.corporateAuthorizationDenied === true;
+  // Slice 2 — never trust READY CARD corporate slice for consent/delegation.
+  // Revocation and selectedEntityId must be re-checked every turn (fail-closed).
+  let corporateContexts = [];
+  let corporateGapEvidence = [];
+  let corporateRecommendationCandidates = [];
+  let corporateUnknowns = [];
+  let corporateAuthorizationDenied = false;
+  try {
+    const freshCorp = await loadAllowedCorporateContextsForClaudeImpl({
+      userSupabase,
+      customerId,
+      authUserId,
+      selectedEntityId: selectedEntityIdHint,
+    });
+    corporateContexts = Array.isArray(freshCorp?.corporate_contexts)
+      ? freshCorp.corporate_contexts
+      : [];
+    corporateGapEvidence = Array.isArray(freshCorp?.corporate_gap_evidence)
+      ? freshCorp.corporate_gap_evidence
+      : [];
+    corporateRecommendationCandidates = Array.isArray(
+      freshCorp?.corporate_recommendation_candidates,
+    )
+      ? freshCorp.corporate_recommendation_candidates
+      : [];
+    corporateUnknowns = Array.isArray(freshCorp?.corporate_unknowns)
+      ? freshCorp.corporate_unknowns
+      : [];
+    corporateAuthorizationDenied = freshCorp?.authorization_denied === true;
+  } catch {
+    corporateContexts = [];
+    corporateGapEvidence = [];
+    corporateRecommendationCandidates = [];
+    corporateUnknowns = [];
+    corporateAuthorizationDenied = true;
+  }
   const selectedCorporateEntityId =
-    readyMaterials.selectedCorporateEntityId ||
+    (corporateAuthorizationDenied
+      ? null
+      : String(selectedEntityIdHint ?? "").trim() || null) ||
     (Array.isArray(corporateContexts) && corporateContexts.length === 1
       ? String(corporateContexts[0]?.entity_id ?? "").trim() || null
       : null);
