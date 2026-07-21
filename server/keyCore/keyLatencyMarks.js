@@ -225,6 +225,17 @@ export function buildPersistableLatencyMarks(latencyMarks = null, env = process.
             pdf_attachment_count: numOrNull(latencyMarks.triangle_t0.pdf_attachment_count),
             pdf_attach_mode: strOrNull(latencyMarks.triangle_t0.pdf_attach_mode, 40),
             request_body_chars: numOrNull(latencyMarks.triangle_t0.request_body_chars),
+            input_tokens: numOrNull(latencyMarks.triangle_t0.input_tokens),
+            output_tokens: numOrNull(latencyMarks.triangle_t0.output_tokens),
+            cache_creation_input_tokens: numOrNull(
+              latencyMarks.triangle_t0.cache_creation_input_tokens,
+            ),
+            cache_read_input_tokens: numOrNull(
+              latencyMarks.triangle_t0.cache_read_input_tokens,
+            ),
+            cache_creation_ephemeral_5m_input_tokens: numOrNull(
+              latencyMarks.triangle_t0.cache_creation_ephemeral_5m_input_tokens,
+            ),
           }
         : null;
     const out = {

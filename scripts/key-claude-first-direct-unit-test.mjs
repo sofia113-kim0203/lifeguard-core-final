@@ -7,6 +7,10 @@ import {
   extractPartialCustomerAnswer,
   hardOnlySafetyCheck,
   buildSystemPrompt,
+  splitUserPayloadForPromptCache,
+  buildClaudeFirstCachedRequestParts,
+  pickAnthropicUsageNumbers,
+  ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
   extractPoliciesFromContext,
   buildUserPayload,
   buildRequestClock,
@@ -4963,5 +4967,70 @@ console.log("key-claude-first-direct-unit-test: PASS");
     "full_original_once",
   );
   console.log("T1 PDF ATTACH POLICY CHECKS OK");
+}
+
+// --- Phase 1 prompt cache packaging (no content rewrite) ---
+{
+  const systemText = buildSystemPrompt({ presenceTurn: false });
+  const payload = buildUserPayload({
+    question: "내 보험에서\n지금 먼저 확인할 게 뭐야?",
+    chart: {
+      schema: "verified_customer_chart_v1",
+      policy_count: { status: "verified", value: 1 },
+      contracts: [{ id: "c1", insurer_name: "테스트", product_name: "암보험" }],
+      key_confirmed_source_facts: [],
+    },
+    contextPack: {
+      recent_conversation_originals: [{ role: "user", content: "안녕" }],
+      older_conversation_summary: null,
+      retained_past_originals: [],
+    },
+    readyCardMeta: {
+      status: "normal",
+      prepared_at: "2026-07-21T00:00:00.000Z",
+      materials_connected: true,
+      insurer_source: { status: "unconnected", as_of: null, note: "원수사 공식 데이터가 연결되지 않았습니다." },
+      document_status: { active_count: 0, documents: [] },
+    },
+  });
+  const split = splitUserPayloadForPromptCache(payload);
+  assert.equal(split.block_c.current_question, payload.current_question);
+  assert.ok(split.block_c.current_context.current_datetime);
+  assert.ok(split.block_c.current_context.ready_card);
+  assert.equal(
+    JSON.stringify(split.block_b.available_verified_evidence),
+    JSON.stringify(payload.available_verified_evidence),
+  );
+  assert.equal(split.block_b.current_question, undefined);
+  assert.equal(split.block_b.current_context, undefined);
+
+  const parts = buildClaudeFirstCachedRequestParts({
+    systemText,
+    userPayload: payload,
+    pdfBase64: null,
+  });
+  assert.equal(parts.system[0].text, systemText);
+  assert.equal(parts.system[0].cache_control, undefined);
+  assert.equal(parts.messages[0].content.length, 2);
+  assert.deepEqual(
+    parts.messages[0].content[0].cache_control,
+    ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
+  );
+  assert.equal(parts.messages[0].content[1].cache_control, undefined);
+  assert.match(parts.messages[0].content[0].text, /available_verified_evidence/);
+  assert.match(parts.messages[0].content[1].text, /current_question/);
+  assert.match(parts.messages[0].content[1].text, /내 보험에서/);
+  assert.ok(!parts.messages[0].content[0].text.includes("current_datetime"));
+
+  const usage = pickAnthropicUsageNumbers({
+    input_tokens: 10,
+    output_tokens: 20,
+    cache_creation_input_tokens: 100,
+    cache_read_input_tokens: 0,
+    cache_creation: { ephemeral_5m_input_tokens: 100 },
+  });
+  assert.equal(usage.cache_creation_input_tokens, 100);
+  assert.equal(usage.cache_creation_ephemeral_5m_input_tokens, 100);
+  console.log("PROMPT CACHE PHASE1 PACKAGING CHECKS OK");
 }
 

@@ -49,7 +49,6 @@ async function loadActiveCustomerDocumentsForHistoryFilter({
   }
 }
 import {
-  buildClaudeFullUserContentWithPdf,
   buildAnthropicDirectAttachBlock,
   verifyAndFetchCustomerPdfOriginal,
   resolveExplicitCustomerDocumentMention,
@@ -1801,6 +1800,127 @@ export function extractPartialCustomerAnswer(partialJson = "") {
   return { text: out, complete };
 }
 
+/** Anthropic Sonnet 4.6 / Sonnet 5 family — docs minimum for prompt cache. */
+export const ANTHROPIC_PROMPT_CACHE_MIN_TOKENS_SONNET = 1024;
+
+/** Default 5-minute ephemeral cache breakpoint (Anthropic default TTL). */
+export const ANTHROPIC_PROMPT_CACHE_CONTROL_5M = Object.freeze({
+  type: "ephemeral",
+});
+
+/**
+ * Phase 1 — split userPayload into stable evidence (B) vs turn-variable (C).
+ * Field values unchanged; packaging only. No deletion/summary/rewrite.
+ */
+export function splitUserPayloadForPromptCache(userPayload = null) {
+  const payload =
+    userPayload && typeof userPayload === "object" ? userPayload : {};
+  const evidence =
+    payload.available_verified_evidence &&
+    typeof payload.available_verified_evidence === "object"
+      ? payload.available_verified_evidence
+      : {
+          personal: {
+            subject_type: "individual",
+            chart: null,
+            key_confirmed_source_facts: [],
+            active_claim_cases: [],
+            provenance: null,
+            evidence_state: "unknown",
+          },
+          corporate: [],
+          documents: [],
+          public_evidence: [],
+        };
+  const context =
+    payload.current_context && typeof payload.current_context === "object"
+      ? payload.current_context
+      : {};
+  return {
+    block_b: { available_verified_evidence: evidence },
+    block_c: {
+      current_question: String(payload.current_question ?? ""),
+      current_context: context,
+    },
+  };
+}
+
+/**
+ * Build Anthropic system + user content with explicit cache breakpoints.
+ * A = system text (unchanged). B = evidence JSON. C = question/context (+ optional PDF).
+ * Cache marker only on B end so prefix = A+B (A alone is typically under min tokens).
+ */
+export function buildClaudeFirstCachedRequestParts({
+  systemText = "",
+  userPayload = null,
+  pdfBase64 = null,
+  mediaType = null,
+  cacheControl = ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
+} = {}) {
+  const { block_b, block_c } = splitUserPayloadForPromptCache(userPayload);
+  const system = [
+    {
+      type: "text",
+      text: String(systemText ?? ""),
+    },
+  ];
+  const content = [
+    {
+      type: "text",
+      text: JSON.stringify(block_b, null, 2),
+      cache_control: cacheControl && typeof cacheControl === "object"
+        ? { ...cacheControl }
+        : { ...ANTHROPIC_PROMPT_CACHE_CONTROL_5M },
+    },
+  ];
+  const attachBlock = pdfBase64
+    ? buildAnthropicDirectAttachBlock({ base64: pdfBase64, mediaType })
+    : null;
+  if (attachBlock) content.push(attachBlock);
+  content.push({
+    type: "text",
+    text: JSON.stringify(block_c, null, 2),
+  });
+  return {
+    system,
+    messages: [{ role: "user", content }],
+    cache_breakpoints: 1,
+    cache_strategy: "A_plus_B_via_B_marker",
+  };
+}
+
+export function pickAnthropicUsageNumbers(usage = null) {
+  if (!usage || typeof usage !== "object") {
+    return {
+      input_tokens: null,
+      output_tokens: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      cache_creation_ephemeral_5m_input_tokens: null,
+    };
+  }
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const ephemeral5m =
+    usage.cache_creation && typeof usage.cache_creation === "object"
+      ? num(usage.cache_creation.ephemeral_5m_input_tokens)
+      : null;
+  return {
+    input_tokens: num(usage.input_tokens),
+    output_tokens: num(usage.output_tokens),
+    cache_creation_input_tokens: num(usage.cache_creation_input_tokens),
+    cache_read_input_tokens: num(usage.cache_read_input_tokens),
+    cache_creation_ephemeral_5m_input_tokens: ephemeral5m,
+  };
+}
+
+function systemPromptCharCount(system) {
+  if (typeof system === "string") return system.length;
+  if (Array.isArray(system)) {
+    return system.reduce((n, b) => n + String(b?.text ?? "").length, 0);
+  }
+  return 0;
+}
+
 export function buildSystemPrompt({ presenceTurn = false } = {}) {
   const lines = [
     // OUR CLAUDE — 보험 설계사 KEY 제품 정체성 (사후 검열용 gate 아님)
@@ -2486,7 +2606,7 @@ function buildEmptyAnswerInputDiag({
         String(softGoal.goal ?? "").trim(),
     ),
     original_attachment_count: pdfBase64 ? 1 : 0,
-    system_prompt_chars: String(system ?? "").length,
+    system_prompt_chars: systemPromptCharCount(system),
     request_body_chars,
     tools_sent,
   };
@@ -2651,6 +2771,9 @@ async function readAnthropicSseWithAnswerStream({
         message = evt.message;
         if (Array.isArray(message.content)) contentBlocks = [...message.content];
         if (message?.stop_reason != null) stop_reason = String(message.stop_reason);
+        if (message?.usage && typeof message.usage === "object") {
+          usage = { ...(usage ?? {}), ...message.usage };
+        }
       } else if (type === "content_block_start") {
         markTtft();
         const idx = Number(evt.index);
@@ -3257,13 +3380,17 @@ async function callClaudeFirstDirect({
   const pdfAttached = presenceTurn === true ? false : Boolean(pdfBase64);
   // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
   // Fact save · consultation · visual blocks remain KEY work after this answer (no second call).
-  const system = buildSystemPrompt({ presenceTurn: presenceTurn === true });
-  const userContent = buildClaudeFullUserContentWithPdf({
+  const systemText = buildSystemPrompt({ presenceTurn: presenceTurn === true });
+  // Phase 1 prompt cache: A (system) + B (evidence) cached via B breakpoint; C variable + PDF uncached.
+  const cachedParts = buildClaudeFirstCachedRequestParts({
+    systemText,
     userPayload,
     pdfBase64: presenceTurn === true ? null : pdfBase64,
     mediaType: presenceTurn === true ? null : pdfMediaType,
+    cacheControl: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
   });
-  let messages = [{ role: "user", content: userContent }];
+  const system = cachedParts.system;
+  let messages = cachedParts.messages;
 
   let lastTtft = null;
   let lastPicked = {
@@ -3276,6 +3403,7 @@ async function callClaudeFirstDirect({
   let streamedAnswer = "";
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
+  let providerUsage = pickAnthropicUsageNumbers(null);
   // Mid-turn client tool extraction skipped on customer-answer path (tools not sent).
   const confirmedSourceFacts = [];
   const coverageBaselineFacts = [];
@@ -3370,6 +3498,7 @@ async function callClaudeFirstDirect({
     });
     if (streamed.ttft_ms != null && lastTtft == null) lastTtft = streamed.ttft_ms;
     if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
+    providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
 
     const picked = pickCustomerAnswer(streamed.dataRaw);
     emptyAnswerDiag.response = buildEmptyAnswerResponseDiag({
@@ -3465,6 +3594,12 @@ async function callClaudeFirstDirect({
     web_search_trace: webSearchTrace,
     public_evidence: publicEvidence,
     empty_answer_diag: emptyAnswerDiag,
+    provider_usage: providerUsage,
+    prompt_cache: {
+      strategy: cachedParts.cache_strategy,
+      breakpoints: cachedParts.cache_breakpoints,
+      control: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
+    },
     error: customer_answer ? null : "empty_customer_answer",
   };
 }
@@ -4113,6 +4248,13 @@ export async function runClaudeFirstDirectQuestionTurn({
     pdf_attachment_count: pdfAttachmentCount,
     pdf_attach_mode: String(pdfMetaForClaude?.pdf_attach_mode ?? attachModeDecision.mode ?? ""),
     request_body_chars: requestBodyChars,
+    input_tokens: claude?.provider_usage?.input_tokens ?? null,
+    output_tokens: claude?.provider_usage?.output_tokens ?? null,
+    cache_creation_input_tokens:
+      claude?.provider_usage?.cache_creation_input_tokens ?? null,
+    cache_read_input_tokens: claude?.provider_usage?.cache_read_input_tokens ?? null,
+    cache_creation_ephemeral_5m_input_tokens:
+      claude?.provider_usage?.cache_creation_ephemeral_5m_input_tokens ?? null,
   };
   // Completeness: progressive extract can lag the final customer_answer.
   // Append-only catch-up — exact suffix after committed; never replace sent text.
