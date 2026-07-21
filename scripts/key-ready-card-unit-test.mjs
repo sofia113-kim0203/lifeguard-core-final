@@ -127,6 +127,10 @@ clearReadyCardCache();
   assert.equal(card.insurance_card.policies[0].product_name, "암보험");
   assert.equal(card.active_goal.goal, "암보장 점검");
   assert.equal(card.document_status.active_count, 1);
+  // T8.1 — materials may be connected while insurer official source stays unconnected.
+  assert.equal(card.insurer_source.status, "unconnected");
+  assert.equal(card.insurer_source.as_of, null);
+  assert.match(card.insurer_source.note, /원수사 공식/);
   assert.equal(goalCalls, 1);
   assert.equal(priorCalls, 1);
   assert.equal(claimsCalls, 1);
@@ -204,6 +208,9 @@ clearReadyCardCache();
   );
   assert.equal(missMeta.status, "miss");
   assert.match(missMeta.note, /not connected|미연결|Do not invent/i);
+  assert.equal(missMeta.insurer_source.status, "unconnected");
+  assert.equal(missMeta.insurer_source.as_of, null);
+  assert.match(missMeta.insurer_source.note, /materials_connected|insurer_source|unconnected/i);
 
   const staleMeta = buildReadyCardClaudeMeta(
     {
@@ -216,6 +223,8 @@ clearReadyCardCache();
   );
   assert.equal(staleMeta.status, "stale");
   assert.equal(staleMeta.as_of, "2026-07-21T00:00:00.000Z");
+  assert.equal(staleMeta.materials_connected, true);
+  assert.equal(staleMeta.insurer_source.status, "unconnected");
 
   const payload = buildUserPayload({
     question: "내 암보험 괜찮아?",
@@ -225,6 +234,7 @@ clearReadyCardCache();
   });
   assert.equal(payload.current_question, "내 암보험 괜찮아?");
   assert.equal(payload.current_context.ready_card.status, "miss");
+  assert.equal(payload.current_context.ready_card.insurer_source.status, "unconnected");
 }
 
 // --- T7.2 document existence brief in Claude meta (not body / not evidence) ---
@@ -261,8 +271,12 @@ clearReadyCardCache();
 
   const meta = buildReadyCardClaudeMeta(card, "hit");
   assert.equal(meta.status, "normal");
+  assert.equal(meta.materials_connected, true);
   assert.equal(meta.document_status.active_count, 2);
   assert.equal(meta.document_status.documents.length, 2);
+  assert.equal(meta.insurer_source.status, "unconnected");
+  assert.equal(meta.insurer_source.as_of, null);
+  assert.match(meta.insurer_source.note, /do not say|unconnected|insurer/i);
 
   const payload = buildUserPayload({
     question: "내가 올린 서류가 있어?",
@@ -274,6 +288,7 @@ clearReadyCardCache();
   const rc = payload.current_context.ready_card;
   assert.ok(rc.document_status);
   assert.equal(rc.document_status.documents[0].id, "doc-a1");
+  assert.equal(rc.insurer_source.status, "unconnected");
   assert.ok(!JSON.stringify(rc).includes("storage_path"));
   assert.ok(!JSON.stringify(rc).includes("base64"));
   // Question stays separate from ready_card document brief.

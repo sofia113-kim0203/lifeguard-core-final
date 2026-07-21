@@ -74,6 +74,25 @@ export function buildHandoffCardPayload(card = null, { authUserId = null } = {})
       active_goal: card.active_goal ?? null,
       important_history: card.important_history ?? null,
       document_status: card.document_status ?? null,
+      // T8.1 — explicit allowlist; do not drop insurer_source when present on card.
+      insurer_source:
+        card.insurer_source && typeof card.insurer_source === "object"
+          ? {
+              status: String(card.insurer_source.status ?? "unconnected").trim() || "unconnected",
+              as_of:
+                card.insurer_source.as_of != null && String(card.insurer_source.as_of).trim()
+                  ? String(card.insurer_source.as_of).trim()
+                  : null,
+              note:
+                typeof card.insurer_source.note === "string" && card.insurer_source.note.trim()
+                  ? card.insurer_source.note.trim().slice(0, 400)
+                  : "원수사 공식 데이터가 연결되지 않았습니다.",
+            }
+          : {
+              status: "unconnected",
+              as_of: null,
+              note: "원수사 공식 데이터가 연결되지 않았습니다.",
+            },
       corporate: card.corporate ?? null,
       unknowns: Array.isArray(card.unknowns) ? card.unknowns.slice(0, 24) : [],
       customer_id: cid,

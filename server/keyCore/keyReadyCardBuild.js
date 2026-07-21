@@ -18,6 +18,50 @@ import {
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
 
+/** T8.1 — official insurer link slot. Default unconnected; no live API / no fake contracts. */
+export const INSURER_SOURCE_UNCONNECTED = Object.freeze({
+  status: "unconnected",
+  as_of: null,
+  note: "원수사 공식 데이터가 연결되지 않았습니다.",
+});
+
+export function defaultInsurerSource() {
+  return {
+    status: INSURER_SOURCE_UNCONNECTED.status,
+    as_of: INSURER_SOURCE_UNCONNECTED.as_of,
+    note: INSURER_SOURCE_UNCONNECTED.note,
+  };
+}
+
+/**
+ * Claude meta slice for insurer_source (status / as_of / note only).
+ * Independent of materials_connected (customer materials vs official insurer data).
+ */
+export function briefInsurerSourceForClaudeMeta(card = null) {
+  const raw =
+    card?.insurer_source && typeof card.insurer_source === "object"
+      ? card.insurer_source
+      : null;
+  const status = String(raw?.status ?? "unconnected").trim() || "unconnected";
+  const as_of =
+    status === "unconnected"
+      ? null
+      : raw?.as_of != null && String(raw.as_of).trim()
+        ? String(raw.as_of).trim()
+        : null;
+  const baseNote =
+    typeof raw?.note === "string" && raw.note.trim()
+      ? raw.note.trim().slice(0, 400)
+      : INSURER_SOURCE_UNCONNECTED.note;
+  const note =
+    status === "unconnected"
+      ? `${baseNote} materials_connected is customer-materials link status only; ` +
+        `insurer_source is official insurer-data link status. ` +
+        `When insurer_source.status is unconnected, do not say contracts, premiums, or renewal facts were confirmed from the insurer system.`
+      : baseNote;
+  return { status, as_of, note };
+}
+
 /**
  * T5.1 — always overlay active LIFE THREADS from conversations onto a READY CARD.
  * Breaks login_handoff / memory_cache stale reuse that skipped DB life_threads.
@@ -399,6 +443,8 @@ export async function buildKeyReadyCard({
       documents: docs,
       _active_documents: Array.isArray(activeDocuments) ? activeDocuments : [],
     },
+    // T8.1 — independent of materials_connected; no live insurer API in this slice.
+    insurer_source: defaultInsurerSource(),
     corporate: {
       corporate_contexts,
       corporate_gap_evidence: Array.isArray(corporateLoaded?.corporate_gap_evidence)
@@ -665,8 +711,9 @@ export function briefDocumentStatusForClaudeMeta(card = null) {
   };
 }
 
-/** Claude payload slice — status + as-of + T7.2 document existence; never dump full card. */
+/** Claude payload slice — status + as-of + T7.2 document existence + T8.1 insurer_source; never dump full card. */
 export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
+  const insurer_source = briefInsurerSourceForClaudeMeta(card);
   if (!card || typeof card !== "object") {
     return {
       status: "miss",
@@ -683,6 +730,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
           "If document content is not separately provided as DOCUMENT_EVIDENCE / attached original this turn, " +
           "do not claim you read the document and do not invent or estimate coverage terms from the filename alone.",
       },
+      insurer_source,
     };
   }
   const status =
@@ -701,6 +749,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       unknowns: Array.isArray(card.unknowns) ? card.unknowns.slice(0, 12) : [],
       note: "Customer materials are not connected for this turn. Do not invent verified insurance facts. Ask only from the current question and conversation until materials are linked.",
       document_status,
+      insurer_source,
     };
   }
   if (status === "stale") {
@@ -712,6 +761,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       as_of: card.prepared_at ?? null,
       note: "READY CARD is stale. Treat verified evidence as of prepared_at / as_of. Background refresh is in progress — do not invent newer facts.",
       document_status,
+      insurer_source,
     };
   }
   return {
@@ -721,6 +771,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
     materials_connected: true,
     note: "READY CARD prepared from KEY SSOT before this question.",
     document_status,
+    insurer_source,
   };
 }
 

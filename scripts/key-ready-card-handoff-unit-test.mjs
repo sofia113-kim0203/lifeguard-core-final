@@ -53,6 +53,11 @@ const sampleCard = {
     _prior_object: null,
   },
   document_status: { active_count: 0, documents: [], _active_documents: [] },
+  insurer_source: {
+    status: "unconnected",
+    as_of: null,
+    note: "원수사 공식 데이터가 연결되지 않았습니다.",
+  },
   corporate: {
     corporate_contexts: [],
     corporate_gap_evidence: [],
@@ -82,6 +87,8 @@ const sampleCard = {
   assert.equal(opened.ok, true);
   assert.equal(opened.card.materials_connected, true);
   assert.equal(opened.card.insurance_card.policies[0].product_name, "암보험");
+  assert.equal(opened.card.insurer_source.status, "unconnected");
+  assert.equal(opened.card.insurer_source.as_of, null);
   assert.equal(opened.meta.source, "login_handoff");
 }
 
