@@ -21,6 +21,10 @@ import {
   loadInsuranceClockItems,
 } from "./keyInsuranceClock.js";
 import { loadPolicyDateFacts } from "./keyPolicyDateFacts.js";
+import {
+  canLoadCorporateProfileHand,
+  loadHolderAuthorityGrants,
+} from "../entity/entityAuthorityConsent.js";
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
 
@@ -724,52 +728,81 @@ export async function resolveReadyCardForQuestionTurn({
     cached.card.materials_connected === true &&
     String(cached.card.customer_id ?? "").trim() === String(customerId ?? "").trim();
 
+  /**
+   * Authority must be revalidated every turn (Insurance Clock Seat C).
+   * Cached corporate Hand is invalid once expires_at/revoke removes scopes.
+   */
+  async function cachedCorporateAuthorityStillValid(card) {
+    const contexts = Array.isArray(card?.corporate?.corporate_contexts)
+      ? card.corporate.corporate_contexts
+      : [];
+    if (!contexts.length) return true;
+    if (!userSupabase || !authUserId) return false;
+    for (const ctx of contexts) {
+      const eid = String(ctx?.entity_id ?? "").trim();
+      if (!eid) continue;
+      const grantPack = await loadHolderAuthorityGrants({
+        supabase: userSupabase,
+        entityId: eid,
+        holderUserId: authUserId,
+      });
+      if (!canLoadCorporateProfileHand(grantPack)) return false;
+    }
+    return true;
+  }
+
   if (cached.status === "normal" && cachedReusable) {
-    return finalize({
-      card: {
-        ...cached.card,
-        freshness: {
-          ...(cached.card.freshness || {}),
-          age_ms: cached.age_ms,
-          reason: "cache_fresh",
+    if (await cachedCorporateAuthorityStillValid(cached.card)) {
+      return finalize({
+        card: {
+          ...cached.card,
+          freshness: {
+            ...(cached.card.freshness || {}),
+            age_ms: cached.age_ms,
+            reason: "cache_fresh",
+          },
         },
-      },
-      ready_card_status: "hit",
-      ready_card_ms: Math.max(0, Date.now() - resolveStarted),
-      ready_card_build_ms:
-        typeof cached.card.build_ms === "number" ? cached.card.build_ms : null,
-      ready_card_source: "memory_cache",
-      ready_card_hit: true,
-      token_validation_ms: tokenValidationMs,
-      token_reject_reason: handoffRejectReason,
-      reused: true,
-    });
+        ready_card_status: "hit",
+        ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+        ready_card_build_ms:
+          typeof cached.card.build_ms === "number" ? cached.card.build_ms : null,
+        ready_card_source: "memory_cache",
+        ready_card_hit: true,
+        token_validation_ms: tokenValidationMs,
+        token_reject_reason: handoffRejectReason,
+        reused: true,
+      });
+    }
+    // Fall through — rebuild with fresh authority.
   }
 
   if (cached.status === "stale" && cachedReusable) {
-    if (backgroundRefresh) {
-      void warmAndStoreKeyReadyCard(warmArgs).catch(() => {});
-    }
-    return finalize({
-      card: {
-        ...cached.card,
-        status: "stale",
-        freshness: {
-          ...(cached.card.freshness || {}),
-          age_ms: cached.age_ms,
-          reason: "cache_stale_reuse_as_of_prepared_at",
+    if (await cachedCorporateAuthorityStillValid(cached.card)) {
+      if (backgroundRefresh) {
+        void warmAndStoreKeyReadyCard(warmArgs).catch(() => {});
+      }
+      return finalize({
+        card: {
+          ...cached.card,
+          status: "stale",
+          freshness: {
+            ...(cached.card.freshness || {}),
+            age_ms: cached.age_ms,
+            reason: "cache_stale_reuse_as_of_prepared_at",
+          },
         },
-      },
-      ready_card_status: "stale",
-      ready_card_ms: Math.max(0, Date.now() - resolveStarted),
-      ready_card_build_ms:
-        typeof cached.card.build_ms === "number" ? cached.card.build_ms : null,
-      ready_card_source: "memory_cache_stale",
-      ready_card_hit: true,
-      token_validation_ms: tokenValidationMs,
-      token_reject_reason: handoffRejectReason,
-      reused: true,
-    });
+        ready_card_status: "stale",
+        ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+        ready_card_build_ms:
+          typeof cached.card.build_ms === "number" ? cached.card.build_ms : null,
+        ready_card_source: "memory_cache_stale",
+        ready_card_hit: true,
+        token_validation_ms: tokenValidationMs,
+        token_reject_reason: handoffRejectReason,
+        reused: true,
+      });
+    }
+    // Fall through — rebuild with fresh authority.
   }
 
   const card = await buildKeyReadyCard(warmArgs);

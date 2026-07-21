@@ -164,15 +164,29 @@ export function buildAuthorityHandBrief(grantPack = null) {
       authority_verified: false,
       allowed_scopes_entity_level: [],
       allowed_subject_count: 0,
+      consent_deadlines: [],
       note: "no_active_corporate_authority_consent",
       membership_is_not_consent: true,
     };
   }
+  // Insurance Clock Slice 1 — project SSOT expires_at only (no invented dates).
+  const consent_deadlines = (Array.isArray(grantPack.grants) ? grantPack.grants : [])
+    .filter((g) => g?.expires_at)
+    .map((g) => ({
+      id: g.id ?? null,
+      entity_id: g.entity_id ?? null,
+      consent_scope: g.consent_scope ?? null,
+      expires_at: g.expires_at,
+      evidence_id: g.evidence_id ?? null,
+      status: g.status ?? null,
+    }))
+    .slice(0, 24);
   return {
     authority_verified: (grantPack.scopes_entity_level?.length ?? 0) > 0,
     allowed_scopes_entity_level: [...(grantPack.scopes_entity_level ?? [])],
     allowed_subject_count: Object.keys(grantPack.subjects ?? {}).length,
     authority_types: [...(grantPack.authority_types ?? [])],
+    consent_deadlines,
     membership_is_not_consent: true,
     note:
       (grantPack.scopes_entity_level?.length ?? 0) > 0

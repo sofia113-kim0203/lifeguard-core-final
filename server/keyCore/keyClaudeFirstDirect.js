@@ -5336,20 +5336,22 @@ export async function runClaudeFirstDirectQuestionTurn({
         claimTurnScope.claim_scope === "corporate" && claimTurnScope.entity_id
           ? claimTurnScope.entity_id
           : null;
+      const clockMessageId = `clkmsg_${customerId.slice(0, 8)}_${Date.now().toString(36)}`;
       let clockBuilt = buildInsuranceClockUpdatesFromUtterance({
         question,
         existingCases: activeClaimCasesAll,
         existingClocks: insuranceClockItemsAll,
         customerId,
         entityId: clockEntityId,
-        messageId: null,
+        messageId: clockMessageId,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
       });
       let policyDateFactTrace = null;
       const dateBuilt = buildPolicyDateFactsFromUtterance({
         question,
         customerId,
         entityId: clockEntityId,
-        messageId: null,
+        messageId: clockMessageId,
       });
       if (dateBuilt?.ok === true && Array.isArray(dateBuilt.updates) && dateBuilt.updates.length) {
         const datePersist = await persistPolicyDateFacts({

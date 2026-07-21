@@ -65,11 +65,50 @@ function stampNow(now = new Date()) {
   return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
 }
 
+const DEFAULT_CLOCK_TZ = "Asia/Seoul";
+
 function ymdLocal(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/** Calendar YMD + weekday (0=Sun) in customer timezone — never invent dates. */
+export function getCalendarPartsInTimeZone(now = new Date(), timeZone = DEFAULT_CLOCK_TZ) {
+  const d = now instanceof Date ? now : new Date(now);
+  if (!Number.isFinite(d.getTime())) {
+    return { ymd: null, weekday: null, year: null, month: null, day: null, timeZone };
+  }
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(d).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]),
+  );
+  const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  const ymd = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return {
+    ymd,
+    weekday: weekdayMap[parts.weekday] ?? null,
+    year,
+    month,
+    day,
+    timeZone,
+  };
+}
+
+function addDaysToYmd(ymd, addDays) {
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + addDays, 12, 0, 0));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
 }
 
 function parseIsoDateOnly(raw) {
@@ -85,14 +124,28 @@ function parseIsoDateOnly(raw) {
 
 /**
  * Parse customer-stated deadline from utterance. Never invents "보통 3년".
- * Returns { due_at: YYYY-MM-DD|null, next_check_at, status, reason }.
+ * Relative weekdays use customer timezone (default Asia/Seoul) and return anchor evidence.
  */
-export function parseCustomerStatedDeadline(question = "", { now = new Date() } = {}) {
+export function parseCustomerStatedDeadline(
+  question = "",
+  { now = new Date(), timeZone = DEFAULT_CLOCK_TZ } = {},
+) {
   const text = String(question ?? "").trim();
-  const base = now instanceof Date ? now : new Date(now);
-  if (!text || !Number.isFinite(base.getTime())) {
-    return { due_at: null, next_check_at: null, status: "unknown_date", reason: "empty" };
+  const parts = getCalendarPartsInTimeZone(now, timeZone);
+  if (!text || !parts.ymd) {
+    return {
+      due_at: null,
+      next_check_at: null,
+      status: "unknown_date",
+      reason: "empty",
+      relative_anchor_date: null,
+      timezone: timeZone,
+    };
   }
+  const anchor = {
+    relative_anchor_date: parts.ymd,
+    timezone: parts.timeZone,
+  };
 
   // Absolute: 2026-07-25 / 2026.7.25 / 2026/7/25
   const abs = text.match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
@@ -100,11 +153,8 @@ export function parseCustomerStatedDeadline(question = "", { now = new Date() } 
     const y = Number(abs[1]);
     const m = Number(abs[2]);
     const d = Number(abs[3]);
-    const dt = new Date(y, m - 1, d, 12, 0, 0);
-    if (Number.isFinite(dt.getTime())) {
-      const due = ymdLocal(dt);
-      return { due_at: due, next_check_at: due, status: "active", reason: "absolute_date" };
-    }
+    const due = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    return { due_at: due, next_check_at: due, status: "active", reason: "absolute_date", ...anchor };
   }
 
   // Month-day: 7월 25일 / 7월25일
@@ -112,15 +162,13 @@ export function parseCustomerStatedDeadline(question = "", { now = new Date() } 
   if (md) {
     const m = Number(md[1]);
     const d = Number(md[2]);
-    let year = base.getFullYear();
-    let dt = new Date(year, m - 1, d, 12, 0, 0);
-    if (dt.getTime() < base.getTime() - 12 * 3600 * 1000) {
-      dt = new Date(year + 1, m - 1, d, 12, 0, 0);
+    let year = parts.year;
+    let due = `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (due < parts.ymd) {
+      year += 1;
+      due = `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     }
-    if (Number.isFinite(dt.getTime())) {
-      const due = ymdLocal(dt);
-      return { due_at: due, next_check_at: due, status: "active", reason: "month_day" };
-    }
+    return { due_at: due, next_check_at: due, status: "active", reason: "month_day", ...anchor };
   }
 
   // Relative weekday: 다음 주 금요일 / 이번 주 금요일 / 금요일까지
@@ -128,44 +176,44 @@ export function parseCustomerStatedDeadline(question = "", { now = new Date() } 
   if (wd) {
     const which = String(wd[1] || "").replace(/\s+/g, "");
     const target = WEEKDAY_KO[wd[2]];
-    if (typeof target === "number") {
-      const cur = base.getDay();
-      let add = (target - cur + 7) % 7;
+    if (typeof target === "number" && typeof parts.weekday === "number") {
+      let add = (target - parts.weekday + 7) % 7;
       if (which === "다음주") {
-        // Always the following calendar week’s weekday (not “later this week”).
         add = add === 0 ? 7 : add + 7;
       } else if (which === "이번주") {
-        // keep add (0 = today)
+        // keep add
       } else if (add === 0 && !/까지/.test(text)) {
-        // Bare weekday without 까지 → next week’s same day if today matches.
         add = 7;
       }
-      const dt = new Date(base);
-      dt.setDate(base.getDate() + add);
-      dt.setHours(12, 0, 0, 0);
-      const due = ymdLocal(dt);
+      const due = addDaysToYmd(parts.ymd, add);
       return {
         due_at: due,
         next_check_at: due,
         status: "active",
         reason: which ? `relative_${which}_${wd[2]}` : `relative_${wd[2]}`,
+        ...anchor,
       };
     }
   }
 
   // Vague — no due_at invention
   if (/곧|빨리|조만간|이번\s*주\s*안|며칠\s*안|서둘러|제출해야|내야\s*해/.test(text)) {
-    const check = new Date(base);
-    check.setDate(base.getDate() + 3);
     return {
       due_at: null,
-      next_check_at: ymdLocal(check),
+      next_check_at: addDaysToYmd(parts.ymd, 3),
       status: "unknown_date",
       reason: "vague_deadline_needs_date",
+      ...anchor,
     };
   }
 
-  return { due_at: null, next_check_at: null, status: "unknown_date", reason: "no_date_signal" };
+  return {
+    due_at: null,
+    next_check_at: null,
+    status: "unknown_date",
+    reason: "no_date_signal",
+    ...anchor,
+  };
 }
 
 export function isClaimFollowupClockUtterance(question = "") {
@@ -244,6 +292,20 @@ export function normalizeInsuranceClockItems(raw = [], { now = new Date() } = {}
       evidence_id: trim(row.evidence_id),
       label: trim(row.label),
       note: trim(row.note),
+      relative_anchor_date: parseIsoDateOnly(row.relative_anchor_date),
+      timezone: trim(row.timezone) || null,
+      evidence:
+        row.evidence && typeof row.evidence === "object"
+          ? {
+              ...(row.evidence.relative_anchor_date
+                ? { relative_anchor_date: parseIsoDateOnly(row.evidence.relative_anchor_date) }
+                : {}),
+              ...(row.evidence.timezone ? { timezone: trim(row.evidence.timezone) } : {}),
+              ...(row.evidence.utterance_relative
+                ? { utterance_relative: trim(row.evidence.utterance_relative) }
+                : {}),
+            }
+          : null,
       created_at: trim(row.created_at) || nowIso,
       updated_at: trim(row.updated_at) || nowIso,
       completed_at: trim(row.completed_at),
@@ -270,7 +332,16 @@ export function mergeInsuranceClockItems(existing = [], incoming = [], { now = n
     }
     let status = row.status;
     if (TERMINAL_CLOCK.has(prior.status) && !TERMINAL_CLOCK.has(status)) {
-      status = prior.status;
+      // Explicit customer-stated due_at may supersede completed claim_followup.
+      // Vague/unknown and non-claim clocks never reopen terminal rows.
+      const allowDatedSupersede =
+        prior.clock_type === "claim_followup" &&
+        status === "active" &&
+        Boolean(row.due_at) &&
+        row.source === "customer_statement";
+      if (!allowDatedSupersede) {
+        status = prior.status;
+      }
     }
     // Prefer explicit due_at over null; never invent from vague→unknown over a dated clock.
     let due_at = row.due_at || prior.due_at;
@@ -421,11 +492,13 @@ export function buildInsuranceClockUpdatesFromUtterance({
   const cid = trim(customerId);
 
   // Completion path — mark matching claim_followup completed (no regress later via merge).
+  // Only claim_case subjects (not utterance:unknown honesty rows).
   if (isClockCompletionUtterance(text)) {
     const clocks = normalizeInsuranceClockItems(existingClocks, { now });
     const openFollowups = clocks.filter(
       (c) =>
         c.clock_type === "claim_followup" &&
+        c.subject_type === "claim_case" &&
         !TERMINAL_CLOCK.has(c.status) &&
         (eid ? trim(c.entity_id) === eid : !c.entity_id),
     );
@@ -452,9 +525,14 @@ export function buildInsuranceClockUpdatesFromUtterance({
     return { ok: false, reason: "not_clock_utterance", action: "skip", updates: [] };
   }
 
-  const parsed = parseCustomerStatedDeadline(text, { now });
+  const parsed = parseCustomerStatedDeadline(text, { now, timeZone: DEFAULT_CLOCK_TZ });
   const claim = pickOpenClaimSubject(existingCases, { entityId: eid });
-  const subject_id = claim?.claim_case_key || `utterance:${trim(messageId) || "anon"}`;
+  // Vague with no explicit date: do not attach to a dated claim subject as a fake due_at.
+  // Prefer utterance-scoped unknown_date so honesty survives alongside an existing dated clock.
+  const subject_id =
+    !parsed.due_at && parsed.status === "unknown_date"
+      ? `utterance:unknown:${trim(messageId) || stampNow(now)}`
+      : claim?.claim_case_key || `utterance:${trim(messageId) || "anon"}`;
   // Do not reopen terminal followup for same subject.
   const prior = normalizeInsuranceClockItems(existingClocks, { now }).find(
     (c) =>
@@ -462,25 +540,31 @@ export function buildInsuranceClockUpdatesFromUtterance({
       c.subject_id === subject_id &&
       (eid ? trim(c.entity_id) === eid : !c.entity_id),
   );
+  // Vague / unknown-date must not reopen a completed followup (Seat E).
+  // Explicit customer-stated due_at may supersede the same claim subject (Seat A).
   if (prior && TERMINAL_CLOCK.has(prior.status)) {
-    return { ok: false, reason: "terminal_clock_no_reopen", action: "skip", updates: [] };
+    if (!parsed.due_at || parsed.status === "unknown_date") {
+      return { ok: false, reason: "terminal_clock_no_reopen", action: "skip", updates: [] };
+    }
   }
-  // Vague utterance must not invent due_at; if a dated active clock already exists, keep it.
-  if (!parsed.due_at && prior?.due_at && prior.status === "active") {
-    return {
-      ok: false,
-      reason: "vague_keeps_existing_dated_clock",
-      action: "skip",
-      updates: [],
-    };
-  }
+
+  const evidence =
+    parsed.relative_anchor_date || parsed.timezone
+      ? {
+          relative_anchor_date: parsed.relative_anchor_date,
+          timezone: parsed.timezone || DEFAULT_CLOCK_TZ,
+          ...(parsed.reason?.startsWith("relative_")
+            ? { utterance_relative: text.slice(0, 80) }
+            : {}),
+        }
+      : null;
 
   const row = {
     id: prior?.id || `clk_claim_followup_${subject_id}`.slice(0, 120),
     customer_id: cid,
     entity_id: eid,
     clock_type: "claim_followup",
-    subject_type: "claim_case",
+    subject_type: parsed.due_at ? "claim_case" : "utterance",
     subject_id,
     due_at: parsed.due_at,
     next_check_at: parsed.next_check_at,
@@ -492,6 +576,9 @@ export function buildInsuranceClockUpdatesFromUtterance({
       ? `청구 서류 제출 기한 (${parsed.due_at})`
       : "청구 서류 제출 — 정확한 날짜 확인 필요",
     note: parsed.reason,
+    relative_anchor_date: parsed.relative_anchor_date,
+    timezone: parsed.timezone || DEFAULT_CLOCK_TZ,
+    evidence,
     created_at: prior?.created_at || stampNow(now),
     updated_at: stampNow(now),
     completed_at: null,

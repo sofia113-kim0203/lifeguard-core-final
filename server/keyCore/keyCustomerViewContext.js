@@ -102,10 +102,36 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     corporate = corporate.filter((c) => String(c?.entity_id ?? "") === entityId);
   }
 
-  const current_context = {
-    ...(userPayload.current_context && typeof userPayload.current_context === "object"
+  const baseContext =
+    userPayload.current_context && typeof userPayload.current_context === "object"
       ? userPayload.current_context
-      : {}),
+      : {};
+  const clockRaw =
+    baseContext.insurance_clock && typeof baseContext.insurance_clock === "object"
+      ? baseContext.insurance_clock
+      : null;
+
+  function scopeClockBrief(brief, scopeMode) {
+    if (!brief) return null;
+    const keep = (row) => {
+      const eid = String(row?.entity_id ?? "").trim();
+      if (scopeMode === "personal") return !eid;
+      if (scopeMode === "corporate") return Boolean(entityId) && eid === entityId;
+      // both — personal + selected entity only
+      return !eid || (entityId && eid === entityId);
+    };
+    return {
+      ...brief,
+      upcoming: (brief.upcoming || []).filter(keep),
+      overdue: (brief.overdue || []).filter(keep),
+      unknown_date: (brief.unknown_date || []).filter(keep),
+      completed_recent: (brief.completed_recent || []).filter(keep),
+      packs_separated: true,
+    };
+  }
+
+  const current_context = {
+    ...baseContext,
     customer_view: {
       mode,
       entity_id: entityId,
@@ -116,16 +142,20 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   };
 
   if (mode === "personal") {
+    const insurance_clock = scopeClockBrief(clockRaw, "personal");
+    const personalContext = {
+      ...current_context,
+      corporate_turn: {
+        selected_entity_id: null,
+        authorization_verified: false,
+        note: "personal_view_corporate_pack_withheld",
+      },
+    };
+    if (insurance_clock) personalContext.insurance_clock = insurance_clock;
+    else delete personalContext.insurance_clock;
     return {
       ...userPayload,
-      current_context: {
-        ...current_context,
-        corporate_turn: {
-          selected_entity_id: null,
-          authorization_verified: false,
-          note: "personal_view_corporate_pack_withheld",
-        },
-      },
+      current_context: personalContext,
       available_verified_evidence: {
         ...evidence,
         personal,
@@ -138,9 +168,13 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   }
 
   if (mode === "corporate") {
+    const insurance_clock = scopeClockBrief(clockRaw, "corporate");
     return {
       ...userPayload,
-      current_context,
+      current_context: {
+        ...current_context,
+        ...(insurance_clock ? { insurance_clock } : {}),
+      },
       available_verified_evidence: {
         ...evidence,
         personal: {
@@ -163,6 +197,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   }
 
   // both — keep separated packs; never merge.
+  const insurance_clock = scopeClockBrief(clockRaw, "both");
   return {
     ...userPayload,
     current_context: {
@@ -173,6 +208,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
         merged: false,
         note: "explicit_dual_keep_packs_separate",
       },
+      ...(insurance_clock ? { insurance_clock } : {}),
     },
     available_verified_evidence: {
       ...evidence,
