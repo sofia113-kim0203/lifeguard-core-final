@@ -103,6 +103,7 @@ import {
   formatPresenceLifeThreadsBrief,
 } from "./keyPresenceContext.js";
 import { invalidateReadyCardCacheForCustomer } from "./keyReadyCardCache.js";
+import { runKeyClaimIntakeSidecar } from "./keyClaimIntakeSidecar.js";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -4745,10 +4746,72 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
 
   let claimCasePersist = { attempted: false, ok: false, stored: 0 };
-  const claimCasesToPersist = Array.isArray(claude.claim_case_updates)
+  let claimIntakeSidecar = {
+    attempted: false,
+    ok: false,
+    reason: "not_run",
+    action: "skip",
+    stored: 0,
+  };
+  // Slice 1A — KEY post-answer claim intake (no tools / no second Claude).
+  // Failures must never rewrite sealed customer answer.
+  let claimCasesToPersist = Array.isArray(claude.claim_case_updates)
     ? claude.claim_case_updates
     : [];
-  if (!usedFailure && claimCasesToPersist.length > 0 && userSupabase && customerId) {
+  if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
+    try {
+      const sidecar = await runKeyClaimIntakeSidecar({
+        question,
+        existingCases: activeClaimCases,
+        attachedDocumentId:
+          String(pdf?.meta?.document_id ?? attachedDocumentId ?? "").trim() || null,
+        messageId: null,
+        sessionId,
+        customerId,
+        supabase: userSupabase,
+        persistImpl: persistKeyActiveClaimCases,
+      });
+      claimIntakeSidecar = {
+        attempted: sidecar?.attempted === true,
+        ok: sidecar?.ok === true,
+        reason: sidecar?.reason ?? null,
+        action: sidecar?.action ?? "skip",
+        stored: Number(sidecar?.stored ?? 0) || 0,
+        case_count: sidecar?.case_count ?? null,
+        claim_case_key: sidecar?.claim_case_key ?? null,
+        error: sidecar?.error ?? null,
+      };
+      if (Array.isArray(sidecar?.updates) && sidecar.updates.length > 0) {
+        claimCasesToPersist = sidecar.updates;
+      }
+      if (sidecar?.persist && typeof sidecar.persist === "object") {
+        claimCasePersist = sidecar.persist;
+      }
+      if (sidecar?.ok === true) {
+        try {
+          invalidateReadyCardCacheForCustomer(customerId);
+        } catch {
+          /* non-blocking */
+        }
+      }
+    } catch (err) {
+      claimIntakeSidecar = {
+        attempted: true,
+        ok: false,
+        reason: "sidecar_threw",
+        action: "skip",
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_claim_intake_sidecar]", claimIntakeSidecar);
+    }
+  } else if (
+    !usedFailure &&
+    claimCasesToPersist.length > 0 &&
+    userSupabase &&
+    customerId
+  ) {
+    // Legacy empty tool path only — keep fail-closed persist helper available.
     try {
       claimCasePersist = await persistKeyActiveClaimCases({
         supabase: userSupabase,
@@ -4882,6 +4945,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           active_claim_cases_hydrated: activeClaimCases.length,
           claim_case_updates_count: claimCasesToPersist.length,
           key_claim_case_persist: claimCasePersist,
+          key_claim_intake_sidecar: claimIntakeSidecar,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),

@@ -410,6 +410,28 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
     "available docs preserved",
   );
 
+  const withSource = normalizeKeyClaimCaseUpdates([
+    {
+      claim_case_key: "customer_statement:kind:surgery",
+      status: "identified",
+      source: "customer_statement",
+      source_message_id: "utterance:abc123",
+      source_document_ids: ["doc-1"],
+      medical_event: { event_kind: "surgery" },
+      evidence: ["source:customer_statement"],
+    },
+  ]);
+  assert(withSource.length === 1, "customer_statement source row kept");
+  assert(withSource[0].source === "customer_statement", "source preserved");
+  assert(
+    withSource[0].source_message_id === "utterance:abc123",
+    "source_message_id preserved",
+  );
+  assert(
+    withSource[0].source_document_ids.includes("doc-1"),
+    "source_document_ids preserved",
+  );
+
   const blocked = normalizeKeyClaimCaseUpdates([
     {
       claim_case_key: "date:2026-07-01:kind:fracture",

@@ -1018,6 +1018,18 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
     const assessment = normalizeAssessment(row.assessment);
     const status = normalizeClaimStatus(row.status, { evidence });
 
+    const sourceRaw = normalizeClaimString(row.source)?.toLowerCase();
+    const source =
+      sourceRaw === "customer_statement" ||
+      sourceRaw === "insurer_or_system" ||
+      sourceRaw === "result_document"
+        ? sourceRaw
+        : null;
+    const source_message_id = normalizeClaimString(row.source_message_id);
+    const source_document_ids = normalizeClaimStringList(
+      row.source_document_ids ?? row.attached_document_ids,
+    );
+
     out.push({
       claim_case_key,
       medical_event,
@@ -1030,6 +1042,9 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
       status,
       next_action: normalizeClaimString(row.next_action),
       evidence,
+      source,
+      source_message_id,
+      source_document_ids,
       updated_at: normalizeClaimString(row.updated_at) ?? updatedAt,
       card_source: "key_claude_claim_case",
     });
@@ -1080,6 +1095,14 @@ export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
         : prior.missing_documents,
       status,
       evidence,
+      source: row.source ?? prior.source ?? null,
+      source_message_id: row.source_message_id ?? prior.source_message_id ?? null,
+      source_document_ids: [
+        ...new Set([
+          ...(prior.source_document_ids ?? []),
+          ...(row.source_document_ids ?? []),
+        ]),
+      ],
       updated_at: row.updated_at ?? prior.updated_at,
     });
   }

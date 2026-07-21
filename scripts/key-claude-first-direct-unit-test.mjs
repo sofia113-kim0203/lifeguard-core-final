@@ -5034,3 +5034,203 @@ console.log("key-claude-first-direct-unit-test: PASS");
   console.log("PROMPT CACHE PHASE1 PACKAGING CHECKS OK");
 }
 
+// --- Claim Guardian Slice 1A — KEY claim intake sidecar (post-answer, tools=0) ---
+{
+  const {
+    buildKeyClaimIntakeUpdate,
+    isClearClaimIntakeQuestion,
+    runKeyClaimIntakeSidecar,
+  } = await import("../server/keyCore/keyClaimIntakeSidecar.js");
+
+  assert.equal(
+    isClearClaimIntakeQuestion(
+      "지난주에 입원해서 수술했는데 보험금 청구할 수 있을까?",
+    ),
+    true,
+  );
+  assert.equal(isClearClaimIntakeQuestion("오늘 날씨 어때?"), false);
+  assert.equal(
+    isClearClaimIntakeQuestion("내 청구 건 진행 중인 게 있어?"),
+    false,
+  );
+
+  const created = buildKeyClaimIntakeUpdate({
+    question: "지난주에 입원해서 수술했는데 보험금 청구할 수 있을까?",
+    existingCases: [],
+    sessionId: "sess-claim-1a",
+  });
+  assert.equal(created.ok, true);
+  assert.equal(created.action, "create");
+  assert.equal(created.updates.length, 1);
+  assert.equal(created.updates[0].status, "identified");
+  assert.equal(created.updates[0].source, "customer_statement");
+  assert.ok(created.updates[0].source_message_id);
+  assert.equal(created.updates[0].assessment, null);
+  assert.equal(created.updates[0].status === "paid", false);
+  assert.match(String(created.claim_case_key), /customer_statement:kind:/);
+
+  const again = buildKeyClaimIntakeUpdate({
+    question: "지난주에 입원해서 수술했는데 보험금 청구할 수 있을까?",
+    existingCases: created.updates,
+    sessionId: "sess-claim-1a-b",
+  });
+  assert.equal(again.ok, true);
+  assert.equal(again.action, "update");
+  assert.equal(again.updates.length, 1);
+  assert.equal(again.claim_case_key, created.claim_case_key);
+  assert.equal(again.updates[0].status, "identified");
+
+  const healthWrites = [];
+  const supabase = {
+    from(table) {
+      assert.equal(table, "profile_health");
+      let mode = "select";
+      let payload = null;
+      const api = {
+        select() {
+          mode = "select";
+          return api;
+        },
+        update(p) {
+          mode = "update";
+          payload = p;
+          return api;
+        },
+        insert(p) {
+          mode = "insert";
+          payload = p;
+          return api;
+        },
+        eq() {
+          return api;
+        },
+        maybeSingle() {
+          return Promise.resolve({
+            data: { customer_id: "cust-a", details_json: {} },
+            error: null,
+          });
+        },
+        then(resolve) {
+          if (mode === "update" || mode === "insert") {
+            healthWrites.push({ mode, payload });
+            resolve({ data: null, error: null });
+            return;
+          }
+          resolve({ data: null, error: null });
+        },
+      };
+      return api;
+    },
+  };
+
+  const sidecar = await runKeyClaimIntakeSidecar({
+    question: "지난주에 입원해서 수술했는데 보험금 청구할 수 있을까?",
+    existingCases: [],
+    customerId: "cust-a",
+    supabase,
+    sessionId: "sess-wire",
+  });
+  assert.equal(sidecar.ok, true);
+  assert.equal(sidecar.stored, 1);
+  assert.equal(healthWrites.length, 1);
+  const storedCases =
+    healthWrites[0].payload?.details_json?.key_active_claim_cases ?? [];
+  assert.equal(storedCases.length, 1);
+  assert.equal(storedCases[0].source, "customer_statement");
+  assert.equal(storedCases[0].status, "identified");
+
+  // Wire: claim intake after Claude answer; tools stay off; answer untouched on persist.
+  const customerAnswer =
+    "지금은 확인된 계약·서류 기준으로 청구 준비를 같이 보면 됩니다. 지급은 확정할 수 없어요.";
+  let claudeCalls = 0;
+  let sawTools = false;
+  let claimHealthWrites = [];
+  const fetchImpl = async (_url, opts) => {
+    claudeCalls += 1;
+    const body = JSON.parse(String(opts?.body ?? "{}"));
+    sawTools = Array.isArray(body.tools) && body.tools.length > 0;
+    return {
+      ok: true,
+      async json() {
+        return { content: [{ type: "text", text: customerAnswer }] };
+      },
+    };
+  };
+  const userSupabase = {
+    from(table) {
+      if (table === "profile_health") {
+        let mode = "select";
+        let payload = null;
+        const api = {
+          select() {
+            mode = "select";
+            return api;
+          },
+          update(p) {
+            mode = "update";
+            payload = p;
+            return api;
+          },
+          insert(p) {
+            mode = "insert";
+            payload = p;
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          maybeSingle() {
+            return Promise.resolve({
+              data: { customer_id: "cust-claim-1a", details_json: {} },
+              error: null,
+            });
+          },
+          then(resolve) {
+            if (mode === "update" || mode === "insert") {
+              claimHealthWrites.push({ mode, payload });
+              resolve({ data: null, error: null });
+              return;
+            }
+            resolve({ data: null, error: null });
+          },
+        };
+        return api;
+      }
+      return makeAttachQuery({ data: null, error: null });
+    },
+  };
+
+  const wired = await runClaudeFirstDirectQuestionTurn({
+    question: "지난주에 입원해서 수술했는데 보험금 청구할 수 있을까?",
+    history: [],
+    loadedContext: { policy_count: 0, policies: [] },
+    customerId: "cust-claim-1a",
+    sessionId: "sess-claim-wire",
+    userSupabase,
+    env: failClosedEnv,
+    fetchImpl,
+  });
+  assert.equal(claudeCalls, 1);
+  assert.equal(sawTools, false, "tools=0 preserved");
+  assert.equal(wired.customerText, customerAnswer);
+  assert.equal(wired.key_monopoly_failure, false);
+  const intake =
+    wired.salesDirectorTrace?.key_compose_trace?.key_voice_trace
+      ?.key_claim_intake_sidecar;
+  assert.equal(intake?.ok, true);
+  assert.equal(intake?.action, "create");
+  assert.equal(
+    wired.salesDirectorTrace?.key_compose_trace?.key_voice_trace
+      ?.key_claim_case_persist?.ok,
+    true,
+  );
+  assert.ok(claimHealthWrites.length >= 1);
+  const cases =
+    claimHealthWrites[claimHealthWrites.length - 1].payload?.details_json
+      ?.key_active_claim_cases ?? [];
+  assert.equal(cases.length, 1);
+  assert.equal(cases[0].status, "identified");
+  assert.equal(cases[0].source, "customer_statement");
+  console.log("CLAIM INTAKE SIDECAR 1A CHECKS OK");
+}
+

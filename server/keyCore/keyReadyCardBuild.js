@@ -175,16 +175,40 @@ function briefPolicies(policies = []) {
 }
 
 function briefClaims(cases = []) {
-  return (Array.isArray(cases) ? cases : []).slice(0, 8).map((row) => ({
-    claim_case_key: row?.claim_case_key ?? null,
-    status: row?.status ?? null,
-    summary:
+  return (Array.isArray(cases) ? cases : []).slice(0, 8).map((row) => {
+    const medical =
+      row?.medical_event && typeof row.medical_event === "object"
+        ? row.medical_event
+        : {};
+    const kind =
+      medical.event_kind != null
+        ? String(medical.event_kind)
+        : medical.event_type != null
+          ? String(medical.event_type)
+          : null;
+    const summary =
       typeof row?.summary === "string"
         ? row.summary.slice(0, 200)
-        : row?.medical_event?.event_type
-          ? String(row.medical_event.event_type).slice(0, 200)
+        : kind
+          ? kind.slice(0, 200)
+          : null;
+    return {
+      claim_case_key: row?.claim_case_key ?? null,
+      status: row?.status ?? null,
+      source: row?.source ?? null,
+      summary,
+      available_documents: Array.isArray(row?.available_documents)
+        ? row.available_documents.slice(0, 12)
+        : [],
+      missing_documents: Array.isArray(row?.missing_documents)
+        ? row.missing_documents.slice(0, 12)
+        : [],
+      next_action:
+        typeof row?.next_action === "string"
+          ? row.next_action.slice(0, 200)
           : null,
-  }));
+    };
+  });
 }
 
 function briefDocuments(docs = []) {
