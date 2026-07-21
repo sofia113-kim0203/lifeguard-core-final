@@ -7,8 +7,10 @@ import {
   mergeLifeThreadHistory,
   isTrivialChatNotLifeThread,
   formatLifeThreadsForReadyCard,
+  selectActiveLifeThreads,
 } from "../server/keyCore/keyLifeThread.js";
 import { buildKeyConsultationRecord } from "../server/keyCore/keyClaudeFirstDirect.js";
+import { attachActiveLifeThreadsToReadyCard } from "../server/keyCore/keyReadyCardBuild.js";
 
 const NOW = new Date("2026-07-21T00:00:00.000Z");
 const SOURCE = {
@@ -135,5 +137,54 @@ const SOURCE = {
   assert.equal(a[0].customer_id, "cust-a");
   assert.equal(b[0].customer_id, "cust-b");
 }
+
+// T5.1 — active filter drops resolved; attach overlays DB active onto stale handoff card
+await (async () => {
+  const planned = extractLifeThreadsFromCustomerUtterance("아들이 다음 달 군대에 가요.", {
+    customerId: "cust-a",
+    now: NOW,
+  });
+  const resolved = extractLifeThreadsFromCustomerUtterance(
+    "아들은 잘 입대했고 첫 전화도 왔어요.",
+    { customerId: "cust-a", now: new Date("2026-08-15T00:00:00.000Z") },
+  );
+  const exam = extractLifeThreadsFromCustomerUtterance("딸이 이번 주 중간고사 기간이에요.", {
+    customerId: "cust-a",
+    now: NOW,
+  });
+  const merged = mergeLifeThreadHistory([...planned, ...resolved, ...exam]);
+  const active = selectActiveLifeThreads(merged, { customerId: "cust-a" });
+  assert.equal(active.length, 1);
+  assert.equal(active[0].event_kind, "family_exam_period");
+  assert.ok(merged.some((t) => t.status === "resolved"));
+
+  const staleCard = {
+    customer_id: "cust-a",
+    important_history: {
+      related_turns: [],
+      open_goals: [],
+      open_tasks: [],
+      life_threads: [],
+      _prior_object: { life_threads: [] },
+    },
+  };
+  const attached = await attachActiveLifeThreadsToReadyCard({
+    card: staleCard,
+    userSupabase: {},
+    customerId: "cust-a",
+    loadLifeThreads: async () => ({
+      threads: merged,
+      active,
+      reason: "ok",
+    }),
+  });
+  assert.equal(attached.active_count, 1);
+  assert.equal(attached.card.important_history.life_threads.length, 1);
+  assert.equal(attached.card.important_history._prior_object.life_threads.length, 1);
+  assert.equal(
+    attached.card.important_history._prior_object.life_threads[0].event_kind,
+    "family_exam_period",
+  );
+})();
 
 console.log("key-life-thread-unit-test: PASS");

@@ -10,9 +10,79 @@ import {
   READY_CARD_CACHE_TTL_MS,
 } from "./keyReadyCardCache.js";
 import { openReadyCardHandoff } from "./keyReadyCardHandoff.js";
-import { formatLifeThreadsForReadyCard } from "./keyLifeThread.js";
+import {
+  formatLifeThreadsForReadyCard,
+  loadCustomerLifeThreadsFromConversations,
+  selectActiveLifeThreads,
+} from "./keyLifeThread.js";
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
+
+/**
+ * T5.1 — always overlay active LIFE THREADS from conversations onto a READY CARD.
+ * Breaks login_handoff / memory_cache stale reuse that skipped DB life_threads.
+ */
+export async function attachActiveLifeThreadsToReadyCard({
+  card = null,
+  userSupabase = null,
+  customerId = null,
+  loadLifeThreads = loadCustomerLifeThreadsFromConversations,
+} = {}) {
+  if (!card || typeof card !== "object") {
+    return { card, active_count: 0, reason: "no_card" };
+  }
+  const cid = String(customerId ?? card.customer_id ?? "").trim();
+  if (!cid || !userSupabase) {
+    return { card, active_count: 0, reason: "missing_scope" };
+  }
+  const loaded = await loadLifeThreads({
+    supabase: userSupabase,
+    customerId: cid,
+  });
+  const active = selectActiveLifeThreads(loaded.active ?? loaded.threads ?? [], {
+    customerId: cid,
+  });
+  const brief = formatLifeThreadsForReadyCard(active, {
+    limit: 6,
+    activeOnly: false,
+    customerId: cid,
+  });
+  const priorObj =
+    card.important_history?._prior_object &&
+    typeof card.important_history._prior_object === "object"
+      ? {
+          ...card.important_history._prior_object,
+          life_threads: active,
+        }
+      : {
+          related_turns: Array.isArray(card.important_history?.related_turns)
+            ? card.important_history.related_turns
+            : [],
+          open_goals: Array.isArray(card.important_history?.open_goals)
+            ? card.important_history.open_goals
+            : [],
+          open_tasks: Array.isArray(card.important_history?.open_tasks)
+            ? card.important_history.open_tasks
+            : [],
+          life_threads: active,
+          note: "prior_consultation_reference_only_not_verified_fact",
+        };
+  const next = {
+    ...card,
+    important_history: {
+      ...(card.important_history && typeof card.important_history === "object"
+        ? card.important_history
+        : {}),
+      life_threads: brief,
+      _prior_object: priorObj,
+    },
+  };
+  return {
+    card: next,
+    active_count: active.length,
+    reason: loaded.reason ?? "ok",
+  };
+}
 
 function profileBriefFromContexts({
   loadedContext = null,
@@ -311,7 +381,7 @@ export async function buildKeyReadyCard({
           open_tasks: Array.isArray(prior.open_tasks) ? prior.open_tasks : [],
           life_threads: formatLifeThreadsForReadyCard(
             Array.isArray(prior.life_threads) ? prior.life_threads : [],
-            { limit: 6 },
+            { limit: 6, activeOnly: true, customerId: cid },
           ),
           note: "prior_consultation_reference_only_not_verified_fact",
           _prior_object: prior,
@@ -351,9 +421,19 @@ export async function buildKeyReadyCard({
 }
 
 export async function warmAndStoreKeyReadyCard(args = {}) {
-  const card = await buildKeyReadyCard(args);
+  const built = await buildKeyReadyCard(args);
   const cid = String(args.customerId ?? "").trim();
   const sid = String(args.sessionId ?? "").trim() || null;
+  // T5.1 — seal/handoff must carry active life_threads, not a pre-thread warm snapshot.
+  const attached = await attachActiveLifeThreadsToReadyCard({
+    card: built,
+    userSupabase: args.userSupabase ?? null,
+    customerId: cid,
+    loadLifeThreads:
+      args.loadCustomerLifeThreadsFromConversations ||
+      loadCustomerLifeThreadsFromConversations,
+  });
+  const card = attached.card ?? built;
   if (cid && card) {
     writeReadyCardCache(cid, sid, card);
     // Also seed customer-wide slot for login→chat handoff before session settles.
@@ -368,6 +448,7 @@ export async function warmAndStoreKeyReadyCard(args = {}) {
     materials_connected: card.materials_connected === true,
     customer_id: card.customer_id,
     session_id: card.session_id,
+    life_threads_attached_count: attached.active_count ?? 0,
     // Server-only — warm API seals into opaque token; never send plaintext to client.
     card,
   };
@@ -407,6 +488,32 @@ export async function resolveReadyCardForQuestionTurn({
   let handoffRejectReason = null;
   let tokenValidationMs = null;
 
+  async function finalize(result) {
+    const attached = await attachActiveLifeThreadsToReadyCard({
+      card: result?.card ?? null,
+      userSupabase,
+      customerId,
+      loadLifeThreads:
+        buildDeps.loadCustomerLifeThreadsFromConversations ||
+        loadCustomerLifeThreadsFromConversations,
+    });
+    const card = attached.card ?? result.card;
+    const cid = String(customerId ?? "").trim();
+    const sid = String(sessionId ?? "").trim() || null;
+    // Refresh cache/handoff reuse slot with life_threads overlay (never keep pre-thread card).
+    if (cid && card) {
+      writeReadyCardCache(cid, sid, card);
+      if (sid) writeReadyCardCache(cid, null, card);
+    }
+    return {
+      ...result,
+      card,
+      life_threads_attached_count: attached.active_count ?? 0,
+      life_threads_attach_reason: attached.reason ?? null,
+      ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+    };
+  }
+
   // T2.1 — opaque login handoff first (cross-instance). Never trust client card JSON.
   if (handoffToken) {
     const opened = openReadyCardHandoff(handoffToken, {
@@ -416,13 +523,7 @@ export async function resolveReadyCardForQuestionTurn({
       env,
     });
     if (opened.ok) {
-      const cid = String(customerId ?? "").trim();
-      const sid = String(sessionId ?? "").trim() || null;
-      if (cid) {
-        writeReadyCardCache(cid, sid, opened.card);
-        if (sid) writeReadyCardCache(cid, null, opened.card);
-      }
-      return {
+      return finalize({
         card: {
           ...opened.card,
           freshness: {
@@ -440,7 +541,7 @@ export async function resolveReadyCardForQuestionTurn({
         token_validation_ms: opened.validation_ms,
         token_reject_reason: null,
         reused: true,
-      };
+      });
     }
     // Fall through to memory / parallel rebuild — do not trust token contents.
     handoffRejectReason = opened.reason ?? "handoff_rejected";
@@ -456,7 +557,7 @@ export async function resolveReadyCardForQuestionTurn({
     String(cached.card.customer_id ?? "").trim() === String(customerId ?? "").trim();
 
   if (cached.status === "normal" && cachedReusable) {
-    return {
+    return finalize({
       card: {
         ...cached.card,
         freshness: {
@@ -474,14 +575,14 @@ export async function resolveReadyCardForQuestionTurn({
       token_validation_ms: tokenValidationMs,
       token_reject_reason: handoffRejectReason,
       reused: true,
-    };
+    });
   }
 
   if (cached.status === "stale" && cachedReusable) {
     if (backgroundRefresh) {
       void warmAndStoreKeyReadyCard(warmArgs).catch(() => {});
     }
-    return {
+    return finalize({
       card: {
         ...cached.card,
         status: "stale",
@@ -500,18 +601,11 @@ export async function resolveReadyCardForQuestionTurn({
       token_validation_ms: tokenValidationMs,
       token_reject_reason: handoffRejectReason,
       reused: true,
-    };
+    });
   }
 
   const card = await buildKeyReadyCard(warmArgs);
-  const cid = String(customerId ?? "").trim();
-  const sid = String(sessionId ?? "").trim() || null;
-  if (cid) {
-    writeReadyCardCache(cid, sid, card);
-    if (sid) writeReadyCardCache(cid, null, card);
-  }
-
-  return {
+  return finalize({
     card,
     // Verification vocabulary: miss = was not prewarmed (even if rebuilt now).
     ready_card_status: "miss",
@@ -523,7 +617,7 @@ export async function resolveReadyCardForQuestionTurn({
     token_reject_reason: handoffRejectReason,
     reused: false,
     built_on_miss: true,
-  };
+  });
 }
 
 /** Claude payload slice — status + as-of; never dump full card. */

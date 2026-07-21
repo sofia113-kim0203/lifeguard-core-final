@@ -280,9 +280,86 @@ export function mergeLifeThreadHistory(records = []) {
   return [...byId.values()].filter((t) => t.do_not_surface !== true);
 }
 
+/**
+ * Active injection set for READY CARD / Claude soft context.
+ * resolved/closed stay in history via mergeLifeThreadHistory but are not re-injected.
+ */
+export function selectActiveLifeThreads(threads = [], { customerId = null } = {}) {
+  const cid = String(customerId ?? "").trim();
+  return (Array.isArray(threads) ? threads : []).filter((t) => {
+    if (!t || typeof t !== "object") return false;
+    if (t.do_not_surface === true) return false;
+    const rowCid = String(t.customer_id ?? "").trim();
+    if (cid && rowCid && rowCid !== cid) return false;
+    const status = String(t.status ?? "open").trim();
+    return status === "open" || status === "pending";
+  });
+}
+
+/**
+ * SSOT read — customer_conversations.metadata_json.key_consultation_record.life_threads
+ * Scoped by customer_id. No new table / LLM.
+ */
+export async function loadCustomerLifeThreadsFromConversations({
+  supabase = null,
+  customerId = null,
+  limit = 48,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  if (!supabase || !cid) {
+    return { threads: [], active: [], reason: "missing_scope" };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("customer_conversations")
+      .select("role, metadata_json, created_at")
+      .eq("customer_id", cid)
+      .eq("role", "assistant")
+      .order("created_at", { ascending: false })
+      .limit(Math.max(8, Number(limit) || 48));
+    if (error) return { threads: [], active: [], reason: "query_failed" };
+    const rows = [];
+    for (const row of data ?? []) {
+      const meta =
+        row?.metadata_json && typeof row.metadata_json === "object" ? row.metadata_json : {};
+      const rec = meta.key_consultation_record;
+      if (!rec || typeof rec !== "object" || !Array.isArray(rec.life_threads)) continue;
+      for (const th of rec.life_threads) {
+        if (!th || typeof th !== "object") continue;
+        // Fail-closed cross-customer: drop rows that claim another customer_id.
+        const thCid = String(th.customer_id ?? "").trim();
+        if (thCid && thCid !== cid) continue;
+        rows.push({
+          ...th,
+          customer_id: thCid || cid,
+          created_at: th.created_at ?? row?.created_at ?? null,
+          updated_at: th.updated_at ?? row?.created_at ?? null,
+        });
+      }
+    }
+    const threads = mergeLifeThreadHistory(rows);
+    const active = selectActiveLifeThreads(threads, { customerId: cid });
+    return {
+      threads,
+      active,
+      reason: active.length || threads.length ? "ok" : "none",
+    };
+  } catch {
+    return { threads: [], active: [], reason: "query_exception" };
+  }
+}
+
 /** Claude / READY CARD brief — reference only; never verified fact; no Presence ask. */
-export function formatLifeThreadsForReadyCard(threads = [], { limit = 6 } = {}) {
-  const rows = Array.isArray(threads) ? threads : [];
+export function formatLifeThreadsForReadyCard(
+  threads = [],
+  { limit = 6, activeOnly = true, customerId = null } = {},
+) {
+  const source = activeOnly
+    ? selectActiveLifeThreads(threads, { customerId })
+    : Array.isArray(threads)
+      ? threads
+      : [];
+  const rows = source;
   return rows.slice(0, limit).map((t) => {
     const emotion =
       t?.customer_expressed_emotion?.text != null

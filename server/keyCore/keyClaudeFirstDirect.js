@@ -86,7 +86,9 @@ import {
   extractLifeThreadsFromCustomerUtterance,
   mergeLifeThreadHistory,
   formatLifeThreadsForReadyCard,
+  selectActiveLifeThreads,
 } from "./keyLifeThread.js";
+import { invalidateReadyCardCacheForCustomer } from "./keyReadyCardCache.js";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -1322,8 +1324,10 @@ export async function loadCustomerPriorConsultationForClaude({
       if (turns.length >= 16) break;
     }
     turns.reverse();
-    const life_threads = mergeLifeThreadHistory(lifeThreadRows);
-    if (!turns.length && !open_goals.length && !life_threads.length) {
+    const life_threads_all = mergeLifeThreadHistory(lifeThreadRows);
+    // T5.1 — Claude/READY CARD soft inject gets active only; resolved stays in conversation history.
+    const life_threads = selectActiveLifeThreads(life_threads_all, { customerId: cid });
+    if (!turns.length && !open_goals.length && !life_threads_all.length) {
       return { prior: null, reason: "none" };
     }
     return {
@@ -1332,6 +1336,7 @@ export async function loadCustomerPriorConsultationForClaude({
         open_goals: open_goals.slice(0, 3),
         open_tasks: open_tasks.slice(0, 6),
         life_threads,
+        life_threads_history: life_threads_all,
         note: "prior_consultation_reference_only_not_verified_fact",
       },
       reason: "ok",
@@ -4134,7 +4139,27 @@ export async function runClaudeFirstDirectQuestionTurn({
         now: nowStamp,
       });
 
+  // T5.1 — LIFE THREAD write/status change invalidates stale READY CARD (handoff/cache).
+  if (
+    customerId &&
+    Array.isArray(keyConsultationRecord?.life_threads) &&
+    keyConsultationRecord.life_threads.length > 0
+  ) {
+    try {
+      invalidateReadyCardCacheForCustomer(customerId);
+    } catch {
+      /* non-blocking */
+    }
+  }
+
   // T4 — customer screen completes before fact persist / probe (request stays open).
+  // T5.1 — include inject evidence on early done (no second done event).
+  const earlyLifeThreadsBrief = formatLifeThreadsForReadyCard(
+    Array.isArray(priorConsultationForContext?.life_threads)
+      ? priorConsultationForContext.life_threads
+      : [],
+    { limit: 6, activeOnly: true, customerId },
+  );
   if (typeof streamHandlers?.onEarlyCustomerDone === "function") {
     try {
       streamHandlers.onEarlyCustomerDone({
@@ -4157,6 +4182,11 @@ export async function runClaudeFirstDirectQuestionTurn({
             compose_mode: "key_claude_first_direct",
             key_voice_trace: {
               provider: "claude_first_direct",
+              life_threads_injected_count: earlyLifeThreadsBrief.length,
+              life_threads_brief: earlyLifeThreadsBrief,
+              life_threads_attach_reason:
+                readyResolved?.life_threads_attach_reason ?? null,
+              ready_card_source: readyCardSource,
               latency_marks: {
                 ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
                 triangle_t0: {
@@ -4168,6 +4198,9 @@ export async function runClaudeFirstDirectQuestionTurn({
                   persist_start_ms: null,
                   persist_complete_ms: null,
                   streamed_equals_sealed: streamedEqualsSealed,
+                  ready_card_source: readyCardSource,
+                  ready_card_hit: readyCardHit,
+                  life_threads_injected_count: earlyLifeThreadsBrief.length,
                 },
                 ...resolveDeployIdentity(env),
               },
@@ -4427,8 +4460,10 @@ export async function runClaudeFirstDirectQuestionTurn({
             Array.isArray(priorConsultationForContext?.life_threads)
               ? priorConsultationForContext.life_threads
               : [],
-            { limit: 6 },
+            { limit: 6, activeOnly: true, customerId },
           ),
+          life_threads_attach_reason: readyResolved?.life_threads_attach_reason ?? null,
+          ready_card_source: readyCardSource,
           source_link: sourceLink,
           session_goal_writer: customerUtteranceGoal
             ? "customer_utterance"

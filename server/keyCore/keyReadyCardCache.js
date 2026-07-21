@@ -66,6 +66,14 @@ export function writeReadyCardCache(customerId, sessionId, card) {
   return true;
 }
 
+/**
+ * Drop all cached READY CARD slots for a customer after LIFE THREAD write/status change.
+ * Next resolve must re-attach active life_threads from SSOT (handoff overlay included).
+ */
+export function invalidateReadyCardCacheForCustomer(customerId = null) {
+  clearReadyCardCache(customerId, null);
+}
+
 export function clearReadyCardCache(customerId = null, sessionId = null) {
   if (!customerId) {
     cache.clear();
