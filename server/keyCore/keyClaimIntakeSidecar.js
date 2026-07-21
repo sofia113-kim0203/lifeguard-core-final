@@ -80,7 +80,77 @@ export function documentLabelsMatch(a = "", b = "") {
   const left = normalizeDocLabel(a);
   const right = normalizeDocLabel(b);
   if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
+  if (left === right) return true;
+  // Resolve both through aliases (specific first) so 진단서 ≠ 암진단서.
+  return resolveCanonicalDocLabel(a) === resolveCanonicalDocLabel(b);
+}
+
+/** Prefer longer/more specific alias (암진단서 before 진단서). */
+export function resolveCanonicalDocLabel(label = "") {
+  const text = String(label ?? "").trim();
+  if (!text) return "";
+  const ordered = [...CLAIM_PREP_DOCUMENT_ALIASES].sort(
+    (a, b) => b.canonical.length - a.canonical.length,
+  );
+  for (const row of ordered) {
+    if (row.patterns.some((re) => re.test(text))) return row.canonical;
+  }
+  return normalizeDocLabel(text);
+}
+
+function preparedMatchesPool(preparedCanonical = "", poolItem = "") {
+  const prepared = String(preparedCanonical ?? "").trim();
+  if (!prepared) return false;
+  return resolveCanonicalDocLabel(poolItem) === prepared;
+}
+
+function scoreOpenCaseForPreparedDocs(row = null, preparedDocs = []) {
+  if (!row || !preparedDocs.length) return 0;
+  const pool = [
+    ...(Array.isArray(row.missing_documents) ? row.missing_documents : []),
+    ...(Array.isArray(row.required_documents) ? row.required_documents : []),
+    ...(Array.isArray(row.available_documents) ? row.available_documents : []),
+  ];
+  let score = 0;
+  for (const p of preparedDocs) {
+    if (pool.some((item) => preparedMatchesPool(p, item))) score += 1;
+  }
+  return score;
+}
+
+/** Pick one open case for prep/attach without mixing unrelated events. */
+export function pickOpenCaseForPreparation({
+  existingCases = [],
+  preparedDocs = [],
+  topicKey = null,
+} = {}) {
+  const open = listOpenCases(existingCases);
+  if (!open.length) return null;
+  if (topicKey) {
+    const byKind = findOpenCaseForKind(existingCases, topicKey, {
+      allowSingleFallback: false,
+    });
+    if (byKind) return byKind;
+  }
+  if (open.length === 1) return open[0];
+  if (preparedDocs.length) {
+    const scored = open
+      .map((row) => ({ row, score: scoreOpenCaseForPreparedDocs(row, preparedDocs) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return String(b.row.updated_at ?? "").localeCompare(String(a.row.updated_at ?? ""));
+      });
+    if (scored.length === 1) return scored[0].row;
+    if (scored.length > 1 && scored[0].score > scored[1].score) return scored[0].row;
+  }
+  const preparing = open.filter((row) => String(row.status) === "preparing");
+  if (preparing.length === 1) return preparing[0];
+  // Attach / prep with no unique doc signal — most recently updated open case only.
+  const sorted = [...open].sort((a, b) =>
+    String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")),
+  );
+  return preparedDocs.length || topicKey ? null : sorted[0] ?? null;
 }
 
 /** Clear existing claim eligibility intent only — no soft keyword invention. */
@@ -189,7 +259,7 @@ function preserveMedicalEvent(prior = null, eventKind = null) {
 
 function removePreparedFromMissing(missing = [], prepared = []) {
   return (Array.isArray(missing) ? missing : []).filter(
-    (item) => !prepared.some((p) => documentLabelsMatch(item, p)),
+    (item) => !prepared.some((p) => preparedMatchesPool(p, item)),
   );
 }
 
@@ -265,14 +335,12 @@ function buildPreparationUpdate({
       updates: [],
     };
   }
-  // Ambiguous which case when several open and utterance has no event kind.
   const { topicKey } = resolveEventKind(question);
-  const prior =
-    topicKey != null
-      ? findOpenCaseForKind(existingCases, topicKey, { allowSingleFallback: false })
-      : open.length === 1
-        ? open[0]
-        : null;
+  const prior = pickOpenCaseForPreparation({
+    existingCases,
+    preparedDocs,
+    topicKey,
+  });
   if (!prior) {
     return {
       ok: false,
@@ -369,15 +437,28 @@ function buildAttachEvidenceUpdate({
     return { ok: false, reason: "no_attached_document", action: "skip", updates: [] };
   }
   const open = listOpenCases(existingCases);
-  if (open.length !== 1) {
+  if (!open.length) {
     return {
       ok: false,
-      reason: open.length === 0 ? "no_open_claim_case" : "ambiguous_open_claim_case",
+      reason: "no_open_claim_case",
       action: "skip",
       updates: [],
     };
   }
-  const prior = open[0];
+  const prior =
+    pickOpenCaseForPreparation({
+      existingCases,
+      preparedDocs: [],
+      topicKey: null,
+    }) || (open.length === 1 ? open[0] : null);
+  if (!prior) {
+    return {
+      ok: false,
+      reason: "ambiguous_open_claim_case",
+      action: "skip",
+      updates: [],
+    };
+  }
   const updated_at = stampNow(now);
   const source_message_id = buildSourceMessageId({ messageId, question, sessionId });
   const source_document_ids = [

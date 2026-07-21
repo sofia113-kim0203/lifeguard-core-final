@@ -5350,6 +5350,36 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(noOpen.ok, false);
   assert.equal(noOpen.reason, "no_open_claim_case");
 
+  // Two open cases: prep docs resolve to surgery via required/missing intersection.
+  const cancerOpen = {
+    claim_case_key: "customer_statement:kind:cancer",
+    status: "identified",
+    source: "customer_statement",
+    medical_event: { event_kind: "cancer" },
+    required_documents: ["암진단서", "조직검사결과", "의료비영수증"],
+    available_documents: [],
+    missing_documents: ["암진단서", "조직검사결과", "의료비영수증"],
+    next_action: "암진단서 준비",
+    evidence: [],
+    updated_at: "2026-07-21T12:00:00.000Z",
+  };
+  const dualPrep = buildKeyClaimIntakeUpdate({
+    question: "진단서하고 입퇴원확인서는 준비했어.",
+    existingCases: [
+      {
+        ...openCase,
+        required_documents: ["진단서", "입퇴원확인서", "의료비영수증"],
+        missing_documents: ["진단서", "입퇴원확인서", "의료비영수증"],
+        updated_at: "2026-07-21T11:00:00.000Z",
+      },
+      cancerOpen,
+    ],
+  });
+  assert.equal(dualPrep.ok, true, "prep must not hard-skip when one case matches docs");
+  assert.equal(dualPrep.claim_case_key, "customer_statement:kind:surgery");
+  assert.ok(dualPrep.updates[0].available_documents.includes("입퇴원확인서"));
+
+
   assert.equal(
     resolveClaimNextAction({
       missing_documents: ["의료비영수증"],
