@@ -452,6 +452,7 @@ export async function handleHomeBrainFactRequest({
   priorAttachFollowUp = false,
   sessionId = null,
   readyCardHandoffToken = null,
+  presenceTurn = false,
   shadowVisualBlocksOverride = null,
   accessToken = null,
   env = process.env,
@@ -459,7 +460,10 @@ export async function handleHomeBrainFactRequest({
   streamHandlers = null,
   requestStartedAt = null,
 }) {
-  const trimmedQuestion = normalizeQuestion(question);
+  const isPresenceTurn = presenceTurn === true;
+  const trimmedQuestion = isPresenceTurn
+    ? "__KEY_PRESENCE_LISTEN_FOCUS__"
+    : normalizeQuestion(question);
   if (!trimmedQuestion) {
     return {
       ok: false,
@@ -509,7 +513,8 @@ export async function handleHomeBrainFactRequest({
     };
   }
 
-  if (activeStreamHandlers?.onKeyWaitAck) {
+  // Presence opener: no wait-ack filler (not a customer question).
+  if (activeStreamHandlers?.onKeyWaitAck && !isPresenceTurn) {
     const ackText = buildKeyWaitAck(trimmedQuestion);
     sseTrace.key_wait_ack_text = ackText;
     sseTrace.key_wait_ack_ms = Math.max(0, Date.now() - startedAt);
@@ -523,12 +528,13 @@ export async function handleHomeBrainFactRequest({
     authUserId,
     entityContext,
     question: trimmedQuestion,
-    history,
-    attachedDocumentId,
-    priorAttachFollowUp,
+    history: isPresenceTurn ? [] : history,
+    attachedDocumentId: isPresenceTurn ? null : attachedDocumentId,
+    priorAttachFollowUp: isPresenceTurn ? false : priorAttachFollowUp,
     sessionId,
     readyCardHandoffToken,
-    shadowVisualBlocksOverride,
+    presenceTurn: isPresenceTurn,
+    shadowVisualBlocksOverride: isPresenceTurn ? null : shadowVisualBlocksOverride,
     streamHandlers: activeStreamHandlers,
     env: keyEnv,
     fetchImpl,

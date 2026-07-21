@@ -171,6 +171,11 @@ export default async function handler(req, res) {
         ready_card_handoff_expires_at: handoff?.expires_at ?? null,
         handoff_token_bytes: handoff?.token_bytes ?? null,
         handoff_reason,
+        // T6 — count only (never plaintext LIFE THREAD / family content).
+        presence_candidate_count:
+          typeof result.life_threads_attached_count === "number"
+            ? result.life_threads_attached_count
+            : 0,
       }),
     );
   } catch (err) {

@@ -87,7 +87,22 @@ import {
   mergeLifeThreadHistory,
   formatLifeThreadsForReadyCard,
   selectActiveLifeThreads,
+  buildDoNotSurfaceLifeThreadOverlays,
+  pickRecentlySurfacedThreadIds,
 } from "./keyLifeThread.js";
+import {
+  KEY_PRESENCE_INTERNAL_QUESTION,
+  KEY_PRESENCE_MOVE,
+  KEY_PRESENCE_SILENCE_TOKEN,
+  buildPresenceContext,
+  buildPresenceSystemAddendum,
+  buildPresenceUserQuestionLine,
+  isPresenceSilenceAnswer,
+  markLifeThreadSurfaced,
+  resolvePresenceSurfaceFromAnswer,
+  shouldInvokePresenceClaude,
+  formatPresenceLifeThreadsBrief,
+} from "./keyPresenceContext.js";
 import { invalidateReadyCardCacheForCustomer } from "./keyReadyCardCache.js";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -1558,8 +1573,15 @@ export function buildKeyConsultationRecord({
   customerId = null,
   lifeThreads = undefined,
   now = null,
+  presenceTurn = null,
 } = {}) {
-  const q = String(question ?? "").trim().slice(0, 800);
+  const rawQ = String(question ?? "").trim();
+  const isPresence =
+    presenceTurn && typeof presenceTurn === "object"
+      ? true
+      : rawQ === KEY_PRESENCE_INTERNAL_QUESTION;
+  // Presence internal marker must never be stored as a customer fact/utterance.
+  const q = isPresence ? "" : rawQ.slice(0, 800);
   const a = String(claudeAnswer ?? "").trim().slice(0, 1200);
   const goal =
     sessionGoal && typeof sessionGoal === "object" && String(sessionGoal.goal ?? "").trim()
@@ -1591,13 +1613,16 @@ export function buildKeyConsultationRecord({
         sourceLink,
       });
   // T5 — customer-utterance LIFE THREAD only (never Claude answer text).
+  // Presence turn: never extract LIFE THREAD from Claude's opening line.
   const resolvedLifeThreads = Array.isArray(lifeThreads)
     ? lifeThreads
-    : extractLifeThreadsFromCustomerUtterance(q, {
-        customerId,
-        sourceLink,
-        now: now ?? new Date(),
-      });
+    : isPresence
+      ? []
+      : extractLifeThreadsFromCustomerUtterance(q, {
+          customerId,
+          sourceLink,
+          now: now ?? new Date(),
+        });
   return {
     schema: "key_consultation_record_v1",
     customer_utterance: q || null,
@@ -1615,6 +1640,11 @@ export function buildKeyConsultationRecord({
     life_threads: resolvedLifeThreads,
     session_goal: goal,
     ...(sourceLink && typeof sourceLink === "object" ? { source_link: sourceLink } : {}),
+    ...(isPresence && presenceTurn && typeof presenceTurn === "object"
+      ? { presence_turn: presenceTurn }
+      : isPresence
+        ? { presence_turn: { move: KEY_PRESENCE_MOVE, presence_turn: true } }
+        : {}),
   };
 }
 
@@ -1771,8 +1801,8 @@ export function extractPartialCustomerAnswer(partialJson = "") {
   return { text: out, complete };
 }
 
-export function buildSystemPrompt() {
-  return [
+export function buildSystemPrompt({ presenceTurn = false } = {}) {
+  const lines = [
     // OUR CLAUDE — 보험 설계사 KEY 제품 정체성 (사후 검열용 gate 아님)
     "너는 고객이 만나는 유일한 보험 설계사 KEY다.",
     "보험 전문성을 바탕으로 고객의 삶·건강·가족·재산을 오래 지키고, 필요한 보험을 근거와 함께 고객에게 딱 맞게 안내한다.",
@@ -1798,8 +1828,15 @@ export function buildSystemPrompt() {
     "의료사건·수술·입원·병원비·진단이 보이면 고객카드 계약과 비교해 청구 필요성을 직접 판단한다. 근거가 충분하면 선제적으로 청구 확인을 제안한다. 청구했습니다/접수 완료/심사 중/지급됐습니다는 확인 근거 없이 고객에게 말하지 않는다.",
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
-    "입력 current_context.life_threads가 있으면 고객이 이전에 직접 말한 삶의 사건·예정·감정 참고다. 현재 질문이 항상 우선이다. 확인되지 않은 결과·감정을 만들지 말고, 고객에게 먼저 꺼내 묻지 않는다(Presence 금지).",
-  ].join("\n");
+  ];
+  if (presenceTurn === true) {
+    lines.push(buildPresenceSystemAddendum());
+  } else {
+    lines.push(
+      "입력 current_context.life_threads가 있으면 고객이 이전에 직접 말한 삶의 사건·예정·감정 참고다. 현재 질문이 항상 우선이다. 확인되지 않은 결과·감정을 만들지 말고, 고객에게 먼저 꺼내 묻지 않는다(Presence 금지).",
+    );
+  }
+  return lines.join("\n");
 }
 
 /** @deprecated Slice 5 — keyword attach pre-route removed. Always false. */
@@ -2124,6 +2161,7 @@ export function buildUserPayload({
   priorConsultation = null,
   now = null,
   readyCardMeta = null,
+  presenceContext = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
@@ -2187,6 +2225,9 @@ export function buildUserPayload({
         ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
         ...(softPrior ? { prior_consultation: softPrior } : {}),
         ...(softLifeThreads.length ? { life_threads: softLifeThreads } : {}),
+        ...(presenceContext && typeof presenceContext === "object"
+          ? { presence_context: presenceContext }
+          : {}),
         ...(ready_card ? { ready_card } : {}),
       },
       available_verified_evidence: {
@@ -2249,6 +2290,9 @@ export function buildUserPayload({
       ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
       ...(softPrior ? { prior_consultation: softPrior } : {}),
       ...(softLifeThreads.length ? { life_threads: softLifeThreads } : {}),
+      ...(presenceContext && typeof presenceContext === "object"
+        ? { presence_context: presenceContext }
+        : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -3131,6 +3175,9 @@ async function callClaudeFirstDirect({
   documentEvidence = null,
   /** Triangle T2 READY CARD meta for Claude (status / as-of / miss note). */
   readyCardMeta = null,
+  /** Triangle T6 Presence materials (listen_focus). */
+  presenceContext = null,
+  presenceTurn = false,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -3178,34 +3225,43 @@ async function callClaudeFirstDirect({
       ? sessionGoalForContext
       : null;
   const userPayload = buildUserPayload({
-    question,
-    chart,
+    question: presenceTurn === true ? buildPresenceUserQuestionLine() : question,
+    chart: presenceTurn === true ? null : chart,
     contextPack,
-    pdfMeta,
-    corporateContexts: imageOriginalRead ? null : corporateContexts,
-    corporateGapEvidence: imageOriginalRead ? null : corporateGapEvidence,
-    corporateRecommendationCandidates: imageOriginalRead
-      ? null
-      : corporateRecommendationCandidates,
-    corporateUnknowns: imageOriginalRead ? null : corporateUnknowns,
+    pdfMeta: presenceTurn === true ? null : pdfMeta,
+    corporateContexts:
+      presenceTurn === true || imageOriginalRead ? null : corporateContexts,
+    corporateGapEvidence:
+      presenceTurn === true || imageOriginalRead ? null : corporateGapEvidence,
+    corporateRecommendationCandidates:
+      presenceTurn === true || imageOriginalRead
+        ? null
+        : corporateRecommendationCandidates,
+    corporateUnknowns:
+      presenceTurn === true || imageOriginalRead ? null : corporateUnknowns,
     publicEvidence: [],
-    activeClaimCases: imageOriginalRead ? null : activeClaimCases,
-    sessionGoal: softGoal,
+    activeClaimCases:
+      presenceTurn === true || imageOriginalRead ? null : activeClaimCases,
+    sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
       priorConsultationForContext && typeof priorConsultationForContext === "object"
         ? priorConsultationForContext
         : null,
     now: requestNow,
-    readyCardMeta: imageOriginalRead ? null : readyCardMeta,
+    readyCardMeta: presenceTurn === true || imageOriginalRead ? null : readyCardMeta,
+    presenceContext:
+      presenceTurn === true && presenceContext && typeof presenceContext === "object"
+        ? presenceContext
+        : null,
   });
-  const pdfAttached = Boolean(pdfBase64);
+  const pdfAttached = presenceTurn === true ? false : Boolean(pdfBase64);
   // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
   // Fact save · consultation · visual blocks remain KEY work after this answer (no second call).
-  const system = buildSystemPrompt();
+  const system = buildSystemPrompt({ presenceTurn: presenceTurn === true });
   const userContent = buildClaudeFullUserContentWithPdf({
     userPayload,
-    pdfBase64,
-    mediaType: pdfMediaType,
+    pdfBase64: presenceTurn === true ? null : pdfBase64,
+    mediaType: presenceTurn === true ? null : pdfMediaType,
   });
   let messages = [{ role: "user", content: userContent }];
 
@@ -3431,6 +3487,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   priorAttachFollowUp = false,
   sessionId = null,
   readyCardHandoffToken = null,
+  presenceTurn = false,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -3438,9 +3495,11 @@ export async function runClaudeFirstDirectQuestionTurn({
   loadAllowedCorporateContextsForClaudeImpl = loadAllowedCorporateContextsForClaude,
 } = {}) {
   const span = startSpan(startedAt);
+  const isPresenceTurn = presenceTurn === true;
 
   // GO3 SSOT — never trust client prior_session_goal; load from conversations only.
-  const discardRequested = shouldDiscardStaleSessionGoal(question) === true;
+  const discardRequested =
+    isPresenceTurn === true ? false : shouldDiscardStaleSessionGoal(question) === true;
 
   // Triangle T2/T2.1 — handoff token → memory → parallel rebuild. Never trust client card JSON.
   const readyResolved = await resolveReadyCardForQuestionTurn({
@@ -3522,11 +3581,105 @@ export async function runClaudeFirstDirectQuestionTurn({
       : readyMaterials.policy_count;
   const reality = { policies, policy_count };
 
+  // Triangle T6 — Presence materials (listen_focus). No PDF parallel Claude.
+  const lifeThreadsForPresence = Array.isArray(priorConsultationForContext?.life_threads)
+    ? priorConsultationForContext.life_threads
+    : [];
+  const presenceContextBuilt = isPresenceTurn
+    ? buildPresenceContext({
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+        visitKind:
+          Array.isArray(priorConsultationForContext?.related_turns) &&
+          priorConsultationForContext.related_turns.length > 0
+            ? "revisit"
+            : lifeThreadsForPresence.length > 0
+              ? "revisit"
+              : "first_visit",
+        lastVisitAt: priorConsultationForContext?.related_turns?.[0]?.at ?? null,
+        lifeThreads: lifeThreadsForPresence,
+        customerId,
+        readyCardVersion: readyCard?.card_version ?? null,
+        maxCandidates: 3,
+      })
+    : null;
+  const presenceGate = isPresenceTurn
+    ? shouldInvokePresenceClaude({ presenceContext: presenceContextBuilt })
+    : { ok: false, reason: "not_presence" };
+
+  if (isPresenceTurn && presenceGate.ok !== true) {
+    const emitMark = span.end();
+    const quietMs = relMs(startedAt);
+    const quietResult = {
+      ok: true,
+      customerText: "",
+      keySpeakOriginal: "",
+      visualBlocks: [],
+      key_monopoly_failure: false,
+      failure_reason: null,
+      presence_quiet: true,
+      presence_skip_reason: presenceGate.reason,
+      agentTurn: {
+        text: "",
+        responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        consultationIntent: { intent: "key_presence_listen_focus" },
+        factBundle: { policies, policy_count, one_key_core: true },
+      },
+      modeDecision: null,
+      loadedContext,
+      contextSnapshot,
+      unifiedState,
+      customerContextBundle,
+      salesDirectorTrace: {
+        one_key_core: true,
+        one_key_core_s1: true,
+        compose_mode: "key_claude_first_direct",
+        key_compose_trace: {
+          compose_mode: "key_claude_first_direct",
+          key_voice_trace: {
+            provider: "claude_first_direct",
+            presence_turn: true,
+            presence_move: KEY_PRESENCE_MOVE,
+            presence_quiet: true,
+            presence_skip_reason: presenceGate.reason,
+            provider_calls: 0,
+            tools: 0,
+            latency_marks: {
+              claude_full_emit: emitMark,
+              ttft_ms: null,
+              customer_done_ms: quietMs,
+              ...resolveDeployIdentity(env),
+            },
+          },
+        },
+      },
+      oneKeyCoreTrace: {
+        schema_version: "one-key-core-trace-claude-first-v1",
+        steps: [
+          {
+            step: "presence_quiet",
+            at_ms: quietMs,
+            payload: { reason: presenceGate.reason, claude_call_started: false },
+          },
+        ],
+        legacy_paths_blocked: ["interpret", "decision", "planner", "s3_s6_compose"],
+      },
+    };
+    try {
+      streamHandlers?.onEarlyCustomerDone?.(quietResult);
+    } catch {
+      /* non-blocking */
+    }
+    return quietResult;
+  }
+
   // Physical active attachment only — never invent latest document; never keyword-classify the question.
-  let explicitDocumentId = String(attachedDocumentId ?? "").trim();
+  // Presence must not mix PDF/document Claude work into the login opener.
+  let explicitDocumentId = isPresenceTurn
+    ? ""
+    : String(attachedDocumentId ?? "").trim();
   let documentMentionResolve = null;
   // B: explicit 내 문서 / filename pointer → lookup owned document (no silent latest invent).
-  if (!explicitDocumentId && userSupabase && customerId) {
+  if (!isPresenceTurn && !explicitDocumentId && userSupabase && customerId) {
     const mentionedFilenames = extractMentionedFilenamesFromChat(question, history);
     const wantsBox =
       isExplicitDocumentBoxMentionQuestion(question) ||
@@ -3892,8 +4045,8 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   const questionClaudeStartMs = relMs(startedAt);
   const claude = await callClaudeFirstDirect({
-    question,
-    history,
+    question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
+    history: isPresenceTurn ? [] : history,
     reality,
     env,
     fetchImpl,
@@ -3902,25 +4055,31 @@ export async function runClaudeFirstDirectQuestionTurn({
       if (firstTokenMs == null) firstTokenMs = ms;
     },
     onAnswerProgress: (text) => {
+      // Do not paint silence token to the customer stream.
+      if (isPresenceTurn && isPresenceSilenceAnswer(text)) return;
       const result = commitStream.pushAnswerText(text);
       if (result?.aborted) {
         sentenceStreamAborted = true;
         sentenceAbortReason = commitStream.getAbortReason();
       }
     },
-    pdfBase64: pdf.pdfBase64,
-    pdfMediaType: pdf.mediaType,
-    pdfMeta: pdfMetaForClaude,
-    corporateContexts,
-    corporateGapEvidence,
-    corporateRecommendationCandidates,
-    corporateUnknowns,
-    activeClaimCases,
-    activeDocuments: activeDocumentsForHistory,
-    sessionGoalForContext,
+    pdfBase64: isPresenceTurn ? null : pdf.pdfBase64,
+    pdfMediaType: isPresenceTurn ? null : pdf.mediaType,
+    pdfMeta: isPresenceTurn ? null : pdfMetaForClaude,
+    corporateContexts: isPresenceTurn ? null : corporateContexts,
+    corporateGapEvidence: isPresenceTurn ? null : corporateGapEvidence,
+    corporateRecommendationCandidates: isPresenceTurn
+      ? null
+      : corporateRecommendationCandidates,
+    corporateUnknowns: isPresenceTurn ? null : corporateUnknowns,
+    activeClaimCases: isPresenceTurn ? null : activeClaimCases,
+    activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
+    sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
     priorConsultationForContext,
-    documentEvidence: documentChunksForClaude,
-    readyCardMeta,
+    documentEvidence: isPresenceTurn ? [] : documentChunksForClaude,
+    readyCardMeta: isPresenceTurn ? null : readyCardMeta,
+    presenceContext: isPresenceTurn ? presenceContextBuilt : null,
+    presenceTurn: isPresenceTurn,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -3971,7 +4130,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
   }
 
-  if (!claude.ok || !claude.customer_answer) {
+  // T6 — intentional Presence silence is a successful quiet turn (provider_calls=1, no bubble).
+  const presenceRawAnswer = String(claude?.customer_answer ?? "").trim();
+  const presenceChoseSilence =
+    isPresenceTurn &&
+    (presenceRawAnswer === KEY_PRESENCE_SILENCE_TOKEN ||
+      (claude?.ok === true && presenceRawAnswer === ""));
+
+  if ((!claude.ok || !claude.customer_answer) && !presenceChoseSilence) {
     // Empty customer text — keep failure_reason + anthropic_upstream_diag; never invent KEY copy.
     const sealed = sealKeyCustomerText("");
     const emptyPersistGoal = resolvePersistableSessionGoal({
@@ -4056,11 +4222,16 @@ export async function runClaudeFirstDirectQuestionTurn({
     };
   }
 
-  let finalText = String(claude.customer_answer ?? "");
+  let finalText = presenceChoseSilence
+    ? ""
+    : String(claude.customer_answer ?? "");
+  if (isPresenceTurn && isPresenceSilenceAnswer(finalText)) {
+    finalText = "";
+  }
   let usedFailure = false;
   let failureReason = null;
   // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
-  let safety = hardOnlySafetyCheck(claude.customer_answer, {
+  let safety = hardOnlySafetyCheck(presenceChoseSilence ? "" : claude.customer_answer, {
     allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
     allowed_entities: claude.allowlist?.allowed_entities ?? [],
   });
@@ -4069,13 +4240,17 @@ export async function runClaudeFirstDirectQuestionTurn({
     Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
 
   if (!String(finalText ?? "").trim()) {
-    finalText = commitStream.getCommitted() || "";
-    if (!String(commitStream.getCommitted() ?? "").trim()) {
+    finalText = presenceChoseSilence ? "" : commitStream.getCommitted() || "";
+    if (
+      !presenceChoseSilence &&
+      !String(commitStream.getCommitted() ?? "").trim()
+    ) {
       usedFailure = true;
       failureReason = "empty_answer";
     }
   }
   // Seal Claude original as-is (no monopoly stub, no soft rewrite, no truncation).
+  // Presence silence seals empty (token never shown / never stored as customer fact).
   const sealed = sealKeyCustomerText(finalText);
   // Catch up any trailing gap so streamed text matches sealed before customer done.
   if (!sentenceStreamAborted && sealed.key_speak_original) {
@@ -4099,7 +4274,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   const nowStamp = startedAt instanceof Date ? startedAt : new Date(startedAt);
   const customerStatedGoalText =
-    !usedFailure && discardRequested !== true
+    !isPresenceTurn && !usedFailure && discardRequested !== true
       ? extractCustomerStatedGoalFromUtterance(question)
       : null;
   const customerUtteranceGoal =
@@ -4125,21 +4300,70 @@ export async function runClaudeFirstDirectQuestionTurn({
     now: nowStamp,
   });
 
+  // T6 — Presence surface / do_not_surface overlays (never store Claude guesses as facts).
+  let presenceTurnMeta = null;
+  let lifeThreadsForRecord = undefined;
+  if (isPresenceTurn && !usedFailure) {
+    const surface = resolvePresenceSurfaceFromAnswer(
+      sealed.key_speak_original,
+      presenceContextBuilt?.active_life_thread_candidates ?? [],
+    );
+    const stamped = Number.isFinite(nowStamp.getTime())
+      ? nowStamp.toISOString()
+      : new Date().toISOString();
+    let threads = mergeLifeThreadHistory(lifeThreadsForPresence);
+    if (surface.surfaced && surface.life_thread_id) {
+      threads = threads.map((t) =>
+        String(t.thread_id) === String(surface.life_thread_id)
+          ? markLifeThreadSurfaced(t, { at: nowStamp })
+          : t,
+      );
+    }
+    lifeThreadsForRecord = threads;
+    presenceTurnMeta = {
+      presence_turn: true,
+      move: KEY_PRESENCE_MOVE,
+      ready_card_version: readyCard?.card_version ?? null,
+      life_thread_id: surface.life_thread_id,
+      source_type: surface.source_type,
+      claude_original: String(sealed.key_speak_original ?? "").slice(0, 1200),
+      surfaced_at: surface.surfaced || surface.source_type ? stamped : null,
+      silence: presenceChoseSilence === true || !String(sealed.key_speak_original ?? "").trim(),
+    };
+  } else if (!isPresenceTurn && !usedFailure) {
+    const extracted = extractLifeThreadsFromCustomerUtterance(question, {
+      customerId,
+      sourceLink,
+      now: nowStamp,
+    });
+    const recentIds = pickRecentlySurfacedThreadIds(lifeThreadsForPresence, {
+      limit: 1,
+    });
+    const dns = buildDoNotSurfaceLifeThreadOverlays(question, {
+      customerId,
+      candidateThreadIds: recentIds,
+      now: nowStamp,
+    });
+    lifeThreadsForRecord = [...extracted, ...dns];
+  }
+
   const keyConsultationRecord = usedFailure
     ? null
     : buildKeyConsultationRecord({
-        question,
+        question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
         claudeAnswer: sealed.key_speak_original,
-        sessionGoal: persistableSessionGoal,
+        sessionGoal: isPresenceTurn ? null : persistableSessionGoal,
         recommendationBasisCount: Number(claude.recommendation_basis_count ?? 0) || 0,
-        pdfAttached: claude.pdf_attached === true,
-        documentId: pdf?.meta?.document_id ?? null,
+        pdfAttached: isPresenceTurn ? false : claude.pdf_attached === true,
+        documentId: isPresenceTurn ? null : pdf?.meta?.document_id ?? null,
         sourceLink,
         customerId,
         now: nowStamp,
+        lifeThreads: lifeThreadsForRecord,
+        presenceTurn: presenceTurnMeta,
       });
 
-  // T5.1 — LIFE THREAD write/status change invalidates stale READY CARD (handoff/cache).
+  // T5.1 / T6 — LIFE THREAD write/status/surface change invalidates stale READY CARD.
   if (
     customerId &&
     Array.isArray(keyConsultationRecord?.life_threads) &&
@@ -4154,12 +4378,17 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   // T4 — customer screen completes before fact persist / probe (request stays open).
   // T5.1 — include inject evidence on early done (no second done event).
-  const earlyLifeThreadsBrief = formatLifeThreadsForReadyCard(
-    Array.isArray(priorConsultationForContext?.life_threads)
-      ? priorConsultationForContext.life_threads
-      : [],
-    { limit: 6, activeOnly: true, customerId },
-  );
+  const earlyLifeThreadsBrief = isPresenceTurn
+    ? formatPresenceLifeThreadsBrief(lifeThreadsForRecord ?? lifeThreadsForPresence, {
+        customerId,
+        surfacedId: presenceTurnMeta?.life_thread_id ?? null,
+      })
+    : formatLifeThreadsForReadyCard(
+        Array.isArray(priorConsultationForContext?.life_threads)
+          ? priorConsultationForContext.life_threads
+          : [],
+        { limit: 6, activeOnly: true, customerId },
+      );
   if (typeof streamHandlers?.onEarlyCustomerDone === "function") {
     try {
       streamHandlers.onEarlyCustomerDone({
@@ -4173,6 +4402,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         streamed_equals_sealed: streamedEqualsSealed,
         session_goal: persistableSessionGoal,
         key_consultation_record: keyConsultationRecord,
+        presence_quiet: isPresenceTurn && !String(sealed.key_speak_original ?? "").trim(),
         sales_director_trace: {
           one_key_core: true,
           compose_mode: "key_claude_first_direct",
@@ -4182,6 +4412,12 @@ export async function runClaudeFirstDirectQuestionTurn({
             compose_mode: "key_claude_first_direct",
             key_voice_trace: {
               provider: "claude_first_direct",
+              presence_turn: isPresenceTurn === true,
+              presence_move: isPresenceTurn ? KEY_PRESENCE_MOVE : null,
+              presence_source_type: presenceTurnMeta?.source_type ?? null,
+              presence_life_thread_id: presenceTurnMeta?.life_thread_id ?? null,
+              provider_calls: 1,
+              tools: 0,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
               life_threads_brief: earlyLifeThreadsBrief,
               life_threads_attach_reason:

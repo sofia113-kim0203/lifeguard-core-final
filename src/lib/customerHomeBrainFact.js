@@ -184,6 +184,10 @@ export function mapHomeBrainFactPayload(payload) {
       typeof payload.sales_director_trace.key_consultation_record === "object"
         ? payload.sales_director_trace.key_consultation_record
         : null),
+    presenceQuiet:
+      payload.presence_quiet === true ||
+      payload.sales_director_trace?.key_compose_trace?.key_voice_trace?.presence_quiet ===
+        true,
   };
 }
 
@@ -195,8 +199,9 @@ function mapServerError(payload, status) {
 }
 
 export async function fetchHomeBrainFactStream(question, history = [], handlers = {}, options = {}) {
+  const presenceTurn = options.presence === true || options.presenceTurn === true;
   const trimmed = String(question ?? "").trim();
-  if (!trimmed) throw new Error("질문을 입력해 주세요.");
+  if (!presenceTurn && !trimmed) throw new Error("질문을 입력해 주세요.");
 
   const accessToken = await getCustomerAccessToken();
   const response = await fetch(ROUTE_PATH, {
@@ -210,6 +215,7 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
       ...buildHomeBrainFactRequestBody(trimmed, history, options),
       stream: true,
     }),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 
   if (!response.ok && response.headers.get("content-type")?.includes("application/json")) {

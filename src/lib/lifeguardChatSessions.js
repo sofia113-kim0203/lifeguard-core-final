@@ -169,6 +169,34 @@ export async function persistKeyPresenceMessage(
   return { skipped: false, row };
 }
 
+/** T6 — assistant-only Presence turn (no fake customer question row). */
+export async function persistLifeguardPresenceTurn(
+  authUser,
+  {
+    sessionId,
+    customerId: knownCustomerId = null,
+    assistantMessage,
+    keyConsultationRecord = null,
+    responseLatencyMs = null,
+  },
+) {
+  if (!sessionId) throw new Error("session_id_required");
+  const trimmed = String(assistantMessage ?? "").trim();
+  if (!trimmed) return { skipped: true, reason: "empty_presence" };
+  const customerId = await resolveCustomerId(authUser, knownCustomerId);
+  const assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+    composeMode: "key_presence_listen_focus",
+    responseLatencyMs,
+    keyConsultationRecord,
+  });
+  const assistantRow = await insertLifeguardConversationMessage(customerId, {
+    role: "assistant",
+    message: trimmed,
+    metadata: assistantMetadata,
+  });
+  return { skipped: false, assistantRow };
+}
+
 export async function persistLifeguardChatTurn(
   authUser,
   {

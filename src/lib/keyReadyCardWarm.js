@@ -150,6 +150,10 @@ export async function warmKeyReadyCard({ sessionId = null, customerId = null } =
       handoff_token_bytes:
         typeof payload?.handoff_token_bytes === "number" ? payload.handoff_token_bytes : null,
       handoff_reason: payload?.handoff_reason ?? null,
+      presence_candidate_count:
+        typeof payload?.presence_candidate_count === "number"
+          ? payload.presence_candidate_count
+          : 0,
     };
   } catch {
     return { ok: false, status: "miss", ready_card_build_ms: null, claude_called: false };

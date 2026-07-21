@@ -227,6 +227,59 @@ export function extractLifeThreadsFromCustomerUtterance(
 }
 
 /**
+ * Customer asked not to resurface a topic. Caller supplies candidate thread_ids
+ * (usually the most recently Presence-surfaced active threads).
+ */
+export function buildDoNotSurfaceLifeThreadOverlays(
+  customerText = "",
+  { customerId = null, candidateThreadIds = [], now = new Date() } = {},
+) {
+  const q = String(customerText ?? "").trim();
+  if (!q) return [];
+  const askOff =
+    /(그\s*이야기|그\s*얘기|그\s*말).{0,12}(묻지|꺼내지|하지\s*마)|묻지\s*말아|이야기\s*하지\s*마|그만\s*물어/.test(
+      q,
+    );
+  if (!askOff) return [];
+  const stamp = now instanceof Date ? now : new Date(now);
+  const iso = Number.isFinite(stamp.getTime()) ? stamp.toISOString() : new Date().toISOString();
+  const ids = (Array.isArray(candidateThreadIds) ? candidateThreadIds : [])
+    .map((id) => String(id ?? "").trim())
+    .filter(Boolean);
+  if (!ids.length) return [];
+  return ids.map((thread_id) => ({
+    schema: LIFE_THREAD_SCHEMA,
+    thread_id,
+    customer_id: String(customerId ?? "").trim() || null,
+    do_not_surface: true,
+    status: "closed",
+    update_kind: "do_not_surface",
+    created_at: iso,
+    updated_at: iso,
+    customer_stated_facts: [
+      {
+        text: trimText(q, 240),
+        evidence: { kind: "customer_utterance", text: q.slice(0, 240) },
+      },
+    ],
+  }));
+}
+
+/** Most recently Presence-surfaced thread ids (for do_not_surface binding). */
+export function pickRecentlySurfacedThreadIds(threads = [], { limit = 1 } = {}) {
+  return (Array.isArray(threads) ? threads : [])
+    .filter((t) => t && t.last_surfaced_at)
+    .sort((a, b) => {
+      const ta = Date.parse(a.last_surfaced_at ?? "") || 0;
+      const tb = Date.parse(b.last_surfaced_at ?? "") || 0;
+      return tb - ta;
+    })
+    .slice(0, Math.max(0, Number(limit) || 1))
+    .map((t) => String(t.thread_id ?? "").trim())
+    .filter(Boolean);
+}
+
+/**
  * Fold assistant metadata life_threads across turns (customer_id scoped by caller).
  * Never deletes prior facts — later resolved_outcome / emotion overlays same thread_id.
  */
@@ -242,9 +295,24 @@ export function mergeLifeThreadHistory(records = []) {
   for (const row of chronologic) {
     if (!row || typeof row !== "object") continue;
     if (row.do_not_surface === true) {
-      const id = String(row.thread_id ?? "");
-      if (id && byId.has(id)) {
-        byId.set(id, { ...byId.get(id), do_not_surface: true, status: "closed" });
+      const id = String(row.thread_id ?? "").trim();
+      if (!id) continue;
+      if (byId.has(id)) {
+        byId.set(id, {
+          ...byId.get(id),
+          do_not_surface: true,
+          status: "closed",
+          updated_at: row.updated_at ?? byId.get(id).updated_at,
+        });
+      } else {
+        byId.set(id, {
+          ...row,
+          do_not_surface: true,
+          status: "closed",
+          customer_stated_facts: Array.isArray(row.customer_stated_facts)
+            ? [...row.customer_stated_facts]
+            : [],
+        });
       }
       continue;
     }
@@ -274,10 +342,17 @@ export function mergeLifeThreadHistory(records = []) {
       status: row.status === "resolved" || row.status === "closed" ? row.status : prev.status,
       expected_date_or_window:
         row.expected_date_or_window ?? prev.expected_date_or_window ?? null,
+      last_surfaced_at: row.last_surfaced_at ?? prev.last_surfaced_at ?? null,
+      surface_count: Math.max(
+        Number(prev.surface_count ?? 0) || 0,
+        Number(row.surface_count ?? 0) || 0,
+      ),
+      do_not_surface: row.do_not_surface === true || prev.do_not_surface === true,
       updated_at: row.updated_at ?? prev.updated_at,
     });
   }
-  return [...byId.values()].filter((t) => t.do_not_surface !== true);
+  // Keep do_not_surface rows in history so they never re-enter active/presence sets.
+  return [...byId.values()];
 }
 
 /**

@@ -27,9 +27,14 @@ import {
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
   getReadyCardHandoffToken,
+  warmKeyReadyCard,
   warmKeyReadyCardFireAndForget,
   clearReadyCardHandoffToken,
 } from "../lib/keyReadyCardWarm.js";
+import {
+  hasPresenceRanThisSession,
+  markPresenceRanThisSession,
+} from "../lib/keyPresenceSession.js";
 import {
   beginInflightHomeChatTurn,
   clearLifeguardChatSnapshot,
@@ -42,6 +47,7 @@ import {
   patchInflightHomeChatTurn,
   persistKeyPresenceMessage,
   persistLifeguardChatTurn,
+  persistLifeguardPresenceTurn,
   readActiveSessionId,
   readInflightHomeChatTurn,
   readLifeguardChatSnapshot,
@@ -409,6 +415,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const messagesRef = useRef([]);
   const threadRestoreReadyRef = useRef(false);
   const inflightTurnIdRef = useRef(null);
+  /** T6 — abort Presence when customer question wins. */
+  const presenceAbortRef = useRef(null);
+  const presenceTurnIdRef = useRef(null);
+  const presenceActiveRef = useRef(false);
   const displayName =
     displayNameProp ??
     session?.dashboardData?.displayName ??
@@ -954,6 +964,163 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     };
   }, [authUser, customerId, loadingSession]);
 
+  // Triangle T6 — KEY Presence (listen_focus) after READY CARD warm; cancel on customer question.
+  useEffect(() => {
+    if (!authUser || !customerId || loadingSession || !threadRestoreReady) return undefined;
+    if (!sessionId) return undefined;
+    if (loading || streaming) return undefined;
+    if (isInflightHomeChatTurnActive(customerId)) return undefined;
+    if (hasPresenceRanThisSession(customerId, sessionId)) return undefined;
+
+    let cancelled = false;
+    const ac = new AbortController();
+    presenceAbortRef.current = ac;
+
+    (async () => {
+      try {
+        const warm = await warmKeyReadyCard({ sessionId, customerId });
+        if (cancelled || ac.signal.aborted) return;
+        markPresenceRanThisSession(customerId, sessionId);
+        const candidates = Number(warm?.presence_candidate_count ?? 0) || 0;
+        if (!warm?.ok || candidates < 1 || !warm?.handoff_token_present) {
+          return;
+        }
+        if (loading || streaming || isInflightHomeChatTurnActive(customerId)) return;
+
+        const turnId = createLifeguardSessionId();
+        presenceTurnIdRef.current = turnId;
+        presenceActiveRef.current = true;
+        const handoffToken = getReadyCardHandoffToken({ customerId, sessionId });
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "",
+            thinking: true,
+            turnId,
+            presenceTurn: true,
+          },
+        ]);
+
+        let streamedText = "";
+        const result = await fetchHomeBrainFactStream(
+          "",
+          [],
+          {
+            onDelta: (chunk) => {
+              if (ac.signal.aborted) return;
+              const piece = String(chunk ?? "");
+              if (!piece) return;
+              streamedText += piece;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.turnId === turnId && m.presenceTurn === true
+                    ? { ...m, content: streamedText, thinking: false }
+                    : m,
+                ),
+              );
+            },
+            onDone: () => {},
+          },
+          {
+            sessionId,
+            presence: true,
+            signal: ac.signal,
+            ...(handoffToken ? { readyCardHandoffToken: handoffToken } : {}),
+          },
+        );
+
+        if (cancelled || ac.signal.aborted) {
+          setMessages((prev) =>
+            prev.filter(
+              (m) =>
+                !(
+                  m.turnId === turnId &&
+                  m.presenceTurn === true &&
+                  !String(m.content ?? "").trim()
+                ),
+            ),
+          );
+          return;
+        }
+
+        const finalText = String(result?.answerText ?? streamedText ?? "").trim();
+        presenceActiveRef.current = false;
+        presenceTurnIdRef.current = null;
+        if (!finalText || result?.presenceQuiet === true) {
+          setMessages((prev) =>
+            prev.filter((m) => !(m.turnId === turnId && m.presenceTurn === true)),
+          );
+          return;
+        }
+
+        setMessages((prev) => {
+          const next = prev.map((m) =>
+            m.turnId === turnId && m.presenceTurn === true
+              ? { ...m, content: finalText, thinking: false, presenceTurn: true }
+              : m,
+          );
+          if (customerId) {
+            writeLifeguardChatSnapshot(customerId, {
+              sessionId,
+              messages: next,
+              activeAttachment: activeAttachmentId
+                ? {
+                    active_attachment_id: activeAttachmentId,
+                    active_attachment_mime: activeAttachmentMime,
+                    active_rotation_quarter_turns: 0,
+                  }
+                : null,
+            });
+          }
+          return next;
+        });
+
+        // T4 — persist must not block customer stream (already done).
+        void persistLifeguardPresenceTurn(authUser, {
+          sessionId,
+          customerId,
+          assistantMessage: finalText,
+          keyConsultationRecord: result?.keyConsultationRecord ?? null,
+        }).catch(() => {});
+      } catch (err) {
+        presenceActiveRef.current = false;
+        presenceTurnIdRef.current = null;
+        if (err?.name === "AbortError" || ac.signal.aborted || cancelled) {
+          setMessages((prev) =>
+            prev.filter(
+              (m) =>
+                !(m.presenceTurn === true && (!String(m.content ?? "").trim() || m.thinking)),
+            ),
+          );
+          return;
+        }
+        setMessages((prev) => prev.filter((m) => m.presenceTurn !== true || String(m.content ?? "").trim()));
+      } finally {
+        if (presenceAbortRef.current === ac) presenceAbortRef.current = null;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
+        ac.abort();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [
+    authUser,
+    customerId,
+    loadingSession,
+    threadRestoreReady,
+    sessionId,
+    loading,
+    streaming,
+    activeAttachmentId,
+    activeAttachmentMime,
+  ]);
+
   const openSession = useCallback(
     async (targetSessionId) => {
       setPanelView("chat");
@@ -1011,6 +1178,33 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     if (chatAttachUploading) {
       setError("파일 업로드가 끝난 뒤 보내 주세요.");
       return;
+    }
+
+    // T6 — customer question always wins over Presence (single active stream).
+    if (presenceAbortRef.current) {
+      try {
+        presenceAbortRef.current.abort();
+      } catch {
+        /* ignore */
+      }
+      presenceAbortRef.current = null;
+    }
+    presenceActiveRef.current = false;
+    const presenceTurnId = presenceTurnIdRef.current;
+    presenceTurnIdRef.current = null;
+    if (presenceTurnId) {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (
+          last?.role === "assistant" &&
+          last?.presenceTurn === true &&
+          last?.turnId === presenceTurnId &&
+          (last?.thinking === true || !String(last?.content ?? "").trim())
+        ) {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
     }
 
     const composerDocumentId = chatAttachDocumentId;

@@ -612,6 +612,9 @@ export function buildAssistantTurnMetadata(
     keyConsultationRecord.schema === "key_consultation_record_v1"
   ) {
     metadata.key_consultation_record = keyConsultationRecord;
+    if (keyConsultationRecord.presence_turn) {
+      metadata.presence_turn = true;
+    }
   }
   return metadata;
 }

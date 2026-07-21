@@ -44,6 +44,7 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
+    const presenceTurn = body?.presence === true || body?.presence_turn === true;
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
     const attachedDocumentId = String(
@@ -139,13 +140,14 @@ export default async function handler(req, res) {
         customerId: resolved.customerId,
         authUserId: resolved.user?.id ?? null,
         entityContext,
-        question,
-        history,
-        attachedDocumentId,
-        priorAttachFollowUp,
+        question: presenceTurn ? "" : question,
+        history: presenceTurn ? [] : history,
+        attachedDocumentId: presenceTurn ? null : attachedDocumentId,
+        priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
         sessionId,
         readyCardHandoffToken,
-        shadowVisualBlocksOverride,
+        presenceTurn,
+        shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
         accessToken: authHeader,
         streamHandlers,
         requestStartedAt,
@@ -185,13 +187,14 @@ export default async function handler(req, res) {
       customerId: resolved.customerId,
       authUserId: resolved.user?.id ?? null,
       entityContext,
-      question,
-      history,
-      attachedDocumentId,
-      priorAttachFollowUp,
+      question: presenceTurn ? "" : question,
+      history: presenceTurn ? [] : history,
+      attachedDocumentId: presenceTurn ? null : attachedDocumentId,
+      priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
       sessionId,
       readyCardHandoffToken,
-      shadowVisualBlocksOverride,
+      presenceTurn,
+      shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
       accessToken: authHeader,
     });
 
