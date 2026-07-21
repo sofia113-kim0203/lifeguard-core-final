@@ -22,6 +22,10 @@ import {
 } from "./keyInsuranceClock.js";
 import { loadPolicyDateFacts } from "./keyPolicyDateFacts.js";
 import {
+  buildClaimEvidenceHandBrief,
+  loadClaimEvidenceItems,
+} from "./keyClaimEvidenceVault.js";
+import {
   canLoadCorporateProfileHand,
   loadHolderAuthorityGrants,
 } from "../entity/entityAuthorityConsent.js";
@@ -317,6 +321,7 @@ export async function buildKeyReadyCard({
   loadActiveCustomerDocuments = null,
   loadInsuranceClockItemsImpl = loadInsuranceClockItems,
   loadPolicyDateFactsImpl = loadPolicyDateFacts,
+  loadClaimEvidenceItemsImpl = loadClaimEvidenceItems,
 } = {}) {
   const cid = String(customerId ?? "").trim();
   const sid = String(sessionId ?? "").trim() || null;
@@ -354,6 +359,13 @@ export async function buildKeyReadyCard({
         note: "key_owns_dates_claude_explains_only_no_invented_deadlines",
         _items: [],
       },
+      claim_evidence: {
+        packages: [],
+        item_count: 0,
+        packs_separated: true,
+        note: "key_owns_claim_evidence; claude_explains_only",
+        _items: [],
+      },
       corporate: {
         corporate_contexts: [],
         corporate_gap_evidence: [],
@@ -385,6 +397,7 @@ export async function buildKeyReadyCard({
     activeDocuments,
     storedClocks,
     policyDateFacts,
+    claimEvidenceItems,
   ] = await Promise.all([
     discardGoal || !sid || typeof loadLatestSessionGoalFromConversations !== "function"
       ? Promise.resolve({ goal: null, reason: discardGoal ? "discard_requested" : "skipped" })
@@ -433,6 +446,9 @@ export async function buildKeyReadyCard({
       : Promise.resolve([]),
     typeof loadPolicyDateFactsImpl === "function"
       ? loadPolicyDateFactsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      : Promise.resolve([]),
+    typeof loadClaimEvidenceItemsImpl === "function"
+      ? loadClaimEvidenceItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -490,6 +506,13 @@ export async function buildKeyReadyCard({
     ...buildInsuranceClockHandBrief(clockItems),
     _items: clockItems,
   };
+  const claim_evidence = {
+    ...buildClaimEvidenceHandBrief({
+      cases: claimCases,
+      evidenceItems: claimEvidenceItems,
+    }),
+    _items: Array.isArray(claimEvidenceItems) ? claimEvidenceItems : [],
+  };
 
   // Connected when any verified/soft SSOT material is present for this customer.
   const lifeThreadCount = Array.isArray(prior?.life_threads) ? prior.life_threads.length : 0;
@@ -501,6 +524,7 @@ export async function buildKeyReadyCard({
     policy_count > 0 ||
     docs.length > 0 ||
     claims_brief.length > 0 ||
+    (claim_evidence.item_count || 0) > 0 ||
     clockLiveCount > 0 ||
     Boolean(goal) ||
     Boolean(prior) ||
@@ -559,6 +583,7 @@ export async function buildKeyReadyCard({
       _active_documents: Array.isArray(activeDocuments) ? activeDocuments : [],
     },
     insurance_clock,
+    claim_evidence,
     // T8.1 — independent of materials_connected; no live insurer API in this slice.
     insurer_source: defaultInsurerSource(),
     corporate: {
@@ -949,6 +974,8 @@ export function materialsFromReadyCard(card = null) {
       policy_count: 0,
       insuranceClockItems: null,
       insuranceClockBrief: null,
+      claimEvidenceItems: null,
+      claimEvidenceBrief: null,
     };
   }
   const goalObj = card.active_goal?._goal_object ?? null;
@@ -1002,5 +1029,17 @@ export function materialsFromReadyCard(card = null) {
       ? card.insurance_clock._items
       : null,
     insuranceClockBrief,
+    claimEvidenceItems: Array.isArray(card.claim_evidence?._items)
+      ? card.claim_evidence._items
+      : null,
+    claimEvidenceBrief:
+      card.claim_evidence && typeof card.claim_evidence === "object"
+        ? {
+            packages: card.claim_evidence.packages || [],
+            item_count: card.claim_evidence.item_count ?? 0,
+            packs_separated: card.claim_evidence.packs_separated === true,
+            note: card.claim_evidence.note ?? null,
+          }
+        : null,
   };
 }

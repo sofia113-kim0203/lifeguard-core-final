@@ -110,22 +110,47 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     baseContext.insurance_clock && typeof baseContext.insurance_clock === "object"
       ? baseContext.insurance_clock
       : null;
+  const evidenceRaw =
+    baseContext.claim_evidence && typeof baseContext.claim_evidence === "object"
+      ? baseContext.claim_evidence
+      : null;
+
+  function scopeKeep(row, scopeMode) {
+    const eid = String(row?.entity_id ?? "").trim();
+    if (scopeMode === "personal") return !eid;
+    if (scopeMode === "corporate") return Boolean(entityId) && eid === entityId;
+    return !eid || (entityId && eid === entityId);
+  }
 
   function scopeClockBrief(brief, scopeMode) {
     if (!brief) return null;
-    const keep = (row) => {
-      const eid = String(row?.entity_id ?? "").trim();
-      if (scopeMode === "personal") return !eid;
-      if (scopeMode === "corporate") return Boolean(entityId) && eid === entityId;
-      // both — personal + selected entity only
-      return !eid || (entityId && eid === entityId);
-    };
     return {
       ...brief,
-      upcoming: (brief.upcoming || []).filter(keep),
-      overdue: (brief.overdue || []).filter(keep),
-      unknown_date: (brief.unknown_date || []).filter(keep),
-      completed_recent: (brief.completed_recent || []).filter(keep),
+      upcoming: (brief.upcoming || []).filter((row) => scopeKeep(row, scopeMode)),
+      overdue: (brief.overdue || []).filter((row) => scopeKeep(row, scopeMode)),
+      unknown_date: (brief.unknown_date || []).filter((row) => scopeKeep(row, scopeMode)),
+      completed_recent: (brief.completed_recent || []).filter((row) =>
+        scopeKeep(row, scopeMode),
+      ),
+      packs_separated: true,
+    };
+  }
+
+  function scopeClaimEvidenceBrief(brief, scopeMode) {
+    if (!brief) return null;
+    const packages = (brief.packages || []).filter((row) => scopeKeep(row, scopeMode));
+    return {
+      ...brief,
+      packages,
+      item_count: packages.reduce(
+        (n, p) =>
+          n +
+          (p.held_evidence?.length || 0) +
+          (p.submitted_evidence?.length || 0) +
+          (p.insurer_evidence?.length || 0) +
+          (p.outcome_evidence?.length || 0),
+        0,
+      ),
       packs_separated: true,
     };
   }
@@ -143,6 +168,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
 
   if (mode === "personal") {
     const insurance_clock = scopeClockBrief(clockRaw, "personal");
+    const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "personal");
     const personalContext = {
       ...current_context,
       corporate_turn: {
@@ -153,6 +179,8 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     };
     if (insurance_clock) personalContext.insurance_clock = insurance_clock;
     else delete personalContext.insurance_clock;
+    if (claim_evidence) personalContext.claim_evidence = claim_evidence;
+    else delete personalContext.claim_evidence;
     return {
       ...userPayload,
       current_context: personalContext,
@@ -169,11 +197,13 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
 
   if (mode === "corporate") {
     const insurance_clock = scopeClockBrief(clockRaw, "corporate");
+    const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "corporate");
     return {
       ...userPayload,
       current_context: {
         ...current_context,
         ...(insurance_clock ? { insurance_clock } : {}),
+        ...(claim_evidence ? { claim_evidence } : {}),
       },
       available_verified_evidence: {
         ...evidence,
@@ -198,6 +228,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
 
   // both — keep separated packs; never merge.
   const insurance_clock = scopeClockBrief(clockRaw, "both");
+  const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "both");
   return {
     ...userPayload,
     current_context: {
@@ -209,6 +240,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
         note: "explicit_dual_keep_packs_separate",
       },
       ...(insurance_clock ? { insurance_clock } : {}),
+      ...(claim_evidence ? { claim_evidence } : {}),
     },
     available_verified_evidence: {
       ...evidence,

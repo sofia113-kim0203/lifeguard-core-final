@@ -119,6 +119,15 @@ import {
   softInsuranceClockContext,
 } from "./keyInsuranceClock.js";
 import {
+  buildClaimEvidenceHandBrief,
+  buildClaimEvidenceUpdatesFromUtterance,
+  filterClaimEvidenceByScope,
+  loadClaimEvidenceItems,
+  persistClaimEvidenceItems,
+  softClaimEvidenceContext,
+  syncClaimEvidenceFromCases,
+} from "./keyClaimEvidenceVault.js";
+import {
   buildInsuranceClocksFromPolicyDateFacts,
   buildPolicyDateFactsFromUtterance,
   loadPolicyDateFacts,
@@ -1979,6 +1988,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
     "입력 current_context.insurance_clock이 있으면 KEY가 소유한 보험 기한 참고다. upcoming·overdue·unknown_date·completed_recent만 사용한다. 날짜를 새로 발명하지 말고, unknown_date는 정확한 날짜를 확인한다. completed·cancelled는 현재 할 일처럼 말하지 않는다. 법정 시효·‘보통 3년’ 같은 일반론을 고객 고유 due_at처럼 말하지 않는다.",
+    "입력 current_context.claim_evidence가 있으면 KEY가 소유한 청구 증거 패키지 참고다. held/submitted/insurer/outcome과 verification_status(original·customer_reported·insurer_verified·unverified)만 사용한다. 문서에 없는 사실·거절 사유를 만들지 말고, 고객 진술을 보험사 확인처럼 말하지 않는다. 원본·추출·해석을 섞지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -2463,6 +2473,7 @@ export function buildUserPayload({
   publicEvidence = null,
   activeClaimCases = null,
   insuranceClockBrief = null,
+  claimEvidenceBrief = null,
   sessionGoal = null,
   priorConsultation = null,
   now = null,
@@ -2510,6 +2521,7 @@ export function buildUserPayload({
         }
       : null;
   const softClock = softInsuranceClockContext(insuranceClockBrief);
+  const softClaimEvidence = softClaimEvidenceContext(claimEvidenceBrief);
 
   // Image original read: question + conversation + original image only.
   // No factory chart / OCR / contracts / corporate / claim cards mixed in.
@@ -2630,6 +2642,7 @@ export function buildUserPayload({
         ? { presence_context: presenceContext }
         : {}),
       ...(softClock ? softClock : {}),
+      ...(softClaimEvidence ? softClaimEvidence : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -3510,6 +3523,7 @@ async function callClaudeFirstDirect({
   activeDocuments = null,
   /** Insurance Clock Hand brief — KEY-owned dates only. */
   insuranceClockBrief = null,
+  claimEvidenceBrief = null,
   /** Server-SSOT soft goal only — never from client body. */
   sessionGoalForContext = null,
   /** Soft prior consultation pack — never verified fact. */
@@ -3591,6 +3605,8 @@ async function callClaudeFirstDirect({
       presenceTurn === true || imageOriginalRead ? null : activeClaimCases,
     insuranceClockBrief:
       presenceTurn === true || imageOriginalRead ? null : insuranceClockBrief,
+    claimEvidenceBrief:
+      presenceTurn === true || imageOriginalRead ? null : claimEvidenceBrief,
     sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
       priorConsultationForContext && typeof priorConsultationForContext === "object"
@@ -4516,6 +4532,38 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? insuranceClockBriefFromCard
       : buildInsuranceClockHandBrief(insuranceClockItemsScoped);
 
+  // Evidence Vault Slice 1 — claim evidence package; Claude explains only.
+  let claimEvidenceItemsAll = Array.isArray(readyMaterials.claimEvidenceItems)
+    ? readyMaterials.claimEvidenceItems
+    : [];
+  if (!Array.isArray(readyMaterials.claimEvidenceItems) && userSupabase && customerId) {
+    try {
+      claimEvidenceItemsAll = await loadClaimEvidenceItems({
+        supabase: userSupabase,
+        customerId,
+      });
+    } catch (err) {
+      console.error("[key_claim_evidence_load]", String(err?.message ?? err).slice(0, 200));
+      claimEvidenceItemsAll = [];
+    }
+  }
+  const claimEvidenceItemsScoped = filterClaimEvidenceByScope(claimEvidenceItemsAll, {
+    entityId: selectedCorporateEntityId,
+    mode:
+      viewModeForClock === "corporate"
+        ? "corporate"
+        : viewModeForClock === "both"
+          ? "both"
+          : "personal",
+  });
+  const claimEvidenceBrief =
+    readyMaterials.claimEvidenceBrief && viewModeForClock === "both"
+      ? readyMaterials.claimEvidenceBrief
+      : buildClaimEvidenceHandBrief({
+          cases: activeClaimCasesAll,
+          evidenceItems: claimEvidenceItemsScoped,
+        });
+
   // Slice 3 D — claim entity ≠ chart auto-select. Personal turns stay personal.
   const claimSelectedEntityId = resolveClaimSelectedEntityId({
     selectedEntityIdHint,
@@ -4636,6 +4684,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     activeClaimCases: isPresenceTurn ? null : activeClaimCases,
     activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
     insuranceClockBrief: isPresenceTurn ? null : insuranceClockBrief,
+    claimEvidenceBrief: isPresenceTurn ? null : claimEvidenceBrief,
     sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
     priorConsultationForContext,
     documentEvidence: isPresenceTurn ? [] : documentChunksForClaude,
@@ -5420,6 +5469,88 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  // Evidence Vault Slice 1 — post-answer (no answer rewrite; no Claim status invent).
+  let claimEvidenceSidecar = {
+    attempted: false,
+    ok: false,
+    reason: null,
+    action: "skip",
+    stored: 0,
+  };
+  let claimEvidencePersist = null;
+  if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
+    try {
+      const evEntityId =
+        claimTurnScope.claim_scope === "corporate" && claimTurnScope.entity_id
+          ? claimTurnScope.entity_id
+          : null;
+      const evMessageId = `evmsg_${customerId.slice(0, 8)}_${Date.now().toString(36)}`;
+      const casesForEv = Array.isArray(claimCasesToPersist) && claimCasesToPersist.length
+        ? claimCasesToPersist
+        : activeClaimCasesAll;
+      const syncUpdates = syncClaimEvidenceFromCases({
+        cases: casesForEv,
+        documents: activeDocumentsForHistory,
+        existingEvidence: claimEvidenceItemsAll,
+        customerId,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+      });
+      const uttered = buildClaimEvidenceUpdatesFromUtterance({
+        question,
+        existingCases: casesForEv,
+        existingEvidence: [...claimEvidenceItemsAll, ...syncUpdates],
+        customerId,
+        entityId: evEntityId,
+        messageId: evMessageId,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+      });
+      const updates = [
+        ...syncUpdates,
+        ...(uttered?.ok === true && Array.isArray(uttered.updates) ? uttered.updates : []),
+      ];
+      claimEvidenceSidecar = {
+        attempted: true,
+        ok: updates.length > 0,
+        reason:
+          updates.length > 0
+            ? uttered?.ok === true
+              ? uttered.reason
+              : "synced_from_claim_documents"
+            : uttered?.reason || "no_evidence_updates",
+        action: updates.length > 0 ? "create" : "skip",
+        stored: 0,
+        evidence_type: updates[0]?.evidence_type ?? null,
+        verification_status: updates[0]?.verification_status ?? null,
+      };
+      if (updates.length) {
+        claimEvidencePersist = await persistClaimEvidenceItems({
+          supabase: userSupabase,
+          customerId,
+          evidenceUpdates: updates,
+        });
+        claimEvidenceSidecar.stored = Number(claimEvidencePersist?.stored ?? 0) || 0;
+        claimEvidenceSidecar.persist_ok = claimEvidencePersist?.ok === true;
+        if (claimEvidencePersist?.ok === true) {
+          try {
+            invalidateReadyCardCacheForCustomer(customerId);
+          } catch {
+            /* non-blocking */
+          }
+        }
+      }
+    } catch (err) {
+      claimEvidenceSidecar = {
+        attempted: true,
+        ok: false,
+        reason: "sidecar_threw",
+        action: "skip",
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_claim_evidence_sidecar]", claimEvidenceSidecar);
+    }
+  }
+
   if (
     !usedFailure &&
     claimCasesToPersist.length > 0 &&
@@ -5575,6 +5706,13 @@ export async function runClaudeFirstDirectQuestionTurn({
           },
           key_insurance_clock_sidecar: insuranceClockSidecar,
           key_insurance_clock_persist: insuranceClockPersist,
+          claim_evidence_hydrated: claimEvidenceItemsScoped.length,
+          claim_evidence_brief: {
+            package_count: claimEvidenceBrief?.packages?.length ?? 0,
+            item_count: claimEvidenceBrief?.item_count ?? 0,
+          },
+          key_claim_evidence_sidecar: claimEvidenceSidecar,
+          key_claim_evidence_persist: claimEvidencePersist,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),
@@ -5675,6 +5813,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           step: "key_insurance_clock_persist",
           at_ms: relMs(startedAt),
           payload: insuranceClockPersist,
+        },
+        {
+          step: "key_claim_evidence_persist",
+          at_ms: relMs(startedAt),
+          payload: claimEvidencePersist,
         },
       ],
       legacy_paths_blocked: [
