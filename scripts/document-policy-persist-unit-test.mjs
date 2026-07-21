@@ -477,6 +477,25 @@ assert(sameKeyA === sameKeyB, "re-extract must produce identical upload_extract_
     "available docs accumulate across turns",
   );
 
+  const clearedMissing = mergeKeyActiveClaimCases(merged, [
+    {
+      claim_case_key: "date:2026-07-12:kind:surgery",
+      available_documents: ["진단서", "영수증", "수술기록"],
+      missing_documents: [],
+      status: "preparing",
+      next_action: "보험사 접수 필요",
+    },
+  ]);
+  assert(
+    Array.isArray(clearedMissing[0].missing_documents) &&
+      clearedMissing[0].missing_documents.length === 0,
+    "explicit empty missing_documents must clear prior missing",
+  );
+  assert(
+    clearedMissing[0].next_action === "보험사 접수 필요",
+    "next_action replaces on preparation update",
+  );
+
   const healthWrites = [];
   const supabase = {
     from(table) {

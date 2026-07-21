@@ -2388,18 +2388,29 @@ const chartPolicies = {
     result.oneKeyCoreTrace?.legacy_paths_blocked?.includes("claim_bridge_speak"),
     true,
   );
-  // Mid-turn claim tool extraction skipped — no health write from this path.
-  assert.equal(healthWrites.length, 0);
+  // Slice 1B: preparation sidecar persists after sealed Claude answer (tools still 0).
+  assert.equal(healthWrites.length, 1);
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
     0,
   );
+  const prepIntake =
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_intake_sidecar;
+  assert.equal(prepIntake?.ok, true);
+  assert.equal(prepIntake?.action, "update");
+  assert.equal(prepIntake?.claim_case_key, "date:2026-07-12:kind:surgery");
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_case_persist
       ?.ok,
-    false,
+    true,
   );
+  const prepCases =
+    healthWrites[0]?.payload?.details_json?.key_active_claim_cases ?? [];
+  assert.equal(prepCases.length, 1);
+  assert.equal(prepCases[0].status, "preparing");
+  assert.ok((prepCases[0].available_documents ?? []).includes("진단서"));
+  assert.ok((prepCases[0].available_documents ?? []).includes("의료비영수증"));
   assert.equal(JSON.stringify(result.customerText).includes("claim_case_key"), false);
   assert.equal(JSON.stringify(result.customerText).includes("record_claim_case"), false);
 }
@@ -5232,5 +5243,128 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(cases[0].status, "identified");
   assert.equal(cases[0].source, "customer_statement");
   console.log("CLAIM INTAKE SIDECAR 1A CHECKS OK");
+}
+
+// --- Claim Guardian Slice 1B — preparation / missing / next_action / attach link ---
+{
+  const {
+    buildKeyClaimIntakeUpdate,
+    extractPreparedDocumentsFromUtterance,
+    resolveClaimNextAction,
+    findOpenCaseForKind,
+    documentLabelsMatch,
+  } = await import("../server/keyCore/keyClaimIntakeSidecar.js");
+  const { mergeKeyActiveClaimCases } = await import(
+    "../server/documentPolicyUploadPersist.js"
+  );
+
+  assert.deepEqual(
+    extractPreparedDocumentsFromUtterance("진단서하고 입퇴원확인서는 준비했어."),
+    ["진단서", "입퇴원확인서"],
+  );
+  assert.deepEqual(extractPreparedDocumentsFromUtterance("오늘 날씨 어때?"), []);
+
+  const openCase = {
+    claim_case_key: "customer_statement:kind:surgery",
+    status: "identified",
+    source: "customer_statement",
+    medical_event: { event_kind: "surgery" },
+    required_documents: ["수술확인서", "입퇴원확인서", "의료비영수증"],
+    available_documents: [],
+    missing_documents: ["수술확인서", "입퇴원확인서", "의료비영수증"],
+    next_action: "수술확인서 준비",
+    evidence: ["source:customer_statement"],
+  };
+
+  const prep = buildKeyClaimIntakeUpdate({
+    question: "진단서하고 입퇴원확인서는 준비했어.",
+    existingCases: [openCase],
+    sessionId: "sess-1b",
+  });
+  assert.equal(prep.ok, true);
+  assert.equal(prep.action, "update");
+  assert.equal(prep.claim_case_key, openCase.claim_case_key);
+  assert.equal(prep.updates.length, 1);
+  assert.equal(prep.updates[0].status, "preparing");
+  assert.ok(prep.updates[0].available_documents.includes("진단서"));
+  assert.ok(prep.updates[0].available_documents.includes("입퇴원확인서"));
+  assert.equal(
+    prep.updates[0].available_documents.includes("의료비영수증"),
+    false,
+    "must not invent unstated docs",
+  );
+  assert.equal(
+    prep.updates[0].missing_documents.some((d) => documentLabelsMatch(d, "입퇴원확인서")),
+    false,
+  );
+  assert.ok(prep.updates[0].missing_documents.length >= 1);
+  assert.ok(String(prep.updates[0].next_action).length > 0);
+  assert.equal(prep.updates[0].assessment, null);
+
+  const mergedPrep = mergeKeyActiveClaimCases([openCase], prep.updates);
+  assert.equal(mergedPrep.length, 1, "no duplicate case");
+  assert.equal(
+    mergedPrep[0].missing_documents.some((d) => documentLabelsMatch(d, "입퇴원확인서")),
+    false,
+    "empty/partial missing must replace prior",
+  );
+
+  const attach = buildKeyClaimIntakeUpdate({
+    question: "이 서류 올렸어",
+    existingCases: mergedPrep,
+    attachedDocumentId: "doc-qa-claim-1",
+  });
+  assert.equal(attach.ok, true);
+  assert.equal(attach.reason, "linked_uploaded_document");
+  assert.ok(attach.updates[0].source_document_ids.includes("doc-qa-claim-1"));
+  assert.ok(attach.updates[0].evidence.some((e) => String(e).includes("document_id:doc-qa-claim-1")));
+  assert.ok(attach.updates[0].evidence.some((e) => String(e).includes("uploaded_document")));
+  assert.ok(attach.updates[0].evidence.some((e) => String(e).includes("unverified")));
+  assert.equal(
+    attach.updates[0].available_documents.includes("의료비영수증"),
+    false,
+    "attach must not invent prepared doc type",
+  );
+
+  // Different clear event must not mix into surgery case.
+  const other = buildKeyClaimIntakeUpdate({
+    question: "암 진단 받았는데 보험금 청구할 수 있을까?",
+    existingCases: mergedPrep,
+  });
+  assert.equal(other.ok, true);
+  assert.equal(other.action, "create");
+  assert.notEqual(other.claim_case_key, openCase.claim_case_key);
+  assert.match(String(other.claim_case_key), /kind:cancer/);
+  assert.equal(
+    findOpenCaseForKind(mergedPrep, "cancer", { allowSingleFallback: false }),
+    null,
+  );
+
+  // Unclear prep with no open case → skip (no invent).
+  const noOpen = buildKeyClaimIntakeUpdate({
+    question: "진단서는 준비했어.",
+    existingCases: [],
+  });
+  assert.equal(noOpen.ok, false);
+  assert.equal(noOpen.reason, "no_open_claim_case");
+
+  assert.equal(
+    resolveClaimNextAction({
+      missing_documents: ["의료비영수증"],
+      required_documents: ["의료비영수증"],
+      available_documents: ["진단서"],
+    }),
+    "의료비영수증 준비",
+  );
+  assert.equal(
+    resolveClaimNextAction({
+      missing_documents: [],
+      required_documents: ["진단서"],
+      available_documents: ["진단서"],
+    }),
+    "보험사 접수 필요",
+  );
+
+  console.log("CLAIM GUARDIAN SLICE 1B CHECKS OK");
 }
 

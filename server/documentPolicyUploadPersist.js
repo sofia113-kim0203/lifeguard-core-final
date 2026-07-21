@@ -1021,6 +1021,8 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
     const sourceRaw = normalizeClaimString(row.source)?.toLowerCase();
     const source =
       sourceRaw === "customer_statement" ||
+      sourceRaw === "uploaded_document" ||
+      sourceRaw === "confirmed_system_record" ||
       sourceRaw === "insurer_or_system" ||
       sourceRaw === "result_document"
         ? sourceRaw
@@ -1090,7 +1092,8 @@ export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
           ...(row.available_documents ?? []),
         ]),
       ],
-      missing_documents: row.missing_documents?.length
+      // Empty array is meaningful (all prepared) — do not keep stale missing.
+      missing_documents: Array.isArray(row.missing_documents)
         ? row.missing_documents
         : prior.missing_documents,
       status,
@@ -1103,6 +1106,10 @@ export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
           ...(row.source_document_ids ?? []),
         ]),
       ],
+      next_action:
+        row.next_action != null && String(row.next_action).trim()
+          ? row.next_action
+          : prior.next_action,
       updated_at: row.updated_at ?? prior.updated_at,
     });
   }
