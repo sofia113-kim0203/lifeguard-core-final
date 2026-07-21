@@ -129,6 +129,13 @@ import {
   syncClaimEvidenceFromCases,
 } from "./keyClaimEvidenceVault.js";
 import {
+  assemblePaymentTruthMap,
+  buildPaymentTruthHandBrief,
+  filterPaymentTruthByScope,
+  persistPaymentTruthItems,
+  softPaymentTruthContext,
+} from "./keyPaymentTruthMap.js";
+import {
   buildLifeLedgerHandBrief,
   buildLifeLedgerUpdatesFromUtterance,
   filterLifeLedgerByScope,
@@ -2000,6 +2007,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "입력 current_context.insurance_clock이 있으면 KEY가 소유한 보험 기한 참고다. upcoming·overdue·unknown_date·completed_recent만 사용한다. 날짜를 새로 발명하지 말고, unknown_date는 정확한 날짜를 확인한다. completed·cancelled는 현재 할 일처럼 말하지 않는다. 법정 시효·‘보통 3년’ 같은 일반론을 고객 고유 due_at처럼 말하지 않는다.",
     "입력 current_context.claim_evidence가 있으면 KEY가 소유한 청구 증거 패키지 참고다. held/submitted/insurer/outcome과 verification_status(original·customer_reported·insurer_verified·unverified)만 사용한다. 문서에 없는 사실·거절 사유를 만들지 말고, 고객 진술을 보험사 확인처럼 말하지 않는다. 원본·추출·해석을 섞지 않는다.",
     "입력 current_context.life_ledger가 있으면 KEY가 소유한 고객 장기 맥락 참고다. goals·preferences·decisions·open_questions·life_threads·outcomes만 사용한다. 참고용이며 답변 템플릿·강제 추천·답변 차단에 쓰지 않는다. 저장되지 않은 목표·선호·생활 맥락을 만들지 말고, 고객이 말하지 않은 의사를 단정하지 않는다.",
+    "입력 current_context.payment_truth_map이 있으면 KEY가 조립한 고객별 지급 진실 맵 참고다. policy↔claim↔submission↔outcome↔insurer_response↔reason_verbatim↔evidence_ids↔verification_status만 사용한다. reason_verbatim(문서 원문)과 reason_customer_stated(고객 진술)를 섞지 말고, customer_reported를 insurer_verified처럼 말하지 않는다. 부지급 확률·보험사 의도·교차고객 일반화를 만들지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -2486,6 +2494,7 @@ export function buildUserPayload({
   insuranceClockBrief = null,
   claimEvidenceBrief = null,
   lifeLedgerBrief = null,
+  paymentTruthBrief = null,
   sessionGoal = null,
   priorConsultation = null,
   now = null,
@@ -2535,6 +2544,7 @@ export function buildUserPayload({
   const softClock = softInsuranceClockContext(insuranceClockBrief);
   const softClaimEvidence = softClaimEvidenceContext(claimEvidenceBrief);
   const softLifeLedger = softLifeLedgerContext(lifeLedgerBrief);
+  const softPaymentTruth = softPaymentTruthContext(paymentTruthBrief);
 
   // Image original read: question + conversation + original image only.
   // No factory chart / OCR / contracts / corporate / claim cards mixed in.
@@ -2657,6 +2667,7 @@ export function buildUserPayload({
       ...(softClock ? softClock : {}),
       ...(softClaimEvidence ? softClaimEvidence : {}),
       ...(softLifeLedger ? softLifeLedger : {}),
+      ...(softPaymentTruth ? softPaymentTruth : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -3539,6 +3550,7 @@ async function callClaudeFirstDirect({
   insuranceClockBrief = null,
   claimEvidenceBrief = null,
   lifeLedgerBrief = null,
+  paymentTruthBrief = null,
   /** Server-SSOT soft goal only — never from client body. */
   sessionGoalForContext = null,
   /** Soft prior consultation pack — never verified fact. */
@@ -3624,6 +3636,8 @@ async function callClaudeFirstDirect({
       presenceTurn === true || imageOriginalRead ? null : claimEvidenceBrief,
     lifeLedgerBrief:
       presenceTurn === true || imageOriginalRead ? null : lifeLedgerBrief,
+    paymentTruthBrief:
+      presenceTurn === true || imageOriginalRead ? null : paymentTruthBrief,
     sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
       priorConsultationForContext && typeof priorConsultationForContext === "object"
@@ -4681,6 +4695,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     omitForPersonalTurn: personalClaimTurn,
   });
 
+  // Payment Truth Map Slice 1 — assemble existing claim+evidence only (no new judgment).
+  const paymentTruthItemsAssembled = assemblePaymentTruthMap({
+    cases: activeClaimCases,
+    evidenceItems: claimEvidenceItemsScoped,
+    customerId,
+  });
+  const paymentTruthBrief = buildPaymentTruthHandBrief(paymentTruthItemsAssembled);
+
   const pdfMetaForClaude = {
     ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
     ...(Array.isArray(documentMentionResolve?.listing) && documentMentionResolve.listing.length
@@ -4732,6 +4754,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     insuranceClockBrief: isPresenceTurn ? null : insuranceClockBrief,
     claimEvidenceBrief: isPresenceTurn ? null : claimEvidenceBrief,
     lifeLedgerBrief: isPresenceTurn ? null : lifeLedgerBrief,
+    paymentTruthBrief: isPresenceTurn ? null : paymentTruthBrief,
     sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
     priorConsultationForContext,
     documentEvidence: isPresenceTurn ? [] : documentChunksForClaude,
@@ -5611,6 +5634,80 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  // Payment Truth Map Slice 1 — post-answer assemble+persist (no rewrite / no 2nd Claude).
+  let paymentTruthSidecar = {
+    attempted: false,
+    ok: false,
+    reason: null,
+    action: "skip",
+    stored: 0,
+  };
+  let paymentTruthPersist = null;
+  if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
+    try {
+      const casesForMap =
+        Array.isArray(claimCasesToPersist) && claimCasesToPersist.length
+          ? claimCasesToPersist
+          : activeClaimCasesAll;
+      let evidenceForMap = claimEvidenceItemsAll;
+      if (claimEvidencePersist?.ok === true && Array.isArray(claimEvidencePersist?.items)) {
+        evidenceForMap = claimEvidencePersist.items;
+      } else if (
+        claimEvidenceSidecar?.ok === true &&
+        Number(claimEvidenceSidecar?.stored ?? 0) > 0
+      ) {
+        try {
+          evidenceForMap = await loadClaimEvidenceItems({
+            supabase: userSupabase,
+            customerId,
+          });
+        } catch {
+          evidenceForMap = claimEvidenceItemsAll;
+        }
+      }
+      const mapRows = assemblePaymentTruthMap({
+        cases: casesForMap,
+        evidenceItems: evidenceForMap,
+        customerId,
+      });
+      const scopedMap = filterPaymentTruthByScope(mapRows, {
+        entityId:
+          claimTurnScope.claim_scope === "corporate" && claimTurnScope.entity_id
+            ? claimTurnScope.entity_id
+            : null,
+        mode:
+          claimTurnScope.claim_scope === "corporate" ? "corporate" : "personal",
+      });
+      paymentTruthSidecar = {
+        attempted: true,
+        ok: scopedMap.length > 0,
+        reason: scopedMap.length > 0 ? "assembled_from_claim_evidence" : "no_claim_rows",
+        action: scopedMap.length > 0 ? "assemble" : "skip",
+        stored: 0,
+        row_count: scopedMap.length,
+      };
+      if (scopedMap.length) {
+        paymentTruthPersist = await persistPaymentTruthItems({
+          supabase: userSupabase,
+          customerId,
+          truthUpdates: scopedMap,
+        });
+        paymentTruthSidecar.stored = Number(paymentTruthPersist?.stored ?? 0) || 0;
+        paymentTruthSidecar.persist_ok = paymentTruthPersist?.ok === true;
+      }
+    } catch (err) {
+      paymentTruthSidecar = {
+        attempted: true,
+        ok: false,
+        reason: "sidecar_threw",
+        action: "skip",
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_payment_truth_sidecar]", paymentTruthSidecar);
+    }
+  }
+
   // Life Ledger Slice 1 — post-answer soft memory (no answer rewrite / no Claude control).
   let lifeLedgerSidecar = {
     attempted: false,
@@ -5864,6 +5961,12 @@ export async function runClaudeFirstDirectQuestionTurn({
           },
           key_life_ledger_sidecar: lifeLedgerSidecar,
           key_life_ledger_persist: lifeLedgerPersist,
+          payment_truth_hydrated: paymentTruthItemsAssembled?.length ?? 0,
+          payment_truth_brief: {
+            item_count: paymentTruthBrief?.item_count ?? 0,
+          },
+          key_payment_truth_sidecar: paymentTruthSidecar,
+          key_payment_truth_persist: paymentTruthPersist,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),

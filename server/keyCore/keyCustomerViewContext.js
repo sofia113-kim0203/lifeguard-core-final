@@ -118,6 +118,10 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     baseContext.life_ledger && typeof baseContext.life_ledger === "object"
       ? baseContext.life_ledger
       : null;
+  const paymentTruthRaw =
+    baseContext.payment_truth_map && typeof baseContext.payment_truth_map === "object"
+      ? baseContext.payment_truth_map
+      : null;
 
   function scopeKeep(row, scopeMode) {
     const eid = String(row?.entity_id ?? "").trim();
@@ -178,6 +182,17 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     };
   }
 
+  function scopePaymentTruthBrief(brief, scopeMode) {
+    if (!brief) return null;
+    const rows = (brief.rows || []).filter((row) => scopeKeep(row, scopeMode));
+    return {
+      ...brief,
+      rows,
+      item_count: rows.length,
+      packs_separated: true,
+    };
+  }
+
   const current_context = {
     ...baseContext,
     customer_view: {
@@ -193,6 +208,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     const insurance_clock = scopeClockBrief(clockRaw, "personal");
     const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "personal");
     const life_ledger = scopeLifeLedgerBrief(ledgerRaw, "personal");
+    const payment_truth_map = scopePaymentTruthBrief(paymentTruthRaw, "personal");
     const personalContext = {
       ...current_context,
       corporate_turn: {
@@ -207,6 +223,8 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     else delete personalContext.claim_evidence;
     if (life_ledger) personalContext.life_ledger = life_ledger;
     else delete personalContext.life_ledger;
+    if (payment_truth_map) personalContext.payment_truth_map = payment_truth_map;
+    else delete personalContext.payment_truth_map;
     return {
       ...userPayload,
       current_context: personalContext,
@@ -225,6 +243,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
     const insurance_clock = scopeClockBrief(clockRaw, "corporate");
     const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "corporate");
     const life_ledger = scopeLifeLedgerBrief(ledgerRaw, "corporate");
+    const payment_truth_map = scopePaymentTruthBrief(paymentTruthRaw, "corporate");
     return {
       ...userPayload,
       current_context: {
@@ -232,6 +251,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
         ...(insurance_clock ? { insurance_clock } : {}),
         ...(claim_evidence ? { claim_evidence } : {}),
         ...(life_ledger ? { life_ledger } : {}),
+        ...(payment_truth_map ? { payment_truth_map } : {}),
       },
       available_verified_evidence: {
         ...evidence,
@@ -258,6 +278,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
   const insurance_clock = scopeClockBrief(clockRaw, "both");
   const claim_evidence = scopeClaimEvidenceBrief(evidenceRaw, "both");
   const life_ledger = scopeLifeLedgerBrief(ledgerRaw, "both");
+  const payment_truth_map = scopePaymentTruthBrief(paymentTruthRaw, "both");
   return {
     ...userPayload,
     current_context: {
@@ -271,6 +292,7 @@ export function applyCustomerViewModeToUserPayload(userPayload = null, view = nu
       ...(insurance_clock ? { insurance_clock } : {}),
       ...(claim_evidence ? { claim_evidence } : {}),
       ...(life_ledger ? { life_ledger } : {}),
+      ...(payment_truth_map ? { payment_truth_map } : {}),
     },
     available_verified_evidence: {
       ...evidence,
