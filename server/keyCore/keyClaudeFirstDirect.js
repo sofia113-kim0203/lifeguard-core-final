@@ -4771,6 +4771,10 @@ export async function runClaudeFirstDirectQuestionTurn({
         supabase: userSupabase,
         persistImpl: persistKeyActiveClaimCases,
       });
+      const sidecarRow =
+        Array.isArray(sidecar?.updates) && sidecar.updates[0]
+          ? sidecar.updates[0]
+          : null;
       claimIntakeSidecar = {
         attempted: sidecar?.attempted === true,
         ok: sidecar?.ok === true,
@@ -4780,6 +4784,28 @@ export async function runClaudeFirstDirectQuestionTurn({
         case_count: sidecar?.case_count ?? null,
         claim_case_key: sidecar?.claim_case_key ?? null,
         error: sidecar?.error ?? null,
+        // Slice 1B — prep/evidence marks for seats (no customer-answer rewrite).
+        status: sidecarRow?.status ?? null,
+        source: sidecarRow?.source ?? null,
+        available_documents: Array.isArray(sidecarRow?.available_documents)
+          ? sidecarRow.available_documents.slice(0, 24)
+          : [],
+        missing_documents: Array.isArray(sidecarRow?.missing_documents)
+          ? sidecarRow.missing_documents.slice(0, 24)
+          : [],
+        next_action: sidecarRow?.next_action ?? null,
+        source_document_ids: Array.isArray(sidecarRow?.source_document_ids)
+          ? sidecarRow.source_document_ids.slice(0, 24)
+          : [],
+        evidence_document_ids: Array.isArray(sidecarRow?.evidence)
+          ? sidecarRow.evidence
+              .map((e) => {
+                const m = /^document_id:(.+)$/.exec(String(e ?? ""));
+                return m ? m[1] : null;
+              })
+              .filter(Boolean)
+              .slice(0, 24)
+          : [],
       };
       if (Array.isArray(sidecar?.updates) && sidecar.updates.length > 0) {
         claimCasesToPersist = sidecar.updates;

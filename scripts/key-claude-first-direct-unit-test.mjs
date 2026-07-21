@@ -5242,6 +5242,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(cases.length, 1);
   assert.equal(cases[0].status, "identified");
   assert.equal(cases[0].source, "customer_statement");
+  assert.equal(intake?.status, "identified");
+  assert.equal(intake?.source, "customer_statement");
   console.log("CLAIM INTAKE SIDECAR 1A CHECKS OK");
 }
 
@@ -5364,6 +5366,93 @@ console.log("key-claude-first-direct-unit-test: PASS");
     }),
     "보험사 접수 필요",
   );
+
+  // Wire: prep utterance exposes available/missing/next_action on sidecar marks.
+  {
+    const prepAnswer =
+      "진단서와 입퇴원확인서는 준비된 걸로 기록해 두겠습니다. 지급은 확정할 수 없어요.";
+    let prepCalls = 0;
+    const prepFetch = async () => {
+      prepCalls += 1;
+      return {
+        ok: true,
+        async json() {
+          return { content: [{ type: "text", text: prepAnswer }] };
+        },
+      };
+    };
+    let prepWrites = [];
+    const prepSupabase = {
+      from(table) {
+        if (table === "profile_health") {
+          let mode = "select";
+          let payload = null;
+          const api = {
+            select() {
+              mode = "select";
+              return api;
+            },
+            update(p) {
+              mode = "update";
+              payload = p;
+              return api;
+            },
+            insert(p) {
+              mode = "insert";
+              payload = p;
+              return api;
+            },
+            eq() {
+              return api;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: {
+                  customer_id: "cust-claim-1b",
+                  details_json: {
+                    key_active_claim_cases: [openCase],
+                  },
+                },
+                error: null,
+              });
+            },
+            then(resolve) {
+              if (mode === "update" || mode === "insert") {
+                prepWrites.push({ mode, payload });
+                resolve({ data: null, error: null });
+                return;
+              }
+              resolve({ data: null, error: null });
+            },
+          };
+          return api;
+        }
+        return makeAttachQuery({ data: null, error: null });
+      },
+    };
+    const prepWired = await runClaudeFirstDirectQuestionTurn({
+      question: "진단서하고 입퇴원확인서는 준비했어.",
+      history: [],
+      loadedContext: { policy_count: 0, policies: [] },
+      customerId: "cust-claim-1b",
+      sessionId: "sess-claim-1b-wire",
+      userSupabase: prepSupabase,
+      env: failClosedEnv,
+      fetchImpl: prepFetch,
+    });
+    assert.equal(prepCalls, 1);
+    assert.equal(prepWired.customerText, prepAnswer);
+    const prepIntake =
+      prepWired.salesDirectorTrace?.key_compose_trace?.key_voice_trace
+        ?.key_claim_intake_sidecar;
+    assert.equal(prepIntake?.ok, true);
+    assert.equal(prepIntake?.reason, "updated_preparation");
+    assert.ok(prepIntake?.available_documents?.includes("진단서"));
+    assert.ok(prepIntake?.available_documents?.includes("입퇴원확인서"));
+    assert.equal(prepIntake?.status, "preparing");
+    assert.ok(String(prepIntake?.next_action ?? "").length > 0);
+    assert.ok(prepWrites.length >= 1);
+  }
 
   console.log("CLAIM GUARDIAN SLICE 1B CHECKS OK");
 }
