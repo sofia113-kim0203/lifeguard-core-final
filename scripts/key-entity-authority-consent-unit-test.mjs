@@ -8,6 +8,7 @@ import {
   hasEntityLevelScope,
   hasSubjectScope,
   canLoadCorporateProfileHand,
+  canSupportCorporateClaims,
   buildAuthorityHandBrief,
   resolveDocumentSubjectUserId,
 } from "../server/entity/entityAuthorityConsent.js";
@@ -39,6 +40,14 @@ assert.equal(hasSubjectScope(grantPack, employee, "corporate_documents"), true);
 assert.equal(hasSubjectScope(grantPack, employee, "corporate_profile"), false);
 assert.equal(canLoadCorporateProfileHand(grantPack), true);
 assert.equal(canLoadCorporateProfileHand({ ok: true, scopes_entity_level: [] }), false);
+assert.equal(canSupportCorporateClaims(grantPack), false);
+assert.equal(
+  canSupportCorporateClaims({
+    ok: true,
+    scopes_entity_level: ["claim_support"],
+  }),
+  true,
+);
 
 const docs = [
   { document_id: "d1", entity_id: "e1", subject_user_id: null },

@@ -878,8 +878,12 @@ export const KEY_CLAIM_ASSESSMENTS = Object.freeze([
   "insufficient_evidence",
 ]);
 
+/** Slice 3 — personal stays default; corporate requires entity_id. */
+export const KEY_CLAIM_SCOPES = Object.freeze(["personal", "corporate"]);
+
 const KEY_CLAIM_STATUS_SET = new Set(KEY_CLAIM_CASE_STATUSES);
 const KEY_CLAIM_ASSESSMENT_SET = new Set(KEY_CLAIM_ASSESSMENTS);
+const KEY_CLAIM_SCOPE_SET = new Set(KEY_CLAIM_SCOPES);
 const KEY_CLAIM_STATUS_NEEDS_EVIDENCE = new Set([
   "submitted_by_customer",
   "under_review",
@@ -1042,8 +1046,22 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
       row.submission_date_text ?? row.submission_date,
     );
 
+    // Slice 3 — claim_scope + entity_id (corporate requires entity_id; else drop).
+    const scopeRaw = normalizeClaimString(row.claim_scope)?.toLowerCase();
+    let claim_scope =
+      scopeRaw && KEY_CLAIM_SCOPE_SET.has(scopeRaw) ? scopeRaw : "personal";
+    let entity_id = normalizeClaimString(row.entity_id);
+    if (claim_scope === "corporate") {
+      if (!entity_id) continue;
+    } else {
+      claim_scope = "personal";
+      entity_id = null;
+    }
+
     out.push({
       claim_case_key,
+      claim_scope,
+      entity_id,
       medical_event,
       related_policies: normalizeClaimStringList(row.related_policies),
       related_coverages: normalizeClaimStringList(row.related_coverages),
@@ -1067,6 +1085,30 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
     });
   }
   return out;
+}
+
+/**
+ * Slice 3 — never mix personal and corporate cases in Hand / sidecar pickers.
+ * personal: rows without corporate scope (legacy null scope → personal).
+ * corporate: exact entity_id match only.
+ */
+export function filterKeyActiveClaimCasesByScope(
+  cases = [],
+  { claim_scope = "personal", entity_id = null } = {},
+) {
+  const rows = normalizeKeyClaimCaseUpdates(cases);
+  const scope = String(claim_scope ?? "personal").trim().toLowerCase();
+  if (scope === "corporate") {
+    const eid = String(entity_id ?? "").trim();
+    if (!eid) return [];
+    return rows.filter(
+      (row) =>
+        row.claim_scope === "corporate" && String(row.entity_id ?? "") === eid,
+    );
+  }
+  return rows.filter(
+    (row) => row.claim_scope !== "corporate" || !row.entity_id,
+  );
 }
 
 export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
@@ -1133,6 +1175,14 @@ export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
       submission_number: row.submission_number ?? prior.submission_number ?? null,
       submission_date_text:
         row.submission_date_text ?? prior.submission_date_text ?? null,
+      claim_scope:
+        row.claim_scope === "corporate" || prior.claim_scope === "corporate"
+          ? "corporate"
+          : "personal",
+      entity_id:
+        row.claim_scope === "corporate" || prior.claim_scope === "corporate"
+          ? row.entity_id ?? prior.entity_id ?? null
+          : null,
       updated_at: row.updated_at ?? prior.updated_at,
     });
   }

@@ -104,7 +104,11 @@ import {
   formatPresenceLifeThreadsBrief,
 } from "./keyPresenceContext.js";
 import { invalidateReadyCardCacheForCustomer } from "./keyReadyCardCache.js";
-import { runKeyClaimIntakeSidecar } from "./keyClaimIntakeSidecar.js";
+import {
+  runKeyClaimIntakeSidecar,
+  resolveClaimIntakeTurnScope,
+  isExplicitCorporateClaimUtterance,
+} from "./keyClaimIntakeSidecar.js";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -121,7 +125,12 @@ import {
   mergeKeyActiveClaimCases,
   persistKeyActiveClaimCases,
   loadKeyActiveClaimCases,
+  filterKeyActiveClaimCasesByScope,
 } from "../documentPolicyUploadPersist.js";
+import {
+  canSupportCorporateClaims,
+  loadHolderAuthorityGrants,
+} from "../entity/entityAuthorityConsent.js";
 import {
   rebuildCustomerMemoryFoundation,
   resolveServiceRoleKey,
@@ -2056,6 +2065,72 @@ export function buildCorporateHandSeatAudit({
       .slice(0, 6),
     available_verified_evidence_corporate: contexts.length > 0,
   };
+}
+
+/** Slice 3 — corporate claim Hand audit (stored cases may remain; access gated). */
+export function buildCorporateClaimHandSeatAudit({
+  claimCases = null,
+  selectedEntityId = null,
+  corporateClaimAllowed = false,
+  authorizationDenied = false,
+  omitForPersonalTurn = false,
+} = {}) {
+  if (omitForPersonalTurn === true) {
+    return {
+      hand: "key_claim_intake_sidecar_corporate",
+      ready_corporate_claim: false,
+      contexts_count: 0,
+      claim_scope: null,
+      entity_id_masked: null,
+      status: null,
+      next_action: null,
+      source: null,
+      insurer_verified: false,
+      authorization_denied: false,
+      claim_support_required: true,
+      omitted_reason: "personal_claim_turn",
+    };
+  }
+  const eid = String(selectedEntityId ?? "").trim() || null;
+  const denied = authorizationDenied === true || (eid && corporateClaimAllowed !== true);
+  const visible =
+    denied || !eid
+      ? []
+      : filterKeyActiveClaimCasesByScope(claimCases, {
+          claim_scope: "corporate",
+          entity_id: eid,
+        });
+  const row = visible[0] ?? null;
+  return {
+    hand: "key_claim_intake_sidecar_corporate",
+    ready_corporate_claim: visible.length > 0,
+    contexts_count: visible.length,
+    claim_scope: row?.claim_scope ?? (visible.length ? "corporate" : null),
+    entity_id_masked: maskIdTail(row?.entity_id ?? eid),
+    status: row?.status ?? null,
+    next_action: row?.next_action ?? null,
+    source: row?.source ?? null,
+    insurer_verified: row?.insurer_verified === true,
+    authorization_denied: denied === true,
+    claim_support_required: true,
+  };
+}
+
+/**
+ * Claim entity resolution — never inherit chart's single-entity auto-select on personal turns.
+ * Allow: explicit client entity · clear corporate question with exactly one loaded context.
+ */
+export function resolveClaimSelectedEntityId({
+  selectedEntityIdHint = null,
+  question = "",
+  corporateContexts = [],
+} = {}) {
+  const explicit = String(selectedEntityIdHint ?? "").trim() || null;
+  if (explicit) return explicit;
+  if (!isExplicitCorporateClaimUtterance(question)) return null;
+  const contexts = Array.isArray(corporateContexts) ? corporateContexts : [];
+  if (contexts.length !== 1) return null;
+  return String(contexts[0]?.entity_id ?? "").trim() || null;
 }
 
 function factStatusLabel(row = null) {
@@ -4321,20 +4396,91 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
 
   // Existing customer-card claim cases — READY CARD reuse; never invent cross-customer rows.
-  let activeClaimCases = Array.isArray(activeClaimCasesFromCard)
+  let activeClaimCasesAll = Array.isArray(activeClaimCasesFromCard)
     ? activeClaimCasesFromCard
     : [];
   if (!Array.isArray(activeClaimCasesFromCard)) {
     try {
-      activeClaimCases = await loadKeyActiveClaimCases({
+      activeClaimCasesAll = await loadKeyActiveClaimCases({
         supabase: userSupabase,
         customerId,
       });
     } catch (err) {
       console.error("[key_active_claim_cases_load]", String(err?.message ?? err).slice(0, 200));
-      activeClaimCases = [];
+      activeClaimCasesAll = [];
     }
   }
+
+  // Slice 3 D — claim entity ≠ chart auto-select. Personal turns stay personal.
+  const claimSelectedEntityId = resolveClaimSelectedEntityId({
+    selectedEntityIdHint,
+    question,
+    corporateContexts,
+  });
+
+  // Slice 3 — claim_support gate (membership/chart consent is not enough).
+  let corporateClaimAllowed = false;
+  if (claimSelectedEntityId && authUserId && userSupabase) {
+    const selectedCtx = (Array.isArray(corporateContexts) ? corporateContexts : []).find(
+      (c) => String(c?.entity_id ?? "").trim() === claimSelectedEntityId,
+    );
+    const scopesFromBrief = Array.isArray(
+      selectedCtx?.authority_brief?.allowed_scopes_entity_level,
+    )
+      ? selectedCtx.authority_brief.allowed_scopes_entity_level
+      : [];
+    if (scopesFromBrief.includes("claim_support")) {
+      corporateClaimAllowed = true;
+    } else {
+      try {
+        const grantPack = await loadHolderAuthorityGrants({
+          supabase: userSupabase,
+          entityId: claimSelectedEntityId,
+          holderUserId: authUserId,
+        });
+        corporateClaimAllowed = canSupportCorporateClaims(grantPack);
+      } catch {
+        corporateClaimAllowed = false;
+      }
+    }
+  }
+
+  const claimTurnScope = resolveClaimIntakeTurnScope({
+    question,
+    existingCases: activeClaimCasesAll,
+    entityId: claimSelectedEntityId,
+    corporateClaimAllowed,
+    attachedDocumentId:
+      String(pdf?.meta?.document_id ?? attachedDocumentId ?? "").trim() || null,
+  });
+  const claimHandDenied = claimTurnScope.authorization_denied === true;
+  const personalClaimTurn =
+    claimTurnScope.claim_scope === "personal" && claimHandDenied !== true;
+  // Hydrate only the turn-scoped cases — never mix personal ↔ corporate.
+  let activeClaimCases =
+    claimTurnScope.claim_scope === "corporate" &&
+    claimTurnScope.entity_id &&
+    !claimHandDenied
+      ? filterKeyActiveClaimCasesByScope(activeClaimCasesAll, {
+          claim_scope: "corporate",
+          entity_id: claimTurnScope.entity_id,
+        })
+      : filterKeyActiveClaimCasesByScope(activeClaimCasesAll, {
+          claim_scope: "personal",
+          entity_id: null,
+        });
+  // Corporate claim Hand only on corporate turns / denial — never via single-entity chart select.
+  const corporateClaimHandSeatAudit = buildCorporateClaimHandSeatAudit({
+    claimCases: activeClaimCasesAll,
+    selectedEntityId: claimSelectedEntityId,
+    corporateClaimAllowed,
+    authorizationDenied:
+      claimHandDenied ||
+      (Boolean(claimSelectedEntityId) &&
+        !personalClaimTurn &&
+        corporateClaimAllowed !== true),
+    omitForPersonalTurn: personalClaimTurn,
+  });
 
   const pdfMetaForClaude = {
     ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
@@ -4769,6 +4915,7 @@ export async function runClaudeFirstDirectQuestionTurn({
               provider_calls: 1,
               tools: 0,
               corporate_hand: corporateHandSeatAudit,
+              corporate_claim_hand: corporateClaimHandSeatAudit,
               key_verified_literal_conflict: keyVerifiedLiteralConflict,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
               life_threads_brief: earlyLifeThreadsBrief,
@@ -4970,14 +5117,20 @@ export async function runClaudeFirstDirectQuestionTurn({
   if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
     try {
       const sidecar = await runKeyClaimIntakeSidecar({
+        // Pass full card cases — sidecar scopes personal vs corporate itself.
         question,
-        existingCases: activeClaimCases,
+        existingCases: activeClaimCasesAll,
         attachedDocumentId:
           String(pdf?.meta?.document_id ?? attachedDocumentId ?? "").trim() || null,
+        attachedDocumentEntityId:
+          String(pdf?.meta?.entity_id ?? pdf?.meta?.document_entity_id ?? "").trim() ||
+          null,
         messageId: null,
         sessionId,
         customerId,
         supabase: userSupabase,
+        entityId: claimSelectedEntityId,
+        corporateClaimAllowed,
         persistImpl: persistKeyActiveClaimCases,
       });
       const sidecarRow =
@@ -4992,6 +5145,9 @@ export async function runClaudeFirstDirectQuestionTurn({
         stored: Number(sidecar?.stored ?? 0) || 0,
         case_count: sidecar?.case_count ?? null,
         claim_case_key: sidecar?.claim_case_key ?? null,
+        claim_scope: sidecar?.claim_scope ?? sidecarRow?.claim_scope ?? null,
+        entity_id: sidecar?.entity_id ?? sidecarRow?.entity_id ?? null,
+        authorization_denied: sidecar?.authorization_denied === true,
         error: sidecar?.error ?? null,
         // Slice 1B — prep/evidence marks for seats (no customer-answer rewrite).
         status: sidecarRow?.status ?? null,
@@ -5128,6 +5284,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           provider_calls: usedFailure ? 0 : 1,
           tools: 0,
           corporate_hand: corporateHandSeatAudit,
+          corporate_claim_hand: corporateClaimHandSeatAudit,
           soft_reasons_ignored: safety.soft,
           hard_reasons: safety.hard,
           replacing_hard_reasons: replacingHard,
@@ -5232,6 +5389,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             token_reject_reason: tokenRejectReason,
             ready_card_materials_connected: readyCard?.materials_connected === true,
             corporate_hand: corporateHandSeatAudit,
+            corporate_claim_hand: corporateClaimHandSeatAudit,
           },
         },
         {
@@ -5244,6 +5402,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             hard_reasons: safety.hard,
             soft_ignored: safety.soft,
             corporate_hand: corporateHandSeatAudit,
+            corporate_claim_hand: corporateClaimHandSeatAudit,
             answer_source: claude.answer_source ?? null,
             pdf_attached: claude.pdf_attached === true,
             attach_signals: pdf?.meta?.attach_signals ?? null,

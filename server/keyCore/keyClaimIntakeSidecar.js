@@ -11,6 +11,7 @@ import {
   mergeKeyActiveClaimCases,
   persistKeyActiveClaimCases,
   resolveStableClaimCaseKey,
+  filterKeyActiveClaimCasesByScope,
 } from "../documentPolicyUploadPersist.js";
 
 export const KEY_CLAIM_INTAKE_SOURCE = "customer_statement";
@@ -82,9 +83,30 @@ export const CLAIM_PREP_DOCUMENT_ALIASES = Object.freeze([
     canonical: "조직검사결과",
     patterns: [/조직검사/],
   }),
+  // Slice 3 — corporate claim preparation aliases (customer-stated only).
+  Object.freeze({
+    canonical: "소방서확인서",
+    patterns: [/소방서\s*확인서/, /소방서확인서/],
+  }),
+  Object.freeze({
+    canonical: "수리견적서",
+    patterns: [/수리\s*견적서/, /수리견적서/, /복구\s*견적/],
+  }),
+  Object.freeze({
+    canonical: "사고확인서",
+    patterns: [/사고\s*확인서/, /사고확인서/],
+  }),
+  Object.freeze({
+    canonical: "손해견적서",
+    patterns: [/손해\s*견적서/, /손해견적서/],
+  }),
 ]);
 
 const PREP_VERB_RE = /준비했|준비돼|준비되|준비했어|챙겼|챙겨\s*뒀|마련했|받아\s*뒀|받아\s*놓/;
+
+/** Corporate marker — membership/consent still required separately. */
+const CORPORATE_CLAIM_MARKER_RE =
+  /우리\s*회사|회사|사업장|법인|단체보험|임직원|대표자/;
 
 function sha16(value = "") {
   return createHash("sha256").update(String(value ?? ""), "utf8").digest("hex").slice(0, 16);
@@ -184,6 +206,184 @@ export function pickOpenCaseForPreparation({
 export function isClearClaimIntakeQuestion(question = "") {
   const classification = classifyConsultationIntent(question);
   return classification?.intent === "claim_eligibility_check";
+}
+
+/**
+ * Slice 3 — explicit corporate accident utterance (not personal claim intent).
+ * Returns event pack or null. Does not grant authority by itself.
+ */
+export function detectCorporateClaimEvent(question = "") {
+  const text = String(question ?? "").trim();
+  if (!text || !CORPORATE_CLAIM_MARKER_RE.test(text)) return null;
+  if (/화재/.test(text)) {
+    return {
+      event_kind: "workplace_fire",
+      label: "사업장 화재",
+      required_documents: ["소방서확인서", "수리견적서", "보험증권"],
+      topicKey: "workplace_fire",
+    };
+  }
+  if (/배상\s*책임|배상책임/.test(text)) {
+    return {
+      event_kind: "liability_accident",
+      label: "배상책임 사고",
+      required_documents: ["사고확인서", "손해견적서", "보험증권"],
+      topicKey: "liability_accident",
+    };
+  }
+  if (
+    (/단체보험/.test(text) || /임직원/.test(text)) &&
+    /사고|다쳤|부상|입원|수술/.test(text)
+  ) {
+    return {
+      event_kind: "group_insurance_employee",
+      label: "단체보험 임직원 사고",
+      required_documents: ["진단서", "입퇴원확인서", "의료비영수증"],
+      topicKey: "group_insurance_employee",
+    };
+  }
+  if (
+    (/법인/.test(text) || /대표자/.test(text)) &&
+    /청구|사고|화재|배상/.test(text)
+  ) {
+    return {
+      event_kind: "corporate_contract_claim",
+      label: "법인계약 청구",
+      required_documents: ["보험증권", "사고확인서"],
+      topicKey: "corporate_contract_claim",
+    };
+  }
+  if (/사고|청구/.test(text)) {
+    return {
+      event_kind: "corporate_claim",
+      label: "법인 청구",
+      required_documents: ["사고확인서", "보험증권"],
+      topicKey: "corporate_claim",
+    };
+  }
+  return null;
+}
+
+export function isExplicitCorporateClaimUtterance(question = "") {
+  return detectCorporateClaimEvent(question) != null;
+}
+
+function scopeFieldsFromPrior(prior = null, fallback = {}) {
+  const claim_scope =
+    prior?.claim_scope === "corporate" || fallback.claim_scope === "corporate"
+      ? "corporate"
+      : "personal";
+  const entity_id =
+    claim_scope === "corporate"
+      ? String(prior?.entity_id ?? fallback.entity_id ?? "").trim() || null
+      : null;
+  return { claim_scope, entity_id };
+}
+
+/**
+ * Corporate evidence docs must match entity_id. Personal docs never attach to corporate.
+ */
+export function resolveClaimAttachDocumentId({
+  attachedDocumentId = null,
+  attachedDocumentEntityId = null,
+  claim_scope = "personal",
+  entity_id = null,
+} = {}) {
+  const docId = String(attachedDocumentId ?? "").trim();
+  if (!docId) return null;
+  if (claim_scope !== "corporate") return docId;
+  const eid = String(entity_id ?? "").trim();
+  const docEntity = String(attachedDocumentEntityId ?? "").trim();
+  if (!eid || !docEntity || docEntity !== eid) return null;
+  return docId;
+}
+
+/**
+ * Resolve personal vs corporate turn scope. Fail-closed without claim_support.
+ */
+export function resolveClaimIntakeTurnScope({
+  question = "",
+  existingCases = [],
+  entityId = null,
+  corporateClaimAllowed = false,
+  attachedDocumentId = null,
+} = {}) {
+  const eid = String(entityId ?? "").trim() || null;
+  const corpEvent = detectCorporateClaimEvent(question);
+  if (corpEvent) {
+    if (!eid || corporateClaimAllowed !== true) {
+      return {
+        claim_scope: null,
+        entity_id: null,
+        corpEvent,
+        authorization_denied: true,
+        reason: "corporate_claim_not_authorized",
+      };
+    }
+    return {
+      claim_scope: "corporate",
+      entity_id: eid,
+      corpEvent,
+      authorization_denied: false,
+      reason: null,
+    };
+  }
+
+  const openCorp = eid
+    ? filterKeyActiveClaimCasesByScope(existingCases, {
+        claim_scope: "corporate",
+        entity_id: eid,
+      }).filter(
+        (row) =>
+          OPEN_CLAIM_STATUSES.has(String(row?.status ?? "")) ||
+          OUTCOME_TRACKABLE_STATUSES.has(String(row?.status ?? "")),
+      )
+    : [];
+  if (eid && corporateClaimAllowed === true && openCorp.length > 0) {
+    const outcome = detectClaimOutcomeSignal(question);
+    if (outcome) {
+      return {
+        claim_scope: "corporate",
+        entity_id: eid,
+        corpEvent: null,
+        authorization_denied: false,
+        reason: null,
+      };
+    }
+    const prepared = extractPreparedDocumentsFromUtterance(question);
+    if (prepared.length) {
+      const matchesCorp = openCorp.some(
+        (row) => scoreOpenCaseForPreparedDocs(row, prepared) > 0,
+      );
+      if (matchesCorp) {
+        return {
+          claim_scope: "corporate",
+          entity_id: eid,
+          corpEvent: null,
+          authorization_denied: false,
+          reason: null,
+        };
+      }
+    }
+    // Attach with matching entity context + open corporate case only.
+    if (String(attachedDocumentId ?? "").trim()) {
+      return {
+        claim_scope: "corporate",
+        entity_id: eid,
+        corpEvent: null,
+        authorization_denied: false,
+        reason: null,
+      };
+    }
+  }
+
+  return {
+    claim_scope: "personal",
+    entity_id: null,
+    corpEvent: null,
+    authorization_denied: false,
+    reason: null,
+  };
 }
 
 /**
@@ -506,8 +706,10 @@ function buildPreparationUpdate({
       ? "preparing"
       : String(prior.status);
 
+  const scope = scopeFieldsFromPrior(prior);
   const update = {
     claim_case_key: prior.claim_case_key,
+    ...scope,
     medical_event: preserveMedicalEvent(prior),
     related_policies: Array.isArray(prior.related_policies) ? prior.related_policies : [],
     related_coverages: Array.isArray(prior.related_coverages) ? prior.related_coverages : [],
@@ -580,8 +782,10 @@ function buildOutcomeUpdate({
         "outcome_signal:unclear_wait",
       ]),
     ].slice(0, 40);
+    const scope = scopeFieldsFromPrior(prior);
     const update = {
       claim_case_key: prior.claim_case_key,
+      ...scope,
       medical_event: preserveMedicalEvent(prior),
       related_policies: Array.isArray(prior.related_policies) ? prior.related_policies : [],
       related_coverages: Array.isArray(prior.related_coverages)
@@ -624,6 +828,7 @@ function buildOutcomeUpdate({
   }
 
   const status = String(outcome.status);
+  const scope = scopeFieldsFromPrior(prior);
   const evidence = [
     ...new Set([
       ...(Array.isArray(prior.evidence) ? prior.evidence : []),
@@ -656,6 +861,7 @@ function buildOutcomeUpdate({
 
   const update = {
     claim_case_key: prior.claim_case_key,
+    ...scope,
     medical_event: preserveMedicalEvent(prior),
     related_policies: Array.isArray(prior.related_policies) ? prior.related_policies : [],
     related_coverages: Array.isArray(prior.related_coverages)
@@ -768,8 +974,10 @@ function buildAttachEvidenceUpdate({
     ]),
   ].slice(0, 40);
 
+  const scope = scopeFieldsFromPrior(prior);
   const update = {
     claim_case_key: prior.claim_case_key,
+    ...scope,
     medical_event: preserveMedicalEvent(prior),
     related_policies: Array.isArray(prior.related_policies) ? prior.related_policies : [],
     related_coverages: Array.isArray(prior.related_coverages) ? prior.related_coverages : [],
@@ -808,56 +1016,96 @@ function buildAttachEvidenceUpdate({
 /**
  * Pure builder — no Claude, no payout judgment, no invented dates/diagnoses.
  * Slice 1B: preparation updates + attach evidence link on open cases.
+ * Slice 3: corporate scope stamped only with entity_id + claim_support + explicit corp utterance.
  */
 export function buildKeyClaimIntakeUpdate({
   question = "",
   existingCases = [],
   attachedDocumentId = null,
+  attachedDocumentEntityId = null,
   messageId = null,
   sessionId = null,
   now = null,
+  entityId = null,
+  corporateClaimAllowed = false,
 } = {}) {
+  const turn = resolveClaimIntakeTurnScope({
+    question,
+    existingCases,
+    entityId,
+    corporateClaimAllowed,
+    attachedDocumentId,
+  });
+  if (turn.authorization_denied) {
+    return {
+      ok: false,
+      reason: turn.reason || "corporate_claim_not_authorized",
+      action: "skip",
+      updates: [],
+      claim_scope: null,
+      entity_id: null,
+      authorization_denied: true,
+    };
+  }
+
+  const claim_scope = turn.claim_scope || "personal";
+  const scopeEntityId = claim_scope === "corporate" ? turn.entity_id : null;
+  const scopedExisting = filterKeyActiveClaimCasesByScope(existingCases, {
+    claim_scope,
+    entity_id: scopeEntityId,
+  });
+
   const preparedDocs = extractPreparedDocumentsFromUtterance(question);
-  const isIntake = isClearClaimIntakeQuestion(question);
-  const docId = String(attachedDocumentId ?? "").trim();
+  const isPersonalIntake = isClearClaimIntakeQuestion(question);
+  const isCorporateIntake = claim_scope === "corporate" && turn.corpEvent != null;
+  const isIntake = isPersonalIntake || isCorporateIntake;
   const outcome = detectClaimOutcomeSignal(question);
+  const docId = resolveClaimAttachDocumentId({
+    attachedDocumentId,
+    attachedDocumentEntityId,
+    claim_scope,
+    entity_id: scopeEntityId,
+  });
 
   // Slice 1C — submission / review / paid / denied / unclear wait (never create).
   if (outcome && !isIntake) {
-    return buildOutcomeUpdate({
+    const built = buildOutcomeUpdate({
       question,
-      existingCases,
+      existingCases: scopedExisting,
       outcome,
       attachedDocumentId: docId || null,
       messageId,
       sessionId,
       now,
     });
+    return { ...built, claim_scope, entity_id: scopeEntityId, authorization_denied: false };
   }
 
   // Preparation path — update open case only; never create.
   if (preparedDocs.length > 0 && !isIntake) {
-    return buildPreparationUpdate({
+    const built = buildPreparationUpdate({
       question,
-      existingCases,
+      existingCases: scopedExisting,
       preparedDocs,
       attachedDocumentId: docId || null,
       messageId,
       sessionId,
       now,
     });
+    return { ...built, claim_scope, entity_id: scopeEntityId, authorization_denied: false };
   }
 
   // Attach-only on a single open case — link id, do not invent doc type / verified content.
   if (!isIntake && docId) {
-    return buildAttachEvidenceUpdate({
+    const built = buildAttachEvidenceUpdate({
       question,
-      existingCases,
+      existingCases: scopedExisting,
       attachedDocumentId: docId,
       messageId,
       sessionId,
       now,
     });
+    return { ...built, claim_scope, entity_id: scopeEntityId, authorization_denied: false };
   }
 
   if (!isIntake) {
@@ -866,28 +1114,52 @@ export function buildKeyClaimIntakeUpdate({
       reason: "not_clear_claim_intent",
       action: "skip",
       updates: [],
+      claim_scope,
+      entity_id: scopeEntityId,
+      authorization_denied: false,
     };
   }
 
-  const { event_kind, label, required_documents, topicKey } = resolveEventKind(question);
-  const prior = findOpenCaseForKind(existingCases, event_kind, {
+  const personalKind = resolveEventKind(question);
+  const event_kind = isCorporateIntake
+    ? turn.corpEvent.event_kind
+    : personalKind.event_kind;
+  const label = isCorporateIntake ? turn.corpEvent.label : personalKind.label;
+  const required_documents = isCorporateIntake
+    ? turn.corpEvent.required_documents
+    : personalKind.required_documents;
+  const topicKey = isCorporateIntake
+    ? turn.corpEvent.topicKey
+    : personalKind.topicKey;
+
+  const prior = findOpenCaseForKind(scopedExisting, event_kind, {
     // Clear different event must not update an unrelated single open case.
     allowSingleFallback: !topicKey || event_kind === "claim",
   });
 
   // Different clear event with no matching open case → new case (do not mix).
   // Unclear generic claim with multiple open cases → skip create.
-  if (!prior && listOpenCases(existingCases).length > 1 && (!topicKey || event_kind === "claim")) {
+  if (
+    !prior &&
+    listOpenCases(scopedExisting).length > 1 &&
+    (!topicKey || event_kind === "claim")
+  ) {
     return {
       ok: false,
       reason: "ambiguous_open_claim_case",
       action: "skip",
       updates: [],
+      claim_scope,
+      entity_id: scopeEntityId,
+      authorization_denied: false,
     };
   }
 
   const explicitKey =
-    prior?.claim_case_key || `customer_statement:kind:${event_kind}`;
+    prior?.claim_case_key ||
+    (claim_scope === "corporate" && scopeEntityId
+      ? `corporate:${scopeEntityId}:customer_statement:kind:${event_kind}`
+      : `customer_statement:kind:${event_kind}`);
   const claim_case_key = resolveStableClaimCaseKey({
     claim_case_key: explicitKey,
   });
@@ -897,6 +1169,9 @@ export function buildKeyClaimIntakeUpdate({
       reason: "no_stable_claim_case_key",
       action: "skip",
       updates: [],
+      claim_scope,
+      entity_id: scopeEntityId,
+      authorization_denied: false,
     };
   }
 
@@ -932,6 +1207,8 @@ export function buildKeyClaimIntakeUpdate({
       ...(Array.isArray(prior?.evidence) ? prior.evidence : []),
       `source:${KEY_CLAIM_INTAKE_SOURCE}`,
       `message_id:${source_message_id}`,
+      `claim_scope:${claim_scope}`,
+      ...(scopeEntityId ? [`entity_id:${scopeEntityId}`] : []),
       ...(docId
         ? [`source:${KEY_CLAIM_UPLOAD_SOURCE}`, `document_id:${docId}`, "document_content:unverified"]
         : []),
@@ -956,6 +1233,8 @@ export function buildKeyClaimIntakeUpdate({
 
   const update = {
     claim_case_key,
+    claim_scope,
+    entity_id: scopeEntityId,
     medical_event: preserveMedicalEvent(prior, event_kind),
     related_policies: Array.isArray(prior?.related_policies) ? prior.related_policies : [],
     related_coverages: Array.isArray(prior?.related_coverages)
@@ -981,6 +1260,9 @@ export function buildKeyClaimIntakeUpdate({
       reason: "normalize_empty",
       action: "skip",
       updates: [],
+      claim_scope,
+      entity_id: scopeEntityId,
+      authorization_denied: false,
     };
   }
 
@@ -990,6 +1272,9 @@ export function buildKeyClaimIntakeUpdate({
     action: prior ? "update" : "create",
     updates: normalized,
     claim_case_key,
+    claim_scope,
+    entity_id: scopeEntityId,
+    authorization_denied: false,
   };
 }
 
@@ -1000,20 +1285,26 @@ export async function runKeyClaimIntakeSidecar({
   question = "",
   existingCases = [],
   attachedDocumentId = null,
+  attachedDocumentEntityId = null,
   messageId = null,
   sessionId = null,
   customerId = null,
   supabase = null,
   now = null,
+  entityId = null,
+  corporateClaimAllowed = false,
   persistImpl = persistKeyActiveClaimCases,
 } = {}) {
   const built = buildKeyClaimIntakeUpdate({
     question,
     existingCases,
     attachedDocumentId,
+    attachedDocumentEntityId,
     messageId,
     sessionId,
     now,
+    entityId,
+    corporateClaimAllowed,
   });
   if (!built.ok) {
     return {
@@ -1023,6 +1314,9 @@ export async function runKeyClaimIntakeSidecar({
       action: "skip",
       stored: 0,
       updates: [],
+      claim_scope: built.claim_scope ?? null,
+      entity_id: built.entity_id ?? null,
+      authorization_denied: built.authorization_denied === true,
       persist: { attempted: false, ok: false, stored: 0 },
     };
   }
@@ -1036,6 +1330,9 @@ export async function runKeyClaimIntakeSidecar({
       stored: 0,
       updates: built.updates,
       claim_case_key: built.claim_case_key,
+      claim_scope: built.claim_scope ?? null,
+      entity_id: built.entity_id ?? null,
+      authorization_denied: false,
       persist: { attempted: false, ok: false, stored: 0 },
     };
   }
@@ -1055,6 +1352,9 @@ export async function runKeyClaimIntakeSidecar({
       case_count: persist?.case_count ?? null,
       updates: built.updates,
       claim_case_key: built.claim_case_key,
+      claim_scope: built.claim_scope ?? null,
+      entity_id: built.entity_id ?? null,
+      authorization_denied: false,
       persist: persist ?? { attempted: true, ok: false, stored: 0 },
       merged_preview_count: mergeKeyActiveClaimCases(existingCases, built.updates)
         .length,
@@ -1068,6 +1368,9 @@ export async function runKeyClaimIntakeSidecar({
       stored: 0,
       updates: built.updates,
       claim_case_key: built.claim_case_key,
+      claim_scope: built.claim_scope ?? null,
+      entity_id: built.entity_id ?? null,
+      authorization_denied: false,
       error: String(err?.message ?? err).slice(0, 200),
       persist: { attempted: true, ok: false, stored: 0 },
     };

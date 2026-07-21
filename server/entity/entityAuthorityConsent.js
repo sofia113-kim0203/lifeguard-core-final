@@ -192,6 +192,14 @@ export function canLoadCorporateProfileHand(grantPack = null) {
   );
 }
 
+/**
+ * Slice 3 — Corporate Claim Guardian may create/hydrate corporate claims only with
+ * active entity-level claim_support. Membership alone is never enough.
+ */
+export function canSupportCorporateClaims(grantPack = null) {
+  return hasEntityLevelScope(grantPack, "claim_support");
+}
+
 export async function revokeAuthorityGrant({
   supabase = null,
   grantId = null,

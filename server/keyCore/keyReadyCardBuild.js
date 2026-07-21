@@ -194,6 +194,12 @@ function briefClaims(cases = []) {
           : null;
     return {
       claim_case_key: row?.claim_case_key ?? null,
+      // Slice 3 — ownership scope (personal default; corporate requires entity_id).
+      claim_scope: row?.claim_scope === "corporate" ? "corporate" : "personal",
+      entity_id:
+        row?.claim_scope === "corporate" && row?.entity_id
+          ? String(row.entity_id).slice(0, 64)
+          : null,
       status: row?.status ?? null,
       source: row?.source ?? null,
       // Slice 1C — never imply insurer system confirmation from customer statement.
