@@ -177,9 +177,13 @@ export function mapHomeBrainFactPayload(payload) {
           }
         : null,
     keyConsultationRecord:
-      payload.key_consultation_record && typeof payload.key_consultation_record === "object"
+      (payload.key_consultation_record && typeof payload.key_consultation_record === "object"
         ? payload.key_consultation_record
-        : null,
+        : null) ||
+      (payload.sales_director_trace?.key_consultation_record &&
+      typeof payload.sales_director_trace.key_consultation_record === "object"
+        ? payload.sales_director_trace.key_consultation_record
+        : null),
   };
 }
 

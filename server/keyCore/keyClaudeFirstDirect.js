@@ -82,6 +82,11 @@ import {
   materialsFromReadyCard,
   buildReadyCardClaudeMeta,
 } from "./keyReadyCardBuild.js";
+import {
+  extractLifeThreadsFromCustomerUtterance,
+  mergeLifeThreadHistory,
+  formatLifeThreadsForReadyCard,
+} from "./keyLifeThread.js";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -1266,16 +1271,28 @@ export async function loadCustomerPriorConsultationForClaude({
       .limit(Math.max(4, Number(limit) || 24));
     if (error) return { prior: null, reason: "query_failed" };
 
-    const turns = [];
-    const open_goals = [];
-    const open_tasks = [];
-    const seenGoal = new Set();
-    for (const row of data ?? []) {
+  const turns = [];
+  const open_goals = [];
+  const open_tasks = [];
+  const lifeThreadRows = [];
+  const seenGoal = new Set();
+  for (const row of data ?? []) {
       const meta =
         row?.metadata_json && typeof row.metadata_json === "object" ? row.metadata_json : {};
       const sid = String(meta.session_id ?? "").trim();
-      if (currentSid && sid === currentSid) continue;
       const role = String(row?.role ?? "").trim();
+      const sameSession = Boolean(currentSid && sid === currentSid);
+      const rec =
+        role === "assistant" && meta.key_consultation_record && typeof meta.key_consultation_record === "object"
+          ? meta.key_consultation_record
+          : null;
+      // T5 — LIFE THREAD may continue inside the same session; always collect by customer_id.
+      if (rec && Array.isArray(rec.life_threads)) {
+        for (const th of rec.life_threads) {
+          if (th && typeof th === "object") lifeThreadRows.push(th);
+        }
+      }
+      if (sameSession) continue;
       const content = String(row?.message ?? "").trim().slice(0, 600);
       if ((role === "user" || role === "assistant") && content) {
         turns.push({
@@ -1295,8 +1312,7 @@ export async function loadCustomerPriorConsultationForClaude({
             open_tasks.push({ kind: "session_goal", detail: g });
           }
         }
-        const rec = meta.key_consultation_record;
-        if (rec && typeof rec === "object" && Array.isArray(rec.next_tasks)) {
+        if (rec && Array.isArray(rec.next_tasks)) {
           for (const t of rec.next_tasks.slice(0, 4)) {
             const detail = String(t?.detail ?? t ?? "").trim();
             if (detail) open_tasks.push({ kind: "next_task", detail: detail.slice(0, 200) });
@@ -1306,7 +1322,8 @@ export async function loadCustomerPriorConsultationForClaude({
       if (turns.length >= 16) break;
     }
     turns.reverse();
-    if (!turns.length && !open_goals.length) {
+    const life_threads = mergeLifeThreadHistory(lifeThreadRows);
+    if (!turns.length && !open_goals.length && !life_threads.length) {
       return { prior: null, reason: "none" };
     }
     return {
@@ -1314,6 +1331,7 @@ export async function loadCustomerPriorConsultationForClaude({
         related_turns: turns.slice(-12),
         open_goals: open_goals.slice(0, 3),
         open_tasks: open_tasks.slice(0, 6),
+        life_threads,
         note: "prior_consultation_reference_only_not_verified_fact",
       },
       reason: "ok",
@@ -1532,6 +1550,9 @@ export function buildKeyConsultationRecord({
   outcomes = undefined,
   systemEvents = null,
   sourceLink = null,
+  customerId = null,
+  lifeThreads = undefined,
+  now = null,
 } = {}) {
   const q = String(question ?? "").trim().slice(0, 800);
   const a = String(claudeAnswer ?? "").trim().slice(0, 1200);
@@ -1564,6 +1585,14 @@ export function buildKeyConsultationRecord({
         systemEvents,
         sourceLink,
       });
+  // T5 — customer-utterance LIFE THREAD only (never Claude answer text).
+  const resolvedLifeThreads = Array.isArray(lifeThreads)
+    ? lifeThreads
+    : extractLifeThreadsFromCustomerUtterance(q, {
+        customerId,
+        sourceLink,
+        now: now ?? new Date(),
+      });
   return {
     schema: "key_consultation_record_v1",
     customer_utterance: q || null,
@@ -1578,6 +1607,7 @@ export function buildKeyConsultationRecord({
     unverified_items: [],
     next_tasks,
     outcomes: resolvedOutcomes,
+    life_threads: resolvedLifeThreads,
     session_goal: goal,
     ...(sourceLink && typeof sourceLink === "object" ? { source_link: sourceLink } : {}),
   };
@@ -1763,6 +1793,7 @@ export function buildSystemPrompt() {
     "의료사건·수술·입원·병원비·진단이 보이면 고객카드 계약과 비교해 청구 필요성을 직접 판단한다. 근거가 충분하면 선제적으로 청구 확인을 제안한다. 청구했습니다/접수 완료/심사 중/지급됐습니다는 확인 근거 없이 고객에게 말하지 않는다.",
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
+    "입력 current_context.life_threads가 있으면 고객이 이전에 직접 말한 삶의 사건·예정·감정 참고다. 현재 질문이 항상 우선이다. 확인되지 않은 결과·감정을 만들지 말고, 고객에게 먼저 꺼내 묻지 않는다(Presence 금지).",
   ].join("\n");
 }
 
@@ -2105,6 +2136,12 @@ export function buildUserPayload({
           updated_at: sessionGoal.updated_at ?? null,
         }
       : null;
+  const softLifeThreads = formatLifeThreadsForReadyCard(
+    Array.isArray(priorConsultation?.life_threads)
+      ? priorConsultation.life_threads
+      : [],
+    { limit: 6 },
+  );
   const softPrior =
     priorConsultation && typeof priorConsultation === "object"
       ? {
@@ -2117,6 +2154,7 @@ export function buildUserPayload({
           open_tasks: Array.isArray(priorConsultation.open_tasks)
             ? priorConsultation.open_tasks.slice(0, 6)
             : [],
+          life_threads: softLifeThreads,
           note: "prior_consultation_reference_only_not_verified_fact",
         }
       : null;
@@ -2143,6 +2181,7 @@ export function buildUserPayload({
         },
         ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
         ...(softPrior ? { prior_consultation: softPrior } : {}),
+        ...(softLifeThreads.length ? { life_threads: softLifeThreads } : {}),
         ...(ready_card ? { ready_card } : {}),
       },
       available_verified_evidence: {
@@ -2204,6 +2243,7 @@ export function buildUserPayload({
       // Soft reference only — never above current_question / conversation / verified evidence.
       ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
       ...(softPrior ? { prior_consultation: softPrior } : {}),
+      ...(softLifeThreads.length ? { life_threads: softLifeThreads } : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -4043,6 +4083,57 @@ export async function runClaudeFirstDirectQuestionTurn({
   const streamedEqualsSealed =
     String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? "");
   const customerDoneMs = relMs(startedAt);
+
+  // KEY LIFE LEDGER — before early done so client can persist session_goal / life_threads.
+  // Source + goal + LIFE THREAD from customer utterance only (never Claude answer).
+  const sourceLink = resolveConsultationSourceLink({
+    sourceTurnId: null,
+    messageId: null,
+    sessionId,
+    turnOrd: Array.isArray(history) ? history.length + 1 : 1,
+  });
+  const nowStamp = startedAt instanceof Date ? startedAt : new Date(startedAt);
+  const customerStatedGoalText =
+    !usedFailure && discardRequested !== true
+      ? extractCustomerStatedGoalFromUtterance(question)
+      : null;
+  const customerUtteranceGoal =
+    customerStatedGoalText && !isForbiddenSessionGoalText(customerStatedGoalText)
+      ? {
+          goal: customerStatedGoalText,
+          status: "active",
+          updated_at: Number.isFinite(nowStamp.getTime())
+            ? nowStamp.toISOString()
+            : new Date().toISOString(),
+          evidence: {
+            kind: "customer_utterance",
+            text: String(question ?? "").trim().slice(0, 240),
+          },
+          source_link: sourceLink,
+        }
+      : null;
+
+  const persistableSessionGoal = resolvePersistableSessionGoal({
+    discardRequested,
+    usedFailure,
+    claudeGoal: customerUtteranceGoal,
+    now: nowStamp,
+  });
+
+  const keyConsultationRecord = usedFailure
+    ? null
+    : buildKeyConsultationRecord({
+        question,
+        claudeAnswer: sealed.key_speak_original,
+        sessionGoal: persistableSessionGoal,
+        recommendationBasisCount: Number(claude.recommendation_basis_count ?? 0) || 0,
+        pdfAttached: claude.pdf_attached === true,
+        documentId: pdf?.meta?.document_id ?? null,
+        sourceLink,
+        customerId,
+        now: nowStamp,
+      });
+
   // T4 — customer screen completes before fact persist / probe (request stays open).
   if (typeof streamHandlers?.onEarlyCustomerDone === "function") {
     try {
@@ -4055,9 +4146,13 @@ export async function runClaudeFirstDirectQuestionTurn({
         failure_reason: failureReason,
         customer_done_ms: customerDoneMs,
         streamed_equals_sealed: streamedEqualsSealed,
+        session_goal: persistableSessionGoal,
+        key_consultation_record: keyConsultationRecord,
         sales_director_trace: {
           one_key_core: true,
           compose_mode: "key_claude_first_direct",
+          session_goal: persistableSessionGoal,
+          key_consultation_record: keyConsultationRecord,
           key_compose_trace: {
             compose_mode: "key_claude_first_direct",
             key_voice_trace: {
@@ -4088,54 +4183,6 @@ export async function runClaudeFirstDirectQuestionTurn({
       );
     }
   }
-
-  // KEY LIFE LEDGER — source link + post-seal customer-utterance goal (never Claude answer).
-  const sourceLink = resolveConsultationSourceLink({
-    sourceTurnId: null,
-    messageId: null,
-    sessionId,
-    turnOrd: Array.isArray(history) ? history.length + 1 : 1,
-  });
-  const nowStamp = startedAt instanceof Date ? startedAt : new Date(startedAt);
-  const customerStatedGoalText =
-    !usedFailure && discardRequested !== true
-      ? extractCustomerStatedGoalFromUtterance(question)
-      : null;
-  const customerUtteranceGoal =
-    customerStatedGoalText && !isForbiddenSessionGoalText(customerStatedGoalText)
-      ? {
-          goal: customerStatedGoalText,
-          status: "active",
-          updated_at: Number.isFinite(nowStamp.getTime())
-            ? nowStamp.toISOString()
-            : new Date().toISOString(),
-          evidence: {
-            kind: "customer_utterance",
-            text: String(question ?? "").trim().slice(0, 240),
-          },
-          source_link: sourceLink,
-        }
-      : null;
-
-  // discard → completed; failure → never store; else KEY post-writer from customer utterance only.
-  const persistableSessionGoal = resolvePersistableSessionGoal({
-    discardRequested,
-    usedFailure,
-    claudeGoal: customerUtteranceGoal,
-    now: nowStamp,
-  });
-
-  const keyConsultationRecord = usedFailure
-    ? null
-    : buildKeyConsultationRecord({
-        question,
-        claudeAnswer: sealed.key_speak_original,
-        sessionGoal: persistableSessionGoal,
-        recommendationBasisCount: Number(claude.recommendation_basis_count ?? 0) || 0,
-        pdfAttached: claude.pdf_attached === true,
-        documentId: pdf?.meta?.document_id ?? null,
-        sourceLink,
-      });
 
   // T4 marks — customer done already signaled; persist must not rewrite answer.
   triangleT0.customer_done_ms = customerDoneMs;
@@ -4371,6 +4418,17 @@ export async function runClaudeFirstDirectQuestionTurn({
           key_consultation_record: keyConsultationRecord,
           prior_consultation_injected: Boolean(priorConsultationForContext),
           prior_consultation_reason: priorConsultationReason,
+          life_threads_injected_count: Array.isArray(
+            priorConsultationForContext?.life_threads,
+          )
+            ? priorConsultationForContext.life_threads.length
+            : 0,
+          life_threads_brief: formatLifeThreadsForReadyCard(
+            Array.isArray(priorConsultationForContext?.life_threads)
+              ? priorConsultationForContext.life_threads
+              : [],
+            { limit: 6 },
+          ),
           source_link: sourceLink,
           session_goal_writer: customerUtteranceGoal
             ? "customer_utterance"

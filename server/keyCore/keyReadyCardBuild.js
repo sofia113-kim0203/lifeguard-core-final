@@ -1,6 +1,7 @@
 /**
  * Triangle v2.2 T2 — READY CARD assembly from existing SSOT loaders (parallel).
- * Not a new truth DB. No Claude call. No Presence / LIFE THREAD.
+ * Not a new truth DB. No Claude call. No Presence.
+ * T5 — LIFE THREAD brief may ride on important_history (remember only; do not ask first).
  */
 
 import {
@@ -9,6 +10,7 @@ import {
   READY_CARD_CACHE_TTL_MS,
 } from "./keyReadyCardCache.js";
 import { openReadyCardHandoff } from "./keyReadyCardHandoff.js";
+import { formatLifeThreadsForReadyCard } from "./keyLifeThread.js";
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
 
@@ -152,6 +154,7 @@ export async function buildKeyReadyCard({
         related_turns: [],
         open_goals: [],
         open_tasks: [],
+        life_threads: [],
         note: "prior_consultation_reference_only_not_verified_fact",
       },
       document_status: { active_count: 0, documents: [] },
@@ -265,12 +268,14 @@ export async function buildKeyReadyCard({
   });
 
   // Connected when any verified/soft SSOT material is present for this customer.
+  const lifeThreadCount = Array.isArray(prior?.life_threads) ? prior.life_threads.length : 0;
   const materials_connected =
     policy_count > 0 ||
     docs.length > 0 ||
     claims_brief.length > 0 ||
     Boolean(goal) ||
     Boolean(prior) ||
+    lifeThreadCount > 0 ||
     corporate_contexts.length > 0 ||
     profile_brief.has_profile === true;
 
@@ -304,6 +309,10 @@ export async function buildKeyReadyCard({
           related_turns: Array.isArray(prior.related_turns) ? prior.related_turns : [],
           open_goals: Array.isArray(prior.open_goals) ? prior.open_goals : [],
           open_tasks: Array.isArray(prior.open_tasks) ? prior.open_tasks : [],
+          life_threads: formatLifeThreadsForReadyCard(
+            Array.isArray(prior.life_threads) ? prior.life_threads : [],
+            { limit: 6 },
+          ),
           note: "prior_consultation_reference_only_not_verified_fact",
           _prior_object: prior,
         }
@@ -311,6 +320,7 @@ export async function buildKeyReadyCard({
           related_turns: [],
           open_goals: [],
           open_tasks: [],
+          life_threads: [],
           note: "prior_consultation_reference_only_not_verified_fact",
           _prior_object: null,
         },
