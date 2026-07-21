@@ -3909,6 +3909,13 @@ async function runGo2ConflictTurn({
       { allowedEntities: [] },
     );
     assert.equal(keep.changed, false, "I2: generic group-insurance wording untouched");
+    // Personal allowlist must not green-light invented corporate product names.
+    const cross = neutralizeUnsupportedInsurerProductLiterals(
+      "현재 한화손보 세이프단체보험 2건이 확인돼 있어요.",
+      { allowedEntities: ["한화손해보험"] },
+    );
+    assert.equal(/세이프단체보험/.test(cross.text), false, "I2: strips unverified product");
+    assert.equal(/단체보험/.test(cross.text), true, "I2: keeps generic group insurance");
   }
 
   // J: GO3 session_goal regression — answer+goal still Continue 0 / decision null

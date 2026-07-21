@@ -1994,6 +1994,33 @@ function maskIdTail(id) {
   return s.length > 8 ? `${s.slice(0, 8)}…${s.slice(-4)}` : s || null;
 }
 
+/** Verified corporate insurer/product tokens only — never personal chart allowlist. */
+export function collectCorporateInsurerProductAllowlist(corporateContexts = null) {
+  const out = new Set();
+  const rows = normalizeCorporateContexts(corporateContexts);
+  for (const row of rows) {
+    const facts = [
+      ...(Array.isArray(row?.verified_facts) ? row.verified_facts : []),
+      ...(Array.isArray(row?.partial_facts) ? row.partial_facts : []),
+    ];
+    for (const fact of facts) {
+      const key = String(fact?.key ?? fact?.fact_key ?? "").toLowerCase();
+      const val = String(fact?.value ?? fact?.fact_value ?? "").trim();
+      if (!val) continue;
+      if (/insurer|보험사|carrier|product|상품/.test(key)) out.add(val);
+    }
+    const fields =
+      row?.chart?.fields && typeof row.chart.fields === "object" ? row.chart.fields : {};
+    for (const [name, field] of Object.entries(fields)) {
+      if (field?.status !== "known" || field?.value == null || field.value === "") continue;
+      if (/insurer|보험사|product|상품/.test(String(name))) {
+        out.add(String(field.value).trim());
+      }
+    }
+  }
+  return [...out].filter(Boolean);
+}
+
 export function buildCorporateHandSeatAudit({
   corporateContexts = null,
   selectedEntityId = null,
@@ -4508,6 +4535,12 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
   // Fact-alignment: strip only unverified insurer/product literals (no full rewrite, no 2nd Claude).
+  // Corporate turns: do not let personal-policy allowlist authorize corp insurer/product claims.
+  const corporateLiteralAllow = collectCorporateInsurerProductAllowlist(corporateContexts);
+  const literalAllowEntities =
+    Array.isArray(corporateContexts) && corporateContexts.length > 0
+      ? corporateLiteralAllow
+      : claude.allowlist?.allowed_entities ?? [];
   const literalGuard = presenceChoseSilence
     ? {
         text: "",
@@ -4517,7 +4550,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         reason: "presence_silence",
       }
     : neutralizeUnsupportedInsurerProductLiterals(finalText, {
-        allowedEntities: claude.allowlist?.allowed_entities ?? [],
+        allowedEntities: literalAllowEntities,
       });
   if (literalGuard.changed) {
     finalText = literalGuard.text;
@@ -4527,6 +4560,10 @@ export async function runClaudeFirstDirectQuestionTurn({
     reason: literalGuard.reason,
     stripped_count: literalGuard.stripped_count,
     stripped_forms: literalGuard.stripped_forms,
+    allowlist_scope:
+      Array.isArray(corporateContexts) && corporateContexts.length > 0
+        ? "corporate_verified_only"
+        : "personal_reality_allowlist",
     full_rewrite: false,
     second_claude_call: false,
   };
@@ -4700,6 +4737,7 @@ export async function runClaudeFirstDirectQuestionTurn({
               provider_calls: 1,
               tools: 0,
               corporate_hand: corporateHandSeatAudit,
+              key_verified_literal_conflict: keyVerifiedLiteralConflict,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
               life_threads_brief: earlyLifeThreadsBrief,
               life_threads_attach_reason:
