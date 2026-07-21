@@ -610,6 +610,28 @@ export async function uploadDocument(
     if (entityError || !entityRow?.id) {
       throw new Error("법인 정보를 확인하지 못했습니다.");
     }
+    // Slice 2 — membership ≠ corporate_documents consent.
+    const { data: authorityRow, error: authErr } = await supabase
+      .from("entity_authority_consents")
+      .select("id, consent_scope, status, revoked_at, expires_at")
+      .eq("entity_id", requestedEntityId)
+      .eq("holder_user_id", authUserId)
+      .eq("consent_scope", "corporate_documents")
+      .eq("status", "active")
+      .is("subject_user_id", null)
+      .maybeSingle();
+    const expired =
+      authorityRow?.expires_at &&
+      Number.isFinite(new Date(authorityRow.expires_at).getTime()) &&
+      new Date(authorityRow.expires_at).getTime() <= Date.now();
+    if (
+      authErr ||
+      !authorityRow?.id ||
+      authorityRow.revoked_at ||
+      expired
+    ) {
+      throw new Error("이 법인 문서에 대한 동의·위임 권한이 확인되지 않았습니다.");
+    }
     ownedEntityId = String(entityRow.id);
   }
 

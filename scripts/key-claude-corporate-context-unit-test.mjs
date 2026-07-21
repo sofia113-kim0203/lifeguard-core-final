@@ -188,7 +188,19 @@ function makeSnapshot(industry = "제조") {
   assert.deepEqual(result.corporate_contexts, []);
 }
 
-// --- membership 1 → one context ---
+const grantAll = async ({ entityId }) => ({
+  ok: true,
+  grants: [],
+  scopes_entity_level: [
+    "corporate_profile",
+    "corporate_documents",
+    "insurance_consultation",
+  ],
+  subjects: {},
+  authority_types: ["representative"],
+});
+
+// --- membership 1 + authority → one context ---
 {
   const result = await loadAllowedCorporateContextsForClaude({
     userSupabase: {},
@@ -198,6 +210,7 @@ function makeSnapshot(industry = "제조") {
       ok: true,
       entities: [{ entity_id: ENTITY_A, display_name: "A법인" }],
     }),
+    loadHolderAuthorityGrantsImpl: grantAll,
     loadEntityContextRecordsImpl: async () => ({
       entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
       membership: makeMembership(ENTITY_A),
@@ -208,6 +221,35 @@ function makeSnapshot(industry = "제조") {
   assert.equal(result.corporate_contexts.length, 1);
   assert.equal(result.corporate_contexts[0].entity_id, ENTITY_A);
   assert.equal(result.corporate_contexts[0].authorization_verified, true);
+  assert.equal(result.corporate_contexts[0].authority_brief?.membership_is_not_consent, true);
+}
+
+// --- membership without authority consent → empty (fail-closed) ---
+{
+  const result = await loadAllowedCorporateContextsForClaude({
+    userSupabase: {},
+    customerId: "cust-1",
+    authUserId: "user-1",
+    selectedEntityId: ENTITY_A,
+    listMyCorporateEntitiesImpl: async () => ({
+      ok: true,
+      entities: [{ entity_id: ENTITY_A, display_name: "A법인" }],
+    }),
+    loadHolderAuthorityGrantsImpl: async () => ({
+      ok: true,
+      grants: [],
+      scopes_entity_level: [],
+      subjects: {},
+      authority_types: [],
+    }),
+    loadEntityContextRecordsImpl: async () => ({
+      entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
+      membership: makeMembership(ENTITY_A),
+    }),
+  });
+  assert.equal(result.corporate_contexts.length, 0);
+  assert.equal(result.authorization_denied, true);
+  assert.equal(result.skipped_reason, "no_active_authority_consent");
 }
 
 // --- membership many → separated contexts, no mix ---
@@ -223,6 +265,7 @@ function makeSnapshot(industry = "제조") {
         { entity_id: ENTITY_B, display_name: "B법인" },
       ],
     }),
+    loadHolderAuthorityGrantsImpl: grantAll,
     loadEntityContextRecordsImpl: async (_sb, { conversationContext }) => {
       const id = conversationContext.entity_id;
       return {

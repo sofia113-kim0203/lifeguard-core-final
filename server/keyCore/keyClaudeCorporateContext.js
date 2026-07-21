@@ -33,6 +33,13 @@ import {
   generateCorporateRecommendations,
 } from "../entity/corporate/corporateRecommendation.js";
 import { listMyCorporateEntities } from "../entity/listMyCorporateEntities.js";
+import {
+  loadHolderAuthorityGrants,
+  filterDocumentsByAuthority,
+  canLoadCorporateProfileHand,
+  buildAuthorityHandBrief,
+  hasEntityLevelScope,
+} from "../entity/entityAuthorityConsent.js";
 
 export const CORPORATE_AUTH_FAILED_CUSTOMER_TEXT =
   "이 법인의 정보를 확인할 권한이 확인되지 않았습니다.";
@@ -157,7 +164,7 @@ export async function loadCorporateDocumentsForEntities({
     const { data, error } = await userSupabase
       .from("customer_documents")
       .select(
-        "id, original_filename, mime_type, ingest_status, document_type, entity_id, created_at",
+        "id, original_filename, mime_type, ingest_status, document_type, entity_id, metadata_json, created_at",
       )
       .eq("customer_id", cid)
       .in("entity_id", ids)
@@ -179,6 +186,13 @@ export async function loadCorporateDocumentsForEntities({
           ingest === "ready" || ingest === "extracted" || ingest === "analyzed"
             ? "unverified_extract"
             : "original_presence";
+        const meta =
+          row?.metadata_json && typeof row.metadata_json === "object"
+            ? row.metadata_json
+            : {};
+        const subjectUserId = String(
+          meta.subject_user_id ?? meta.employee_user_id ?? "",
+        ).trim() || null;
         return {
           document_id: row?.id != null ? String(row.id) : null,
           entity_id: entityId,
@@ -188,6 +202,8 @@ export async function loadCorporateDocumentsForEntities({
           ingest_status: ingest || null,
           evidence_tier,
           ownership_source: "customer_documents.entity_id",
+          metadata_json: meta,
+          subject_user_id: subjectUserId,
           confirmed_facts: [],
           note: "original_or_unverified_extract_only_not_confirmed_policy_fact",
         };
@@ -208,6 +224,7 @@ export function buildClaudeCorporateFactPack({
   snapshot = null,
   memorySnapshot = null,
   documents = [],
+  authorityBrief = null,
 } = {}) {
   const entityId = entityRecord?.entity_id ?? entityRecord?.id ?? null;
   const role = membership?.member_role
@@ -316,6 +333,16 @@ export function buildClaudeCorporateFactPack({
     documents: entityDocs,
   });
 
+  const authority =
+    authorityBrief && typeof authorityBrief === "object"
+      ? authorityBrief
+      : {
+          authority_verified: false,
+          allowed_scopes_entity_level: [],
+          membership_is_not_consent: true,
+          note: "authority_brief_missing",
+        };
+
   return {
     contract_version: CLAUDE_CORPORATE_FACT_PACK_V1,
     entity_type: ENTITY_TYPES.CORPORATE,
@@ -324,8 +351,10 @@ export function buildClaudeCorporateFactPack({
     entity_status: entityStatus || null,
     is_qa_test_entity: isQaTest,
     customer_grade: isQaTest ? "qa_test_not_real_customer" : "membership_verified",
+    // Membership verified separately; legal/delegation authority is authority_brief.
     authorization_verified: true,
     membership_role: role,
+    authority_brief: authority,
     chart,
     documents: entityDocs,
     verified_facts,
@@ -339,6 +368,7 @@ export function buildClaudeCorporateFactPack({
       entity_id: entityId,
       fact_count: memorySnapshot?.fact_count ?? null,
       document_count: entityDocs.length,
+      authority_scopes: authority.allowed_scopes_entity_level ?? [],
     },
   };
 }
@@ -423,6 +453,7 @@ async function loadOneCorporateBundle({
   authUserId,
   entityId,
   documents = [],
+  grantPack = null,
   loadEntityContextRecordsImpl,
   loadCorporateMemorySnapshotImpl,
   buildCorporateSnapshotImpl,
@@ -444,6 +475,17 @@ async function loadOneCorporateBundle({
   });
   if (!access.ok) return null;
 
+  // Slice 2 — membership alone is not consent. No entity-level authority → skip.
+  const authorityBrief = buildAuthorityHandBrief(grantPack);
+  if (!canLoadCorporateProfileHand(grantPack)) {
+    return {
+      factPack: null,
+      evidence: null,
+      skipped_reason: "no_active_authority_consent",
+      authority_brief: authorityBrief,
+    };
+  }
+
   const entityForLoad = {
     id: access.entity.entity_id,
     entity_id: access.entity.entity_id,
@@ -460,10 +502,23 @@ async function loadOneCorporateBundle({
     access.entity.entity_id,
     { entityRecord: entityForLoad },
   );
-  const snapshot = buildCorporateSnapshotImpl({
-    entityRecord: entityForLoad,
-    memorySnapshot,
-  });
+  // Without corporate_profile scope, do not expose chart facts — consultation scope alone
+  // still allows a minimal identity shell (name + authority brief) for honest denial of detail.
+  const allowProfile = hasEntityLevelScope(grantPack, "corporate_profile");
+  const snapshot = allowProfile
+    ? buildCorporateSnapshotImpl({
+        entityRecord: entityForLoad,
+        memorySnapshot,
+      })
+    : {
+        contract_version: CORPORATE_SNAPSHOT_V1,
+        identity: {
+          entity_id: access.entity.entity_id,
+          display_name: access.entity.display_name,
+          status: access.entity.entity_status,
+        },
+        derived: { unknowns: ["corporate_profile_scope_not_granted"] },
+      };
 
   createCorporateEntitySession({
     entityRecord: access.entity,
@@ -474,20 +529,31 @@ async function loadOneCorporateBundle({
     resolver_version: ENTITY_RESOLVER_V1,
   });
 
-  const entityDocs = (Array.isArray(documents) ? documents : []).filter(
+  const entityDocsRaw = (Array.isArray(documents) ? documents : []).filter(
     (d) => String(d?.entity_id ?? "").trim() === String(access.entity.entity_id).trim(),
   );
+  const entityDocs = filterDocumentsByAuthority(entityDocsRaw, grantPack);
 
   const factPack = buildClaudeCorporateFactPack({
     entityRecord: access.entity,
     membership: access.membership,
     snapshot,
-    memorySnapshot,
+    memorySnapshot: allowProfile ? memorySnapshot : { facts: [], fact_count: 0 },
     documents: entityDocs,
+    authorityBrief,
   });
-  const evidence = buildClaudeCorporateGapRecEvidence({ snapshot });
+  const evidence = allowProfile
+    ? buildClaudeCorporateGapRecEvidence({ snapshot })
+    : {
+        gap_evidence: [],
+        recommendation_candidates: [],
+        unknowns: ["corporate_profile_scope_not_granted"],
+        invented_coverage: false,
+        invented_recommendation: false,
+        priority_meaning: "known_gap_review_candidates_not_severity_rank",
+      };
 
-  return { factPack, evidence };
+  return { factPack, evidence, authority_brief: authorityBrief };
 }
 
 /**
@@ -505,6 +571,7 @@ export async function loadAllowedCorporateContextsForClaude({
   loadCorporateMemorySnapshotImpl = loadCorporateMemorySnapshot,
   buildCorporateSnapshotImpl = buildCorporateSnapshot,
   loadCorporateDocumentsForEntitiesImpl = loadCorporateDocumentsForEntities,
+  loadHolderAuthorityGrantsImpl = loadHolderAuthorityGrants,
 } = {}) {
   const empty = {
     ok: true,
@@ -517,6 +584,7 @@ export async function loadAllowedCorporateContextsForClaude({
     invented_coverage: false,
     invented_recommendation: false,
     priority_meaning: "known_gap_review_candidates_not_severity_rank",
+    authority_denials: [],
   };
 
   if (!userSupabase || !authUserId) {
@@ -564,21 +632,36 @@ export async function loadAllowedCorporateContextsForClaude({
   const corporate_gap_evidence = [];
   const corporate_recommendation_candidates = [];
   const corporate_unknowns = [];
+  const authority_denials = [];
 
   for (const row of targetRows) {
     const entityId = String(row?.entity_id ?? "").trim();
     if (!entityId) continue;
     try {
+      const grantPack = await loadHolderAuthorityGrantsImpl({
+        supabase: userSupabase,
+        entityId,
+        holderUserId: authUserId,
+      });
       const bundle = await loadOneCorporateBundle({
         userSupabase,
         customerId,
         authUserId,
         entityId,
         documents,
+        grantPack,
         loadEntityContextRecordsImpl,
         loadCorporateMemorySnapshotImpl,
         buildCorporateSnapshotImpl,
       });
+      if (bundle?.skipped_reason === "no_active_authority_consent") {
+        authority_denials.push({
+          entity_id: entityId,
+          reason: "no_active_authority_consent",
+          membership_is_not_consent: true,
+        });
+        continue;
+      }
       if (!bundle?.factPack?.authorization_verified || !bundle.factPack.entity_id) continue;
       corporate_contexts.push(bundle.factPack);
       corporate_gap_evidence.push(...(bundle.evidence?.gap_evidence ?? []));
@@ -593,6 +676,11 @@ export async function loadAllowedCorporateContextsForClaude({
     }
   }
 
+  const deniedSelected =
+    Boolean(requested) &&
+    corporate_contexts.length === 0 &&
+    authority_denials.some((d) => d.entity_id === requested);
+
   return {
     ok: true,
     corporate_contexts,
@@ -600,10 +688,12 @@ export async function loadAllowedCorporateContextsForClaude({
     corporate_recommendation_candidates,
     corporate_unknowns,
     selected_entity_id: requested && corporate_contexts.length > 0 ? requested : null,
-    authorization_denied: false,
+    authorization_denied: deniedSelected,
+    authority_denials,
     invented_coverage: false,
     invented_recommendation: false,
     priority_meaning: "known_gap_review_candidates_not_severity_rank",
-    skipped_reason: null,
+    skipped_reason: deniedSelected ? "no_active_authority_consent" : null,
+    customer_message: deniedSelected ? CORPORATE_AUTH_FAILED_CUSTOMER_TEXT : null,
   };
 }
