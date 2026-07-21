@@ -620,7 +620,52 @@ export async function resolveReadyCardForQuestionTurn({
   });
 }
 
-/** Claude payload slice — status + as-of; never dump full card. */
+/**
+ * T7.2 — existence-only document brief for Claude soft context.
+ * id + filename only; never dump body/chunks/extracts; never verified insurance facts.
+ * Card is already customer-scoped; rows with a foreign customer_id are dropped fail-closed.
+ */
+export function briefDocumentStatusForClaudeMeta(card = null) {
+  const cardCid = String(card?.customer_id ?? "").trim();
+  const status = card?.document_status && typeof card.document_status === "object"
+    ? card.document_status
+    : null;
+  const raw = Array.isArray(status?.documents)
+    ? status.documents
+    : Array.isArray(status?._active_documents)
+      ? status._active_documents
+      : [];
+  const seen = new Set();
+  const documents = [];
+  for (const d of raw) {
+    if (!d || typeof d !== "object") continue;
+    const rowCid = d.customer_id != null ? String(d.customer_id).trim() : "";
+    if (cardCid && rowCid && rowCid !== cardCid) continue;
+    const id = d.id != null ? String(d.id).trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const filename = d.original_filename ?? d.filename ?? null;
+    documents.push({
+      id,
+      original_filename:
+        filename != null && String(filename).trim()
+          ? String(filename).trim().slice(0, 240)
+          : null,
+    });
+    if (documents.length >= 40) break;
+  }
+  return {
+    active_count: documents.length,
+    documents,
+    note:
+      "Existence listing for this customer's active uploaded documents (id + filename only). " +
+      "This is not document body and not DOCUMENT_EVIDENCE. " +
+      "If document content is not separately provided as DOCUMENT_EVIDENCE / attached original this turn, " +
+      "do not claim you read the document and do not invent or estimate coverage terms from the filename alone.",
+  };
+}
+
+/** Claude payload slice — status + as-of + T7.2 document existence; never dump full card. */
 export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
   if (!card || typeof card !== "object") {
     return {
@@ -629,6 +674,15 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       card_version: READY_CARD_VERSION,
       materials_connected: false,
       note: "Customer materials are not connected for this turn. Do not invent verified insurance facts.",
+      document_status: {
+        active_count: 0,
+        documents: [],
+        note:
+          "Existence listing for this customer's active uploaded documents (id + filename only). " +
+          "This is not document body and not DOCUMENT_EVIDENCE. " +
+          "If document content is not separately provided as DOCUMENT_EVIDENCE / attached original this turn, " +
+          "do not claim you read the document and do not invent or estimate coverage terms from the filename alone.",
+      },
     };
   }
   const status =
@@ -637,6 +691,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       : card.materials_connected === false || card.status === "miss"
         ? "miss"
         : "normal";
+  const document_status = briefDocumentStatusForClaudeMeta(card);
   if (status === "miss") {
     return {
       status: "miss",
@@ -645,6 +700,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       materials_connected: false,
       unknowns: Array.isArray(card.unknowns) ? card.unknowns.slice(0, 12) : [],
       note: "Customer materials are not connected for this turn. Do not invent verified insurance facts. Ask only from the current question and conversation until materials are linked.",
+      document_status,
     };
   }
   if (status === "stale") {
@@ -655,6 +711,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       materials_connected: card.materials_connected === true,
       as_of: card.prepared_at ?? null,
       note: "READY CARD is stale. Treat verified evidence as of prepared_at / as_of. Background refresh is in progress — do not invent newer facts.",
+      document_status,
     };
   }
   return {
@@ -663,6 +720,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
     card_version: card.card_version ?? READY_CARD_VERSION,
     materials_connected: true,
     note: "READY CARD prepared from KEY SSOT before this question.",
+    document_status,
   };
 }
 

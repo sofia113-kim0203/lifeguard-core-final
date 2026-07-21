@@ -16,6 +16,7 @@ import {
   resolveReadyCardForQuestionTurn,
   materialsFromReadyCard,
   buildReadyCardClaudeMeta,
+  briefDocumentStatusForClaudeMeta,
 } from "../server/keyCore/keyReadyCardBuild.js";
 import { buildUserPayload } from "../server/keyCore/keyClaudeFirstDirect.js";
 
@@ -224,6 +225,59 @@ clearReadyCardCache();
   });
   assert.equal(payload.current_question, "내 암보험 괜찮아?");
   assert.equal(payload.current_context.ready_card.status, "miss");
+}
+
+// --- T7.2 document existence brief in Claude meta (not body / not evidence) ---
+{
+  const card = {
+    status: "normal",
+    materials_connected: true,
+    prepared_at: "2026-07-21T00:00:00.000Z",
+    card_version: READY_CARD_VERSION,
+    customer_id: "cust-a",
+    document_status: {
+      active_count: 3,
+      documents: [
+        { id: "doc-a1", original_filename: "seat-policy.pdf" },
+        { id: "doc-a1", original_filename: "seat-policy.pdf" },
+        {
+          id: "doc-b-leak",
+          original_filename: "other.pdf",
+          customer_id: "cust-b",
+        },
+        { id: "doc-a2", filename: "claim-form.pdf" },
+      ],
+    },
+  };
+  const brief = briefDocumentStatusForClaudeMeta(card);
+  assert.equal(brief.active_count, 2);
+  assert.deepEqual(
+    brief.documents.map((d) => d.id),
+    ["doc-a1", "doc-a2"],
+  );
+  assert.equal(brief.documents[0].original_filename, "seat-policy.pdf");
+  assert.equal(brief.documents[1].original_filename, "claim-form.pdf");
+  assert.match(brief.note, /DOCUMENT_EVIDENCE|existence|do not claim you read/i);
+
+  const meta = buildReadyCardClaudeMeta(card, "hit");
+  assert.equal(meta.status, "normal");
+  assert.equal(meta.document_status.active_count, 2);
+  assert.equal(meta.document_status.documents.length, 2);
+
+  const payload = buildUserPayload({
+    question: "내가 올린 서류가 있어?",
+    chart: { policy_count: { status: "verified", value: 0 }, contracts: [] },
+    contextPack: { recent_conversation_originals: [], older_conversation_summary: null },
+    readyCardMeta: meta,
+  });
+  assert.equal(payload.current_question, "내가 올린 서류가 있어?");
+  const rc = payload.current_context.ready_card;
+  assert.ok(rc.document_status);
+  assert.equal(rc.document_status.documents[0].id, "doc-a1");
+  assert.ok(!JSON.stringify(rc).includes("storage_path"));
+  assert.ok(!JSON.stringify(rc).includes("base64"));
+  // Question stays separate from ready_card document brief.
+  assert.notEqual(payload.current_question, rc.document_status);
 }
 
 // --- A/B isolation in cache ---
