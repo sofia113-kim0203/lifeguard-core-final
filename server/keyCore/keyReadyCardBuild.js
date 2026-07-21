@@ -196,6 +196,17 @@ function briefClaims(cases = []) {
       claim_case_key: row?.claim_case_key ?? null,
       status: row?.status ?? null,
       source: row?.source ?? null,
+      // Slice 1C — never imply insurer system confirmation from customer statement.
+      insurer_verified: row?.insurer_verified === true,
+      outcome_source: row?.source ?? null,
+      denial_reason:
+        typeof row?.denial_reason === "string"
+          ? row.denial_reason.slice(0, 120)
+          : null,
+      payout_amount_text:
+        typeof row?.payout_amount_text === "string"
+          ? row.payout_amount_text.slice(0, 40)
+          : null,
       summary,
       available_documents: Array.isArray(row?.available_documents)
         ? row.available_documents.slice(0, 12)

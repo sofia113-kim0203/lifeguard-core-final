@@ -1031,6 +1031,16 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
     const source_document_ids = normalizeClaimStringList(
       row.source_document_ids ?? row.attached_document_ids,
     );
+    // Slice 1C — outcome honesty fields (never invent insurer_verified=true here).
+    const insurer_verified = row.insurer_verified === true;
+    const denial_reason = normalizeClaimString(row.denial_reason);
+    const payout_amount_text = normalizeClaimString(
+      row.payout_amount_text ?? row.payout_amount,
+    );
+    const submission_number = normalizeClaimString(row.submission_number);
+    const submission_date_text = normalizeClaimString(
+      row.submission_date_text ?? row.submission_date,
+    );
 
     out.push({
       claim_case_key,
@@ -1047,6 +1057,11 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
       source,
       source_message_id,
       source_document_ids,
+      insurer_verified,
+      denial_reason,
+      payout_amount_text,
+      submission_number,
+      submission_date_text,
       updated_at: normalizeClaimString(row.updated_at) ?? updatedAt,
       card_source: "key_claude_claim_case",
     });
@@ -1110,6 +1125,14 @@ export function mergeKeyActiveClaimCases(existing = [], incoming = []) {
         row.next_action != null && String(row.next_action).trim()
           ? row.next_action
           : prior.next_action,
+      insurer_verified:
+        row.insurer_verified === true || prior.insurer_verified === true,
+      denial_reason: row.denial_reason ?? prior.denial_reason ?? null,
+      payout_amount_text:
+        row.payout_amount_text ?? prior.payout_amount_text ?? null,
+      submission_number: row.submission_number ?? prior.submission_number ?? null,
+      submission_date_text:
+        row.submission_date_text ?? prior.submission_date_text ?? null,
       updated_at: row.updated_at ?? prior.updated_at,
     });
   }

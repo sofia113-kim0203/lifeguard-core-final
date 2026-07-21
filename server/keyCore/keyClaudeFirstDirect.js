@@ -4806,6 +4806,11 @@ export async function runClaudeFirstDirectQuestionTurn({
               .filter(Boolean)
               .slice(0, 24)
           : [],
+        insurer_verified: sidecarRow?.insurer_verified === true,
+        denial_reason: sidecarRow?.denial_reason ?? null,
+        payout_amount_text: sidecarRow?.payout_amount_text ?? null,
+        submission_number: sidecarRow?.submission_number ?? null,
+        submission_date_text: sidecarRow?.submission_date_text ?? null,
       };
       if (Array.isArray(sidecar?.updates) && sidecar.updates.length > 0) {
         claimCasesToPersist = sidecar.updates;

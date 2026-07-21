@@ -5487,3 +5487,102 @@ console.log("key-claude-first-direct-unit-test: PASS");
   console.log("CLAIM GUARDIAN SLICE 1B CHECKS OK");
 }
 
+// --- Claim Guardian Slice 1C — submission / review / paid / denied ---
+{
+  const {
+    buildKeyClaimIntakeUpdate,
+    detectClaimOutcomeSignal,
+  } = await import("../server/keyCore/keyClaimIntakeSidecar.js");
+  const { mergeKeyActiveClaimCases } = await import(
+    "../server/documentPolicyUploadPersist.js"
+  );
+
+  assert.equal(detectClaimOutcomeSignal("보험사에 접수했어.")?.status, "submitted_by_customer");
+  assert.equal(detectClaimOutcomeSignal("보험사에서 심사 중이래.")?.status, "under_review");
+  assert.equal(detectClaimOutcomeSignal("보험금이 지급됐어.")?.status, "paid");
+  assert.equal(
+    detectClaimOutcomeSignal("거절됐어. 이유는 아직 몰라.")?.denial_reason,
+    "unknown",
+  );
+  assert.equal(detectClaimOutcomeSignal("아직 연락이 없어.")?.kind, "unclear_wait");
+  assert.equal(detectClaimOutcomeSignal("오늘 날씨 어때?"), null);
+
+  const baseCase = {
+    claim_case_key: "customer_statement:kind:surgery",
+    status: "preparing",
+    source: "customer_statement",
+    medical_event: { event_kind: "surgery" },
+    required_documents: ["진단서", "입퇴원확인서"],
+    available_documents: ["진단서", "입퇴원확인서"],
+    missing_documents: [],
+    next_action: "보험사 접수 필요",
+    evidence: ["source:customer_statement"],
+    insurer_verified: false,
+  };
+
+  const submitted = buildKeyClaimIntakeUpdate({
+    question: "보험사에 접수했어.",
+    existingCases: [baseCase],
+  });
+  assert.equal(submitted.ok, true);
+  assert.equal(submitted.updates[0].status, "submitted_by_customer");
+  assert.equal(submitted.updates[0].source, "customer_statement");
+  assert.equal(submitted.updates[0].insurer_verified, false);
+  assert.ok(submitted.updates[0].evidence.some((e) => String(e).includes("customer_statement")));
+
+  const reviewing = buildKeyClaimIntakeUpdate({
+    question: "보험사에서 심사 중이래.",
+    existingCases: submitted.updates,
+  });
+  assert.equal(reviewing.ok, true);
+  assert.equal(reviewing.updates[0].status, "under_review");
+  assert.equal(reviewing.updates[0].next_action, "결과 확인");
+
+  const paid = buildKeyClaimIntakeUpdate({
+    question: "보험금이 지급됐어.",
+    existingCases: reviewing.updates,
+  });
+  assert.equal(paid.ok, true);
+  assert.equal(paid.updates[0].status, "paid");
+  assert.equal(paid.updates[0].insurer_verified, false);
+  assert.equal(paid.updates[0].source, "customer_statement");
+
+  const deniedPath = buildKeyClaimIntakeUpdate({
+    question: "거절됐어. 이유는 아직 몰라.",
+    existingCases: reviewing.updates,
+  });
+  assert.equal(deniedPath.ok, true);
+  assert.equal(deniedPath.updates[0].status, "denied");
+  assert.equal(deniedPath.updates[0].denial_reason, "unknown");
+  assert.equal(deniedPath.updates[0].insurer_verified, false);
+
+  const unclear = buildKeyClaimIntakeUpdate({
+    question: "아직 연락이 없어.",
+    existingCases: reviewing.updates,
+  });
+  assert.equal(unclear.ok, true);
+  assert.equal(unclear.updates[0].status, "under_review", "unclear must not advance");
+  assert.equal(unclear.updates[0].next_action, "결과 확인");
+
+  const noInvent = buildKeyClaimIntakeUpdate({
+    question: "잘 안 된 것 같아.",
+    existingCases: reviewing.updates,
+  });
+  assert.equal(noInvent.updates[0].status, "under_review");
+  assert.notEqual(noInvent.updates[0].status, "denied");
+  assert.notEqual(noInvent.updates[0].status, "paid");
+
+  const merged = mergeKeyActiveClaimCases(reviewing.updates, paid.updates);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].status, "paid");
+
+  // No open case → do not invent outcome case.
+  const orphan = buildKeyClaimIntakeUpdate({
+    question: "보험금이 지급됐어.",
+    existingCases: [],
+  });
+  assert.equal(orphan.ok, false);
+
+  console.log("CLAIM GUARDIAN SLICE 1C CHECKS OK");
+}
+

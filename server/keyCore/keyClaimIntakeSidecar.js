@@ -1,5 +1,5 @@
 /**
- * KEY Claim Guardian Slice 1A/1B — post-answer claim intake + preparation sidecar.
+ * KEY Claim Guardian Slice 1A/1B/1C — intake + preparation + outcome sidecar.
  * Claude customer answer stays untouched (tools=0, single provider call).
  * KEY owns open claim cases via existing persistKeyActiveClaimCases.
  */
@@ -24,6 +24,33 @@ const OPEN_CLAIM_STATUSES = new Set([
   "submitted_by_customer",
   "under_review",
 ]);
+
+/** Cases that can still receive submission / review / outcome updates. */
+const OUTCOME_TRACKABLE_STATUSES = new Set([
+  "identified",
+  "preparing",
+  "ready_for_customer_submission",
+  "submitted_by_customer",
+  "under_review",
+]);
+
+const OUTCOME_SUBMITTED_RE =
+  /보험사에\s*접수|청구\s*접수|접수해\s*뒀|접수해\s*놓|접수했|접수\s*완료|접수했어/;
+const OUTCOME_REVIEW_RE =
+  /심사\s*중|심사하고\s*있|심사\s*받|심사하(다|고|는|래|래요|대요)/;
+const OUTCOME_PAID_RE =
+  /지급됐|지급\s*됐|보험금이\s*(지급|나왔|입금)|보험금\s*받았|입금됐|지급받았|지급됐어/;
+const OUTCOME_DENIED_RE =
+  /거절됐|거절\s*됐|청구를\s*거절|지급\s*거절|반려됐|거절됐어|거절했어/;
+const OUTCOME_UNCLEAR_RE =
+  /아직\s*연락이\s*없|잘\s*안\s*된\s*것\s*같|소식\s*없|답이\s*없|결과가\s*없/;
+const DENIAL_REASON_UNKNOWN_RE =
+  /이유는\s*아직\s*몰라|왜인지는\s*몰라|이유는\s*모르|사유는\s*아직/;
+const PAYOUT_AMOUNT_RE = /(\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*만?\s*원)/;
+const SUBMISSION_NUMBER_RE =
+  /접수\s*번호\s*[:：]?\s*([A-Za-z0-9-]{4,40})|번호\s*[:：]?\s*([A-Za-z0-9-]{4,40})/;
+const SUBMISSION_DATE_RE =
+  /(\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}월\s*\d{1,2}일)\s*(?:에\s*)?접수/;
 
 /** Canonical labels the customer may name — never invent beyond these aliases. */
 export const CLAIM_PREP_DOCUMENT_ALIASES = Object.freeze([
@@ -178,6 +205,91 @@ export function extractPreparedDocumentsFromUtterance(question = "") {
 
 export function isClaimPreparationUtterance(question = "") {
   return extractPreparedDocumentsFromUtterance(question).length > 0;
+}
+
+/**
+ * Detect clear claim lifecycle outcome from customer utterance only.
+ * Returns null when unclear / no advancement.
+ */
+export function detectClaimOutcomeSignal(question = "") {
+  const text = String(question ?? "").trim();
+  if (!text) return null;
+
+  // Terminal outcomes first.
+  if (OUTCOME_DENIED_RE.test(text)) {
+    const denial_reason = DENIAL_REASON_UNKNOWN_RE.test(text)
+      ? "unknown"
+      : null;
+    return {
+      kind: "denied",
+      status: "denied",
+      denial_reason,
+      next_action: denial_reason === "unknown" ? "거절 사유 확인" : "결과 기록 유지",
+    };
+  }
+  if (OUTCOME_PAID_RE.test(text)) {
+    const amountMatch = text.match(PAYOUT_AMOUNT_RE);
+    return {
+      kind: "paid",
+      status: "paid",
+      payout_amount_text: amountMatch ? amountMatch[1].replace(/\s+/g, "") : null,
+      next_action: "결과 기록 유지",
+    };
+  }
+  if (OUTCOME_REVIEW_RE.test(text)) {
+    return {
+      kind: "under_review",
+      status: "under_review",
+      next_action: "결과 확인",
+    };
+  }
+  if (OUTCOME_SUBMITTED_RE.test(text)) {
+    const numMatch = text.match(SUBMISSION_NUMBER_RE);
+    const dateMatch = text.match(SUBMISSION_DATE_RE);
+    return {
+      kind: "submitted_by_customer",
+      status: "submitted_by_customer",
+      submission_number: numMatch ? String(numMatch[1] || numMatch[2] || "").trim() || null : null,
+      submission_date_text: dateMatch ? String(dateMatch[1]).trim() : null,
+      next_action: "심사·결과 확인",
+    };
+  }
+  if (OUTCOME_UNCLEAR_RE.test(text)) {
+    return {
+      kind: "unclear_wait",
+      status: null,
+      next_action: "결과 확인",
+    };
+  }
+  return null;
+}
+
+function listOutcomeTrackableCases(existingCases = []) {
+  return normalizeKeyClaimCaseUpdates(existingCases).filter((row) =>
+    OUTCOME_TRACKABLE_STATUSES.has(String(row?.status ?? "")),
+  );
+}
+
+function pickOpenCaseForOutcome(existingCases = [], topicKey = null) {
+  const open = listOutcomeTrackableCases(existingCases);
+  if (!open.length) return null;
+  if (topicKey) {
+    const byKind = findOpenCaseForKind(existingCases, topicKey, {
+      allowSingleFallback: false,
+    });
+    if (byKind && OUTCOME_TRACKABLE_STATUSES.has(String(byKind.status))) {
+      return byKind;
+    }
+  }
+  if (open.length === 1) return open[0];
+  const progressing = open.filter((row) =>
+    ["preparing", "submitted_by_customer", "under_review"].includes(
+      String(row.status),
+    ),
+  );
+  if (progressing.length === 1) return progressing[0];
+  // Multiple trackable without unique event signal — do not guess.
+  return null;
 }
 
 function resolveEventKind(question = "") {
@@ -424,6 +536,185 @@ function buildPreparationUpdate({
   };
 }
 
+function buildOutcomeUpdate({
+  question = "",
+  existingCases = [],
+  outcome = null,
+  attachedDocumentId = null,
+  messageId = null,
+  sessionId = null,
+  now = null,
+} = {}) {
+  if (!outcome || typeof outcome !== "object") {
+    return { ok: false, reason: "no_outcome_signal", action: "skip", updates: [] };
+  }
+  const { topicKey } = resolveEventKind(question);
+  const prior = pickOpenCaseForOutcome(existingCases, topicKey);
+  const trackable = listOutcomeTrackableCases(existingCases);
+  if (!prior) {
+    return {
+      ok: false,
+      reason: trackable.length === 0 ? "no_open_claim_case" : "ambiguous_open_claim_case",
+      action: "skip",
+      updates: [],
+    };
+  }
+
+  const updated_at = stampNow(now);
+  const source_message_id = buildSourceMessageId({ messageId, question, sessionId });
+  const docId = String(attachedDocumentId ?? "").trim();
+  const source_document_ids = [
+    ...new Set([
+      ...(Array.isArray(prior.source_document_ids) ? prior.source_document_ids : []),
+      ...(docId ? [docId] : []),
+    ]),
+  ].slice(0, 24);
+
+  // Unclear wait — keep status; only refresh next_action when clear single case.
+  if (outcome.kind === "unclear_wait") {
+    const evidence = [
+      ...new Set([
+        ...(Array.isArray(prior.evidence) ? prior.evidence : []),
+        `source:${KEY_CLAIM_INTAKE_SOURCE}`,
+        `message_id:${source_message_id}`,
+        "outcome_signal:unclear_wait",
+      ]),
+    ].slice(0, 40);
+    const update = {
+      claim_case_key: prior.claim_case_key,
+      medical_event: preserveMedicalEvent(prior),
+      related_policies: Array.isArray(prior.related_policies) ? prior.related_policies : [],
+      related_coverages: Array.isArray(prior.related_coverages)
+        ? prior.related_coverages
+        : [],
+      assessment: prior.assessment ?? null,
+      required_documents: Array.isArray(prior.required_documents)
+        ? prior.required_documents
+        : [],
+      available_documents: Array.isArray(prior.available_documents)
+        ? prior.available_documents
+        : [],
+      missing_documents: Array.isArray(prior.missing_documents)
+        ? prior.missing_documents
+        : [],
+      status: prior.status,
+      next_action: outcome.next_action || "결과 확인",
+      evidence,
+      source: KEY_CLAIM_INTAKE_SOURCE,
+      source_message_id,
+      source_document_ids,
+      insurer_verified: false,
+      denial_reason: prior.denial_reason ?? null,
+      payout_amount_text: prior.payout_amount_text ?? null,
+      submission_number: prior.submission_number ?? null,
+      submission_date_text: prior.submission_date_text ?? null,
+      updated_at,
+    };
+    const normalized = normalizeKeyClaimCaseUpdates([update], { updated_at });
+    if (!normalized.length) {
+      return { ok: false, reason: "normalize_empty", action: "skip", updates: [] };
+    }
+    return {
+      ok: true,
+      reason: "outcome_unclear_keep_status",
+      action: "update",
+      updates: normalized,
+      claim_case_key: prior.claim_case_key,
+    };
+  }
+
+  const status = String(outcome.status);
+  const evidence = [
+    ...new Set([
+      ...(Array.isArray(prior.evidence) ? prior.evidence : []),
+      `source:${KEY_CLAIM_INTAKE_SOURCE}`,
+      `message_id:${source_message_id}`,
+      `outcome_status:${status}`,
+      "outcome_source:customer_statement",
+      "insurer_verified:false",
+      ...(docId
+        ? [
+            `source:${KEY_CLAIM_UPLOAD_SOURCE}`,
+            `document_id:${docId}`,
+            "document_content:unverified",
+          ]
+        : []),
+      ...(outcome.denial_reason
+        ? [`denial_reason:${outcome.denial_reason}`]
+        : []),
+      ...(outcome.payout_amount_text
+        ? [`payout_amount:${outcome.payout_amount_text}`]
+        : []),
+      ...(outcome.submission_number
+        ? [`submission_number:${outcome.submission_number}`]
+        : []),
+      ...(outcome.submission_date_text
+        ? [`submission_date:${outcome.submission_date_text}`]
+        : []),
+    ]),
+  ].slice(0, 40);
+
+  const update = {
+    claim_case_key: prior.claim_case_key,
+    medical_event: preserveMedicalEvent(prior),
+    related_policies: Array.isArray(prior.related_policies) ? prior.related_policies : [],
+    related_coverages: Array.isArray(prior.related_coverages)
+      ? prior.related_coverages
+      : [],
+    assessment: prior.assessment ?? null,
+    required_documents: Array.isArray(prior.required_documents)
+      ? prior.required_documents
+      : [],
+    available_documents: Array.isArray(prior.available_documents)
+      ? prior.available_documents
+      : [],
+    missing_documents: Array.isArray(prior.missing_documents)
+      ? prior.missing_documents
+      : [],
+    status,
+    next_action: outcome.next_action || prior.next_action || "결과 확인",
+    evidence,
+    source: KEY_CLAIM_INTAKE_SOURCE,
+    source_message_id,
+    source_document_ids,
+    insurer_verified: false,
+    denial_reason:
+      status === "denied"
+        ? outcome.denial_reason || prior.denial_reason || "unknown"
+        : prior.denial_reason ?? null,
+    payout_amount_text:
+      status === "paid"
+        ? outcome.payout_amount_text || prior.payout_amount_text || null
+        : prior.payout_amount_text ?? null,
+    submission_number:
+      outcome.submission_number || prior.submission_number || null,
+    submission_date_text:
+      outcome.submission_date_text || prior.submission_date_text || null,
+    updated_at,
+  };
+
+  const normalized = normalizeKeyClaimCaseUpdates([update], { updated_at });
+  if (!normalized.length) {
+    return { ok: false, reason: "normalize_empty", action: "skip", updates: [] };
+  }
+  // Evidence must allow status advance (KEY_CLAIM_STATUS_NEEDS_EVIDENCE).
+  if (normalized[0].status !== status) {
+    return {
+      ok: false,
+      reason: "outcome_status_blocked_no_evidence",
+      action: "skip",
+      updates: [],
+    };
+  }
+  return {
+    ok: true,
+    reason: `outcome_${outcome.kind}`,
+    action: "update",
+    updates: normalized,
+    claim_case_key: prior.claim_case_key,
+  };
+}
+
 function buildAttachEvidenceUpdate({
   question = "",
   existingCases = [],
@@ -529,6 +820,20 @@ export function buildKeyClaimIntakeUpdate({
   const preparedDocs = extractPreparedDocumentsFromUtterance(question);
   const isIntake = isClearClaimIntakeQuestion(question);
   const docId = String(attachedDocumentId ?? "").trim();
+  const outcome = detectClaimOutcomeSignal(question);
+
+  // Slice 1C — submission / review / paid / denied / unclear wait (never create).
+  if (outcome && !isIntake) {
+    return buildOutcomeUpdate({
+      question,
+      existingCases,
+      outcome,
+      attachedDocumentId: docId || null,
+      messageId,
+      sessionId,
+      now,
+    });
+  }
 
   // Preparation path — update open case only; never create.
   if (preparedDocs.length > 0 && !isIntake) {
