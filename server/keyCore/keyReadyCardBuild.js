@@ -268,6 +268,7 @@ export async function buildKeyReadyCard({
   customerId = null,
   sessionId = null,
   authUserId = null,
+  selectedEntityId = null,
   loadedContext = null,
   unifiedState = null,
   customerContextBundle = null,
@@ -356,17 +357,22 @@ export async function buildKeyReadyCard({
           userSupabase,
           customerId: cid,
           authUserId,
+          selectedEntityId,
         }).catch(() => ({
           corporate_contexts: [],
           corporate_gap_evidence: [],
           corporate_recommendation_candidates: [],
           corporate_unknowns: [],
+          selected_entity_id: null,
+          authorization_denied: false,
         }))
       : Promise.resolve({
           corporate_contexts: [],
           corporate_gap_evidence: [],
           corporate_recommendation_candidates: [],
           corporate_unknowns: [],
+          selected_entity_id: null,
+          authorization_denied: false,
         }),
     typeof loadKeyActiveClaimCases === "function"
       ? loadKeyActiveClaimCases({ supabase: userSupabase, customerId: cid }).catch(() => [])
@@ -491,6 +497,14 @@ export async function buildKeyReadyCard({
         ? corporateLoaded.corporate_recommendation_candidates
         : [],
       corporate_unknowns,
+      selected_entity_id: corporateLoaded?.selected_entity_id ?? null,
+      authorization_denied: corporateLoaded?.authorization_denied === true,
+      // Personal prior/goal are not corporate-scoped in this slice.
+      corporate_conversation_context: {
+        prior_status: "unknown",
+        goal_status: "unknown",
+        note: "no_corporate_scoped_prior_or_goal",
+      },
     },
     unknowns: materials_connected ? unknowns : [...new Set([...unknowns, "materials_unconnected"])],
     materials_connected,
@@ -544,6 +558,7 @@ export async function resolveReadyCardForQuestionTurn({
   customerId = null,
   sessionId = null,
   authUserId = null,
+  selectedEntityId = null,
   loadedContext = null,
   unifiedState = null,
   customerContextBundle = null,
@@ -559,6 +574,7 @@ export async function resolveReadyCardForQuestionTurn({
     customerId,
     sessionId,
     authUserId,
+    selectedEntityId,
     loadedContext,
     unifiedState,
     customerContextBundle,
@@ -821,6 +837,8 @@ export function materialsFromReadyCard(card = null) {
       corporateGapEvidence: [],
       corporateRecommendationCandidates: [],
       corporateUnknowns: [],
+      selectedCorporateEntityId: null,
+      corporateAuthorizationDenied: false,
       activeClaimCases: [],
       activeDocuments: [],
       policies: [],
@@ -851,6 +869,8 @@ export function materialsFromReadyCard(card = null) {
     corporateUnknowns: Array.isArray(card.corporate?.corporate_unknowns)
       ? card.corporate.corporate_unknowns
       : [],
+    selectedCorporateEntityId: card.corporate?.selected_entity_id ?? null,
+    corporateAuthorizationDenied: card.corporate?.authorization_denied === true,
     activeClaimCases: Array.isArray(card.insurance_card?._active_claim_cases)
       ? card.insurance_card._active_claim_cases
       : [],

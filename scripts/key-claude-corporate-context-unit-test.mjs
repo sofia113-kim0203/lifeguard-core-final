@@ -13,11 +13,14 @@ import {
   buildUserPayload,
   runClaudeFirstDirectQuestionTurn,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import { clearReadyCardCache } from "../server/keyCore/keyReadyCardCache.js";
 import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
 import { CORPORATE_SNAPSHOT_V1 } from "../server/entity/corporate/corporateSnapshot.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+clearReadyCardCache();
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -85,12 +88,24 @@ function makeSnapshot(industry = "제조") {
     contract_version: CORPORATE_SNAPSHOT_V1,
     derived: {
       industry,
+      business_description: null,
       group_insurance_status: "present",
       employee_count: 12,
+      workplace_or_facilities: null,
       executive_protection: null,
       fire_insurance: null,
       liability: null,
-      unknowns: ["executive_protection", "fire_insurance", "liability"],
+      confirmed_goals: null,
+      concerns: null,
+      unknowns: [
+        "business_description",
+        "workplace_or_facilities",
+        "executive_protection",
+        "fire_insurance",
+        "liability",
+        "confirmed_goals",
+        "concerns",
+      ],
     },
   };
 }
@@ -109,8 +124,56 @@ function makeSnapshot(industry = "제조") {
   assert.ok(pack.verified_facts.some((f) => f.key === "corporate.basic.industry"));
   assert.ok(pack.partial_facts.some((f) => f.key === "corporate.note.soft"));
   assert.ok(pack.unknowns.includes("executive_protection"));
+  assert.equal(pack.chart?.fields?.industry?.status, "known");
+  assert.equal(pack.chart?.fields?.industry?.value, "제조");
+  assert.equal(pack.chart?.fields?.fire_insurance?.status, "unknown");
   assert.equal(pack.provenance.memory_namespace, "entity_memory_facts");
   assert.equal(JSON.stringify(pack).includes(ENTITY_B), false);
+}
+
+// --- unauthorized selected entity → fail-closed empty ---
+{
+  const result = await loadAllowedCorporateContextsForClaude({
+    userSupabase: {},
+    customerId: "cust-1",
+    authUserId: "user-1",
+    selectedEntityId: ENTITY_FOREIGN,
+    listMyCorporateEntitiesImpl: async () => ({
+      ok: true,
+      entities: [{ entity_id: ENTITY_A, display_name: "A법인" }],
+    }),
+  });
+  assert.equal(result.authorization_denied, true);
+  assert.deepEqual(result.corporate_contexts, []);
+  assert.equal(result.skipped_reason, "selected_entity_not_authorized");
+}
+
+// --- corporate documents stay entity-scoped ---
+{
+  const docs = [
+    {
+      document_id: "doc-a",
+      entity_id: ENTITY_A,
+      original_filename: "a.pdf",
+      evidence_tier: "original_presence",
+    },
+    {
+      document_id: "doc-b",
+      entity_id: ENTITY_B,
+      original_filename: "b.pdf",
+      evidence_tier: "original_presence",
+    },
+  ];
+  const pack = buildClaudeCorporateFactPack({
+    entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
+    membership: makeMembership(ENTITY_A),
+    snapshot: makeSnapshot("제조"),
+    memorySnapshot: makeMemorySnapshot(ENTITY_A, "제조"),
+    documents: docs,
+  });
+  assert.equal(pack.documents.length, 1);
+  assert.equal(pack.documents[0].document_id, "doc-a");
+  assert.equal(JSON.stringify(pack.documents).includes(ENTITY_B), false);
 }
 
 // --- membership none → empty contexts, personal path unchanged ---
@@ -233,11 +296,25 @@ function makeSnapshot(industry = "제조") {
     allowlist: { allowed_numbers: [34], allowed_entities: ["개인보험사"] },
     contextPack: { recent_turns: [] },
     corporateContexts: [packA, packB],
+    selectedCorporateEntityId: ENTITY_A,
+    priorConsultation: {
+      related_turns: [{ text: "개인 상담" }],
+      open_goals: [],
+      open_tasks: [],
+      life_threads: [],
+    },
   });
   assert.equal(payload.available_verified_evidence.personal.chart.policy_count, 34);
   assert.equal(payload.available_verified_evidence.corporate.length, 2);
   assert.equal(payload.available_verified_evidence.corporate[0].entity_id, ENTITY_A);
   assert.equal(payload.available_verified_evidence.corporate[1].entity_id, ENTITY_B);
+  assert.equal(payload.current_context.corporate_turn.selected_entity_id, ENTITY_A);
+  assert.equal(
+    payload.current_context.corporate_turn.corporate_prior_consultation.status,
+    "unknown",
+  );
+  assert.equal(payload.current_context.prior_consultation.subject_scope, "personal_only");
+  assert.ok(payload.available_verified_evidence.corporate[0].chart);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, "guidance"), false);
   assert.equal(
     JSON.stringify(payload.available_verified_evidence.corporate[0]).includes(ENTITY_B),
@@ -266,15 +343,18 @@ const previewEnv = {
 function extractUserText(opts) {
   const body = JSON.parse(String(opts?.body ?? "{}"));
   const content = body?.messages?.[0]?.content;
-  return typeof content === "string"
-    ? content
-    : Array.isArray(content)
-      ? content.find((b) => b?.type === "text")?.text ?? ""
-      : "";
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  // Prompt cache splits B (evidence) + C (question/context) into multiple text blocks.
+  return content
+    .filter((b) => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n");
 }
 
 // --- arbitrary client entity_id → does not widen; membership list drives contexts ---
 {
+  clearReadyCardCache();
   let claudeCalls = 0;
   let sawPersonal = false;
   let sawForeign = false;
@@ -292,13 +372,13 @@ function extractUserText(opts) {
       policies: [{ insurer_name: "삼성생명", monthly_premium: 50000 }],
       policy_count: 2,
     },
-    customerId: "cust-1",
+    customerId: "cust-corp-deny-1",
     authUserId: "user-1",
+    userSupabase: { __test: true },
+    // Client may send a foreign entity_id; Hand must not widen (membership list / mock).
     entityContext: {
-      conversationContext: {
-        entity_type: "corporate",
-        entity_id: ENTITY_FOREIGN,
-      },
+      entity_type: "corporate",
+      entity_id: ENTITY_FOREIGN,
     },
     env: previewEnv,
     fetchImpl: async (_url, opts) => {
@@ -323,21 +403,90 @@ function extractUserText(opts) {
         },
       };
     },
-    loadAllowedCorporateContextsForClaudeImpl: async () => ({
-      ok: true,
-      corporate_contexts: [packA],
-    }),
+    loadAllowedCorporateContextsForClaudeImpl: async ({ selectedEntityId } = {}) => {
+      // Unauthorized selection → fail-closed (no widen to foreign entity materials).
+      if (selectedEntityId && selectedEntityId !== ENTITY_A) {
+        return {
+          ok: true,
+          corporate_contexts: [],
+          authorization_denied: true,
+          skipped_reason: "selected_entity_not_authorized",
+        };
+      }
+      return {
+        ok: true,
+        corporate_contexts: [packA],
+        selected_entity_id: ENTITY_A,
+      };
+    },
   });
   assert.equal(claudeCalls, 1);
   assert.equal(sawPersonal, true);
-  assert.equal(sawAllowed, true);
+  // Foreign client entity_id must not inject foreign facts; membership mock returns A only when authorized.
   assert.equal(sawForeign, false);
+  // With unauthorized selection, corporate pack is empty (fail-closed) — personal still answers.
+  assert.equal(sawAllowed, false);
   assert.equal(result.key_monopoly_failure, false);
   assert.ok(String(result.customerText ?? "").length > 0);
 }
 
+// --- authorized selected entity → corporate chart reaches Claude ---
+{
+  clearReadyCardCache();
+  let claudeCalls = 0;
+  let sawAllowed = false;
+  const packA = buildClaudeCorporateFactPack({
+    entityRecord: makeEntityRecord(ENTITY_A, "A법인"),
+    membership: makeMembership(ENTITY_A),
+    snapshot: makeSnapshot("제조"),
+    memorySnapshot: makeMemorySnapshot(ENTITY_A, "제조"),
+  });
+  const result = await runClaudeFirstDirectQuestionTurn({
+    question: "우리 회사 보험 상태 알려줘",
+    history: [],
+    loadedContext: {
+      policies: [{ insurer_name: "삼성생명" }],
+      policy_count: 1,
+    },
+    customerId: "cust-corp-allow-1",
+    authUserId: "user-1",
+    userSupabase: { __test: true },
+    entityContext: {
+      conversationContext: { entity_type: "corporate", entity_id: ENTITY_A },
+    },
+    env: previewEnv,
+    fetchImpl: async (_url, opts) => {
+      claudeCalls += 1;
+      const text = extractUserText(opts);
+      if (/제조/.test(text) && text.includes(ENTITY_A) && /corporate_turn/.test(text)) {
+        sawAllowed = true;
+      }
+      return {
+        ok: true,
+        async json() {
+          return {
+            content: [{ type: "text", text: "법인 차트 기준으로 확인했습니다." }],
+          };
+        },
+      };
+    },
+    loadAllowedCorporateContextsForClaudeImpl: async ({ selectedEntityId } = {}) => {
+      assert.equal(selectedEntityId, ENTITY_A);
+      return {
+        ok: true,
+        corporate_contexts: [packA],
+        selected_entity_id: ENTITY_A,
+      };
+    },
+  });
+  assert.equal(claudeCalls, 1);
+  assert.equal(sawAllowed, true);
+  assert.equal(result.key_monopoly_failure, false);
+}
+
 // --- membership none → personal chart path regression ---
 {
+  clearReadyCardCache();
   let claudeCalls = 0;
   let sawPersonal = false;
   const result = await runClaudeFirstDirectQuestionTurn({
@@ -347,8 +496,9 @@ function extractUserText(opts) {
       policies: [{ insurer_name: "한화생명" }],
       policy_count: 2,
     },
-    customerId: "cust-1",
+    customerId: "cust-corp-personal-1",
     authUserId: "user-1",
+    userSupabase: { __test: true },
     env: previewEnv,
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;
@@ -383,9 +533,12 @@ function extractUserText(opts) {
   const sessionCore = readFileSync(join(ROOT, "src/lib/lifeguardChatSessionCore.js"), "utf8");
   assert.equal(/active_entity_type|active_entity_id|activeEntity/.test(sessionCore), false);
   const firstDirect = readFileSync(join(ROOT, "server/keyCore/keyClaudeFirstDirect.js"), "utf8");
-  assert.equal(/corporateTurn|Use only verified_corporate_facts|verified_customer_chart: null/.test(firstDirect), false);
+  // corporate_turn / corporateTurnContext are Chart Hand Slice 1 (selected entity honesty).
+  // Forbidden: old XOR speech / nulling personal chart for corporate mode.
+  assert.equal(/Use only verified_corporate_facts|verified_customer_chart:\s*null/.test(firstDirect), false);
   assert.match(firstDirect, /available_verified_evidence/);
   assert.match(firstDirect, /loadAllowedCorporateContextsForClaude/);
+  assert.match(firstDirect, /corporate_turn/);
 }
 
 console.log("key-claude-corporate-context-unit-test: PASS");

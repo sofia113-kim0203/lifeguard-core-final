@@ -69,6 +69,7 @@ import {
 } from "./keyVoiceGate.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
+import { neutralizeUnsupportedInsurerProductLiterals } from "./keyVerifiedLiteralConflict.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity, buildPersistableLatencyMarks } from "./keyLatencyMarks.js";
 import { createImmediateAnswerDeltaStream } from "./keyClaudeFirstSentenceCommit.js";
@@ -1987,6 +1988,49 @@ function normalizeCorporateContexts(corporateContexts = null) {
   );
 }
 
+/** Seat/audit only — never dumps full corporate payloads or secrets. */
+function maskIdTail(id) {
+  const s = String(id ?? "").trim();
+  return s.length > 8 ? `${s.slice(0, 8)}…${s.slice(-4)}` : s || null;
+}
+
+export function buildCorporateHandSeatAudit({
+  corporateContexts = null,
+  selectedEntityId = null,
+  authorizationDenied = false,
+} = {}) {
+  const contexts = normalizeCorporateContexts(corporateContexts);
+  const docs = contexts.flatMap((c) =>
+    Array.isArray(c?.documents)
+      ? c.documents
+      : Array.isArray(c?.chart?.documents)
+        ? c.chart.documents
+        : [],
+  );
+  const chartKnown = [];
+  for (const c of contexts) {
+    const fields = c?.chart?.fields && typeof c.chart.fields === "object" ? c.chart.fields : {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (v?.status === "known" && v?.value != null && v.value !== "") chartKnown.push(k);
+    }
+  }
+  return {
+    hand: "loadAllowedCorporateContextsForClaude",
+    ready_corporate: contexts.length > 0,
+    contexts_count: contexts.length,
+    documents_count: docs.length,
+    document_ownership_source: "customer_documents.entity_id",
+    selected_entity_id_masked: maskIdTail(selectedEntityId),
+    authorization_denied: authorizationDenied === true,
+    chart_known_fields: [...new Set(chartKnown)].slice(0, 24),
+    display_names: contexts
+      .map((c) => String(c?.display_name ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 6),
+    available_verified_evidence_corporate: contexts.length > 0,
+  };
+}
+
 function factStatusLabel(row = null) {
   if (!row || typeof row !== "object") return "unknown";
   if (row.verified_absent === true || row.status === "verified_absent") return "verified_absent";
@@ -2168,14 +2212,31 @@ function buildCorporateEvidenceEntries({
       .filter((u) => String(u?.entity_id ?? "").trim() === entityId)
       .map((u) => (typeof u === "string" ? u : u?.unknown ?? u?.item ?? u))
       .filter(Boolean);
+    const chartUnknowns = Array.isArray(corporate?.chart?.unknown_items)
+      ? corporate.chart.unknown_items
+      : [];
     const mergedUnknowns = [
-      ...new Set([...(Array.isArray(corporate.unknowns) ? corporate.unknowns : []), ...entityUnknowns]),
+      ...new Set([
+        ...(Array.isArray(corporate.unknowns) ? corporate.unknowns : []),
+        ...entityUnknowns,
+        ...chartUnknowns,
+      ]),
     ];
+    const docs = Array.isArray(corporate.documents)
+      ? corporate.documents
+      : Array.isArray(corporate?.chart?.documents)
+        ? corporate.chart.documents
+        : [];
     return {
       subject_type: "corporate",
       entity_id: entityId,
       entity_name: corporate.display_name ?? null,
       membership_role: corporate.membership_role ?? null,
+      entity_status: corporate.entity_status ?? null,
+      is_qa_test_entity: corporate.is_qa_test_entity === true,
+      customer_grade: corporate.customer_grade ?? null,
+      chart: corporate.chart ?? null,
+      documents: docs,
       verified_context: {
         entity_type: corporate.entity_type,
         verified_facts: corporate.verified_facts ?? [],
@@ -2276,6 +2337,7 @@ export function buildUserPayload({
   corporateGapEvidence = null,
   corporateRecommendationCandidates = null,
   corporateUnknowns = null,
+  selectedCorporateEntityId = null,
   publicEvidence = null,
   activeClaimCases = null,
   sessionGoal = null,
@@ -2298,6 +2360,7 @@ export function buildUserPayload({
           goal: String(sessionGoal.goal).trim(),
           status: "active",
           updated_at: sessionGoal.updated_at ?? null,
+          subject_scope: "personal_or_unscoped",
         }
       : null;
   const softLifeThreads = formatLifeThreadsForReadyCard(
@@ -2319,7 +2382,8 @@ export function buildUserPayload({
             ? priorConsultation.open_tasks.slice(0, 6)
             : [],
           life_threads: softLifeThreads,
-          note: "prior_consultation_reference_only_not_verified_fact",
+          subject_scope: "personal_only",
+          note: "prior_consultation_reference_only_not_verified_fact_not_corporate",
         }
       : null;
 
@@ -2373,6 +2437,27 @@ export function buildUserPayload({
     corporateRecommendationCandidates,
     corporateUnknowns,
   });
+  const selectedEntity =
+    String(selectedCorporateEntityId ?? "").trim() ||
+    (corporate.length === 1 ? String(corporate[0]?.entity_id ?? "").trim() : "") ||
+    null;
+  const selectedCorporate = selectedEntity
+    ? corporate.find((c) => String(c?.entity_id ?? "").trim() === selectedEntity) ?? null
+    : null;
+  const corporateTurnContext = {
+    selected_entity_id: selectedCorporate?.entity_id ?? null,
+    authorization_verified: Boolean(selectedCorporate?.entity_id),
+    is_qa_test_entity: selectedCorporate?.is_qa_test_entity === true,
+    // No corporate-scoped prior/goal store in this slice — do not pretend personal prior is corporate.
+    corporate_prior_consultation: {
+      status: "unknown",
+      note: "no_corporate_scoped_prior_do_not_treat_personal_prior_as_corporate",
+    },
+    corporate_session_goal: {
+      status: "unknown",
+      note: "no_corporate_scoped_session_goal",
+    },
+  };
   const keyConfirmed = Array.isArray(chart?.key_confirmed_source_facts)
     ? chart.key_confirmed_source_facts
     : [];
@@ -2388,6 +2473,11 @@ export function buildUserPayload({
         subject_type: "individual",
       }
     : null;
+
+  // Personal document listing only — corporate docs live under available_verified_evidence.corporate[].documents.
+  const personalDocuments = (Array.isArray(documents) ? documents : []).filter(
+    (d) => !d?.entity_id,
+  );
 
   return {
     current_question: String(question ?? ""),
@@ -2407,6 +2497,7 @@ export function buildUserPayload({
           null,
         retained_past_originals: contextPack?.retained_past_originals ?? [],
       },
+      corporate_turn: corporateTurnContext,
       // Soft reference only — never above current_question / conversation / verified evidence.
       ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
       ...(softPrior ? { prior_consultation: softPrior } : {}),
@@ -2435,7 +2526,7 @@ export function buildUserPayload({
         evidence_state: chartEvidenceState(personalChart),
       },
       corporate,
-      documents,
+      documents: personalDocuments,
       public_evidence,
     },
   };
@@ -3289,6 +3380,7 @@ async function callClaudeFirstDirect({
   corporateGapEvidence = null,
   corporateRecommendationCandidates = null,
   corporateUnknowns = null,
+  selectedCorporateEntityId = null,
   activeClaimCases = null,
   activeDocuments = null,
   /** Server-SSOT soft goal only — never from client body. */
@@ -3363,6 +3455,8 @@ async function callClaudeFirstDirect({
         : corporateRecommendationCandidates,
     corporateUnknowns:
       presenceTurn === true || imageOriginalRead ? null : corporateUnknowns,
+    selectedCorporateEntityId:
+      presenceTurn === true || imageOriginalRead ? null : selectedCorporateEntityId,
     publicEvidence: [],
     activeClaimCases:
       presenceTurn === true || imageOriginalRead ? null : activeClaimCases,
@@ -3637,12 +3731,23 @@ export async function runClaudeFirstDirectQuestionTurn({
   const discardRequested =
     isPresenceTurn === true ? false : shouldDiscardStaleSessionGoal(question) === true;
 
+  // Client entity_id is a selection hint only — membership re-verified in corporate Hand.
+  const selectedEntityIdHint =
+    String(
+      entityContext?.entity_id ??
+        entityContext?.selected_entity_id ??
+        entityContext?.conversationContext?.entity_id ??
+        entityContext?.passthrough_audit?.entity_id ??
+        "",
+    ).trim() || null;
+
   // Triangle T2/T2.1 — handoff token → memory → parallel rebuild. Never trust client card JSON.
   const readyResolved = await resolveReadyCardForQuestionTurn({
     userSupabase,
     customerId,
     sessionId,
     authUserId,
+    selectedEntityId: selectedEntityIdHint,
     loadedContext,
     unifiedState,
     customerContextBundle,
@@ -3693,11 +3798,20 @@ export async function runClaudeFirstDirectQuestionTurn({
   let corporateGapEvidence = readyMaterials.corporateGapEvidence;
   let corporateRecommendationCandidates = readyMaterials.corporateRecommendationCandidates;
   let corporateUnknowns = readyMaterials.corporateUnknowns;
+  const corporateAuthorizationDenied =
+    readyMaterials.corporateAuthorizationDenied === true;
+  const selectedCorporateEntityId =
+    readyMaterials.selectedCorporateEntityId ||
+    (Array.isArray(corporateContexts) && corporateContexts.length === 1
+      ? String(corporateContexts[0]?.entity_id ?? "").trim() || null
+      : null);
+  const corporateHandSeatAudit = buildCorporateHandSeatAudit({
+    corporateContexts,
+    selectedEntityId: selectedCorporateEntityId,
+    authorizationDenied: corporateAuthorizationDenied,
+  });
   const activeClaimCasesFromCard = readyMaterials.activeClaimCases;
   const activeDocumentsFromCard = readyMaterials.activeDocuments;
-
-  // entityContext from older clients is ignored for data access scope.
-  void entityContext;
 
   const sessionGoalForContext = discardRequested
     ? null
@@ -4208,6 +4322,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? null
       : corporateRecommendationCandidates,
     corporateUnknowns: isPresenceTurn ? null : corporateUnknowns,
+    selectedCorporateEntityId: isPresenceTurn ? null : selectedCorporateEntityId,
     activeClaimCases: isPresenceTurn ? null : activeClaimCases,
     activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
     sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
@@ -4392,7 +4507,30 @@ export async function runClaudeFirstDirectQuestionTurn({
       failureReason = "empty_answer";
     }
   }
-  // Seal Claude original as-is (no monopoly stub, no soft rewrite, no truncation).
+  // Fact-alignment: strip only unverified insurer/product literals (no full rewrite, no 2nd Claude).
+  const literalGuard = presenceChoseSilence
+    ? {
+        text: "",
+        changed: false,
+        stripped_count: 0,
+        stripped_forms: [],
+        reason: "presence_silence",
+      }
+    : neutralizeUnsupportedInsurerProductLiterals(finalText, {
+        allowedEntities: claude.allowlist?.allowed_entities ?? [],
+      });
+  if (literalGuard.changed) {
+    finalText = literalGuard.text;
+  }
+  const keyVerifiedLiteralConflict = {
+    conflict: literalGuard.stripped_count > 0,
+    reason: literalGuard.reason,
+    stripped_count: literalGuard.stripped_count,
+    stripped_forms: literalGuard.stripped_forms,
+    full_rewrite: false,
+    second_claude_call: false,
+  };
+  // Seal after fact-alignment strip only (no monopoly stub, no soft rewrite, no truncation).
   // Presence silence seals empty (token never shown / never stored as customer fact).
   const sealed = sealKeyCustomerText(finalText);
   // Catch up any trailing gap so streamed text matches sealed before customer done.
@@ -4561,6 +4699,7 @@ export async function runClaudeFirstDirectQuestionTurn({
               presence_life_thread_id: presenceTurnMeta?.life_thread_id ?? null,
               provider_calls: 1,
               tools: 0,
+              corporate_hand: corporateHandSeatAudit,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
               life_threads_brief: earlyLifeThreadsBrief,
               life_threads_attach_reason:
@@ -4916,6 +5055,9 @@ export async function runClaudeFirstDirectQuestionTurn({
           focused_correction_count: 0,
           hard_safety_repair_attempt: 0,
           s6_speak_calls: 0,
+          provider_calls: usedFailure ? 0 : 1,
+          tools: 0,
+          corporate_hand: corporateHandSeatAudit,
           soft_reasons_ignored: safety.soft,
           hard_reasons: safety.hard,
           replacing_hard_reasons: replacingHard,
@@ -4971,7 +5113,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           key_confirmed_fact_gate: keyConfirmedFactGate,
           key_confirmed_persist: keyConfirmedPersist,
           key_coverage_baseline_persist: keyBaselinePersist,
-          key_verified_literal_conflict: null,
+          key_verified_literal_conflict: keyVerifiedLiteralConflict,
           key_memory_rebuild: keyMemoryRebuild,
           active_claim_cases_hydrated: activeClaimCases.length,
           claim_case_updates_count: claimCasesToPersist.length,
@@ -5019,6 +5161,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             token_validation_ms: tokenValidationMs,
             token_reject_reason: tokenRejectReason,
             ready_card_materials_connected: readyCard?.materials_connected === true,
+            corporate_hand: corporateHandSeatAudit,
           },
         },
         {
@@ -5030,6 +5173,7 @@ export async function runClaudeFirstDirectQuestionTurn({
             hard_fail: usedFailure,
             hard_reasons: safety.hard,
             soft_ignored: safety.soft,
+            corporate_hand: corporateHandSeatAudit,
             answer_source: claude.answer_source ?? null,
             pdf_attached: claude.pdf_attached === true,
             attach_signals: pdf?.meta?.attach_signals ?? null,
@@ -5052,7 +5196,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         {
           step: "key_verified_literal_conflict",
           at_ms: relMs(startedAt),
-          payload: null,
+          payload: keyVerifiedLiteralConflict,
         },
         {
           step: "key_confirmed_fact_gate",

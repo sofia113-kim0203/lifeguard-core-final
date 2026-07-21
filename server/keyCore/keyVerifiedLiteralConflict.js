@@ -349,3 +349,134 @@ export function detectKeyVerifiedLiteralConflict(sentence = "", verifiedSet = nu
 }
 
 export const KEY_VERIFIED_LITERAL_CONFLICT_FIELDS = ALLOWED_FIELDS;
+
+/** Existing brand regex — not a new insurer catalog. */
+export { INSURER_BRAND_RE };
+
+/**
+ * Short forms derived only from INSURER_BRAND_RE entries (no new insurer catalog).
+ * Longest-first for matching.
+ */
+function deriveInsurerBrandForms() {
+  const brands = String(INSURER_BRAND_RE.source).split("|").filter(Boolean);
+  const forms = new Set();
+  for (const brand of brands) {
+    forms.add(brand);
+    if (brand.endsWith("손해보험")) {
+      forms.add(`${brand.slice(0, -4)}손보`); // 한화손해보험 → 한화손보
+      forms.add(brand.slice(0, -4)); // 한화손해보험 → 한화
+    } else if (brand.endsWith("생명")) {
+      forms.add(brand.slice(0, -2)); // 한화생명 → 한화
+    } else if (brand.endsWith("화재")) {
+      forms.add(brand.slice(0, -2));
+    } else if (brand.endsWith("해상")) {
+      forms.add(brand.slice(0, -2));
+    }
+  }
+  // Drop ultra-short / ambiguous tokens that are not useful alone.
+  return [...forms]
+    .filter((f) => f && f.length >= 2)
+    .sort((a, b) => b.length - a.length);
+}
+
+const INSURER_BRAND_FORMS = deriveInsurerBrandForms();
+const INSURER_BRAND_FORMS_RE = new RegExp(
+  `(${INSURER_BRAND_FORMS.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
+);
+
+function insurerFormAllowed(claimedForm, allowedEntities = []) {
+  const claimed = normalizeText(claimedForm);
+  if (!claimed) return true;
+  const allowed = (Array.isArray(allowedEntities) ? allowedEntities : [])
+    .map((e) => normalizeText(e))
+    .filter(Boolean);
+  if (allowed.length === 0) return false;
+  return allowed.some((a) => {
+    if (a === claimed || a.includes(claimed) || claimed.includes(a)) return true;
+    // Allowed 한화생명 must not green-light 한화손보 / 한화손해보험.
+    const claimedLife = /생명/.test(claimedForm);
+    const claimedNonLife = /손보|손해|화재|해상/.test(claimedForm);
+    const allowedLife = /생명/.test(a);
+    const allowedNonLife = /손보|손해|화재|해상/.test(a);
+    if (claimedLife && allowedNonLife && !allowedLife) return false;
+    if (claimedNonLife && allowedLife && !allowedNonLife) return false;
+    // Shared stem only when both sides are the same line (both bare or both typed).
+    const stem = claimed.replace(/(생명|손해보험|손보|화재|해상|보험)$/g, "");
+    const aStem = a.replace(/(생명|손해보험|손보|화재|해상|보험)$/g, "");
+    return stem.length >= 2 && stem === aStem && claimedLife === allowedLife;
+  });
+}
+
+/**
+ * Sentence-level / phrase-level guard — no second Claude call, no full rewrite.
+ * Strips unverified insurer(+product) literals using existing brand forms only.
+ * Keeps generic presence wording (e.g. 단체보험이 있음).
+ */
+export function neutralizeUnsupportedInsurerProductLiterals(
+  text = "",
+  { allowedEntities = [] } = {},
+) {
+  const raw = String(text ?? "");
+  if (!raw.trim()) {
+    return {
+      text: raw,
+      changed: false,
+      stripped_count: 0,
+      stripped_forms: [],
+      reason: "empty",
+    };
+  }
+
+  // Soft / non-assertive whole-answer passes stay untouched at this layer.
+  // Per-match we still skip clearly comparative / uncertain local windows below.
+  const stripped_forms = [];
+  let stripped_count = 0;
+
+  // Brand + optional specific product token ending in 보험/실손/종신/연금.
+  const phraseRe = new RegExp(
+    `${INSURER_BRAND_FORMS_RE.source}(?:\\s*[가-힣A-Za-z0-9·\\-]{2,40}?(?:보험|실손|종신|연금))?`,
+    "g",
+  );
+
+  const next = raw.replace(phraseRe, (match, brand, offset) => {
+    if (insurerFormAllowed(brand, allowedEntities)) return match;
+
+    const window = raw.slice(Math.max(0, offset - 24), offset + match.length + 24);
+    if (QUESTION_RE.test(window) && /\?|인가요|일까요|아닌가요|맞나요/.test(window)) {
+      return match;
+    }
+    if (ASSUME_RE.test(window) || MARKET_RE.test(window) || COMPARE_RE.test(window)) {
+      return match;
+    }
+    if (NEGATION_RE.test(window) && window.indexOf(match) > window.search(NEGATION_RE)) {
+      return match;
+    }
+    if (UNCERTAIN_RE.test(match)) return match;
+
+    stripped_count += 1;
+    stripped_forms.push(String(brand));
+
+    const after = raw.slice(offset + match.length);
+    if (/^\s*에서/.test(after) || /에서$/.test(match)) {
+      return "보험사";
+    }
+    if (/단체/.test(match)) return "단체보험";
+    if (/(?:보험|실손|종신|연금)$/.test(match)) return "해당 보험";
+    return "";
+  });
+
+  // Clean doubled spaces / empty wrappers from removals (whitespace only).
+  const cleaned = next
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ \n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+
+  return {
+    text: cleaned,
+    changed: cleaned !== raw,
+    stripped_count,
+    stripped_forms: [...new Set(stripped_forms)].slice(0, 12),
+    reason:
+      stripped_count > 0 ? "unsupported_insurer_product_literal" : "no_unsupported_literal",
+  };
+}

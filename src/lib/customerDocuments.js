@@ -571,7 +571,7 @@ export async function retryPendingPolicyExtractions(authUser) {
 
 export async function uploadDocument(
   authUser,
-  { file, categoryKey, deferFactoryUntilClaude = false } = {},
+  { file, categoryKey, deferFactoryUntilClaude = false, entityId = null } = {},
 ) {
   const category = getCategory(categoryKey);
   const { customerId } = await ensureCustomerContext(authUser);
@@ -579,6 +579,38 @@ export async function uploadDocument(
   const hasConsent = await hasDocumentStorageConsent(customerId);
   if (!hasConsent) {
     throw new Error("문서 보관 동의가 필요합니다.");
+  }
+
+  // Optional corporate ownership — column entity_id only (no metadata ownership).
+  // Membership is re-checked server-side via entity_memberships under the user JWT.
+  const requestedEntityId = String(entityId ?? "").trim() || null;
+  let ownedEntityId = null;
+  if (requestedEntityId) {
+    const authUserId = String(authUser?.id ?? "").trim();
+    if (!authUserId) {
+      throw new Error("법인 문서 업로드 권한이 확인되지 않았습니다.");
+    }
+    const { data: membership, error: memError } = await supabase
+      .from("entity_memberships")
+      .select("entity_id, status")
+      .eq("entity_id", requestedEntityId)
+      .eq("user_id", authUserId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (memError || !membership?.entity_id) {
+      throw new Error("이 법인에 문서를 등록할 권한이 확인되지 않았습니다.");
+    }
+    const { data: entityRow, error: entityError } = await supabase
+      .from("entities")
+      .select("id, entity_type, entity_status")
+      .eq("id", requestedEntityId)
+      .eq("entity_type", "corporate")
+      .in("entity_status", ["active", "demo"])
+      .maybeSingle();
+    if (entityError || !entityRow?.id) {
+      throw new Error("법인 정보를 확인하지 못했습니다.");
+    }
+    ownedEntityId = String(entityRow.id);
   }
 
   const validated = await validateUploadFile(file);
@@ -609,11 +641,13 @@ export async function uploadDocument(
       doc_class: resolveLegacyDocClass(category),
       ingest_status: "uploaded",
       customer_hint_type: category.hintType,
+      ...(ownedEntityId ? { entity_id: ownedEntityId } : {}),
       metadata_json: {
         byte_size: validated.byteSize,
         upload_source: "web",
         sanitized_filename: storageFilename,
         category_key: category.key,
+        ...(ownedEntityId ? { subject_scope: "corporate" } : { subject_scope: "personal" }),
         ...(deferFactoryUntilClaude
           ? {
               factory_deferred_until_claude: true,

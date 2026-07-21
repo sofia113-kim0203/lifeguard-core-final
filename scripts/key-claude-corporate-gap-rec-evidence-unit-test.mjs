@@ -23,6 +23,9 @@ import {
   buildUserPayload,
   runClaudeFirstDirectQuestionTurn,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import { clearReadyCardCache } from "../server/keyCore/keyReadyCardCache.js";
+
+clearReadyCardCache();
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTITY_A = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -346,8 +349,9 @@ function extractPayload(opts) {
       policies: [{ insurer_name: "한화생명" }],
       policy_count: 1,
     },
-    customerId: "cust-1",
+    customerId: "cust-corp-gap-rec-1",
     authUserId: "user-1",
+    userSupabase: { __test: true },
     env: previewEnv,
     fetchImpl: async (_url, opts) => {
       claudeCalls += 1;

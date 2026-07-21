@@ -40,6 +40,163 @@ export const CORPORATE_AUTH_FAILED_CUSTOMER_TEXT =
 export const CLAUDE_CORPORATE_FACT_PACK_V1 = "claude-corporate-fact-pack-v1";
 export const CLAUDE_CORPORATE_GAP_EVIDENCE_V1 = "claude-corporate-gap-evidence-v1";
 export const CLAUDE_CORPORATE_REC_CANDIDATE_V1 = "claude-corporate-rec-candidate-v1";
+export const CLAUDE_CORPORATE_CHART_V1 = "claude-corporate-chart-v1";
+
+function chartField(value, unknownLabel, unknowns) {
+  if (value == null || value === "" || value === "unknown") {
+    return { status: "unknown", value: null, unknown: unknownLabel };
+  }
+  if (Array.isArray(unknowns) && unknowns.includes(unknownLabel)) {
+    return { status: "unknown", value: null, unknown: unknownLabel };
+  }
+  return { status: "known", value, unknown: null };
+}
+
+/**
+ * Minimal corporate chart for Claude — known values only; never invent.
+ * QA demo entities stay labeled as test, not real customers.
+ */
+export function buildClaudeCorporateChart({
+  entityRecord = null,
+  snapshot = null,
+  documents = [],
+} = {}) {
+  const derived = snapshot?.derived ?? {};
+  const unknowns = Array.isArray(derived.unknowns) ? derived.unknowns : [];
+  const status = String(
+    entityRecord?.entity_status ?? snapshot?.identity?.status ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  const meta =
+    entityRecord?.metadata_json && typeof entityRecord.metadata_json === "object"
+      ? entityRecord.metadata_json
+      : {};
+  const isQaTest =
+    status === "demo" ||
+    meta.qa_fixture === true ||
+    meta.not_real_customer === true ||
+    String(meta.fixture_kind ?? "").startsWith("corporate_");
+
+  const fields = {
+    display_name: chartField(
+      entityRecord?.display_name ?? snapshot?.identity?.display_name ?? null,
+      "display_name",
+      [],
+    ),
+    industry: chartField(derived.industry, "industry", unknowns),
+    business_description: chartField(
+      derived.business_description,
+      "business_description",
+      unknowns,
+    ),
+    employee_count: chartField(derived.employee_count, "employee_count", unknowns),
+    workplace_or_facilities: chartField(
+      derived.workplace_or_facilities,
+      "workplace_or_facilities",
+      unknowns,
+    ),
+    group_insurance: chartField(
+      derived.group_insurance_status,
+      "group_insurance_status",
+      unknowns,
+    ),
+    fire_insurance: chartField(derived.fire_insurance, "fire_insurance", unknowns),
+    liability: chartField(derived.liability, "liability", unknowns),
+    executive_protection: chartField(
+      derived.executive_protection,
+      "executive_protection",
+      unknowns,
+    ),
+    confirmed_goals: chartField(derived.confirmed_goals, "confirmed_goals", unknowns),
+    concerns: chartField(derived.concerns, "concerns", unknowns),
+  };
+
+  const unknown_items = Object.values(fields)
+    .filter((f) => f.status === "unknown" && f.unknown)
+    .map((f) => f.unknown);
+
+  return {
+    contract_version: CLAUDE_CORPORATE_CHART_V1,
+    entity_id: entityRecord?.entity_id ?? entityRecord?.id ?? snapshot?.identity?.entity_id ?? null,
+    entity_status: status || null,
+    is_qa_test_entity: isQaTest,
+    customer_grade: isQaTest ? "qa_test_not_real_customer" : "membership_verified",
+    note: isQaTest
+      ? "QA demo corporate — test fixture only; do not treat as a real customer record."
+      : null,
+    fields,
+    unknown_items,
+    documents: Array.isArray(documents) ? documents : [],
+  };
+}
+
+/**
+ * Load membership-scoped corporate documents for Claude Hand.
+ * Ownership: customer_documents.entity_id only (nullable column). No metadata ownership.
+ * Fail-closed if column missing / errors → []. Never treats personal (entity_id null) as corporate.
+ */
+export async function loadCorporateDocumentsForEntities({
+  userSupabase = null,
+  customerId = null,
+  entityIds = [],
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  const ids = [
+    ...new Set(
+      (Array.isArray(entityIds) ? entityIds : [])
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!userSupabase || !cid || ids.length === 0) return [];
+
+  const allowed = new Set(ids);
+
+  try {
+    const { data, error } = await userSupabase
+      .from("customer_documents")
+      .select(
+        "id, original_filename, mime_type, ingest_status, document_type, entity_id, created_at",
+      )
+      .eq("customer_id", cid)
+      .in("entity_id", ids)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (error) {
+      // Column missing / RLS — fail closed. Do not fall back to metadata ownership.
+      return [];
+    }
+
+    return (Array.isArray(data) ? data : [])
+      .map((row) => {
+        const entityId = String(row?.entity_id ?? "").trim();
+        if (!entityId || !allowed.has(entityId)) return null;
+        const ingest = String(row?.ingest_status ?? "").trim().toLowerCase();
+        const evidence_tier =
+          ingest === "ready" || ingest === "extracted" || ingest === "analyzed"
+            ? "unverified_extract"
+            : "original_presence";
+        return {
+          document_id: row?.id != null ? String(row.id) : null,
+          entity_id: entityId,
+          original_filename: row?.original_filename ?? null,
+          mime_type: row?.mime_type ?? null,
+          document_type: row?.document_type ?? null,
+          ingest_status: ingest || null,
+          evidence_tier,
+          ownership_source: "customer_documents.entity_id",
+          confirmed_facts: [],
+          note: "original_or_unverified_extract_only_not_confirmed_policy_fact",
+        };
+      })
+      .filter((row) => row?.document_id && row?.entity_id);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Build read-only Claude fact pack from corporate snapshot + memory.
@@ -50,11 +207,22 @@ export function buildClaudeCorporateFactPack({
   membership = null,
   snapshot = null,
   memorySnapshot = null,
+  documents = [],
 } = {}) {
   const entityId = entityRecord?.entity_id ?? entityRecord?.id ?? null;
   const role = membership?.member_role
     ? String(membership.member_role).trim().toLowerCase()
     : null;
+  const entityStatus = String(entityRecord?.entity_status ?? "").trim().toLowerCase();
+  const meta =
+    entityRecord?.metadata_json && typeof entityRecord.metadata_json === "object"
+      ? entityRecord.metadata_json
+      : {};
+  const isQaTest =
+    entityStatus === "demo" ||
+    meta.qa_fixture === true ||
+    meta.not_real_customer === true ||
+    String(meta.fixture_kind ?? "").startsWith("corporate_");
 
   const verified_facts = [];
   const partial_facts = [];
@@ -83,15 +251,33 @@ export function buildClaudeCorporateFactPack({
       source: "entity_memberships",
     });
   }
+  if (entityStatus) {
+    verified_facts.push({
+      key: "identity.entity_status",
+      value: entityStatus,
+      source: "entities",
+    });
+  }
+  if (isQaTest) {
+    verified_facts.push({
+      key: "identity.customer_grade",
+      value: "qa_test_not_real_customer",
+      source: "entities.entity_status=demo",
+    });
+  }
 
   const derived = snapshot?.derived ?? {};
   const derivedKnown = [
     ["industry", derived.industry],
+    ["business_description", derived.business_description],
     ["group_insurance_status", derived.group_insurance_status],
     ["employee_count", derived.employee_count],
+    ["workplace_or_facilities", derived.workplace_or_facilities],
     ["executive_protection", derived.executive_protection],
     ["fire_insurance", derived.fire_insurance],
     ["liability", derived.liability],
+    ["confirmed_goals", derived.confirmed_goals],
+    ["concerns", derived.concerns],
   ];
   for (const [field, value] of derivedKnown) {
     if (value == null || value === "" || value === "unknown") continue;
@@ -121,13 +307,27 @@ export function buildClaudeCorporateFactPack({
     }
   }
 
+  const entityDocs = (Array.isArray(documents) ? documents : []).filter(
+    (d) => String(d?.entity_id ?? "").trim() === String(entityId ?? "").trim(),
+  );
+  const chart = buildClaudeCorporateChart({
+    entityRecord,
+    snapshot,
+    documents: entityDocs,
+  });
+
   return {
     contract_version: CLAUDE_CORPORATE_FACT_PACK_V1,
     entity_type: ENTITY_TYPES.CORPORATE,
     entity_id: entityId,
     display_name: entityRecord?.display_name ?? null,
+    entity_status: entityStatus || null,
+    is_qa_test_entity: isQaTest,
+    customer_grade: isQaTest ? "qa_test_not_real_customer" : "membership_verified",
     authorization_verified: true,
     membership_role: role,
+    chart,
+    documents: entityDocs,
     verified_facts,
     partial_facts,
     unknowns,
@@ -138,6 +338,7 @@ export function buildClaudeCorporateFactPack({
         entityRecord?.memory_version ?? memorySnapshot?.memory_version ?? null,
       entity_id: entityId,
       fact_count: memorySnapshot?.fact_count ?? null,
+      document_count: entityDocs.length,
     },
   };
 }
@@ -221,6 +422,7 @@ async function loadOneCorporateBundle({
   customerId,
   authUserId,
   entityId,
+  documents = [],
   loadEntityContextRecordsImpl,
   loadCorporateMemorySnapshotImpl,
   buildCorporateSnapshotImpl,
@@ -272,11 +474,16 @@ async function loadOneCorporateBundle({
     resolver_version: ENTITY_RESOLVER_V1,
   });
 
+  const entityDocs = (Array.isArray(documents) ? documents : []).filter(
+    (d) => String(d?.entity_id ?? "").trim() === String(access.entity.entity_id).trim(),
+  );
+
   const factPack = buildClaudeCorporateFactPack({
     entityRecord: access.entity,
     membership: access.membership,
     snapshot,
     memorySnapshot,
+    documents: entityDocs,
   });
   const evidence = buildClaudeCorporateGapRecEvidence({ snapshot });
 
@@ -284,18 +491,20 @@ async function loadOneCorporateBundle({
 }
 
 /**
- * Load all corporate contexts + gap/rec evidence the authenticated user may access.
- * Client entity_type/entity_id hints are ignored for widening access.
+ * Load membership-scoped corporate contexts + gap/rec + documents for Claude.
+ * Client entity_id never widens access. Unauthorized selectedEntityId → fail-closed empty.
  * Never fails the personal turn — returns empty arrays on list/load issues.
  */
 export async function loadAllowedCorporateContextsForClaude({
   userSupabase = null,
   customerId = null,
   authUserId = null,
+  selectedEntityId = null,
   listMyCorporateEntitiesImpl = listMyCorporateEntities,
   loadEntityContextRecordsImpl = loadEntityContextRecords,
   loadCorporateMemorySnapshotImpl = loadCorporateMemorySnapshot,
   buildCorporateSnapshotImpl = buildCorporateSnapshot,
+  loadCorporateDocumentsForEntitiesImpl = loadCorporateDocumentsForEntities,
 } = {}) {
   const empty = {
     ok: true,
@@ -303,6 +512,8 @@ export async function loadAllowedCorporateContextsForClaude({
     corporate_gap_evidence: [],
     corporate_recommendation_candidates: [],
     corporate_unknowns: [],
+    selected_entity_id: null,
+    authorization_denied: false,
     invented_coverage: false,
     invented_recommendation: false,
     priority_meaning: "known_gap_review_candidates_not_severity_rank",
@@ -318,12 +529,43 @@ export async function loadAllowedCorporateContextsForClaude({
   }
 
   const rows = Array.isArray(listed.entities) ? listed.entities : [];
+  const allowedIds = new Set(
+    rows.map((row) => String(row?.entity_id ?? "").trim()).filter(Boolean),
+  );
+
+  const requested = String(selectedEntityId ?? "").trim() || null;
+  if (requested && !allowedIds.has(requested)) {
+    // Fail-closed: no corporate facts/docs/prior for unauthorized selection.
+    return {
+      ...empty,
+      ok: true,
+      authorization_denied: true,
+      selected_entity_id: null,
+      skipped_reason: "selected_entity_not_authorized",
+      customer_message: CORPORATE_AUTH_FAILED_CUSTOMER_TEXT,
+    };
+  }
+
+  const targetRows = requested
+    ? rows.filter((row) => String(row?.entity_id ?? "").trim() === requested)
+    : rows;
+
+  const targetIds = targetRows
+    .map((row) => String(row?.entity_id ?? "").trim())
+    .filter(Boolean);
+
+  const documents = await loadCorporateDocumentsForEntitiesImpl({
+    userSupabase,
+    customerId,
+    entityIds: targetIds,
+  });
+
   const corporate_contexts = [];
   const corporate_gap_evidence = [];
   const corporate_recommendation_candidates = [];
   const corporate_unknowns = [];
 
-  for (const row of rows) {
+  for (const row of targetRows) {
     const entityId = String(row?.entity_id ?? "").trim();
     if (!entityId) continue;
     try {
@@ -332,6 +574,7 @@ export async function loadAllowedCorporateContextsForClaude({
         customerId,
         authUserId,
         entityId,
+        documents,
         loadEntityContextRecordsImpl,
         loadCorporateMemorySnapshotImpl,
         buildCorporateSnapshotImpl,
@@ -356,6 +599,8 @@ export async function loadAllowedCorporateContextsForClaude({
     corporate_gap_evidence,
     corporate_recommendation_candidates,
     corporate_unknowns,
+    selected_entity_id: requested && corporate_contexts.length > 0 ? requested : null,
+    authorization_denied: false,
     invented_coverage: false,
     invented_recommendation: false,
     priority_meaning: "known_gap_review_candidates_not_severity_rank",

@@ -55,6 +55,7 @@ import {
 import {
   buildVerifiedLiteralSetFromPolicies,
   detectKeyVerifiedLiteralConflict,
+  neutralizeUnsupportedInsurerProductLiterals,
 } from "../server/keyCore/keyVerifiedLiteralConflict.js";
 import { KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT } from "../server/keyCore/keyCustomerMonopoly.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
@@ -3892,6 +3893,22 @@ async function runGo2ConflictTurn({
     });
     const hit = detectKeyVerifiedLiteralConflict("이 계약의 보험사는 KB손해보험입니다.", set);
     assert.equal(hit?.conflict, true, "I: conflict still detects");
+  }
+
+  // I2: unsupported insurer/product literal strip (no full rewrite)
+  {
+    const hit = neutralizeUnsupportedInsurerProductLiterals(
+      "지금 한화손보 세이프단체보험이 있는 건 확인됐어요. 단체보험이 있다는 건 확인됐어요.",
+      { allowedEntities: [] },
+    );
+    assert.equal(hit.changed, true, "I2: strips unsupported brand+product");
+    assert.equal(/한화손보|세이프단체보험/.test(hit.text), false, "I2: no invented literals");
+    assert.equal(/단체보험이 있다는 건 확인/.test(hit.text), true, "I2: keeps presence wording");
+    const keep = neutralizeUnsupportedInsurerProductLiterals(
+      "제조업 48명이고 단체보험이 있어요.",
+      { allowedEntities: [] },
+    );
+    assert.equal(keep.changed, false, "I2: generic group-insurance wording untouched");
   }
 
   // J: GO3 session_goal regression — answer+goal still Continue 0 / decision null
