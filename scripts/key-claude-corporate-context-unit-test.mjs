@@ -369,11 +369,19 @@ const grantAll = async ({ entityId }) => ({
   );
 }
 
-// --- home request body: no entity fields ---
+// --- home request body: default personal has no entity fields; optional hint allowed ---
 {
   const body = buildHomeBrainFactRequestBody("내 보험은?", []);
   assert.equal(Object.prototype.hasOwnProperty.call(body, "entity_type"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(body, "entity_id"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, "view_mode"), false);
+  const hinted = buildHomeBrainFactRequestBody("우리 회사", [], {
+    viewMode: "corporate",
+    entityId: ENTITY_A,
+    entityType: "corporate",
+  });
+  assert.equal(hinted.view_mode, "corporate");
+  assert.equal(hinted.entity_id, ENTITY_A);
 }
 
 const previewEnv = {
@@ -568,11 +576,13 @@ function extractUserText(opts) {
   assert.equal(result.key_monopoly_failure, false);
 }
 
-// --- UI / API dead assets removed ---
+// --- unified view: one HomeChat surface; hint-only entity; no session-persisted auto entity ---
 {
   const homeChat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
-  assert.equal(/selectChatEntity|activeEntityId|대화 대상/.test(homeChat), false);
-  assert.equal(/entityType|entityId/.test(homeChat), false);
+  assert.match(homeChat, /fetchMyCorporateEntities/);
+  assert.match(homeChat, /viewMode/);
+  assert.match(homeChat, /selectedEntityId/);
+  assert.equal(/CorporatePanel|법인 대시보드/.test(homeChat), false);
   const sessionCore = readFileSync(join(ROOT, "src/lib/lifeguardChatSessionCore.js"), "utf8");
   assert.equal(/active_entity_type|active_entity_id|activeEntity/.test(sessionCore), false);
   const firstDirect = readFileSync(join(ROOT, "server/keyCore/keyClaudeFirstDirect.js"), "utf8");
@@ -582,6 +592,8 @@ function extractUserText(opts) {
   assert.match(firstDirect, /available_verified_evidence/);
   assert.match(firstDirect, /loadAllowedCorporateContextsForClaude/);
   assert.match(firstDirect, /corporate_turn/);
+  assert.match(firstDirect, /resolveCustomerViewMode/);
+  assert.match(firstDirect, /applyCustomerViewModeToUserPayload/);
 }
 
 console.log("key-claude-corporate-context-unit-test: PASS");

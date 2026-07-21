@@ -25,6 +25,7 @@ import {
   shouldClearActiveAttachmentAfterTurn,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
+import { fetchMyCorporateEntities } from "../lib/keyMyCorporateEntities.js";
 import {
   getReadyCardHandoffToken,
   warmKeyReadyCard,
@@ -174,14 +175,15 @@ function listCardStyle() {
   };
 }
 
-function CustomerInsuranceList({ policies, loading }) {
+function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
   if (loading) {
     return <p style={{ margin: 0, color: LG.textMuted }}>보험 정보를 불러오는 중…</p>;
   }
   if (!policies.length) {
     return (
       <p style={{ margin: 0, color: LG.textMuted }}>
-        아직 등록된 보험이 없어요. 필요하면 대화에서 편하게 말씀해 주세요.
+        {emptyHint ||
+          "아직 등록된 보험이 없어요. 필요하면 대화에서 편하게 말씀해 주세요."}
       </p>
     );
   }
@@ -430,6 +432,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelView, setPanelView] = useState("chat");
+  // Unified view — React state only; new session defaults personal (no auto entity restore).
+  const [viewMode, setViewMode] = useState("personal");
+  const [selectedEntityId, setSelectedEntityId] = useState(null);
+  const [corporateEntities, setCorporateEntities] = useState([]);
   const [turnMirror, setTurnMirror] = useState(null);
   const [detailDrawer, setDetailDrawer] = useState(null);
   const [insuranceRailOpen, setInsuranceRailOpen] = useState(true);
@@ -811,6 +817,24 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     reloadDocuments();
     return undefined;
   }, [panelView, authUser, reloadDocuments]);
+
+  useEffect(() => {
+    if (!authUser) {
+      setCorporateEntities([]);
+      setSelectedEntityId(null);
+      setViewMode("personal");
+      return undefined;
+    }
+    let cancelled = false;
+    void fetchMyCorporateEntities().then((result) => {
+      if (cancelled) return;
+      setCorporateEntities(Array.isArray(result?.entities) ? result.entities : []);
+      // Never auto-select even when exactly one entity exists.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser]);
 
   // Home chat: hydrate document_storage consent from DB (never treat unknown as denied).
   useEffect(() => {
@@ -1308,6 +1332,10 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         sessionId,
         ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
         ...(handoffToken ? { readyCardHandoffToken: handoffToken } : {}),
+        viewMode,
+        ...(viewMode !== "personal" && selectedEntityId
+          ? { entityId: selectedEntityId, entityType: "corporate" }
+          : {}),
       };
       // Reused active attachment — server re-verifies ownership (no latest-doc invent).
       if (reusedActiveAttachment) {
@@ -1809,6 +1837,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         categoryKey: "insurance_policy",
         // Store original only — Claude-first question turn reads first; factory after seal.
         deferFactoryUntilClaude: true,
+        ...(viewMode === "corporate" && selectedEntityId
+          ? { entityId: selectedEntityId }
+          : {}),
       });
       const doc = uploadResult?.document ?? null;
       const documentId = String(doc?.id ?? "").trim();
@@ -2125,7 +2156,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         >
           {panelView === "insurance" ? (
             <LayerPanel title="내 보험 점검" onBack={goBackToChat}>
-              <CustomerInsuranceList policies={policies} loading={loadingSession} />
+              <CustomerInsuranceList
+                policies={viewMode === "corporate" ? [] : policies}
+                loading={loadingSession}
+                emptyHint={
+                  viewMode === "corporate"
+                    ? "선택한 법인 보험·차트는 같은 화면의 대화에서 KEY가 확인한 내용으로 안내합니다."
+                    : null
+                }
+              />
             </LayerPanel>
           ) : null}
 
@@ -2145,7 +2184,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 </p>
               ) : null}
               <CustomerDocumentsList
-                documents={documents}
+                documents={documents.filter((doc) => {
+                  const docEntityId = String(doc?.entity_id ?? "").trim();
+                  if (viewMode === "corporate") {
+                    return Boolean(selectedEntityId) && docEntityId === selectedEntityId;
+                  }
+                  if (viewMode === "both") {
+                    return !docEntityId || (selectedEntityId && docEntityId === selectedEntityId);
+                  }
+                  return !docEntityId;
+                })}
                 loading={documentsLoading}
                 error={documentsError}
                 deletingId={documentDeletingId}
@@ -2337,6 +2385,80 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               flexShrink: 0,
             }}
           >
+            {corporateEntities.length > 0 ? (
+              <div
+                role="group"
+                aria-label="상담 문맥"
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  marginBottom: "10px",
+                  alignItems: "center",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode("personal");
+                    setSelectedEntityId(null);
+                  }}
+                  style={{
+                    border: `1px solid ${viewMode === "personal" ? LG.text : LG.border}`,
+                    background: viewMode === "personal" ? "#fff" : "transparent",
+                    borderRadius: "999px",
+                    padding: "4px 10px",
+                    fontSize: "12px",
+                    color: LG.text,
+                    cursor: "pointer",
+                  }}
+                >
+                  개인
+                </button>
+                {corporateEntities.slice(0, 6).map((row) => {
+                  const eid = String(row?.entity_id ?? "").trim();
+                  const active = viewMode === "corporate" && selectedEntityId === eid;
+                  return (
+                    <button
+                      key={eid}
+                      type="button"
+                      onClick={() => {
+                        setViewMode("corporate");
+                        setSelectedEntityId(eid);
+                      }}
+                      style={{
+                        border: `1px solid ${active ? LG.text : LG.border}`,
+                        background: active ? "#fff" : "transparent",
+                        borderRadius: "999px",
+                        padding: "4px 10px",
+                        fontSize: "12px",
+                        color: LG.text,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {String(row?.display_name ?? "법인").trim() || "법인"}
+                    </button>
+                  );
+                })}
+                {selectedEntityId ? (
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("both")}
+                    style={{
+                      border: `1px solid ${viewMode === "both" ? LG.text : LG.border}`,
+                      background: viewMode === "both" ? "#fff" : "transparent",
+                      borderRadius: "999px",
+                      padding: "4px 10px",
+                      fontSize: "12px",
+                      color: LG.text,
+                      cursor: "pointer",
+                    }}
+                  >
+                    개인+법인 비교
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {error ? <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{error}</div> : null}
             {chatAttachError ? (
               <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{chatAttachError}</div>

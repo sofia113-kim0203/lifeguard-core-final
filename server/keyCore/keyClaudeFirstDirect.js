@@ -109,6 +109,10 @@ import {
   resolveClaimIntakeTurnScope,
   isExplicitCorporateClaimUtterance,
 } from "./keyClaimIntakeSidecar.js";
+import {
+  resolveCustomerViewMode,
+  applyCustomerViewModeToUserPayload,
+} from "./keyCustomerViewContext.js";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -3496,6 +3500,8 @@ async function callClaudeFirstDirect({
   /** Triangle T6 Presence materials (listen_focus). */
   presenceContext = null,
   presenceTurn = false,
+  /** Unified view mode — filters personal/corporate packs before Claude. */
+  customerViewModeForPayload = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -3542,7 +3548,7 @@ async function callClaudeFirstDirect({
     sessionGoalForContext && typeof sessionGoalForContext === "object"
       ? sessionGoalForContext
       : null;
-  const userPayload = buildUserPayload({
+  const userPayloadBuilt = buildUserPayload({
     question: presenceTurn === true ? buildPresenceUserQuestionLine() : question,
     chart: presenceTurn === true ? null : chart,
     contextPack,
@@ -3574,6 +3580,10 @@ async function callClaudeFirstDirect({
         ? presenceContext
         : null,
   });
+  const userPayload =
+    presenceTurn === true || imageOriginalRead
+      ? userPayloadBuilt
+      : applyCustomerViewModeToUserPayload(userPayloadBuilt, customerViewModeForPayload);
   const pdfAttached = presenceTurn === true ? false : Boolean(pdfBase64);
   // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
   // Fact save · consultation · visual blocks remain KEY work after this answer (no second call).
@@ -3842,6 +3852,22 @@ export async function runClaudeFirstDirectQuestionTurn({
         entityContext?.passthrough_audit?.entity_id ??
         "",
     ).trim() || null;
+  const viewModeHint =
+    String(
+      entityContext?.view_mode ?? entityContext?.passthrough_audit?.view_mode ?? "",
+    )
+      .trim()
+      .toLowerCase() || null;
+  const customerViewMode = resolveCustomerViewMode({
+    question,
+    selectedEntityIdHint,
+    viewModeHint,
+  });
+  // Personal view: do not load corporate packs (single membership must not auto-surface).
+  const corporateLoadEntityId =
+    customerViewMode.mode === "personal"
+      ? null
+      : customerViewMode.entity_id || selectedEntityIdHint;
 
   // Triangle T2/T2.1 — handoff token → memory → parallel rebuild. Never trust client card JSON.
   const readyResolved = await resolveReadyCardForQuestionTurn({
@@ -3849,7 +3875,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     customerId,
     sessionId,
     authUserId,
-    selectedEntityId: selectedEntityIdHint,
+    selectedEntityId: corporateLoadEntityId,
     loadedContext,
     unifiedState,
     customerContextBundle,
@@ -3903,42 +3929,45 @@ export async function runClaudeFirstDirectQuestionTurn({
   let corporateRecommendationCandidates = [];
   let corporateUnknowns = [];
   let corporateAuthorizationDenied = false;
-  try {
-    const freshCorp = await loadAllowedCorporateContextsForClaudeImpl({
-      userSupabase,
-      customerId,
-      authUserId,
-      selectedEntityId: selectedEntityIdHint,
-    });
-    corporateContexts = Array.isArray(freshCorp?.corporate_contexts)
-      ? freshCorp.corporate_contexts
-      : [];
-    corporateGapEvidence = Array.isArray(freshCorp?.corporate_gap_evidence)
-      ? freshCorp.corporate_gap_evidence
-      : [];
-    corporateRecommendationCandidates = Array.isArray(
-      freshCorp?.corporate_recommendation_candidates,
-    )
-      ? freshCorp.corporate_recommendation_candidates
-      : [];
-    corporateUnknowns = Array.isArray(freshCorp?.corporate_unknowns)
-      ? freshCorp.corporate_unknowns
-      : [];
-    corporateAuthorizationDenied = freshCorp?.authorization_denied === true;
-  } catch {
-    corporateContexts = [];
-    corporateGapEvidence = [];
-    corporateRecommendationCandidates = [];
-    corporateUnknowns = [];
-    corporateAuthorizationDenied = true;
+  if (customerViewMode.mode !== "personal") {
+    try {
+      const freshCorp = await loadAllowedCorporateContextsForClaudeImpl({
+        userSupabase,
+        customerId,
+        authUserId,
+        selectedEntityId: corporateLoadEntityId,
+      });
+      corporateContexts = Array.isArray(freshCorp?.corporate_contexts)
+        ? freshCorp.corporate_contexts
+        : [];
+      corporateGapEvidence = Array.isArray(freshCorp?.corporate_gap_evidence)
+        ? freshCorp.corporate_gap_evidence
+        : [];
+      corporateRecommendationCandidates = Array.isArray(
+        freshCorp?.corporate_recommendation_candidates,
+      )
+        ? freshCorp.corporate_recommendation_candidates
+        : [];
+      corporateUnknowns = Array.isArray(freshCorp?.corporate_unknowns)
+        ? freshCorp.corporate_unknowns
+        : [];
+      corporateAuthorizationDenied = freshCorp?.authorization_denied === true;
+    } catch {
+      corporateContexts = [];
+      corporateGapEvidence = [];
+      corporateRecommendationCandidates = [];
+      corporateUnknowns = [];
+      corporateAuthorizationDenied = true;
+    }
   }
+  // Chart Hand may use single-context select only on corporate/both turns — never personal.
   const selectedCorporateEntityId =
-    (corporateAuthorizationDenied
+    customerViewMode.mode === "personal" || corporateAuthorizationDenied
       ? null
-      : String(selectedEntityIdHint ?? "").trim() || null) ||
-    (Array.isArray(corporateContexts) && corporateContexts.length === 1
-      ? String(corporateContexts[0]?.entity_id ?? "").trim() || null
-      : null);
+      : String(corporateLoadEntityId ?? "").trim() ||
+        (Array.isArray(corporateContexts) && corporateContexts.length === 1
+          ? String(corporateContexts[0]?.entity_id ?? "").trim() || null
+          : null);
   const corporateHandSeatAudit = buildCorporateHandSeatAudit({
     corporateContexts,
     selectedEntityId: selectedCorporateEntityId,
@@ -4536,6 +4565,16 @@ export async function runClaudeFirstDirectQuestionTurn({
     readyCardMeta: isPresenceTurn ? null : readyCardMeta,
     presenceContext: isPresenceTurn ? presenceContextBuilt : null,
     presenceTurn: isPresenceTurn,
+    customerViewModeForPayload: isPresenceTurn
+      ? null
+      : {
+          ...customerViewMode,
+          // Post-auth only — never echo unauthorized client entity_id into Claude packs.
+          entity_id: corporateAuthorizationDenied
+            ? null
+            : selectedCorporateEntityId || null,
+          authorization_denied: corporateAuthorizationDenied === true,
+        },
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);

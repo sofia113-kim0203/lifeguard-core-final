@@ -62,7 +62,7 @@ const EXTENSION_MIME_MAP = {
 };
 
 const DOCUMENT_LIST_COLUMNS =
-  "id, customer_id, storage_path, mime_type, original_filename, doc_class, ingest_status, customer_hint_type, metadata_json, consent_snapshot, created_at";
+  "id, customer_id, storage_path, mime_type, original_filename, doc_class, ingest_status, customer_hint_type, metadata_json, consent_snapshot, created_at, entity_id";
 
 function getCategory(categoryKey) {
   const category = CATEGORY_BY_KEY[categoryKey];
