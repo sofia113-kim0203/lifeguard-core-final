@@ -10,6 +10,10 @@ export const POLICY_DATE_FACT_KEYS = Object.freeze([
   "policy.renewal_date",
   "policy.maturity_date",
   "policy.effective_from",
+  // Premium / Lapse Slice — explicit calendar dates only (never invent / never alias renewal·maturity).
+  "policy.premium_due_date",
+  "policy.lapse_scheduled_date",
+  "policy.reinstate_by_date",
 ]);
 
 /** Aliases accepted when reading legacy key_confirmed rows. */
@@ -20,6 +24,12 @@ export const POLICY_DATE_FACT_ALIASES = Object.freeze({
   "policy.maturity_date": "policy.maturity_date",
   effective_from: "policy.effective_from",
   "policy.effective_from": "policy.effective_from",
+  premium_due_date: "policy.premium_due_date",
+  "policy.premium_due_date": "policy.premium_due_date",
+  lapse_scheduled_date: "policy.lapse_scheduled_date",
+  "policy.lapse_scheduled_date": "policy.lapse_scheduled_date",
+  reinstate_by_date: "policy.reinstate_by_date",
+  "policy.reinstate_by_date": "policy.reinstate_by_date",
 });
 
 export const POLICY_DATE_SOURCES = Object.freeze([
@@ -309,9 +319,18 @@ export function buildPolicyDateFactsFromUtterance({
   }
 
   let fact_key = null;
-  if (/갱신\s*일|갱신\s*기준|계약\s*갱신/.test(text)) fact_key = "policy.renewal_date";
-  else if (/만기\s*일|계약\s*만기|만기\s*는/.test(text)) fact_key = "policy.maturity_date";
-  else if (/가입\s*일|보장\s*개시|계약\s*시작|개시\s*일/.test(text)) {
+  // Order: specific premium/lapse/reinstate before broad 갱신/만기 (no alias across types).
+  if (/납입\s*기한|보험료\s*납입\s*일|보험료\s*납입\s*기한|납입\s*마감/.test(text)) {
+    fact_key = "policy.premium_due_date";
+  } else if (/실효\s*예정|실효\s*일|실효\s*예정일/.test(text)) {
+    fact_key = "policy.lapse_scheduled_date";
+  } else if (/부활\s*가능|부활\s*기한|부활\s*마감|부활할\s*수\s*있는/.test(text)) {
+    fact_key = "policy.reinstate_by_date";
+  } else if (/갱신\s*일|갱신\s*기준|계약\s*갱신/.test(text)) {
+    fact_key = "policy.renewal_date";
+  } else if (/만기\s*일|계약\s*만기|만기\s*는/.test(text)) {
+    fact_key = "policy.maturity_date";
+  } else if (/가입\s*일|보장\s*개시|계약\s*시작|개시\s*일/.test(text)) {
     fact_key = "policy.effective_from";
   }
   if (!fact_key) return { ok: false, reason: "not_policy_date_utterance", updates: [] };
@@ -397,8 +416,9 @@ export function buildPolicyDateFactFromDocumentEvidence({
 }
 
 /**
- * Clock rows from policy date facts only — renewal↔renewal, maturity↔maturity.
- * Never uses effective_from as renewal/maturity. Never uses end_date substitute.
+ * Clock rows from policy date facts only — 1:1 fact_key↔clock_type.
+ * Never uses effective_from / end_date / renewal / maturity as substitutes for
+ * premium_due · lapse_scheduled · reinstate_by (or each other).
  */
 export function buildInsuranceClocksFromPolicyDateFacts({
   facts = [],
@@ -407,47 +427,64 @@ export function buildInsuranceClocksFromPolicyDateFacts({
 } = {}) {
   const rows = normalizePolicyDateFacts(facts, { now });
   const out = [];
+  const map = [
+    {
+      fact_key: "policy.renewal_date",
+      clock_type: "policy_renewal",
+      idPrefix: "clk_renewal",
+      label: (d) => `계약 갱신 확인일 (${d})`,
+      note: "from_policy_date_fact_renewal",
+    },
+    {
+      fact_key: "policy.maturity_date",
+      clock_type: "policy_maturity",
+      idPrefix: "clk_maturity",
+      label: (d) => `계약 만기 확인일 (${d})`,
+      note: "from_policy_date_fact_maturity",
+    },
+    {
+      fact_key: "policy.premium_due_date",
+      clock_type: "premium_due",
+      idPrefix: "clk_premium_due",
+      label: (d) => `보험료 납입기한 (${d})`,
+      note: "from_policy_date_fact_premium_due",
+    },
+    {
+      fact_key: "policy.lapse_scheduled_date",
+      clock_type: "lapse_scheduled",
+      idPrefix: "clk_lapse",
+      label: (d) => `실효 예정일 (${d})`,
+      note: "from_policy_date_fact_lapse_scheduled",
+    },
+    {
+      fact_key: "policy.reinstate_by_date",
+      clock_type: "reinstate_by",
+      idPrefix: "clk_reinstate",
+      label: (d) => `부활 가능 기한 (${d})`,
+      note: "from_policy_date_fact_reinstate_by",
+    },
+  ];
   for (const f of rows) {
-    if (f.fact_key === "policy.renewal_date") {
-      out.push({
-        id: `clk_renewal_${f.subject_id}`.slice(0, 120),
-        customer_id: trim(customerId) || f.customer_id,
-        entity_id: f.entity_id,
-        clock_type: "policy_renewal",
-        subject_type: f.subject_type,
-        subject_id: f.subject_id,
-        due_at: f.date_value,
-        next_check_at: f.date_value,
-        status: "active",
-        source: f.source === "customer_statement" ? "customer_statement" : "document_evidence",
-        source_message_id: f.source_message_id,
-        evidence_id: f.evidence_id || f.document_id,
-        label: `계약 갱신 확인일 (${f.date_value})`,
-        note: "from_policy_date_fact_renewal",
-        created_at: stampNow(now),
-        updated_at: stampNow(now),
-      });
-    } else if (f.fact_key === "policy.maturity_date") {
-      out.push({
-        id: `clk_maturity_${f.subject_id}`.slice(0, 120),
-        customer_id: trim(customerId) || f.customer_id,
-        entity_id: f.entity_id,
-        clock_type: "policy_maturity",
-        subject_type: f.subject_type,
-        subject_id: f.subject_id,
-        due_at: f.date_value,
-        next_check_at: f.date_value,
-        status: "active",
-        source: f.source === "customer_statement" ? "customer_statement" : "document_evidence",
-        source_message_id: f.source_message_id,
-        evidence_id: f.evidence_id || f.document_id,
-        label: `계약 만기 확인일 (${f.date_value})`,
-        note: "from_policy_date_fact_maturity",
-        created_at: stampNow(now),
-        updated_at: stampNow(now),
-      });
-    }
-    // policy.effective_from is stored as fact but does not create renewal/maturity clocks.
+    const rule = map.find((m) => m.fact_key === f.fact_key);
+    if (!rule) continue; // effective_from and unknown keys → no clock
+    out.push({
+      id: `${rule.idPrefix}_${f.subject_id}`.slice(0, 120),
+      customer_id: trim(customerId) || f.customer_id,
+      entity_id: f.entity_id,
+      clock_type: rule.clock_type,
+      subject_type: f.subject_type,
+      subject_id: f.subject_id,
+      due_at: f.date_value,
+      next_check_at: f.date_value,
+      status: "active",
+      source: f.source === "customer_statement" ? "customer_statement" : "document_evidence",
+      source_message_id: f.source_message_id,
+      evidence_id: f.evidence_id || f.document_id,
+      label: rule.label(f.date_value),
+      note: rule.note,
+      created_at: stampNow(now),
+      updated_at: stampNow(now),
+    });
   }
   return out;
 }

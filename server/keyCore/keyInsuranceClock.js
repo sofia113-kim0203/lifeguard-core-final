@@ -21,6 +21,10 @@ export const CLOCK_TYPES = Object.freeze([
   "consent_expiry",
   "policy_renewal",
   "policy_maturity",
+  // Premium / Lapse Slice — 1:1 with policy date facts (never substitute renewal/maturity).
+  "premium_due",
+  "lapse_scheduled",
+  "reinstate_by",
 ]);
 
 export const CLOCK_STATUSES = Object.freeze([
@@ -264,7 +268,10 @@ export function normalizeInsuranceClockItems(raw = [], { now = new Date() } = {}
     if (
       (clock_type === "consent_expiry" ||
         clock_type === "policy_renewal" ||
-        clock_type === "policy_maturity") &&
+        clock_type === "policy_maturity" ||
+        clock_type === "premium_due" ||
+        clock_type === "lapse_scheduled" ||
+        clock_type === "reinstate_by") &&
       status === "active" &&
       due_at
     ) {
@@ -662,8 +669,8 @@ export function buildConsentExpiryClocksFromCorporateContexts({
 
 /**
  * Assemble Hand-scoped clock items: stored ledger + consent + policy date facts.
- * policy_renewal/maturity come only from policy date facts (or explicit date fields
- * named renewal_date/maturity_date — never end_date / insurance_period substitutes).
+ * policy_renewal/maturity/premium_due/lapse_scheduled/reinstate_by come only from
+ * matching policy date facts (or explicit same-named fields — never substitutes).
  */
 export function assembleInsuranceClockItemsForHand({
   storedClocks = [],
@@ -709,8 +716,8 @@ export function assembleInsuranceClockItemsForHand({
 }
 
 /**
- * Policy renewal/maturity only from explicit renewal_date / maturity_date fields.
- * Never uses end_date, insurance_period, or effective_from as substitutes.
+ * Policy date clocks only from explicit same-named fields.
+ * Never uses end_date, insurance_period, renewal↔maturity, or cross-type substitutes.
  */
 export function buildPolicyDateClocksFromPolicies({
   policies = [],
@@ -721,48 +728,73 @@ export function buildPolicyDateClocksFromPolicies({
   const cid = trim(customerId);
   const eid = trim(entityId);
   const out = [];
+  const fieldRules = [
+    {
+      pick: (p) =>
+        parseIsoDateOnly(p?.renewal_date) ||
+        parseIsoDateOnly(p?.coverage_summary?.renewal_date),
+      clock_type: "policy_renewal",
+      idPrefix: "clk_renewal",
+      label: (d) => `계약 갱신 확인일 (${d})`,
+      note: "explicit_policy_renewal_date_only",
+    },
+    {
+      pick: (p) =>
+        parseIsoDateOnly(p?.maturity_date) ||
+        parseIsoDateOnly(p?.coverage_summary?.maturity_date),
+      clock_type: "policy_maturity",
+      idPrefix: "clk_maturity",
+      label: (d) => `계약 만기 확인일 (${d})`,
+      note: "explicit_policy_maturity_date_only",
+    },
+    {
+      pick: (p) =>
+        parseIsoDateOnly(p?.premium_due_date) ||
+        parseIsoDateOnly(p?.coverage_summary?.premium_due_date),
+      clock_type: "premium_due",
+      idPrefix: "clk_premium_due",
+      label: (d) => `보험료 납입기한 (${d})`,
+      note: "explicit_policy_premium_due_date_only",
+    },
+    {
+      pick: (p) =>
+        parseIsoDateOnly(p?.lapse_scheduled_date) ||
+        parseIsoDateOnly(p?.coverage_summary?.lapse_scheduled_date),
+      clock_type: "lapse_scheduled",
+      idPrefix: "clk_lapse",
+      label: (d) => `실효 예정일 (${d})`,
+      note: "explicit_policy_lapse_scheduled_date_only",
+    },
+    {
+      pick: (p) =>
+        parseIsoDateOnly(p?.reinstate_by_date) ||
+        parseIsoDateOnly(p?.coverage_summary?.reinstate_by_date),
+      clock_type: "reinstate_by",
+      idPrefix: "clk_reinstate",
+      label: (d) => `부활 가능 기한 (${d})`,
+      note: "explicit_policy_reinstate_by_date_only",
+    },
+  ];
   for (const p of Array.isArray(policies) ? policies : []) {
     const pid = trim(p?.id) || trim(p?.policy_id);
     if (!pid) continue;
     const rowEntity = eid || trim(p?.entity_id) || null;
-    const renewal =
-      parseIsoDateOnly(p?.renewal_date) ||
-      parseIsoDateOnly(p?.coverage_summary?.renewal_date);
-    const maturity =
-      parseIsoDateOnly(p?.maturity_date) ||
-      parseIsoDateOnly(p?.coverage_summary?.maturity_date);
-    if (renewal) {
+    for (const rule of fieldRules) {
+      const due = rule.pick(p);
+      if (!due) continue;
       out.push({
-        id: `clk_renewal_${pid}`.slice(0, 120),
+        id: `${rule.idPrefix}_${pid}`.slice(0, 120),
         customer_id: cid,
         entity_id: rowEntity,
-        clock_type: "policy_renewal",
+        clock_type: rule.clock_type,
         subject_type: "policy",
         subject_id: pid,
-        due_at: renewal,
-        next_check_at: renewal,
+        due_at: due,
+        next_check_at: due,
         status: "active",
         source: "document_evidence",
-        label: `계약 갱신 확인일 (${renewal})`,
-        note: "explicit_policy_renewal_date_only",
-        created_at: stampNow(now),
-        updated_at: stampNow(now),
-      });
-    }
-    if (maturity) {
-      out.push({
-        id: `clk_maturity_${pid}`.slice(0, 120),
-        customer_id: cid,
-        entity_id: rowEntity,
-        clock_type: "policy_maturity",
-        subject_type: "policy",
-        subject_id: pid,
-        due_at: maturity,
-        next_check_at: maturity,
-        status: "active",
-        source: "document_evidence",
-        label: `계약 만기 확인일 (${maturity})`,
-        note: "explicit_policy_maturity_date_only",
+        label: rule.label(due),
+        note: rule.note,
         created_at: stampNow(now),
         updated_at: stampNow(now),
       });

@@ -13,6 +13,11 @@ import {
   mergeInsuranceClockItems,
   parseCustomerStatedDeadline,
 } from "../server/keyCore/keyInsuranceClock.js";
+import {
+  buildInsuranceClocksFromPolicyDateFacts,
+  buildPolicyDateFactFromDocumentEvidence,
+  buildPolicyDateFactsFromUtterance,
+} from "../server/keyCore/keyPolicyDateFacts.js";
 import { buildAuthorityHandBrief } from "../server/entity/entityAuthorityConsent.js";
 import { applyCustomerViewModeToUserPayload } from "../server/keyCore/keyCustomerViewContext.js";
 
@@ -379,6 +384,171 @@ const openSurgery = {
   });
   assert.ok(assembled.some((c) => c.clock_type === "claim_followup"));
   assert.ok(assembled.some((c) => c.clock_type === "consent_expiry"));
+}
+
+// --- Premium / Lapse Slice: fact → clock (1:1, no renewal/maturity substitute) ---
+{
+  const premiumUtt = buildPolicyDateFactsFromUtterance({
+    question: "보험료 납입기한이 2026년 8월 20일이야.",
+    customerId: CUSTOMER,
+    messageId: "msg-premium-1",
+    now: NOW,
+  });
+  assert.equal(premiumUtt.ok, true);
+  assert.equal(premiumUtt.updates[0].fact_key, "policy.premium_due_date");
+  assert.equal(premiumUtt.updates[0].date_value, "2026-08-20");
+  assert.equal(premiumUtt.updates[0].source, "customer_statement");
+  assert.equal(premiumUtt.updates[0].source_message_id, "msg-premium-1");
+  const premiumClocks = buildInsuranceClocksFromPolicyDateFacts({
+    facts: premiumUtt.updates,
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(premiumClocks.length, 1);
+  assert.equal(premiumClocks[0].clock_type, "premium_due");
+  assert.equal(premiumClocks[0].due_at, "2026-08-20");
+  assert.equal(premiumClocks[0].source_message_id, "msg-premium-1");
+
+  const lapseUtt = buildPolicyDateFactsFromUtterance({
+    question: "실효 예정일은 2026-09-01이야.",
+    customerId: CUSTOMER,
+    messageId: "msg-lapse-1",
+    now: NOW,
+  });
+  assert.equal(lapseUtt.ok, true);
+  assert.equal(lapseUtt.updates[0].fact_key, "policy.lapse_scheduled_date");
+  const lapseClocks = buildInsuranceClocksFromPolicyDateFacts({
+    facts: lapseUtt.updates,
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(lapseClocks[0].clock_type, "lapse_scheduled");
+  assert.equal(lapseClocks[0].due_at, "2026-09-01");
+
+  const reinstateDoc = buildPolicyDateFactFromDocumentEvidence({
+    customerId: CUSTOMER,
+    documentId: "doc-reinstate-1",
+    factKey: "policy.reinstate_by_date",
+    dateValue: "2026-10-15",
+    now: NOW,
+  });
+  assert.equal(reinstateDoc.ok, true);
+  const reinstateClocks = buildInsuranceClocksFromPolicyDateFacts({
+    facts: reinstateDoc.updates,
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(reinstateClocks[0].clock_type, "reinstate_by");
+  assert.equal(reinstateClocks[0].due_at, "2026-10-15");
+  assert.equal(reinstateClocks[0].evidence_id, "doc-reinstate-1");
+  assert.equal(reinstateClocks[0].source, "document_evidence");
+
+  // Vague / no calendar date → no fact stored
+  const vaguePremium = buildPolicyDateFactsFromUtterance({
+    question: "보험료 납입기한이 곧이야.",
+    customerId: CUSTOMER,
+    messageId: "msg-vague-premium",
+    now: NOW,
+  });
+  assert.equal(vaguePremium.ok, false);
+  assert.equal(vaguePremium.reason, "no_explicit_calendar_date");
+
+  // Renewal must NOT become premium_due / lapse / reinstate
+  const renewalOnly = buildPolicyDateFactFromDocumentEvidence({
+    customerId: CUSTOMER,
+    documentId: "doc-renewal-only",
+    factKey: "policy.renewal_date",
+    dateValue: "2026-12-01",
+    now: NOW,
+  });
+  const renewalClocks = buildInsuranceClocksFromPolicyDateFacts({
+    facts: renewalOnly.updates,
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(renewalClocks.length, 1);
+  assert.equal(renewalClocks[0].clock_type, "policy_renewal");
+  assert.ok(!renewalClocks.some((c) => c.clock_type === "premium_due"));
+  assert.ok(!renewalClocks.some((c) => c.clock_type === "lapse_scheduled"));
+  assert.ok(!renewalClocks.some((c) => c.clock_type === "reinstate_by"));
+
+  // No regress: completed premium_due stays completed
+  const completed = {
+    id: "clk_premium_done",
+    customer_id: CUSTOMER,
+    entity_id: null,
+    clock_type: "premium_due",
+    subject_id: "utt-premium",
+    due_at: "2026-08-20",
+    next_check_at: "2026-08-20",
+    status: "completed",
+    source: "customer_statement",
+    completed_at: "2026-07-12T00:00:00.000Z",
+  };
+  const merged = mergeInsuranceClockItems([completed], premiumClocks, { now: NOW });
+  // Different subject_ids → both kept; completed row must not become active
+  const completedRow = merged.find((c) => c.id === "clk_premium_done");
+  assert.ok(completedRow);
+  assert.equal(completedRow.status, "completed");
+  // Same subject supersede must not regress completed → active
+  const sameSubjectUpdate = {
+    ...premiumClocks[0],
+    subject_id: completed.subject_id,
+    id: "clk_premium_done",
+    status: "active",
+  };
+  const noRegress = mergeInsuranceClockItems([completed], [sameSubjectUpdate], { now: NOW });
+  assert.equal(noRegress.find((c) => c.subject_id === completed.subject_id)?.status, "completed");
+
+  // Personal / corporate isolation for premium_due
+  const scoped = [
+    {
+      id: "p1",
+      customer_id: CUSTOMER,
+      entity_id: null,
+      clock_type: "premium_due",
+      subject_id: "personal-prem",
+      due_at: "2026-08-20",
+      next_check_at: "2026-08-20",
+      status: "active",
+      source: "customer_statement",
+    },
+    {
+      id: "p2",
+      customer_id: CUSTOMER,
+      entity_id: ENTITY_A,
+      clock_type: "lapse_scheduled",
+      subject_id: "corp-lapse",
+      due_at: "2026-09-01",
+      next_check_at: "2026-09-01",
+      status: "active",
+      source: "document_evidence",
+      evidence_id: "doc-lapse-a",
+    },
+  ];
+  assert.equal(filterInsuranceClocksByScope(scoped, { mode: "personal" }).length, 1);
+  assert.equal(
+    filterInsuranceClocksByScope(scoped, { mode: "corporate", entityId: ENTITY_A }).length,
+    1,
+  );
+
+  // Policy field projection — explicit only; renewal must not fill premium_due
+  const fromPol = buildPolicyDateClocksFromPolicies({
+    policies: [
+      {
+        id: "pol-mix",
+        renewal_date: "2026-12-01",
+        premium_due_date: "2026-08-20",
+        end_date: "2027-01-01",
+      },
+    ],
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.ok(fromPol.some((c) => c.clock_type === "policy_renewal"));
+  assert.ok(fromPol.some((c) => c.clock_type === "premium_due" && c.due_at === "2026-08-20"));
+  assert.ok(!fromPol.some((c) => c.clock_type === "lapse_scheduled"));
+  assert.ok(!fromPol.some((c) => c.due_at === "2027-01-01"));
 }
 
 console.log("key-insurance-clock-unit-test: PASS");
