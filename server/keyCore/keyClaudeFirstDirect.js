@@ -1999,7 +1999,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
     "입력 current_context.insurance_clock이 있으면 KEY가 소유한 보험 기한 참고다. upcoming·overdue·unknown_date·completed_recent만 사용한다. 날짜를 새로 발명하지 말고, unknown_date는 정확한 날짜를 확인한다. completed·cancelled는 현재 할 일처럼 말하지 않는다. 법정 시효·‘보통 3년’ 같은 일반론을 고객 고유 due_at처럼 말하지 않는다.",
     "입력 current_context.claim_evidence가 있으면 KEY가 소유한 청구 증거 패키지 참고다. held/submitted/insurer/outcome과 verification_status(original·customer_reported·insurer_verified·unverified)만 사용한다. 문서에 없는 사실·거절 사유를 만들지 말고, 고객 진술을 보험사 확인처럼 말하지 않는다. 원본·추출·해석을 섞지 않는다.",
-    "입력 current_context.life_ledger가 있으면 KEY가 소유한 고객 장기 맥락 참고다. goals·decisions·open_questions·outcomes만 사용한다. 참고용이며 답변 템플릿·강제 추천·답변 차단에 쓰지 않는다. 저장되지 않은 목표·선호를 만들지 말고, 고객이 말하지 않은 의사를 단정하지 않는다.",
+    "입력 current_context.life_ledger가 있으면 KEY가 소유한 고객 장기 맥락 참고다. goals·preferences·decisions·open_questions·life_threads·outcomes만 사용한다. 참고용이며 답변 템플릿·강제 추천·답변 차단에 쓰지 않는다. 저장되지 않은 목표·선호·생활 맥락을 만들지 말고, 고객이 말하지 않은 의사를 단정하지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -5856,8 +5856,10 @@ export async function runClaudeFirstDirectQuestionTurn({
           life_ledger_hydrated: lifeLedgerItemsScoped.length,
           life_ledger_brief: {
             goals: lifeLedgerBrief?.goals?.length ?? 0,
+            preferences: lifeLedgerBrief?.preferences?.length ?? 0,
             decisions: lifeLedgerBrief?.decisions?.length ?? 0,
             open_questions: lifeLedgerBrief?.open_questions?.length ?? 0,
+            life_threads: lifeLedgerBrief?.life_threads?.length ?? 0,
             outcomes: lifeLedgerBrief?.outcomes?.length ?? 0,
           },
           key_life_ledger_sidecar: lifeLedgerSidecar,
