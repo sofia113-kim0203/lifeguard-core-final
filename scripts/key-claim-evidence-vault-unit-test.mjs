@@ -4,8 +4,12 @@
 import assert from "node:assert/strict";
 import {
   buildClaimEvidenceUpdatesFromUtterance,
+  buildContractPackageEvidenceFromDocs,
+  buildEvidenceSupersedesChain,
   buildOriginalDocumentEvidenceFromDocs,
   buildClaimEvidenceHandBrief,
+  classifyContractEvidenceType,
+  contractPackageSubjectId,
   deriveContentHashHint,
   filterClaimEvidenceByScope,
   mergeClaimEvidenceItems,
@@ -242,6 +246,187 @@ const surgery = {
   assert.equal(brief.packages[0].held_evidence.length, 1);
   assert.equal(brief.packages[0].submitted_evidence.length, 1);
   assert.deepEqual(brief.packages[0].missing_evidence_labels, ["입퇴원확인서"]);
+}
+
+// --- Contract Package Slice ---
+{
+  assert.equal(
+    classifyContractEvidenceType({ original_filename: "청약서_고지.pdf" }),
+    "application_disclosure",
+  );
+  assert.equal(
+    classifyContractEvidenceType({ customer_hint_type: "상품설명동의서" }),
+    "explanation_consent",
+  );
+  assert.equal(classifyContractEvidenceType({ original_filename: "약관_v1.pdf" }), "terms_document");
+  assert.equal(contractPackageSubjectId({}), "contract_package:personal");
+  assert.equal(
+    contractPackageSubjectId({ entityId: ENTITY_A }),
+    `contract_package:corporate:${ENTITY_A}`,
+  );
+
+  const app = buildContractPackageEvidenceFromDocs({
+    documents: [
+      {
+        id: "doc-app-1",
+        original_filename: "청약서_고지.pdf",
+        customer_hint_type: "청약서",
+        storage_path: `${CUSTOMER}/doc-app-1/a.pdf`,
+        metadata_json: { byte_size: 1111 },
+      },
+    ],
+    existingEvidence: [],
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(app.length, 1);
+  assert.equal(app[0].evidence_type, "application_disclosure");
+  assert.equal(app[0].verification_status, "original");
+  assert.equal(app[0].document_version, "1");
+  assert.equal(app[0].claim_case_id, "contract_package:personal");
+  assert.equal(app[0].entity_id, null);
+  assert.ok(app[0].content_hash);
+  assert.equal(app[0].metadata_json.legal_force_not_judged, true);
+
+  const expl = buildContractPackageEvidenceFromDocs({
+    documents: [
+      {
+        id: "doc-exp-1",
+        original_filename: "설명_동의_기록.pdf",
+        customer_hint_type: "설명동의",
+        storage_path: `${CUSTOMER}/doc-exp-1/e.pdf`,
+        metadata_json: { byte_size: 222 },
+      },
+    ],
+    existingEvidence: app,
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(expl[0].evidence_type, "explanation_consent");
+  assert.equal(expl[0].verification_status, "original");
+
+  const terms1 = buildContractPackageEvidenceFromDocs({
+    documents: [
+      {
+        id: "doc-terms-1",
+        original_filename: "약관.pdf",
+        customer_hint_type: "약관",
+        storage_path: `${CUSTOMER}/doc-terms-1/t1.pdf`,
+        metadata_json: { byte_size: 300 },
+      },
+    ],
+    existingEvidence: [...app, ...expl],
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(terms1[0].evidence_type, "terms_document");
+  assert.equal(terms1[0].document_version, "1");
+  assert.equal(terms1[0].supersedes_id, null);
+
+  const terms2 = buildContractPackageEvidenceFromDocs({
+    documents: [
+      {
+        id: "doc-terms-2",
+        original_filename: "약관_개정.pdf",
+        customer_hint_type: "약관",
+        storage_path: `${CUSTOMER}/doc-terms-2/t2.pdf`,
+        metadata_json: { byte_size: 400 },
+      },
+    ],
+    existingEvidence: [...app, ...expl, ...terms1],
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  assert.equal(terms2[0].document_id, "doc-terms-2");
+  assert.equal(terms2[0].document_version, "2");
+  assert.equal(terms2[0].supersedes_id, terms1[0].id);
+  const termsMerged = mergeClaimEvidenceItems(
+    [...app, ...expl, ...terms1],
+    terms2,
+    { now: NOW },
+  );
+  assert.ok(termsMerged.some((e) => e.document_id === "doc-terms-1"));
+  assert.ok(termsMerged.some((e) => e.document_id === "doc-terms-2"));
+  const chain = buildEvidenceSupersedesChain(termsMerged, terms2[0].id);
+  assert.equal(chain.length, 2);
+  assert.equal(chain[0].document_id, "doc-terms-1");
+  assert.equal(chain[1].document_id, "doc-terms-2");
+
+  // Customer statement + correction history (no open claim → contract package)
+  const st1 = buildClaimEvidenceUpdatesFromUtterance({
+    question: "고지받았다는 사실이야. 증거로 기록해줘.",
+    existingCases: [],
+    existingEvidence: [],
+    customerId: CUSTOMER,
+    messageId: "msg-st-1",
+    now: NOW,
+  });
+  assert.equal(st1.ok, true);
+  assert.equal(st1.updates[0].evidence_type, "customer_statement");
+  assert.equal(st1.updates[0].verification_status, "customer_reported");
+  assert.equal(st1.updates[0].document_version, "1");
+  assert.equal(st1.updates[0].supersedes_id, null);
+
+  const st2 = buildClaimEvidenceUpdatesFromUtterance({
+    question: "정정하면, 고지받은 날이 아니라 설명 들은 날이야.",
+    existingCases: [],
+    existingEvidence: st1.updates,
+    customerId: CUSTOMER,
+    messageId: "msg-st-2",
+    now: NOW,
+  });
+  assert.equal(st2.ok, true);
+  assert.equal(st2.updates[0].evidence_type, "customer_statement");
+  assert.equal(st2.updates[0].document_version, "2");
+  assert.equal(st2.updates[0].supersedes_id, st1.updates[0].id);
+  assert.equal(st2.updates[0].verification_status, "customer_reported");
+  const stMerged = mergeClaimEvidenceItems(st1.updates, st2.updates, { now: NOW });
+  assert.equal(stMerged.length, 2);
+
+  // Never promote customer statement to insurer_verified
+  const forcedSt = normalizeClaimEvidenceItems([
+    { ...st1.updates[0], verification_status: "insurer_verified" },
+  ]);
+  assert.equal(forcedSt[0].verification_status, "customer_reported");
+  const forcedApp = normalizeClaimEvidenceItems([
+    { ...app[0], verification_status: "insurer_verified", source: "customer_statement" },
+  ]);
+  assert.equal(forcedApp[0].verification_status, "customer_reported");
+
+  // Isolation for contract package
+  const corpApp = buildContractPackageEvidenceFromDocs({
+    documents: [
+      {
+        id: "doc-app-corp",
+        original_filename: "법인_청약서.pdf",
+        customer_hint_type: "청약서",
+        metadata_json: { byte_size: 9 },
+      },
+    ],
+    existingEvidence: [],
+    customerId: CUSTOMER,
+    entityId: ENTITY_A,
+    now: NOW,
+  });
+  assert.equal(corpApp[0].entity_id, ENTITY_A);
+  const mixed = [...app, ...corpApp, ...st1.updates];
+  assert.equal(filterClaimEvidenceByScope(mixed, { mode: "personal" }).length, 2);
+  assert.equal(
+    filterClaimEvidenceByScope(mixed, { mode: "corporate", entityId: ENTITY_A }).length,
+    1,
+  );
+
+  const contractBrief = buildClaimEvidenceHandBrief({
+    cases: [],
+    evidenceItems: [...app, ...expl, ...terms1, ...terms2, ...stMerged],
+    now: NOW,
+  });
+  assert.ok(contractBrief.packages.some((p) => p.claim_case_id === "contract_package:personal"));
+  const cp = contractBrief.packages.find((p) => p.claim_case_id === "contract_package:personal");
+  assert.ok(cp.application_disclosure_evidence.length >= 1);
+  assert.ok(cp.explanation_consent_evidence.length >= 1);
+  assert.ok(cp.terms_document_evidence.length >= 1);
+  assert.ok(cp.statement_evidence.length >= 1);
 }
 
 console.log("key-claim-evidence-vault-unit-test: PASS");

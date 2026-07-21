@@ -1,8 +1,9 @@
 /**
- * Evidence Vault Slice 1 — claim evidence package for one claim case.
+ * Evidence Vault — claim package (Slice 1) + Contract Package Slice.
  * Storage: profile_health.details_json.key_claim_evidence_items
  * KEY owns evidence; same Claude-first KEY explains. No Evidence Persona / second Claude.
  * Reuses customer_documents + Claim Guardian; never overwrites originals.
+ * Never judges legal force / disclosure duty / OCR as confirmed fact.
  */
 
 import {
@@ -18,6 +19,10 @@ export const EVIDENCE_TYPES = Object.freeze([
   "claim_submission",
   "insurer_response",
   "payment_or_denial_outcome",
+  // Contract Package Slice — explicit originals / customer statements only.
+  "application_disclosure",
+  "explanation_consent",
+  "terms_document",
 ]);
 
 export const VERIFICATION_STATUSES = Object.freeze([
@@ -43,6 +48,12 @@ function trim(v) {
   if (v == null) return null;
   const s = String(v).trim();
   return s ? s : null;
+}
+
+/** Package subject for contract evidence (not a Claim Guardian case). */
+export function contractPackageSubjectId({ entityId = null } = {}) {
+  const eid = trim(entityId);
+  return eid ? `contract_package:corporate:${eid}` : "contract_package:personal";
 }
 
 function stampNow(now = new Date()) {
@@ -78,7 +89,7 @@ export function normalizeClaimEvidenceItems(raw = [], { now = new Date() } = {})
     if (!claim_case_id) continue;
     let verification_status = trim(row.verification_status) || "unverified";
     if (!VERIFY_SET.has(verification_status)) verification_status = "unverified";
-    // Never promote customer_statement / claim_submission / payment utterance to insurer_verified.
+    // Never promote customer words to insurer_verified.
     if (
       (evidence_type === "customer_statement" ||
         evidence_type === "claim_submission" ||
@@ -96,6 +107,16 @@ export function normalizeClaimEvidenceItems(raw = [], { now = new Date() } = {})
     ) {
       verification_status = "customer_reported";
     }
+    // Contract package: never insurer_verified (no legal/OCR promotion).
+    if (
+      (evidence_type === "application_disclosure" ||
+        evidence_type === "explanation_consent" ||
+        evidence_type === "terms_document") &&
+      verification_status === "insurer_verified"
+    ) {
+      verification_status =
+        trim(row.source) === "customer_statement" ? "customer_reported" : "original";
+    }
     let source = trim(row.source) || "claim_guardian";
     if (!SOURCE_SET.has(source)) source = "claim_guardian";
     const entity_id = trim(row.entity_id);
@@ -108,6 +129,11 @@ export function normalizeClaimEvidenceItems(raw = [], { now = new Date() } = {})
       );
     const metadata_json =
       row.metadata_json && typeof row.metadata_json === "object" ? { ...row.metadata_json } : {};
+    const document_version =
+      trim(row.document_version) ||
+      trim(metadata_json.document_version) ||
+      null;
+    if (document_version) metadata_json.document_version = document_version;
     out.push({
       id,
       customer_id: trim(row.customer_id),
@@ -122,6 +148,7 @@ export function normalizeClaimEvidenceItems(raw = [], { now = new Date() } = {})
       received_at: trim(row.received_at),
       verification_status,
       content_hash: trim(row.content_hash),
+      document_version,
       supersedes_id: trim(row.supersedes_id),
       label: trim(row.label) || trim(metadata_json.label) || evidence_type,
       metadata_json,
@@ -160,9 +187,10 @@ export function mergeClaimEvidenceItems(existing = [], incoming = [], { now = ne
     map.set(key, {
       ...prior,
       ...row,
-      // Preserve original capture / created; never clobber document_id.
+      // Preserve original capture / created; never clobber document_id / version / hash.
       document_id: prior.document_id || row.document_id,
       content_hash: prior.content_hash || row.content_hash,
+      document_version: prior.document_version || row.document_version,
       created_at: prior.created_at || row.created_at,
       captured_at: prior.captured_at || row.captured_at,
       supersedes_id: row.supersedes_id || prior.supersedes_id,
@@ -295,10 +323,15 @@ function pickOpenClaim(existingCases = [], { entityId = null } = {}) {
   return surgery || rows[0];
 }
 
+function docBlob(doc = null) {
+  return `${trim(doc?.customer_hint_type) || ""} ${trim(doc?.original_filename) || ""} ${trim(doc?.doc_class) || ""} ${trim(doc?.label) || ""}`;
+}
+
 function guessDocLabel(doc = null, fallback = "서류") {
-  const hint = trim(doc?.customer_hint_type) || trim(doc?.doc_class) || "";
-  const name = trim(doc?.original_filename) || "";
-  const blob = `${hint} ${name}`;
+  const blob = docBlob(doc);
+  if (/청약|고지/.test(blob)) return /고지/.test(blob) && !/청약/.test(blob) ? "고지사항" : "청약서·고지";
+  if (/설명|동의/.test(blob)) return "설명·동의 기록";
+  if (/약관/.test(blob)) return "약관";
   if (/진단/.test(blob)) return "진단서";
   if (/입퇴원|퇴원/.test(blob)) return "입퇴원확인서";
   if (/영수증|세부내역/.test(blob)) return "진료비영수증";
@@ -308,9 +341,57 @@ function guessDocLabel(doc = null, fallback = "서류") {
   return fallback;
 }
 
+/** Explicit contract doc class from filename/hint only — never OCR invent. */
+export function classifyContractEvidenceType(doc = null) {
+  const blob = docBlob(doc);
+  if (/약관/.test(blob)) return "terms_document";
+  if (/청약|고지/.test(blob)) return "application_disclosure";
+  if (/설명\s*의무|상품\s*설명|동의\s*서|동의\s*기록|설명.?동의/.test(blob) || (/설명/.test(blob) && /동의/.test(blob))) {
+    return "explanation_consent";
+  }
+  if (/동의/.test(blob) && !/보험사/.test(blob)) return "explanation_consent";
+  return null;
+}
+
 function isInsurerResponseDoc(doc = null) {
-  const blob = `${trim(doc?.customer_hint_type) || ""} ${trim(doc?.original_filename) || ""} ${trim(doc?.doc_class) || ""}`;
+  if (classifyContractEvidenceType(doc)) return false;
+  const blob = docBlob(doc);
   return /보험사|거절|부지급|지급.?안내|심사.?결과|회신|답변/.test(blob);
+}
+
+/** Next document_version along supersedes chain for same type+label (+entity). */
+export function nextDocumentVersion(existing = [], { claimCaseId, evidenceType, label, entityId = null } = {}) {
+  const rows = normalizeClaimEvidenceItems(existing).filter(
+    (e) =>
+      e.claim_case_id === trim(claimCaseId) &&
+      e.evidence_type === trim(evidenceType) &&
+      e.label === trim(label) &&
+      (trim(entityId) || null) === (e.entity_id || null),
+  );
+  if (!rows.length) return "1";
+  let max = 0;
+  for (const r of rows) {
+    const n = Number(String(r.document_version || "").replace(/^v/i, ""));
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return String(max + 1 || rows.length + 1);
+}
+
+/** Walk supersedes_id chain oldest→newest (history preserve). */
+export function buildEvidenceSupersedesChain(items = [], headId = null) {
+  const rows = normalizeClaimEvidenceItems(items);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const head = byId.get(trim(headId));
+  if (!head) return [];
+  const chain = [];
+  let cur = head;
+  const seen = new Set();
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    chain.unshift(cur);
+    cur = cur.supersedes_id ? byId.get(cur.supersedes_id) : null;
+  }
+  return chain;
 }
 
 /**
@@ -355,11 +436,31 @@ export function buildOriginalDocumentEvidenceFromDocs({
     if (!document_id) continue;
     if (byDoc.has(document_id)) continue; // already vaulted — never rewrite original
 
-    const insurerDoc = isInsurerResponseDoc(doc);
-    const evidence_type = insurerDoc ? "insurer_response" : "original_document";
-    const label = guessDocLabel(doc, insurerDoc ? "보험사답변" : "서류");
+    const contractType = classifyContractEvidenceType(doc);
+    const insurerDoc = !contractType && isInsurerResponseDoc(doc);
+    const evidence_type = contractType
+      ? contractType
+      : insurerDoc
+        ? "insurer_response"
+        : "original_document";
+    const label = guessDocLabel(
+      doc,
+      contractType === "terms_document"
+        ? "약관"
+        : contractType === "application_disclosure"
+          ? "청약서·고지"
+          : contractType === "explanation_consent"
+            ? "설명·동의 기록"
+            : insurerDoc
+              ? "보험사답변"
+              : "서류",
+    );
     const priorHead = latestSameLabel(label, evidence_type);
     const supersedes_id = priorHead?.id || null;
+    const document_version = nextDocumentVersion(
+      [...existing, ...updates],
+      { claimCaseId: claim_case_id, evidenceType: evidence_type, label, entityId: eid },
+    );
     const byteSize = doc?.metadata_json?.byte_size ?? doc?.byte_size ?? null;
     const storage_path = trim(doc?.storage_path);
     const content_hash = deriveContentHashHint({
@@ -380,10 +481,9 @@ export function buildOriginalDocumentEvidenceFromDocs({
       captured_at: trim(doc?.created_at) || stampNow(now),
       submitted_at: null,
       received_at: insurerDoc ? trim(doc?.created_at) || stampNow(now) : null,
-      verification_status: insurerDoc
-        ? "insurer_verified"
-        : "original",
+      verification_status: insurerDoc ? "insurer_verified" : "original",
       content_hash,
+      document_version,
       supersedes_id,
       label,
       metadata_json: {
@@ -391,15 +491,48 @@ export function buildOriginalDocumentEvidenceFromDocs({
         storage_path,
         byte_size: byteSize,
         original_filename: trim(doc?.original_filename),
-        layer: "original_document",
+        document_version,
+        layer: contractType || "original_document",
         extract_separated: true,
         claude_interpretation_separated: true,
+        ocr_not_confirmed_fact: true,
+        legal_force_not_judged: true,
       },
       created_at: stampNow(now),
       updated_at: stampNow(now),
     });
   }
   return normalizeClaimEvidenceItems(updates, { now });
+}
+
+/**
+ * Contract package from uploaded docs without inventing claim cases.
+ * Uses contract_package:personal|corporate:{entityId} as package subject.
+ */
+export function buildContractPackageEvidenceFromDocs({
+  documents = [],
+  existingEvidence = [],
+  customerId = null,
+  entityId = null,
+  now = new Date(),
+} = {}) {
+  const eid = trim(entityId);
+  const claim_case_id = contractPackageSubjectId({ entityId: eid });
+  const fauxCase = {
+    claim_case_key: claim_case_id,
+    claim_scope: eid ? "corporate" : "personal",
+    entity_id: eid,
+  };
+  const contractDocs = (Array.isArray(documents) ? documents : []).filter((d) =>
+    classifyContractEvidenceType(d),
+  );
+  return buildOriginalDocumentEvidenceFromDocs({
+    claimCase: fauxCase,
+    documents: contractDocs,
+    existingEvidence,
+    customerId,
+    now,
+  });
 }
 
 /**
@@ -449,6 +582,23 @@ export function isDenialOutcomeUtterance(question = "") {
   return /(거절됐|부지급|지급\s*안\s*됐|반려됐)/.test(text);
 }
 
+/** Explicit customer evidence statement (not claim submit / payout). */
+export function isCustomerEvidenceStatementUtterance(question = "") {
+  const text = String(question ?? "").trim();
+  if (!text) return false;
+  if (isClaimSubmissionUtterance(text) || isPaymentOutcomeUtterance(text) || isDenialOutcomeUtterance(text)) {
+    return false;
+  }
+  return /(진술|사실이야|고지\s*받았|설명\s*들었|동의\s*했|내가\s*말했던|증거로|기록해|정정하|아니라\s*.{0,20}이(?:야|에요)|수정하(?:면|려|고))/.test(
+    text,
+  );
+}
+
+export function isStatementCorrectionUtterance(question = "") {
+  const text = String(question ?? "").trim();
+  return /(정정|수정하|아니라)/.test(text);
+}
+
 /** Parse "오늘" / absolute date for submitted_at — never invent insurer receipt. */
 export function parseStatedSubmissionTime(question = "", { now = new Date() } = {}) {
   const text = String(question ?? "").trim();
@@ -480,6 +630,7 @@ function extractPayoutAmountText(question = "") {
 /**
  * Utterance → claim_submission / payment_or_denial_outcome / customer_statement.
  * Never marks insurer_verified from customer words alone.
+ * customer_statement may bind to open claim or contract_package subject.
  */
 export function buildClaimEvidenceUpdatesFromUtterance({
   question = "",
@@ -494,17 +645,30 @@ export function buildClaimEvidenceUpdatesFromUtterance({
   if (!text) return { ok: false, reason: "empty", action: "skip", updates: [] };
 
   const claim = pickOpenClaim(existingCases, { entityId });
-  if (!claim) return { ok: false, reason: "no_open_claim", action: "skip", updates: [] };
+  const needsClaim =
+    isClaimSubmissionUtterance(text) ||
+    isPaymentOutcomeUtterance(text) ||
+    isDenialOutcomeUtterance(text);
+  if (needsClaim && !claim) {
+    return { ok: false, reason: "no_open_claim", action: "skip", updates: [] };
+  }
 
-  const claim_case_id = trim(claim.claim_case_key);
-  const eid =
-    String(claim.claim_scope) === "corporate" ? trim(claim.entity_id) || trim(entityId) : null;
-  if (String(claim.claim_scope) === "corporate" && !eid) {
+  const eid = claim
+    ? String(claim.claim_scope) === "corporate"
+      ? trim(claim.entity_id) || trim(entityId)
+      : null
+    : trim(entityId);
+  if (claim && String(claim.claim_scope) === "corporate" && !eid) {
     return { ok: false, reason: "corporate_missing_entity", action: "skip", updates: [] };
   }
 
+  const claim_case_id = claim
+    ? trim(claim.claim_case_key)
+    : contractPackageSubjectId({ entityId: eid });
+
   const msg = trim(messageId) || `evmsg_${Date.now().toString(36)}`;
   const updates = [];
+  const existing = normalizeClaimEvidenceItems(existingEvidence, { now });
 
   if (isClaimSubmissionUtterance(text)) {
     const when = parseStatedSubmissionTime(text, { now });
@@ -522,6 +686,7 @@ export function buildClaimEvidenceUpdatesFromUtterance({
       received_at: null,
       verification_status: "customer_reported",
       content_hash: null,
+      document_version: null,
       supersedes_id: null,
       label: "고객 제출 진술",
       metadata_json: {
@@ -552,6 +717,7 @@ export function buildClaimEvidenceUpdatesFromUtterance({
       received_at: null,
       verification_status: "customer_reported",
       content_hash: null,
+      document_version: null,
       supersedes_id: null,
       label: denied ? "거절 결과 (고객 진술)" : "지급 결과 (고객 진술)",
       metadata_json: {
@@ -566,12 +732,64 @@ export function buildClaimEvidenceUpdatesFromUtterance({
     });
   }
 
+  if (isCustomerEvidenceStatementUtterance(text)) {
+    const label = "고객 증거 진술";
+    const priors = existing
+      .filter(
+        (e) =>
+          e.evidence_type === "customer_statement" &&
+          e.claim_case_id === claim_case_id &&
+          (e.entity_id || null) === (eid || null) &&
+          e.label === label,
+      )
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    const priorHead = priors.length ? priors[priors.length - 1] : null;
+    const correcting = isStatementCorrectionUtterance(text);
+    const document_version = nextDocumentVersion(
+      [...existing, ...updates],
+      {
+        claimCaseId: claim_case_id,
+        evidenceType: "customer_statement",
+        label,
+        entityId: eid,
+      },
+    );
+    updates.push({
+      id: `ev_customer_statement_${claim_case_id}_${msg}`.slice(0, 120),
+      customer_id: trim(customerId),
+      entity_id: eid,
+      claim_case_id,
+      evidence_type: "customer_statement",
+      document_id: null,
+      source_message_id: msg,
+      source: "customer_statement",
+      captured_at: stampNow(now),
+      submitted_at: null,
+      received_at: null,
+      verification_status: "customer_reported",
+      content_hash: null,
+      document_version,
+      // Preserve prior row; new row points to previous head when one exists.
+      supersedes_id: priorHead?.id || null,
+      label,
+      metadata_json: {
+        label,
+        utterance: text.slice(0, 200),
+        document_version,
+        correction: Boolean(correcting && priorHead),
+        chained_to_prior: Boolean(priorHead),
+        insurer_verified: false,
+        legal_force_not_judged: true,
+      },
+      created_at: stampNow(now),
+      updated_at: stampNow(now),
+    });
+  }
+
   if (!updates.length) {
     return { ok: false, reason: "not_evidence_utterance", action: "skip", updates: [] };
   }
 
-  // Avoid duplicate message rows
-  const existing = normalizeClaimEvidenceItems(existingEvidence, { now });
   const filtered = updates.filter(
     (u) => !existing.some((e) => e.id === u.id || e.source_message_id === u.source_message_id),
   );
@@ -588,8 +806,8 @@ export function buildClaimEvidenceUpdatesFromUtterance({
 }
 
 /**
- * Hand brief per claim — held / missing / submitted / insurer / outcome + verification.
- * Does not advance Claim Guardian status.
+ * Hand brief per claim + contract packages — soft context only.
+ * Does not advance Claim Guardian status or judge legal force.
  */
 export function buildClaimEvidenceHandBrief({
   cases = [],
@@ -601,33 +819,79 @@ export function buildClaimEvidenceHandBrief({
   for (const c of normalizeKeyClaimCaseUpdates(cases).slice(0, 8)) {
     const key = trim(c.claim_case_key);
     if (!key) continue;
-    const pack = items.filter((e) => e.claim_case_id === key);
-    const held = pack.filter((e) => e.evidence_type === "original_document");
-    const submitted = pack.filter((e) => e.evidence_type === "claim_submission");
-    const insurer = pack.filter((e) => e.evidence_type === "insurer_response");
-    const outcomes = pack.filter((e) => e.evidence_type === "payment_or_denial_outcome");
-    const statements = pack.filter((e) => e.evidence_type === "customer_statement");
-    const missing = Array.isArray(c.missing_documents) ? c.missing_documents.slice(0, 12) : [];
-    briefs.push({
-      claim_case_id: key,
+    briefs.push(packageBriefFromItems(items, {
+      key,
       claim_scope: c.claim_scope === "corporate" ? "corporate" : "personal",
       entity_id: c.entity_id ?? null,
       status: c.status ?? null,
-      held_evidence: held.map(briefItem).slice(0, 12),
-      missing_evidence_labels: missing,
-      submitted_evidence: submitted.map(briefItem).slice(0, 8),
-      insurer_evidence: insurer.map(briefItem).slice(0, 8),
-      outcome_evidence: outcomes.map(briefItem).slice(0, 8),
-      statement_evidence: statements.map(briefItem).slice(0, 8),
+      missing: Array.isArray(c.missing_documents) ? c.missing_documents.slice(0, 12) : [],
       next_action: typeof c.next_action === "string" ? c.next_action.slice(0, 200) : null,
       note: "evidence_package_claim_slice1",
-    });
+    }));
+  }
+  // Contract packages present in vault but not Claim Guardian cases.
+  const contractKeys = [
+    ...new Set(
+      items
+        .filter((e) => String(e.claim_case_id || "").startsWith("contract_package:"))
+        .map((e) => e.claim_case_id),
+    ),
+  ].slice(0, 8);
+  for (const key of contractKeys) {
+    if (briefs.some((b) => b.claim_case_id === key)) continue;
+    const sample = items.find((e) => e.claim_case_id === key);
+    briefs.push(packageBriefFromItems(items, {
+      key,
+      claim_scope: sample?.entity_id ? "corporate" : "personal",
+      entity_id: sample?.entity_id ?? null,
+      status: "contract_package",
+      missing: [],
+      next_action: null,
+      note: "evidence_package_contract_slice",
+    }));
   }
   return {
     packages: briefs,
     item_count: items.length,
     packs_separated: true,
-    note: "key_owns_claim_evidence; claude_explains_only",
+    note: "key_owns_claim_evidence; claude_explains_only; no_legal_judgment",
+  };
+}
+
+function packageBriefFromItems(items, {
+  key,
+  claim_scope,
+  entity_id,
+  status,
+  missing,
+  next_action,
+  note,
+}) {
+  const pack = items.filter((e) => e.claim_case_id === key);
+  const held = pack.filter((e) => e.evidence_type === "original_document");
+  const submitted = pack.filter((e) => e.evidence_type === "claim_submission");
+  const insurer = pack.filter((e) => e.evidence_type === "insurer_response");
+  const outcomes = pack.filter((e) => e.evidence_type === "payment_or_denial_outcome");
+  const statements = pack.filter((e) => e.evidence_type === "customer_statement");
+  const application = pack.filter((e) => e.evidence_type === "application_disclosure");
+  const explanation = pack.filter((e) => e.evidence_type === "explanation_consent");
+  const terms = pack.filter((e) => e.evidence_type === "terms_document");
+  return {
+    claim_case_id: key,
+    claim_scope,
+    entity_id,
+    status,
+    held_evidence: held.map(briefItem).slice(0, 12),
+    missing_evidence_labels: missing,
+    submitted_evidence: submitted.map(briefItem).slice(0, 8),
+    insurer_evidence: insurer.map(briefItem).slice(0, 8),
+    outcome_evidence: outcomes.map(briefItem).slice(0, 8),
+    statement_evidence: statements.map(briefItem).slice(0, 8),
+    application_disclosure_evidence: application.map(briefItem).slice(0, 8),
+    explanation_consent_evidence: explanation.map(briefItem).slice(0, 8),
+    terms_document_evidence: terms.map(briefItem).slice(0, 8),
+    next_action,
+    note,
   };
 }
 
@@ -644,6 +908,7 @@ function briefItem(e) {
     received_at: e.received_at,
     supersedes_id: e.supersedes_id,
     content_hash: e.content_hash,
+    document_version: e.document_version,
   };
 }
 

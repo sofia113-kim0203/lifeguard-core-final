@@ -121,6 +121,7 @@ import {
 import {
   buildClaimEvidenceHandBrief,
   buildClaimEvidenceUpdatesFromUtterance,
+  buildContractPackageEvidenceFromDocs,
   filterClaimEvidenceByScope,
   loadClaimEvidenceItems,
   persistClaimEvidenceItems,
@@ -5541,10 +5542,22 @@ export async function runClaudeFirstDirectQuestionTurn({
         customerId,
         now: startedAt instanceof Date ? startedAt : new Date(startedAt),
       });
+      // Contract Package — post-answer capture from explicit doc labels only (no OCR promote).
+      const contractUpdates = buildContractPackageEvidenceFromDocs({
+        documents: activeDocumentsForHistory,
+        existingEvidence: [...claimEvidenceItemsAll, ...syncUpdates],
+        customerId,
+        entityId: evEntityId,
+        now: startedAt instanceof Date ? startedAt : new Date(startedAt),
+      });
       const uttered = buildClaimEvidenceUpdatesFromUtterance({
         question,
         existingCases: casesForEv,
-        existingEvidence: [...claimEvidenceItemsAll, ...syncUpdates],
+        existingEvidence: [
+          ...claimEvidenceItemsAll,
+          ...syncUpdates,
+          ...contractUpdates,
+        ],
         customerId,
         entityId: evEntityId,
         messageId: evMessageId,
@@ -5552,6 +5565,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       });
       const updates = [
         ...syncUpdates,
+        ...contractUpdates,
         ...(uttered?.ok === true && Array.isArray(uttered.updates) ? uttered.updates : []),
       ];
       claimEvidenceSidecar = {
