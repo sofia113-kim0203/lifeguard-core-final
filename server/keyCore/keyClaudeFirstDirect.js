@@ -110,6 +110,21 @@ import {
   isExplicitCorporateClaimUtterance,
 } from "./keyClaimIntakeSidecar.js";
 import {
+  assembleInsuranceClockItemsForHand,
+  buildInsuranceClockHandBrief,
+  buildInsuranceClockUpdatesFromUtterance,
+  filterInsuranceClocksByScope,
+  loadInsuranceClockItems,
+  persistInsuranceClockItems,
+  softInsuranceClockContext,
+} from "./keyInsuranceClock.js";
+import {
+  buildInsuranceClocksFromPolicyDateFacts,
+  buildPolicyDateFactsFromUtterance,
+  loadPolicyDateFacts,
+  persistPolicyDateFacts,
+} from "./keyPolicyDateFacts.js";
+import {
   resolveCustomerViewMode,
   applyCustomerViewModeToUserPayload,
 } from "./keyCustomerViewContext.js";
@@ -393,7 +408,7 @@ export const RECORD_CONFIRMED_SOURCE_FACTS_TOOL = Object.freeze({
             fact_type: {
               type: "string",
               description:
-                "policyholder|insured|beneficiary|beneficiaries|insurer|insurer_name|product_name|premium|monthly_premium|coverage_name|coverage_amount|payment_period|insurance_period|effective_from|change_date|policy_number",
+                "policyholder|insured|beneficiary|beneficiaries|insurer|insurer_name|product_name|premium|monthly_premium|coverage_name|coverage_amount|payment_period|insurance_period|effective_from|change_date|policy_number|policy.renewal_date|policy.maturity_date|policy.effective_from|renewal_date|maturity_date",
             },
             literal_value: {
               type: "string",
@@ -1963,6 +1978,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "의료사건·수술·입원·병원비·진단이 보이면 고객카드 계약과 비교해 청구 필요성을 직접 판단한다. 근거가 충분하면 선제적으로 청구 확인을 제안한다. 청구했습니다/접수 완료/심사 중/지급됐습니다는 확인 근거 없이 고객에게 말하지 않는다.",
     "입력 current_context.session_goal이 있어도 참고용이다. 현재 고객 질문·최근 원문 대화·검증된 고객 사실이 항상 우선이며, 목표가 답변 방향을 강제하지 않는다.",
     "입력 current_context.prior_consultation이 있으면 같은 고객의 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이며, 처음부터 다시 묻지 말고 자연스럽게 이어간다. Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
+    "입력 current_context.insurance_clock이 있으면 KEY가 소유한 보험 기한 참고다. upcoming·overdue·unknown_date·completed_recent만 사용한다. 날짜를 새로 발명하지 말고, unknown_date는 정확한 날짜를 확인한다. completed·cancelled는 현재 할 일처럼 말하지 않는다. 법정 시효·‘보통 3년’ 같은 일반론을 고객 고유 due_at처럼 말하지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -2446,6 +2462,7 @@ export function buildUserPayload({
   selectedCorporateEntityId = null,
   publicEvidence = null,
   activeClaimCases = null,
+  insuranceClockBrief = null,
   sessionGoal = null,
   priorConsultation = null,
   now = null,
@@ -2492,6 +2509,7 @@ export function buildUserPayload({
           note: "prior_consultation_reference_only_not_verified_fact_not_corporate",
         }
       : null;
+  const softClock = softInsuranceClockContext(insuranceClockBrief);
 
   // Image original read: question + conversation + original image only.
   // No factory chart / OCR / contracts / corporate / claim cards mixed in.
@@ -2611,6 +2629,7 @@ export function buildUserPayload({
       ...(presenceContext && typeof presenceContext === "object"
         ? { presence_context: presenceContext }
         : {}),
+      ...(softClock ? softClock : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -3489,6 +3508,8 @@ async function callClaudeFirstDirect({
   selectedCorporateEntityId = null,
   activeClaimCases = null,
   activeDocuments = null,
+  /** Insurance Clock Hand brief — KEY-owned dates only. */
+  insuranceClockBrief = null,
   /** Server-SSOT soft goal only — never from client body. */
   sessionGoalForContext = null,
   /** Soft prior consultation pack — never verified fact. */
@@ -3568,6 +3589,8 @@ async function callClaudeFirstDirect({
     publicEvidence: [],
     activeClaimCases:
       presenceTurn === true || imageOriginalRead ? null : activeClaimCases,
+    insuranceClockBrief:
+      presenceTurn === true || imageOriginalRead ? null : insuranceClockBrief,
     sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
       priorConsultationForContext && typeof priorConsultationForContext === "object"
@@ -3975,6 +3998,14 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   const activeClaimCasesFromCard = readyMaterials.activeClaimCases;
   const activeDocumentsFromCard = readyMaterials.activeDocuments;
+  const insuranceClockItemsFromCard = Array.isArray(readyMaterials.insuranceClockItems)
+    ? readyMaterials.insuranceClockItems
+    : null;
+  const insuranceClockBriefFromCard =
+    readyMaterials.insuranceClockBrief &&
+    typeof readyMaterials.insuranceClockBrief === "object"
+      ? readyMaterials.insuranceClockBrief
+      : null;
 
   const sessionGoalForContext = discardRequested
     ? null
@@ -4440,6 +4471,51 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  // Insurance Clock Slice 1 — KEY-owned deadlines; Claude explains only.
+  let insuranceClockItemsAll = Array.isArray(insuranceClockItemsFromCard)
+    ? insuranceClockItemsFromCard
+    : [];
+  if (!Array.isArray(insuranceClockItemsFromCard) && userSupabase && customerId) {
+    try {
+      const [stored, policyDateFacts] = await Promise.all([
+        loadInsuranceClockItems({
+          supabase: userSupabase,
+          customerId,
+        }),
+        loadPolicyDateFacts({
+          supabase: userSupabase,
+          customerId,
+        }),
+      ]);
+      insuranceClockItemsAll = assembleInsuranceClockItemsForHand({
+        storedClocks: stored,
+        corporateContexts,
+        policies,
+        policyDateFacts,
+        customerId,
+        entityId: selectedCorporateEntityId,
+        mode: "both",
+      });
+    } catch (err) {
+      console.error("[key_insurance_clock_load]", String(err?.message ?? err).slice(0, 200));
+      insuranceClockItemsAll = [];
+    }
+  }
+  const viewModeForClock = String(customerViewMode?.mode ?? "personal");
+  const insuranceClockItemsScoped = filterInsuranceClocksByScope(insuranceClockItemsAll, {
+    entityId: selectedCorporateEntityId,
+    mode:
+      viewModeForClock === "corporate"
+        ? "corporate"
+        : viewModeForClock === "both"
+          ? "both"
+          : "personal",
+  });
+  const insuranceClockBrief =
+    insuranceClockBriefFromCard && viewModeForClock === "both"
+      ? insuranceClockBriefFromCard
+      : buildInsuranceClockHandBrief(insuranceClockItemsScoped);
+
   // Slice 3 D — claim entity ≠ chart auto-select. Personal turns stay personal.
   const claimSelectedEntityId = resolveClaimSelectedEntityId({
     selectedEntityIdHint,
@@ -4559,6 +4635,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     selectedCorporateEntityId: isPresenceTurn ? null : selectedCorporateEntityId,
     activeClaimCases: isPresenceTurn ? null : activeClaimCases,
     activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
+    insuranceClockBrief: isPresenceTurn ? null : insuranceClockBrief,
     sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
     priorConsultationForContext,
     documentEvidence: isPresenceTurn ? [] : documentChunksForClaude,
@@ -5148,12 +5225,22 @@ export async function runClaudeFirstDirectQuestionTurn({
     action: "skip",
     stored: 0,
   };
+  let insuranceClockPersist = { attempted: false, ok: false, stored: 0 };
+  let insuranceClockSidecar = {
+    attempted: false,
+    ok: false,
+    reason: "not_run",
+    action: "skip",
+    stored: 0,
+  };
   // Slice 1A — KEY post-answer claim intake (no tools / no second Claude).
   // Failures must never rewrite sealed customer answer.
   let claimCasesToPersist = Array.isArray(claude.claim_case_updates)
     ? claude.claim_case_updates
     : [];
+  let claimIntakeBlockRan = false;
   if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
+    claimIntakeBlockRan = true;
     try {
       const sidecar = await runKeyClaimIntakeSidecar({
         // Pass full card cases — sidecar scopes personal vs corporate itself.
@@ -5240,11 +5327,103 @@ export async function runClaudeFirstDirectQuestionTurn({
       };
       console.error("[key_claim_intake_sidecar]", claimIntakeSidecar);
     }
-  } else if (
+  }
+
+  // Insurance Clock Slice 1 + Policy Date Foundation — post-answer (no answer rewrite).
+  if (!usedFailure && !isPresenceTurn && userSupabase && customerId) {
+    try {
+      const clockEntityId =
+        claimTurnScope.claim_scope === "corporate" && claimTurnScope.entity_id
+          ? claimTurnScope.entity_id
+          : null;
+      let clockBuilt = buildInsuranceClockUpdatesFromUtterance({
+        question,
+        existingCases: activeClaimCasesAll,
+        existingClocks: insuranceClockItemsAll,
+        customerId,
+        entityId: clockEntityId,
+        messageId: null,
+      });
+      let policyDateFactTrace = null;
+      const dateBuilt = buildPolicyDateFactsFromUtterance({
+        question,
+        customerId,
+        entityId: clockEntityId,
+        messageId: null,
+      });
+      if (dateBuilt?.ok === true && Array.isArray(dateBuilt.updates) && dateBuilt.updates.length) {
+        const datePersist = await persistPolicyDateFacts({
+          supabase: userSupabase,
+          customerId,
+          factUpdates: dateBuilt.updates,
+        });
+        policyDateFactTrace = {
+          ok: datePersist?.ok === true,
+          stored: Number(datePersist?.stored ?? 0) || 0,
+          fact_key: dateBuilt.updates[0]?.fact_key ?? null,
+          date_value: dateBuilt.updates[0]?.date_value ?? null,
+          source: dateBuilt.updates[0]?.source ?? null,
+        };
+        const clocksFromDates = buildInsuranceClocksFromPolicyDateFacts({
+          facts: dateBuilt.updates,
+          customerId,
+        });
+        if (clocksFromDates.length) {
+          clockBuilt = {
+            ok: true,
+            reason: dateBuilt.reason,
+            action: "create",
+            updates: clocksFromDates,
+          };
+        }
+      }
+      insuranceClockSidecar = {
+        attempted: true,
+        ok: clockBuilt?.ok === true,
+        reason: clockBuilt?.reason ?? null,
+        action: clockBuilt?.action ?? "skip",
+        stored: 0,
+        clock_type: clockBuilt?.updates?.[0]?.clock_type ?? null,
+        status: clockBuilt?.updates?.[0]?.status ?? null,
+        due_at: clockBuilt?.updates?.[0]?.due_at ?? null,
+        source: clockBuilt?.updates?.[0]?.source ?? null,
+        ...(policyDateFactTrace ? { policy_date_fact: policyDateFactTrace } : {}),
+      };
+      if (clockBuilt?.ok === true && Array.isArray(clockBuilt.updates) && clockBuilt.updates.length) {
+        insuranceClockPersist = await persistInsuranceClockItems({
+          supabase: userSupabase,
+          customerId,
+          clockUpdates: clockBuilt.updates,
+        });
+        insuranceClockSidecar.stored = Number(insuranceClockPersist?.stored ?? 0) || 0;
+        insuranceClockSidecar.persist_ok = insuranceClockPersist?.ok === true;
+        if (insuranceClockPersist?.ok === true) {
+          try {
+            invalidateReadyCardCacheForCustomer(customerId);
+          } catch {
+            /* non-blocking */
+          }
+        }
+      }
+    } catch (err) {
+      insuranceClockSidecar = {
+        attempted: true,
+        ok: false,
+        reason: "sidecar_threw",
+        action: "skip",
+        stored: 0,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+      console.error("[key_insurance_clock_sidecar]", insuranceClockSidecar);
+    }
+  }
+
+  if (
     !usedFailure &&
     claimCasesToPersist.length > 0 &&
     userSupabase &&
-    customerId
+    customerId &&
+    !claimIntakeBlockRan
   ) {
     // Legacy empty tool path only — keep fail-closed persist helper available.
     try {
@@ -5385,6 +5564,15 @@ export async function runClaudeFirstDirectQuestionTurn({
           claim_case_updates_count: claimCasesToPersist.length,
           key_claim_case_persist: claimCasePersist,
           key_claim_intake_sidecar: claimIntakeSidecar,
+          insurance_clock_hydrated: insuranceClockItemsScoped.length,
+          insurance_clock_brief: {
+            upcoming: insuranceClockBrief?.upcoming?.length ?? 0,
+            overdue: insuranceClockBrief?.overdue?.length ?? 0,
+            unknown_date: insuranceClockBrief?.unknown_date?.length ?? 0,
+            completed_recent: insuranceClockBrief?.completed_recent?.length ?? 0,
+          },
+          key_insurance_clock_sidecar: insuranceClockSidecar,
+          key_insurance_clock_persist: insuranceClockPersist,
           sealed_matches_claude:
             !usedFailure &&
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),
@@ -5480,6 +5668,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           step: "key_active_claim_cases_persist",
           at_ms: relMs(startedAt),
           payload: claimCasePersist,
+        },
+        {
+          step: "key_insurance_clock_persist",
+          at_ms: relMs(startedAt),
+          payload: insuranceClockPersist,
         },
       ],
       legacy_paths_blocked: [

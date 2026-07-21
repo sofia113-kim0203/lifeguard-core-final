@@ -160,6 +160,12 @@ export const KEY_CONFIRMED_SOURCE_FACT_TYPES = Object.freeze([
   "effective_from",
   "change_date",
   "policy_number",
+  // Policy Date Foundation — calendar dates only (never from period prose).
+  "policy.renewal_date",
+  "policy.maturity_date",
+  "policy.effective_from",
+  "renewal_date",
+  "maturity_date",
 ]);
 
 const KEY_CONFIRMED_FACT_TYPE_SET = new Set(KEY_CONFIRMED_SOURCE_FACT_TYPES);

@@ -15,6 +15,12 @@ import {
   loadCustomerLifeThreadsFromConversations,
   selectActiveLifeThreads,
 } from "./keyLifeThread.js";
+import {
+  assembleInsuranceClockItemsForHand,
+  buildInsuranceClockHandBrief,
+  loadInsuranceClockItems,
+} from "./keyInsuranceClock.js";
+import { loadPolicyDateFacts } from "./keyPolicyDateFacts.js";
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
 
@@ -159,18 +165,37 @@ function profileBriefFromContexts({
 function briefPolicies(policies = []) {
   return (Array.isArray(policies) ? policies : [])
     .slice(0, 24)
-    .map((p) => ({
-      id: p?.id != null ? String(p.id) : null,
-      insurer_name: p?.insurer_name ?? null,
-      product_name: p?.product_name ?? null,
-      policy_type: p?.policy_type ?? null,
-      is_active: p?.is_active !== false,
-      policy_status: p?.policy_status ?? null,
-      coverage_summary:
+    .map((p) => {
+      const coverage_summary =
         typeof p?.coverage_summary === "string"
           ? p.coverage_summary.slice(0, 240)
-          : p?.coverage_summary ?? null,
-    }))
+          : p?.coverage_summary ?? null;
+      const summaryObj =
+        coverage_summary && typeof coverage_summary === "object" ? coverage_summary : null;
+      // Insurance Clock Slice 1 — only pass through verified date fields (never invent).
+      const renewal_date =
+        p?.renewal_date ??
+        p?.next_renewal_date ??
+        summaryObj?.renewal_date ??
+        null;
+      const maturity_date =
+        p?.maturity_date ??
+        summaryObj?.maturity_date ??
+        null;
+      return {
+        id: p?.id != null ? String(p.id) : null,
+        insurer_name: p?.insurer_name ?? null,
+        product_name: p?.product_name ?? null,
+        policy_type: p?.policy_type ?? null,
+        is_active: p?.is_active !== false,
+        policy_status: p?.policy_status ?? null,
+        entity_id: p?.entity_id != null ? String(p.entity_id) : null,
+        coverage_summary,
+        ...(renewal_date ? { renewal_date } : {}),
+        // maturity_date only — never alias end_date into maturity.
+        ...(maturity_date ? { maturity_date } : {}),
+      };
+    })
     .filter((p) => p.id || p.product_name || p.insurer_name);
 }
 
@@ -286,6 +311,8 @@ export async function buildKeyReadyCard({
   loadAllowedCorporateContextsForClaude = null,
   loadKeyActiveClaimCases = null,
   loadActiveCustomerDocuments = null,
+  loadInsuranceClockItemsImpl = loadInsuranceClockItems,
+  loadPolicyDateFactsImpl = loadPolicyDateFacts,
 } = {}) {
   const cid = String(customerId ?? "").trim();
   const sid = String(sessionId ?? "").trim() || null;
@@ -314,6 +341,15 @@ export async function buildKeyReadyCard({
         note: "prior_consultation_reference_only_not_verified_fact",
       },
       document_status: { active_count: 0, documents: [] },
+      insurance_clock: {
+        upcoming: [],
+        overdue: [],
+        unknown_date: [],
+        completed_recent: [],
+        packs_separated: true,
+        note: "key_owns_dates_claude_explains_only_no_invented_deadlines",
+        _items: [],
+      },
       corporate: {
         corporate_contexts: [],
         corporate_gap_evidence: [],
@@ -343,6 +379,8 @@ export async function buildKeyReadyCard({
     corporateLoaded,
     claimCases,
     activeDocuments,
+    storedClocks,
+    policyDateFacts,
   ] = await Promise.all([
     discardGoal || !sid || typeof loadLatestSessionGoalFromConversations !== "function"
       ? Promise.resolve({ goal: null, reason: discardGoal ? "discard_requested" : "skipped" })
@@ -386,6 +424,12 @@ export async function buildKeyReadyCard({
     typeof loadActiveCustomerDocuments === "function"
       ? loadActiveCustomerDocuments({ supabase: userSupabase, customerId: cid }).catch(() => [])
       : Promise.resolve([]),
+    typeof loadInsuranceClockItemsImpl === "function"
+      ? loadInsuranceClockItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      : Promise.resolve([]),
+    typeof loadPolicyDateFactsImpl === "function"
+      ? loadPolicyDateFactsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   let goal = sessionGoalLoaded?.goal ?? null;
@@ -428,12 +472,32 @@ export async function buildKeyReadyCard({
     corporateUnknowns: corporate_unknowns,
   });
 
+  // Insurance Clock Slice 1 — KEY-owned deadlines (stored + projected consent/policy dates).
+  const clockItems = assembleInsuranceClockItemsForHand({
+    storedClocks,
+    corporateContexts: corporate_contexts,
+    policies,
+    policyDateFacts,
+    customerId: cid,
+    entityId: corporateLoaded?.selected_entity_id ?? selectedEntityId ?? null,
+    mode: "both",
+  });
+  const insurance_clock = {
+    ...buildInsuranceClockHandBrief(clockItems),
+    _items: clockItems,
+  };
+
   // Connected when any verified/soft SSOT material is present for this customer.
   const lifeThreadCount = Array.isArray(prior?.life_threads) ? prior.life_threads.length : 0;
+  const clockLiveCount =
+    (insurance_clock.upcoming?.length || 0) +
+    (insurance_clock.overdue?.length || 0) +
+    (insurance_clock.unknown_date?.length || 0);
   const materials_connected =
     policy_count > 0 ||
     docs.length > 0 ||
     claims_brief.length > 0 ||
+    clockLiveCount > 0 ||
     Boolean(goal) ||
     Boolean(prior) ||
     lifeThreadCount > 0 ||
@@ -490,6 +554,7 @@ export async function buildKeyReadyCard({
       documents: docs,
       _active_documents: Array.isArray(activeDocuments) ? activeDocuments : [],
     },
+    insurance_clock,
     // T8.1 — independent of materials_connected; no live insurer API in this slice.
     insurer_source: defaultInsurerSource(),
     corporate: {
@@ -849,6 +914,8 @@ export function materialsFromReadyCard(card = null) {
       activeDocuments: [],
       policies: [],
       policy_count: 0,
+      insuranceClockItems: null,
+      insuranceClockBrief: null,
     };
   }
   const goalObj = card.active_goal?._goal_object ?? null;
@@ -856,6 +923,17 @@ export function materialsFromReadyCard(card = null) {
   const policies = Array.isArray(card.insurance_card?.policies)
     ? card.insurance_card.policies
     : [];
+  const insuranceClockBrief =
+    card.insurance_clock && typeof card.insurance_clock === "object"
+      ? {
+          upcoming: card.insurance_clock.upcoming || [],
+          overdue: card.insurance_clock.overdue || [],
+          unknown_date: card.insurance_clock.unknown_date || [],
+          completed_recent: card.insurance_clock.completed_recent || [],
+          packs_separated: card.insurance_clock.packs_separated === true,
+          note: card.insurance_clock.note ?? null,
+        }
+      : null;
   return {
     ssotGoal: goalObj,
     ssotReason: card.active_goal?.reason ?? "ready_card",
@@ -887,5 +965,9 @@ export function materialsFromReadyCard(card = null) {
         : [],
     policies,
     policy_count: Number(card.insurance_card?.policy_count) || policies.length,
+    insuranceClockItems: Array.isArray(card.insurance_clock?._items)
+      ? card.insurance_clock._items
+      : null,
+    insuranceClockBrief,
   };
 }
