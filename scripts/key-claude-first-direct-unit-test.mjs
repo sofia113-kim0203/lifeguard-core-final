@@ -3916,6 +3916,26 @@ async function runGo2ConflictTurn({
     );
     assert.equal(/세이프단체보험/.test(cross.text), false, "I2: strips unverified product");
     assert.equal(/단체보험/.test(cross.text), true, "I2: keeps generic group insurance");
+    const code = neutralizeUnsupportedInsurerProductLiterals(
+      "단체보험 가입되어 있음 (단체보험 무배당2604)",
+      { allowedEntities: [] },
+    );
+    assert.equal(/무배당2604/.test(code.text), false, "I2: strips unverified product code");
+    assert.equal(/단체보험/.test(code.text), true, "I2: keeps group-insurance presence");
+    assert.equal(
+      /무배당\s*상품/.test(
+        neutralizeUnsupportedInsurerProductLiterals("무배당 상품도 있을 수 있어요.", {
+          allowedEntities: [],
+        }).text,
+      ),
+      true,
+      "I2: keeps spaced general 무배당 상품 wording",
+    );
+    const keepCode = neutralizeUnsupportedInsurerProductLiterals(
+      "확인된 상품은 무배당2604입니다.",
+      { allowedEntities: ["무배당2604"] },
+    );
+    assert.equal(/무배당2604/.test(keepCode.text), true, "I2: keeps verified product code");
   }
 
   // J: GO3 session_goal regression — answer+goal still Continue 0 / decision null

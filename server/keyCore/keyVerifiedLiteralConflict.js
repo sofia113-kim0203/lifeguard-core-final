@@ -440,7 +440,7 @@ export function neutralizeUnsupportedInsurerProductLiterals(
     "g",
   );
 
-  const next = raw.replace(phraseRe, (match, brand, offset) => {
+  let next = raw.replace(phraseRe, (match, brand, offset) => {
     const productPart = String(match.slice(String(brand).length) ?? "").trim();
     const brandOk = insurerFormAllowed(brand, allowedEntities);
     const productOk = !productPart || productFormAllowed(productPart, allowedEntities);
@@ -473,11 +473,32 @@ export function neutralizeUnsupportedInsurerProductLiterals(
     return "";
   });
 
+  // Product-code residue (e.g. 무배당2604). Not a catalog — Hangul glued to 3+ digits only.
+  // Keeps spaced general wording like "무배당 상품". Verified allowlist literals preserved.
+  const productCodeRe = /(?:무배당\d{3,8}|[가-힣]{2,24}\d{3,8})/g;
+  next = next.replace(productCodeRe, (code, offset) => {
+    if (productFormAllowed(code, allowedEntities)) return code;
+    const window = next.slice(Math.max(0, offset - 16), offset + code.length + 16);
+    // Keep educational "무배당 상품/보험" — those are spaced, not matched. Extra soft skips:
+    if (MARKET_RE.test(window) || ASSUME_RE.test(window) || COMPARE_RE.test(window)) {
+      return code;
+    }
+    if (QUESTION_RE.test(window) && /\?|인가요|일까요|아닌가요|맞나요/.test(window)) {
+      return code;
+    }
+    stripped_count += 1;
+    stripped_forms.push(code);
+    return "";
+  });
+
   // Clean doubled spaces / empty wrappers from removals (whitespace only).
   const cleaned = next
+    .replace(/\(\s*단체보험\s*\)/g, "(단체보험)")
+    .replace(/단체보험\s+(?=[)\].,，。])/g, "단체보험")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/ \n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n");
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\(\s*\)/g, "");
 
   return {
     text: cleaned,
