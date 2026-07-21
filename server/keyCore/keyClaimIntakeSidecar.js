@@ -35,6 +35,9 @@ const OUTCOME_TRACKABLE_STATUSES = new Set([
   "under_review",
 ]);
 
+/** Terminal results — keep on unclear wait; never reopen via intake recreate. */
+const TERMINAL_CLAIM_STATUSES = new Set(["paid", "denied", "closed"]);
+
 const OUTCOME_SUBMITTED_RE =
   /보험사에\s*접수|청구\s*접수|접수해\s*뒀|접수해\s*놓|접수했|접수\s*완료|접수했어/;
 const OUTCOME_REVIEW_RE =
@@ -492,6 +495,26 @@ function pickOpenCaseForOutcome(existingCases = [], topicKey = null) {
   return null;
 }
 
+function pickTerminalCaseForUnclear(existingCases = [], topicKey = null) {
+  const rows = normalizeKeyClaimCaseUpdates(existingCases).filter((row) =>
+    TERMINAL_CLAIM_STATUSES.has(String(row?.status ?? "")),
+  );
+  if (!rows.length) return null;
+  if (topicKey) {
+    const byKind = rows.find((row) => {
+      const medical =
+        row.medical_event && typeof row.medical_event === "object"
+          ? row.medical_event
+          : {};
+      if (String(medical.event_kind ?? "").trim() === topicKey) return true;
+      return String(row.claim_case_key ?? "").includes(`kind:${topicKey}`);
+    });
+    if (byKind) return byKind;
+  }
+  if (rows.length === 1) return rows[0];
+  return null;
+}
+
 function resolveEventKind(question = "") {
   const topic = detectClaimTopic(question);
   const kind = topic?.topicKey ? String(topic.topicKey).trim() : "";
@@ -751,8 +774,13 @@ function buildOutcomeUpdate({
     return { ok: false, reason: "no_outcome_signal", action: "skip", updates: [] };
   }
   const { topicKey } = resolveEventKind(question);
-  const prior = pickOpenCaseForOutcome(existingCases, topicKey);
   const trackable = listOutcomeTrackableCases(existingCases);
+  // Unclear wait may land on a terminal paid/denied case — keep status, never reopen.
+  const prior =
+    outcome.kind === "unclear_wait"
+      ? pickOpenCaseForOutcome(existingCases, topicKey) ||
+        pickTerminalCaseForUnclear(existingCases, topicKey)
+      : pickOpenCaseForOutcome(existingCases, topicKey);
   if (!prior) {
     return {
       ok: false,
@@ -1068,7 +1096,8 @@ export function buildKeyClaimIntakeUpdate({
   });
 
   // Slice 1C — submission / review / paid / denied / unclear wait (never create).
-  if (outcome && !isIntake) {
+  // Unclear wait wins over intake reclassify — must not reopen terminal cases.
+  if (outcome && (!isIntake || outcome.kind === "unclear_wait")) {
     const built = buildOutcomeUpdate({
       question,
       existingCases: scopedExisting,
@@ -1167,6 +1196,24 @@ export function buildKeyClaimIntakeUpdate({
     return {
       ok: false,
       reason: "no_stable_claim_case_key",
+      action: "skip",
+      updates: [],
+      claim_scope,
+      entity_id: scopeEntityId,
+      authorization_denied: false,
+    };
+  }
+
+  // Do not reopen a terminal paid/denied/closed case via intake recreate.
+  const terminalSameKey = normalizeKeyClaimCaseUpdates(scopedExisting).find(
+    (row) =>
+      String(row.claim_case_key) === String(claim_case_key) &&
+      TERMINAL_CLAIM_STATUSES.has(String(row.status ?? "")),
+  );
+  if (terminalSameKey && !OPEN_CLAIM_STATUSES.has(String(terminalSameKey.status))) {
+    return {
+      ok: false,
+      reason: "terminal_claim_no_reopen",
       action: "skip",
       updates: [],
       claim_scope,

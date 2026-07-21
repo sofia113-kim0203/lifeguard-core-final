@@ -985,16 +985,27 @@ function normalizeAssessment(raw = null) {
   };
 }
 
+/** Terminal outcomes — never regress to open/intake statuses via merge. */
+const KEY_CLAIM_TERMINAL_STATUSES = new Set(["paid", "denied", "closed"]);
+
 function normalizeClaimStatus(rawStatus, { priorStatus = null, evidence = [] } = {}) {
+  const prior =
+    priorStatus && KEY_CLAIM_STATUS_SET.has(String(priorStatus).toLowerCase())
+      ? String(priorStatus).toLowerCase()
+      : null;
   const status = normalizeClaimString(rawStatus)?.toLowerCase();
   if (!status || !KEY_CLAIM_STATUS_SET.has(status)) {
-    return priorStatus && KEY_CLAIM_STATUS_SET.has(priorStatus) ? priorStatus : "identified";
+    return prior || "identified";
+  }
+  // Seat F / Claim honesty — paid|denied|closed must not rewind to identified/preparing/etc.
+  if (prior && KEY_CLAIM_TERMINAL_STATUSES.has(prior) && !KEY_CLAIM_TERMINAL_STATUSES.has(status)) {
+    return prior;
   }
   if (KEY_CLAIM_STATUS_NEEDS_EVIDENCE.has(status)) {
     const hasEvidence = Array.isArray(evidence) && evidence.length > 0;
     if (!hasEvidence) {
       // Do not advance on KEY speculation alone.
-      if (priorStatus && KEY_CLAIM_STATUS_SET.has(priorStatus)) return priorStatus;
+      if (prior) return prior;
       return "preparing";
     }
   }
