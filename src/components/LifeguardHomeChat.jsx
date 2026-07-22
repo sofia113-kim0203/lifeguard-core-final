@@ -935,16 +935,23 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setHandSnapshot(null);
       return undefined;
     }
+    // Wait for session bootstrap — early token race left corporateEntities stuck at [].
+    if (loadingSession) return undefined;
     let cancelled = false;
-    void fetchMyCorporateEntities().then((result) => {
-      if (cancelled) return;
-      setCorporateEntities(Array.isArray(result?.entities) ? result.entities : []);
-      // Never auto-select even when exactly one entity exists.
-    });
+    void fetchMyCorporateEntities()
+      .then((result) => {
+        if (cancelled) return;
+        setCorporateEntities(Array.isArray(result?.entities) ? result.entities : []);
+        // Never auto-select even when exactly one entity exists.
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCorporateEntities([]);
+      });
     return () => {
       cancelled = true;
     };
-  }, [authUser]);
+  }, [authUser, loadingSession]);
 
   // KEY Hand SSOT (profile_health) — display-only strip; no Claude / no new judgment.
   const reloadHandSnapshot = useCallback(async () => {

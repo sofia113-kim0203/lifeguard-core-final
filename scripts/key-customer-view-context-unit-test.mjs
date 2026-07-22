@@ -138,6 +138,7 @@ assert.equal(isCorporateViewUtterance("내 개인보험 알려줘"), false);
 {
   const homeChat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
   assert.match(homeChat, /fetchMyCorporateEntities/);
+  assert.match(homeChat, /\[authUser,\s*loadingSession\]/);
   assert.match(homeChat, /viewMode/);
   assert.match(homeChat, /selectedEntityId/);
   assert.match(homeChat, /개인\+법인 비교/);
