@@ -8,7 +8,8 @@ import { ENTITY_TYPES, MEMBER_ROLES } from "./entityTypes.js";
 export const CORPORATE_LIST_FAILED_CUSTOMER_TEXT =
   "법인 목록을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
-const ACTIVE_STATUSES = new Set(["active", "demo"]);
+/** Customer chip list: active corporates only. demo fixtures stay in DB but are not listed. */
+const ACTIVE_STATUSES = new Set(["active"]);
 
 const ROLE_DISPLAY = {
   owner: "소유자",
@@ -134,7 +135,7 @@ export async function listMyCorporateEntities(supabase, { authUserId = null } = 
     .select("id, entity_type, entity_status, display_name")
     .in("id", entityIds)
     .eq("entity_type", ENTITY_TYPES.CORPORATE)
-    .in("entity_status", ["active", "demo"]);
+    .in("entity_status", ["active"]);
 
   if (entityError) {
     return {
