@@ -27,6 +27,13 @@ import {
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import { fetchMyCorporateEntities } from "../lib/keyMyCorporateEntities.js";
 import {
+  buildHandSnapshotFromDetailsJson,
+  buildKeyPresentationStatusStrip,
+  formatCustomerDocumentFactoryStatus,
+  formatCustomerDocumentStorageStatus,
+  resolvePdfWaitStatusText,
+} from "../lib/keyPresentationStatusStrip.js";
+import {
   getReadyCardHandoffToken,
   warmKeyReadyCard,
   warmKeyReadyCardFireAndForget,
@@ -67,7 +74,6 @@ import { LG } from "../lib/lifeguardCustomerTheme.js";
 import {
   DOCUMENT_UI_MESSAGES,
   formatDocClass,
-  formatIngestStatus,
   formatUploadDate,
   toCustomerErrorMessage,
 } from "../lib/uiLocale.js";
@@ -98,6 +104,96 @@ const ROOM_WIDE_BREAKPOINT = 1200;
 
 const KEY_WAIT_STATUS = "KEY가 확인하고 있어요.";
 const KEY_WAIT_ACK_FALLBACK = KEY_WAIT_STATUS;
+
+function KeyPresentationStatusStripView({ chips = [], claimProgress = null }) {
+  if ((!chips || chips.length === 0) && !claimProgress) return null;
+  const toneColor = (tone) => {
+    if (tone === "green") return "#166534";
+    if (tone === "amber") return "#92400E";
+    if (tone === "rose") return "#9F1239";
+    if (tone === "muted") return LG.textMuted;
+    return LG.navy;
+  };
+  return (
+    <div
+      style={{
+        marginTop: "10px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        maxWidth: "100%",
+      }}
+    >
+      {chips.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "6px",
+          }}
+        >
+          {chips.map((chip) => (
+            <span
+              key={chip.id}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                maxWidth: "100%",
+                padding: "3px 9px",
+                borderRadius: "999px",
+                border: `1px solid ${LG.border}`,
+                background: "#fff",
+                color: toneColor(chip.tone),
+                fontSize: "11px",
+                lineHeight: 1.35,
+                fontFamily: LG.sans,
+                fontWeight: 600,
+              }}
+            >
+              {chip.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {claimProgress ? (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "6px",
+            alignItems: "center",
+            fontSize: "11px",
+            color: LG.textMuted,
+            fontFamily: LG.sans,
+          }}
+        >
+          {claimProgress.stages.map((st) => (
+            <span
+              key={st.key}
+              style={{
+                padding: "2px 8px",
+                borderRadius: "999px",
+                border: `1px solid ${st.on ? LG.navy : LG.border}`,
+                background: st.on ? "rgba(15, 23, 42, 0.06)" : "transparent",
+                color: st.on ? LG.navy : LG.textSoft,
+                fontWeight: st.on ? 700 : 500,
+              }}
+            >
+              {st.label}
+            </span>
+          ))}
+          {claimProgress.reason_source_label &&
+          (claimProgress.reason_verbatim || claimProgress.reason_customer_stated) ? (
+            <span style={{ width: "100%", marginTop: "2px", lineHeight: 1.45 }}>
+              {claimProgress.reason_source_label}:{" "}
+              {claimProgress.reason_verbatim || claimProgress.reason_customer_stated}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function useMediaQuery(query) {
   const [matches, setMatches] = useState(() => {
@@ -144,20 +240,10 @@ function LayerPanel({ title, children, onBack }) {
   );
 }
 
-function formatAnalysisComplete(document) {
-  const extractionStatus = document?.metadata_json?.policy_extraction_status;
-  if (document?.ingest_status === "ready" && extractionStatus === "completed") {
-    return "분석 완료";
-  }
-  if (extractionStatus === "extraction_failed") return "분석 실패";
-  if (extractionStatus === "pending_manual_review") return "검토 대기";
-  if (document?.ingest_status === "ready") return "분석 진행 중";
-  return "대기";
-}
-
-function formatOcrStatus(document) {
-  if (document?.ingest_status === "ready") return "KEY 확인 완료";
-  return formatIngestStatus(document?.ingest_status);
+function formatDocumentStatusLines(document) {
+  const storage = formatCustomerDocumentStorageStatus(document);
+  const factory = formatCustomerDocumentFactoryStatus(document);
+  return { storage, factory };
 }
 
 function formatMonthlyPremium(value) {
@@ -273,8 +359,18 @@ function CustomerDocumentsList({
             <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
               <div>문서 유형: {formatDocClass(document.doc_class)}</div>
               <div>업로드일: {formatUploadDate(document.created_at)}</div>
-              <div>확인: {formatOcrStatus(document)}</div>
-              <div>분석: {formatAnalysisComplete(document)}</div>
+              {(() => {
+                const lines = formatDocumentStatusLines(document);
+                return (
+                  <>
+                    {lines.storage ? <div>원본: {lines.storage}</div> : null}
+                    {lines.factory ? <div>자동 정리: {lines.factory}</div> : null}
+                    {!lines.storage && document.ingest_status === "failed" ? (
+                      <div style={{ color: "#B91C1C" }}>업로드 실패</div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
           </div>
         );
@@ -436,6 +532,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [viewMode, setViewMode] = useState("personal");
   const [selectedEntityId, setSelectedEntityId] = useState(null);
   const [corporateEntities, setCorporateEntities] = useState([]);
+  const [handSnapshot, setHandSnapshot] = useState(null);
+  const [doneStatusOverlay, setDoneStatusOverlay] = useState(null);
   const [turnMirror, setTurnMirror] = useState(null);
   const [detailDrawer, setDetailDrawer] = useState(null);
   const [insuranceRailOpen, setInsuranceRailOpen] = useState(true);
@@ -702,6 +800,17 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     () => buildLifeguardHomeGreeting(displayName, session?.unifiedState),
     [displayName, session?.unifiedState],
   );
+
+  const presentationStrip = useMemo(
+    () =>
+      buildKeyPresentationStatusStrip({
+        handSnapshot,
+        doneStatus: doneStatusOverlay,
+        viewMode,
+        entityId: selectedEntityId,
+      }),
+    [handSnapshot, doneStatusOverlay, viewMode, selectedEntityId],
+  );
   const isDisabled = disabled || loadingSession || !threadRestoreReady;
 
   const focusChatInput = useCallback(() => {
@@ -823,6 +932,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       setCorporateEntities([]);
       setSelectedEntityId(null);
       setViewMode("personal");
+      setHandSnapshot(null);
       return undefined;
     }
     let cancelled = false;
@@ -835,6 +945,29 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       cancelled = true;
     };
   }, [authUser]);
+
+  // KEY Hand SSOT (profile_health) — display-only strip; no Claude / no new judgment.
+  const reloadHandSnapshot = useCallback(async () => {
+    if (!customerId) {
+      setHandSnapshot(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("profile_health")
+        .select("details_json")
+        .eq("customer_id", customerId)
+        .maybeSingle();
+      if (error) return;
+      setHandSnapshot(buildHandSnapshotFromDetailsJson(data?.details_json ?? null));
+    } catch {
+      /* non-blocking */
+    }
+  }, [customerId]);
+
+  useEffect(() => {
+    void reloadHandSnapshot();
+  }, [reloadHandSnapshot, viewMode, selectedEntityId, messages.length]);
 
   // Home chat: hydrate document_storage consent from DB (never treat unknown as denied).
   useEffect(() => {
@@ -1288,7 +1421,18 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     const nextMessages = [...messages, userMessage];
     let liveMessages = [
       ...nextMessages,
-      { role: "assistant", content: KEY_WAIT_STATUS, thinking: true, turnId },
+      (() => {
+        const wait = resolvePdfWaitStatusText({
+          hasDocumentAttach: Boolean(composerDocumentId || documentIdForTurn),
+        });
+        return {
+          role: "assistant",
+          content: wait.primary,
+          thinking: true,
+          turnId,
+          wait_secondary: wait.secondary,
+        };
+      })(),
     ];
     const syncLiveMessages = (nextLive, extra = {}) => {
       liveMessages = nextLive;
@@ -1369,16 +1513,20 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           onAck: (ackText) => {
             markFirstSse();
             // Short customer status only — do not list internal search/doc stage names.
-            const text = String(ackText ?? "").trim() || KEY_WAIT_STATUS;
+            const pdfWait = resolvePdfWaitStatusText({
+              hasDocumentAttach: Boolean(documentIdForTurn),
+            });
+            const text = String(ackText ?? "").trim() || pdfWait.primary;
             const safe =
               text.length > 80 || /SSE|Claude|tool|phase|trace/i.test(text)
-                ? KEY_WAIT_STATUS
+                ? pdfWait.primary
                 : text;
             syncLiveMessages(
               patchLastAssistantMessage(liveMessages, {
                 content: safe,
                 thinking: true,
                 turnId,
+                wait_secondary: pdfWait.secondary,
               }),
               { phase: "awaiting", loading: true, streaming: false },
             );
@@ -1464,6 +1612,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         result.sessionGoal && typeof result.sessionGoal === "object"
           ? result.sessionGoal
           : null;
+      if (result.keyStatus) setDoneStatusOverlay(result.keyStatus);
+      void reloadHandSnapshot();
+      const stripForTurn = buildKeyPresentationStatusStrip({
+        handSnapshot,
+        doneStatus: result.keyStatus ?? doneStatusOverlay,
+        viewMode,
+        entityId: selectedEntityId,
+      });
       const completedMessages = [
         ...nextMessages,
         {
@@ -1473,6 +1629,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           turnId,
           visual_blocks: visualBlocks,
           visual_blocks_gate: visualBlocksGate,
+          key_status_strip: stripForTurn,
           ...(turnSessionGoal
             ? {
                 session_goal: turnSessionGoal,
@@ -2161,7 +2318,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 loading={loadingSession}
                 emptyHint={
                   viewMode === "corporate"
-                    ? "선택한 법인 보험·차트는 같은 화면의 대화에서 KEY가 확인한 내용으로 안내합니다."
+                    ? "이 법인에 연결된 보험 자료가 아직 없습니다. 문서를 추가하거나 보험 현황을 질문해 주세요."
                     : null
                 }
               />
@@ -2358,13 +2515,46 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                               fontFamily={LG.sans}
                             />
                           ) : (
-                            msg.content
+                            <>
+                              <div>{msg.content}</div>
+                              {msg.wait_secondary ? (
+                                <div
+                                  style={{
+                                    marginTop: "6px",
+                                    fontSize: "13px",
+                                    color: LG.textSoft,
+                                  }}
+                                >
+                                  {msg.wait_secondary}
+                                </div>
+                              ) : null}
+                            </>
                           )}
                           {!msg.thinking &&
                           Array.isArray(msg.visual_blocks) &&
                           msg.visual_blocks.length > 0 ? (
                             <KeyVisualBlocks blocks={msg.visual_blocks} variant="home" />
                           ) : null}
+                          {!msg.thinking
+                            ? (() => {
+                                const isLast =
+                                  index === messages.length - 1 && msg.role === "assistant";
+                                const strip = msg.key_status_strip?.chips?.length
+                                  ? msg.key_status_strip
+                                  : isLast
+                                    ? presentationStrip
+                                    : null;
+                                if (!strip || (!strip.chips?.length && !strip.claimProgress)) {
+                                  return null;
+                                }
+                                return (
+                                  <KeyPresentationStatusStripView
+                                    chips={strip.chips || []}
+                                    claimProgress={strip.claimProgress || null}
+                                  />
+                                );
+                              })()
+                            : null}
                         </div>
                       </div>
                     </div>

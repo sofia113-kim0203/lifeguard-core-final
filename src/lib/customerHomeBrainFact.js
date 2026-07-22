@@ -7,6 +7,7 @@ import {
 import { parseHomeBrainFactSseBlock } from "./homeBrainFactSse.js";
 import { buildHomeBrainFactRequestBody } from "./homeBrainFactRequestBody.js";
 import { buildPersistableTurnTraceSummary } from "./lifeguardChatSessionCore.js";
+import { extractKeyStatusFromDonePayload } from "./keyPresentationStatusStrip.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const ROUTE_PATH = "/api/customer-home-brain-fact";
@@ -188,6 +189,8 @@ export function mapHomeBrainFactPayload(payload) {
       payload.presence_quiet === true ||
       payload.sales_director_trace?.key_compose_trace?.key_voice_trace?.presence_quiet ===
         true,
+    // Presentation strip — existing done fields only (no invent).
+    keyStatus: extractKeyStatusFromDonePayload(payload),
   };
 }
 
