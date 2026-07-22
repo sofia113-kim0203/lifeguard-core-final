@@ -306,3 +306,314 @@ export function resolvePdfWaitStatusText({ hasDocumentAttach = false } = {}) {
     secondary: null,
   };
 }
+
+/** Final customer UI shell — display model from verified KEY facts only. No demo invent. */
+const FINAL_CLAIM_STEPS = Object.freeze([
+  { key: "receipt", label: "접수" },
+  { key: "docs", label: "서류검토" },
+  { key: "review", label: "심사중" },
+  { key: "pay_due", label: "지급예정" },
+  { key: "paid", label: "지급완료" },
+]);
+
+const DIAGNOSIS_IDS = Object.freeze([
+  "cancer_diagnosis",
+  "cerebrovascular_diagnosis",
+  "ischemic_heart_diagnosis",
+]);
+
+const DIAGNOSIS_LABELS = Object.freeze({
+  cancer_diagnosis: "암",
+  cerebrovascular_diagnosis: "뇌혈관",
+  ischemic_heart_diagnosis: "허혈성 심장질환",
+});
+
+function clockTypeLabel(type) {
+  const t = String(type ?? "").trim();
+  if (t === "premium_due") return "월 보험료 납입";
+  if (t === "policy_renewal") return "갱신 검토";
+  if (t === "policy_maturity") return "만기";
+  if (t === "lapse_scheduled") return "실효 예정";
+  if (t === "reinstate_by") return "부활 기한";
+  if (t === "claim_followup") return "청구 후속";
+  return trim(t, 24) || "보험 일정";
+}
+
+function daysUntil(dueAt) {
+  const due = String(dueAt ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return null;
+  const ms = new Date(`${due}T12:00:00`).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  return Math.ceil(ms / (24 * 60 * 60 * 1000));
+}
+
+function claimStepIndex(status) {
+  const s = String(status ?? "").trim();
+  if (s === "paid") return 4;
+  if (s === "denied") return 2;
+  if (s === "under_review") return 2;
+  if (s === "submitted_by_customer") return 1;
+  if (s === "preparing" || s === "identified") return 0;
+  return -1;
+}
+
+function formatCompactWon(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n >= 10000) {
+    const man = n / 10000;
+    const text = Number.isInteger(man) ? String(man) : man.toFixed(1).replace(/\.0$/, "");
+    return `${text}만 원`;
+  }
+  return `${Math.round(n).toLocaleString("ko-KR")}원`;
+}
+
+/**
+ * Build left/right/action shell for final customer UI.
+ * Hide empty sections — never invent counts, dates, goals, or payouts.
+ */
+export function buildCustomerUiFinalShellModel({
+  insuranceStatus = null,
+  monthlyPremiumSum = null,
+  coverageBaseline = null,
+  handSnapshot = null,
+  viewMode = "personal",
+  entityId = null,
+} = {}) {
+  const scope = { mode: String(viewMode || "personal"), entityId };
+  const snap = handSnapshot && typeof handSnapshot === "object" ? handSnapshot : {};
+  const claims = scopeRows(snap.claims, scope);
+  const clocks = scopeRows(snap.clocks, scope).filter((c) => {
+    const st = String(c?.status ?? "active");
+    return (st === "active" || st === "expired") && String(c?.due_at ?? "").trim();
+  });
+  const evidence = scopeRows(snap.evidence, scope);
+  const ledger = scopeRows(snap.ledger, scope);
+  const paymentTruth = scopeRows(snap.paymentTruth, scope);
+
+  const activeClaims = claims.filter((c) =>
+    ["identified", "preparing", "submitted_by_customer", "under_review"].includes(
+      String(c?.status ?? ""),
+    ),
+  );
+  const primaryClaim = activeClaims[0] || null;
+  let claimProgress = null;
+  if (primaryClaim) {
+    const idx = claimStepIndex(primaryClaim.status);
+    const steps = FINAL_CLAIM_STEPS.map((step, i) => ({
+      ...step,
+      state: idx < 0 ? "future" : i < idx ? "done" : i === idx ? "current" : "future",
+    }));
+    claimProgress = {
+      activeCount: activeClaims.length,
+      kindLabel: trim(primaryClaim.claim_type || primaryClaim.product_hint || "청구", 24) || "청구",
+      receivedAt: trim(primaryClaim.received_at || primaryClaim.created_at || "", 32) || null,
+      currentIndex: idx,
+      steps,
+    };
+  }
+
+  const coreMetrics = [];
+  const confirmed = Number(insuranceStatus?.confirmedCount);
+  const needs = Number(insuranceStatus?.needsCount);
+  const total = Number(insuranceStatus?.totalCount);
+  if (Number.isFinite(total) && total > 0) {
+    const bits = [];
+    if (Number.isFinite(confirmed)) bits.push(`유효 ${confirmed}건`);
+    if (Number.isFinite(needs) && needs > 0) bits.push(`확인 필요 ${needs}건`);
+    coreMetrics.push({
+      id: "policies",
+      title: `보험 가입 ${total}건`,
+      sub: bits.join(" · ") || null,
+      tone: "default",
+    });
+  }
+  if (monthlyPremiumSum != null && Number(monthlyPremiumSum) > 0) {
+    const month = formatCompactWon(monthlyPremiumSum);
+    const year = formatCompactWon(Number(monthlyPremiumSum) * 12);
+    if (month) {
+      coreMetrics.push({
+        id: "premium",
+        title: `월 보험료 ${month}`,
+        sub: year ? `연 ${year}` : null,
+        tone: "default",
+      });
+    }
+  }
+
+  const baselineItems = Array.isArray(coverageBaseline?.items) ? coverageBaseline.items : [];
+  const shortItems = baselineItems.filter(
+    (it) =>
+      DIAGNOSIS_IDS.includes(it.id) &&
+      it.status === "미달" &&
+      it.currentAmount != null &&
+      Number.isFinite(Number(it.currentAmount)),
+  );
+  if (shortItems.length > 0) {
+    const first = shortItems[0];
+    coreMetrics.push({
+      id: "gap",
+      title: `보장 공백 ${shortItems.length}곳`,
+      sub: trim(`${first.shortLabel || first.label} 부족`, 28) || "확인된 부족",
+      tone: "warn",
+    });
+  }
+
+  for (const clock of clocks.slice(0, 2)) {
+    if (coreMetrics.length >= 4) break;
+    const d = daysUntil(clock.due_at);
+    if (d == null) continue;
+    const label = trim(clock.label, 28) || clockTypeLabel(clock.clock_type);
+    coreMetrics.push({
+      id: `clock_${clock.clock_id || clock.due_at}`,
+      title: d >= 0 ? `${label} D-${d}` : `${label} D+${Math.abs(d)}`,
+      sub: clock.due_at,
+      tone: "amber",
+    });
+  }
+
+  // Always surface the 3 diagnosis rows from industry baseline path.
+  // Missing verified amounts → honest "확인 전" (never invent numbers).
+  const diagnosis = [];
+  for (const id of DIAGNOSIS_IDS) {
+    const item = baselineItems.find((it) => it.id === id);
+    const label = DIAGNOSIS_LABELS[id] || item?.shortLabel || item?.label || id;
+    const baselineAmt =
+      item?.industry_representative != null
+        ? Number(item.industry_representative)
+        : item?.industry_range_low != null
+          ? Number(item.industry_range_low)
+          : null;
+    const baselineOk = baselineAmt != null && Number.isFinite(baselineAmt) && baselineAmt > 0;
+    const curRaw = item?.currentAmount;
+    const curOk = curRaw != null && Number.isFinite(Number(curRaw));
+    if (!item || !item.isAmountMode || !curOk) {
+      diagnosis.push({
+        id,
+        label,
+        pending: true,
+        currentDisplay: "확인 전",
+        baselineDisplay: baselineOk ? formatCompactWon(baselineAmt) : null,
+        ratio: 0,
+        tone: "muted",
+      });
+      continue;
+    }
+    const cur = Number(curRaw);
+    if (!baselineOk) {
+      diagnosis.push({
+        id,
+        label,
+        pending: true,
+        currentDisplay: item.currentDisplay || formatCompactWon(cur) || "확인 전",
+        baselineDisplay: null,
+        ratio: 0,
+        tone: "muted",
+      });
+      continue;
+    }
+    const ratio = Math.max(0, Math.min(100, Math.round((cur / baselineAmt) * 100)));
+    diagnosis.push({
+      id,
+      label,
+      pending: false,
+      currentDisplay: item.currentDisplay || formatCompactWon(cur),
+      baselineDisplay: formatCompactWon(baselineAmt),
+      ratio,
+      tone: item.status === "미달" ? "warn" : item.status === "충족" ? "ok" : "muted",
+    });
+  }
+
+  const reviewingCount = claims.filter((c) => String(c?.status) === "under_review").length;
+  const paidTruth = paymentTruth.filter((r) => r.outcome === "paid");
+  let yearPaidDisplay = "집계 전";
+  let yearPaidKnown = false;
+  let yearSum = 0;
+  for (const row of paidTruth) {
+    const amt = Number(row?.paid_amount ?? row?.amount ?? row?.payout_amount);
+    if (!Number.isFinite(amt) || amt <= 0) continue;
+    yearSum += amt;
+    yearPaidKnown = true;
+  }
+  if (yearPaidKnown) yearPaidDisplay = formatCompactWon(yearSum) || "집계 전";
+
+  const schedules = clocks
+    .slice()
+    .sort((a, b) => String(a.due_at).localeCompare(String(b.due_at)))
+    .slice(0, 2)
+    .map((c) => {
+      const d = daysUntil(c.due_at);
+      return {
+        id: c.clock_id || `${c.clock_type}_${c.due_at}`,
+        dLabel: d == null ? null : d >= 0 ? `D-${d}` : `D+${Math.abs(d)}`,
+        title: trim(c.label, 36) || clockTypeLabel(c.clock_type),
+        dueAt: c.due_at,
+      };
+    })
+    .filter((s) => s.dLabel && s.dueAt);
+
+  const activities = [];
+  for (const c of activeClaims.slice(0, 2)) {
+    activities.push({
+      id: `claim_${c.claim_case_key || c.id}`,
+      title: "청구 상태 갱신",
+      when: trim(c.updated_at || c.received_at || "", 20) || null,
+    });
+  }
+  for (const e of evidence.slice(0, 2)) {
+    if (activities.length >= 3) break;
+    activities.push({
+      id: `ev_${e.id || e.evidence_id || activities.length}`,
+      title: "서류 보관",
+      when: trim(e.stored_at || e.created_at || "", 20) || null,
+    });
+  }
+  for (const p of paidTruth.slice(0, 2)) {
+    if (activities.length >= 3) break;
+    activities.push({
+      id: `pay_${p.id || activities.length}`,
+      title: p.outcome === "paid" ? "지급 결과 확인" : "부지급 결과 확인",
+      when: trim(p.updated_at || p.created_at || "", 20) || null,
+    });
+  }
+
+  const goals = ledger
+    .filter((e) => e.type === "goal" && String(e.status || "active") === "active")
+    .slice(0, 2)
+    .map((g, i) => ({
+      id: g.id || `goal_${i}`,
+      text: trim(g.content, 80),
+    }))
+    .filter((g) => g.text);
+
+  const actionPills = [];
+  const missingDocs = activeClaims.some((c) => {
+    const missing = c.missing_documents || c.needed_documents;
+    return Array.isArray(missing) && missing.length > 0;
+  });
+  if (missingDocs) actionPills.push({ id: "docs", label: "서류 보완하기" });
+  if (shortItems.length > 0) {
+    actionPills.push({
+      id: "gap",
+      label: `${shortItems[0].shortLabel || "보장"} 보완 검토하기`,
+    });
+  }
+  if (paidTruth.length > 0 || claims.some((c) => c.status === "paid" || c.status === "denied")) {
+    actionPills.push({ id: "result", label: "최근 청구 결과 보기" });
+  }
+
+  return {
+    claimProgress,
+    coreMetrics: coreMetrics.slice(0, 4),
+    diagnosis,
+    moneyFlow: {
+      reviewingCount,
+      yearPaidDisplay,
+      yearPaidKnown,
+    },
+    schedules,
+    activities: activities.slice(0, 3),
+    goals,
+    actionPills,
+  };
+}
