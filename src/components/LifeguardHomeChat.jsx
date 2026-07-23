@@ -757,12 +757,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const isMidRoom = useMediaQuery(`(min-width: ${ROOM_MID_BREAKPOINT}px)`);
   const isWideRoom = useMediaQuery(`(min-width: ${ROOM_WIDE_BREAKPOINT}px)`);
-  const isTallViewport = useMediaQuery(`(min-height: ${FINAL_UI.headerTallMinVh}px)`);
-  const shellHeaderPx = !isWideRoom
-    ? FINAL_UI.headerPxMobile
-    : isTallViewport
-      ? FINAL_UI.headerPx
-      : FINAL_UI.headerPxMobile;
+  const shellHeaderPx = isWideRoom ? FINAL_UI.headerPx : FINAL_UI.headerPxMobile;
 
   useEffect(() => {
     // Inline rails on mid/wide — close mobile/tablet sheets so they never cover the shell.

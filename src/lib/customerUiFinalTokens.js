@@ -40,29 +40,28 @@ export const FINAL_UI = {
   rightColPx: 308,
   /** V3.1 room: L–C / C–R gap */
   gutterPx: 10,
-  /** V3.1 header below → room (actual viewport fit) */
-  bodyGapPx: 6,
+  /** V3.1 header below → room */
+  bodyGapPx: 4,
   roomInlinePx: 2,
-  /** Desktop tall header when min-height ≥ headerTallMinVh */
-  headerPx: 72,
-  /** Desktop short / mobile header — never below 64 */
-  headerPxMobile: 64,
-  headerTallMinVh: 850,
+  /** Desktop shell header */
+  headerPx: 60,
+  /** Mobile shell header */
+  headerPxMobile: 56,
   /** Center conversation content rail — shared by msgs / action / tabs */
   contentRailMaxPx: 820,
   contentRailInsetPx: 44,
   /** Empty seat: action starts just below body (no fixed actionY spacer) */
   emptyActionPadTopPx: 22,
   /** Hero pad inside left rail (below unified header) */
-  heroPadPx: 6,
-  /** Unified rail inner pad / stack gap — overview density */
-  railInnerPadPx: 6,
-  railStackGapPx: 4,
+  heroPadPx: 4,
+  /** Unified rail inner pad / stack gap (L·R same rhythm) */
+  railInnerPadPx: 4,
+  railStackGapPx: 7,
   /** Shared card padding + title/section spacing */
-  cardPadY: 6,
-  cardPadX: 10,
-  cardHeadGapPx: 4,
-  sectionKMbPx: 3,
+  cardPadY: 10,
+  cardPadX: 12,
+  cardHeadGapPx: 8,
+  sectionKMbPx: 6,
   /** Center conversation vertical rhythm (font-size unchanged) */
   msgLineHeight: 1.55,
   msgPadYUser: 6,
@@ -76,8 +75,6 @@ export const FINAL_UI = {
   actionSlotPadBottomPx: 4,
   /** Bottom of composer wrap */
   composerWrapPadBottomPx: 6,
-  /** Overview clamp for long rail copy */
-  overviewClampLines: 2,
   heroY: 87,
   heroX: 27,
   heroW: 230,
@@ -113,8 +110,8 @@ export const FINAL_UI = {
   brandTagMtPx: 1,
   headerLeftSize: 14,
   headerLeftWeight: 600,
-  heroTitleSize: 15,
-  heroTitleLine: 18,
+  heroTitleSize: 17,
+  heroTitleLine: 21,
   actionTitleSize: 20,
   actionTitleWeight: 600,
   actionTitleLine: 22,

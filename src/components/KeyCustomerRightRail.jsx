@@ -2,13 +2,6 @@ import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
 
 const C = FINAL_UI;
 
-const clamp2 = {
-  display: "-webkit-box",
-  WebkitLineClamp: C.overviewClampLines,
-  WebkitBoxOrient: "vertical",
-  overflow: "hidden",
-};
-
 export default function KeyCustomerRightRail({
   shell = null,
   collapsed = false,
@@ -26,7 +19,7 @@ export default function KeyCustomerRightRail({
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "flex-end",
-          padding: "8px 0",
+          padding: "10px 0",
           ...style,
         }}
       >
@@ -67,7 +60,6 @@ export default function KeyCustomerRightRail({
       }}
     >
       <div
-        className="lg-v31-rail-scroll"
         style={{
           flex: 1,
           overflowY: "visible",
@@ -85,39 +77,75 @@ export default function KeyCustomerRightRail({
 
         <Block tone="schedule" title="다가오는 날짜" dot={C.amber}>
           {schedules.length > 0 ? (
-            <>
-              {schedules.slice(0, 1).map((s) => (
-                <div key={s.id} style={{ fontSize: "12px", lineHeight: 1.35 }}>
-                  <div style={{ fontWeight: 700, color: C.text, ...clamp2 }}>{s.title}</div>
-                  <div style={{ color: C.muted, marginTop: "1px" }}>{s.dueAt || s.dLabel || ""}</div>
+            schedules.map((s) => (
+              <div
+                key={s.id}
+                style={{ display: "flex", gap: "10px", alignItems: "flex-start", padding: "5px 0" }}
+              >
+                <div
+                  style={{
+                    flexShrink: 0,
+                    minWidth: "42px",
+                    textAlign: "center",
+                    borderRadius: "12px",
+                    padding: "6px",
+                    background: "#fff",
+                    color: C.coral,
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {s.dLabel}
+                  {s.dueAt ? (
+                    <span style={{ display: "block", fontSize: "10px", color: C.muted, fontWeight: 600 }}>
+                      {String(s.dueAt).slice(5, 10).replace("-", "/")}
+                    </span>
+                  ) : null}
                 </div>
-              ))}
-              {schedules.length > 1 ? (
-                <div style={{ marginTop: "3px", fontSize: "12px", color: C.muted }}>
-                  외 {schedules.length - 1}건 · 상세에서 확인
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, lineHeight: 1.35, color: C.text }}>
+                    {s.title}
+                  </div>
+                  <div style={{ fontSize: "12px", color: C.muted, marginTop: "2px" }}>{s.dueAt}</div>
                 </div>
-              ) : null}
-            </>
+              </div>
+            ))
           ) : (
-            <EmptyLine primary="없음" secondary="일정이 생기면 여기" />
+            <EmptyLine primary="없음" secondary="납입·전환·점검 일정이 생기면 여기" />
           )}
         </Block>
 
         <Block tone="activity" title="최근 활동과 증거" dot={C.teal}>
           {activities.length > 0 ? (
-            <>
-              {activities.slice(0, 1).map((a) => (
-                <div key={a.id} style={{ fontSize: "12px", lineHeight: 1.35, color: C.text, ...clamp2 }}>
-                  {a.when ? `${a.when} · ` : ""}
-                  {a.title}
+            activities.map((a) => (
+              <div key={a.id} style={{ display: "flex", gap: "10px", padding: "4px 0" }}>
+                <div
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "10px",
+                    display: "grid",
+                    placeItems: "center",
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    flexShrink: 0,
+                    background: "#fff",
+                    color: C.teal,
+                  }}
+                >
+                  활
                 </div>
-              ))}
-              {activities.length > 1 ? (
-                <div style={{ marginTop: "3px", fontSize: "12px", color: C.muted }}>
-                  외 {activities.length - 1}건 · 상세에서 확인
+                <div>
+                  {a.when ? (
+                    <div style={{ fontSize: "11px", color: C.muted, marginBottom: "2px" }}>{a.when}</div>
+                  ) : null}
+                  <div style={{ fontSize: "13px", lineHeight: 1.45, color: C.text, fontWeight: 650 }}>
+                    {a.title}
+                  </div>
                 </div>
-              ) : null}
-            </>
+              </div>
+            ))
           ) : (
             <EmptyLine primary="아직 기록 없음" />
           )}
@@ -125,21 +153,14 @@ export default function KeyCustomerRightRail({
 
         <Block tone="goal" title="KEY가 기억한 목표" dot={C.navy}>
           {goals.length > 0 ? (
-            <>
-              {goals.slice(0, 1).map((g) => (
-                <div
-                  key={g.id}
-                  style={{ fontSize: "12px", lineHeight: 1.4, color: C.text, ...clamp2 }}
-                >
-                  “{g.text}”
-                </div>
-              ))}
-              {goals.length > 1 ? (
-                <div style={{ marginTop: "3px", fontSize: "12px", color: C.muted }}>
-                  외 {goals.length - 1}건 · 상세에서 확인
-                </div>
-              ) : null}
-            </>
+            goals.map((g) => (
+              <div
+                key={g.id}
+                style={{ fontSize: "13px", lineHeight: 1.55, color: C.text, marginBottom: "6px" }}
+              >
+                “{g.text}”
+              </div>
+            ))
           ) : (
             <EmptyLine primary="아직 기록 없음" />
           )}
@@ -147,41 +168,27 @@ export default function KeyCustomerRightRail({
 
         <Block tone="result" title="지급·거절 결과" dot={C.coral}>
           {results.length > 0 ? (
-            <>
-              {results.slice(0, 1).map((r) => (
-                <div key={r.id}>
-                  <div style={{ fontSize: "13px", fontWeight: 700, color: C.text, ...clamp2 }}>
-                    {r.title}
+            results.map((r) => (
+              <div key={r.id} style={{ marginBottom: "8px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: C.text }}>{r.title}</div>
+                {r.reason ? (
+                  <div style={{ fontSize: "12px", color: C.muted, marginTop: "4px", lineHeight: 1.45 }}>
+                    {r.reason}
                   </div>
-                  {r.reason ? (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: C.muted,
-                        marginTop: "2px",
-                        lineHeight: 1.35,
-                        ...clamp2,
-                      }}
-                    >
-                      {r.reason}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-              {results.length > 1 ? (
-                <div style={{ marginTop: "3px", fontSize: "12px", color: C.muted }}>
-                  외 {results.length - 1}건 · 상세에서 확인
-                </div>
-              ) : null}
-            </>
+                ) : null}
+              </div>
+            ))
           ) : (
-            <EmptyLine primary="없음" secondary="결과가 오면 이유와 함께" />
+            <EmptyLine
+              primary="없음"
+              secondary="실제 결과가 오면 이유와 함께 여기에만 둡니다"
+            />
           )}
         </Block>
       </div>
 
       {typeof onToggleCollapse === "function" ? (
-        <div style={{ padding: "4px 8px 6px", borderTop: "1px solid rgba(18,50,95,0.06)" }}>
+        <div style={{ padding: "8px 12px 12px", borderTop: "1px solid rgba(18,50,95,0.06)" }}>
           <button
             type="button"
             aria-label="우측 패널 접기"
@@ -197,8 +204,8 @@ export default function KeyCustomerRightRail({
 }
 
 const iconBtnStyle = {
-  width: "28px",
-  height: "28px",
+  width: "32px",
+  height: "32px",
   borderRadius: "8px",
   border: `1px solid ${C.line}`,
   background: C.surface,
@@ -221,25 +228,25 @@ function Block({ tone, title, dot, children }) {
     <div
       style={{
         background: bg,
-        borderRadius: "14px",
+        borderRadius: "18px",
         padding: `${C.cardPadY}px ${C.cardPadX}px`,
       }}
     >
       <div
         style={{
           margin: `0 0 ${C.cardHeadGapPx}px`,
-          fontSize: "12px",
+          fontSize: "13px",
           fontWeight: 800,
           color: C.navy,
           display: "flex",
           alignItems: "center",
-          gap: "6px",
+          gap: "8px",
         }}
       >
         <span
           style={{
-            width: "7px",
-            height: "7px",
+            width: "8px",
+            height: "8px",
             borderRadius: "999px",
             background: dot,
             display: "inline-block",
@@ -259,13 +266,13 @@ function MoneyRow({ label, value }) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "baseline",
-        padding: "2px 0",
+        padding: "5px 0",
         borderBottom: "1px solid rgba(59,130,196,0.12)",
-        fontSize: "12px",
+        fontSize: "13px",
       }}
     >
       <span style={{ color: C.text }}>{label}</span>
-      <span style={{ fontSize: "13px", fontWeight: 700, color: C.muted }}>{value}</span>
+      <span style={{ fontSize: `${C.rightValueSize}px`, fontWeight: 700, color: C.muted }}>{value}</span>
     </div>
   );
 }
@@ -273,9 +280,9 @@ function MoneyRow({ label, value }) {
 function EmptyLine({ primary, secondary = null }) {
   return (
     <div>
-      <div style={{ fontSize: "12px", color: C.muted, lineHeight: 1.35 }}>{primary}</div>
+      <div style={{ fontSize: "13px", color: C.muted, lineHeight: 1.5 }}>{primary}</div>
       {secondary ? (
-        <div style={{ marginTop: "2px", fontSize: "12px", color: C.muted, lineHeight: 1.35 }}>
+        <div style={{ marginTop: "6px", fontSize: "12px", color: C.muted, lineHeight: 1.45 }}>
           {secondary}
         </div>
       ) : null}
