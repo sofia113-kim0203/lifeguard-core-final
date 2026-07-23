@@ -72,7 +72,7 @@ export default function KeyCustomerLeftRail({
           width: `${C.heroW}px`,
           maxWidth: "100%",
           boxSizing: "border-box",
-          padding: "12px 13px",
+          padding: `${C.cardPadY}px ${C.cardPadX}px`,
           borderRadius: "16px",
           background: C.heroGradient,
           color: "#fff",
@@ -125,10 +125,10 @@ export default function KeyCustomerLeftRail({
           flex: 1,
           overflowY: "auto",
           minHeight: 0,
-          padding: "10px",
+          padding: `${C.railInnerPadPx}px`,
           display: "flex",
           flexDirection: "column",
-          gap: "9px",
+          gap: `${C.railStackGapPx}px`,
         }}
       >
         <div style={whiteCard}>
@@ -196,7 +196,7 @@ export default function KeyCustomerLeftRail({
         <div
           style={{
             borderRadius: "16px",
-            padding: "12px 13px",
+            padding: `${C.cardPadY}px ${C.cardPadX}px`,
             background: C.tealSoft,
           }}
         >
@@ -210,7 +210,7 @@ export default function KeyCustomerLeftRail({
         <div
           style={{
             borderRadius: "16px",
-            padding: "12px 13px",
+            padding: `${C.cardPadY}px ${C.cardPadX}px`,
             background: C.coralSoft,
           }}
         >
@@ -220,7 +220,7 @@ export default function KeyCustomerLeftRail({
               fontWeight: 700,
               letterSpacing: "0.03em",
               color: C.coral,
-              marginBottom: "5px",
+              marginBottom: `${C.sectionKMbPx}px`,
             }}
           >
             보장 공백
@@ -265,7 +265,7 @@ export default function KeyCustomerLeftRail({
 const whiteCard = {
   background: C.surface,
   borderRadius: "16px",
-  padding: "12px 13px",
+  padding: `${C.cardPadY}px ${C.cardPadX}px`,
 };
 
 const secK = {
@@ -273,7 +273,7 @@ const secK = {
   fontWeight: 700,
   letterSpacing: "0.03em",
   color: C.muted,
-  marginBottom: "8px",
+  marginBottom: `${C.sectionKMbPx}px`,
 };
 
 const iconBtnStyle = {

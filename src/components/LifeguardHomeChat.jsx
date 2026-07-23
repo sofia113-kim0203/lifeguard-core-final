@@ -2546,7 +2546,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "flex-start",
-                paddingTop: "12px",
+                paddingTop: `${FINAL_UI.emptyGuidePadTopPx}px`,
                 paddingLeft: "42px",
                 textAlign: "left",
                 width: "100%",
@@ -2555,7 +2555,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             >
               <p
                 style={{
-                  margin: "0 0 8px",
+                  margin: `0 0 ${FINAL_UI.emptyGuideTitleMbPx}px`,
                   fontSize: "22px",
                   lineHeight: 1.35,
                   color: FINAL_UI.navyDeep,
@@ -2567,9 +2567,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               </p>
               <p
                 style={{
-                  margin: "0 0 16px",
+                  margin: `0 0 ${FINAL_UI.emptyGuideSubMbPx}px`,
                   fontSize: "13px",
-                  lineHeight: 1.55,
+                  lineHeight: FINAL_UI.msgLineHeight,
                   color: FINAL_UI.muted,
                   maxWidth: "440px",
                 }}
@@ -2583,7 +2583,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             <div
               style={{
                 alignSelf: "center",
-                margin: "4px 0 18px",
+                margin: `4px 0 ${FINAL_UI.msgDateMbPx}px`,
                 padding: "6px 14px",
                 borderRadius: "999px",
                 background: "#F1F2F6",
@@ -2611,7 +2611,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                       width: "100%",
                       display: "flex",
                       justifyContent: "flex-start",
-                      padding: isUser ? "10px 0 8px" : "8px 0 20px",
+                      padding: isUser
+                        ? `${FINAL_UI.msgPadYUser}px 0`
+                        : `${FINAL_UI.msgPadYAssistant}px 0`,
                     }}
                   >
                     <div
@@ -2620,7 +2622,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                         maxWidth: "680px",
                         display: "flex",
                         flexDirection: "column",
-                        gap: "6px",
+                        gap: "4px",
                       }}
                       aria-live={!isUser && msg.thinking ? "polite" : undefined}
                     >
@@ -2646,7 +2648,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                           color: !isUser && msg.thinking ? FINAL_UI.muted : FINAL_UI.text,
                           fontSize: "15px",
                           fontWeight: 450,
-                          lineHeight: 1.75,
+                          lineHeight: FINAL_UI.msgLineHeight,
                           whiteSpace: isUser || msg.thinking ? "pre-wrap" : "normal",
                           background: "transparent",
                           border: "none",
@@ -2693,8 +2695,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             <div
               className="lg-v31-action-slot"
               style={{
-                paddingTop: "12px",
-                paddingBottom: "8px",
+                paddingTop: `${FINAL_UI.actionSlotPadTopPx}px`,
+                paddingBottom: `${FINAL_UI.actionSlotPadBottomPx}px`,
                 paddingLeft: 0,
                 paddingRight: 0,
                 flexShrink: 0,
@@ -2718,7 +2720,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           <div
             className="lg-v31-composer-wrap"
             style={{
-              padding: "0",
+              padding: `0 0 ${FINAL_UI.composerWrapPadBottomPx}px`,
               width: "100%",
               maxWidth: `${FINAL_UI.centerColPx}px`,
               margin: "0 auto",

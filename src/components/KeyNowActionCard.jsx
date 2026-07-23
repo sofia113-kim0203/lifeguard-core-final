@@ -28,7 +28,7 @@ export default function KeyNowActionCard({
       aria-label="지금 할 일"
       style={{
         marginTop: 0,
-        marginBottom: "8px",
+        marginBottom: `${C.actionMarginBottomPx}px`,
         marginLeft: `${Math.max(0, C.actionX - (C.leftColPx + C.gutterPx))}px`,
         borderRadius: "22px",
         padding: "14px 20px 12px",
@@ -40,7 +40,8 @@ export default function KeyNowActionCard({
         fontFamily: C.sans,
         width: `${C.actionW}px`,
         maxWidth: "100%",
-        height: `${C.actionH}px`,
+        minHeight: `${C.actionH}px`,
+        height: "auto",
         boxSizing: "border-box",
       }}
     >
@@ -58,14 +59,14 @@ export default function KeyNowActionCard({
           fontSize: "12px",
           fontWeight: 700,
           color: C.coral,
-          marginBottom: "6px",
+          marginBottom: `${C.actionEyebrowMbPx}px`,
         }}
       >
         지금 하시면 돼요
       </div>
       <h2
         style={{
-          margin: "0 0 8px",
+          margin: `0 0 ${C.actionTitleMbPx}px`,
           fontFamily: C.gothic,
           fontSize: `${C.actionTitleSize}px`,
           fontWeight: C.actionTitleWeight,
@@ -79,9 +80,9 @@ export default function KeyNowActionCard({
       <p
         style={{
           fontSize: `${C.actionBodySize}px`,
-          lineHeight: 1.65,
+          lineHeight: C.actionBodyLine,
           color: C.muted,
-          margin: "0 0 14px",
+          margin: `0 0 ${C.actionBodyMbPx}px`,
         }}
       >
         {body}
@@ -98,7 +99,7 @@ export default function KeyNowActionCard({
           color: "#fff",
           border: "none",
           borderRadius: "999px",
-          padding: "11px 18px",
+          padding: `${C.actionCtaPadY}px ${C.actionCtaPadX}px`,
           fontSize: `${C.actionCtaSize}px`,
           fontWeight: 700,
           boxShadow: "0 6px 16px rgba(18, 50, 95, 0.22)",
@@ -110,7 +111,15 @@ export default function KeyNowActionCard({
         {ctaLabel}
       </button>
       {ctaHint ? (
-        <div style={{ marginTop: "10px", fontSize: "12px", color: C.muted }}>{ctaHint}</div>
+        <div
+          style={{
+            marginTop: `${C.actionCtaHintMtPx}px`,
+            fontSize: `${C.actionCtaHintSize}px`,
+            color: C.muted,
+          }}
+        >
+          {ctaHint}
+        </div>
       ) : null}
     </div>
   );

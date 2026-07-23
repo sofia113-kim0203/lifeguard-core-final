@@ -63,11 +63,11 @@ export default function KeyCustomerRightRail({
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: `${C.heroPadPx}px 10px 10px`,
+          padding: `${C.railInnerPadPx}px`,
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          gap: "9px",
+          gap: `${C.railStackGapPx}px`,
         }}
       >
         <Block tone="money" title="돈의 흐름" dot={C.sky}>
@@ -80,7 +80,7 @@ export default function KeyCustomerRightRail({
             schedules.map((s) => (
               <div
                 key={s.id}
-                style={{ display: "flex", gap: "10px", alignItems: "flex-start", padding: "8px 0" }}
+                style={{ display: "flex", gap: "10px", alignItems: "flex-start", padding: "5px 0" }}
               >
                 <div
                   style={{
@@ -119,7 +119,7 @@ export default function KeyCustomerRightRail({
         <Block tone="activity" title="최근 활동과 증거" dot={C.teal}>
           {activities.length > 0 ? (
             activities.map((a) => (
-              <div key={a.id} style={{ display: "flex", gap: "10px", padding: "7px 0" }}>
+              <div key={a.id} style={{ display: "flex", gap: "10px", padding: "4px 0" }}>
                 <div
                   style={{
                     width: "28px",
@@ -229,12 +229,12 @@ function Block({ tone, title, dot, children }) {
       style={{
         background: bg,
         borderRadius: "18px",
-        padding: "15px 14px",
+        padding: `${C.cardPadY}px ${C.cardPadX}px`,
       }}
     >
       <div
         style={{
-          margin: "0 0 12px",
+          margin: `0 0 ${C.cardHeadGapPx}px`,
           fontSize: "13px",
           fontWeight: 800,
           color: C.navy,
@@ -266,7 +266,7 @@ function MoneyRow({ label, value }) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "baseline",
-        padding: "8px 0",
+        padding: "5px 0",
         borderBottom: "1px solid rgba(59,130,196,0.12)",
         fontSize: "13px",
       }}
