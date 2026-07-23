@@ -44,7 +44,12 @@ export const FINAL_UI = {
   bodyGapPx: 8,
   roomInlinePx: 2,
   /** Unified shell header height (single DOM header) */
-  headerPx: 90,
+  headerPx: 72,
+  /** Narrow / mobile shell header */
+  headerPxMobile: 64,
+  /** Center conversation content rail — shared by msgs / action / tabs */
+  contentRailMaxPx: 820,
+  contentRailInsetPx: 44,
   /** Hero pad inside left rail (below unified header) */
   heroPadPx: 10,
   /** Unified rail inner pad / stack gap (L·R same rhythm) */
@@ -98,7 +103,9 @@ export const FINAL_UI = {
   sectionPadX: 12,
   sectionPadY: 10,
   /** Typography — V3.1 full-shell-preview-v3.html exact stacks */
-  logoSize: 24,
+  logoSize: 22,
+  brandTagSize: 11,
+  brandTagMtPx: 1,
   headerLeftSize: 14,
   headerLeftWeight: 600,
   heroTitleSize: 17,
@@ -149,6 +156,19 @@ export const FINAL_UI_ROOM_CSS = `
   box-shadow: 0 10px 30px rgba(18, 50, 95, 0.05);
 }
 `;
+
+/** Shared horizontal rail for center conversation (msgs · action · tabs). */
+export function finalUiContentRailStyle(extra = null) {
+  const inset = FINAL_UI.contentRailInsetPx * 2;
+  return {
+    width: `min(${FINAL_UI.contentRailMaxPx}px, calc(100% - ${inset}px))`,
+    maxWidth: `${FINAL_UI.contentRailMaxPx}px`,
+    marginLeft: "auto",
+    marginRight: "auto",
+    boxSizing: "border-box",
+    ...(extra && typeof extra === "object" ? extra : {}),
+  };
+}
 
 /** Hide scrollbars; overflow scroll behavior stays. */
 export const FINAL_UI_SCROLLBAR_CSS = `

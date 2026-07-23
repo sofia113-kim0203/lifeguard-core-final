@@ -29,7 +29,8 @@ export default function KeyNowActionCard({
       style={{
         marginTop: 0,
         marginBottom: `${C.actionMarginBottomPx}px`,
-        marginLeft: `${Math.max(0, C.actionX - (C.leftColPx + C.gutterPx))}px`,
+        marginLeft: 0,
+        marginRight: 0,
         borderRadius: "22px",
         padding: "14px 20px 12px",
         background: "linear-gradient(180deg, #FFFFFF 0%, #FFFAF6 100%)",
@@ -38,7 +39,7 @@ export default function KeyNowActionCard({
         position: "relative",
         overflow: "hidden",
         fontFamily: C.sans,
-        width: `${C.actionW}px`,
+        width: "100%",
         maxWidth: "100%",
         minHeight: `${C.actionH}px`,
         height: "auto",

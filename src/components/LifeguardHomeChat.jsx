@@ -76,6 +76,7 @@ import {
   FINAL_UI,
   FINAL_UI_ROOM_CSS,
   FINAL_UI_SCROLLBAR_CSS,
+  finalUiContentRailStyle,
 } from "../lib/customerUiFinalTokens.js";
 import {
   DOCUMENT_UI_MESSAGES,
@@ -2203,7 +2204,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           className="lg-v31-shell-header"
           style={{
             flexShrink: 0,
-            height: `${FINAL_UI.headerPx}px`,
+            height: `${isWideRoom ? FINAL_UI.headerPx : FINAL_UI.headerPxMobile}px`,
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
@@ -2282,12 +2283,19 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 fontWeight: 600,
                 color: FINAL_UI.navyDeep,
                 letterSpacing: "0.06em",
-                lineHeight: 1.1,
+                lineHeight: 1,
               }}
             >
               LIFEGUARD
             </div>
-            <div style={{ fontSize: "12px", color: FINAL_UI.muted, marginTop: "2px" }}>
+            <div
+              style={{
+                fontSize: `${FINAL_UI.brandTagSize}px`,
+                color: FINAL_UI.muted,
+                marginTop: `${FINAL_UI.brandTagMtPx}px`,
+                lineHeight: 1.2,
+              }}
+            >
               늘 곁에 있는 보험 주치의
             </div>
           </div>
@@ -2311,7 +2319,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     fontSize: "13px",
                     fontWeight: 800,
                     color: FINAL_UI.navy,
-                    lineHeight: 1.25,
+                    lineHeight: 1.15,
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -2319,7 +2327,14 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 >
                   KEY가 계속 관리하는 것
                 </div>
-                <div style={{ fontSize: "11px", color: FINAL_UI.muted, marginTop: "2px", lineHeight: 1.3 }}>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: FINAL_UI.muted,
+                    marginTop: "1px",
+                    lineHeight: 1.2,
+                  }}
+                >
                   돈 · 일정 · 활동 · 결과
                 </div>
               </div>
@@ -2461,17 +2476,17 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         >
           {panelView === "chat" && messages.length === 0 ? (
             <div
-              className="lg-v31-action-slot"
-              style={{
+              className="lg-v31-action-slot lg-v31-content-rail"
+              style={finalUiContentRailStyle({
                 /* Empty seat: action at frame Y=295 under unified header + body gap */
                 paddingTop: `${Math.max(
                   0,
-                  FINAL_UI.actionY - FINAL_UI.headerPx - FINAL_UI.bodyGapPx,
+                  FINAL_UI.actionY -
+                    (isWideRoom ? FINAL_UI.headerPx : FINAL_UI.headerPxMobile) -
+                    FINAL_UI.bodyGapPx,
                 )}px`,
-                paddingLeft: 0,
-                paddingRight: 0,
                 flexShrink: 0,
-              }}
+              })}
             >
               <KeyNowActionCard
                 action={finalShell?.nowAction || null}
@@ -2541,17 +2556,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
           {panelView === "chat" && messages.length === 0 ? (
             <div
-              style={{
+              className="lg-v31-content-rail"
+              style={finalUiContentRailStyle({
                 flex: 1,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "flex-start",
                 paddingTop: `${FINAL_UI.emptyGuidePadTopPx}px`,
-                paddingLeft: "42px",
                 textAlign: "left",
-                width: "100%",
-                maxWidth: "640px",
-              }}
+              })}
             >
               <p
                 style={{
@@ -2581,9 +2594,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
           {panelView === "chat" && messages.length > 0 ? (
             <div
+              className="lg-v31-content-rail"
+              style={finalUiContentRailStyle({
+                display: "flex",
+                justifyContent: "center",
+                marginTop: "4px",
+                marginBottom: `${FINAL_UI.msgDateMbPx}px`,
+              })}
+            >
+            <div
               style={{
-                alignSelf: "center",
-                margin: `4px 0 ${FINAL_UI.msgDateMbPx}px`,
                 padding: "6px 14px",
                 borderRadius: "999px",
                 background: "#F1F2F6",
@@ -2598,6 +2618,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 weekday: "short",
               }).replace(/\./g, "").replace(/\s+/g, " · ")}
             </div>
+            </div>
           ) : null}
 
           {panelView === "chat"
@@ -2607,19 +2628,21 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 return (
                   <div
                     key={`${index}-${msg.role}`}
-                    style={{
-                      width: "100%",
+                    className="lg-v31-content-rail"
+                    style={finalUiContentRailStyle({
                       display: "flex",
                       justifyContent: "flex-start",
-                      padding: isUser
-                        ? `${FINAL_UI.msgPadYUser}px 0`
-                        : `${FINAL_UI.msgPadYAssistant}px 0`,
-                    }}
+                      paddingTop: isUser
+                        ? `${FINAL_UI.msgPadYUser}px`
+                        : `${FINAL_UI.msgPadYAssistant}px`,
+                      paddingBottom: isUser
+                        ? `${FINAL_UI.msgPadYUser}px`
+                        : `${FINAL_UI.msgPadYAssistant}px`,
+                    })}
                   >
                     <div
                       style={{
                         width: "100%",
-                        maxWidth: "680px",
                         display: "flex",
                         flexDirection: "column",
                         gap: "4px",
@@ -2693,14 +2716,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             : null}
           {panelView === "chat" && messages.length > 0 ? (
             <div
-              className="lg-v31-action-slot"
-              style={{
+              className="lg-v31-action-slot lg-v31-content-rail"
+              style={finalUiContentRailStyle({
                 paddingTop: `${FINAL_UI.actionSlotPadTopPx}px`,
                 paddingBottom: `${FINAL_UI.actionSlotPadBottomPx}px`,
-                paddingLeft: 0,
-                paddingRight: 0,
                 flexShrink: 0,
-              }}
+              })}
             >
               <KeyNowActionCard
                 action={finalShell?.nowAction || null}
@@ -2720,7 +2741,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           <div
             className="lg-v31-composer-wrap"
             style={{
-              padding: `0 0 ${FINAL_UI.composerWrapPadBottomPx}px`,
+              padding: `0 ${FINAL_UI.contentRailInsetPx}px ${FINAL_UI.composerWrapPadBottomPx}px`,
               width: "100%",
               maxWidth: `${FINAL_UI.centerColPx}px`,
               margin: "0 auto",
@@ -2779,6 +2800,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               </div>
             ) : null}
             <div
+              className="lg-v31-content-rail"
+              style={finalUiContentRailStyle({
+                marginBottom: `${Math.max(0, FINAL_UI.composerY - FINAL_UI.tabsY - FINAL_UI.tabsH)}px`,
+              })}
+            >
+            <div
               role="group"
               aria-label="상담 문맥"
               className="lg-v31-scope"
@@ -2786,9 +2813,9 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 display: "flex",
                 flexWrap: "nowrap",
                 gap: "8px",
-                marginBottom: `${Math.max(0, FINAL_UI.composerY - FINAL_UI.tabsY - FINAL_UI.tabsH)}px`,
-                marginLeft: `${Math.max(0, FINAL_UI.tabsX - (FINAL_UI.leftColPx + FINAL_UI.gutterPx))}px`,
-                width: `${FINAL_UI.tabsW}px`,
+                marginLeft: 0,
+                width: "100%",
+                maxWidth: `${FINAL_UI.tabsW}px`,
                 height: `${FINAL_UI.tabsH}px`,
                 alignItems: "center",
                 boxSizing: "border-box",
@@ -2847,6 +2874,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                   </button>
                 </>
               )}
+            </div>
             </div>
             {error ? <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{error}</div> : null}
             {chatAttachError ? (
@@ -2960,7 +2988,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 border: `1px solid ${FINAL_UI.line}`,
                 background: FINAL_UI.surface,
                 boxShadow: "0 4px 14px rgba(18, 50, 95, 0.05)",
-                width: `${FINAL_UI.composerW}px`,
+                width: "100%",
                 maxWidth: "100%",
                 height: `${FINAL_UI.composerH}px`,
                 boxSizing: "border-box",

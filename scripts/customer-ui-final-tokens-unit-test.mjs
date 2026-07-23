@@ -9,6 +9,7 @@ import {
   FINAL_UI,
   FINAL_UI_ROOM_CSS,
   FINAL_UI_SCROLLBAR_CSS,
+  finalUiContentRailStyle,
 } from "../src/lib/customerUiFinalTokens.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,7 +39,10 @@ assert.equal(FINAL_UI.rightColPx, 308);
 assert.equal(FINAL_UI.gutterPx, 10);
 assert.equal(FINAL_UI.bodyGapPx, 8);
 assert.equal(FINAL_UI.heroPadPx, 10);
-assert.equal(FINAL_UI.headerPx, 90);
+assert.equal(FINAL_UI.headerPx, 72);
+assert.equal(FINAL_UI.headerPxMobile, 64);
+assert.equal(FINAL_UI.contentRailMaxPx, 820);
+assert.equal(FINAL_UI.contentRailInsetPx, 44);
 assert.equal(FINAL_UI.heroY, 87);
 assert.equal(FINAL_UI.actionY, 295);
 assert.equal(FINAL_UI.actionW, 756);
@@ -55,7 +59,8 @@ assert.equal(FINAL_UI.composerY, 851);
 assert.equal(FINAL_UI.composerW, 840);
 assert.equal(FINAL_UI.composerH, 38);
 assert.equal(FINAL_UI.shellRadius, 22);
-assert.equal(FINAL_UI.logoSize, 24);
+assert.equal(FINAL_UI.logoSize, 22);
+assert.equal(FINAL_UI.brandTagSize, 11);
 assert.equal(FINAL_UI.headerLeftSize, 14);
 assert.equal(FINAL_UI.heroTitleSize, 17);
 assert.equal(FINAL_UI.actionTitleSize, 20);
@@ -84,8 +89,19 @@ assert.match(home, /FINAL_UI_ROOM_CSS/);
 assert.match(home, /KeyNowActionCard/);
 assert.match(home, /lg-v31-shell-header/);
 assert.match(home, /lg-v31-center-brand-mark/);
+assert.match(home, /lg-v31-content-rail/);
+assert.match(home, /finalUiContentRailStyle/);
 assert.match(home, /fontFamily:\s*LG\.serif/);
 assert.doesNotMatch(home, /className="lg-v31-center-brand"/);
+const rail = finalUiContentRailStyle();
+assert.match(String(rail.width), /min\(/);
+assert.equal(rail.maxWidth, "820px");
+assert.equal(rail.marginLeft, "auto");
+assert.equal(rail.marginRight, "auto");
+assert.doesNotMatch(
+  readFileSync(join(ROOT, "src/components/KeyNowActionCard.jsx"), "utf8"),
+  /actionX\s*-\s*\(/,
+);
 assert.doesNotMatch(home, /#7064CC|#6C55E6/i);
 assert.doesNotMatch(home, /FINAL_UI\.purple/);
 /** Action after messages when hydrated — empty slot only when messages.length === 0 */
