@@ -73,8 +73,10 @@ export const FINAL_UI = {
   /** Hydrated action slot above tabs */
   actionSlotPadTopPx: 6,
   actionSlotPadBottomPx: 4,
-  /** Bottom of composer wrap */
-  composerWrapPadBottomPx: 6,
+  /** Shared L/C/R bottom safe inset from viewport edge */
+  shellBottomInsetPx: 12,
+  /** Bottom of composer wrap — match rail footer pad for shared baseline */
+  composerWrapPadBottomPx: 12,
   heroY: 87,
   heroX: 27,
   heroW: 230,

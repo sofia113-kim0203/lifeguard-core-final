@@ -53,7 +53,8 @@ assert.equal(FINAL_UI.railStackGapPx, 7);
 assert.equal(FINAL_UI.cardPadY, 10);
 assert.equal(FINAL_UI.cardPadX, 12);
 assert.equal(FINAL_UI.msgLineHeight, 1.55);
-assert.equal(FINAL_UI.composerWrapPadBottomPx, 6);
+assert.equal(FINAL_UI.shellBottomInsetPx, 12);
+assert.equal(FINAL_UI.composerWrapPadBottomPx, 12);
 assert.equal(FINAL_UI.tabsY, 781);
 assert.equal(FINAL_UI.tabsW, 420);
 assert.equal(FINAL_UI.composerY, 851);
@@ -110,6 +111,7 @@ assert.match(home, /messages\.length === 0[\s\S]*lg-v31-action-slot/);
 assert.match(home, /messages\.length > 0[\s\S]*lg-v31-action-slot/);
 assert.match(home, /100dvh/);
 assert.match(home, /emptyActionPadTopPx/);
+assert.match(home, /shellBottomInsetPx/);
 assert.doesNotMatch(home, /actionY\s*-/);
 assert.doesNotMatch(home, /isTallViewport|headerTallMinVh/);
 

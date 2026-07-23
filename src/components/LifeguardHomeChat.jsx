@@ -2419,12 +2419,13 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             display: "grid",
             gridTemplateColumns: roomGridColumns,
             gap: `${FINAL_UI.gutterPx}px`,
-            padding: `${FINAL_UI.bodyGapPx}px ${FINAL_UI.roomInlinePx}px 0`,
+            padding: `${FINAL_UI.bodyGapPx}px ${FINAL_UI.roomInlinePx}px ${FINAL_UI.shellBottomInsetPx}px`,
             minHeight: 0,
             minWidth: 0,
             overflow: "hidden",
             overflowX: "hidden",
             background: "transparent",
+            boxSizing: "border-box",
           }}
         >
           {showInsuranceInline ? (
