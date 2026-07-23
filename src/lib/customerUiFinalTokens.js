@@ -41,17 +41,17 @@ export const FINAL_UI = {
   /** V3.1 room: L–C / C–R gap */
   gutterPx: 10,
   /** V3.1 header below → room */
-  bodyGapPx: 4,
+  bodyGapPx: 2,
   roomInlinePx: 2,
   /** Desktop shell header */
-  headerPx: 60,
+  headerPx: 52,
   /** Mobile shell header */
   headerPxMobile: 56,
   /** Center conversation content rail — shared by msgs / action / tabs */
   contentRailMaxPx: 820,
   contentRailInsetPx: 44,
-  /** Empty seat: action starts just below body (no fixed actionY spacer) */
-  emptyActionPadTopPx: 22,
+  /** Empty / center conversation top pad under body (was ~22–28) */
+  emptyActionPadTopPx: 8,
   /** Hero pad inside left rail (below unified header) */
   heroPadPx: 4,
   /** Unified rail inner pad / stack gap (L·R same rhythm) */

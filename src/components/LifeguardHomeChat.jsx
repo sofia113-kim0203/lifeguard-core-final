@@ -2595,7 +2595,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               style={finalUiContentRailStyle({
                 display: "flex",
                 justifyContent: "center",
-                marginTop: "4px",
+                paddingTop: `${FINAL_UI.emptyActionPadTopPx}px`,
+                marginTop: 0,
                 marginBottom: `${FINAL_UI.msgDateMbPx}px`,
               })}
             >
