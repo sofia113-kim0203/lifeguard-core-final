@@ -40,39 +40,44 @@ export const FINAL_UI = {
   rightColPx: 308,
   /** V3.1 room: L–C / C–R gap */
   gutterPx: 10,
-  /** V3.1 header below → room */
-  bodyGapPx: 8,
+  /** V3.1 header below → room (actual viewport fit) */
+  bodyGapPx: 6,
   roomInlinePx: 2,
-  /** Unified shell header height (single DOM header) */
+  /** Desktop tall header when min-height ≥ headerTallMinVh */
   headerPx: 72,
-  /** Narrow / mobile shell header */
+  /** Desktop short / mobile header — never below 64 */
   headerPxMobile: 64,
+  headerTallMinVh: 850,
   /** Center conversation content rail — shared by msgs / action / tabs */
   contentRailMaxPx: 820,
   contentRailInsetPx: 44,
+  /** Empty seat: action starts just below body (no fixed actionY spacer) */
+  emptyActionPadTopPx: 22,
   /** Hero pad inside left rail (below unified header) */
-  heroPadPx: 10,
-  /** Unified rail inner pad / stack gap (L·R same rhythm) */
-  railInnerPadPx: 10,
-  railStackGapPx: 7,
+  heroPadPx: 6,
+  /** Unified rail inner pad / stack gap — overview density */
+  railInnerPadPx: 6,
+  railStackGapPx: 4,
   /** Shared card padding + title/section spacing */
-  cardPadY: 10,
-  cardPadX: 12,
-  cardHeadGapPx: 8,
-  sectionKMbPx: 6,
+  cardPadY: 6,
+  cardPadX: 10,
+  cardHeadGapPx: 4,
+  sectionKMbPx: 3,
   /** Center conversation vertical rhythm (font-size unchanged) */
   msgLineHeight: 1.55,
   msgPadYUser: 6,
   msgPadYAssistant: 10,
   msgDateMbPx: 10,
-  emptyGuidePadTopPx: 4,
-  emptyGuideTitleMbPx: 6,
-  emptyGuideSubMbPx: 8,
+  emptyGuidePadTopPx: 8,
+  emptyGuideTitleMbPx: 4,
+  emptyGuideSubMbPx: 6,
   /** Hydrated action slot above tabs */
   actionSlotPadTopPx: 6,
   actionSlotPadBottomPx: 4,
-  /** Bottom of composer wrap — aligns tabs to tabsY @ 1440×900 */
-  composerWrapPadBottomPx: 11,
+  /** Bottom of composer wrap */
+  composerWrapPadBottomPx: 6,
+  /** Overview clamp for long rail copy */
+  overviewClampLines: 2,
   heroY: 87,
   heroX: 27,
   heroW: 230,
@@ -108,8 +113,8 @@ export const FINAL_UI = {
   brandTagMtPx: 1,
   headerLeftSize: 14,
   headerLeftWeight: 600,
-  heroTitleSize: 17,
-  heroTitleLine: 21,
+  heroTitleSize: 15,
+  heroTitleLine: 18,
   actionTitleSize: 20,
   actionTitleWeight: 600,
   actionTitleLine: 22,

@@ -8,8 +8,32 @@ export default function KeyDiagnosisCoverageSummary({
   diagnosis = [],
   onOpenDetail = null,
   embedded = false,
+  overview = false,
 }) {
-  if (!Array.isArray(diagnosis) || diagnosis.length === 0) return null;
+  if (!Array.isArray(diagnosis) || diagnosis.length === 0) {
+    if (!overview) return null;
+    return (
+      <section style={embedded ? { padding: "0" } : undefined}>
+        <div
+          style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            letterSpacing: "0.03em",
+            color: C.teal,
+            marginBottom: "4px",
+            fontFamily: C.sans,
+          }}
+        >
+          주요 진단비 보장
+        </div>
+        <div style={{ fontSize: "12px", color: C.muted }}>확인 전</div>
+      </section>
+    );
+  }
+
+  const rows = overview ? diagnosis.slice(0, 4) : diagnosis;
+  const extra = overview && diagnosis.length > 4 ? diagnosis.length - 4 : 0;
+
   return (
     <section
       style={
@@ -24,14 +48,14 @@ export default function KeyDiagnosisCoverageSummary({
           fontWeight: 700,
           letterSpacing: "0.03em",
           color: C.teal,
-          marginBottom: "10px",
+          marginBottom: overview ? "4px" : "10px",
           fontFamily: C.sans,
         }}
       >
-        주요 진단비 보장 현황
+        {overview ? "주요 진단비 보장" : "주요 진단비 보장 현황"}
       </div>
-      <div style={{ display: "grid", gap: "10px" }}>
-        {diagnosis.map((row) => {
+      <div style={{ display: "grid", gap: overview ? "4px" : "10px" }}>
+        {rows.map((row) => {
           const pending = Boolean(row.pending);
           const barColor = pending
             ? C.pendingBar
@@ -47,7 +71,7 @@ export default function KeyDiagnosisCoverageSummary({
                   display: "flex",
                   justifyContent: "space-between",
                   gap: "8px",
-                  marginBottom: "4px",
+                  marginBottom: overview ? "2px" : "4px",
                   fontFamily: C.sans,
                 }}
               >
@@ -64,7 +88,7 @@ export default function KeyDiagnosisCoverageSummary({
               </div>
               <div
                 style={{
-                  height: "7px",
+                  height: overview ? "5px" : "7px",
                   borderRadius: "999px",
                   background: C.barTrack,
                   overflow: "hidden",
@@ -82,7 +106,7 @@ export default function KeyDiagnosisCoverageSummary({
                   }}
                 />
               </div>
-              {!pending && (row.currentDisplay || row.baselineDisplay) ? (
+              {!overview && !pending && (row.currentDisplay || row.baselineDisplay) ? (
                 <div
                   style={{
                     marginTop: "5px",
@@ -99,12 +123,15 @@ export default function KeyDiagnosisCoverageSummary({
           );
         })}
       </div>
+      {extra > 0 ? (
+        <div style={{ marginTop: "4px", fontSize: "12px", color: C.muted }}>외 {extra}항목</div>
+      ) : null}
       {typeof onOpenDetail === "function" ? (
         <button
           type="button"
           onClick={onOpenDetail}
           style={{
-            marginTop: "12px",
+            marginTop: overview ? "6px" : "12px",
             border: "none",
             background: "transparent",
             color: C.teal,

@@ -12,7 +12,11 @@ const EMPTY_STEPS = [
   { key: "paid", label: "지급완료" },
 ];
 
-export default function KeyClaimProgress({ claimProgress = null, embedded = false }) {
+export default function KeyClaimProgress({
+  claimProgress = null,
+  embedded = false,
+  overview = false,
+}) {
   const empty =
     !claimProgress ||
     claimProgress.empty === true ||
@@ -22,6 +26,8 @@ export default function KeyClaimProgress({ claimProgress = null, embedded = fals
   const pad = embedded
     ? { padding: "0" }
     : { padding: "14px 16px 12px", borderBottom: `1px solid ${C.line}` };
+  const titleMb = overview ? "4px" : "8px";
+  const gridMb = overview ? "4px" : "8px";
 
   if (empty) {
     return (
@@ -32,7 +38,7 @@ export default function KeyClaimProgress({ claimProgress = null, embedded = fals
             fontWeight: 800,
             letterSpacing: "0.03em",
             color: C.muted,
-            marginBottom: "8px",
+            marginBottom: titleMb,
             fontFamily: C.sans,
           }}
         >
@@ -43,7 +49,7 @@ export default function KeyClaimProgress({ claimProgress = null, embedded = fals
             display: "grid",
             gridTemplateColumns: "repeat(5, 1fr)",
             gap: "4px",
-            marginBottom: "8px",
+            marginBottom: gridMb,
           }}
         >
           {EMPTY_STEPS.map((step, i) => (
@@ -70,10 +76,10 @@ export default function KeyClaimProgress({ claimProgress = null, embedded = fals
         </div>
         <div
           style={{
-            fontSize: `${C.bodySize}px`,
+            fontSize: "12px",
             color: C.muted,
             fontFamily: C.sans,
-            lineHeight: 1.5,
+            lineHeight: 1.35,
           }}
         >
           진행 중인 청구 없음

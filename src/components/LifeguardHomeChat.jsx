@@ -757,6 +757,12 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
 
   const isMidRoom = useMediaQuery(`(min-width: ${ROOM_MID_BREAKPOINT}px)`);
   const isWideRoom = useMediaQuery(`(min-width: ${ROOM_WIDE_BREAKPOINT}px)`);
+  const isTallViewport = useMediaQuery(`(min-height: ${FINAL_UI.headerTallMinVh}px)`);
+  const shellHeaderPx = !isWideRoom
+    ? FINAL_UI.headerPxMobile
+    : isTallViewport
+      ? FINAL_UI.headerPx
+      : FINAL_UI.headerPxMobile;
 
   useEffect(() => {
     // Inline rails on mid/wide — close mobile/tablet sheets so they never cover the shell.
@@ -2083,7 +2089,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     <div
       className="lg-final-shell"
       style={{
-        height: "100vh",
+        height: "100dvh",
+        maxHeight: "100dvh",
         overflow: "hidden",
         overflowX: "hidden",
         fontFamily: FINAL_UI.sans,
@@ -2204,7 +2211,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           className="lg-v31-shell-header"
           style={{
             flexShrink: 0,
-            height: `${isWideRoom ? FINAL_UI.headerPx : FINAL_UI.headerPxMobile}px`,
+            height: `${shellHeaderPx}px`,
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
@@ -2478,13 +2485,8 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             <div
               className="lg-v31-action-slot lg-v31-content-rail"
               style={finalUiContentRailStyle({
-                /* Empty seat: action at frame Y=295 under unified header + body gap */
-                paddingTop: `${Math.max(
-                  0,
-                  FINAL_UI.actionY -
-                    (isWideRoom ? FINAL_UI.headerPx : FINAL_UI.headerPxMobile) -
-                    FINAL_UI.bodyGapPx,
-                )}px`,
+                /* Empty seat: start just below body — no fixed actionY spacer */
+                paddingTop: `${FINAL_UI.emptyActionPadTopPx}px`,
                 flexShrink: 0,
               })}
             >
