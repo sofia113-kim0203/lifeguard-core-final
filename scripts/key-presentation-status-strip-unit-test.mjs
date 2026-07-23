@@ -110,19 +110,25 @@ import {
   assert.equal(fromDone.corporateClaimStatus, "paid");
 }
 
-// Final shell model — empty stays empty (no demo invent); diagnosis always 3 pending rows
+// Final shell model — SSOT slots always present; empty stays honest (no demo invent)
 {
   const empty = buildCustomerUiFinalShellModel({});
-  assert.equal(empty.claimProgress, null);
-  assert.equal(empty.coreMetrics.length, 0);
+  assert.equal(empty.claimProgress?.empty, true);
+  assert.equal(empty.claimProgress?.activeCount, 0);
+  assert.equal(empty.coreMetrics.length, 2);
+  assert.ok(empty.coreMetrics.every((m) => m.pending && m.sub === "확인 전"));
+  assert.equal(empty.coverageGap?.pending, true);
   assert.equal(empty.diagnosis.length, 3);
   assert.ok(empty.diagnosis.every((d) => d.pending && d.currentDisplay === "확인 전"));
   assert.equal(empty.schedules.length, 0);
   assert.equal(empty.activities.length, 0);
   assert.equal(empty.goals.length, 0);
+  assert.equal(empty.paymentResults.length, 0);
   assert.equal(empty.actionPills.length, 0);
   assert.equal(empty.moneyFlow.reviewingCount, 0);
   assert.equal(empty.moneyFlow.yearPaidKnown, false);
+  assert.equal(empty.nowAction?.pending, true);
+  assert.match(String(empty.nowAction?.title || ""), /다음 행동/);
 }
 
 // Final shell model — verified facts only
@@ -184,10 +190,13 @@ import {
     viewMode: "personal",
   });
   assert.ok(shell.claimProgress);
+  assert.equal(shell.claimProgress.empty, false);
   assert.equal(shell.claimProgress.activeCount, 1);
+  assert.equal(shell.coreMetrics.length, 2);
   assert.ok(shell.coreMetrics.some((m) => m.id === "policies" && m.title.includes("22")));
   assert.ok(shell.coreMetrics.some((m) => m.id === "premium"));
-  assert.ok(shell.coreMetrics.some((m) => m.id === "gap" && m.tone === "warn"));
+  assert.equal(shell.coverageGap?.pending, false);
+  assert.match(String(shell.coverageGap?.title || ""), /공백/);
   assert.equal(shell.diagnosis.length, 3);
   assert.equal(shell.diagnosis.filter((d) => !d.pending).length, 2);
   assert.ok(shell.diagnosis.some((d) => d.id === "ischemic_heart_diagnosis" && d.pending));
@@ -196,6 +205,8 @@ import {
   assert.ok(shell.goals.some((g) => g.text.includes("가족")));
   assert.ok(shell.actionPills.some((p) => p.id === "docs"));
   assert.ok(shell.actionPills.some((p) => p.id === "gap"));
+  assert.equal(shell.nowAction?.pending, false);
+  assert.match(String(shell.nowAction?.title || ""), /서류/);
 }
 
 console.log("key-presentation-status-strip-unit-test: PASS");

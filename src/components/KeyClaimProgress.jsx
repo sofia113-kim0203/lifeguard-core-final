@@ -1,32 +1,107 @@
-/** Claim progress stepper — verified Claim Guardian rows only. */
+/** Claim progress stepper — verified Claim Guardian rows only; empty keeps V3.1 slot. */
 
-const C = {
-  text: "#151823",
-  muted: "#74798A",
-  line: "#E7E8EE",
-  purple: "#6C55E6",
-  purpleSoft: "#F2EFFF",
-  green: "#4D8A43",
-  sans: '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, sans-serif',
-};
+import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
 
-export default function KeyClaimProgress({ claimProgress = null }) {
-  if (!claimProgress || !Array.isArray(claimProgress.steps) || !claimProgress.steps.length) {
-    return null;
+const C = FINAL_UI;
+
+const EMPTY_STEPS = [
+  { key: "received", label: "접수" },
+  { key: "docs", label: "서류검토" },
+  { key: "review", label: "심사중" },
+  { key: "pay_due", label: "지급예정" },
+  { key: "paid", label: "지급완료" },
+];
+
+export default function KeyClaimProgress({ claimProgress = null, embedded = false }) {
+  const empty =
+    !claimProgress ||
+    claimProgress.empty === true ||
+    !Array.isArray(claimProgress.steps) ||
+    claimProgress.steps.length === 0;
+
+  const pad = embedded
+    ? { padding: "0" }
+    : { padding: "14px 16px 12px", borderBottom: `1px solid ${C.line}` };
+
+  if (empty) {
+    return (
+      <section style={pad}>
+        <div
+          style={{
+            fontSize: "11px",
+            fontWeight: 800,
+            letterSpacing: "0.03em",
+            color: C.muted,
+            marginBottom: "8px",
+            fontFamily: C.sans,
+          }}
+        >
+          진행 중인 청구
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5, 1fr)",
+            gap: "4px",
+            marginBottom: "8px",
+          }}
+        >
+          {EMPTY_STEPS.map((step, i) => (
+            <div key={step.key} style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  width: "22px",
+                  height: "22px",
+                  margin: "0 auto 4px",
+                  borderRadius: "999px",
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: "10px",
+                  fontWeight: 800,
+                  background: C.barTrack,
+                  color: C.muted,
+                }}
+              >
+                {i + 1}
+              </div>
+              <div style={{ fontSize: "10px", color: C.muted, fontWeight: 600 }}>{step.label}</div>
+            </div>
+          ))}
+        </div>
+        <div
+          style={{
+            fontSize: `${C.bodySize}px`,
+            color: C.muted,
+            fontFamily: C.sans,
+            lineHeight: 1.5,
+          }}
+        >
+          진행 중인 청구 없음
+        </div>
+      </section>
+    );
   }
+
   const count = Number(claimProgress.activeCount) || 1;
   return (
-    <section style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${C.line}` }}>
+    <section style={pad}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-        <div style={{ fontSize: "13px", fontWeight: 700, color: C.text, fontFamily: C.sans }}>
+        <div
+          style={{
+            fontSize: `${C.bodySize}px`,
+            fontWeight: 700,
+            color: C.text,
+            fontFamily: C.sans,
+          }}
+        >
           청구 진행 현황
         </div>
         <span
           style={{
             fontSize: "11px",
             fontWeight: 700,
-            color: C.purple,
-            background: C.purpleSoft,
+            color: C.teal,
+            background: C.tealSoft,
             borderRadius: "999px",
             padding: "2px 8px",
           }}
@@ -62,14 +137,14 @@ export default function KeyClaimProgress({ claimProgress = null }) {
                   placeItems: "center",
                   fontSize: "11px",
                   fontWeight: 800,
-                  color: done || current ? "#fff" : C.muted,
-                  background: done ? C.green : current ? C.purple : "#fff",
+                  color: done || current ? C.surface : C.muted,
+                  background: done || current ? C.teal : C.surface,
                   border: current
-                    ? `2px solid ${C.purple}`
+                    ? `2px solid ${C.teal}`
                     : done
-                      ? `2px solid ${C.green}`
+                      ? `2px solid ${C.teal}`
                       : `2px solid ${C.line}`,
-                  boxShadow: current ? `0 0 0 3px ${C.purpleSoft}` : "none",
+                  boxShadow: current ? `0 0 0 3px ${C.tealSoft}` : "none",
                 }}
               >
                 {done ? "✓" : current ? "●" : ""}
@@ -78,7 +153,7 @@ export default function KeyClaimProgress({ claimProgress = null }) {
                 style={{
                   fontSize: "10px",
                   fontWeight: current ? 800 : 600,
-                  color: current ? C.purple : done ? C.green : C.muted,
+                  color: current || done ? C.teal : C.muted,
                   fontFamily: C.sans,
                 }}
               >

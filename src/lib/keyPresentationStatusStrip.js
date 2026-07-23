@@ -370,7 +370,8 @@ function formatCompactWon(value) {
 
 /**
  * Build left/right/action shell for final customer UI.
- * Hide empty sections — never invent counts, dates, goals, or payouts.
+ * SSOT shell sections always present; empty slots stay honest ("확인 전" / empty).
+ * Never invent counts, dates, goals, payouts, or demo chat.
  */
 export function buildCustomerUiFinalShellModel({
   insuranceStatus = null,
@@ -397,7 +398,7 @@ export function buildCustomerUiFinalShellModel({
     ),
   );
   const primaryClaim = activeClaims[0] || null;
-  let claimProgress = null;
+  let claimProgress;
   if (primaryClaim) {
     const idx = claimStepIndex(primaryClaim.status);
     const steps = FINAL_CLAIM_STEPS.map((step, i) => ({
@@ -405,29 +406,59 @@ export function buildCustomerUiFinalShellModel({
       state: idx < 0 ? "future" : i < idx ? "done" : i === idx ? "current" : "future",
     }));
     claimProgress = {
+      empty: false,
       activeCount: activeClaims.length,
       kindLabel: trim(primaryClaim.claim_type || primaryClaim.product_hint || "청구", 24) || "청구",
       receivedAt: trim(primaryClaim.received_at || primaryClaim.created_at || "", 32) || null,
       currentIndex: idx,
       steps,
     };
+  } else {
+    claimProgress = {
+      empty: true,
+      activeCount: 0,
+      kindLabel: null,
+      receivedAt: null,
+      currentIndex: -1,
+      steps: [],
+    };
   }
 
-  const coreMetrics = [];
   const confirmed = Number(insuranceStatus?.confirmedCount);
   const needs = Number(insuranceStatus?.needsCount);
   const total = Number(insuranceStatus?.totalCount);
+  const baselineItems = Array.isArray(coverageBaseline?.items) ? coverageBaseline.items : [];
+  const shortItems = baselineItems.filter(
+    (it) =>
+      DIAGNOSIS_IDS.includes(it.id) &&
+      it.status === "미달" &&
+      it.currentAmount != null &&
+      Number.isFinite(Number(it.currentAmount)),
+  );
+
+  // Left "가입 핵심" only — schedules stay on the right (no L/R duplicate).
+  const coreMetrics = [];
   if (Number.isFinite(total) && total > 0) {
     const bits = [];
     if (Number.isFinite(confirmed)) bits.push(`유효 ${confirmed}건`);
     if (Number.isFinite(needs) && needs > 0) bits.push(`확인 필요 ${needs}건`);
     coreMetrics.push({
       id: "policies",
-      title: `보험 가입 ${total}건`,
+      title: `가입 건수 ${total}건`,
       sub: bits.join(" · ") || null,
       tone: "default",
+      pending: false,
+    });
+  } else {
+    coreMetrics.push({
+      id: "policies",
+      title: "가입 건수",
+      sub: "확인 전",
+      tone: "muted",
+      pending: true,
     });
   }
+
   if (monthlyPremiumSum != null && Number(monthlyPremiumSum) > 0) {
     const month = formatCompactWon(monthlyPremiumSum);
     const year = formatCompactWon(Number(monthlyPremiumSum) * 12);
@@ -437,40 +468,39 @@ export function buildCustomerUiFinalShellModel({
         title: `월 보험료 ${month}`,
         sub: year ? `연 ${year}` : null,
         tone: "default",
+        pending: false,
+      });
+    } else {
+      coreMetrics.push({
+        id: "premium",
+        title: "월 보험료",
+        sub: "확인 전",
+        tone: "muted",
+        pending: true,
       });
     }
-  }
-
-  const baselineItems = Array.isArray(coverageBaseline?.items) ? coverageBaseline.items : [];
-  const shortItems = baselineItems.filter(
-    (it) =>
-      DIAGNOSIS_IDS.includes(it.id) &&
-      it.status === "미달" &&
-      it.currentAmount != null &&
-      Number.isFinite(Number(it.currentAmount)),
-  );
-  if (shortItems.length > 0) {
-    const first = shortItems[0];
+  } else {
     coreMetrics.push({
-      id: "gap",
-      title: `보장 공백 ${shortItems.length}곳`,
-      sub: trim(`${first.shortLabel || first.label} 부족`, 28) || "확인된 부족",
-      tone: "warn",
+      id: "premium",
+      title: "월 보험료",
+      sub: "확인 전",
+      tone: "muted",
+      pending: true,
     });
   }
 
-  for (const clock of clocks.slice(0, 2)) {
-    if (coreMetrics.length >= 4) break;
-    const d = daysUntil(clock.due_at);
-    if (d == null) continue;
-    const label = trim(clock.label, 28) || clockTypeLabel(clock.clock_type);
-    coreMetrics.push({
-      id: `clock_${clock.clock_id || clock.due_at}`,
-      title: d >= 0 ? `${label} D-${d}` : `${label} D+${Math.abs(d)}`,
-      sub: clock.due_at,
-      tone: "amber",
-    });
-  }
+  const coverageGap =
+    shortItems.length > 0
+      ? {
+          pending: false,
+          title: `보장 공백 ${shortItems.length}곳`,
+          sub: trim(`${shortItems[0].shortLabel || shortItems[0].label} 부족`, 28) || "확인된 부족",
+        }
+      : {
+          pending: true,
+          title: "확인 전",
+          sub: "확인된 공백이 생기면 여기에 모읍니다",
+        };
 
   // Always surface the 3 diagnosis rows from industry baseline path.
   // Missing verified amounts → honest "확인 전" (never invent numbers).
@@ -602,10 +632,65 @@ export function buildCustomerUiFinalShellModel({
     actionPills.push({ id: "result", label: "최근 청구 결과 보기" });
   }
 
+  // Center action card — always present; never invent a fake claim story.
+  let nowAction = {
+    pending: true,
+    title: "다음 행동 · 확인 전",
+    body: "KEY가 자료와 대화를 확인하면 다음 행동을 여기에 제시합니다.",
+    ctaLabel: "준비가 되면 알려주기",
+    ctaHint: "사진으로 보내 주셔도 괜찮아요",
+    submitText: "준비가 되면 알려주기",
+  };
+  if (missingDocs) {
+    nowAction = {
+      pending: false,
+      title: "남은 서류를 준비해 주세요",
+      body: "청구에 필요한 서류가 확인되면, 준비되는 대로 알려 주세요. 제가 이어서 도와드리겠습니다.",
+      ctaLabel: "서류 준비됐으면 알려주기",
+      ctaHint: "사진으로 보내 주셔도 괜찮아요",
+      submitText: "서류 보완하기",
+    };
+  } else if (shortItems.length > 0) {
+    const gapLabel = shortItems[0].shortLabel || "보장";
+    nowAction = {
+      pending: false,
+      title: `${gapLabel} 보완을 같이 볼까요`,
+      body: "확인된 보장 공백을 바탕으로, 다음에 무엇을 보면 좋은지 이 자리에서 이어가겠습니다.",
+      ctaLabel: "보완 검토 시작하기",
+      ctaHint: null,
+      submitText: `${gapLabel} 보완 검토하기`,
+    };
+  }
+
+  const paymentResults = [];
+  for (const p of paymentTruth.slice(0, 3)) {
+    const outcome = String(p?.outcome || p?.status || "").toLowerCase();
+    const paid = outcome === "paid" || outcome === "지급";
+    const denied = outcome === "denied" || outcome === "거절" || outcome === "부지급";
+    if (!paid && !denied) continue;
+    paymentResults.push({
+      id: p.id || `pay_${paymentResults.length}`,
+      title: paid ? "지급 결과" : "거절 결과",
+      reason:
+        trim(p.reason || p.denial_reason || p.note || "", 80) ||
+        (paid ? "지급이 확인되었습니다." : "거절 사유를 확인 중입니다."),
+    });
+  }
+
+  const familyMemory = {
+    hint: "기억한 가족 · 아직 기록 없음",
+    count: 0,
+  };
+  const notesMemory = { text: "" };
+
   return {
     claimProgress,
-    coreMetrics: coreMetrics.slice(0, 4),
+    coreMetrics,
+    coverageGap,
     diagnosis,
+    familyMemory,
+    notesMemory,
+    nowAction,
     moneyFlow: {
       reviewingCount,
       yearPaidDisplay,
@@ -614,6 +699,7 @@ export function buildCustomerUiFinalShellModel({
     schedules,
     activities: activities.slice(0, 3),
     goals,
+    paymentResults,
     actionPills,
   };
 }

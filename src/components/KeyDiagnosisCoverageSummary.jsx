@@ -1,42 +1,45 @@
 /** Diagnosis coverage bars — industry baseline path; pending rows show 확인 전. */
 
-const C = {
-  text: "#151823",
-  muted: "#74798A",
-  line: "#E7E8EE",
-  purple: "#6C55E6",
-  purpleSoft: "#F2EFFF",
-  warn: "#F05A28",
-  green: "#4D8A43",
-  sans: '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, sans-serif',
-};
+import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
 
-export default function KeyDiagnosisCoverageSummary({ diagnosis = [], onOpenDetail = null }) {
+const C = FINAL_UI;
+
+export default function KeyDiagnosisCoverageSummary({
+  diagnosis = [],
+  onOpenDetail = null,
+  embedded = false,
+}) {
   if (!Array.isArray(diagnosis) || diagnosis.length === 0) return null;
   return (
-    <section style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${C.line}` }}>
+    <section
+      style={
+        embedded
+          ? { padding: "0" }
+          : { padding: "12px 16px 10px", borderBottom: `1px solid ${C.line}` }
+      }
+    >
       <div
         style={{
-          fontSize: "12px",
-          fontWeight: 800,
-          color: C.muted,
+          fontSize: "11px",
+          fontWeight: 700,
+          letterSpacing: "0.03em",
+          color: C.teal,
           marginBottom: "10px",
-          letterSpacing: "0.02em",
           fontFamily: C.sans,
         }}
       >
         주요 진단비 보장 현황
       </div>
-      <div style={{ display: "grid", gap: "12px" }}>
+      <div style={{ display: "grid", gap: "10px" }}>
         {diagnosis.map((row) => {
           const pending = Boolean(row.pending);
           const barColor = pending
-            ? "#D7D9E2"
+            ? C.pendingBar
             : row.tone === "warn"
-              ? C.warn
+              ? C.coral
               : row.tone === "ok"
-                ? C.green
-                : C.purple;
+                ? C.teal
+                : C.sky;
           return (
             <div key={row.id}>
               <div
@@ -44,7 +47,7 @@ export default function KeyDiagnosisCoverageSummary({ diagnosis = [], onOpenDeta
                   display: "flex",
                   justifyContent: "space-between",
                   gap: "8px",
-                  marginBottom: "5px",
+                  marginBottom: "4px",
                   fontFamily: C.sans,
                 }}
               >
@@ -61,9 +64,9 @@ export default function KeyDiagnosisCoverageSummary({ diagnosis = [], onOpenDeta
               </div>
               <div
                 style={{
-                  height: "6px",
+                  height: "7px",
                   borderRadius: "999px",
-                  background: "#EEF0F5",
+                  background: C.barTrack,
                   overflow: "hidden",
                 }}
               >
@@ -79,17 +82,19 @@ export default function KeyDiagnosisCoverageSummary({ diagnosis = [], onOpenDeta
                   }}
                 />
               </div>
-              <div
-                style={{
-                  marginTop: "4px",
-                  fontSize: "11px",
-                  color: C.muted,
-                  fontFamily: C.sans,
-                }}
-              >
-                {row.currentDisplay || "확인 전"}
-                {row.baselineDisplay ? ` / 기준 ${row.baselineDisplay}` : ""}
-              </div>
+              {!pending && (row.currentDisplay || row.baselineDisplay) ? (
+                <div
+                  style={{
+                    marginTop: "5px",
+                    fontSize: "11px",
+                    color: C.muted,
+                    fontFamily: C.sans,
+                  }}
+                >
+                  {row.currentDisplay || "확인 전"}
+                  {row.baselineDisplay ? ` / 기준 ${row.baselineDisplay}` : ""}
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -99,10 +104,10 @@ export default function KeyDiagnosisCoverageSummary({ diagnosis = [], onOpenDeta
           type="button"
           onClick={onOpenDetail}
           style={{
-            marginTop: "10px",
+            marginTop: "12px",
             border: "none",
             background: "transparent",
-            color: C.purple,
+            color: C.teal,
             fontSize: "12px",
             fontWeight: 700,
             cursor: "pointer",
