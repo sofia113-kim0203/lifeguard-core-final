@@ -2198,71 +2198,132 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           minHeight: 0,
         }}
       >
+        {/* Single V3.1 shell header — one DOM header spanning L/C/R */}
         <header
+          className="lg-v31-shell-header"
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px",
-            padding: "0 16px",
+            flexShrink: 0,
             height: `${FINAL_UI.headerPx}px`,
             boxSizing: "border-box",
-            background: "transparent",
-            borderBottom: "none",
-            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: `${FINAL_UI.gutterPx}px`,
+            padding: `0 ${FINAL_UI.roomInlinePx}px`,
+            background: "rgba(255, 255, 255, 0.92)",
+            borderBottom: "1px solid rgba(18,50,95,0.06)",
+            borderRadius: `0 0 ${FINAL_UI.shellRadius}px ${FINAL_UI.shellRadius}px`,
+            boxShadow: "0 8px 20px rgba(18, 50, 95, 0.04)",
+            position: "relative",
+            zIndex: 2,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
-            {!isMidRoom ? (
-              <button
-                type="button"
-                aria-label="메뉴 열기"
-                aria-expanded={sidebarOpen}
-                onClick={() => setSidebarOpen(true)}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: FINAL_UI.navy,
-                  borderRadius: "8px",
-                  width: "32px",
-                  height: "32px",
-                  cursor: "pointer",
-                  fontSize: "18px",
-                  marginRight: "2px",
-                  flexShrink: 0,
-                }}
-              >
-                ☰
-              </button>
-            ) : null}
-            <HeaderLogoMark />
-            <div style={{ display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 }}>
-              <span
-                style={{
-                  fontFamily: FINAL_UI.gothic,
-                  fontSize: `${FINAL_UI.headerLeftSize}px`,
-                  fontWeight: FINAL_UI.headerLeftWeight,
-                  color: FINAL_UI.navyDeep,
-                  letterSpacing: "0.03em",
-                  lineHeight: 1.1,
-                }}
-              >
-                LIFEGUARD
-              </span>
-              <span
-                style={{
-                  fontSize: "12px",
-                  color: FINAL_UI.muted,
-                  whiteSpace: "nowrap",
-                  display: isMidRoom ? "inline" : "none",
-                }}
-              >
-                늘 곁에 있는 보험 주치의
-              </span>
+          <div
+            style={{
+              width: showInsuranceInline ? leftCol : "auto",
+              minWidth: showInsuranceInline ? leftCol : 0,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              paddingLeft: "4px",
+              flexShrink: 0,
+            }}
+          >
+            <button
+              type="button"
+              aria-label="메뉴 열기"
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: FINAL_UI.navy,
+                borderRadius: "8px",
+                width: "32px",
+                height: "32px",
+                cursor: "pointer",
+                fontSize: "18px",
+                padding: 0,
+                lineHeight: 1,
+                flexShrink: 0,
+              }}
+            >
+              ☰
+            </button>
+            <span
+              style={{
+                fontFamily: LG.serif,
+                fontSize: `${FINAL_UI.headerLeftSize}px`,
+                fontWeight: FINAL_UI.headerLeftWeight,
+                color: FINAL_UI.navyDeep,
+                letterSpacing: "0.06em",
+                lineHeight: 1.1,
+              }}
+            >
+              LIFEGUARD
+            </span>
+          </div>
+
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              className="lg-v31-center-brand-mark"
+              style={{
+                fontFamily: LG.serif,
+                fontSize: `${FINAL_UI.logoSize}px`,
+                fontWeight: 600,
+                color: FINAL_UI.navyDeep,
+                letterSpacing: "0.06em",
+                lineHeight: 1.1,
+              }}
+            >
+              LIFEGUARD
+            </div>
+            <div style={{ fontSize: "12px", color: FINAL_UI.muted, marginTop: "2px" }}>
+              늘 곁에 있는 보험 주치의
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+          <div
+            style={{
+              width: showMirrorInline ? rightCol : "auto",
+              minWidth: showMirrorInline ? rightCol : 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: "10px",
+              paddingRight: "4px",
+              flexShrink: 0,
+            }}
+          >
+            {showMirrorInline ? (
+              <div style={{ textAlign: "right", minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    color: FINAL_UI.navy,
+                    lineHeight: 1.25,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  KEY가 계속 관리하는 것
+                </div>
+                <div style={{ fontSize: "11px", color: FINAL_UI.muted, marginTop: "2px", lineHeight: 1.3 }}>
+                  돈 · 일정 · 활동 · 결과
+                </div>
+              </div>
+            ) : null}
             <button
               type="button"
               aria-label="알림"
@@ -2276,6 +2337,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 color: FINAL_UI.muted,
                 display: "grid",
                 placeItems: "center",
+                flexShrink: 0,
               }}
             >
               <HeaderIconBell />
@@ -2294,6 +2356,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 color: FINAL_UI.muted,
                 display: "grid",
                 placeItems: "center",
+                flexShrink: 0,
               }}
             >
               <HeaderIconGear />
@@ -2306,6 +2369,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 padding: "3px 8px 3px 3px",
                 borderRadius: "999px",
                 background: FINAL_UI.tealSoft,
+                flexShrink: 0,
               }}
             >
               <div
@@ -2338,7 +2402,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             display: "grid",
             gridTemplateColumns: roomGridColumns,
             gap: `${FINAL_UI.gutterPx}px`,
-            padding: "0",
+            padding: `${FINAL_UI.bodyGapPx}px ${FINAL_UI.roomInlinePx}px 0`,
             minHeight: 0,
             minWidth: 0,
             overflow: "hidden",
@@ -2378,39 +2442,6 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               overflow: "hidden",
             }}
           >
-        {panelView === "chat" ? (
-          <div
-            className="lg-v31-center-brand"
-            style={{
-              flexShrink: 0,
-              textAlign: "center",
-              height: `${FINAL_UI.headerPx}px`,
-              boxSizing: "border-box",
-              padding: "0 16px",
-              borderBottom: "1px solid rgba(18,50,95,0.06)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <div
-              style={{
-                fontFamily: FINAL_UI.gothic,
-                fontSize: `${FINAL_UI.logoSize}px`,
-                fontWeight: 650,
-                color: FINAL_UI.navyDeep,
-                letterSpacing: "0.03em",
-                lineHeight: 1.05,
-              }}
-            >
-              LIFEGUARD
-            </div>
-            <div style={{ fontSize: "12px", color: FINAL_UI.muted, marginTop: "2px" }}>
-              늘 곁에 있는 보험 주치의
-            </div>
-          </div>
-        ) : null}
         <div
           ref={chatScrollRef}
           onScroll={handleChatScroll}
@@ -2428,14 +2459,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             margin: "0",
           }}
         >
-          {panelView === "chat" ? (
+          {panelView === "chat" && messages.length === 0 ? (
             <div
               className="lg-v31-action-slot"
               style={{
-                paddingTop:
-                  messages.length === 0
-                    ? `${Math.max(0, FINAL_UI.actionY - FINAL_UI.headerPx)}px`
-                    : "12px",
+                /* Empty seat: action at frame Y=295 under unified header + body gap */
+                paddingTop: `${Math.max(
+                  0,
+                  FINAL_UI.actionY - FINAL_UI.headerPx - FINAL_UI.bodyGapPx,
+                )}px`,
                 paddingLeft: 0,
                 paddingRight: 0,
                 flexShrink: 0,
@@ -2657,6 +2689,29 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                 );
               })
             : null}
+          {panelView === "chat" && messages.length > 0 ? (
+            <div
+              className="lg-v31-action-slot"
+              style={{
+                paddingTop: "12px",
+                paddingBottom: "8px",
+                paddingLeft: 0,
+                paddingRight: 0,
+                flexShrink: 0,
+              }}
+            >
+              <KeyNowActionCard
+                action={finalShell?.nowAction || null}
+                disabled={isDisabled || loading || streaming}
+                onCta={() => {
+                  const text =
+                    String(finalShell?.nowAction?.submitText || "").trim() ||
+                    "준비가 되면 알려주기";
+                  submitQuestion(text);
+                }}
+              />
+            </div>
+          ) : null}
         </div>
 
         {panelView === "chat" ? (

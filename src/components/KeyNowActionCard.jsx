@@ -7,7 +7,7 @@ const C = FINAL_UI;
 const DEFAULT_ACTION = Object.freeze({
   pending: true,
   title: "다음 행동 · 확인 전",
-  body: "KEY가 자료와 대화를 확인하면 다음 행동을 여기에 제시합니다.",
+  body: "KEY가 자료와 대화를 확인하면 다음 행동을 이 자리에 제시합니다.",
   ctaLabel: "준비가 되면 알려주기",
   ctaHint: "사진으로 보내 주셔도 괜찮아요",
 });

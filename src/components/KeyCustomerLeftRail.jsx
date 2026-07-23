@@ -67,8 +67,8 @@ export default function KeyCustomerLeftRail({
     >
       <div
         style={{
-          /* V3.1 photo-exact hero @ design 1440×900 — ratios via designH */
-          margin: `${C.heroY}px ${Math.max(0, C.leftColPx - C.heroX - C.heroW)}px 0 ${C.heroX}px`,
+          /* Below unified shell header — pad inside rail only (no second brand row) */
+          margin: `${C.heroPadPx}px ${Math.max(0, C.leftColPx - C.heroX - C.heroW)}px 0 ${C.heroX}px`,
           width: `${C.heroW}px`,
           maxWidth: "100%",
           boxSizing: "border-box",
@@ -93,23 +93,6 @@ export default function KeyCustomerLeftRail({
             background: "rgba(255,255,255,0.12)",
           }}
         />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginBottom: "10px",
-            fontFamily: C.gothic,
-            fontSize: `${C.headerLeftSize}px`,
-            fontWeight: C.headerLeftWeight,
-            letterSpacing: "0.04em",
-          }}
-        >
-          <span aria-hidden="true" style={{ fontSize: "16px", lineHeight: 1 }}>
-            ☰
-          </span>
-          <span>LIFEGUARD</span>
-        </div>
         <div style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.04em", opacity: 0.85 }}>
           KEY가 곁에서 보는 것
         </div>

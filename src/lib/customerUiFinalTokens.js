@@ -38,9 +38,15 @@ export const FINAL_UI = {
   leftColPx: 268,
   centerColPx: 840,
   rightColPx: 308,
-  gutterPx: 12,
-  /** Center brand band height (not top chrome) */
+  /** V3.1 room: L–C / C–R gap */
+  gutterPx: 10,
+  /** V3.1 header below → room */
+  bodyGapPx: 8,
+  roomInlinePx: 2,
+  /** Unified shell header height (single DOM header) */
   headerPx: 90,
+  /** Hero pad inside left rail (below unified header) */
+  heroPadPx: 10,
   heroY: 87,
   heroX: 27,
   heroW: 230,

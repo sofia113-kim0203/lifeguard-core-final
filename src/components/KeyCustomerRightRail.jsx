@@ -61,22 +61,9 @@ export default function KeyCustomerRightRail({
     >
       <div
         style={{
-          flexShrink: 0,
-          padding: "12px 14px 8px",
-          borderBottom: "1px solid rgba(18,50,95,0.06)",
-        }}
-      >
-        <div style={{ fontSize: "13px", fontWeight: 800, color: C.navy }}>KEY가 계속 관리하는 것</div>
-        <div style={{ fontSize: "11px", color: C.muted, marginTop: "2px", lineHeight: 1.4 }}>
-          돈 · 일정 · 활동 · 결과
-        </div>
-      </div>
-
-      <div
-        style={{
           flex: 1,
           overflowY: "auto",
-          padding: "10px",
+          padding: `${C.heroPadPx}px 10px 10px`,
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
