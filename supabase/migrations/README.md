@@ -32,8 +32,9 @@ supabase db push
 | `019_customer_memory_schema_foundation.sql` | Phase 23 Step 1A: `customer_memory_facts` metadata_json, fact_type, importance, source_table |
 | `020_customer_memory_write_lockdown.sql` | Phase 23 Step 1B: customer read-only memory facts; service_role Memory Builder write path |
 | `036_agent_assignment_consents.sql` | C1: `agent_assignment_consents` binds `agent_sharing` consent to one `agent_assignments` row; integrity trigger + `lifeguard_agent_has_active_assignment_consent`; no briefing/API |
+| `037_agent_key_briefings.sql` | C2-A: append-only `agent_key_briefings` ledger; integrity + deny-mutation triggers; agent/admin SELECT RLS only; no API |
 
-Apply in order: **001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017 → 018 → 019 → 020** (later numbered files apply after their prerequisites; `036` needs `001`+`002`+`004`).
+Apply in order: **001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 → 016 → 017 → 018 → 019 → 020** (later numbered files apply after their prerequisites; `036` needs `001`+`002`+`004`; `037` needs `036`).
 
 `008` post-migration tests (SQL Editor, real JWTs — no demo seed): customer own SELECT; cross-customer 0 rows; INSERT denied; dismiss-only UPDATE; agent summary high/critical; confidence CHECK; `service_role` INSERT.
 
