@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   APP_ROLES,
   canAccessPath,
+  getRedirectPathForRole,
 } from "../src/lib/appRouting.js";
 import {
   AGENT_BRIEFING_GENERIC_ERROR,
@@ -185,8 +186,20 @@ test("customer/admin route blocked; agent allowed", () => {
   assert.equal(canAccessPath("/agent", APP_ROLES.AGENT), true);
   assert.equal(canAccessPath("/agent", APP_ROLES.CUSTOMER), false);
   assert.equal(canAccessPath("/agent", APP_ROLES.ADMIN), false);
+  assert.equal(getRedirectPathForRole("/agent", APP_ROLES.AGENT), "/agent");
+  assert.equal(getRedirectPathForRole("/agent", APP_ROLES.CUSTOMER), "/");
+  assert.equal(getRedirectPathForRole("/agent", APP_ROLES.ADMIN), "/");
+  assert.equal(getRedirectPathForRole("/", APP_ROLES.AGENT), "/");
   const panel = readFileSync(join(ROOT, "src/components/AgentDeskPanel.jsx"), "utf8");
   assert.match(panel, /requiredRoles=\{\["agent"\]\}/);
+  const app = readFileSync(join(ROOT, "src/App.jsx"), "utf8");
+  assert.match(app, /handleLoginSuccess/);
+  assert.match(app, /getRedirectPathForRole\(requestedPath,\s*userRole\)/);
+  assert.match(app, /canAccessPath\(requestedPath,\s*userRole\)/);
+  assert.doesNotMatch(
+    app,
+    /const handleLoginSuccess = \(\) => \{\s*setActiveMenu\("home"\);\s*navigateTo\(LIFEGUARD_PATH\);\s*\};/,
+  );
 });
 
 test("PanelKeyVoice and customer_conversations stay unused", () => {

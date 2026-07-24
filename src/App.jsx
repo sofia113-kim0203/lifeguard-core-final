@@ -163,8 +163,21 @@ export default function App() {
   };
 
   const handleLoginSuccess = () => {
-    setActiveMenu("home");
-    navigateTo(LIFEGUARD_PATH);
+    const requestedPath = normalizeAppPath(
+      typeof window !== "undefined" ? window.location.pathname : LIFEGUARD_PATH,
+    );
+    // Role may still be loading right after auth — keep the requested path, then let the
+    // existing access effect apply getRedirectPathForRole once userRole is known.
+    if (userRole && !roleLoading) {
+      const nextPath = canAccessPath(requestedPath, userRole)
+        ? normalizeAppPath(requestedPath)
+        : getRedirectPathForRole(requestedPath, userRole);
+      setActiveMenu(resolveMenuIdFromPath(nextPath) ?? "home");
+      navigateTo(nextPath);
+      return;
+    }
+    setActiveMenu(resolveMenuIdFromPath(requestedPath) ?? "home");
+    navigateTo(requestedPath);
   };
 
   const handleOpenAuth = (mode = "login") => {
