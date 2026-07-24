@@ -80,6 +80,8 @@ async function main() {
       assert.equal(canAccessPath("/admin", APP_ROLES.CUSTOMER), false);
       assert.equal(canAccessPath("/admin", APP_ROLES.ADMIN), true);
       assert.equal(canAccessPath("/agent", APP_ROLES.AGENT), true);
+      assert.equal(canAccessPath("/agent", APP_ROLES.ADMIN), false);
+      assert.equal(canAccessPath("/agent", APP_ROLES.CUSTOMER), false);
       assert.equal(canAccessPath("/", APP_ROLES.CUSTOMER), true);
     })
   ) {
