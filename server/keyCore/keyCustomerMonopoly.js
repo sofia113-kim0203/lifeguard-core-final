@@ -40,8 +40,8 @@ export function finalizeKeyCustomerText(
   const trimmed = String(speakDraft ?? "").trim();
   if (!trimmed && failureMode) {
     const sealSpan = typeof startedAt === "number" ? startSpan(startedAt) : null;
-    // Failure: seal empty — never invent KEY counseling / monopoly stub for the customer.
-    const sealed = sealKeyCustomerText("");
+    // Failure: seal the official safety sentence (never invent new KEY counseling copy).
+    const sealed = sealKeyCustomerText(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
     const sealMark = sealSpan ? sealSpan.end() : null;
     const finalizeMark = finalizeSpan ? finalizeSpan.end() : null;
     return {

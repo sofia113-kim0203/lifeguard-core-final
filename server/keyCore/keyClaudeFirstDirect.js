@@ -4303,7 +4303,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       const failureNote = usePriorAttachCopy
         ? "prior_attach_missing"
         : String(pdf?.meta?.note ?? "").trim() || "attach_process_failed";
-      // No KEY substitute sentences — empty customer text + failure_reason only.
+      // Official failureMode exit — sealed KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT + failure_reason.
       const outlet = finalizeKeyCustomerText("", {
         failureMode: true,
         startedAt,
@@ -4409,7 +4409,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     // else: stale deleted active on a normal question → Claude-first with verified facts
   }
 
-  // Real prior-attach follow-up but document id missing → empty failure (no reattach KEY copy).
+  // Real prior-attach follow-up but document id missing → official failureMode exit.
   if (realPriorAttachFollowUp && !explicitDocumentId && pdf?.meta?.attached !== true) {
     const outlet = finalizeKeyCustomerText("", {
       failureMode: true,
@@ -4838,23 +4838,27 @@ export async function runClaudeFirstDirectQuestionTurn({
       (claude?.ok === true && presenceRawAnswer === ""));
 
   if ((!claude.ok || !claude.customer_answer) && !presenceChoseSilence) {
-    // Empty customer text — keep failure_reason + anthropic_upstream_diag; never invent KEY copy.
-    const sealed = sealKeyCustomerText("");
+    // Official failureMode exit — seal KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT (no invented copy).
+    const outlet = finalizeKeyCustomerText("", {
+      failureMode: true,
+      startedAt,
+    });
+    const failureReason = claude.error ?? "claude_first_empty";
     const emptyPersistGoal = resolvePersistableSessionGoal({
       discardRequested,
       usedFailure: true,
       claudeGoal: claude.session_goal ?? null,
       now: startedAt instanceof Date ? startedAt : new Date(startedAt),
     });
-    return {
+    const emptyFailureResult = {
       ok: true,
-      customerText: sealed.key_speak_original,
-      keySpeakOriginal: sealed.key_speak_original,
+      customerText: outlet.customerText,
+      keySpeakOriginal: outlet.keySpeakOriginal,
       visualBlocks: [],
       key_monopoly_failure: true,
-      failure_reason: claude.error ?? "claude_first_empty",
+      failure_reason: failureReason,
       agentTurn: {
-        text: sealed.key_speak_original,
+        text: outlet.keySpeakOriginal,
         responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
         consultationIntent: { intent: "claude_first_direct" },
         factBundle: { policies, policy_count, one_key_core: true },
@@ -4875,7 +4879,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           compose_mode: "key_claude_first_direct",
           key_voice_trace: {
             used_failure_mode: true,
-            fallback_reason: claude.error ?? "claude_first_empty",
+            fallback_reason: failureReason,
             decision_persisted: false,
             session_goal_discard_requested: discardRequested === true,
             session_goal_ssot_reason: ssotReason,
@@ -4897,6 +4901,12 @@ export async function runClaudeFirstDirectQuestionTurn({
             latency_marks: {
               claude_full_emit: emitMark,
               ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+              ...(outlet.latency_marks
+                ? {
+                    finalize: outlet.latency_marks.finalize ?? null,
+                    seal: outlet.latency_marks.seal ?? null,
+                  }
+                : {}),
               ...resolveDeployIdentity(env),
             },
           },
@@ -4920,6 +4930,24 @@ export async function runClaudeFirstDirectQuestionTurn({
         legacy_paths_blocked: ["interpret", "decision", "planner", "s3_s6_compose"],
       },
     };
+    try {
+      streamHandlers?.onEarlyCustomerDone?.({
+        ok: true,
+        answerText: outlet.keySpeakOriginal,
+        key_speak_original: outlet.keySpeakOriginal,
+        response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        compose_mode: "key_claude_first_direct",
+        key_monopoly_failure: true,
+        failure_reason: failureReason,
+        customer_done_ms: relMs(startedAt),
+        streamed_equals_sealed: true,
+        session_goal: emptyPersistGoal,
+        sales_director_trace: emptyFailureResult.salesDirectorTrace,
+      });
+    } catch {
+      /* non-blocking */
+    }
+    return emptyFailureResult;
   }
 
   let finalText = presenceChoseSilence
@@ -4997,7 +5025,17 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
   // Seal after fact-alignment strip + scoped hard completeness repair only.
   // Presence silence seals empty (token never shown / never stored as customer fact).
-  const sealed = sealKeyCustomerText(finalText);
+  // Empty failureMode → official safety sentence via finalize (never seal "" directly).
+  const sealed =
+    !presenceChoseSilence && usedFailure && !String(finalText ?? "").trim()
+      ? (() => {
+          const outlet = finalizeKeyCustomerText("", {
+            failureMode: true,
+            startedAt,
+          });
+          return { key_speak_original: outlet.keySpeakOriginal };
+        })()
+      : sealKeyCustomerText(finalText);
   // Catch up any trailing gap so streamed text matches sealed before customer done.
   if (!sentenceStreamAborted && sealed.key_speak_original) {
     const sealedCatchUp = commitStream.catchUpFinalAnswer(sealed.key_speak_original);

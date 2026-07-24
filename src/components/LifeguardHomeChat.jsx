@@ -1564,39 +1564,43 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       const merged = resolveAppendOnlyAssistantText(streamedText, sealedText || streamedText);
       // Prefer sealed Claude original as the authoritative full string.
       const finalText = sealedText || merged;
+      // Server empty content: never commit an empty assistant bubble (no client failure copy).
+      const hasCustomerAnswer = Boolean(String(finalText).trim());
 
-      if (!receivedDelta && finalText) {
-        // One-blob arrival: paced meaning-unit reveal (append-only, no rewrite).
-        setStreaming(true);
-        setLoading(false);
-        const units = splitKeyAnswerMeaningUnits(finalText);
-        let shown = "";
-        for (let i = 0; i < units.length; i += 1) {
-          shown += units[i];
-          patchAssistantContent(shown);
-          if (i < units.length - 1) {
-            await new Promise((resolve) => window.setTimeout(resolve, 32));
+      if (hasCustomerAnswer) {
+        if (!receivedDelta && finalText) {
+          // One-blob arrival: paced meaning-unit reveal (append-only, no rewrite).
+          setStreaming(true);
+          setLoading(false);
+          const units = splitKeyAnswerMeaningUnits(finalText);
+          let shown = "";
+          for (let i = 0; i < units.length; i += 1) {
+            shown += units[i];
+            patchAssistantContent(shown);
+            if (i < units.length - 1) {
+              await new Promise((resolve) => window.setTimeout(resolve, 32));
+            }
           }
-        }
-        streamedText = finalText;
-        patchAssistantContent(finalText);
-      } else if (finalText.startsWith(streamedText) && finalText.length > streamedText.length) {
-        // Catch-up remaining units only — never delete shown prefix.
-        const suffix = finalText.slice(streamedText.length);
-        const units = splitKeyAnswerMeaningUnits(suffix);
-        let shown = streamedText;
-        for (let i = 0; i < units.length; i += 1) {
-          shown += units[i];
-          patchAssistantContent(shown);
-          if (i < units.length - 1) {
-            await new Promise((resolve) => window.setTimeout(resolve, 24));
+          streamedText = finalText;
+          patchAssistantContent(finalText);
+        } else if (finalText.startsWith(streamedText) && finalText.length > streamedText.length) {
+          // Catch-up remaining units only — never delete shown prefix.
+          const suffix = finalText.slice(streamedText.length);
+          const units = splitKeyAnswerMeaningUnits(suffix);
+          let shown = streamedText;
+          for (let i = 0; i < units.length; i += 1) {
+            shown += units[i];
+            patchAssistantContent(shown);
+            if (i < units.length - 1) {
+              await new Promise((resolve) => window.setTimeout(resolve, 24));
+            }
           }
+          streamedText = finalText;
+          patchAssistantContent(finalText);
+        } else {
+          streamedText = finalText;
+          patchAssistantContent(finalText);
         }
-        streamedText = finalText;
-        patchAssistantContent(finalText);
-      } else {
-        streamedText = finalText;
-        patchAssistantContent(finalText);
       }
 
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
@@ -1613,24 +1617,26 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         viewMode,
         entityId: selectedEntityId,
       });
-      const completedMessages = [
-        ...nextMessages,
-        {
-          role: "assistant",
-          content: finalText,
-          thinking: false,
-          turnId,
-          visual_blocks: visualBlocks,
-          visual_blocks_gate: visualBlocksGate,
-          key_status_strip: stripForTurn,
-          ...(turnSessionGoal
-            ? {
-                session_goal: turnSessionGoal,
-                metadata: { session_goal: turnSessionGoal },
-              }
-            : {}),
-        },
-      ];
+      const completedMessages = hasCustomerAnswer
+        ? [
+            ...nextMessages,
+            {
+              role: "assistant",
+              content: finalText,
+              thinking: false,
+              turnId,
+              visual_blocks: visualBlocks,
+              visual_blocks_gate: visualBlocksGate,
+              key_status_strip: stripForTurn,
+              ...(turnSessionGoal
+                ? {
+                    session_goal: turnSessionGoal,
+                    metadata: { session_goal: turnSessionGoal },
+                  }
+                : {}),
+            },
+          ]
+        : nextMessages;
       appendHomeChatStreamTrace("streamed_answer_commit");
       syncLiveMessages(completedMessages, {
         phase: "committing",
@@ -1639,13 +1645,15 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
         streamedCommitted: true,
       });
       // Turn mirror kept for internal continuity; right rail shows baseline (non-blocking).
-      setTurnMirror(
-        buildKeyTurnMirror({
-          answerText: finalText,
-          visualBlocks,
-          policies,
-        }),
-      );
+      if (hasCustomerAnswer) {
+        setTurnMirror(
+          buildKeyTurnMirror({
+            answerText: finalText,
+            visualBlocks,
+            policies,
+          }),
+        );
+      }
       let nextActive = null;
       const clearFailedAttach = shouldClearActiveAttachmentAfterTurn(result);
       if (clearFailedAttach) {
@@ -1693,23 +1701,25 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
       clearComposerAttach();
 
       if (authUser && customerId) {
-        try {
-          await persistLifeguardChatTurn(authUser, {
-            sessionId,
-            customerId,
-            userMessage: trimmed,
-            assistantMessage: finalText,
-            visualBlocks,
-            visualBlocksGate,
-            composeMode: result.composeMode ?? null,
-            responseLatencyMs: result.responseLatencyMs ?? null,
-            oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
-            activeAttachment: nextActive,
-            sessionGoal: turnSessionGoal,
-            keyConsultationRecord: result.keyConsultationRecord ?? null,
-          });
-        } catch {
-          // Fail-soft: customer answer already on screen; do not retry (would duplicate rows).
+        if (hasCustomerAnswer) {
+          try {
+            await persistLifeguardChatTurn(authUser, {
+              sessionId,
+              customerId,
+              userMessage: trimmed,
+              assistantMessage: finalText,
+              visualBlocks,
+              visualBlocksGate,
+              composeMode: result.composeMode ?? null,
+              responseLatencyMs: result.responseLatencyMs ?? null,
+              oneKeyCoreTraceSummary: result.oneKeyCoreTraceSummary ?? null,
+              activeAttachment: nextActive,
+              sessionGoal: turnSessionGoal,
+              keyConsultationRecord: result.keyConsultationRecord ?? null,
+            });
+          } catch {
+            // Fail-soft: customer answer already on screen; do not retry (would duplicate rows).
+          }
         }
         writeActiveSessionId(customerId, sessionId);
         writeLifeguardChatSnapshot(customerId, {

@@ -796,6 +796,17 @@ assert.equal(
   const homeChat = readFileSync(join(root, "src/components/LifeguardHomeChat.jsx"), "utf8");
   assert.match(homeChat, /shouldClearActiveAttachmentAfterTurn/);
   assert.match(homeChat, /clearFailedAttach/);
+  assert.match(homeChat, /hasCustomerAnswer/, "empty assistant bubble guard present");
+  assert.equal(
+    homeChat.includes("지금은 여기까지 확인했어요"),
+    false,
+    "HomeChat must not copy failure safety sentence literal",
+  );
+  assert.equal(
+    homeChat.includes("KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT"),
+    false,
+    "HomeChat must not import monopoly failure constant",
+  );
   const docDirect = readFileSync(
     join(root, "server/keyCore/keyClaudeFullDocumentDirect.js"),
     "utf8",
@@ -1010,12 +1021,12 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.key_monopoly_failure, true);
-  assert.equal(result.customerText, "", "attach fail: empty customer text");
-  assert.equal(result.keySpeakOriginal, "");
   assert.equal(
-    result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
-    false,
+    result.customerText,
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "attach fail: official failureMode safety sentence",
   );
+  assert.equal(result.keySpeakOriginal, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
   assert.ok(
     ["document_ownership_denied", "pdf_attach_skipped", "attach_process_failed"].includes(
       result.failure_reason,
@@ -1050,7 +1061,11 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0, "soft-deleted document must not reach Claude");
   assert.equal(result.key_monopoly_failure, true);
-  assert.equal(result.customerText, "", "soft-deleted attach fail: empty customer text");
+  assert.equal(
+    result.customerText,
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "soft-deleted attach fail: official failureMode safety sentence",
+  );
 }
 
 
@@ -1082,7 +1097,11 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.key_monopoly_failure, true);
-  assert.equal(result.customerText, "", "download fail: empty customer text");
+  assert.equal(
+    result.customerText,
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "download fail: official failureMode safety sentence",
+  );
 }
 
 {
@@ -1112,7 +1131,11 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 0);
   assert.equal(result.key_monopoly_failure, true);
-  assert.equal(result.customerText, "", "heic block: empty customer text");
+  assert.equal(
+    result.customerText,
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "heic block: official failureMode safety sentence",
+  );
 }
 
 {
@@ -4323,12 +4346,12 @@ console.log("key-claude-first-direct-unit-test: PASS");
   });
   assert.equal(calls, 1, "provider call count unchanged");
   assert.equal(result.key_monopoly_failure, true);
-  assert.equal(result.customerText, "", "400: empty customer text (no monopoly stub)");
-  assert.equal(result.keySpeakOriginal, "");
   assert.equal(
-    result.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
-    false,
+    result.customerText,
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "400: official failureMode safety sentence",
   );
+  assert.equal(result.keySpeakOriginal, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
   assert.equal(result.failure_reason, "ANTHROPIC_HTTP_400");
   const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
   assert.equal(voice?.anthropic_upstream_diag?.upstream_status, 400);
@@ -4453,19 +4476,19 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(done.key_monopoly_failure, true);
   assert.equal(done.failure_reason, "ANTHROPIC_HTTP_400");
   assert.ok(done.sales_director_trace, "monopoly done extras must include sales_director_trace");
-  assert.equal(done.answerText, "", "customer empty on 400 (no monopoly stub)");
-  assert.equal(done.key_speak_original, "");
+  assert.equal(
+    done.answerText,
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "customer official failureMode safety sentence on 400",
+  );
+  assert.equal(done.key_speak_original, KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT);
   assert.equal(done.key_text_equal, true);
-  assert.equal(done.key_text_integrity?.ok, true, "empty monopoly failure integrity ok");
+  assert.equal(done.key_text_integrity?.ok, true, "failureMode monopoly integrity ok");
   assert.equal(done.key_text_integrity?.text_equal, true);
   assert.equal(
-    done.answerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
-    false,
-  );
-  assert.equal(
     deltas.join(""),
-    "",
-    "SSE delta empty on 400 (no KEY substitute)",
+    KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+    "SSE delta carries official failureMode safety sentence on 400",
   );
   assert.equal(
     done.answerText.includes("anthropic_upstream_diag"),
@@ -4738,10 +4761,10 @@ console.log("key-claude-first-direct-unit-test: PASS");
     });
     assert.equal(toolsOnlyCalls, 1, "tools-only: no second call");
     assert.equal(toolsOnly.key_monopoly_failure, true);
-    assert.equal(toolsOnly.customerText, "", "tools-only: empty customer text");
     assert.equal(
-      toolsOnly.customerText.includes(KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT),
-      false,
+      toolsOnly.customerText,
+      KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT,
+      "tools-only: official failureMode safety sentence",
     );
   }
 
