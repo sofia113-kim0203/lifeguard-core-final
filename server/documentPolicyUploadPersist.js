@@ -877,6 +877,15 @@ export const KEY_CLAIM_CASE_STATUSES = Object.freeze([
   "closed",
 ]);
 
+/** Non-terminal statuses counted as personal/corporate "in progress". */
+export const KEY_CLAIM_OPEN_STATUSES = Object.freeze([
+  "identified",
+  "preparing",
+  "ready_for_customer_submission",
+  "submitted_by_customer",
+  "under_review",
+]);
+
 export const KEY_CLAIM_ASSESSMENTS = Object.freeze([
   "claim_warranted",
   "claim_possible",
@@ -887,7 +896,14 @@ export const KEY_CLAIM_ASSESSMENTS = Object.freeze([
 /** Slice 3 — personal stays default; corporate requires entity_id. */
 export const KEY_CLAIM_SCOPES = Object.freeze(["personal", "corporate"]);
 
+/** Stored beside cases in profile_health.details_json (string keys avoid circular imports). */
+const KEY_CLAIM_EVIDENCE_DETAILS_PATH = "key_claim_evidence_items";
+const KEY_PAYMENT_TRUTH_DETAILS_PATH = "key_payment_truth_items";
+
 const KEY_CLAIM_STATUS_SET = new Set(KEY_CLAIM_CASE_STATUSES);
+const KEY_CLAIM_OPEN_STATUS_SET = new Set(KEY_CLAIM_OPEN_STATUSES);
+/** Terminal outcomes — never regress to open/intake statuses via merge. */
+const KEY_CLAIM_TERMINAL_STATUSES = new Set(["paid", "denied", "closed"]);
 const KEY_CLAIM_ASSESSMENT_SET = new Set(KEY_CLAIM_ASSESSMENTS);
 const KEY_CLAIM_SCOPE_SET = new Set(KEY_CLAIM_SCOPES);
 const KEY_CLAIM_STATUS_NEEDS_EVIDENCE = new Set([
@@ -896,6 +912,52 @@ const KEY_CLAIM_STATUS_NEEDS_EVIDENCE = new Set([
   "paid",
   "denied",
 ]);
+
+export function isKeyClaimOpenStatus(status) {
+  return KEY_CLAIM_OPEN_STATUS_SET.has(String(status ?? "").trim().toLowerCase());
+}
+
+export function isKeyClaimTerminalStatus(status) {
+  return KEY_CLAIM_TERMINAL_STATUSES.has(String(status ?? "").trim().toLowerCase());
+}
+
+/**
+ * Structured terminal proof only — never parse free text for status.
+ * Accepts payment-truth outcome/claim_status or payment_or_denial_outcome evidence.
+ * @returns {"paid"|"denied"|null}
+ */
+export function resolveStructuredTerminalOutcomeProof(
+  claimCaseKey,
+  { evidenceItems = [], paymentTruthItems = [] } = {},
+) {
+  const key = String(claimCaseKey ?? "").trim();
+  if (!key) return null;
+  const verified = new Set(["customer_reported", "insurer_verified"]);
+
+  for (const row of Array.isArray(paymentTruthItems) ? paymentTruthItems : []) {
+    if (!row || typeof row !== "object") continue;
+    if (String(row.claim_case_id ?? "").trim() !== key) continue;
+    const ver = String(row.verification_status ?? "").trim().toLowerCase();
+    if (!verified.has(ver)) continue;
+    const outcome = String(row.outcome ?? "").trim().toLowerCase();
+    if (outcome === "paid" || outcome === "denied") return outcome;
+    const claimStatus = String(row.claim_status ?? "").trim().toLowerCase();
+    if (claimStatus === "paid" || claimStatus === "denied") return claimStatus;
+  }
+
+  for (const row of Array.isArray(evidenceItems) ? evidenceItems : []) {
+    if (!row || typeof row !== "object") continue;
+    if (String(row.claim_case_id ?? "").trim() !== key) continue;
+    if (String(row.evidence_type ?? "").trim() !== "payment_or_denial_outcome") continue;
+    const ver = String(row.verification_status ?? "").trim().toLowerCase();
+    if (!verified.has(ver)) continue;
+    const meta =
+      row.metadata_json && typeof row.metadata_json === "object" ? row.metadata_json : {};
+    const outcome = String(meta.outcome ?? "").trim().toLowerCase();
+    if (outcome === "paid" || outcome === "denied") return outcome;
+  }
+  return null;
+}
 
 function normalizeClaimString(value) {
   if (value == null) return null;
@@ -991,15 +1053,25 @@ function normalizeAssessment(raw = null) {
   };
 }
 
-/** Terminal outcomes — never regress to open/intake statuses via merge. */
-const KEY_CLAIM_TERMINAL_STATUSES = new Set(["paid", "denied", "closed"]);
-
-function normalizeClaimStatus(rawStatus, { priorStatus = null, evidence = [] } = {}) {
+function normalizeClaimStatus(
+  rawStatus,
+  { priorStatus = null, evidence = [], terminalOutcomeProof = null } = {},
+) {
   const prior =
     priorStatus && KEY_CLAIM_STATUS_SET.has(String(priorStatus).toLowerCase())
       ? String(priorStatus).toLowerCase()
       : null;
-  const status = normalizeClaimString(rawStatus)?.toLowerCase();
+  let status = normalizeClaimString(rawStatus)?.toLowerCase();
+  const proof =
+    terminalOutcomeProof === "paid" || terminalOutcomeProof === "denied"
+      ? terminalOutcomeProof
+      : null;
+
+  // Structured proof may restore terminal when a case row was demoted to open/preparing.
+  if (proof && (!status || !KEY_CLAIM_STATUS_SET.has(status) || !KEY_CLAIM_TERMINAL_STATUSES.has(status))) {
+    status = proof;
+  }
+
   if (!status || !KEY_CLAIM_STATUS_SET.has(status)) {
     return prior || "identified";
   }
@@ -1009,8 +1081,16 @@ function normalizeClaimStatus(rawStatus, { priorStatus = null, evidence = [] } =
   }
   if (KEY_CLAIM_STATUS_NEEDS_EVIDENCE.has(status)) {
     const hasEvidence = Array.isArray(evidence) && evidence.length > 0;
-    if (!hasEvidence) {
-      // Do not advance on KEY speculation alone.
+    const proofMatches = proof === status;
+    if (!hasEvidence && !proofMatches) {
+      // Canonical terminal on the case row must survive Hand/Ready Card assembly even when
+      // inline evidence[] is empty. Do not rewind paid|denied|closed → preparing.
+      // Unverified promotion from a non-terminal prior still refuses (keep prior).
+      if (KEY_CLAIM_TERMINAL_STATUSES.has(status)) {
+        if (prior && !KEY_CLAIM_TERMINAL_STATUSES.has(prior)) return prior;
+        return status;
+      }
+      // Open evidence-gated statuses (submitted/under_review): no speculation advance.
       if (prior) return prior;
       return "preparing";
     }
@@ -1024,6 +1104,10 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
     defaults.updated_at != null && String(defaults.updated_at).trim()
       ? String(defaults.updated_at).trim()
       : new Date().toISOString();
+  const evidenceItems = Array.isArray(defaults.evidenceItems) ? defaults.evidenceItems : [];
+  const paymentTruthItems = Array.isArray(defaults.paymentTruthItems)
+    ? defaults.paymentTruthItems
+    : [];
   const out = [];
   const seen = new Set();
 
@@ -1037,7 +1121,11 @@ export function normalizeKeyClaimCaseUpdates(rawUpdates = [], defaults = {}) {
     const evidence = normalizeClaimStringList(row.evidence);
     const medical_event = normalizeMedicalEvent(row.medical_event);
     const assessment = normalizeAssessment(row.assessment);
-    const status = normalizeClaimStatus(row.status, { evidence });
+    const terminalOutcomeProof = resolveStructuredTerminalOutcomeProof(claim_case_key, {
+      evidenceItems,
+      paymentTruthItems,
+    });
+    const status = normalizeClaimStatus(row.status, { evidence, terminalOutcomeProof });
 
     const sourceRaw = normalizeClaimString(row.source)?.toLowerCase();
     const source =
@@ -1216,7 +1304,14 @@ export async function loadKeyActiveClaimCases({ supabase = null, customerId = nu
   if (error || !data) return [];
   const details =
     data.details_json && typeof data.details_json === "object" ? data.details_json : {};
-  return normalizeKeyClaimCaseUpdates(details[KEY_ACTIVE_CLAIM_CASES_FACT_PATH]);
+  return normalizeKeyClaimCaseUpdates(details[KEY_ACTIVE_CLAIM_CASES_FACT_PATH], {
+    evidenceItems: Array.isArray(details[KEY_CLAIM_EVIDENCE_DETAILS_PATH])
+      ? details[KEY_CLAIM_EVIDENCE_DETAILS_PATH]
+      : [],
+    paymentTruthItems: Array.isArray(details[KEY_PAYMENT_TRUTH_DETAILS_PATH])
+      ? details[KEY_PAYMENT_TRUTH_DETAILS_PATH]
+      : [],
+  });
 }
 
 /** True when a claim case is clearly sourced from this upload document. */
@@ -1314,8 +1409,7 @@ export async function persistKeyActiveClaimCases({
   customerId = null,
   claimCaseUpdates = [],
 } = {}) {
-  const incoming = normalizeKeyClaimCaseUpdates(claimCaseUpdates);
-  if (!supabase || !customerId || incoming.length === 0) {
+  if (!supabase || !customerId || !Array.isArray(claimCaseUpdates) || claimCaseUpdates.length === 0) {
     return {
       ok: false,
       attempted: Boolean(
@@ -1325,9 +1419,7 @@ export async function persistKeyActiveClaimCases({
         ? "no_supabase"
         : !customerId
           ? "no_customer_id"
-          : incoming.length === 0
-            ? "no_stable_claim_case_key"
-            : "skip",
+          : "skip",
       stored: 0,
     };
   }
@@ -1349,6 +1441,23 @@ export async function persistKeyActiveClaimCases({
 
   const existingDetails =
     row?.details_json && typeof row.details_json === "object" ? row.details_json : {};
+  const proofDefaults = {
+    evidenceItems: Array.isArray(existingDetails[KEY_CLAIM_EVIDENCE_DETAILS_PATH])
+      ? existingDetails[KEY_CLAIM_EVIDENCE_DETAILS_PATH]
+      : [],
+    paymentTruthItems: Array.isArray(existingDetails[KEY_PAYMENT_TRUTH_DETAILS_PATH])
+      ? existingDetails[KEY_PAYMENT_TRUTH_DETAILS_PATH]
+      : [],
+  };
+  const incoming = normalizeKeyClaimCaseUpdates(claimCaseUpdates, proofDefaults);
+  if (incoming.length === 0) {
+    return {
+      ok: false,
+      attempted: true,
+      reason: "no_stable_claim_case_key",
+      stored: 0,
+    };
+  }
   const merged = mergeKeyActiveClaimCases(
     existingDetails[KEY_ACTIVE_CLAIM_CASES_FACT_PATH],
     incoming,

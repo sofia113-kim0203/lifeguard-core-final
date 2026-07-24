@@ -3,7 +3,10 @@
  * Minimal unit lock for paid/denied honesty (no network).
  */
 import assert from "node:assert/strict";
-import { mergeKeyActiveClaimCases } from "../server/documentPolicyUploadPersist.js";
+import {
+  mergeKeyActiveClaimCases,
+  normalizeKeyClaimCaseUpdates,
+} from "../server/documentPolicyUploadPersist.js";
 import {
   buildKeyClaimIntakeUpdate,
   detectClaimOutcomeSignal,
@@ -102,6 +105,170 @@ assert.equal(
       true,
     );
   }
+}
+
+// Structured payment-truth / outcome evidence must not demote paid|denied → preparing.
+{
+  const rows = normalizeKeyClaimCaseUpdates(
+    [
+      {
+        claim_case_key: "v1f:paid:fixture",
+        claim_scope: "personal",
+        status: "paid",
+        source: "customer_statement",
+        evidence: [],
+      },
+      {
+        claim_case_key: "v1f:denied:fixture",
+        claim_scope: "personal",
+        status: "denied",
+        source: "customer_statement",
+        denial_reason: "고객이 말한 특약 미해당",
+        evidence: [],
+      },
+    ],
+    {
+      evidenceItems: [
+        {
+          id: "ev-paid",
+          claim_case_id: "v1f:paid:fixture",
+          evidence_type: "payment_or_denial_outcome",
+          source: "customer_statement",
+          verification_status: "customer_reported",
+          metadata_json: { outcome: "paid" },
+        },
+        {
+          id: "ev-den",
+          claim_case_id: "v1f:denied:fixture",
+          evidence_type: "payment_or_denial_outcome",
+          source: "customer_statement",
+          verification_status: "customer_reported",
+          metadata_json: { outcome: "denied" },
+        },
+      ],
+      paymentTruthItems: [
+        {
+          claim_case_id: "v1f:paid:fixture",
+          claim_status: "paid",
+          outcome: "paid",
+          verification_status: "customer_reported",
+        },
+        {
+          claim_case_id: "v1f:denied:fixture",
+          claim_status: "denied",
+          outcome: "denied",
+          verification_status: "insurer_verified",
+          reason_verbatim: "약관 면책 사유에 해당합니다.",
+          reason_customer_stated: "고객이 말한 특약 미해당",
+        },
+      ],
+    },
+  );
+  assert.equal(rows.find((r) => r.claim_case_key === "v1f:paid:fixture")?.status, "paid");
+  assert.equal(rows.find((r) => r.claim_case_key === "v1f:denied:fixture")?.status, "denied");
+
+  const restored = normalizeKeyClaimCaseUpdates(
+    [
+      {
+        claim_case_key: "v1f:paid:fixture",
+        claim_scope: "personal",
+        status: "preparing",
+        source: "customer_statement",
+        evidence: [],
+      },
+    ],
+    {
+      paymentTruthItems: [
+        {
+          claim_case_id: "v1f:paid:fixture",
+          outcome: "paid",
+          verification_status: "customer_reported",
+        },
+      ],
+    },
+  );
+  assert.equal(restored[0]?.status, "paid");
+}
+
+// Persisted terminal + empty inline evidence[] (no PT) must not rewind to preparing.
+// Human Gate: Hand/Ready Card re-normalize must keep canonical paid|denied.
+{
+  const bare = normalizeKeyClaimCaseUpdates([
+    {
+      claim_case_key: "customer_statement:kind:surgery",
+      claim_scope: "personal",
+      status: "paid",
+      source: "customer_statement",
+      evidence: [],
+    },
+    {
+      claim_case_key: "customer_statement:kind:cancer",
+      claim_scope: "personal",
+      status: "denied",
+      source: "customer_statement",
+      evidence: [],
+    },
+    {
+      claim_case_key: "open:preparing:fixture",
+      claim_scope: "personal",
+      status: "preparing",
+      source: "customer_statement",
+      evidence: [],
+    },
+  ]);
+  assert.equal(
+    bare.find((r) => r.claim_case_key === "customer_statement:kind:surgery")?.status,
+    "paid",
+  );
+  assert.equal(
+    bare.find((r) => r.claim_case_key === "customer_statement:kind:cancer")?.status,
+    "denied",
+  );
+  assert.equal(
+    bare.find((r) => r.claim_case_key === "open:preparing:fixture")?.status,
+    "preparing",
+  );
+
+  // Unverified new terminal promotion from open prior still refused.
+  const blocked = mergeKeyActiveClaimCases(
+    [
+      {
+        claim_case_key: "open:prep:promote",
+        claim_scope: "personal",
+        status: "preparing",
+        source: "customer_statement",
+        evidence: [],
+      },
+    ],
+    [
+      {
+        claim_case_key: "open:prep:promote",
+        claim_scope: "personal",
+        status: "paid",
+        source: "customer_statement",
+        evidence: [],
+      },
+    ],
+  );
+  assert.equal(
+    blocked.find((r) => r.claim_case_key === "open:prep:promote")?.status,
+    "preparing",
+  );
+
+  // Corporate scope unchanged through bare terminal normalize.
+  const corp = normalizeKeyClaimCaseUpdates([
+    {
+      claim_case_key: "corp:fixture",
+      claim_scope: "corporate",
+      entity_id: "ent-1",
+      status: "denied",
+      source: "customer_statement",
+      evidence: [],
+    },
+  ]);
+  assert.equal(corp[0]?.claim_scope, "corporate");
+  assert.equal(corp[0]?.entity_id, "ent-1");
+  assert.equal(corp[0]?.status, "denied");
 }
 
 console.log("key-claim-terminal-no-regress-unit-test: PASS");

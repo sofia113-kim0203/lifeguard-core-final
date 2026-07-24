@@ -5122,11 +5122,21 @@ export async function runClaudeFirstDirectQuestionTurn({
       );
   if (typeof streamHandlers?.onEarlyCustomerDone === "function") {
     try {
+      // Same authority as callClaudeFirstDirect messagesRequestCount (via return web_search_trace).
+      const messagesRequestCount =
+        claude?.web_search_trace?.claude_messages_request_count;
+      const rewriteCount =
+        typeof messagesRequestCount === "number" &&
+        Number.isFinite(messagesRequestCount)
+          ? Math.max(0, messagesRequestCount - 1)
+          : null;
       streamHandlers.onEarlyCustomerDone({
         ok: true,
         answerText: sealed.key_speak_original,
         key_speak_original: sealed.key_speak_original,
         response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        // Same compose_mode already nested under sales_director_trace / key_compose_trace.
+        compose_mode: "key_claude_first_direct",
         key_monopoly_failure: usedFailure === true,
         failure_reason: failureReason,
         customer_done_ms: customerDoneMs,
@@ -5148,6 +5158,12 @@ export async function runClaudeFirstDirectQuestionTurn({
               presence_source_type: presenceTurnMeta?.source_type ?? null,
               presence_life_thread_id: presenceTurnMeta?.life_thread_id ?? null,
               provider_calls: 1,
+              // Same authority as final salesDirectorTrace.key_voice_trace (claude-first never calls S6).
+              s6_speak_calls: 0,
+              // Additional Anthropic requests after the initial answer (= messagesRequestCount - 1).
+              ...(typeof rewriteCount === "number"
+                ? { rewrite_count: rewriteCount }
+                : {}),
               tools: 0,
               corporate_hand: corporateHandSeatAudit,
               corporate_claim_hand: corporateClaimHandSeatAudit,
