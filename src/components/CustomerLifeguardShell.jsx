@@ -4,6 +4,8 @@
 import { useEffect } from "react";
 import { CustomerSessionProvider } from "../context/CustomerSessionProvider.jsx";
 import {
+  APP_ROLES,
+  canAccessPath,
   getRedirectPathForRole,
   isBackofficePath,
   LIFEGUARD_PATH,
@@ -13,6 +15,12 @@ import { fetchAppRouteGate } from "../lib/appRouteGateClient.js";
 import AuthPanel from "./AuthPanel.jsx";
 import LifeguardHomeChat from "./LifeguardHomeChat.jsx";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
+
+/** Registered non-customer routes (e.g. /agent) — App.jsx role gate owns redirects. */
+function isRegisteredNonCustomerPath(pathname = "/") {
+  const path = normalizeAppPath(pathname);
+  return isBackofficePath(path) && !canAccessPath(path, APP_ROLES.CUSTOMER);
+}
 
 export default function CustomerLifeguardShell({
   user,
@@ -26,6 +34,11 @@ export default function CustomerLifeguardShell({
   useEffect(() => {
     if (!user) return;
     const path = normalizeAppPath(window.location.pathname);
+    // Never wipe /agent (or other registered non-customer paths) during the brief
+    // post-login mount before role resolves — App.jsx applies getRedirectPathForRole.
+    if (isRegisteredNonCustomerPath(path)) {
+      return;
+    }
     if (isBackofficePath(path)) {
       window.history.replaceState({}, "", LIFEGUARD_PATH);
     }

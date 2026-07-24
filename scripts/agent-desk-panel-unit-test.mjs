@@ -200,6 +200,13 @@ test("customer/admin route blocked; agent allowed", () => {
     app,
     /const handleLoginSuccess = \(\) => \{\s*setActiveMenu\("home"\);\s*navigateTo\(LIFEGUARD_PATH\);\s*\};/,
   );
+  const shell = readFileSync(join(ROOT, "src/components/CustomerLifeguardShell.jsx"), "utf8");
+  assert.match(shell, /isRegisteredNonCustomerPath/);
+  assert.match(shell, /canAccessPath\(path,\s*APP_ROLES\.CUSTOMER\)/);
+  assert.match(shell, /if \(isRegisteredNonCustomerPath\(path\)\) \{\s*return;/);
+  const preserveIdx = shell.search(/isRegisteredNonCustomerPath\(path\)\) \{\s*return;/);
+  const wipeIdx = shell.indexOf('replaceState({}, "", LIFEGUARD_PATH)');
+  assert.ok(preserveIdx >= 0 && wipeIdx > preserveIdx, "preserve /agent before any LIFEGUARD wipe");
 });
 
 test("PanelKeyVoice and customer_conversations stay unused", () => {
