@@ -172,6 +172,8 @@ function koreanCompleteness(text = "") {
   const t = normalizeText(text);
   if (!t) return false;
   if (FRAGMENT_END_RE.test(t)) return false;
+  // Hard hole: topic particle + bare 예요 (predicate stem missing). Ends-with-요 alone is not enough.
+  if (/(?:은|는)\s+예요/.test(t)) return false;
   return /(요|니다|까요|세요|죠|네요|래요|같아요|겠습니다|드릴게요|볼게요|할게요|돼요|입니다)[\.!?]?$/.test(t);
 }
 

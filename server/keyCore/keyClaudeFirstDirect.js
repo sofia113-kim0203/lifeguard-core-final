@@ -68,6 +68,7 @@ import {
   recommendationOrTerminationRisk,
 } from "./keyVoiceGate.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
+import { repairInProgressClaimZeroBareYeyo } from "./keyCustomerTextCompleteness.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { neutralizeUnsupportedInsurerProductLiterals } from "./keyVerifiedLiteralConflict.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
@@ -171,6 +172,7 @@ import {
   persistKeyActiveClaimCases,
   loadKeyActiveClaimCases,
   filterKeyActiveClaimCasesByScope,
+  isKeyClaimOpenStatus,
 } from "../documentPolicyUploadPersist.js";
 import {
   canSupportCorporateClaims,
@@ -4980,7 +4982,20 @@ export async function runClaudeFirstDirectQuestionTurn({
     full_rewrite: false,
     second_claude_call: false,
   };
-  // Seal after fact-alignment strip only (no monopoly stub, no soft rewrite, no truncation).
+  // Hard completeness: repair ONLY verified in-progress claim count===0 + claim-zero phrase.
+  // Other bare "은/는 예요" stay hard-incomplete (no meaning-guess → 없어요). No 2nd Claude.
+  const verifiedInProgressClaimCount = presenceChoseSilence
+    ? null
+    : (Array.isArray(activeClaimCases) ? activeClaimCases : []).filter((c) =>
+        isKeyClaimOpenStatus(c?.status),
+      ).length;
+  const bareYeyoGuard = presenceChoseSilence
+    ? { customerText: "", completeness_guard: { applied: false, reason: null } }
+    : repairInProgressClaimZeroBareYeyo(finalText, { verifiedInProgressClaimCount });
+  if (bareYeyoGuard.completeness_guard?.applied) {
+    finalText = bareYeyoGuard.customerText;
+  }
+  // Seal after fact-alignment strip + scoped hard completeness repair only.
   // Presence silence seals empty (token never shown / never stored as customer fact).
   const sealed = sealKeyCustomerText(finalText);
   // Catch up any trailing gap so streamed text matches sealed before customer done.
