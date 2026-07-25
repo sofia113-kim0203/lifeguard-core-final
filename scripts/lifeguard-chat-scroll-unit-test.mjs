@@ -10,9 +10,12 @@ import {
   isScrollNearBottom,
   scrollChatContainerToBottom,
   createCoalescedScrollToBottom,
+  computeStickyFollowGlideStep,
+  readChatMaxScroll,
   shouldAutoFollowChatScroll,
   shouldShowJumpToLatestAnswer,
   LIFEGUARD_CHAT_NEAR_BOTTOM_PX,
+  LIFEGUARD_CHAT_GLIDE_MAX_STEP_PX,
   resolveAppendOnlyAssistantText,
   splitKeyAnswerMeaningUnits,
   joinKeyAnswerMeaningUnits,
@@ -103,10 +106,41 @@ async function main() {
   } else failed += 1;
 
   if (
-    await runCase("coalesced scroll — one write per frame; skip when not sticky", () => {
+    await runCase("glide step — line wrap 20px does not jump full height on first frame", () => {
+      assert.equal(LIFEGUARD_CHAT_GLIDE_MAX_STEP_PX, 6);
+      const step = computeStickyFollowGlideStep(20);
+      assert.ok(step > 0 && step <= 6);
+      assert.equal(step, Math.min(6, Math.max(1, 20 * 0.35)));
+      assert.equal(readChatMaxScroll({ scrollHeight: 1020, clientHeight: 200 }), 820);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
+    await runCase("glide follow — one loop; first frame <=6px; reaches maxScroll", () => {
       const ticks = [];
-      const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
+      const el = { scrollTop: 800, scrollHeight: 1020, clientHeight: 200 };
       let stick = true;
+      let writes = 0;
+      const tracked = {
+        get scrollTop() {
+          return el.scrollTop;
+        },
+        set scrollTop(v) {
+          writes += 1;
+          el.scrollTop = v;
+        },
+        get scrollHeight() {
+          return el.scrollHeight;
+        },
+        set scrollHeight(v) {
+          el.scrollHeight = v;
+        },
+        get clientHeight() {
+          return el.clientHeight;
+        },
+      };
       const coalesced = createCoalescedScrollToBottom({
         raf: (cb) => {
           ticks.push(cb);
@@ -117,17 +151,44 @@ async function main() {
         },
         shouldFollow: () => stick,
       });
-      coalesced.schedule(el);
-      coalesced.schedule(el);
-      coalesced.schedule(el);
+      // Same-frame RO bursts: target refresh only — still one rAF.
+      coalesced.schedule(tracked);
+      coalesced.schedule(tracked);
+      coalesced.schedule(tracked);
       assert.equal(ticks.length, 1);
+      assert.equal(coalesced.pending, true);
+
+      writes = 0;
+      const before = el.scrollTop;
       ticks.shift()(0);
-      assert.equal(el.scrollTop, 800);
+      const firstDelta = el.scrollTop - before;
+      assert.equal(writes, 1);
+      assert.ok(firstDelta > 0 && firstDelta <= 6, `first frame delta=${firstDelta}`);
+      assert.ok(el.scrollTop < 820, "must not snap full 20px on first frame");
+
+      // Mid-glide: new line grows maxScroll; same loop continues (one pending chain).
+      el.scrollHeight = 1040;
+      coalesced.schedule(tracked);
+      assert.equal(ticks.length, 1);
+
+      let prev = el.scrollTop;
+      let frames = 0;
+      while (ticks.length > 0 && frames < 80) {
+        frames += 1;
+        writes = 0;
+        const cb = ticks.shift();
+        cb(0);
+        assert.ok(writes <= 1);
+        assert.ok(el.scrollTop >= prev);
+        prev = el.scrollTop;
+      }
+      assert.equal(el.scrollTop, 840);
       assert.equal(ticks.length, 0);
+      assert.equal(coalesced.pending, false);
 
       el.scrollTop = 0;
       stick = false;
-      coalesced.schedule(el);
+      coalesced.schedule(tracked);
       assert.equal(ticks.length, 0);
       assert.equal(el.scrollTop, 0);
     })
@@ -136,10 +197,11 @@ async function main() {
   } else failed += 1;
 
   if (
-    await runCase("coalesced scroll — cancel drops pending write", () => {
+    await runCase("glide follow — cancel stops writes; growth after cancel writes 0", () => {
       const ticks = [];
       let cancelledIds = 0;
       const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
+      let stick = true;
       const coalesced = createCoalescedScrollToBottom({
         raf: (cb) => {
           ticks.push(cb);
@@ -149,7 +211,7 @@ async function main() {
           cancelledIds += 1;
           ticks.length = 0;
         },
-        shouldFollow: () => true,
+        shouldFollow: () => stick,
       });
       coalesced.schedule(el);
       assert.equal(coalesced.pending, true);
@@ -157,6 +219,23 @@ async function main() {
       assert.equal(coalesced.pending, false);
       assert.equal(cancelledIds, 1);
       assert.equal(el.scrollTop, 0);
+
+      stick = false;
+      el.scrollHeight = 1200;
+      coalesced.schedule(el);
+      assert.equal(ticks.length, 0);
+      assert.equal(el.scrollTop, 0);
+
+      // Latest-answer resume
+      stick = true;
+      coalesced.schedule(el);
+      assert.equal(ticks.length, 1);
+      let guard = 0;
+      while (ticks.length > 0 && guard < 200) {
+        guard += 1;
+        ticks.shift()(0);
+      }
+      assert.equal(el.scrollTop, 1000);
     })
   ) {
     passed += 1;

@@ -42,6 +42,42 @@ export function shouldShowJumpToLatestAnswer({
 }
 
 export const LIFEGUARD_CHAT_SCROLL_TOLERANCE_PX = 1;
+export const LIFEGUARD_CHAT_GLIDE_MAX_STEP_PX = 6;
+export const LIFEGUARD_CHAT_GLIDE_FACTOR = 0.35;
+
+/**
+ * @param {{ scrollTop?: number, scrollHeight?: number, clientHeight?: number } | null} el
+ * @returns {number | null}
+ */
+export function readChatMaxScroll(el) {
+  if (!el || typeof el !== "object") return null;
+  const scrollHeight = Number(el.scrollHeight);
+  const clientHeight = Number(el.clientHeight);
+  if (![scrollHeight, clientHeight].every((n) => Number.isFinite(n))) return null;
+  return Math.max(0, scrollHeight - clientHeight);
+}
+
+/**
+ * One-frame sticky-follow glide step. Caps line-height jumps (max 6px).
+ * @param {number} distance
+ * @param {{ maxStepPx?: number, factor?: number, minStepPx?: number }} [opts]
+ */
+export function computeStickyFollowGlideStep(
+  distance,
+  {
+    maxStepPx = LIFEGUARD_CHAT_GLIDE_MAX_STEP_PX,
+    factor = LIFEGUARD_CHAT_GLIDE_FACTOR,
+    minStepPx = 1,
+  } = {},
+) {
+  const d = Number(distance);
+  if (!Number.isFinite(d) || d <= 0) return 0;
+  const maxStep = Number(maxStepPx);
+  const minStep = Number(minStepPx);
+  const f = Number(factor);
+  if (![maxStep, minStep, f].every((n) => Number.isFinite(n))) return 0;
+  return Math.min(maxStep, Math.max(minStep, d * f));
+}
 
 /**
  * Apply scroll-to-bottom on a scroll container (browser).
@@ -69,12 +105,16 @@ export function scrollChatContainerToBottom(el, opts = {}) {
 }
 
 /**
- * Coalesce scroll-to-bottom to at most one scrollTop write per animation frame.
+ * Sticky bottom follow via one cancelable rAF glide loop.
+ * Content growth only refreshes the latest maxScroll target; never starts a second loop.
+ * At most one scrollTop write per frame; step capped so line wraps do not jump full line height.
  * @param {{
  *   raf?: (cb: FrameRequestCallback) => number,
  *   caf?: (id: number) => void,
  *   shouldFollow?: () => boolean,
  *   tolerancePx?: number,
+ *   maxStepPx?: number,
+ *   factor?: number,
  * }} [opts]
  */
 export function createCoalescedScrollToBottom({
@@ -86,10 +126,44 @@ export function createCoalescedScrollToBottom({
     : (id) => clearTimeout(id),
   shouldFollow = () => true,
   tolerancePx = LIFEGUARD_CHAT_SCROLL_TOLERANCE_PX,
+  maxStepPx = LIFEGUARD_CHAT_GLIDE_MAX_STEP_PX,
+  factor = LIFEGUARD_CHAT_GLIDE_FACTOR,
 } = {}) {
   let rafId = null;
   /** @type {{ scrollTop?: number, scrollHeight?: number, clientHeight?: number } | null} */
   let pendingEl = null;
+
+  const tick = () => {
+    rafId = null;
+    const el = pendingEl;
+    if (!el || typeof shouldFollow !== "function" || !shouldFollow()) {
+      pendingEl = null;
+      return;
+    }
+    const maxScroll = readChatMaxScroll(el);
+    const scrollTop = Number(el.scrollTop);
+    if (maxScroll == null || !Number.isFinite(scrollTop)) {
+      pendingEl = null;
+      return;
+    }
+    const distance = maxScroll - scrollTop;
+    if (distance <= tolerancePx) {
+      if (distance > 0) {
+        el.scrollTop = maxScroll;
+      }
+      pendingEl = null;
+      return;
+    }
+    const step = computeStickyFollowGlideStep(distance, { maxStepPx, factor, minStepPx: 1 });
+    const next = Math.min(maxScroll, scrollTop + step);
+    el.scrollTop = next;
+    if (!shouldFollow()) {
+      pendingEl = null;
+      return;
+    }
+    // Keep following the same element; later schedule() calls only refresh pendingEl/target.
+    rafId = raf(tick);
+  };
 
   return {
     /** @param {{ scrollTop?: number, scrollHeight?: number, clientHeight?: number } | null} el */
@@ -97,20 +171,15 @@ export function createCoalescedScrollToBottom({
       if (!el || typeof shouldFollow !== "function" || !shouldFollow()) return false;
       pendingEl = el;
       if (rafId != null) return true;
-      rafId = raf(() => {
-        rafId = null;
-        const target = pendingEl;
-        pendingEl = null;
-        if (!target || !shouldFollow()) return;
-        scrollChatContainerToBottom(target, { tolerancePx });
-      });
+      rafId = raf(tick);
       return true;
     },
-    /** Drop a scheduled follow without writing scrollTop (manual scroll-up). */
+    /** Drop active glide / pending follow without writing scrollTop (manual scroll-up). */
     cancel() {
-      if (rafId == null) return;
-      caf(rafId);
-      rafId = null;
+      if (rafId != null) {
+        caf(rafId);
+        rafId = null;
+      }
       pendingEl = null;
     },
     get pending() {
