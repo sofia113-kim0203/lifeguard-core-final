@@ -106,6 +106,7 @@ export function createCoalescedScrollToBottom({
       });
       return true;
     },
+    /** Drop a scheduled follow without writing scrollTop (manual scroll-up). */
     cancel() {
       if (rafId == null) return;
       caf(rafId);

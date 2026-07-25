@@ -136,6 +136,33 @@ async function main() {
   } else failed += 1;
 
   if (
+    await runCase("coalesced scroll — cancel drops pending write", () => {
+      const ticks = [];
+      let cancelledIds = 0;
+      const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
+      const coalesced = createCoalescedScrollToBottom({
+        raf: (cb) => {
+          ticks.push(cb);
+          return 1;
+        },
+        caf: () => {
+          cancelledIds += 1;
+          ticks.length = 0;
+        },
+        shouldFollow: () => true,
+      });
+      coalesced.schedule(el);
+      assert.equal(coalesced.pending, true);
+      coalesced.cancel();
+      assert.equal(coalesced.pending, false);
+      assert.equal(cancelledIds, 1);
+      assert.equal(el.scrollTop, 0);
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
     await runCase("append-only — Claude original identity", () => {
       assert.equal(resolveAppendOnlyAssistantText("", "안녕."), "안녕.");
       assert.equal(resolveAppendOnlyAssistantText("안녕.", "안녕. 이어서."), "안녕. 이어서.");
@@ -166,6 +193,9 @@ async function main() {
       assert.match(chatSource, /onReplace:\s*\(\)\s*=>\s*\{\s*\}/);
       assert.match(chatSource, /createAgentStreamPaintController/);
       assert.match(chatSource, /createCoalescedScrollToBottom/);
+      assert.match(chatSource, /chatScrollContentRef/);
+      assert.match(chatSource, /ro\.observe\(contentEl\)/);
+      assert.match(chatSource, /coalescedScrollRef\.current\?\.cancel\(\)/);
       assert.match(chatSource, /resolveAppendOnlyAssistantText/);
       assert.match(chatSource, /aria-expanded=\{sidebarOpen\}/);
       assert.match(chatSource, /최신 답변으로 ↓/);
@@ -173,6 +203,7 @@ async function main() {
       assert.match(chatSource, /shouldShowJumpToLatestAnswer/);
       assert.match(chatSource, /\[messages\.length,/);
       assert.doesNotMatch(chatSource, /}, \[messages, loading, streaming,/);
+      assert.doesNotMatch(chatSource, /MutationObserver/);
       assert.doesNotMatch(chatSource, /requestAnimationFrame\(\(\) => \{\s*scrollChatContainerToBottom/);
       assert.doesNotMatch(chatSource, /sentenceHardLiteBlocks|sentence_hard_lite/);
       assert.doesNotMatch(chatSource, /createSentenceCommitStream/);

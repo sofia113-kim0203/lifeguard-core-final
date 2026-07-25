@@ -520,6 +520,8 @@ export default function LifeguardHomeChat({
   const inputRef = useRef(null);
   const focusTimerRef = useRef(null);
   const chatScrollRef = useRef(null);
+  /** Growing message list — observed for sticky follow (viewport height is fixed). */
+  const chatScrollContentRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const restoreForceScrollRef = useRef(false);
   const coalescedScrollRef = useRef(null);
@@ -989,6 +991,10 @@ export default function LifeguardHomeChat({
     if (!el) return;
     const nearBottom = isScrollNearBottom(el);
     stickToBottomRef.current = nearBottom;
+    if (!nearBottom) {
+      // Leave bottom: cancel any coalesced follow so reading position stays fixed.
+      coalescedScrollRef.current?.cancel();
+    }
     setShowLatestAnswerBtn(
       shouldShowJumpToLatestAnswer({
         stickToBottom: nearBottom,
@@ -1044,10 +1050,11 @@ export default function LifeguardHomeChat({
     return undefined;
   }, [messages.length, threadRestoreReady, panelView, scheduleScrollToBottom]);
 
-  // Streaming height growth (tables/newlines) — single coalesced sticky path.
+  // Streaming height growth — observe growing content (not fixed viewport).
   useEffect(() => {
-    const el = chatScrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const scrollEl = chatScrollRef.current;
+    const contentEl = chatScrollContentRef.current;
+    if (!scrollEl || !contentEl || typeof ResizeObserver === "undefined") return undefined;
     const ro = new ResizeObserver(() => {
       if (
         !shouldAutoFollowChatScroll({
@@ -1057,11 +1064,11 @@ export default function LifeguardHomeChat({
       ) {
         return;
       }
-      coalescedScrollRef.current?.schedule(el);
+      coalescedScrollRef.current?.schedule(scrollEl);
     });
-    ro.observe(el);
+    ro.observe(contentEl);
     return () => ro.disconnect();
-  }, [messages.length, sessionId]);
+  }, [messages.length, sessionId, panelView]);
 
   useEffect(() => {
     focusChatInputRef.current = focusChatInput;
@@ -2810,6 +2817,16 @@ export default function LifeguardHomeChat({
             margin: "0",
           }}
         >
+          <div
+            ref={chatScrollContentRef}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              width: "100%",
+              maxWidth: "100%",
+              minWidth: 0,
+            }}
+          >
           {panelView === "chat" && messages.length === 0 ? (
             <div
               className="lg-v31-action-slot lg-v31-content-rail"
@@ -3081,6 +3098,7 @@ export default function LifeguardHomeChat({
               />
             </div>
           ) : null}
+          </div>
         </div>
 
         {panelView === "chat" && showLatestAnswerBtn ? (
