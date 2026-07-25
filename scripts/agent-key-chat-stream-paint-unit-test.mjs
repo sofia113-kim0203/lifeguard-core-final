@@ -1,15 +1,17 @@
 /**
- * Advisor KEY natural stream paint gates — no Preview/Claude.
+ * Shared KEY one-grapheme stream paint gates — customer + advisor. No Preview/Claude.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  AGENT_STREAM_MAX_EOJEOL,
+  STREAM_BACKLOG_RESTORE_BREATH,
+  STREAM_BACKLOG_SKIP_BREATH,
+  commonGraphemePrefixCount,
   createAgentStreamPaintController,
-  matchEojeol,
-  takeNaturalStreamBatch,
+  punctuationBreathFrames,
+  segmentGraphemes,
 } from "../src/lib/agentKeyChatStreamPaint.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,48 +31,30 @@ function test(name, fn) {
   return undefined;
 }
 
-function mockClock() {
-  const rafJobs = [];
-  const waitJobs = [];
+function mockRaf() {
+  const scheduled = [];
   let nextId = 1;
   return {
-    rafJobs,
-    waitJobs,
+    scheduled,
     raf: (cb) => {
       const id = nextId++;
-      rafJobs.push({ id, cb });
+      scheduled.push({ id, cb });
       return id;
     },
     caf: (id) => {
-      const i = rafJobs.findIndex((s) => s.id === id);
-      if (i >= 0) rafJobs.splice(i, 1);
+      const i = scheduled.findIndex((s) => s.id === id);
+      if (i >= 0) scheduled.splice(i, 1);
     },
-    scheduleWait: (cb, ms) => {
-      const id = nextId++;
-      waitJobs.push({ id, cb, ms });
-      return id;
-    },
-    cancelWait: (id) => {
-      const i = waitJobs.findIndex((s) => s.id === id);
-      if (i >= 0) waitJobs.splice(i, 1);
-    },
-    tickRaf() {
-      const job = rafJobs.shift();
+    tick() {
+      const job = scheduled.shift();
       if (!job) return false;
       job.cb(0);
       return true;
     },
-    tickWait() {
-      const job = waitJobs.shift();
-      if (!job) return false;
-      job.cb();
-      return true;
-    },
-    drain(max = 10000) {
+    drain(max = 20000) {
       let n = 0;
-      while ((rafJobs.length || waitJobs.length) && n < max) {
-        if (rafJobs.length) this.tickRaf();
-        else this.tickWait();
+      while (scheduled.length && n < max) {
+        this.tick();
         n += 1;
       }
       return n;
@@ -83,182 +67,222 @@ console.log("agent-key-chat-stream-paint-unit-test");
 const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
 const paintSrc = readFileSync(join(ROOT, "src/lib/agentKeyChatStreamPaint.js"), "utf8");
 
-await test("wiring: natural paint + same markdown + jump-to-latest", () => {
+await test("wiring: customer + agent share same paint controller", () => {
   assert.match(chat, /createAgentStreamPaintController/);
-  assert.match(chat, /paint\.append\(chunk\)/);
-  assert.match(chat, /await paint\.finalize\(/);
-  assert.match(chat, /paint\.cancel\(\)/);
-  assert.doesNotMatch(chat, /paint\.flush\(/);
   assert.doesNotMatch(chat, /streamLive/);
   assert.match(chat, /<LifeguardAssistantMarkdown/);
-  assert.match(chat, /최신 답변으로 ↓/);
-  assert.match(chat, /jumpToLatestAnswer/);
-  assert.match(chat, /shouldShowJumpToLatestAnswer/);
+
   const agentBlock = chat.match(
     /if \(isAgentAudience\) \{[\s\S]*?return;\s*\}\s*\n\s*if \(chatAttachUploading\)/,
   );
   assert.ok(agentBlock);
-  assert.match(agentBlock[0], /onDelta:\s*\(chunk\)\s*=>\s*\{\s*paint\.append\(chunk\);\s*\}/);
+  assert.match(agentBlock[0], /paint\.append\(chunk\)/);
+  assert.match(agentBlock[0], /await paint\.finalize\(/);
   assert.doesNotMatch(agentBlock[0], /splitKeyAnswerMeaningUnits/);
+  assert.doesNotMatch(agentBlock[0], /takeNaturalStreamBatch/);
+
+  assert.match(chat, /onDelta:\s*\(chunk\)\s*=>\s*\{\s*markFirstSse\(\);\s*paint\.append\(chunk\);\s*\}/);
+  assert.match(chat, /await paint\.finalize\(finalText\)/);
+  assert.doesNotMatch(chat, /splitKeyAnswerMeaningUnits/);
+  assert.doesNotMatch(paintSrc, /takeNaturalStreamBatch/);
+  assert.doesNotMatch(paintSrc, /AGENT_STREAM_MIN_EOJEOL/);
 });
 
-await test("one-char / grapheme mode removed", () => {
-  assert.doesNotMatch(paintSrc, /one grapheme per/i);
-  assert.doesNotMatch(paintSrc, /exactly one Unicode grapheme/i);
-  assert.doesNotMatch(paintSrc, /segmentGraphemes/);
-  assert.doesNotMatch(paintSrc, /paintedCount \+= 1/);
-  assert.match(paintSrc, /takeNaturalStreamBatch/);
-  assert.match(paintSrc, /no bulk flush/i);
+await test("grapheme segmentation: hangul + emoji", () => {
+  const parts = segmentGraphemes("안녕👍가");
+  assert.deepEqual(parts, ["안", "녕", "👍", "가"]);
+  assert.equal(commonGraphemePrefixCount(["안", "녕"], ["안", "녕", "하"]), 2);
 });
 
-await test("natural batch: eojol + punctuation boundary", () => {
-  const words = "하나 둘 셋 넷 다섯 여섯";
-  const batch = takeNaturalStreamBatch(words);
-  const eojol = matchEojeol(batch);
-  assert.ok(eojol.length >= 2 && eojol.length <= AGENT_STREAM_MAX_EOJEOL);
-  assert.equal(words.startsWith(batch), true);
-
-  const punct = takeNaturalStreamBatch("짧은 문장. 다음");
-  assert.equal(punct, "짧은 문장. ");
-  assert.equal(takeNaturalStreamBatch("줄\n다음"), "줄\n");
+await test("punctuation breath frames", () => {
+  assert.equal(punctuationBreathFrames(",", false), 1);
+  assert.equal(punctuationBreathFrames("：", false), 1);
+  assert.equal(punctuationBreathFrames(".", false), 2);
+  assert.equal(punctuationBreathFrames("\n", false), 2);
+  assert.equal(punctuationBreathFrames("가", false), 0);
+  assert.equal(punctuationBreathFrames(".", true), 0);
+  assert.equal(STREAM_BACKLOG_SKIP_BREATH, 120);
+  assert.equal(STREAM_BACKLOG_RESTORE_BREATH, 60);
 });
 
-await test("first delta immediate short bundle; later short batches", () => {
+await test("first grapheme immediate; later exactly one per paint", () => {
   const paints = [];
-  const clock = mockClock();
+  const clock = mockRaf();
   const paint = createAgentStreamPaintController({
     onPaint: (text, meta) => paints.push({ text, ...meta }),
     raf: clock.raf,
     caf: clock.caf,
-    scheduleWait: clock.scheduleWait,
-    cancelWait: clock.cancelWait,
   });
 
-  paint.append("암 진단비");
+  paint.append("안녕");
   assert.equal(paints.length, 1);
+  assert.equal(paints[0].text, "안");
   assert.equal(paints[0].first, true);
-  assert.ok(paints[0].text.length > 0);
-  assert.equal(paint.getAccumulated().startsWith(paints[0].text), true);
+  assert.equal(paint.getPainted(), "안");
+  assert.equal(clock.scheduled.length, 1);
 
-  paint.append(" 는 확인이 필요합니다. 추가 설명입니다.");
-  assert.ok(clock.rafJobs.length >= 1 || paint.getPainted().includes("확인"));
-  clock.drain();
-  assert.equal(paint.getPainted(), paint.getAccumulated());
-  // Growth steps are short bundles — never +1 grapheme-only mode for multi-char Korean runs.
+  clock.tick();
+  assert.equal(paints[1].text, "안녕");
   for (let i = 1; i < paints.length; i += 1) {
-    const prev = paints[i - 1].text;
-    const cur = paints[i].text;
-    assert.equal(cur.startsWith(prev), true);
-    const added = cur.slice(prev.length);
-    if (!added) continue;
-    // A single-grapheme-only step is allowed only for tiny leftovers / punctuation — forbid long 1-char drip.
-    if (added.length === 1 && /[가-힣]/.test(added)) {
-      // Hangul single-char step after first paint is the old mode — fail if many consecutive.
-      const next = paints[i + 1];
-      if (next) {
-        const nextAdded = next.text.slice(cur.length);
-        assert.notEqual(
-          nextAdded.length === 1 && /[가-힣]/.test(nextAdded),
-          true,
-          "must not drip hangul one grapheme per frame",
-        );
-      }
-    }
+    const prev = segmentGraphemes(paints[i - 1].text);
+    const cur = segmentGraphemes(paints[i].text);
+    assert.equal(cur.length, prev.length + 1);
+    assert.deepEqual(cur.slice(0, prev.length), prev);
   }
 });
 
-await test("backlog catch-up uses short batches; done does not bulk-dump large remainder", async () => {
+await test("comma breath +1 frame; sentence end +2 frames", () => {
   const paints = [];
-  const clock = mockClock();
+  const clock = mockRaf();
   const paint = createAgentStreamPaintController({
     onPaint: (text) => paints.push(text),
     raf: clock.raf,
     caf: clock.caf,
-    scheduleWait: clock.scheduleWait,
-    cancelWait: clock.cancelWait,
   });
 
-  const full =
-    "하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘 열셋 열넷 열다섯";
-  paint.append(full.slice(0, 5));
-  const first = paint.getPainted();
-  assert.ok(first.length > 0);
-  paint.append(full.slice(5));
-  assert.ok(paint.getPainted().length < full.length || clock.rafJobs.length > 0);
+  paint.append("가,나");
+  assert.equal(paint.getPainted(), "가");
+  clock.tick(); // paints ","
+  assert.equal(paint.getPainted(), "가,");
+  const afterComma = paints.length;
+  clock.tick(); // breath idle — no new grapheme
+  assert.equal(paints.length, afterComma);
+  assert.equal(paint.getPainted(), "가,");
+  clock.tick(); // paints "나"
+  assert.equal(paint.getPainted(), "가,나");
 
-  const pending = paint.finalize(full);
-  // Must not jump to full text in the same tick when a large remainder exists.
-  if (paint.getPainted() === full) {
-    // Only OK if remainder was already small enough for small-buffer seal.
-    assert.ok(full.length - first.length <= 48 || paints.length >= 2);
-  } else {
-    assert.notEqual(paint.getPainted(), full);
+  const paints2 = [];
+  const clock2 = mockRaf();
+  const paint2 = createAgentStreamPaintController({
+    onPaint: (text) => paints2.push(text),
+    raf: clock2.raf,
+    caf: clock2.caf,
+  });
+  paint2.append("다.");
+  assert.equal(paint2.getPainted(), "다");
+  clock2.tick(); // "."
+  assert.equal(paint2.getPainted(), "다.");
+  const n = paints2.length;
+  clock2.tick(); // idle 1
+  assert.equal(paints2.length, n);
+  clock2.tick(); // idle 2
+  assert.equal(paints2.length, n);
+});
+
+await test("backlog >=120 skips breath only; still one grapheme/paint", () => {
+  const paints = [];
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: (text) => paints.push(text),
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+  // Period while waiting queue still ≥120 so breath is skipped.
+  const body = `${"가".repeat(10)}.${"나".repeat(120)}`;
+  paint.append(body);
+  assert.equal(paint.getPainted(), "가");
+  let sawPeriod = false;
+  for (let i = 0; i < 400 && clock.scheduled.length; i += 1) {
+    const before = paint.getPainted();
+    clock.tick();
+    const after = paint.getPainted();
+    if (after.length === before.length) {
+      if (sawPeriod) assert.fail("idle breath must be skipped under backlog");
+      continue;
+    }
+    const added = after.slice(before.length);
+    assert.equal(segmentGraphemes(added).length, 1);
+    if (added === ".") {
+      sawPeriod = true;
+      const n = paints.length;
+      clock.tick();
+      assert.equal(paints.length, n + 1, "next grapheme must paint without breath idle");
+      assert.equal(paint.getPainted().endsWith(".나"), true);
+      break;
+    }
   }
+  assert.equal(sawPeriod, true);
+  clock.drain();
+  assert.equal(paint.getPainted(), body);
+});
+
+await test("done does not bulk flush; drains one grapheme to server text", async () => {
+  const paints = [];
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: (text) => paints.push(text),
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+
+  paint.append("가나다라");
+  assert.equal(paint.getPainted(), "가");
+  const pending = paint.finalize("가나다라");
+  assert.equal(paint.getPainted(), "가");
+  assert.notEqual(paints[paints.length - 1], "가나다라");
 
   let resolved = null;
   pending.then((v) => {
     resolved = v;
   });
-  clock.drain();
+  while (resolved == null && clock.scheduled.length) {
+    clock.tick();
+  }
   await pending;
-  assert.equal(resolved, full);
-  assert.equal(paint.getPainted(), full);
+  assert.equal(resolved, "가나다라");
+  assert.equal(paint.getPainted(), "가나다라");
 
-  // No single step that appends a huge remainder after first paint.
-  for (let i = 1; i < paints.length; i += 1) {
-    const added = paints[i].slice(paints[i - 1].length);
-    assert.ok(added.length <= 80, `batch too large: ${added.length}`);
+  const uniqueGrowth = [];
+  for (const t of paints) {
+    if (uniqueGrowth.length === 0 || uniqueGrowth[uniqueGrowth.length - 1] !== t) {
+      uniqueGrowth.push(t);
+    }
+  }
+  for (let i = 1; i < uniqueGrowth.length; i += 1) {
+    const prev = segmentGraphemes(uniqueGrowth[i - 1]);
+    const cur = segmentGraphemes(uniqueGrowth[i]);
+    assert.equal(cur.length, prev.length + 1);
   }
 });
 
-await test("no drop / duplicate / reorder; final text matches server", async () => {
-  const clock = mockClock();
+await test("no drop / duplicate / reorder; final text match; append ignored after finalize", async () => {
+  const clock = mockRaf();
   const paint = createAgentStreamPaintController({
     onPaint: () => {},
     raf: clock.raf,
     caf: clock.caf,
-    scheduleWait: clock.scheduleWait,
-    cancelWait: clock.cancelWait,
   });
   paint.append("AB");
-  paint.append("C 다음 문장입니다");
-  const p = paint.finalize("ABC 다음 문장입니다");
+  paint.append("C");
+  const p = paint.finalize("ABC");
   clock.drain();
   const finalText = await p;
-  assert.equal(finalText, "ABC 다음 문장입니다");
-  assert.equal(paint.getAccumulated(), "ABC 다음 문장입니다");
+  assert.equal(finalText, "ABC");
   paint.append("ZZ");
-  assert.equal(paint.getAccumulated(), "ABC 다음 문장입니다");
+  assert.equal(paint.getAccumulated(), "ABC");
+  assert.equal(paint.getPainted(), "ABC");
 });
 
-await test("cancel leaves partial; max-wait can flush short incomplete bundle", () => {
-  const paints = [];
-  const clock = mockClock();
+await test("cancel leaves partial; no bulk complete", () => {
+  const clock = mockRaf();
   const paint = createAgentStreamPaintController({
-    onPaint: (text) => paints.push(text),
+    onPaint: () => {},
     raf: clock.raf,
     caf: clock.caf,
-    scheduleWait: clock.scheduleWait,
-    cancelWait: clock.cancelWait,
-    maxWaitMs: 40,
   });
-  paint.append("첫째");
-  assert.ok(paint.hasPainted());
-  paint.append("단어");
-  // Incomplete second eojol cluster may arm max-wait.
-  if (clock.waitJobs.length) {
-    clock.tickWait();
-  }
-  clock.drain();
+  paint.append("한글테스트");
+  assert.equal(paint.getPainted(), "한");
   const left = paint.cancel();
-  assert.equal(left, paint.getPainted());
-  assert.ok(left.length > 0);
+  assert.equal(left, "한");
+  assert.equal(clock.scheduled.length, 0);
 });
 
-await test("no meaning-unit fake typing / no streamLive swap", () => {
+await test("no eojol batch / no setInterval typing / no meaning-unit fake typing", () => {
+  assert.doesNotMatch(paintSrc, /takeNaturalStreamBatch/);
+  assert.doesNotMatch(paintSrc, /setInterval/);
   assert.doesNotMatch(paintSrc, /splitKeyAnswerMeaningUnits/);
-  assert.doesNotMatch(paintSrc, /streamLive/);
-  assert.doesNotMatch(chat, /streamLive/);
+  assert.match(paintSrc, /exactly one Unicode grapheme/i);
+  assert.match(paintSrc, /no bulk flush/i);
 });
 
 console.log(`agent-key-chat-stream-paint-unit-test: PASS (${passed})`);

@@ -79,6 +79,10 @@ await test("AGENT_STREAMING: API SSE + client stream + core streamHandlers", () 
   assert.ok(agentBlock);
   assert.doesNotMatch(agentBlock[0], /splitKeyAnswerMeaningUnits/);
   assert.doesNotMatch(agentBlock[0], /streamLive/);
+  assert.match(agentBlock[0], /paint\.append\(chunk\)/);
+  // Customer question path shares the same controller.
+  assert.match(chat, /paint\.append\(chunk\)/);
+  assert.match(chat, /await paint\.finalize\(finalText\)/);
 });
 
 await test("AGENT submit uses stream and never customer persist", () => {

@@ -129,7 +129,7 @@ async function main() {
       const chatSource = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
       assert.match(chatSource, /KEY가 확인하고 있어요/);
       assert.match(chatSource, /onReplace:\s*\(\)\s*=>\s*\{\s*\}/);
-      assert.match(chatSource, /splitKeyAnswerMeaningUnits/);
+      assert.match(chatSource, /createAgentStreamPaintController/);
       assert.match(chatSource, /resolveAppendOnlyAssistantText/);
       assert.match(chatSource, /aria-expanded=\{sidebarOpen\}/);
       assert.match(chatSource, /최신 답변으로 ↓/);

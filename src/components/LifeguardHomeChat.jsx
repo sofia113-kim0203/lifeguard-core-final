@@ -107,7 +107,6 @@ import {
   shouldAutoFollowChatScroll,
   shouldShowJumpToLatestAnswer,
   resolveAppendOnlyAssistantText,
-  splitKeyAnswerMeaningUnits,
 } from "../lib/lifeguardChatScroll.js";
 import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
 import {
@@ -1566,8 +1565,12 @@ export default function LifeguardHomeChat({
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        // After server done, drain short remaining bundles — no bulk flush of a large remainder.
+        // After server done, drain remaining graphemes — no bulk flush.
         const answer = await paint.finalize(String(result.text ?? "").trim());
+        if (answer !== String(result.text ?? "").trim() && String(result.text ?? "").trim()) {
+          paint.cancel();
+          throw new Error("stream paint final text mismatch");
+        }
         setAgentTurnMeta({
           mode: result.mode ?? null,
           customer_context_used: result.customer_context_used === true,
@@ -1726,13 +1729,14 @@ export default function LifeguardHomeChat({
       });
     }
 
+    /** @type {ReturnType<typeof createAgentStreamPaintController> | null} */
+    let paint = null;
     try {
       const historyMessages = nextMessages.slice(0, -1);
       const history = historyMessages.map((m) => ({ role: m.role, content: m.content }));
       appendHomeChatStreamTrace("home_brain_request_start");
 
       let streamedText = "";
-      let receivedDelta = false;
       let sawFirstSseEvent = false;
       let sawSseDone = false;
       // GO3: session_id only — server SSOT loads session_goal; never send prior_session_goal.
@@ -1771,6 +1775,17 @@ export default function LifeguardHomeChat({
           { phase: "streaming", loading: false, streaming: true, streamedCommitted: true },
         );
       };
+      // Same one-grapheme paint controller as advisor (display only).
+      paint = createAgentStreamPaintController({
+        onPaint: (text, { first }) => {
+          if (first) {
+            setStreaming(true);
+            setLoading(false);
+          }
+          streamedText = text;
+          patchAssistantContent(text);
+        },
+      });
       const result = await fetchHomeBrainFactStream(
         trimmed,
         history,
@@ -1798,13 +1813,7 @@ export default function LifeguardHomeChat({
           },
           onDelta: (chunk) => {
             markFirstSse();
-            const piece = String(chunk ?? "");
-            if (!piece) return;
-            receivedDelta = true;
-            streamedText += piece;
-            setStreaming(true);
-            setLoading(false);
-            patchAssistantContent(streamedText);
+            paint.append(chunk);
           },
           // E: already-shown text is never replaced by SSE replace.
           onReplace: () => {},
@@ -1833,46 +1842,27 @@ export default function LifeguardHomeChat({
       markSseDone();
 
       const sealedText = String(result.answerText ?? "");
-      const merged = resolveAppendOnlyAssistantText(streamedText, sealedText || streamedText);
+      const merged = resolveAppendOnlyAssistantText(
+        paint.getAccumulated() || streamedText,
+        sealedText || paint.getAccumulated() || streamedText,
+      );
       // Prefer sealed Claude original as the authoritative full string.
       const finalText = sealedText || merged;
       // Server empty content: never commit an empty assistant bubble (no client failure copy).
       const hasCustomerAnswer = Boolean(String(finalText).trim());
 
       if (hasCustomerAnswer) {
-        if (!receivedDelta && finalText) {
-          // One-blob arrival: paced meaning-unit reveal (append-only, no rewrite).
-          setStreaming(true);
-          setLoading(false);
-          const units = splitKeyAnswerMeaningUnits(finalText);
-          let shown = "";
-          for (let i = 0; i < units.length; i += 1) {
-            shown += units[i];
-            patchAssistantContent(shown);
-            if (i < units.length - 1) {
-              await new Promise((resolve) => window.setTimeout(resolve, 32));
-            }
-          }
-          streamedText = finalText;
-          patchAssistantContent(finalText);
-        } else if (finalText.startsWith(streamedText) && finalText.length > streamedText.length) {
-          // Catch-up remaining units only — never delete shown prefix.
-          const suffix = finalText.slice(streamedText.length);
-          const units = splitKeyAnswerMeaningUnits(suffix);
-          let shown = streamedText;
-          for (let i = 0; i < units.length; i += 1) {
-            shown += units[i];
-            patchAssistantContent(shown);
-            if (i < units.length - 1) {
-              await new Promise((resolve) => window.setTimeout(resolve, 24));
-            }
-          }
-          streamedText = finalText;
-          patchAssistantContent(finalText);
-        } else {
-          streamedText = finalText;
-          patchAssistantContent(finalText);
+        setStreaming(true);
+        setLoading(false);
+        const paintedFinal = await paint.finalize(finalText);
+        if (paintedFinal !== finalText) {
+          paint.cancel();
+          throw new Error("stream paint final text mismatch");
         }
+        streamedText = paintedFinal;
+        patchAssistantContent(paintedFinal);
+      } else {
+        paint.cancel();
       }
 
       const visualBlocks = Array.isArray(result.visualBlocks) ? result.visualBlocks : [];
@@ -2026,6 +2016,11 @@ export default function LifeguardHomeChat({
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
     } catch (err) {
+      try {
+        paint?.cancel();
+      } catch {
+        /* ignore */
+      }
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];

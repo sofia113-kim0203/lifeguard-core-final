@@ -1,83 +1,56 @@
 /**
- * Advisor KEY natural stream paint (display only).
- * - Server deltas accumulate in order into a source buffer.
- * - First short bundle paints immediately.
- * - Later: short 어절 bundles (≈2–5), with punctuation/newline boundaries.
- * - Backlog catches up in short bundles — no bulk flush of a large remainder.
- * - Done drains remaining short buffer then seals to exact server text.
- * - No rewrite, no fake typing, no one-grapheme mode.
+ * Shared KEY stream paint (customer + advisor) — display only.
+ * - Server deltas accumulate in order into a source queue.
+ * - First grapheme paints immediately (no rAF wait).
+ * - Later: exactly one Unicode grapheme per paint frame.
+ * - Punctuation breath: comma-family +1 frame; sentence-end/newline +2 frames.
+ * - Backlog ≥120 skips breath only; still 1 grapheme/paint. Restore below 60.
+ * - Done drains remaining one grapheme at a time — no bulk flush.
+ * - Final painted text must equal server final text. No rewrite.
  */
 
-export const AGENT_STREAM_MIN_EOJEOL = 2;
-export const AGENT_STREAM_MAX_EOJEOL = 5;
-export const AGENT_STREAM_SOFT_CHARS = 28;
-export const AGENT_STREAM_MAX_WAIT_MS = 40;
-export const AGENT_STREAM_SMALL_REMAINING = 48;
+export const STREAM_BACKLOG_SKIP_BREATH = 120;
+export const STREAM_BACKLOG_RESTORE_BREATH = 60;
 
-const BOUNDARY_CHAR = /[,.!?;:…，。？！\n]/;
+const COMMA_BREATH = new Set([",", "，", ":", "：", ";", "；"]);
+const END_BREATH = new Set([".", "。", "?", "？", "!", "！", "\n"]);
 
 /**
  * @param {string} text
- * @returns {RegExpMatchArray[]}
+ * @returns {string[]}
  */
-export function matchEojeol(text) {
+export function segmentGraphemes(text) {
   const s = String(text ?? "");
   if (!s) return [];
-  return Array.from(s.matchAll(/\S+/g));
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    const seg = new Intl.Segmenter("ko", { granularity: "grapheme" });
+    return Array.from(seg.segment(s), (part) => part.segment);
+  }
+  return Array.from(s);
 }
 
 /**
- * Take the next short natural batch from unpainted pending text.
- * Identity: repeated take + join reconstructs pending (when force drains residue).
- *
- * @param {string} pending
- * @param {{
- *   minEojeol?: number,
- *   maxEojeol?: number,
- *   softChars?: number,
- *   force?: boolean,
- * }} [opts]
- * @returns {string}
+ * @param {string[]} painted
+ * @param {string[]} target
  */
-export function takeNaturalStreamBatch(pending, opts = {}) {
-  const s = String(pending ?? "");
-  if (!s) return "";
+export function commonGraphemePrefixCount(painted, target) {
+  const n = Math.min(painted.length, target.length);
+  let i = 0;
+  while (i < n && painted[i] === target[i]) i += 1;
+  return i;
+}
 
-  const minEojeol = Number(opts.minEojeol ?? AGENT_STREAM_MIN_EOJEOL);
-  const maxEojeol = Number(opts.maxEojeol ?? AGENT_STREAM_MAX_EOJEOL);
-  const softChars = Number(opts.softChars ?? AGENT_STREAM_SOFT_CHARS);
-  const force = opts.force === true;
-
-  const scanLimit = Math.min(s.length, Math.max(softChars * 3, 96));
-  for (let i = 0; i < scanLimit; i += 1) {
-    if (!BOUNDARY_CHAR.test(s[i])) continue;
-    let end = i + 1;
-    while (end < s.length && /[ \t]/.test(s[end])) end += 1;
-    // Boundary flushes immediately (even a short lead-in).
-    return s.slice(0, end);
-  }
-
-  const matches = matchEojeol(s);
-  if (matches.length >= minEojeol) {
-    const take = Math.min(maxEojeol, matches.length);
-    const last = matches[take - 1];
-    let end = last.index + last[0].length;
-    while (end < s.length && /[ \t]/.test(s[end])) end += 1;
-    return s.slice(0, end);
-  }
-
-  // Incomplete bundle / max-wait / soft-char — still cap so backlog cannot dump whole residue.
-  if (force || s.length >= softChars) {
-    if (matches.length >= 1) {
-      const take = Math.min(maxEojeol, matches.length);
-      const last = matches[take - 1];
-      let end = last.index + last[0].length;
-      while (end < s.length && /[ \t]/.test(s[end])) end += 1;
-      return s.slice(0, end);
-    }
-    return s.slice(0, Math.min(s.length, softChars));
-  }
-  return "";
+/**
+ * Extra idle frames after painting this grapheme (0 when breath skipped).
+ * @param {string} grapheme
+ * @param {boolean} skipBreath
+ */
+export function punctuationBreathFrames(grapheme, skipBreath = false) {
+  if (skipBreath) return 0;
+  const g = String(grapheme ?? "");
+  if (COMMA_BREATH.has(g)) return 1;
+  if (END_BREATH.has(g)) return 2;
+  return 0;
 }
 
 /**
@@ -85,9 +58,6 @@ export function takeNaturalStreamBatch(pending, opts = {}) {
  *   onPaint: (text: string, meta: { first: boolean }) => void,
  *   raf?: (cb: FrameRequestCallback) => number,
  *   caf?: (id: number) => void,
- *   scheduleWait?: (cb: () => void, ms: number) => unknown,
- *   cancelWait?: (id: unknown) => void,
- *   maxWaitMs?: number,
  * }} args
  */
 export function createAgentStreamPaintController({
@@ -98,131 +68,112 @@ export function createAgentStreamPaintController({
   caf = typeof cancelAnimationFrame === "function"
     ? (id) => cancelAnimationFrame(id)
     : (id) => clearTimeout(id),
-  scheduleWait = (cb, ms) => setTimeout(cb, ms),
-  cancelWait = (id) => clearTimeout(id),
-  maxWaitMs = AGENT_STREAM_MAX_WAIT_MS,
 } = {}) {
   if (typeof onPaint !== "function") {
     throw new Error("onPaint required");
   }
 
   let source = "";
-  let painted = "";
+  /** @type {string[]} */
+  let sourceGraphemes = [];
+  let paintedCount = 0;
   let rafId = null;
-  let waitId = null;
   let sealed = false;
   let cancelled = false;
-  let firstPainted = false;
+  let skipBreath = false;
+  let idleFramesLeft = 0;
   /** @type {((text: string) => void) | null} */
   let resolveDrain = null;
+  /** @type {((err: Error) => void) | null} */
+  let rejectDrain = null;
 
-  function cancelScheduled() {
-    if (rafId != null) {
-      caf(rafId);
-      rafId = null;
-    }
-    if (waitId != null) {
-      cancelWait(waitId);
-      waitId = null;
-    }
+  function paintedText() {
+    return sourceGraphemes.slice(0, paintedCount).join("");
   }
 
-  function paintNow(text) {
-    painted = text;
-    const first = !firstPainted;
-    firstPainted = true;
-    onPaint(text, { first });
+  function exactSource() {
+    return sourceGraphemes.join("");
+  }
+
+  function backlogCount() {
+    return Math.max(0, sourceGraphemes.length - paintedCount);
+  }
+
+  function syncBreathGate() {
+    const n = backlogCount();
+    if (n >= STREAM_BACKLOG_SKIP_BREATH) skipBreath = true;
+    else if (n < STREAM_BACKLOG_RESTORE_BREATH) skipBreath = false;
+  }
+
+  function syncSourceGraphemes() {
+    sourceGraphemes = segmentGraphemes(source);
+    if (paintedCount > sourceGraphemes.length) {
+      paintedCount = sourceGraphemes.length;
+    }
+    syncBreathGate();
+  }
+
+  function cancelScheduled() {
+    if (rafId == null) return;
+    caf(rafId);
+    rafId = null;
+  }
+
+  function settleDrain(ok, value) {
+    const resolve = resolveDrain;
+    const reject = rejectDrain;
+    resolveDrain = null;
+    rejectDrain = null;
+    if (ok) resolve?.(value);
+    else reject?.(value instanceof Error ? value : new Error(String(value)));
   }
 
   function maybeResolveDrain() {
     if (!sealed || cancelled) return;
-    if (painted !== source) return;
-    const resolve = resolveDrain;
-    resolveDrain = null;
-    resolve?.(source);
+    if (paintedCount < sourceGraphemes.length) return;
+    const done = exactSource();
+    if (done !== source) {
+      settleDrain(false, new Error("stream paint final text mismatch"));
+      return;
+    }
+    settleDrain(true, done);
   }
 
-  /**
-   * Paint at most one short batch from backlog.
-   * @param {boolean} force
-   * @returns {boolean} more remain
-   */
-  function advanceBatch(force) {
+  /** Advance exactly one grapheme. @returns {boolean} more remain */
+  function advanceOne() {
     if (cancelled) return false;
-    const pending = source.slice(painted.length);
-    if (!pending) {
-      maybeResolveDrain();
-      return false;
-    }
-
-    // Done path: tiny remainder may flush as one small buffer (not whole-answer dump).
-    if (
-      sealed &&
-      pending.length <= AGENT_STREAM_SMALL_REMAINING &&
-      (force || pending.length > 0)
-    ) {
-      paintNow(source);
-      maybeResolveDrain();
-      return false;
-    }
-
-    const batch = takeNaturalStreamBatch(pending, {
-      minEojeol: firstPainted ? AGENT_STREAM_MIN_EOJEOL : 1,
-      maxEojeol: firstPainted ? AGENT_STREAM_MAX_EOJEOL : 3,
-      force: force || sealed,
-    });
-    if (!batch) return painted.length < source.length;
-
-    paintNow(painted + batch);
-    return painted.length < source.length;
-  }
-
-  function armMaxWait() {
-    if (waitId != null || sealed || cancelled) return;
-    if (painted.length >= source.length) return;
-    waitId = scheduleWait(() => {
-      waitId = null;
-      if (cancelled || sealed) return;
-      const more = advanceBatch(true);
-      if (more) schedule();
-    }, maxWaitMs);
+    if (paintedCount >= sourceGraphemes.length) return false;
+    const first = paintedCount === 0;
+    syncBreathGate();
+    const skip = skipBreath;
+    const g = sourceGraphemes[paintedCount];
+    paintedCount += 1;
+    onPaint(paintedText(), { first });
+    idleFramesLeft = punctuationBreathFrames(g, skip);
+    syncBreathGate();
+    return paintedCount < sourceGraphemes.length;
   }
 
   function schedule() {
     if (rafId != null || cancelled) return;
-    if (painted.length >= source.length) {
+    if (paintedCount >= sourceGraphemes.length && idleFramesLeft <= 0) {
       maybeResolveDrain();
       return;
     }
     rafId = raf(() => {
       rafId = null;
       if (cancelled) return;
-      const pending = source.slice(painted.length);
-      if (!pending) {
+      if (idleFramesLeft > 0) {
+        idleFramesLeft -= 1;
+        schedule();
+        return;
+      }
+      if (paintedCount >= sourceGraphemes.length) {
         maybeResolveDrain();
         return;
       }
-      const batch = takeNaturalStreamBatch(pending, {
-        minEojeol: AGENT_STREAM_MIN_EOJEOL,
-        maxEojeol: AGENT_STREAM_MAX_EOJEOL,
-        force: sealed,
-      });
-      if (!batch) {
-        if (!sealed) armMaxWait();
-        else {
-          // Sealed but batch empty (shouldn't) — force small progress.
-          advanceBatch(true);
-          if (painted.length < source.length) schedule();
-          else maybeResolveDrain();
-        }
-        return;
-      }
-      if (waitId != null) {
-        cancelWait(waitId);
-        waitId = null;
-      }
-      paintNow(painted + batch);
-      if (painted.length < source.length) schedule();
+      const more = advanceOne();
+      if (more || idleFramesLeft > 0) schedule();
       else maybeResolveDrain();
     });
   }
@@ -234,62 +185,54 @@ export function createAgentStreamPaintController({
       const piece = String(chunk ?? "");
       if (!piece) return source;
       source += piece;
-
-      if (!firstPainted) {
+      syncSourceGraphemes();
+      if (paintedCount === 0) {
         cancelScheduled();
-        // First short bundle immediately (never wait for rAF / max-wait).
-        const more = advanceBatch(true);
-        if (more) schedule();
+        const more = advanceOne();
+        if (more || idleFramesLeft > 0) schedule();
         return source;
       }
-
       schedule();
       return source;
     },
 
     /**
-     * Seal with server final text; drain remaining in short bundles.
-     * Never bulk-flushes a large remainder in one paint.
+     * Seal with server final text; drain remaining one grapheme per frame.
+     * Never bulk-flushes remaining characters.
      * @param {unknown} serverText
      * @returns {Promise<string>}
      */
     finalize(serverText) {
-      if (cancelled) return Promise.resolve(painted);
+      if (cancelled) return Promise.resolve(paintedText());
 
       const sealedText = String(serverText ?? "");
-      source = sealedText.length > 0 ? sealedText : source;
+      const next = sealedText.length > 0 ? sealedText : source;
+      const prevPainted = segmentGraphemes(paintedText());
+      source = next;
+      syncSourceGraphemes();
+      paintedCount = commonGraphemePrefixCount(prevPainted, sourceGraphemes);
+      if (paintedCount < prevPainted.length) {
+        onPaint(paintedText(), { first: false });
+      }
       sealed = true;
-      cancelScheduled();
 
-      if (painted === source) {
-        if (!firstPainted && source) paintNow(source);
-        else if (firstPainted) onPaint(source, { first: false });
-        return Promise.resolve(source);
+      const finalExact = exactSource();
+      if (finalExact !== source) {
+        return Promise.reject(new Error("stream paint final text mismatch"));
       }
 
-      // Keep painted prefix when it still matches; otherwise resync to common prefix length 0..n via full replace only if mismatch.
-      if (painted && !source.startsWith(painted)) {
-        // Rare server/client mismatch — jump to exact final (identity over partial wrong text).
-        paintNow(source);
-        return Promise.resolve(source);
+      if (paintedCount >= sourceGraphemes.length && idleFramesLeft <= 0) {
+        if (paintedText() !== finalExact) {
+          return Promise.reject(new Error("stream paint final text mismatch"));
+        }
+        onPaint(finalExact, { first: false });
+        return Promise.resolve(finalExact);
       }
 
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         resolveDrain = resolve;
-        const more = advanceBatch(false);
-        if (painted === source) {
-          resolveDrain = null;
-          resolve(source);
-          return;
-        }
-        if (more || painted.length < source.length) schedule();
-        else {
-          advanceBatch(true);
-          if (painted === source) {
-            resolveDrain = null;
-            resolve(source);
-          } else schedule();
-        }
+        rejectDrain = reject;
+        schedule();
       });
     },
 
@@ -298,10 +241,9 @@ export function createAgentStreamPaintController({
       cancelled = true;
       sealed = true;
       cancelScheduled();
-      const text = painted;
-      const resolve = resolveDrain;
-      resolveDrain = null;
-      resolve?.(text);
+      idleFramesLeft = 0;
+      const text = paintedText();
+      settleDrain(true, text);
       return text;
     },
 
@@ -310,11 +252,11 @@ export function createAgentStreamPaintController({
     },
 
     getPainted() {
-      return painted;
+      return paintedText();
     },
 
     hasPainted() {
-      return firstPainted;
+      return paintedCount > 0;
     },
   };
 }
