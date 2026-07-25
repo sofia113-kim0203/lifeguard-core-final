@@ -17,10 +17,13 @@ import {
   assertAdminAssignmentConfirmCardAligned,
   buildAlignedAssignmentBody,
   findUniqueExactEmailOptionMatch,
+  findUniqueExactLocalPartOptionMatch,
+  findUniqueUtteranceOptionIdentity,
   formatAssignmentOptionLabel,
   optionLabelsHideIds,
   pickRehydratableLiveAssignment,
   resolveAdminAssignmentOptionRow,
+  utteranceHasExactLocalPartToken,
 } from "../src/lib/adminAgentAssignment.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -214,6 +217,140 @@ const agents = [
   assert.equal(buildConfirmedAssignmentBody(good.card, null), null);
 }
 
+// A/B/C/D — exact local-part identity (no includes/startsWith)
+{
+  const clashCustomers = [
+    {
+      id: CUSTOMER,
+      display_name: "QA 고객 B",
+      email: "qa-customer-b@staging-qa.example.com",
+    },
+    {
+      id: CUSTOMER_B,
+      display_name: "QA Customer B",
+      email: "e2-3-qa-customer-b@staging-qa.example.com",
+    },
+  ];
+  const utteranceLocal = "qa-customer-b를 e2-3 설계사에게 배정해줘";
+
+  // local-part token: official B matches; e2-3-qa-customer-b does NOT (includes forbidden)
+  assert.equal(utteranceHasExactLocalPartToken(utteranceLocal, "qa-customer-b"), true);
+  assert.equal(
+    utteranceHasExactLocalPartToken(utteranceLocal, "e2-3-qa-customer-b"),
+    false,
+  );
+  assert.equal(
+    findUniqueExactLocalPartOptionMatch(clashCustomers, utteranceLocal).person?.id,
+    CUSTOMER,
+  );
+  assert.equal(
+    findUniqueUtteranceOptionIdentity(clashCustomers, utteranceLocal).person?.id,
+    CUSTOMER,
+  );
+
+  // A. Claude proposes e2-3-qa-customer-b id while utterance local is qa-customer-b → no card
+  const localClashWrong = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER_B,
+      agent_user_id: AGENT,
+      notes: "QA Customer B → e2-3",
+    },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance: utteranceLocal,
+  });
+  assert.equal(localClashWrong.card, null);
+  assert.equal(localClashWrong.reason, "CUSTOMER_IDENTITY_MISMATCH");
+  assert.equal(
+    buildConfirmedAssignmentBody(localClashWrong.card, {
+      customers: clashCustomers,
+      agents,
+    }),
+    null,
+  );
+
+  // A pass path: Claude proposes official B + matching agent local/email
+  const localClashOk = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER,
+      agent_user_id: AGENT,
+    },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance: "qa-customer-b를 e2-3-qa-agent에게 배정해줘",
+  });
+  assert.equal(localClashOk.card?.customer_id, CUSTOMER);
+  assert.equal(localClashOk.card?.agent_user_id, AGENT);
+  assert.ok(!String(localClashOk.card.customer_label).includes("e2-3-qa-customer-b"));
+  assert.ok(String(localClashOk.card.customer_label).includes("qa-customer-b@"));
+
+  // B. Agent local-part symmetry — wrong agent id blocked
+  const wrongAgentLocal = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER,
+      agent_user_id: AGENT_B,
+    },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance: "qa-customer-b를 e2-3-qa-agent에게 배정해줘",
+  });
+  assert.equal(wrongAgentLocal.card, null);
+  assert.equal(wrongAgentLocal.reason, "AGENT_IDENTITY_MISMATCH");
+
+  // C. Full email exact still PASS (priority over local)
+  const fullEmailOk = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER,
+      agent_user_id: AGENT,
+    },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance:
+      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게",
+  });
+  assert.equal(fullEmailOk.card?.customer_id, CUSTOMER);
+  assert.equal(fullEmailOk.card?.agent_user_id, AGENT);
+
+  // D. Duplicate local-part across domains → ambiguous, no card, ask again
+  const dupLocalCustomers = [
+    {
+      id: CUSTOMER,
+      display_name: "B1",
+      email: "qa-customer-b@staging-qa.example.com",
+    },
+    {
+      id: CUSTOMER_B,
+      display_name: "B2",
+      email: "qa-customer-b@other-qa.example.com",
+    },
+  ];
+  const dup = findUniqueExactLocalPartOptionMatch(dupLocalCustomers, "qa-customer-b 배정");
+  assert.equal(dup.ok, false);
+  assert.equal(dup.reason, "AMBIGUOUS_LOCAL");
+  const dupCard = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER,
+      agent_user_id: AGENT,
+    },
+    customers: dupLocalCustomers,
+    agents,
+    assignments: [],
+    utterance: "qa-customer-b를 e2-3-qa-agent에게 배정해줘",
+  });
+  assert.equal(dupCard.card, null);
+  assert.equal(dupCard.reason, "CUSTOMER_IDENTITY_AMBIGUOUS");
+  assert.match(dupCard.text, /고객/);
+}
+
 // Ambiguous / missing ids → no card (no POST path)
 {
   const missing = validateAdminAssignmentProposal({
@@ -345,8 +482,9 @@ const agents = [
   assert.ok(!hand.includes('includes("활성화")'));
   assert.ok(hand.includes("validateAdminAssignmentProposal"));
   assert.ok(hand.includes("resolveAdminAssignmentOptionRow"));
-  assert.ok(hand.includes("findUniqueExactEmailOptionMatch"));
+  assert.ok(hand.includes("findUniqueUtteranceOptionIdentity"));
   assert.ok(hand.includes("assertAdminAssignmentConfirmCardAligned"));
+  assert.ok(!hand.includes('includes("배정해줘")'));
 
   const menu = readFileSync(join(ROOT, "src/components/AdminMenuPanel.jsx"), "utf8");
   assert.ok(menu.includes("KEY 배정 상담"));

@@ -66,6 +66,32 @@ export function resolveAdminAssignmentOptionRow(list, id) {
 }
 
 /**
+ * @param {unknown} email
+ */
+export function assignmentEmailLocalPart(email) {
+  const e = String(email ?? "").trim().toLowerCase();
+  const at = e.indexOf("@");
+  if (at < 1) return "";
+  return e.slice(0, at);
+}
+
+/**
+ * Exact local-part token in utterance — not includes/startsWith/endsWith.
+ * Boundaries: email-local charset [a-z0-9._%+-] must not continue on either side.
+ * @param {unknown} utterance
+ * @param {unknown} localPart
+ */
+export function utteranceHasExactLocalPartToken(utterance, localPart) {
+  const local = String(localPart ?? "").trim().toLowerCase();
+  if (!local) return false;
+  const hay = String(utterance ?? "").toLowerCase();
+  if (!hay) return false;
+  const escaped = local.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(^|[^a-z0-9._%+-])${escaped}(?![a-z0-9._%+-])`, "i");
+  return re.test(hay);
+}
+
+/**
  * Unique full-email hit in utterance against options rows (same-row identity only).
  * @param {Array<{ id?: string, email?: string|null }>} list
  * @param {unknown} utterance
@@ -81,6 +107,61 @@ export function findUniqueExactEmailOptionMatch(list, utterance) {
     if (hay.includes(email)) hits.push(row);
   }
   return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * Unique exact local-part token hit against options rows.
+ * @param {Array<{ id?: string, email?: string|null }>} list
+ * @param {unknown} utterance
+ * @returns {{ ok: true, person: object|null, reason: null } | { ok: false, person: null, reason: 'AMBIGUOUS_LOCAL' }}
+ */
+export function findUniqueExactLocalPartOptionMatch(list, utterance) {
+  const hits = [];
+  const seen = new Set();
+  for (const row of Array.isArray(list) ? list : []) {
+    const rowId = String(row?.id ?? "").trim();
+    const email = String(row?.email ?? "").trim();
+    const local = assignmentEmailLocalPart(email);
+    if (!rowId || !local) continue;
+    if (!utteranceHasExactLocalPartToken(utterance, local)) continue;
+    if (seen.has(rowId)) continue;
+    seen.add(rowId);
+    hits.push(row);
+  }
+  if (hits.length === 1) return { ok: true, person: hits[0], reason: null };
+  if (hits.length > 1) return { ok: false, person: null, reason: "AMBIGUOUS_LOCAL" };
+  return { ok: true, person: null, reason: null };
+}
+
+/**
+ * Utterance identity against options: full email exact, else unique exact local-part.
+ * @param {Array<{ id?: string, email?: string|null }>} list
+ * @param {unknown} utterance
+ * @returns {{
+ *   ok: true,
+ *   person: object|null,
+ *   via: 'email'|'local'|null,
+ *   reason: null,
+ * } | {
+ *   ok: false,
+ *   person: null,
+ *   via: null,
+ *   reason: 'AMBIGUOUS_LOCAL',
+ * }}
+ */
+export function findUniqueUtteranceOptionIdentity(list, utterance) {
+  const byEmail = findUniqueExactEmailOptionMatch(list, utterance);
+  if (byEmail) {
+    return { ok: true, person: byEmail, via: "email", reason: null };
+  }
+  const byLocal = findUniqueExactLocalPartOptionMatch(list, utterance);
+  if (!byLocal.ok) {
+    return { ok: false, person: null, via: null, reason: byLocal.reason };
+  }
+  if (byLocal.person) {
+    return { ok: true, person: byLocal.person, via: "local", reason: null };
+  }
+  return { ok: true, person: null, via: null, reason: null };
 }
 
 /**

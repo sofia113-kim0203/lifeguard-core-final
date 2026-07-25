@@ -8,7 +8,7 @@ import { loadAdminLiveAgentAssignments } from "../agent/adminAgentAssignmentRead
 import {
   assertAdminAssignmentConfirmCardAligned,
   buildAlignedAssignmentBody,
-  findUniqueExactEmailOptionMatch,
+  findUniqueUtteranceOptionIdentity,
   formatAssignmentOptionLabel,
   resolveAdminAssignmentOptionRow,
 } from "../../src/lib/adminAgentAssignment.js";
@@ -161,9 +161,27 @@ export function validateAdminAssignmentProposal({
         card: null,
       };
     }
-    const utteranceCustomer = findUniqueExactEmailOptionMatch(customers, utterance);
-    const utteranceAgent = findUniqueExactEmailOptionMatch(agents, utterance);
-    if (utteranceCustomer && utteranceCustomer.id !== customer.id) {
+    // Utterance identity: full email exact, else unique exact local-part (not includes).
+    // Claude id must match that options row; notes/prose never identify.
+    const utteranceCustomer = findUniqueUtteranceOptionIdentity(customers, utterance);
+    const utteranceAgent = findUniqueUtteranceOptionIdentity(agents, utterance);
+    if (!utteranceCustomer.ok) {
+      return {
+        ok: true,
+        reason: "CUSTOMER_IDENTITY_AMBIGUOUS",
+        text: "고객 후보가 여러 명입니다. 이메일로 다시 지정해 주세요.",
+        card: null,
+      };
+    }
+    if (!utteranceAgent.ok) {
+      return {
+        ok: true,
+        reason: "AGENT_IDENTITY_AMBIGUOUS",
+        text: "설계사 후보가 여러 명입니다. 이메일로 다시 지정해 주세요.",
+        card: null,
+      };
+    }
+    if (utteranceCustomer.person && utteranceCustomer.person.id !== customer.id) {
       return {
         ok: true,
         reason: "CUSTOMER_IDENTITY_MISMATCH",
@@ -171,7 +189,7 @@ export function validateAdminAssignmentProposal({
         card: null,
       };
     }
-    if (utteranceAgent && utteranceAgent.id !== agent.id) {
+    if (utteranceAgent.person && utteranceAgent.person.id !== agent.id) {
       return {
         ok: true,
         reason: "AGENT_IDENTITY_MISMATCH",
