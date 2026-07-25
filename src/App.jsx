@@ -188,6 +188,13 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    try {
+      const { clearAllAgentKeyChatSessions } = await import("./lib/agentKeyChatSession.js");
+      const agentId = String(user?.id ?? "").trim();
+      if (agentId) clearAllAgentKeyChatSessions(agentId);
+    } catch {
+      /* ignore session clear */
+    }
     await supabase.auth.signOut();
     setActiveMenu("home");
     navigateTo(LIFEGUARD_PATH);

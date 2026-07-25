@@ -34,8 +34,14 @@ import {
 } from "../lib/agentKeyBriefing.js";
 import {
   canSubmitAgentFreeKey,
-  postAgentFreeKeyChat,
+  postAgentFreeKeyChatStream,
 } from "../lib/agentFreeKey.js";
+import {
+  AGENT_HOME_SCOPE_GENERAL as AGENT_SCOPE_GENERAL,
+  clearAllAgentKeyChatSessions,
+  readAgentKeyChatSession,
+  writeAgentKeyChatSession,
+} from "../lib/agentKeyChatSession.js";
 import { fetchMyCorporateEntities } from "../lib/keyMyCorporateEntities.js";
 import {
   buildCustomerUiFinalShellModel,
@@ -489,7 +495,7 @@ function patchLastAssistantMessage(prev, patch) {
   return copy;
 }
 
-const AGENT_HOME_SCOPE_GENERAL = "__general__";
+const AGENT_HOME_SCOPE_GENERAL = AGENT_SCOPE_GENERAL;
 
 const AGENT_NOW_ACTION = Object.freeze({
   pending: true,
@@ -635,12 +641,31 @@ export default function LifeguardHomeChat({
     trackedAnalysisJobIdRef.current = session?.trackedAnalysisJobId ?? null;
   }, [session?.trackedAnalysisJobId]);
 
-  // Agent V3.1: local thread only — ready immediately; never restore customer sessions.
+  // Agent V3.1: sessionStorage restore per scope — never customer conversations DB.
+  const agentRestoringRef = useRef(false);
   useEffect(() => {
     if (!isAgentAudience) return undefined;
+    if (!authUser?.id) {
+      setMessages([]);
+      setThreadRestoreReady(true);
+      return undefined;
+    }
+    agentRestoringRef.current = true;
+    const snap = readAgentKeyChatSession(authUser.id, agentSelectedId);
+    setMessages(Array.isArray(snap?.messages) ? snap.messages : []);
     setThreadRestoreReady(true);
+    queueMicrotask(() => {
+      agentRestoringRef.current = false;
+    });
     return undefined;
-  }, [isAgentAudience]);
+  }, [isAgentAudience, authUser?.id, agentSelectedId]);
+
+  useEffect(() => {
+    if (!isAgentAudience || !authUser?.id || !threadRestoreReady) return undefined;
+    if (agentRestoringRef.current) return undefined;
+    writeAgentKeyChatSession(authUser.id, agentSelectedId, messages);
+    return undefined;
+  }, [isAgentAudience, authUser?.id, agentSelectedId, messages, threadRestoreReady]);
 
   useEffect(() => {
     if (!isAgentAudience || !authUser) return undefined;
@@ -884,7 +909,10 @@ export default function LifeguardHomeChat({
   const selectAgentScope = useCallback((nextId) => {
     setAgentSelectedId((prev) => {
       if (prev === nextId) return prev;
-      setMessages([]);
+      const agentId = authUserRef.current?.id;
+      if (agentId) {
+        writeAgentKeyChatSession(agentId, prev, messagesRef.current);
+      }
       setError("");
       setInput("");
       setAgentListError(null);
@@ -1449,9 +1477,9 @@ export default function LifeguardHomeChat({
     const trimmed = String(value ?? "").trim();
     if (!trimmed || isDisabled || loading || !threadRestoreReady) return;
 
-    // Advisor KEY — same V3.1 screen; agent answers stay local (never customer conversation).
+    // Advisor KEY — same V3.1 screen; SSE local thread (never customer conversation).
     if (isAgentAudience) {
-      if (!canSubmitAgentFreeKey({ question: trimmed, submitting: loading })) return;
+      if (!canSubmitAgentFreeKey({ question: trimmed, submitting: loading || streaming })) return;
       setPanelView("chat");
       setSidebarOpen(false);
       setError("");
@@ -1474,11 +1502,26 @@ export default function LifeguardHomeChat({
       setInput("");
       focusChatInput();
       setLoading(true);
+      setStreaming(false);
+      let streamedText = "";
       try {
-        const result = await postAgentFreeKeyChat({
+        const result = await postAgentFreeKeyChatStream({
           question: trimmed,
           history: historyForApi,
           assignmentId,
+          onDelta: (chunk) => {
+            const piece = String(chunk ?? "");
+            if (!piece) return;
+            streamedText += piece;
+            setStreaming(true);
+            setLoading(false);
+            setMessages((prev) =>
+              patchLastAssistantMessage(prev, {
+                content: streamedText,
+                thinking: false,
+              }),
+            );
+          },
         });
         if (!result.ok) {
           setMessages((prev) =>
@@ -1487,27 +1530,20 @@ export default function LifeguardHomeChat({
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        const answer = String(result.text ?? "").trim();
+        const answer = String(result.text ?? "").trim() || streamedText;
         setAgentTurnMeta({
           mode: result.mode ?? null,
           customer_context_used: result.customer_context_used === true,
           access_reason: result.access_reason ?? null,
         });
-        setMessages((prev) => {
-          const withoutThinking = prev.filter(
-            (m) => !(m.role === "assistant" && m.thinking === true),
-          );
-          return [
-            ...withoutThinking,
-            {
-              role: "assistant",
-              content: answer,
-              thinking: false,
-              mode: result.mode,
-              customer_context_used: result.customer_context_used === true,
-            },
-          ];
-        });
+        setMessages((prev) =>
+          patchLastAssistantMessage(prev, {
+            content: answer,
+            thinking: false,
+            mode: result.mode,
+            customer_context_used: result.customer_context_used === true,
+          }),
+        );
       } catch {
         setMessages((prev) =>
           prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
@@ -1515,6 +1551,7 @@ export default function LifeguardHomeChat({
         setError("KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       } finally {
         setLoading(false);
+        setStreaming(false);
         focusChatInput();
       }
       return;
@@ -2254,7 +2291,12 @@ export default function LifeguardHomeChat({
       if (!isWideRoom) setMirrorRailOpen(true);
     },
     onClose: () => setSidebarOpen(false),
-    onSignOut: () => supabase.auth.signOut(),
+    onSignOut: async () => {
+      if (isAgentAudience && authUser?.id) {
+        clearAllAgentKeyChatSessions(authUser.id);
+      }
+      await supabase.auth.signOut();
+    },
   };
 
   const menuDrawerStyle = {
@@ -2889,7 +2931,7 @@ export default function LifeguardHomeChat({
                     className="lg-v31-content-rail"
                     style={finalUiContentRailStyle({
                       display: "flex",
-                      justifyContent: "flex-start",
+                      justifyContent: isUser ? "flex-end" : "flex-start",
                       paddingTop: isUser
                         ? `${FINAL_UI.msgPadYUser}px`
                         : `${FINAL_UI.msgPadYAssistant}px`,
@@ -2900,10 +2942,13 @@ export default function LifeguardHomeChat({
                   >
                     <div
                       style={{
-                        width: "100%",
+                        width: isUser ? "fit-content" : "100%",
+                        maxWidth: "100%",
+                        marginLeft: isUser ? "auto" : 0,
                         display: "flex",
                         flexDirection: "column",
                         gap: "4px",
+                        alignItems: isUser ? "flex-end" : "stretch",
                       }}
                       aria-live={!isUser && msg.thinking ? "polite" : undefined}
                     >
@@ -2912,6 +2957,7 @@ export default function LifeguardHomeChat({
                           display: "flex",
                           alignItems: "baseline",
                           gap: "8px",
+                          justifyContent: isUser ? "flex-end" : "flex-start",
                         }}
                       >
                         <span

@@ -92,17 +92,18 @@ test("CUSTOMER_PATH_CHANGED: customer default path preserved", () => {
   assert.match(chat, /audience = \"customer\"/);
   assert.match(chat, /fetchHomeBrainFactStream/);
   assert.match(chat, /persistLifeguardChatTurn/);
-  // Agent submit branch uses free KEY API and exits before customer home-brain stream.
+  // Agent submit branch uses free KEY SSE API and exits before customer home-brain stream.
   assert.match(
     chat,
-    /if \(isAgentAudience\) \{[\s\S]*?postAgentFreeKeyChat\([\s\S]*?return;\s*\}\s*\n\s*if \(chatAttachUploading\)/,
+    /if \(isAgentAudience\) \{[\s\S]*?postAgentFreeKeyChatStream\([\s\S]*?return;\s*\}\s*\n\s*if \(chatAttachUploading\)/,
   );
   assert.match(shell, /audience = \"customer\"/);
 });
 
-test("AGENT_API_PRESERVED: postAgentFreeKeyChat → /api/agent-key-chat", () => {
-  assert.match(chat, /postAgentFreeKeyChat/);
+test("AGENT_API_PRESERVED: postAgentFreeKeyChatStream → /api/agent-key-chat SSE", () => {
+  assert.match(chat, /postAgentFreeKeyChatStream/);
   assert.match(freeHelper, /\/api\/agent-key-chat/);
+  assert.match(freeHelper, /text\/event-stream/);
   assert.equal(chat.includes("customer_conversations"), false);
   // Agent answers stay in local messages state — never call customer turn persist in agent branch.
   const agentBlock = chat.match(

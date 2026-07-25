@@ -85,6 +85,7 @@ test("client body never sends customer_id / agent_user_id", () => {
 
 test("A agent general: audience+mode+original question; Claude gets role contract; no chart", async () => {
   const calls = [];
+  const streamHandlers = { onDelta() {} };
   const result = await runAgentFreeKeyTurn({
     userSupabase: {},
     agentUserId: "agent-1",
@@ -92,6 +93,7 @@ test("A agent general: audience+mode+original question; Claude gets role contrac
     history: [{ role: "user", content: "이전" }],
     assignmentId: null,
     adminSupabase: {},
+    streamHandlers,
     runKeyTurn: async (args) => {
       calls.push(args);
       return { ok: true, customerText: "일반 답변입니다." };
@@ -104,6 +106,7 @@ test("A agent general: audience+mode+original question; Claude gets role contrac
   assert.equal(calls[0].audience, "agent");
   assert.equal(calls[0].conversationMode, "general");
   assert.equal(calls[0].question, "암 진단비를 설명해줘");
+  assert.equal(calls[0].streamHandlers, streamHandlers);
   assert.doesNotMatch(calls[0].question, /\[설계사 KEY/);
   assert.equal(calls[0].history.length, 1);
 

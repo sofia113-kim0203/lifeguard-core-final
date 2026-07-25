@@ -77,6 +77,7 @@ export function buildAgentFreeKeyQuestion({ question, mode }) {
  *   adminSupabase?: import("@supabase/supabase-js").SupabaseClient | null,
  *   env?: NodeJS.ProcessEnv,
  *   runKeyTurn?: typeof runOneKeyCoreTurn,
+ *   streamHandlers?: object | null,
  * }} args
  */
 export async function runAgentFreeKeyTurn({
@@ -88,6 +89,7 @@ export async function runAgentFreeKeyTurn({
   adminSupabase = null,
   env = process.env,
   runKeyTurn = runOneKeyCoreTurn,
+  streamHandlers = null,
 } = {}) {
   if (!userSupabase || !agentUserId) {
     return { ok: false, reason: "UNAUTHORIZED", status: 401 };
@@ -153,6 +155,7 @@ export async function runAgentFreeKeyTurn({
   }
 
   // Role enforcement is structural (audience + conversationMode), not question prefix.
+  // Optional streamHandlers forward to the same single Claude path as customer SSE.
   const keyResult = await runKeyTurn({
     event: "question",
     userSupabase: keySupabase,
@@ -166,6 +169,7 @@ export async function runAgentFreeKeyTurn({
     presenceTurn: false,
     audience: "agent",
     conversationMode: mode,
+    streamHandlers: streamHandlers || null,
     env,
   });
 
