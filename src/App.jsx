@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import AdminMenuPanel from "./components/AdminMenuPanel.jsx";
-import AgentDeskPanel from "./components/AgentDeskPanel.jsx";
 import AiRecommendationPanel from "./components/AiRecommendationPanel.jsx";
 import AuthPanel from "./components/AuthPanel.jsx";
 import ResetPasswordPanel from "./components/ResetPasswordPanel.jsx";
@@ -105,7 +104,9 @@ function renderMainContent(
     case "corporate":
       return <CorporatePanel />;
     case "agent":
-      return <AgentDeskPanel user={user} />;
+      // /agent primary UI is CustomerLifeguardShell + LifeguardHomeChat (audience=agent).
+      // Dark backoffice must not host a separate Agent Desk panel as the main screen.
+      return null;
     case "admin":
       return (
         <RoleAccessPanel
@@ -277,6 +278,22 @@ export default function App() {
         authMode={authMode}
         onOpenAuth={handleOpenAuth}
         onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
+  // Advisor KEY V3.1 same screen — /agent uses customer V3.1 shell + LifeguardHomeChat.
+  if (userRole === APP_ROLES.AGENT && normalizeAppPath(appPath) === "/agent") {
+    return (
+      <CustomerLifeguardShell
+        user={user}
+        userRole={userRole}
+        session={session}
+        authLoading={authLoading}
+        authMode={authMode}
+        onOpenAuth={handleOpenAuth}
+        onLoginSuccess={handleLoginSuccess}
+        audience="agent"
       />
     );
   }

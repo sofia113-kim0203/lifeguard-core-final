@@ -30,6 +30,7 @@ export default function CustomerLifeguardShell({
   authMode = "login",
   onOpenAuth,
   onLoginSuccess,
+  audience = "customer",
 }) {
   useEffect(() => {
     if (!user) return;
@@ -78,7 +79,7 @@ export default function CustomerLifeguardShell({
 
   return (
     <CustomerSessionProvider user={user} authSession={session} authLoading={authLoading}>
-      <LifeguardHomeChat layer1Only />
+      <LifeguardHomeChat layer1Only audience={audience} />
     </CustomerSessionProvider>
   );
 }

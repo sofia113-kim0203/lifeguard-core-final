@@ -179,7 +179,11 @@ test("customer/admin route blocked; agent allowed", () => {
   assert.doesNotMatch(panel, /KEY에게 브리핑 요청/);
   assert.doesNotMatch(panel, /KEY에게 상담 준비 요청/);
   const app = readFileSync(join(ROOT, "src/App.jsx"), "utf8");
-  assert.match(app, /case \"agent\":\s*return <AgentDeskPanel/);
+  // /agent primary UI is shared V3.1 LifeguardHomeChat (not AgentDeskPanel).
+  assert.match(app, /audience="agent"/);
+  assert.match(app, /normalizeAppPath\(appPath\) === "\/agent"/);
+  assert.doesNotMatch(app, /case \"agent\":\s*return <AgentDeskPanel/);
+  assert.doesNotMatch(app, /import AgentDeskPanel/);
   assert.match(app, /import RoleAccessPanel/);
   assert.match(app, /requiredRoles=\{\["admin"\]\}/);
   assert.match(app, /handleLoginSuccess/);

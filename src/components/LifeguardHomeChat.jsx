@@ -3,6 +3,8 @@ import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
 import KeyVisualBlocks from "./KeyVisualBlocks.jsx";
 import KeyCustomerLeftRail from "./KeyCustomerLeftRail.jsx";
 import KeyCustomerRightRail from "./KeyCustomerRightRail.jsx";
+import KeyAgentLeftRail from "./KeyAgentLeftRail.jsx";
+import KeyAgentRightRail from "./KeyAgentRightRail.jsx";
 import KeyNowActionCard from "./KeyNowActionCard.jsx";
 import KeyInsuranceDetailDrawer from "./KeyInsuranceDetailDrawer.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
@@ -26,6 +28,14 @@ import {
   shouldClearActiveAttachmentAfterTurn,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
+import {
+  createAgentKeyBriefingRequest,
+  listAgentKeyBriefings,
+} from "../lib/agentKeyBriefing.js";
+import {
+  canSubmitAgentFreeKey,
+  postAgentFreeKeyChat,
+} from "../lib/agentFreeKey.js";
 import { fetchMyCorporateEntities } from "../lib/keyMyCorporateEntities.js";
 import {
   buildCustomerUiFinalShellModel,
@@ -479,7 +489,15 @@ function patchLastAssistantMessage(prev, patch) {
   return copy;
 }
 
-export default function LifeguardHomeChat({ layer1Only = true, disabled = false, displayName: displayNameProp }) {
+const AGENT_HOME_SCOPE_GENERAL = "__general__";
+
+export default function LifeguardHomeChat({
+  layer1Only = true,
+  disabled = false,
+  displayName: displayNameProp,
+  audience = "customer",
+}) {
+  const isAgentAudience = audience === "agent";
   const session = useOptionalCustomerSession();
   const authUser = session?.user ?? null;
   const fileInputRef = useRef(null);
@@ -497,11 +515,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const presenceActiveRef = useRef(false);
   const displayName =
     displayNameProp ??
-    session?.dashboardData?.displayName ??
-    session?.unifiedState?.profile?.display_name ??
-    "고객";
+    (isAgentAudience
+      ? "설계사"
+      : session?.dashboardData?.displayName ??
+        session?.unifiedState?.profile?.display_name ??
+        "고객");
   const policies = session?.unifiedState?.policies ?? [];
-  const customerId = session?.dashboardData?.customerId ?? session?.unifiedState?.customer_id ?? null;
+  // Agent mode never binds to a customer chat identity — local thread only.
+  const customerId = isAgentAudience
+    ? null
+    : session?.dashboardData?.customerId ?? session?.unifiedState?.customer_id ?? null;
   const loadingSession = Boolean(session?.loading);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -540,8 +563,16 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const [documentsError, setDocumentsError] = useState("");
   const [documentDeletingId, setDocumentDeletingId] = useState(null);
   const [documentDeleteNotice, setDocumentDeleteNotice] = useState("");
-  const [threadRestoreReady, setThreadRestoreReady] = useState(false);
+  const [threadRestoreReady, setThreadRestoreReady] = useState(() => isAgentAudience);
   const [bridgeSettled, setBridgeSettled] = useState(false);
+  const [agentAssignments, setAgentAssignments] = useState([]);
+  const [agentListLoading, setAgentListLoading] = useState(false);
+  const [agentListError, setAgentListError] = useState(null);
+  const [agentSelectedId, setAgentSelectedId] = useState(AGENT_HOME_SCOPE_GENERAL);
+  const [agentTurnMeta, setAgentTurnMeta] = useState(null);
+  const [agentBriefing, setAgentBriefing] = useState(null);
+  const [agentBriefingLoading, setAgentBriefingLoading] = useState(false);
+  const [agentBriefingError, setAgentBriefingError] = useState(null);
   const loadDocumentsRef = useRef(async () => {});
   const focusChatInputRef = useRef(() => {});
   const sessionIdRef = useRef(sessionId);
@@ -594,6 +625,35 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   useEffect(() => {
     trackedAnalysisJobIdRef.current = session?.trackedAnalysisJobId ?? null;
   }, [session?.trackedAnalysisJobId]);
+
+  // Agent V3.1: local thread only — ready immediately; never restore customer sessions.
+  useEffect(() => {
+    if (!isAgentAudience) return undefined;
+    setThreadRestoreReady(true);
+    return undefined;
+  }, [isAgentAudience]);
+
+  useEffect(() => {
+    if (!isAgentAudience || !authUser) return undefined;
+    let cancelled = false;
+    (async () => {
+      setAgentListLoading(true);
+      setAgentListError(null);
+      const listed = await listAgentKeyBriefings();
+      if (cancelled) return;
+      if (!listed.ok) {
+        setAgentAssignments([]);
+        setAgentListError(listed.error_message);
+        setAgentListLoading(false);
+        return;
+      }
+      setAgentAssignments(listed.items ?? []);
+      setAgentListLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAgentAudience, authUser]);
 
   const handleKeyChatPresence = useCallback(
     ({
@@ -797,7 +857,61 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
     ],
   );
   const nameInitial = String(displayName || "고").trim().slice(0, 1) || "고";
-  const isDisabled = disabled || loadingSession || !threadRestoreReady;
+  // Agent mode must not wait on customer session hydrate / restore.
+  const isDisabled = isAgentAudience
+    ? disabled || !threadRestoreReady
+    : disabled || loadingSession || !threadRestoreReady;
+
+  const agentSelected = useMemo(
+    () =>
+      !isAgentAudience || agentSelectedId === AGENT_HOME_SCOPE_GENERAL
+        ? null
+        : agentAssignments.find((row) => row.assignment_id === agentSelectedId) ?? null,
+    [isAgentAudience, agentAssignments, agentSelectedId],
+  );
+  const agentIsGeneral =
+    !isAgentAudience || agentSelectedId === AGENT_HOME_SCOPE_GENERAL || !agentSelected;
+
+  const selectAgentScope = useCallback((nextId) => {
+    setAgentSelectedId((prev) => {
+      if (prev === nextId) return prev;
+      setMessages([]);
+      setError("");
+      setInput("");
+      setAgentListError(null);
+      setAgentTurnMeta(null);
+      setAgentBriefing(null);
+      setAgentBriefingError(null);
+      return nextId;
+    });
+  }, []);
+
+  const requestAgentBriefing = useCallback(async () => {
+    if (!agentSelected?.assignment_id || agentSelected.briefing_eligible !== true) return;
+    if (agentBriefingLoading) return;
+    setAgentBriefingLoading(true);
+    setAgentBriefingError(null);
+    try {
+      const result = await createAgentKeyBriefingRequest({
+        assignmentId: agentSelected.assignment_id,
+        purpose: "상담 준비",
+        question: "이 고객 상담을 위해 지금 알아둘 핵심을 정리해 주세요.",
+      });
+      if (!result.ok) {
+        setAgentBriefing(null);
+        setAgentBriefingError(
+          result.error_message || "브리핑 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+      }
+      setAgentBriefing(result.briefing);
+    } catch {
+      setAgentBriefing(null);
+      setAgentBriefingError("브리핑 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setAgentBriefingLoading(false);
+    }
+  }, [agentSelected, agentBriefingLoading]);
 
   const focusChatInput = useCallback(() => {
     if (focusTimerRef.current) {
@@ -1325,6 +1439,78 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
   const submitQuestion = async (value) => {
     const trimmed = String(value ?? "").trim();
     if (!trimmed || isDisabled || loading || !threadRestoreReady) return;
+
+    // Advisor KEY — same V3.1 screen; agent answers stay local (never customer conversation).
+    if (isAgentAudience) {
+      if (!canSubmitAgentFreeKey({ question: trimmed, submitting: loading })) return;
+      setPanelView("chat");
+      setSidebarOpen(false);
+      setError("");
+      const historyForApi = messages
+        .filter((m) => m.thinking !== true)
+        .map((m) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: String(m.content ?? "").trim(),
+        }))
+        .filter((m) => m.content);
+      const assignmentId =
+        !agentIsGeneral && agentSelected?.assignment_id
+          ? agentSelected.assignment_id
+          : null;
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content: trimmed },
+        { role: "assistant", content: "KEY가 확인하고 있어요.", thinking: true },
+      ]);
+      setInput("");
+      focusChatInput();
+      setLoading(true);
+      try {
+        const result = await postAgentFreeKeyChat({
+          question: trimmed,
+          history: historyForApi,
+          assignmentId,
+        });
+        if (!result.ok) {
+          setMessages((prev) =>
+            prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
+          );
+          setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+          return;
+        }
+        const answer = String(result.text ?? "").trim();
+        setAgentTurnMeta({
+          mode: result.mode ?? null,
+          customer_context_used: result.customer_context_used === true,
+          access_reason: result.access_reason ?? null,
+        });
+        setMessages((prev) => {
+          const withoutThinking = prev.filter(
+            (m) => !(m.role === "assistant" && m.thinking === true),
+          );
+          return [
+            ...withoutThinking,
+            {
+              role: "assistant",
+              content: answer,
+              thinking: false,
+              mode: result.mode,
+              customer_context_used: result.customer_context_used === true,
+            },
+          ];
+        });
+      } catch {
+        setMessages((prev) =>
+          prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
+        );
+        setError("KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      } finally {
+        setLoading(false);
+        focusChatInput();
+      }
+      return;
+    }
+
     if (chatAttachUploading) {
       setError("파일 업로드가 끝난 뒤 보내 주세요.");
       return;
@@ -2139,28 +2325,46 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               flexDirection: "column",
             }}
           >
-            <KeyCustomerLeftRail
-              shell={finalShell}
-              collapsed={false}
-              onToggleCollapse={() => setInsuranceRailOpen(false)}
-              onOpenFamily={() => {
-                setInsuranceRailOpen(false);
-                setSidebarOpen(true);
-              }}
-              onOpenSessions={() => {
-                setInsuranceRailOpen(false);
-                setSidebarOpen(true);
-              }}
-              onOpenVault={() => {
-                setInsuranceRailOpen(false);
-                setPanelView("documents");
-              }}
-              onOpenDiagnosisDetail={() => {
-                setInsuranceRailOpen(false);
-                setMirrorRailOpen(true);
-              }}
-              style={{ width: "100%", maxWidth: "none", height: "100%" }}
-            />
+            {isAgentAudience ? (
+              <KeyAgentLeftRail
+                collapsed={false}
+                onToggleCollapse={() => setInsuranceRailOpen(false)}
+                items={agentAssignments}
+                listLoading={agentListLoading}
+                listError={agentListError}
+                selectedId={agentSelectedId}
+                generalId={AGENT_HOME_SCOPE_GENERAL}
+                onSelectScope={selectAgentScope}
+                onOpenMenu={() => {
+                  setInsuranceRailOpen(false);
+                  setSidebarOpen(true);
+                }}
+                style={{ width: "100%", maxWidth: "none", height: "100%" }}
+              />
+            ) : (
+              <KeyCustomerLeftRail
+                shell={finalShell}
+                collapsed={false}
+                onToggleCollapse={() => setInsuranceRailOpen(false)}
+                onOpenFamily={() => {
+                  setInsuranceRailOpen(false);
+                  setSidebarOpen(true);
+                }}
+                onOpenSessions={() => {
+                  setInsuranceRailOpen(false);
+                  setSidebarOpen(true);
+                }}
+                onOpenVault={() => {
+                  setInsuranceRailOpen(false);
+                  setPanelView("documents");
+                }}
+                onOpenDiagnosisDetail={() => {
+                  setInsuranceRailOpen(false);
+                  setMirrorRailOpen(true);
+                }}
+                style={{ width: "100%", maxWidth: "none", height: "100%" }}
+              />
+            )}
           </div>
         </>
       ) : null}
@@ -2189,12 +2393,27 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
               flexDirection: "column",
             }}
           >
-            <KeyCustomerRightRail
-              shell={finalShell}
-              collapsed={false}
-              onToggleCollapse={() => setMirrorRailOpen(false)}
-              style={{ width: "100%", maxWidth: "none", height: "100%" }}
-            />
+            {isAgentAudience ? (
+              <KeyAgentRightRail
+                collapsed={false}
+                onToggleCollapse={() => setMirrorRailOpen(false)}
+                isGeneral={agentIsGeneral}
+                selected={agentSelected}
+                turnMeta={agentTurnMeta}
+                briefing={agentBriefing}
+                briefingLoading={agentBriefingLoading}
+                briefingError={agentBriefingError}
+                onRequestBriefing={requestAgentBriefing}
+                style={{ width: "100%", maxWidth: "none", height: "100%" }}
+              />
+            ) : (
+              <KeyCustomerRightRail
+                shell={finalShell}
+                collapsed={false}
+                onToggleCollapse={() => setMirrorRailOpen(false)}
+                style={{ width: "100%", maxWidth: "none", height: "100%" }}
+              />
+            )}
           </div>
         </>
       ) : null}
@@ -2300,16 +2519,38 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             >
               LIFEGUARD
             </div>
-            <div
-              style={{
-                fontSize: `${FINAL_UI.brandTagSize}px`,
-                color: FINAL_UI.muted,
-                marginTop: `${FINAL_UI.brandTagMtPx}px`,
-                lineHeight: 1.2,
-              }}
-            >
-              늘 곁에 있는 보험 주치의
-            </div>
+            {isAgentAudience ? (
+              <div
+                className="lg-agent-key-badge"
+                style={{
+                  marginTop: `${FINAL_UI.brandTagMtPx}px`,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "3px 10px",
+                  borderRadius: "999px",
+                  background: FINAL_UI.soft,
+                  border: `1px solid ${FINAL_UI.line}`,
+                  fontSize: `${FINAL_UI.brandTagSize}px`,
+                  fontWeight: 700,
+                  color: FINAL_UI.navyDeep,
+                  lineHeight: 1.2,
+                }}
+              >
+                설계사 KEY
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: `${FINAL_UI.brandTagSize}px`,
+                  color: FINAL_UI.muted,
+                  marginTop: `${FINAL_UI.brandTagMtPx}px`,
+                  lineHeight: 1.2,
+                }}
+              >
+                늘 곁에 있는 보험 주치의
+              </div>
+            )}
           </div>
 
           <div
@@ -2337,7 +2578,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     textOverflow: "ellipsis",
                   }}
                 >
-                  KEY가 계속 관리하는 것
+                  {isAgentAudience ? "권한 · 브리핑" : "KEY가 계속 관리하는 것"}
                 </div>
                 <div
                   style={{
@@ -2347,7 +2588,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
                     lineHeight: 1.2,
                   }}
                 >
-                  돈 · 일정 · 활동 · 결과
+                  {isAgentAudience ? "선택 고객 자료 범위" : "돈 · 일정 · 활동 · 결과"}
                 </div>
               </div>
             ) : null}
@@ -2439,25 +2680,40 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           }}
         >
           {showInsuranceInline ? (
-            <KeyCustomerLeftRail
-              shell={finalShell}
-              collapsed={leftRailCollapsed}
-              onToggleCollapse={() => setLeftRailCollapsed((v) => !v)}
-              onOpenFamily={() => setSidebarOpen(true)}
-              onOpenSessions={() => setSidebarOpen(true)}
-              onOpenVault={() => {
-                setPanelView("documents");
-                setSidebarOpen(false);
-              }}
-              onOpenDiagnosisDetail={() => {
-                const item = (coverageBaseline?.items || []).find(
-                  (it) => it.id === "cancer_diagnosis",
-                );
-                if (item) openBaselineDetail(item);
-                else if (!isWideRoom) setMirrorRailOpen(true);
-              }}
-              style={{ height: "100%" }}
-            />
+            isAgentAudience ? (
+              <KeyAgentLeftRail
+                collapsed={leftRailCollapsed}
+                onToggleCollapse={() => setLeftRailCollapsed((v) => !v)}
+                items={agentAssignments}
+                listLoading={agentListLoading}
+                listError={agentListError}
+                selectedId={agentSelectedId}
+                generalId={AGENT_HOME_SCOPE_GENERAL}
+                onSelectScope={selectAgentScope}
+                onOpenMenu={() => setSidebarOpen(true)}
+                style={{ height: "100%" }}
+              />
+            ) : (
+              <KeyCustomerLeftRail
+                shell={finalShell}
+                collapsed={leftRailCollapsed}
+                onToggleCollapse={() => setLeftRailCollapsed((v) => !v)}
+                onOpenFamily={() => setSidebarOpen(true)}
+                onOpenSessions={() => setSidebarOpen(true)}
+                onOpenVault={() => {
+                  setPanelView("documents");
+                  setSidebarOpen(false);
+                }}
+                onOpenDiagnosisDetail={() => {
+                  const item = (coverageBaseline?.items || []).find(
+                    (it) => it.id === "cancer_diagnosis",
+                  );
+                  if (item) openBaselineDetail(item);
+                  else if (!isWideRoom) setMirrorRailOpen(true);
+                }}
+                style={{ height: "100%" }}
+              />
+            )
           ) : null}
 
           <div
@@ -2487,7 +2743,7 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
             margin: "0",
           }}
         >
-          {panelView === "chat" && messages.length === 0 ? (
+          {panelView === "chat" && messages.length === 0 && !isAgentAudience ? (
             <div
               className="lg-v31-action-slot lg-v31-content-rail"
               style={finalUiContentRailStyle({
@@ -3098,12 +3354,27 @@ export default function LifeguardHomeChat({ layer1Only = true, disabled = false,
           </div>
 
           {showMirrorInline ? (
-            <KeyCustomerRightRail
-              shell={finalShell}
-              collapsed={rightRailCollapsed}
-              onToggleCollapse={() => setRightRailCollapsed((v) => !v)}
-              style={{ height: "100%" }}
-            />
+            isAgentAudience ? (
+              <KeyAgentRightRail
+                collapsed={rightRailCollapsed}
+                onToggleCollapse={() => setRightRailCollapsed((v) => !v)}
+                isGeneral={agentIsGeneral}
+                selected={agentSelected}
+                turnMeta={agentTurnMeta}
+                briefing={agentBriefing}
+                briefingLoading={agentBriefingLoading}
+                briefingError={agentBriefingError}
+                onRequestBriefing={requestAgentBriefing}
+                style={{ height: "100%" }}
+              />
+            ) : (
+              <KeyCustomerRightRail
+                shell={finalShell}
+                collapsed={rightRailCollapsed}
+                onToggleCollapse={() => setRightRailCollapsed((v) => !v)}
+                style={{ height: "100%" }}
+              />
+            )
           ) : null}
         </div>
       </div>
