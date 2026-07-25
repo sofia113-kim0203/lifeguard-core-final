@@ -46,6 +46,141 @@ export function formatAssignmentOptionLabel(person) {
 }
 
 /**
+ * Resolve one options row by exact id. Email+id must both exist on that same row.
+ * Notes / Claude prose are never used here.
+ * @param {Array<{ id?: string, email?: string|null, display_name?: string|null }>} list
+ * @param {unknown} id
+ */
+export function resolveAdminAssignmentOptionRow(list, id) {
+  const want = String(id ?? "").trim();
+  if (!want) return null;
+  const matches = (Array.isArray(list) ? list : []).filter(
+    (row) => String(row?.id ?? "").trim() === want,
+  );
+  if (matches.length !== 1) return null;
+  const row = matches[0];
+  const email = String(row?.email ?? "").trim();
+  if (!email) return null;
+  if (String(row.id).trim() !== want) return null;
+  return row;
+}
+
+/**
+ * Unique full-email hit in utterance against options rows (same-row identity only).
+ * @param {Array<{ id?: string, email?: string|null }>} list
+ * @param {unknown} utterance
+ */
+export function findUniqueExactEmailOptionMatch(list, utterance) {
+  const hay = String(utterance ?? "").trim().toLowerCase();
+  if (!hay) return null;
+  const hits = [];
+  for (const row of Array.isArray(list) ? list : []) {
+    const email = String(row?.email ?? "").trim().toLowerCase();
+    const rowId = String(row?.id ?? "").trim();
+    if (!email || !rowId) continue;
+    if (hay.includes(email)) hits.push(row);
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * Confirm-card customer/agent must be the same options rows as POST body ids.
+ * Label must be recomputed from those rows (never notes / KEY prose).
+ * @param {Record<string, unknown>|null|undefined} card
+ * @param {object[]} customers
+ * @param {object[]} agents
+ */
+export function assertAdminAssignmentConfirmCardAligned(card, customers, agents) {
+  if (!card || typeof card !== "object") {
+    return { ok: false, reason: "NO_CARD" };
+  }
+  const action = String(card.action ?? "").trim();
+  if (!["create_pending", "activate", "close"].includes(action)) {
+    return { ok: false, reason: "INVALID_ACTION" };
+  }
+  const customer = resolveAdminAssignmentOptionRow(customers, card.customer_id);
+  const agent = resolveAdminAssignmentOptionRow(agents, card.agent_user_id);
+  if (!customer || !agent) {
+    return { ok: false, reason: "IDENTITY_MISMATCH" };
+  }
+  const customerLabel = formatAssignmentOptionLabel(customer);
+  const agentLabel = formatAssignmentOptionLabel(agent);
+  if (String(card.customer_label ?? "") !== customerLabel) {
+    return { ok: false, reason: "CUSTOMER_LABEL_MISMATCH" };
+  }
+  if (String(card.agent_label ?? "") !== agentLabel) {
+    return { ok: false, reason: "AGENT_LABEL_MISMATCH" };
+  }
+  if (!customerLabel.includes(String(customer.email).trim())) {
+    return { ok: false, reason: "CUSTOMER_EMAIL_MISMATCH" };
+  }
+  if (!agentLabel.includes(String(agent.email).trim())) {
+    return { ok: false, reason: "AGENT_EMAIL_MISMATCH" };
+  }
+  if (String(card.customer_id).trim() !== String(customer.id).trim()) {
+    return { ok: false, reason: "CUSTOMER_ID_MISMATCH" };
+  }
+  if (String(card.agent_user_id).trim() !== String(agent.id).trim()) {
+    return { ok: false, reason: "AGENT_ID_MISMATCH" };
+  }
+  return { ok: true, reason: null, action, customer, agent };
+}
+
+/**
+ * Build POST body only from options-aligned confirm card. Mismatch → null (POST 0).
+ * @param {Record<string, unknown>|null|undefined} card
+ * @param {object[]} customers
+ * @param {object[]} agents
+ */
+export function buildAlignedAssignmentBody(card, customers, agents) {
+  const aligned = assertAdminAssignmentConfirmCardAligned(card, customers, agents);
+  if (!aligned.ok) return null;
+  if (aligned.action === "create_pending") {
+    return buildCreatePendingBody({
+      customerId: aligned.customer.id,
+      agentUserId: aligned.agent.id,
+      notes: String(card?.notes ?? ""),
+    });
+  }
+  const assignmentId = String(card?.assignment_id ?? "").trim();
+  if (!assignmentId) return null;
+  if (aligned.action === "activate") {
+    return buildActivateBody({ assignmentId });
+  }
+  if (aligned.action === "close") {
+    return buildCloseBody({ assignmentId });
+  }
+  return null;
+}
+
+/**
+ * Panel create_pending: ids must resolve to the same options rows (email+id).
+ * @param {{
+ *   customerId?: string,
+ *   agentUserId?: string,
+ *   notes?: string,
+ *   customers?: object[],
+ *   agents?: object[],
+ * }} args
+ */
+export function buildAlignedCreatePendingFromOptionIds({
+  customerId = "",
+  agentUserId = "",
+  notes = "",
+  customers = [],
+  agents = [],
+} = {}) {
+  const customer = resolveAdminAssignmentOptionRow(customers, customerId);
+  const agent = resolveAdminAssignmentOptionRow(agents, agentUserId);
+  if (!customer || !agent) return null;
+  return buildCreatePendingBody({
+    customerId: customer.id,
+    agentUserId: agent.id,
+    notes,
+  });
+}
+
+/**
  * @param {unknown} status
  */
 export function assignmentStatusLabelKo(status) {

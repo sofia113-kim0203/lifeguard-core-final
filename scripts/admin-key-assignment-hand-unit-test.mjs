@@ -14,8 +14,13 @@ import {
   validateAdminAssignmentProposal,
 } from "../server/keyCore/adminKeyAssignmentHand.js";
 import {
+  assertAdminAssignmentConfirmCardAligned,
+  buildAlignedAssignmentBody,
+  findUniqueExactEmailOptionMatch,
+  formatAssignmentOptionLabel,
   optionLabelsHideIds,
   pickRehydratableLiveAssignment,
+  resolveAdminAssignmentOptionRow,
 } from "../src/lib/adminAgentAssignment.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +115,7 @@ const agents = [
   assert.ok(optionLabelsHideIds(agents));
 }
 
-// validate create_pending card — no auto execute
+// validate create_pending card — no auto execute; body from same options rows
 {
   const out = validateAdminAssignmentProposal({
     proposal: {
@@ -122,19 +127,91 @@ const agents = [
     customers,
     agents,
     assignments: [],
+    utterance: "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게",
   });
   assert.equal(out.ok, true);
   assert.equal(out.card?.action, "create_pending");
   assert.equal(out.card?.customer_id, CUSTOMER);
+  assert.equal(out.card?.customer_label, formatAssignmentOptionLabel(customers[0]));
+  assert.equal(out.card?.agent_label, formatAssignmentOptionLabel(agents[0]));
   assert.ok(!String(out.text).includes(CUSTOMER));
   assert.ok(!String(out.card.customer_label).includes(CUSTOMER));
-  const body = buildConfirmedAssignmentBody(out.card);
+  const catalogs = { customers, agents };
+  const body = buildConfirmedAssignmentBody(out.card, catalogs);
   assert.deepEqual(body, {
     action: "create_pending",
     customer_id: CUSTOMER,
     agent_user_id: AGENT,
     notes: "memo",
   });
+  assert.equal(
+    assertAdminAssignmentConfirmCardAligned(out.card, customers, agents).ok,
+    true,
+  );
+}
+
+// Identity lock: email+id must be same options row; notes/prose never identify
+{
+  assert.equal(resolveAdminAssignmentOptionRow(customers, "nope"), null);
+  assert.equal(
+    findUniqueExactEmailOptionMatch(
+      customers,
+      "qa-customer-b@staging-qa.example.com 배정",
+    )?.id,
+    CUSTOMER,
+  );
+
+  // Claude id ≠ utterance unique email → no card (POST path blocked)
+  const wrongCustomer = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER_B,
+      agent_user_id: AGENT,
+      notes: "QA Customer B → e2-3-qa-agent@staging-qa.example.com",
+    },
+    customers,
+    agents,
+    assignments: [],
+    utterance:
+      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게 배정해줘",
+  });
+  assert.equal(wrongCustomer.card, null);
+  assert.equal(wrongCustomer.reason, "CUSTOMER_IDENTITY_MISMATCH");
+  assert.equal(buildConfirmedAssignmentBody(wrongCustomer.card, { customers, agents }), null);
+
+  const wrongAgent = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER,
+      agent_user_id: AGENT_B,
+    },
+    customers,
+    agents,
+    assignments: [],
+    utterance:
+      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게 배정해줘",
+  });
+  assert.equal(wrongAgent.card, null);
+  assert.equal(wrongAgent.reason, "AGENT_IDENTITY_MISMATCH");
+
+  // Tampered card label vs id → body null (POST 0)
+  const good = validateAdminAssignmentProposal({
+    proposal: { action: "create_pending", customer_id: CUSTOMER, agent_user_id: AGENT },
+    customers,
+    agents,
+    assignments: [],
+  });
+  const tampered = {
+    ...good.card,
+    customer_label: formatAssignmentOptionLabel(customers[1]),
+  };
+  assert.equal(assertAdminAssignmentConfirmCardAligned(tampered, customers, agents).ok, false);
+  assert.equal(buildAlignedAssignmentBody(tampered, customers, agents), null);
+  assert.equal(buildConfirmedAssignmentBody(tampered, { customers, agents }), null);
+
+  // catalogs required — without options lock, no body
+  assert.equal(buildConfirmedAssignmentBody(good.card), null);
+  assert.equal(buildConfirmedAssignmentBody(good.card, null), null);
 }
 
 // Ambiguous / missing ids → no card (no POST path)
@@ -178,7 +255,9 @@ const agents = [
     assignments,
   });
   assert.equal(activate.card?.assignment_id, ASSIGNMENT);
-  assert.deepEqual(buildConfirmedAssignmentBody(activate.card), {
+  assert.equal(activate.card?.customer_id, CUSTOMER);
+  assert.equal(activate.card?.agent_user_id, AGENT);
+  assert.deepEqual(buildConfirmedAssignmentBody(activate.card, { customers, agents }), {
     action: "activate",
     assignment_id: ASSIGNMENT,
   });
@@ -190,7 +269,7 @@ const agents = [
     assignments: [{ ...assignments[0], status: "active" }],
   });
   assert.equal(close.card?.action, "close");
-  assert.deepEqual(buildConfirmedAssignmentBody(close.card), {
+  assert.deepEqual(buildConfirmedAssignmentBody(close.card, { customers, agents }), {
     action: "close",
     assignment_id: ASSIGNMENT,
   });
@@ -248,6 +327,9 @@ const agents = [
   assert.ok(!hand.includes('includes("배정해줘")'));
   assert.ok(!hand.includes('includes("활성화")'));
   assert.ok(hand.includes("validateAdminAssignmentProposal"));
+  assert.ok(hand.includes("resolveAdminAssignmentOptionRow"));
+  assert.ok(hand.includes("findUniqueExactEmailOptionMatch"));
+  assert.ok(hand.includes("assertAdminAssignmentConfirmCardAligned"));
 
   const menu = readFileSync(join(ROOT, "src/components/AdminMenuPanel.jsx"), "utf8");
   assert.ok(menu.includes("KEY 배정 상담"));
@@ -260,6 +342,15 @@ const agents = [
   );
   assert.ok(panel.includes("loadAdminLiveAssignments"));
   assert.ok(panel.includes("pickRehydratableLiveAssignment"));
+  assert.ok(panel.includes("buildAlignedCreatePendingFromOptionIds"));
+
+  const chatPanel = readFileSync(
+    join(ROOT, "src/components/AdminKeyAssignmentChatPanel.jsx"),
+    "utf8",
+  );
+  assert.ok(chatPanel.includes("buildAlignedAssignmentBody"));
+  assert.ok(chatPanel.includes("loadAdminAssignmentOptions"));
+  assert.ok(chatPanel.includes("일치하지 않아 등록하지 않았습니다"));
 
   const chatApi = readFileSync(
     join(ROOT, "api/admin-key-assignment-chat.js"),
@@ -273,6 +364,14 @@ const agents = [
     "utf8",
   );
   assert.ok(readApi.includes("loadAdminLiveAgentAssignments"));
+
+  // POST API / Core / migration untouched by this Hand fix
+  assert.ok(!hand.includes("runAdminAgentAssignmentAction"));
+  const migration = readFileSync(
+    join(ROOT, "supabase/migrations/038_agent_assignments_one_active.sql"),
+    "utf8",
+  );
+  assert.ok(migration.includes("agent_assignments"));
 }
 
 console.log("admin-key-assignment-hand-unit-test: PASS");

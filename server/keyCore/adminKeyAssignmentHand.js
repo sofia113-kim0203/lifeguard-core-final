@@ -1,9 +1,17 @@
 /**
  * Admin KEY assignment Hand — understand via Claude tool, never execute POST.
  * Deterministic code: candidate match validation, ambiguity, confirm card, body prep.
+ * Identity: confirm-card labels + create_pending body ids from the same options rows only.
  */
 import { loadAdminAgentAssignmentOptions } from "../agent/adminAgentAssignmentOptionsCore.js";
 import { loadAdminLiveAgentAssignments } from "../agent/adminAgentAssignmentReadCore.js";
+import {
+  assertAdminAssignmentConfirmCardAligned,
+  buildAlignedAssignmentBody,
+  findUniqueExactEmailOptionMatch,
+  formatAssignmentOptionLabel,
+  resolveAdminAssignmentOptionRow,
+} from "../../src/lib/adminAgentAssignment.js";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -103,11 +111,13 @@ export function pickLiveAssignment(assignments, { customerId = null, assignmentI
 
 /**
  * Validate Claude tool proposal against option/live lists. No POST.
+ * Identity from options rows only — never notes or Claude prose.
  * @param {{
  *   proposal: Record<string, unknown>,
  *   customers: object[],
  *   agents: object[],
  *   assignments: object[],
+ *   utterance?: string,
  * }} args
  */
 export function validateAdminAssignmentProposal({
@@ -115,6 +125,7 @@ export function validateAdminAssignmentProposal({
   customers,
   agents,
   assignments,
+  utterance = "",
 }) {
   const action = String(proposal?.action ?? "").trim();
   if (!["create_pending", "activate", "close", "clarify"].includes(action)) {
@@ -137,15 +148,34 @@ export function validateAdminAssignmentProposal({
   }
 
   if (action === "create_pending") {
-    let customerId = String(proposal?.customer_id ?? "").trim();
-    let agentUserId = String(proposal?.agent_user_id ?? "").trim();
-    const customer = (customers || []).find((c) => c.id === customerId) ?? null;
-    const agent = (agents || []).find((a) => a.id === agentUserId) ?? null;
+    const customerId = String(proposal?.customer_id ?? "").trim();
+    const agentUserId = String(proposal?.agent_user_id ?? "").trim();
+    // notes must not identify targets — resolve by options id+email only
+    const customer = resolveAdminAssignmentOptionRow(customers, customerId);
+    const agent = resolveAdminAssignmentOptionRow(agents, agentUserId);
     if (!customer || !agent) {
       return {
         ok: true,
         reason: null,
         text: "고객과 설계사를 목록에서 특정하지 못했습니다. 이름이나 이메일을 다시 알려 주세요.",
+        card: null,
+      };
+    }
+    const utteranceCustomer = findUniqueExactEmailOptionMatch(customers, utterance);
+    const utteranceAgent = findUniqueExactEmailOptionMatch(agents, utterance);
+    if (utteranceCustomer && utteranceCustomer.id !== customer.id) {
+      return {
+        ok: true,
+        reason: "CUSTOMER_IDENTITY_MISMATCH",
+        text: "고객 식별이 목록과 일치하지 않습니다. 이메일로 다시 지정해 주세요.",
+        card: null,
+      };
+    }
+    if (utteranceAgent && utteranceAgent.id !== agent.id) {
+      return {
+        ok: true,
+        reason: "AGENT_IDENTITY_MISMATCH",
+        text: "설계사 식별이 목록과 일치하지 않습니다. 이메일로 다시 지정해 주세요.",
         card: null,
       };
     }
@@ -172,8 +202,8 @@ export function validateAdminAssignmentProposal({
         agent_user_id: agent.id,
         assignment_id: null,
         notes: notes || null,
-        customer_label: formatLabel(customer),
-        agent_label: formatLabel(agent),
+        customer_label: formatAssignmentOptionLabel(customer),
+        agent_label: formatAssignmentOptionLabel(agent),
         status_label: "미배정",
         primary_label: "배정 대기로 등록",
         secondary_label: "취소",
@@ -181,9 +211,9 @@ export function validateAdminAssignmentProposal({
     };
   }
 
-  // activate / close — require resolvable live assignment
-  let assignmentId = String(proposal?.assignment_id ?? "").trim() || null;
-  let customerId = String(proposal?.customer_id ?? "").trim() || null;
+  // activate / close — require resolvable live assignment + options-aligned parties
+  const assignmentId = String(proposal?.assignment_id ?? "").trim() || null;
+  const customerId = String(proposal?.customer_id ?? "").trim() || null;
   const wantStatus = action === "activate" ? "pending" : null;
   const picked = pickLiveAssignment(assignments, {
     assignmentId,
@@ -230,6 +260,17 @@ export function validateAdminAssignmentProposal({
     };
   }
 
+  const customer = resolveAdminAssignmentOptionRow(customers, assignment.customer?.id);
+  const agent = resolveAdminAssignmentOptionRow(agents, assignment.agent?.id);
+  if (!customer || !agent) {
+    return {
+      ok: true,
+      reason: "IDENTITY_MISMATCH",
+      text: "배정 대상이 목록과 일치하지 않습니다. 고객·설계사를 다시 확인해 주세요.",
+      card: null,
+    };
+  }
+
   return {
     ok: true,
     reason: null,
@@ -240,12 +281,12 @@ export function validateAdminAssignmentProposal({
     card: {
       kind: "admin_assignment_confirm",
       action,
-      customer_id: assignment.customer.id,
-      agent_user_id: assignment.agent.id,
+      customer_id: customer.id,
+      agent_user_id: agent.id,
       assignment_id: assignment.id,
       notes: null,
-      customer_label: formatLabel(assignment.customer),
-      agent_label: formatLabel(assignment.agent),
+      customer_label: formatAssignmentOptionLabel(customer),
+      agent_label: formatAssignmentOptionLabel(agent),
       status_label: assignment.status === "pending" ? "배정 대기" : "활성 배정",
       primary_label: action === "activate" ? "활성화" : "배정 종료",
       secondary_label: "취소",
@@ -253,41 +294,17 @@ export function validateAdminAssignmentProposal({
   };
 }
 
-function formatLabel(person) {
-  const name = String(person?.display_name ?? "").trim() || "이름 없음";
-  const email = String(person?.email ?? "").trim();
-  return email ? `${name} · ${email}` : name;
-}
-
 /**
- * Build POST body only after human confirm (client uses this too).
- * @param {{ action: string, customer_id?: string|null, agent_user_id?: string|null, assignment_id?: string|null, notes?: string|null }} card
+ * Build POST body only after human confirm + options identity lock.
+ * Mismatch → null (caller must POST 0 times).
+ * @param {Record<string, unknown>|null|undefined} card
+ * @param {{ customers: object[], agents: object[] }} catalogs
  */
-export function buildConfirmedAssignmentBody(card) {
-  const action = String(card?.action ?? "").trim();
-  if (action === "create_pending") {
-    const body = {
-      action: "create_pending",
-      customer_id: String(card.customer_id ?? "").trim(),
-      agent_user_id: String(card.agent_user_id ?? "").trim(),
-    };
-    const notes = String(card.notes ?? "").trim();
-    if (notes) body.notes = notes;
-    return body;
+export function buildConfirmedAssignmentBody(card, catalogs) {
+  if (!catalogs || !Array.isArray(catalogs.customers) || !Array.isArray(catalogs.agents)) {
+    return null;
   }
-  if (action === "activate") {
-    return {
-      action: "activate",
-      assignment_id: String(card.assignment_id ?? "").trim(),
-    };
-  }
-  if (action === "close") {
-    return {
-      action: "close",
-      assignment_id: String(card.assignment_id ?? "").trim(),
-    };
-  }
-  return null;
+  return buildAlignedAssignmentBody(card, catalogs.customers, catalogs.agents);
 }
 
 function extractToolInput(content) {
@@ -430,8 +447,22 @@ export async function understandAdminAssignmentWithKey({
     customers,
     agents,
     assignments,
+    utterance: question,
   });
   if (validated.card) {
+    const aligned = assertAdminAssignmentConfirmCardAligned(
+      validated.card,
+      customers,
+      agents,
+    );
+    if (!aligned.ok) {
+      return {
+        ok: true,
+        reason: aligned.reason,
+        text: "고객·설계사 식별이 목록과 일치하지 않습니다. 이메일로 다시 지정해 주세요.",
+        card: null,
+      };
+    }
     return {
       ok: true,
       reason: null,

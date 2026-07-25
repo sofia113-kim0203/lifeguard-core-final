@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   assignmentStatusLabelKo,
   buildActivateBody,
+  buildAlignedCreatePendingFromOptionIds,
   buildCloseBody,
-  buildCreatePendingBody,
   canActivateAssignment,
   canCloseAssignment,
   canCreatePendingAssignment,
@@ -181,11 +181,17 @@ export default function AdminAgentAssignmentPanel() {
     try {
       let body = null;
       if (action === "create_pending") {
-        body = buildCreatePendingBody({
+        body = buildAlignedCreatePendingFromOptionIds({
           customerId,
           agentUserId,
           notes,
+          customers,
+          agents,
         });
+        if (!body) {
+          setErrorMessage("고객·설계사 식별이 목록과 일치하지 않아 등록하지 않았습니다.");
+          return;
+        }
       } else if (action === "activate") {
         body = buildActivateBody({ assignmentId });
       } else {

@@ -369,7 +369,7 @@ function fileSha(rel) {
   assert.ok(panel.includes("대기 배정 생성"));
   assert.ok(panel.includes("formatAssignmentOptionLabel"));
   assert.ok(!panel.includes("assignment UUID"));
-  assert.ok(panel.includes("buildCreatePendingBody"));
+  assert.ok(panel.includes("buildAlignedCreatePendingFromOptionIds"));
   assert.ok(panel.includes("buildActivateBody"));
   assert.ok(panel.includes("buildCloseBody"));
 

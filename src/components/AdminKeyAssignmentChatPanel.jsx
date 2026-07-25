@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import AdminAssignmentConfirmCard from "./AdminAssignmentConfirmCard.jsx";
 import {
-  buildActivateBody,
-  buildCloseBody,
-  buildCreatePendingBody,
+  buildAlignedAssignmentBody,
+  loadAdminAssignmentOptions,
   loadAdminLiveAssignments,
   mapAssignmentSuccessLines,
   postAdminAssignmentAction,
@@ -92,24 +91,6 @@ function buildHistory(messages) {
     .filter((m) => m.content);
 }
 
-function bodyFromCard(card) {
-  if (!card) return null;
-  if (card.action === "create_pending") {
-    return buildCreatePendingBody({
-      customerId: card.customer_id,
-      agentUserId: card.agent_user_id,
-      notes: card.notes || "",
-    });
-  }
-  if (card.action === "activate") {
-    return buildActivateBody({ assignmentId: card.assignment_id });
-  }
-  if (card.action === "close") {
-    return buildCloseBody({ assignmentId: card.assignment_id });
-  }
-  return null;
-}
-
 export default function AdminKeyAssignmentChatPanel() {
   const [messages, setMessages] = useState([
     {
@@ -184,10 +165,27 @@ export default function AdminKeyAssignmentChatPanel() {
 
   async function confirmCard(messageId, card) {
     if (busy) return;
-    const body = bodyFromCard(card);
-    if (!body) return;
     setBusy(true);
     setError("");
+    // Identity lock: card labels + body ids must be the same options rows (POST 0 on mismatch).
+    const options = await loadAdminAssignmentOptions();
+    if (!options.ok) {
+      setError(options.error_message || "고객·설계사 목록을 확인하지 못했습니다.");
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, card: null } : m)),
+      );
+      setBusy(false);
+      return;
+    }
+    const body = buildAlignedAssignmentBody(card, options.customers, options.agents);
+    if (!body) {
+      setError("고객·설계사 식별이 목록과 일치하지 않아 등록하지 않았습니다.");
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, card: null } : m)),
+      );
+      setBusy(false);
+      return;
+    }
     const result = await postAdminAssignmentAction(body);
     if (!result.ok) {
       setError(result.error_message || "요청에 실패했습니다.");
