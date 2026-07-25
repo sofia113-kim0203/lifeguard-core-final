@@ -42,6 +42,7 @@ import {
   readAgentKeyChatSession,
   writeAgentKeyChatSession,
 } from "../lib/agentKeyChatSession.js";
+import { createAgentStreamPaintController } from "../lib/agentKeyChatStreamPaint.js";
 import { fetchMyCorporateEntities } from "../lib/keyMyCorporateEntities.js";
 import {
   buildCustomerUiFinalShellModel,
@@ -1503,34 +1504,44 @@ export default function LifeguardHomeChat({
       focusChatInput();
       setLoading(true);
       setStreaming(false);
-      let streamedText = "";
+      const paint = createAgentStreamPaintController({
+        onPaint: (text, { first }) => {
+          if (first) {
+            setStreaming(true);
+            setLoading(false);
+          }
+          setMessages((prev) =>
+            patchLastAssistantMessage(prev, {
+              content: text,
+              thinking: false,
+              // Plain text while live — markdown seals on finalize (no rewrite).
+              streamLive: true,
+            }),
+          );
+        },
+      });
       try {
         const result = await postAgentFreeKeyChatStream({
           question: trimmed,
           history: historyForApi,
           assignmentId,
           onDelta: (chunk) => {
-            const piece = String(chunk ?? "");
-            if (!piece) return;
-            streamedText += piece;
-            setStreaming(true);
-            setLoading(false);
-            setMessages((prev) =>
-              patchLastAssistantMessage(prev, {
-                content: streamedText,
-                thinking: false,
-              }),
-            );
+            paint.append(chunk);
           },
         });
         if (!result.ok) {
-          setMessages((prev) =>
-            prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
-          );
+          paint.flush();
+          if (!paint.hasPainted()) {
+            setMessages((prev) =>
+              prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
+            );
+          }
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        const answer = String(result.text ?? "").trim() || streamedText;
+        // Flush any pending rAF buffer, then seal exact server final text.
+        paint.flush();
+        const answer = paint.finalize(String(result.text ?? "").trim());
         setAgentTurnMeta({
           mode: result.mode ?? null,
           customer_context_used: result.customer_context_used === true,
@@ -1540,14 +1551,18 @@ export default function LifeguardHomeChat({
           patchLastAssistantMessage(prev, {
             content: answer,
             thinking: false,
+            streamLive: false,
             mode: result.mode,
             customer_context_used: result.customer_context_used === true,
           }),
         );
       } catch {
-        setMessages((prev) =>
-          prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
-        );
+        paint.flush();
+        if (!paint.hasPainted()) {
+          setMessages((prev) =>
+            prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
+          );
+        }
         setError("KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       } finally {
         setLoading(false);
@@ -2984,16 +2999,10 @@ export default function LifeguardHomeChat({
                       >
                         {isUser ? (
                           msg.content
-                        ) : !msg.thinking ? (
-                          <LifeguardAssistantMarkdown
-                            text={msg.content}
-                            muted={false}
-                            fontFamily={FINAL_UI.sans}
-                          />
-                        ) : (
+                        ) : msg.thinking || msg.streamLive ? (
                           <>
-                            <div>{msg.content}</div>
-                            {msg.wait_secondary ? (
+                            <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                            {msg.thinking && msg.wait_secondary ? (
                               <div
                                 style={{
                                   marginTop: "6px",
@@ -3005,6 +3014,12 @@ export default function LifeguardHomeChat({
                               </div>
                             ) : null}
                           </>
+                        ) : (
+                          <LifeguardAssistantMarkdown
+                            text={msg.content}
+                            muted={false}
+                            fontFamily={FINAL_UI.sans}
+                          />
                         )}
                         {!isUser &&
                         !msg.thinking &&
