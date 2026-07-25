@@ -491,6 +491,15 @@ function patchLastAssistantMessage(prev, patch) {
 
 const AGENT_HOME_SCOPE_GENERAL = "__general__";
 
+const AGENT_NOW_ACTION = Object.freeze({
+  pending: true,
+  title: "일반 질문 또는 담당 고객을 선택하세요",
+  body: "왼쪽에서 질문 범위를 고른 뒤, KEY에게 상담·보장을 물어보세요.",
+  ctaLabel: "KEY에게 물어보기",
+  ctaHint: "고객 자료는 권한 허용 범위에서만 사용합니다",
+  submitText: "상담 준비를 도와주세요",
+});
+
 export default function LifeguardHomeChat({
   layer1Only = true,
   disabled = false,
@@ -2519,38 +2528,17 @@ export default function LifeguardHomeChat({
             >
               LIFEGUARD
             </div>
-            {isAgentAudience ? (
-              <div
-                className="lg-agent-key-badge"
-                style={{
-                  marginTop: `${FINAL_UI.brandTagMtPx}px`,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "3px 10px",
-                  borderRadius: "999px",
-                  background: FINAL_UI.soft,
-                  border: `1px solid ${FINAL_UI.line}`,
-                  fontSize: `${FINAL_UI.brandTagSize}px`,
-                  fontWeight: 700,
-                  color: FINAL_UI.navyDeep,
-                  lineHeight: 1.2,
-                }}
-              >
-                설계사 KEY
-              </div>
-            ) : (
-              <div
-                style={{
-                  fontSize: `${FINAL_UI.brandTagSize}px`,
-                  color: FINAL_UI.muted,
-                  marginTop: `${FINAL_UI.brandTagMtPx}px`,
-                  lineHeight: 1.2,
-                }}
-              >
-                늘 곁에 있는 보험 주치의
-              </div>
-            )}
+            <div
+              className={isAgentAudience ? "lg-agent-key-badge" : undefined}
+              style={{
+                fontSize: `${FINAL_UI.brandTagSize}px`,
+                color: FINAL_UI.muted,
+                marginTop: `${FINAL_UI.brandTagMtPx}px`,
+                lineHeight: 1.2,
+              }}
+            >
+              {isAgentAudience ? "설계사 KEY" : "늘 곁에 있는 보험 주치의"}
+            </div>
           </div>
 
           <div
@@ -2743,7 +2731,7 @@ export default function LifeguardHomeChat({
             margin: "0",
           }}
         >
-          {panelView === "chat" && messages.length === 0 && !isAgentAudience ? (
+          {panelView === "chat" && messages.length === 0 ? (
             <div
               className="lg-v31-action-slot lg-v31-content-rail"
               style={finalUiContentRailStyle({
@@ -2753,9 +2741,14 @@ export default function LifeguardHomeChat({
               })}
             >
               <KeyNowActionCard
-                action={finalShell?.nowAction || null}
+                action={isAgentAudience ? AGENT_NOW_ACTION : finalShell?.nowAction || null}
                 disabled={isDisabled || loading || streaming}
                 onCta={() => {
+                  if (isAgentAudience) {
+                    const text = String(AGENT_NOW_ACTION.submitText || "").trim() || "상담 준비를 도와주세요";
+                    submitQuestion(text);
+                    return;
+                  }
                   const text =
                     String(finalShell?.nowAction?.submitText || "").trim() ||
                     "준비가 되면 알려주기";
@@ -2989,9 +2982,14 @@ export default function LifeguardHomeChat({
               })}
             >
               <KeyNowActionCard
-                action={finalShell?.nowAction || null}
+                action={isAgentAudience ? AGENT_NOW_ACTION : finalShell?.nowAction || null}
                 disabled={isDisabled || loading || streaming}
                 onCta={() => {
+                  if (isAgentAudience) {
+                    const text = String(AGENT_NOW_ACTION.submitText || "").trim() || "상담 준비를 도와주세요";
+                    submitQuestion(text);
+                    return;
+                  }
                   const text =
                     String(finalShell?.nowAction?.submitText || "").trim() ||
                     "준비가 되면 알려주기";

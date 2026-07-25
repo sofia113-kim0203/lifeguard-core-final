@@ -43,27 +43,49 @@ test("CUSTOMER_COMPONENT and AGENT_COMPONENT are the same LifeguardHomeChat", ()
   assert.match(chat, /isAgentAudience \? \(\s*<KeyAgentRightRail/);
 });
 
-test("AGENT_BADGE is center header only; scope lives in LEFT rail", () => {
-  assert.match(chat, /className=\"lg-agent-key-badge\"/);
+test("AGENT_BADGE is plain subtitle text; scope lives in LEFT rail", () => {
+  assert.match(chat, /lg-agent-key-badge/);
   assert.match(chat, /설계사 KEY/);
+  // Same typography slot as customer — no pill chrome.
+  assert.doesNotMatch(
+    chat,
+    /lg-agent-key-badge[\s\S]{0,220}borderRadius:\s*"999px"/,
+  );
+  assert.doesNotMatch(
+    chat,
+    /lg-agent-key-badge[\s\S]{0,220}background:\s*FINAL_UI\.soft/,
+  );
   assert.match(left, /설계사 메뉴/);
   assert.match(left, /일반 질문/);
   assert.match(left, /담당 고객/);
   assert.match(left, /lg-agent-scope-selector/);
   assert.match(left, /lg-agent-scope-listbox/);
-  // Scope selector must not sit in the shell header path as the primary control.
+  assert.match(left, /heroGradient/);
+  assert.match(left, /railStackGapPx/);
+  assert.match(left, /overflowY:\s*"visible"/);
   assert.doesNotMatch(
     chat,
     /lg-v31-shell-header[\s\S]*lg-agent-scope-selector/,
   );
 });
 
-test("RIGHT rail shows authorized materials + briefing", () => {
-  assert.match(right, /권한 · 브리핑/);
+test("RIGHT rail chrome matches customer Blocks; briefing content inside", () => {
+  assert.match(right, /상담 브리핑/);
   assert.match(right, /허용 자료 사용 가능/);
   assert.match(right, /상담 준비 브리핑 요청/);
+  assert.match(right, /borderRadius:\s*"18px"/);
+  assert.doesNotMatch(right, /borderRadius:\s*"14px"/);
+  assert.match(right, /overflowY:\s*"visible"/);
+  assert.match(right, /linear-gradient\(160deg, #EAF3FB/);
   assert.match(chat, /createAgentKeyBriefingRequest/);
   assert.match(chat, /requestAgentBriefing/);
+});
+
+test("CENTER empty-seat slot stays mounted for agent", () => {
+  assert.match(chat, /AGENT_NOW_ACTION/);
+  assert.match(chat, /panelView === \"chat\" && messages\.length === 0 \?/);
+  assert.doesNotMatch(chat, /messages\.length === 0 && !isAgentAudience/);
+  assert.match(chat, /isAgentAudience \? AGENT_NOW_ACTION/);
 });
 
 test("CUSTOMER_PATH_CHANGED: customer default path preserved", () => {
