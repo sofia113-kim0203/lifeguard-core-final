@@ -54,7 +54,7 @@ console.log("agent-desk-panel-unit-test");
 test("GET list status labels render contract", () => {
   assert.equal(assignmentStatusLabel(PENDING), "배정 승인 대기");
   assert.equal(assignmentStatusLabel(ACTIVE_NO_CONSENT), "고객 동의가 필요합니다");
-  assert.equal(assignmentStatusLabel(ELIGIBLE), "KEY 브리핑 가능");
+  assert.equal(assignmentStatusLabel(ELIGIBLE), "KEY 상담 준비 가능");
   assert.equal(customerDisplayLabel(ELIGIBLE), "가능고객");
   assert.equal(
     customerDisplayLabel({ customer: { display_name: null } }),
@@ -156,7 +156,8 @@ test("success briefing_text is displayed as KEY message as-is", () => {
   assert.doesNotMatch(panel, /briefing_text\s*\+/);
   assert.doesNotMatch(panel, /summarize|rewrite|재작성|요약\(/);
   assert.match(panel, /KEY 내부 브리핑/);
-  assert.match(panel, /KEY 협진실/);
+  assert.match(panel, /설계사 데스크/);
+  assert.match(panel, /어떤 고객 상담을 준비할까요\?/);
   assert.match(panel, /FINAL_UI/);
   assert.doesNotMatch(panel, /gridTemplateColumns:\s*"minmax\(240px/);
 });
@@ -195,7 +196,10 @@ test("customer/admin route blocked; agent allowed", () => {
   assert.doesNotMatch(panel, /<RoleAccessPanel[\s>]/);
   assert.doesNotMatch(panel, /useCustomerContext/);
   assert.match(panel, /return <AgentDeskConsultRoom/);
-  assert.match(panel, /KEY 협진실/);
+  assert.match(panel, /설계사 데스크/);
+  assert.match(panel, /KEY에게 상담 준비 요청/);
+  assert.doesNotMatch(panel, /KEY 협진실/);
+  assert.doesNotMatch(panel, /KEY에게 브리핑 요청/);
   const app = readFileSync(join(ROOT, "src/App.jsx"), "utf8");
   assert.match(app, /case \"agent\":\s*return <AgentDeskPanel/);
   assert.match(app, /import RoleAccessPanel/);

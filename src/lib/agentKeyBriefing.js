@@ -36,7 +36,7 @@ export function assignmentStatusLabel(item) {
     return "고객 동의가 필요합니다";
   }
   if (status === "active" && item?.briefing_eligible === true) {
-    return "KEY 브리핑 가능";
+    return "KEY 상담 준비 가능";
   }
   return "배정 상태 확인 필요";
 }

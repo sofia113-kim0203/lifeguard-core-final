@@ -205,7 +205,7 @@ function AgentDeskConsultRoom() {
               marginTop: `${FINAL_UI.brandTagMtPx}px`,
             }}
           >
-            KEY 협진실 · 설계사
+            설계사 데스크 · 설계사
           </div>
         </div>
 
@@ -392,7 +392,7 @@ function AgentDeskConsultRoom() {
                   marginBottom: "8px",
                 }}
               >
-                KEY 협진실
+                어떤 고객 상담을 준비할까요?
               </div>
               <p
                 style={{
@@ -402,8 +402,8 @@ function AgentDeskConsultRoom() {
                   lineHeight: 1.55,
                 }}
               >
-                고객은 KEY 진료실, 설계사는 같은 디자인의 KEY 협진실입니다. 선택한 고객에 대해
-                KEY에게 브리핑을 요청하세요.
+                고객은 KEY 진료실, 설계사는 같은 디자인의 설계사 데스크입니다. 선택한 고객에 대해
+                KEY에게 상담 준비를 요청하세요.
               </p>
               {!eligible && statusLabel ? (
                 <p
@@ -645,7 +645,7 @@ function AgentDeskConsultRoom() {
             <button
               type="submit"
               disabled={!composerEnabled}
-              aria-label="KEY에게 브리핑 요청"
+              aria-label="KEY에게 상담 준비 요청"
               style={{
                 width: "34px",
                 height: "34px",
