@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import RoleAccessPanel from "./RoleAccessPanel.jsx";
 import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
 import {
   FINAL_UI,
@@ -669,14 +668,7 @@ function AgentDeskConsultRoom() {
   );
 }
 
-export default function AgentDeskPanel({ user }) {
-  return (
-    <RoleAccessPanel
-      user={user}
-      title="KEY 협진실"
-      description="설계사 전용 KEY 협진실입니다."
-      requiredRoles={["agent"]}
-      allowedContent={<AgentDeskConsultRoom />}
-    />
-  );
+/** App already gates /agent to settled role=agent — no second RoleAccessPanel fetch. */
+export default function AgentDeskPanel() {
+  return <AgentDeskConsultRoom />;
 }

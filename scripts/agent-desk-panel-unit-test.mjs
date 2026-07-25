@@ -191,8 +191,15 @@ test("customer/admin route blocked; agent allowed", () => {
   assert.equal(getRedirectPathForRole("/agent", APP_ROLES.ADMIN), "/");
   assert.equal(getRedirectPathForRole("/", APP_ROLES.AGENT), "/");
   const panel = readFileSync(join(ROOT, "src/components/AgentDeskPanel.jsx"), "utf8");
-  assert.match(panel, /requiredRoles=\{\["agent"\]\}/);
+  assert.doesNotMatch(panel, /import RoleAccessPanel/);
+  assert.doesNotMatch(panel, /<RoleAccessPanel[\s>]/);
+  assert.doesNotMatch(panel, /useCustomerContext/);
+  assert.match(panel, /return <AgentDeskConsultRoom/);
+  assert.match(panel, /KEY 협진실/);
   const app = readFileSync(join(ROOT, "src/App.jsx"), "utf8");
+  assert.match(app, /case \"agent\":\s*return <AgentDeskPanel/);
+  assert.match(app, /import RoleAccessPanel/);
+  assert.match(app, /requiredRoles=\{\["admin"\]\}/);
   assert.match(app, /handleLoginSuccess/);
   assert.match(app, /getRedirectPathForRole\(requestedPath,\s*userRole\)/);
   assert.match(app, /canAccessPath\(requestedPath,\s*userRole\)/);
