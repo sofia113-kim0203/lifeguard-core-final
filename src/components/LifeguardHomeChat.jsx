@@ -102,8 +102,8 @@ import {
   toCustomerErrorMessage,
 } from "../lib/uiLocale.js";
 import {
+  createCoalescedScrollToBottom,
   isScrollNearBottom,
-  scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
   shouldShowJumpToLatestAnswer,
   resolveAppendOnlyAssistantText,
@@ -522,6 +522,12 @@ export default function LifeguardHomeChat({
   const chatScrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const restoreForceScrollRef = useRef(false);
+  const coalescedScrollRef = useRef(null);
+  if (!coalescedScrollRef.current) {
+    coalescedScrollRef.current = createCoalescedScrollToBottom({
+      shouldFollow: () => stickToBottomRef.current === true,
+    });
+  }
   const [showLatestAnswerBtn, setShowLatestAnswerBtn] = useState(false);
   const messagesRef = useRef([]);
   const threadRestoreReadyRef = useRef(false);
@@ -972,16 +978,10 @@ export default function LifeguardHomeChat({
     });
   }, []);
 
-  const scrollChatToBottom = useCallback(() => {
+  const scheduleScrollToBottom = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
-    scrollChatContainerToBottom(el);
-    window.requestAnimationFrame(() => {
-      scrollChatContainerToBottom(el);
-      window.requestAnimationFrame(() => {
-        scrollChatContainerToBottom(el);
-      });
-    });
+    coalescedScrollRef.current?.schedule(el);
   }, []);
 
   const handleChatScroll = useCallback(() => {
@@ -1000,11 +1000,12 @@ export default function LifeguardHomeChat({
   const jumpToLatestAnswer = useCallback(() => {
     stickToBottomRef.current = true;
     setShowLatestAnswerBtn(false);
-    scrollChatToBottom();
-  }, [scrollChatToBottom]);
+    scheduleScrollToBottom();
+  }, [scheduleScrollToBottom]);
 
   useEffect(() => () => {
     if (focusTimerRef.current) window.clearTimeout(focusTimerRef.current);
+    coalescedScrollRef.current?.cancel();
   }, []);
 
   // Restore / session switch: one forced jump to latest (separate from live follow).
@@ -1013,11 +1014,11 @@ export default function LifeguardHomeChat({
     if (!restoreForceScrollRef.current) return undefined;
     restoreForceScrollRef.current = false;
     stickToBottomRef.current = true;
-    scrollChatToBottom();
+    scheduleScrollToBottom();
     return undefined;
-  }, [threadRestoreReady, panelView, sessionId, messages.length, scrollChatToBottom]);
+  }, [threadRestoreReady, panelView, sessionId, messages.length, scheduleScrollToBottom]);
 
-  // Live follow only while user stays near bottom. Never force-drag when reading above.
+  // New message row only — never on per-grapheme content updates.
   useEffect(() => {
     if (!threadRestoreReady || panelView !== "chat") return undefined;
     if (
@@ -1039,27 +1040,28 @@ export default function LifeguardHomeChat({
       return undefined;
     }
     setShowLatestAnswerBtn(false);
-    scrollChatToBottom();
+    scheduleScrollToBottom();
     return undefined;
-  }, [messages, loading, streaming, threadRestoreReady, panelView, scrollChatToBottom]);
+  }, [messages.length, threadRestoreReady, panelView, scheduleScrollToBottom]);
 
-  // Late visual-block / table height growth — follow only if still sticky.
+  // Streaming height growth (tables/newlines) — single coalesced sticky path.
   useEffect(() => {
     const el = chatScrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return undefined;
     const ro = new ResizeObserver(() => {
       if (
-        shouldAutoFollowChatScroll({
+        !shouldAutoFollowChatScroll({
           restoreForceOnce: restoreForceScrollRef.current,
           stickToBottom: stickToBottomRef.current,
         })
       ) {
-        scrollChatContainerToBottom(el);
+        return;
       }
+      coalescedScrollRef.current?.schedule(el);
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [messages.length, sessionId, scrollChatToBottom]);
+  }, [messages.length, sessionId]);
 
   useEffect(() => {
     focusChatInputRef.current = focusChatInput;

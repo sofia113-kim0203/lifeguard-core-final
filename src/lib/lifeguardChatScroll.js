@@ -41,20 +41,81 @@ export function shouldShowJumpToLatestAnswer({
   return stickToBottom !== true && nearBottom !== true;
 }
 
+export const LIFEGUARD_CHAT_SCROLL_TOLERANCE_PX = 1;
+
 /**
  * Apply scroll-to-bottom on a scroll container (browser).
+ * Skips write when already within tolerance of the bottom.
  * Safe no-op without an element.
+ * @param {{ scrollTop?: number, scrollHeight?: number, clientHeight?: number } | null} el
+ * @param {{ tolerancePx?: number }} [opts]
+ * @returns {boolean} true when scrollTop was written
  */
-export function scrollChatContainerToBottom(el) {
+export function scrollChatContainerToBottom(el, opts = {}) {
   if (!el || typeof el !== "object") return false;
+  const tolerancePx = Number(opts.tolerancePx ?? LIFEGUARD_CHAT_SCROLL_TOLERANCE_PX);
   try {
-    const height = Number(el.scrollHeight);
-    if (!Number.isFinite(height)) return false;
-    el.scrollTop = height;
+    const scrollHeight = Number(el.scrollHeight);
+    const clientHeight = Number(el.clientHeight);
+    const scrollTop = Number(el.scrollTop);
+    if (![scrollHeight, clientHeight, scrollTop].every((n) => Number.isFinite(n))) return false;
+    const maxScroll = Math.max(0, scrollHeight - clientHeight);
+    if (Math.abs(scrollTop - maxScroll) <= tolerancePx) return false;
+    el.scrollTop = maxScroll;
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Coalesce scroll-to-bottom to at most one scrollTop write per animation frame.
+ * @param {{
+ *   raf?: (cb: FrameRequestCallback) => number,
+ *   caf?: (id: number) => void,
+ *   shouldFollow?: () => boolean,
+ *   tolerancePx?: number,
+ * }} [opts]
+ */
+export function createCoalescedScrollToBottom({
+  raf = typeof requestAnimationFrame === "function"
+    ? (cb) => requestAnimationFrame(cb)
+    : (cb) => setTimeout(() => cb(Date.now()), 16),
+  caf = typeof cancelAnimationFrame === "function"
+    ? (id) => cancelAnimationFrame(id)
+    : (id) => clearTimeout(id),
+  shouldFollow = () => true,
+  tolerancePx = LIFEGUARD_CHAT_SCROLL_TOLERANCE_PX,
+} = {}) {
+  let rafId = null;
+  /** @type {{ scrollTop?: number, scrollHeight?: number, clientHeight?: number } | null} */
+  let pendingEl = null;
+
+  return {
+    /** @param {{ scrollTop?: number, scrollHeight?: number, clientHeight?: number } | null} el */
+    schedule(el) {
+      if (!el || typeof shouldFollow !== "function" || !shouldFollow()) return false;
+      pendingEl = el;
+      if (rafId != null) return true;
+      rafId = raf(() => {
+        rafId = null;
+        const target = pendingEl;
+        pendingEl = null;
+        if (!target || !shouldFollow()) return;
+        scrollChatContainerToBottom(target, { tolerancePx });
+      });
+      return true;
+    },
+    cancel() {
+      if (rafId == null) return;
+      caf(rafId);
+      rafId = null;
+      pendingEl = null;
+    },
+    get pending() {
+      return rafId != null;
+    },
+  };
 }
 
 /**
