@@ -110,8 +110,35 @@ export function pickLiveAssignment(assignments, { customerId = null, assignmentI
 }
 
 /**
+ * Chat surface after Hand validation — prefer validated text/reason; never leak Claude prose
+ * that may name other options candidates.
+ * @param {{
+ *   validated: { reason?: string|null, text?: string|null, card?: object|null },
+ *   prose?: string|null,
+ * }} args
+ */
+export function selectAdminAssignmentHandSurface({ validated, prose: _prose = null }) {
+  if (validated?.card) {
+    return {
+      ok: true,
+      reason: null,
+      text: validated.text || "아래 배정 내용을 확인해 주세요.",
+      card: validated.card,
+    };
+  }
+  return {
+    ok: true,
+    reason: validated?.reason ?? null,
+    text:
+      validated?.text ||
+      "고객과 설계사를 정확한 이름이나 이메일로 알려주세요.",
+    card: null,
+  };
+}
+
+/**
  * Validate Claude tool proposal against option/live lists. No POST.
- * Identity from options rows only — never notes or Claude prose.
+ * create_pending identity: utterance × options resolver only (Claude ids ignored).
  * @param {{
  *   proposal: Record<string, unknown>,
  *   customers: object[],
@@ -138,38 +165,25 @@ export function validateAdminAssignmentProposal({
   }
 
   if (action === "clarify") {
-    const q = String(proposal?.clarify_question ?? "").trim();
+    // Never surface Claude clarify_question — may name other options emails.
     return {
       ok: true,
-      reason: null,
-      text: q || "고객과 설계사를 조금 더 구체적으로 말씀해 주세요.",
+      reason: "CLARIFY",
+      text: "고객과 설계사를 정확한 이름이나 이메일로 알려주세요.",
       card: null,
     };
   }
 
   if (action === "create_pending") {
-    const customerId = String(proposal?.customer_id ?? "").trim();
-    const agentUserId = String(proposal?.agent_user_id ?? "").trim();
-    // notes must not identify targets — resolve by options id+email only
-    const customer = resolveAdminAssignmentOptionRow(customers, customerId);
-    const agent = resolveAdminAssignmentOptionRow(agents, agentUserId);
-    if (!customer || !agent) {
-      return {
-        ok: true,
-        reason: null,
-        text: "고객과 설계사를 목록에서 특정하지 못했습니다. 이름이나 이메일을 다시 알려 주세요.",
-        card: null,
-      };
-    }
-    // Utterance identity: full email exact, else unique exact local-part (not includes).
-    // Claude id must match that options row; notes/prose never identify.
+    // Identity authority: utterance × options resolver only.
+    // Claude customer_id / agent_user_id are never execution identity.
     const utteranceCustomer = findUniqueUtteranceOptionIdentity(customers, utterance);
     const utteranceAgent = findUniqueUtteranceOptionIdentity(agents, utterance);
     if (!utteranceCustomer.ok) {
       return {
         ok: true,
         reason: "CUSTOMER_IDENTITY_AMBIGUOUS",
-        text: "고객 후보가 여러 명입니다. 이메일로 다시 지정해 주세요.",
+        text: "고객을 정확한 이름이나 이메일로 알려주세요.",
         card: null,
       };
     }
@@ -177,23 +191,36 @@ export function validateAdminAssignmentProposal({
       return {
         ok: true,
         reason: "AGENT_IDENTITY_AMBIGUOUS",
-        text: "설계사 후보가 여러 명입니다. 이메일로 다시 지정해 주세요.",
+        text: "담당 설계사를 정확한 이름이나 이메일로 알려주세요.",
         card: null,
       };
     }
-    if (utteranceCustomer.person && utteranceCustomer.person.id !== customer.id) {
+    if (!utteranceCustomer.person) {
       return {
         ok: true,
-        reason: "CUSTOMER_IDENTITY_MISMATCH",
-        text: "고객 식별이 목록과 일치하지 않습니다. 이메일로 다시 지정해 주세요.",
+        reason: "CUSTOMER_IDENTITY_UNRESOLVED",
+        text: "고객을 정확한 이름이나 이메일로 알려주세요.",
         card: null,
       };
     }
-    if (utteranceAgent.person && utteranceAgent.person.id !== agent.id) {
+    if (!utteranceAgent.person) {
       return {
         ok: true,
-        reason: "AGENT_IDENTITY_MISMATCH",
-        text: "설계사 식별이 목록과 일치하지 않습니다. 이메일로 다시 지정해 주세요.",
+        reason: "AGENT_IDENTITY_UNRESOLVED",
+        text: "담당 설계사를 정확한 이름이나 이메일로 알려주세요.",
+        card: null,
+      };
+    }
+    const customer = resolveAdminAssignmentOptionRow(
+      customers,
+      utteranceCustomer.person.id,
+    );
+    const agent = resolveAdminAssignmentOptionRow(agents, utteranceAgent.person.id);
+    if (!customer || !agent) {
+      return {
+        ok: true,
+        reason: "IDENTITY_UNRESOLVED",
+        text: "고객과 설계사를 정확한 이름이나 이메일로 알려주세요.",
         card: null,
       };
     }
@@ -203,7 +230,7 @@ export function validateAdminAssignmentProposal({
     if (liveForCustomer.length > 0) {
       return {
         ok: true,
-        reason: null,
+        reason: "LIVE_ASSIGNMENT_EXISTS",
         text: "이 고객에게 이미 진행 중인 배정이 있습니다. 활성화하거나 종료할까요?",
         card: null,
       };
@@ -212,7 +239,7 @@ export function validateAdminAssignmentProposal({
     return {
       ok: true,
       reason: null,
-      text: "아래 내용으로 배정 대기를 등록할까요?",
+      text: "아래 배정 내용을 확인해 주세요.",
       card: {
         kind: "admin_assignment_confirm",
         action: "create_pending",
@@ -340,17 +367,6 @@ function extractToolInput(content) {
   return null;
 }
 
-function extractText(content) {
-  const blocks = Array.isArray(content) ? content : [];
-  const parts = [];
-  for (const block of blocks) {
-    if (block?.type === "text" && typeof block.text === "string") {
-      parts.push(block.text);
-    }
-  }
-  return parts.join("\n").trim();
-}
-
 /**
  * @param {{
  *   question: string,
@@ -454,13 +470,12 @@ export async function understandAdminAssignmentWithKey({
 
   const json = await res.json();
   const toolInput = extractToolInput(json?.content);
-  const prose = extractText(json?.content);
 
   if (!toolInput) {
     return {
       ok: true,
-      reason: null,
-      text: prose || "어떤 고객의 설계사 배정을 도와드릴까요?",
+      reason: "NO_TOOL_PROPOSAL",
+      text: "고객과 설계사를 정확한 이름이나 이메일로 알려주세요.",
       card: null,
     };
   }
@@ -482,23 +497,13 @@ export async function understandAdminAssignmentWithKey({
       return {
         ok: true,
         reason: aligned.reason,
-        text: "고객·설계사 식별이 목록과 일치하지 않습니다. 이메일로 다시 지정해 주세요.",
+        text: "고객과 설계사를 정확한 이름이나 이메일로 알려주세요.",
         card: null,
       };
     }
-    return {
-      ok: true,
-      reason: null,
-      text: prose || validated.text,
-      card: validated.card,
-    };
   }
-  return {
-    ok: true,
-    reason: null,
-    text: prose || validated.text,
-    card: null,
-  };
+  // Prefer Hand validated reason/text; never expose raw Claude prose (other options emails).
+  return selectAdminAssignmentHandSurface({ validated });
 }
 
 /**

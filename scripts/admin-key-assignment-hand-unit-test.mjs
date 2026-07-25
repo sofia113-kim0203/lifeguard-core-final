@@ -10,12 +10,14 @@ import {
   buildConfirmedAssignmentBody,
   pickLiveAssignment,
   rankPeopleAgainstUtterance,
+  selectAdminAssignmentHandSurface,
   uniqueTopMatch,
   validateAdminAssignmentProposal,
 } from "../server/keyCore/adminKeyAssignmentHand.js";
 import {
   assertAdminAssignmentConfirmCardAligned,
   buildAlignedAssignmentBody,
+  findUniqueExactDisplayNameOptionMatch,
   findUniqueExactEmailOptionMatch,
   findUniqueExactLocalPartOptionMatch,
   findUniqueUtteranceOptionIdentity,
@@ -153,18 +155,21 @@ const agents = [
   );
 }
 
-// Identity lock: email+id must be same options row; notes/prose never identify
+// Identity lock: email+id same options row; Claude ids never execution identity
 {
   assert.equal(resolveAdminAssignmentOptionRow(customers, "nope"), null);
   assert.equal(
     findUniqueExactEmailOptionMatch(
       customers,
       "qa-customer-b@staging-qa.example.com 배정",
-    )?.id,
+    ).person?.id,
     CUSTOMER,
   );
 
-  // Claude id ≠ utterance unique email → no card (POST path blocked)
+  const seatUtterance =
+    "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게 배정해줘";
+
+  // A. Claude wrong customer_id → resolver still builds correct card
   const wrongCustomer = validateAdminAssignmentProposal({
     proposal: {
       action: "create_pending",
@@ -175,13 +180,19 @@ const agents = [
     customers,
     agents,
     assignments: [],
-    utterance:
-      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게 배정해줘",
+    utterance: seatUtterance,
   });
-  assert.equal(wrongCustomer.card, null);
-  assert.equal(wrongCustomer.reason, "CUSTOMER_IDENTITY_MISMATCH");
-  assert.equal(buildConfirmedAssignmentBody(wrongCustomer.card, { customers, agents }), null);
+  assert.equal(wrongCustomer.card?.customer_id, CUSTOMER);
+  assert.equal(wrongCustomer.card?.agent_user_id, AGENT);
+  assert.notEqual(wrongCustomer.card?.customer_id, CUSTOMER_B);
+  assert.deepEqual(buildConfirmedAssignmentBody(wrongCustomer.card, { customers, agents }), {
+    action: "create_pending",
+    customer_id: CUSTOMER,
+    agent_user_id: AGENT,
+    notes: "QA Customer B → e2-3-qa-agent@staging-qa.example.com",
+  });
 
+  // Claude wrong agent_user_id → resolver agent row wins
   const wrongAgent = validateAdminAssignmentProposal({
     proposal: {
       action: "create_pending",
@@ -191,19 +202,21 @@ const agents = [
     customers,
     agents,
     assignments: [],
-    utterance:
-      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게 배정해줘",
+    utterance: seatUtterance,
   });
-  assert.equal(wrongAgent.card, null);
-  assert.equal(wrongAgent.reason, "AGENT_IDENTITY_MISMATCH");
+  assert.equal(wrongAgent.card?.customer_id, CUSTOMER);
+  assert.equal(wrongAgent.card?.agent_user_id, AGENT);
+  assert.notEqual(wrongAgent.card?.agent_user_id, AGENT_B);
 
   // Tampered card label vs id → body null (POST 0)
   const good = validateAdminAssignmentProposal({
-    proposal: { action: "create_pending", customer_id: CUSTOMER, agent_user_id: AGENT },
+    proposal: { action: "create_pending", customer_id: CUSTOMER_B, agent_user_id: AGENT_B },
     customers,
     agents,
     assignments: [],
+    utterance: seatUtterance,
   });
+  assert.ok(good.card);
   const tampered = {
     ...good.card,
     customer_label: formatAssignmentOptionLabel(customers[1]),
@@ -217,7 +230,7 @@ const agents = [
   assert.equal(buildConfirmedAssignmentBody(good.card, null), null);
 }
 
-// A/B/C/D — exact local-part identity (no includes/startsWith)
+// A/B/C/D — resolver authority (email / local / display_name); no Claude id trust
 {
   const clashCustomers = [
     {
@@ -231,95 +244,92 @@ const agents = [
       email: "e2-3-qa-customer-b@staging-qa.example.com",
     },
   ];
-  const utteranceLocal = "qa-customer-b를 e2-3 설계사에게 배정해줘";
+  const seatLocal = "qa-customer-b를 e2-3-qa-agent 설계사에게 배정해줘";
+  const aliasAgentOnly = "qa-customer-b를 e2-3 설계사에게 배정해줘";
 
-  // local-part token: official B matches; e2-3-qa-customer-b does NOT (includes forbidden)
-  assert.equal(utteranceHasExactLocalPartToken(utteranceLocal, "qa-customer-b"), true);
+  assert.equal(utteranceHasExactLocalPartToken(seatLocal, "qa-customer-b"), true);
   assert.equal(
-    utteranceHasExactLocalPartToken(utteranceLocal, "e2-3-qa-customer-b"),
+    utteranceHasExactLocalPartToken(seatLocal, "e2-3-qa-customer-b"),
     false,
   );
   assert.equal(
-    findUniqueExactLocalPartOptionMatch(clashCustomers, utteranceLocal).person?.id,
+    findUniqueExactLocalPartOptionMatch(clashCustomers, seatLocal).person?.id,
     CUSTOMER,
   );
   assert.equal(
-    findUniqueUtteranceOptionIdentity(clashCustomers, utteranceLocal).person?.id,
+    findUniqueUtteranceOptionIdentity(clashCustomers, seatLocal).person?.id,
     CUSTOMER,
   );
 
-  // A. Claude proposes e2-3-qa-customer-b id while utterance local is qa-customer-b → no card
+  // A. Claude proposes wrong customer_id; utterance local unique → card = resolver rows
   const localClashWrong = validateAdminAssignmentProposal({
     proposal: {
       action: "create_pending",
       customer_id: CUSTOMER_B,
-      agent_user_id: AGENT,
-      notes: "QA Customer B → e2-3",
+      agent_user_id: AGENT_B,
+      notes: "wrong ids ignored",
     },
     customers: clashCustomers,
     agents,
     assignments: [],
-    utterance: utteranceLocal,
+    utterance: seatLocal,
   });
-  assert.equal(localClashWrong.card, null);
-  assert.equal(localClashWrong.reason, "CUSTOMER_IDENTITY_MISMATCH");
-  assert.equal(
+  assert.equal(localClashWrong.card?.customer_id, CUSTOMER);
+  assert.equal(localClashWrong.card?.agent_user_id, AGENT);
+  assert.notEqual(localClashWrong.card?.customer_id, CUSTOMER_B);
+  assert.notEqual(localClashWrong.card?.agent_user_id, AGENT_B);
+  assert.ok(!String(localClashWrong.card.customer_label).includes("e2-3-qa-customer-b"));
+  assert.ok(String(localClashWrong.card.customer_label).includes("qa-customer-b@"));
+  assert.equal(localClashWrong.text, "아래 배정 내용을 확인해 주세요.");
+  assert.deepEqual(
     buildConfirmedAssignmentBody(localClashWrong.card, {
+      customers: clashCustomers,
+      agents,
+    }),
+    {
+      action: "create_pending",
+      customer_id: CUSTOMER,
+      agent_user_id: AGENT,
+      notes: "wrong ids ignored",
+    },
+  );
+
+  // B. Customer exact, agent unresolved (alias e2-3 — not this Slice) → no card, safe text
+  const unresolvedAgent = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER_B,
+      agent_user_id: AGENT,
+    },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance: aliasAgentOnly,
+  });
+  assert.equal(unresolvedAgent.card, null);
+  assert.equal(unresolvedAgent.reason, "AGENT_IDENTITY_UNRESOLVED");
+  assert.match(unresolvedAgent.text, /설계사/);
+  assert.ok(!unresolvedAgent.text.includes("e2-3-qa-customer-b"));
+  assert.ok(!unresolvedAgent.text.includes("@staging-qa.example.com"));
+  assert.equal(
+    buildConfirmedAssignmentBody(unresolvedAgent.card, {
       customers: clashCustomers,
       agents,
     }),
     null,
   );
 
-  // A pass path: Claude proposes official B + matching agent local/email
-  const localClashOk = validateAdminAssignmentProposal({
-    proposal: {
-      action: "create_pending",
-      customer_id: CUSTOMER,
-      agent_user_id: AGENT,
-    },
-    customers: clashCustomers,
-    agents,
-    assignments: [],
-    utterance: "qa-customer-b를 e2-3-qa-agent에게 배정해줘",
+  // Surface prefers Hand text over Claude prose that names wrong options email
+  const surface = selectAdminAssignmentHandSurface({
+    validated: unresolvedAgent,
+    prose:
+      "QA Customer B (e2-3-qa-customer-b@staging-qa.example.com) 로 할까요?",
   });
-  assert.equal(localClashOk.card?.customer_id, CUSTOMER);
-  assert.equal(localClashOk.card?.agent_user_id, AGENT);
-  assert.ok(!String(localClashOk.card.customer_label).includes("e2-3-qa-customer-b"));
-  assert.ok(String(localClashOk.card.customer_label).includes("qa-customer-b@"));
+  assert.equal(surface.card, null);
+  assert.equal(surface.reason, "AGENT_IDENTITY_UNRESOLVED");
+  assert.ok(!surface.text.includes("e2-3-qa-customer-b"));
 
-  // B. Agent local-part symmetry — wrong agent id blocked
-  const wrongAgentLocal = validateAdminAssignmentProposal({
-    proposal: {
-      action: "create_pending",
-      customer_id: CUSTOMER,
-      agent_user_id: AGENT_B,
-    },
-    customers: clashCustomers,
-    agents,
-    assignments: [],
-    utterance: "qa-customer-b를 e2-3-qa-agent에게 배정해줘",
-  });
-  assert.equal(wrongAgentLocal.card, null);
-  assert.equal(wrongAgentLocal.reason, "AGENT_IDENTITY_MISMATCH");
-
-  // C. Full email exact still PASS (priority over local)
-  const fullEmailOk = validateAdminAssignmentProposal({
-    proposal: {
-      action: "create_pending",
-      customer_id: CUSTOMER,
-      agent_user_id: AGENT,
-    },
-    customers: clashCustomers,
-    agents,
-    assignments: [],
-    utterance:
-      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게",
-  });
-  assert.equal(fullEmailOk.card?.customer_id, CUSTOMER);
-  assert.equal(fullEmailOk.card?.agent_user_id, AGENT);
-
-  // D. Duplicate local-part across domains → ambiguous, no card, ask again
+  // C. Duplicate local-part → ambiguous, no card, POST 0
   const dupLocalCustomers = [
     {
       id: CUSTOMER,
@@ -349,26 +359,74 @@ const agents = [
   assert.equal(dupCard.card, null);
   assert.equal(dupCard.reason, "CUSTOMER_IDENTITY_AMBIGUOUS");
   assert.match(dupCard.text, /고객/);
+  assert.ok(!dupCard.text.includes("@other-qa.example.com"));
+
+  // D. Full email exact / local-part exact / display_name exact PASS
+  const fullEmailOk = validateAdminAssignmentProposal({
+    proposal: {
+      action: "create_pending",
+      customer_id: CUSTOMER_B,
+      agent_user_id: AGENT_B,
+    },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance:
+      "qa-customer-b@staging-qa.example.com 를 e2-3-qa-agent@staging-qa.example.com 에게",
+  });
+  assert.equal(fullEmailOk.card?.customer_id, CUSTOMER);
+  assert.equal(fullEmailOk.card?.agent_user_id, AGENT);
+  assert.equal(
+    findUniqueUtteranceOptionIdentity(clashCustomers, seatLocal).via,
+    "local",
+  );
+  const byName = findUniqueExactDisplayNameOptionMatch(
+    [{ id: AGENT, display_name: "e2-3-qa-agent", email: agents[0].email }],
+    "e2-3-qa-agent 배정",
+  );
+  assert.equal(byName.person?.id, AGENT);
+  const nameUtterance = "QA 고객 B를 e2-3-qa-agent에게 배정해줘";
+  const nameCard = validateAdminAssignmentProposal({
+    proposal: { action: "create_pending", customer_id: CUSTOMER_B, agent_user_id: AGENT_B },
+    customers: clashCustomers,
+    agents,
+    assignments: [],
+    utterance: nameUtterance,
+  });
+  assert.equal(nameCard.card?.customer_id, CUSTOMER);
+  assert.equal(nameCard.card?.agent_user_id, AGENT);
+  assert.equal(
+    findUniqueUtteranceOptionIdentity(clashCustomers, nameUtterance).via,
+    "display_name",
+  );
 }
 
-// Ambiguous / missing ids → no card (no POST path)
+// Missing utterance identity / clarify → no card (no POST path); no Claude email leak
 {
   const missing = validateAdminAssignmentProposal({
-    proposal: { action: "create_pending", customer_id: "nope", agent_user_id: AGENT },
+    proposal: { action: "create_pending", customer_id: CUSTOMER, agent_user_id: AGENT },
     customers,
     agents,
     assignments: [],
+    utterance: "",
   });
   assert.equal(missing.card, null);
+  assert.equal(missing.reason, "CUSTOMER_IDENTITY_UNRESOLVED");
 
   const clarify = validateAdminAssignmentProposal({
-    proposal: { action: "clarify", clarify_question: "어느 고객일까요?" },
+    proposal: {
+      action: "clarify",
+      clarify_question:
+        "e2-3-qa-customer-b@staging-qa.example.com 쪽일까요?",
+    },
     customers,
     agents,
     assignments: [],
   });
   assert.equal(clarify.card, null);
+  assert.equal(clarify.reason, "CLARIFY");
   assert.match(clarify.text, /고객/);
+  assert.ok(!clarify.text.includes("e2-3-qa-customer-b"));
 }
 
 // Live assignment pick + activate/close bodies from rehydrated id
@@ -481,9 +539,14 @@ const agents = [
   assert.ok(!hand.includes('includes("배정해줘")'));
   assert.ok(!hand.includes('includes("활성화")'));
   assert.ok(hand.includes("validateAdminAssignmentProposal"));
+  assert.ok(hand.includes("selectAdminAssignmentHandSurface"));
   assert.ok(hand.includes("resolveAdminAssignmentOptionRow"));
   assert.ok(hand.includes("findUniqueUtteranceOptionIdentity"));
   assert.ok(hand.includes("assertAdminAssignmentConfirmCardAligned"));
+  assert.ok(hand.includes("CUSTOMER_IDENTITY_UNRESOLVED"));
+  assert.ok(hand.includes("AGENT_IDENTITY_UNRESOLVED"));
+  assert.ok(!hand.includes("CUSTOMER_IDENTITY_MISMATCH"));
+  assert.ok(!hand.includes("prose || validated.text"));
   assert.ok(!hand.includes('includes("배정해줘")'));
 
   const menu = readFileSync(join(ROOT, "src/components/AdminMenuPanel.jsx"), "utf8");
@@ -513,6 +576,7 @@ const agents = [
   );
   assert.ok(chatApi.includes("requireAdminAuth"));
   assert.ok(chatApi.includes("runAdminKeyAssignmentChatTurn"));
+  assert.ok(chatApi.includes("Preserve Hand validation reason"));
 
   const readApi = readFileSync(
     join(ROOT, "api/admin-agent-assignments.js"),

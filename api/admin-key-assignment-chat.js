@@ -62,6 +62,7 @@ export default async function handler(req, res) {
 
   res.statusCode = result.status ?? (result.ok ? 200 : 500);
   res.setHeader("Content-Type", "application/json");
+  // Preserve Hand validation reason/text (do not drop identity unresolved/ambiguous).
   res.end(
     JSON.stringify({
       ok: result.ok === true,

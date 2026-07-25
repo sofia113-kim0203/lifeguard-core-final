@@ -92,21 +92,53 @@ export function utteranceHasExactLocalPartToken(utterance, localPart) {
 }
 
 /**
+ * @param {unknown} name
+ */
+export function normalizeAssignmentDisplayName(name) {
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Full display_name exact-normalized presence in utterance (complete name only).
+ * Not partial includes / startsWith / endsWith of a shorter token.
+ * @param {unknown} utterance
+ * @param {unknown} displayName
+ */
+export function utteranceHasExactDisplayName(utterance, displayName) {
+  const name = normalizeAssignmentDisplayName(displayName);
+  if (!name || name.length < 2) return false;
+  const hay = normalizeAssignmentDisplayName(utterance);
+  if (!hay) return false;
+  return hay.includes(name);
+}
+
+/**
  * Unique full-email hit in utterance against options rows (same-row identity only).
+ * Full email string must appear; not local-part fuzzy.
  * @param {Array<{ id?: string, email?: string|null }>} list
  * @param {unknown} utterance
+ * @returns {{ ok: true, person: object|null, reason: null } | { ok: false, person: null, reason: 'AMBIGUOUS_EMAIL' }}
  */
 export function findUniqueExactEmailOptionMatch(list, utterance) {
   const hay = String(utterance ?? "").trim().toLowerCase();
-  if (!hay) return null;
+  if (!hay) return { ok: true, person: null, reason: null };
   const hits = [];
+  const seen = new Set();
   for (const row of Array.isArray(list) ? list : []) {
     const email = String(row?.email ?? "").trim().toLowerCase();
     const rowId = String(row?.id ?? "").trim();
     if (!email || !rowId) continue;
-    if (hay.includes(email)) hits.push(row);
+    if (!hay.includes(email)) continue;
+    if (seen.has(rowId)) continue;
+    seen.add(rowId);
+    hits.push(row);
   }
-  return hits.length === 1 ? hits[0] : null;
+  if (hits.length === 1) return { ok: true, person: hits[0], reason: null };
+  if (hits.length > 1) return { ok: false, person: null, reason: "AMBIGUOUS_EMAIL" };
+  return { ok: true, person: null, reason: null };
 }
 
 /**
@@ -134,25 +166,55 @@ export function findUniqueExactLocalPartOptionMatch(list, utterance) {
 }
 
 /**
- * Utterance identity against options: full email exact, else unique exact local-part.
- * @param {Array<{ id?: string, email?: string|null }>} list
+ * Unique exact-normalized display_name hit against options rows.
+ * @param {Array<{ id?: string, display_name?: string|null, email?: string|null }>} list
+ * @param {unknown} utterance
+ * @returns {{ ok: true, person: object|null, reason: null } | { ok: false, person: null, reason: 'AMBIGUOUS_DISPLAY_NAME' }}
+ */
+export function findUniqueExactDisplayNameOptionMatch(list, utterance) {
+  const hits = [];
+  const seen = new Set();
+  for (const row of Array.isArray(list) ? list : []) {
+    const rowId = String(row?.id ?? "").trim();
+    const email = String(row?.email ?? "").trim();
+    if (!rowId || !email) continue;
+    if (!utteranceHasExactDisplayName(utterance, row?.display_name)) continue;
+    if (seen.has(rowId)) continue;
+    seen.add(rowId);
+    hits.push(row);
+  }
+  if (hits.length === 1) return { ok: true, person: hits[0], reason: null };
+  if (hits.length > 1) {
+    return { ok: false, person: null, reason: "AMBIGUOUS_DISPLAY_NAME" };
+  }
+  return { ok: true, person: null, reason: null };
+}
+
+/**
+ * Utterance identity against options (server authority only):
+ * 1) full email exact → 2) local-part exact → 3) display_name exact-normalized.
+ * No includes/startsWith/endsWith fuzzy identity.
+ * @param {Array<{ id?: string, email?: string|null, display_name?: string|null }>} list
  * @param {unknown} utterance
  * @returns {{
  *   ok: true,
  *   person: object|null,
- *   via: 'email'|'local'|null,
+ *   via: 'email'|'local'|'display_name'|null,
  *   reason: null,
  * } | {
  *   ok: false,
  *   person: null,
  *   via: null,
- *   reason: 'AMBIGUOUS_LOCAL',
+ *   reason: string,
  * }}
  */
 export function findUniqueUtteranceOptionIdentity(list, utterance) {
   const byEmail = findUniqueExactEmailOptionMatch(list, utterance);
-  if (byEmail) {
-    return { ok: true, person: byEmail, via: "email", reason: null };
+  if (!byEmail.ok) {
+    return { ok: false, person: null, via: null, reason: byEmail.reason };
+  }
+  if (byEmail.person) {
+    return { ok: true, person: byEmail.person, via: "email", reason: null };
   }
   const byLocal = findUniqueExactLocalPartOptionMatch(list, utterance);
   if (!byLocal.ok) {
@@ -160,6 +222,13 @@ export function findUniqueUtteranceOptionIdentity(list, utterance) {
   }
   if (byLocal.person) {
     return { ok: true, person: byLocal.person, via: "local", reason: null };
+  }
+  const byName = findUniqueExactDisplayNameOptionMatch(list, utterance);
+  if (!byName.ok) {
+    return { ok: false, person: null, via: null, reason: byName.reason };
+  }
+  if (byName.person) {
+    return { ok: true, person: byName.person, via: "display_name", reason: null };
   }
   return { ok: true, person: null, via: null, reason: null };
 }
