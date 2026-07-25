@@ -64,11 +64,13 @@ await test("AGENT_STREAMING: API SSE + client stream + core streamHandlers", () 
   assert.match(freeHelper, /consumeHomeBrainFactSse/);
   assert.match(chat, /postAgentFreeKeyChatStream/);
   assert.match(chat, /onDelta:\s*\(chunk\)\s*=>/);
+  assert.doesNotMatch(chat, /streamLive/);
   const agentBlock = chat.match(
     /if \(isAgentAudience\) \{[\s\S]*?return;\s*\}\s*\n\s*if \(chatAttachUploading\)/,
   );
   assert.ok(agentBlock);
   assert.doesNotMatch(agentBlock[0], /splitKeyAnswerMeaningUnits/);
+  assert.doesNotMatch(agentBlock[0], /streamLive/);
 });
 
 await test("AGENT submit uses stream and never customer persist", () => {

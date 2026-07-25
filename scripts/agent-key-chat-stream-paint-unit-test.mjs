@@ -22,21 +22,33 @@ console.log("agent-key-chat-stream-paint-unit-test");
 const chat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
 const paintSrc = readFileSync(join(ROOT, "src/lib/agentKeyChatStreamPaint.js"), "utf8");
 
-test("wiring: agent path uses paint controller + streamLive plain text", () => {
+test("wiring: agent path uses paint controller + same markdown renderer live/done", () => {
   assert.match(chat, /createAgentStreamPaintController/);
   assert.match(chat, /paint\.append\(chunk\)/);
   assert.match(chat, /paint\.flush\(\)/);
   assert.match(chat, /paint\.finalize\(/);
-  assert.match(chat, /streamLive:\s*true/);
-  assert.match(chat, /streamLive:\s*false/);
-  assert.match(chat, /msg\.thinking \|\| msg\.streamLive/);
+  // Forbidden: live plain → done markdown swap.
+  assert.doesNotMatch(chat, /streamLive/);
+  assert.match(chat, /: msg\.thinking \? \(/);
+  assert.match(chat, /<LifeguardAssistantMarkdown/);
   // No per-delta setMessages in onDelta body.
   const agentBlock = chat.match(
     /if \(isAgentAudience\) \{[\s\S]*?return;\s*\}\s*\n\s*if \(chatAttachUploading\)/,
   );
   assert.ok(agentBlock);
   assert.match(agentBlock[0], /onDelta:\s*\(chunk\)\s*=>\s*\{\s*paint\.append\(chunk\);\s*\}/);
+  assert.doesNotMatch(agentBlock[0], /streamLive/);
   assert.doesNotMatch(agentBlock[0], /splitKeyAnswerMeaningUnits/);
+});
+
+test("TRUE_MARKDOWN_STREAM: no plain/markdown branch flip after thinking", () => {
+  // After thinking ends, assistant content always goes through LifeguardAssistantMarkdown.
+  assert.doesNotMatch(chat, /msg\.thinking \|\| msg\.streamLive/);
+  assert.doesNotMatch(chat, /streamLive\s*\?\s*/);
+  const renderBranch = chat.match(
+    /\{isUser \? \([\s\S]*?<LifeguardAssistantMarkdown[\s\S]*?\)\}/,
+  );
+  assert.ok(renderBranch, "shared markdown branch present");
 });
 
 test("first delta paints immediately; later deltas batch via raf", () => {

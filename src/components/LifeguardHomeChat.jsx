@@ -1504,6 +1504,7 @@ export default function LifeguardHomeChat({
       focusChatInput();
       setLoading(true);
       setStreaming(false);
+      // Same markdown renderer from first delta through seal (no live plain → done swap).
       const paint = createAgentStreamPaintController({
         onPaint: (text, { first }) => {
           if (first) {
@@ -1514,8 +1515,6 @@ export default function LifeguardHomeChat({
             patchLastAssistantMessage(prev, {
               content: text,
               thinking: false,
-              // Plain text while live — markdown seals on finalize (no rewrite).
-              streamLive: true,
             }),
           );
         },
@@ -1539,7 +1538,7 @@ export default function LifeguardHomeChat({
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        // Flush any pending rAF buffer, then seal exact server final text.
+        // Flush pending rAF; seal exact server text into the same assistant message.
         paint.flush();
         const answer = paint.finalize(String(result.text ?? "").trim());
         setAgentTurnMeta({
@@ -1551,7 +1550,6 @@ export default function LifeguardHomeChat({
           patchLastAssistantMessage(prev, {
             content: answer,
             thinking: false,
-            streamLive: false,
             mode: result.mode,
             customer_context_used: result.customer_context_used === true,
           }),
@@ -2999,10 +2997,10 @@ export default function LifeguardHomeChat({
                       >
                         {isUser ? (
                           msg.content
-                        ) : msg.thinking || msg.streamLive ? (
+                        ) : msg.thinking ? (
                           <>
                             <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
-                            {msg.thinking && msg.wait_secondary ? (
+                            {msg.wait_secondary ? (
                               <div
                                 style={{
                                   marginTop: "6px",
