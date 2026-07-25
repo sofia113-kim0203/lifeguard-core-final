@@ -10,6 +10,7 @@ import {
   isScrollNearBottom,
   scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
+  shouldShowJumpToLatestAnswer,
   LIFEGUARD_CHAT_NEAR_BOTTOM_PX,
   resolveAppendOnlyAssistantText,
   splitKeyAnswerMeaningUnits,
@@ -70,6 +71,25 @@ async function main() {
   } else failed += 1;
 
   if (
+    await runCase("jump-to-latest — only when scrolled away", () => {
+      assert.equal(
+        shouldShowJumpToLatestAnswer({ stickToBottom: false, nearBottom: false }),
+        true,
+      );
+      assert.equal(
+        shouldShowJumpToLatestAnswer({ stickToBottom: true, nearBottom: true }),
+        false,
+      );
+      assert.equal(
+        shouldShowJumpToLatestAnswer({ stickToBottom: false, nearBottom: true }),
+        false,
+      );
+    })
+  ) {
+    passed += 1;
+  } else failed += 1;
+
+  if (
     await runCase("scrollChatContainerToBottom — sets scrollTop to scrollHeight", () => {
       const el = { scrollTop: 0, scrollHeight: 2400, clientHeight: 400 };
       assert.equal(scrollChatContainerToBottom(el), true);
@@ -112,6 +132,9 @@ async function main() {
       assert.match(chatSource, /splitKeyAnswerMeaningUnits/);
       assert.match(chatSource, /resolveAppendOnlyAssistantText/);
       assert.match(chatSource, /aria-expanded=\{sidebarOpen\}/);
+      assert.match(chatSource, /최신 답변으로 ↓/);
+      assert.match(chatSource, /jumpToLatestAnswer/);
+      assert.match(chatSource, /shouldShowJumpToLatestAnswer/);
       assert.doesNotMatch(chatSource, /sentenceHardLiteBlocks|sentence_hard_lite/);
       assert.doesNotMatch(chatSource, /createSentenceCommitStream/);
     })

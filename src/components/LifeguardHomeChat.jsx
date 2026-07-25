@@ -105,6 +105,7 @@ import {
   isScrollNearBottom,
   scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
+  shouldShowJumpToLatestAnswer,
   resolveAppendOnlyAssistantText,
   splitKeyAnswerMeaningUnits,
 } from "../lib/lifeguardChatScroll.js";
@@ -522,6 +523,7 @@ export default function LifeguardHomeChat({
   const chatScrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const restoreForceScrollRef = useRef(false);
+  const [showLatestAnswerBtn, setShowLatestAnswerBtn] = useState(false);
   const messagesRef = useRef([]);
   const threadRestoreReadyRef = useRef(false);
   const inflightTurnIdRef = useRef(null);
@@ -986,8 +988,21 @@ export default function LifeguardHomeChat({
   const handleChatScroll = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
-    stickToBottomRef.current = isScrollNearBottom(el);
+    const nearBottom = isScrollNearBottom(el);
+    stickToBottomRef.current = nearBottom;
+    setShowLatestAnswerBtn(
+      shouldShowJumpToLatestAnswer({
+        stickToBottom: nearBottom,
+        nearBottom,
+      }),
+    );
   }, []);
+
+  const jumpToLatestAnswer = useCallback(() => {
+    stickToBottomRef.current = true;
+    setShowLatestAnswerBtn(false);
+    scrollChatToBottom();
+  }, [scrollChatToBottom]);
 
   useEffect(() => () => {
     if (focusTimerRef.current) window.clearTimeout(focusTimerRef.current);
@@ -1003,7 +1018,7 @@ export default function LifeguardHomeChat({
     return undefined;
   }, [threadRestoreReady, panelView, sessionId, messages.length, scrollChatToBottom]);
 
-  // Live follow only while user stays near bottom (or after restore force).
+  // Live follow only while user stays near bottom. Never force-drag when reading above.
   useEffect(() => {
     if (!threadRestoreReady || panelView !== "chat") return undefined;
     if (
@@ -1012,8 +1027,19 @@ export default function LifeguardHomeChat({
         stickToBottom: stickToBottomRef.current,
       })
     ) {
+      const el = chatScrollRef.current;
+      const nearBottom = el ? isScrollNearBottom(el) : false;
+      if (
+        shouldShowJumpToLatestAnswer({
+          stickToBottom: stickToBottomRef.current,
+          nearBottom,
+        })
+      ) {
+        setShowLatestAnswerBtn(true);
+      }
       return undefined;
     }
+    setShowLatestAnswerBtn(false);
     scrollChatToBottom();
     return undefined;
   }, [messages, loading, streaming, threadRestoreReady, panelView, scrollChatToBottom]);
@@ -1484,6 +1510,8 @@ export default function LifeguardHomeChat({
       setPanelView("chat");
       setSidebarOpen(false);
       setError("");
+      stickToBottomRef.current = true;
+      setShowLatestAnswerBtn(false);
       const historyForApi = messages
         .filter((m) => m.thinking !== true)
         .map((m) => ({
@@ -1538,7 +1566,7 @@ export default function LifeguardHomeChat({
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        // After server done, keep revealing one grapheme/frame — no bulk flush.
+        // After server done, drain short remaining bundles — no bulk flush of a large remainder.
         const answer = await paint.finalize(String(result.text ?? "").trim());
         setAgentTurnMeta({
           mode: result.mode ?? null,
@@ -3057,6 +3085,36 @@ export default function LifeguardHomeChat({
             </div>
           ) : null}
         </div>
+
+        {panelView === "chat" && showLatestAnswerBtn ? (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              flexShrink: 0,
+              padding: "6px 0 2px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={jumpToLatestAnswer}
+              aria-label="최신 답변으로"
+              style={{
+                border: `1px solid ${FINAL_UI.line}`,
+                background: FINAL_UI.surface,
+                borderRadius: "999px",
+                padding: "7px 14px",
+                fontSize: "12px",
+                fontWeight: 700,
+                color: FINAL_UI.text,
+                cursor: "pointer",
+                fontFamily: FINAL_UI.sans,
+              }}
+            >
+              최신 답변으로 ↓
+            </button>
+          </div>
+        ) : null}
 
         {panelView === "chat" ? (
           <div

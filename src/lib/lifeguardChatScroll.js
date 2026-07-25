@@ -31,6 +31,17 @@ export function shouldAutoFollowChatScroll({
 }
 
 /**
+ * Show "최신 답변으로 ↓" when the user has scrolled away from the bottom
+ * and new content may be below the read position.
+ */
+export function shouldShowJumpToLatestAnswer({
+  stickToBottom = false,
+  nearBottom = false,
+} = {}) {
+  return stickToBottom !== true && nearBottom !== true;
+}
+
+/**
  * Apply scroll-to-bottom on a scroll container (browser).
  * Safe no-op without an element.
  */

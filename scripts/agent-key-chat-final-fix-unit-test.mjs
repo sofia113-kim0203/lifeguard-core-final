@@ -52,6 +52,14 @@ await test("CHAT_DIRECTION: user right / assistant left (shared renderer)", () =
   assert.doesNotMatch(chat, /justifyContent:\s*[^\n]*displayName/);
 });
 
+await test("READ_POSITION: jump-to-latest button + no stick when scrolled away", () => {
+  assert.match(chat, /최신 답변으로 ↓/);
+  assert.match(chat, /jumpToLatestAnswer/);
+  assert.match(chat, /shouldShowJumpToLatestAnswer/);
+  assert.match(chat, /stickToBottomRef\.current/);
+  assert.match(chat, /shouldAutoFollowChatScroll/);
+});
+
 await test("AGENT_STREAMING: API SSE + client stream + core streamHandlers", () => {
   assert.match(api, /text\/event-stream/);
   assert.match(api, /initHomeBrainFactSseResponse/);
