@@ -207,6 +207,21 @@ test("customer/admin route blocked; agent allowed", () => {
   const preserveIdx = shell.search(/isRegisteredNonCustomerPath\(path\)\) \{\s*return;/);
   const wipeIdx = shell.indexOf('replaceState({}, "", LIFEGUARD_PATH)');
   assert.ok(preserveIdx >= 0 && wipeIdx > preserveIdx, "preserve /agent before any LIFEGUARD wipe");
+
+  // A — unsettled role must not run customer/backoffice redirects
+  assert.doesNotMatch(
+    app,
+    /context\?\.userRole \?\? \(user \? APP_ROLES\.CUSTOMER : null\)/,
+  );
+  assert.match(app, /context\?\.userRole \?\? null/);
+  assert.match(app, /if \(!user \|\| roleLoading \|\| !userRole\) return;/);
+  assert.match(app, /user && \(roleLoading \|\| !userRole\)/);
+
+  // B — user null→id gap must report awaitingRole (loading) before context resolves
+  const ctxHook = readFileSync(join(ROOT, "src/hooks/useCustomerContext.js"), "utf8");
+  assert.match(ctxHook, /resolvedUserId/);
+  assert.match(ctxHook, /awaitingRole/);
+  assert.match(ctxHook, /resolvedUserId !== userId/);
 });
 
 test("PanelKeyVoice and customer_conversations stay unused", () => {

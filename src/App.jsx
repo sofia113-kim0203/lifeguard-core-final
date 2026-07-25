@@ -140,7 +140,8 @@ export default function App() {
   );
   const { session, user, loading: authLoading } = useAuthSession();
   const { context, loading: roleLoading } = useCustomerContext(user);
-  const userRole = context?.userRole ?? (user ? APP_ROLES.CUSTOMER : null);
+  // Settled role only — never invent "customer" from user presence while role is unknown.
+  const userRole = context?.userRole ?? null;
 
   useEffect(() => {
     const syncPath = () => setAppPath(normalizeAppPath(window.location.pathname));
@@ -198,7 +199,8 @@ export default function App() {
   }, [session, activeMenu]);
 
   useEffect(() => {
-    if (!user || roleLoading) return;
+    // Role-unsettled is not customer: no redirect until context.userRole is known.
+    if (!user || roleLoading || !userRole) return;
     if (userRole === APP_ROLES.CUSTOMER) {
       if (isBackofficePath(appPath)) {
         navigateTo(LIFEGUARD_PATH);
@@ -233,7 +235,7 @@ export default function App() {
     return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
   }
 
-  if (authLoading || (user && roleLoading)) {
+  if (authLoading || (user && (roleLoading || !userRole))) {
     return (
       <div
         style={{
@@ -251,11 +253,25 @@ export default function App() {
     );
   }
 
-  if (!user || userRole === APP_ROLES.CUSTOMER) {
+  if (!user) {
     return (
       <CustomerLifeguardShell
         user={user}
-        userRole={userRole ?? APP_ROLES.CUSTOMER}
+        userRole={APP_ROLES.CUSTOMER}
+        session={session}
+        authLoading={authLoading}
+        authMode={authMode}
+        onOpenAuth={handleOpenAuth}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
+  if (userRole === APP_ROLES.CUSTOMER) {
+    return (
+      <CustomerLifeguardShell
+        user={user}
+        userRole={userRole}
         session={session}
         authLoading={authLoading}
         authMode={authMode}
