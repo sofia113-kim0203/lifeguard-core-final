@@ -31,7 +31,6 @@ import AdminRealPolicyEmbeddingExecutionPanel from "./AdminRealPolicyEmbeddingEx
 import AdminRealPolicyVectorSearchIntegrationPanel from "./AdminRealPolicyVectorSearchIntegrationPanel.jsx";
 import AdminRealPolicyCustomerAiConversationPanel from "./AdminRealPolicyCustomerAiConversationPanel.jsx";
 import AdminAgentAssignmentPanel from "./AdminAgentAssignmentPanel.jsx";
-import AdminKeyAssignmentChatPanel from "./AdminKeyAssignmentChatPanel.jsx";
 import FeatureShellPanel from "./FeatureShellPanel.jsx";
 
 const ADMIN_PANELS = [
@@ -67,7 +66,6 @@ const ADMIN_PANELS = [
   { id: "real_policy_vector_search_integration", label: "실제 약관 Vector Search 연동" },
   { id: "real_policy_customer_ai_conversation", label: "실제 약관 고객 AI 답변 준비" },
   { id: "agent_assignment", label: "설계사 배정 관리" },
-  { id: "key_assignment_chat", label: "KEY 배정 상담" },
 ];
 
 const FONT =
@@ -77,8 +75,6 @@ function renderAdminPanel(activeAdminPanel) {
   switch (activeAdminPanel) {
     case "agent_assignment":
       return <AdminAgentAssignmentPanel />;
-    case "key_assignment_chat":
-      return <AdminKeyAssignmentChatPanel />;
     case "carrier_product_ingestion":
       return <AdminCarrierProductIngestionPanel />;
     case "manual_knowledge_ingestion":

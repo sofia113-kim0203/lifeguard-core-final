@@ -8,23 +8,23 @@ import {
 } from "../lib/customerUiFinalTokens.js";
 import {
   assignmentStatusLabel,
-  canSubmitAgentBriefing,
-  createAgentKeyBriefingRequest,
   customerDisplayLabel,
   listAgentKeyBriefings,
-  pickInitialAssignment,
 } from "../lib/agentKeyBriefing.js";
+import {
+  canSubmitAgentFreeKey,
+  postAgentFreeKeyChat,
+} from "../lib/agentFreeKey.js";
 
-const DEFAULT_PURPOSE = "담당 고객 KEY 브리핑";
 const WAIT_COPY = "KEY가 확인하고 있어요.";
+const GENERAL_ID = "__general__";
 
 function AgentDeskConsultRoom() {
   const [items, setItems] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(GENERAL_ID);
   const [selectorOpen, setSelectorOpen] = useState(false);
-  const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
   const [question, setQuestion] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
@@ -40,15 +40,11 @@ function AgentDeskConsultRoom() {
       if (cancelled) return;
       if (!listed.ok) {
         setItems([]);
-        setSelectedId(null);
         setListError(listed.error_message);
         setListLoading(false);
         return;
       }
-      const nextItems = listed.items;
-      const initial = pickInitialAssignment(nextItems);
-      setItems(nextItems);
-      setSelectedId(initial?.assignment_id ?? null);
+      setItems(listed.items);
       setListLoading(false);
     })();
     return () => {
@@ -57,18 +53,17 @@ function AgentDeskConsultRoom() {
   }, []);
 
   const selected = useMemo(
-    () => items.find((row) => row.assignment_id === selectedId) ?? null,
+    () =>
+      selectedId === GENERAL_ID
+        ? null
+        : items.find((row) => row.assignment_id === selectedId) ?? null,
     [items, selectedId],
   );
 
-  const statusLabel = selected ? assignmentStatusLabel(selected) : null;
+  const isGeneral = selectedId === GENERAL_ID || !selected;
+  const statusLabel = selected ? assignmentStatusLabel(selected) : "일반 질문";
   const eligible = selected?.briefing_eligible === true;
-  const composerEnabled = canSubmitAgentBriefing({
-    selected,
-    purpose,
-    question,
-    submitting,
-  });
+  const composerEnabled = canSubmitAgentFreeKey({ question, submitting });
 
   useEffect(() => {
     const el = threadRef.current;
@@ -76,12 +71,12 @@ function AgentDeskConsultRoom() {
     el.scrollTop = el.scrollHeight;
   }, [messages, submitting]);
 
-  function selectAssignment(assignmentId) {
-    if (assignmentId === selectedId) {
+  function selectScope(nextId) {
+    if (nextId === selectedId) {
       setSelectorOpen(false);
       return;
     }
-    setSelectedId(assignmentId);
+    setSelectedId(nextId);
     setSelectorOpen(false);
     setSubmitError(null);
     setQuestion("");
@@ -90,9 +85,15 @@ function AgentDeskConsultRoom() {
 
   async function onSend(e) {
     e?.preventDefault?.();
-    if (!canSubmitAgentBriefing({ selected, purpose, question, submitting })) return;
+    if (!canSubmitAgentFreeKey({ question, submitting })) return;
     const asked = String(question).trim();
-    const purposeTrim = String(purpose).trim();
+    const historyForApi = messages
+      .filter((m) => m.thinking !== true)
+      .map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content ?? "").trim(),
+      }))
+      .filter((m) => m.content);
     setSubmitting(true);
     setSubmitError(null);
     setQuestion("");
@@ -102,19 +103,21 @@ function AgentDeskConsultRoom() {
       { role: "assistant", content: WAIT_COPY, thinking: true },
     ]);
     try {
-      const created = await createAgentKeyBriefingRequest({
-        assignmentId: selected.assignment_id,
-        purpose: purposeTrim,
+      const assignmentId =
+        !isGeneral && selected?.assignment_id ? selected.assignment_id : null;
+      const result = await postAgentFreeKeyChat({
         question: asked,
+        history: historyForApi,
+        assignmentId,
       });
-      if (!created.ok) {
+      if (!result.ok) {
         setMessages((prev) =>
           prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
         );
-        setSubmitError(created.error_message);
+        setSubmitError(result.error_message);
         return;
       }
-      const briefingText = String(created.briefing?.briefing_text ?? "");
+      const answer = String(result.text ?? "").trim();
       setMessages((prev) => {
         const withoutThinking = prev.filter(
           (m) => !(m.role === "assistant" && m.thinking === true),
@@ -123,9 +126,10 @@ function AgentDeskConsultRoom() {
           ...withoutThinking,
           {
             role: "assistant",
-            content: briefingText,
+            content: answer,
             thinking: false,
-            briefing_text: briefingText,
+            mode: result.mode,
+            customer_context_used: result.customer_context_used === true,
           },
         ];
       });
@@ -133,7 +137,7 @@ function AgentDeskConsultRoom() {
       setMessages((prev) =>
         prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
       );
-      setSubmitError("브리핑 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      setSubmitError("KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setSubmitting(false);
     }
@@ -154,6 +158,10 @@ function AgentDeskConsultRoom() {
     })
     .replace(/\./g, "")
     .replace(/\s+/g, " · ");
+
+  const scopeTitle = isGeneral
+    ? "일반 질문"
+    : customerDisplayLabel(selected);
 
   return (
     <div
@@ -205,7 +213,7 @@ function AgentDeskConsultRoom() {
               marginTop: `${FINAL_UI.brandTagMtPx}px`,
             }}
           >
-            설계사 데스크 · 설계사
+            설계사 데스크 · KEY 대화
           </div>
         </div>
 
@@ -213,7 +221,7 @@ function AgentDeskConsultRoom() {
           <button
             type="button"
             onClick={() => setSelectorOpen((v) => !v)}
-            disabled={listLoading || items.length === 0}
+            disabled={listLoading}
             aria-expanded={selectorOpen}
             aria-haspopup="listbox"
             style={{
@@ -225,7 +233,7 @@ function AgentDeskConsultRoom() {
               background: FINAL_UI.cream,
               borderRadius: "999px",
               padding: "8px 12px",
-              cursor: listLoading || items.length === 0 ? "default" : "pointer",
+              cursor: listLoading ? "default" : "pointer",
               fontFamily: FINAL_UI.sans,
             }}
           >
@@ -239,27 +247,33 @@ function AgentDeskConsultRoom() {
                 whiteSpace: "nowrap",
               }}
             >
-              {listLoading
-                ? "배정 불러오는 중…"
-                : selected
-                  ? customerDisplayLabel(selected)
-                  : "배정 고객 선택"}
+              {listLoading ? "배정 불러오는 중…" : scopeTitle}
             </span>
-            {statusLabel ? (
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  padding: "3px 8px",
-                  borderRadius: "999px",
-                  background: eligible ? FINAL_UI.tealSoft : FINAL_UI.amberSoft,
-                  color: eligible ? FINAL_UI.teal : FINAL_UI.amber,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {statusLabel}
-              </span>
-            ) : null}
+            <span
+              style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 8px",
+                borderRadius: "999px",
+                background: isGeneral
+                  ? FINAL_UI.soft
+                  : eligible
+                    ? FINAL_UI.tealSoft
+                    : FINAL_UI.amberSoft,
+                color: isGeneral
+                  ? FINAL_UI.muted
+                  : eligible
+                    ? FINAL_UI.teal
+                    : FINAL_UI.amber,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isGeneral
+                ? "고객 자료 없음"
+                : eligible
+                  ? "고객 자료 사용 가능"
+                  : statusLabel}
+            </span>
             <span style={{ color: FINAL_UI.muted, fontSize: "11px" }}>▾</span>
           </button>
 
@@ -284,6 +298,43 @@ function AgentDeskConsultRoom() {
                 boxShadow: FINAL_UI.roomShadow,
               }}
             >
+              <li>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isGeneral}
+                  onClick={() => selectScope(GENERAL_ID)}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    border: "none",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    background: isGeneral ? FINAL_UI.tealSoft : "transparent",
+                    cursor: "pointer",
+                    fontFamily: FINAL_UI.sans,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      color: FINAL_UI.text,
+                    }}
+                  >
+                    일반 질문
+                  </div>
+                  <div
+                    style={{
+                      marginTop: "4px",
+                      fontSize: "12px",
+                      color: FINAL_UI.muted,
+                    }}
+                  >
+                    고객 자료 없이 보험·상담 지식
+                  </div>
+                </button>
+              </li>
               {items.map((item) => {
                 const active = item.assignment_id === selectedId;
                 return (
@@ -292,7 +343,7 @@ function AgentDeskConsultRoom() {
                       type="button"
                       role="option"
                       aria-selected={active}
-                      onClick={() => selectAssignment(item.assignment_id)}
+                      onClick={() => selectScope(item.assignment_id)}
                       style={{
                         width: "100%",
                         textAlign: "left",
@@ -363,20 +414,7 @@ function AgentDeskConsultRoom() {
             </div>
           ) : null}
 
-          {!listLoading && !listError && items.length === 0 ? (
-            <div
-              className="lg-v31-content-rail"
-              style={finalUiContentRailStyle({
-                color: FINAL_UI.muted,
-                fontSize: "15px",
-                paddingTop: "24px",
-              })}
-            >
-              현재 배정된 고객이 없습니다.
-            </div>
-          ) : null}
-
-          {selected && messages.length === 0 && !listLoading ? (
+          {messages.length === 0 && !listLoading ? (
             <div
               className="lg-v31-content-rail"
               style={finalUiContentRailStyle({
@@ -392,7 +430,7 @@ function AgentDeskConsultRoom() {
                   marginBottom: "8px",
                 }}
               >
-                어떤 고객 상담을 준비할까요?
+                KEY에게 무엇을 물어볼까요?
               </div>
               <p
                 style={{
@@ -402,10 +440,10 @@ function AgentDeskConsultRoom() {
                   lineHeight: 1.55,
                 }}
               >
-                고객은 KEY 진료실, 설계사는 같은 디자인의 설계사 데스크입니다. 선택한 고객에 대해
-                KEY에게 상담 준비를 요청하세요.
+                일반 보험 지식은 언제든 물어볼 수 있습니다. 담당 고객을 고르면, 배정·동의·C1이
+                있을 때만 그 고객 자료를 KEY가 사용합니다.
               </p>
-              {!eligible && statusLabel ? (
+              {!isGeneral && !eligible && statusLabel ? (
                 <p
                   style={{
                     margin: "14px 0 0",
@@ -414,7 +452,7 @@ function AgentDeskConsultRoom() {
                     color: FINAL_UI.amber,
                   }}
                 >
-                  {statusLabel}
+                  {statusLabel} · 지금은 고객 자료 없이 일반 답변만 가능합니다.
                 </p>
               ) : null}
             </div>
@@ -448,156 +486,62 @@ function AgentDeskConsultRoom() {
 
           {messages.map((msg, index) => {
             const isUser = msg.role === "user";
-            const speaker = isUser ? "설계사" : "KEY";
             return (
               <div
-                key={`${index}-${msg.role}`}
+                key={`msg-${index}`}
                 className="lg-v31-content-rail"
                 style={finalUiContentRailStyle({
                   display: "flex",
-                  justifyContent: "flex-start",
-                  paddingTop: isUser
-                    ? `${FINAL_UI.msgPadYUser}px`
-                    : `${FINAL_UI.msgPadYAssistant}px`,
-                  paddingBottom: isUser
-                    ? `${FINAL_UI.msgPadYUser}px`
-                    : `${FINAL_UI.msgPadYAssistant}px`,
+                  justifyContent: isUser ? "flex-end" : "flex-start",
+                  marginBottom: "12px",
                 })}
               >
                 <div
                   style={{
-                    width: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
+                    maxWidth: "min(640px, 92%)",
+                    padding: isUser ? "12px 14px" : "14px 16px",
+                    borderRadius: isUser ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
+                    background: isUser ? FINAL_UI.navyDeep : FINAL_UI.surface,
+                    color: isUser ? "#fff" : FINAL_UI.text,
+                    border: isUser ? "none" : `1px solid ${FINAL_UI.line}`,
+                    fontSize: "15px",
+                    lineHeight: 1.55,
+                    whiteSpace: "pre-wrap",
                   }}
-                  aria-live={!isUser && msg.thinking ? "polite" : undefined}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "baseline",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        color: isUser ? FINAL_UI.muted : FINAL_UI.navy,
-                      }}
-                    >
-                      {speaker}
-                    </span>
-                    {!isUser && !msg.thinking ? (
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          color: FINAL_UI.teal,
-                        }}
-                      >
-                        KEY 내부 브리핑
-                      </span>
-                    ) : null}
-                  </div>
-                  <div
-                    style={{
-                      color: !isUser && msg.thinking ? FINAL_UI.muted : FINAL_UI.text,
-                      fontSize: "15px",
-                      fontWeight: 450,
-                      lineHeight: FINAL_UI.msgLineHeight,
-                      whiteSpace: isUser || msg.thinking ? "pre-wrap" : "normal",
-                      background: "transparent",
-                      border: "none",
-                      padding: 0,
-                    }}
-                  >
-                    {isUser ? (
-                      msg.content
-                    ) : !msg.thinking ? (
-                      <LifeguardAssistantMarkdown
-                        text={msg.briefing_text ?? msg.content}
-                        muted={false}
-                        fontFamily={FINAL_UI.sans}
-                      />
-                    ) : (
-                      <div>{msg.content}</div>
-                    )}
-                  </div>
+                  {isUser ? (
+                    msg.content
+                  ) : msg.thinking ? (
+                    msg.content
+                  ) : (
+                    <LifeguardAssistantMarkdown text={msg.content} />
+                  )}
                 </div>
               </div>
             );
           })}
-        </div>
-
-        <div
-          className="lg-v31-composer-wrap"
-          style={{
-            padding: `0 ${FINAL_UI.contentRailInsetPx}px ${FINAL_UI.composerWrapPadBottomPx}px`,
-            width: "100%",
-            maxWidth: `${FINAL_UI.centerColPx}px`,
-            margin: "0 auto",
-            flexShrink: 0,
-            boxSizing: "border-box",
-          }}
-        >
-          {selected && !eligible ? (
-            <div
-              style={{
-                marginBottom: "10px",
-                fontSize: "13px",
-                fontWeight: 650,
-                color: FINAL_UI.amber,
-              }}
-            >
-              {statusLabel}
-            </div>
-          ) : null}
 
           {submitError ? (
             <div
-              style={{
-                marginBottom: "8px",
+              className="lg-v31-content-rail"
+              style={finalUiContentRailStyle({
                 color: FINAL_UI.coral,
                 fontSize: "13px",
-              }}
+                marginTop: "4px",
+              })}
             >
               {submitError}
             </div>
           ) : null}
+        </div>
 
-          <label
-            style={{
-              display: "block",
-              marginBottom: "8px",
-              fontSize: "12px",
-              fontWeight: 650,
-              color: FINAL_UI.muted,
-            }}
-          >
-            업무 목적
-            <input
-              value={purpose}
-              onChange={(ev) => setPurpose(ev.target.value)}
-              maxLength={200}
-              disabled={!eligible || submitting || !selected}
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: "6px",
-                boxSizing: "border-box",
-                border: `1px solid ${FINAL_UI.line}`,
-                borderRadius: "12px",
-                padding: "8px 12px",
-                fontFamily: FINAL_UI.sans,
-                fontSize: "13px",
-                color: FINAL_UI.text,
-                background: FINAL_UI.surface,
-              }}
-            />
-          </label>
-
+        <div
+          className="lg-v31-content-rail"
+          style={finalUiContentRailStyle({
+            flexShrink: 0,
+            paddingBottom: "4px",
+          })}
+        >
           <form
             className="lg-v31-composer"
             onSubmit={onSend}
@@ -610,7 +554,6 @@ function AgentDeskConsultRoom() {
               borderRadius: "999px",
               border: `1px solid ${FINAL_UI.line}`,
               background: FINAL_UI.surface,
-              opacity: !selected || !eligible ? 0.55 : 1,
             }}
           >
             <textarea
@@ -619,15 +562,9 @@ function AgentDeskConsultRoom() {
               onKeyDown={onComposerKeyDown}
               maxLength={2000}
               rows={1}
-              placeholder={
-                !selected
-                  ? "배정 고객을 선택해 주세요"
-                  : !eligible
-                    ? statusLabel || "지금은 브리핑을 요청할 수 없습니다"
-                    : "KEY에게 브리핑 질문을 적어 주세요"
-              }
-              disabled={!eligible || submitting || !selected}
-              aria-label="KEY 브리핑 질문"
+              placeholder="KEY에게 보험 지식이나 담당 고객 상담을 물어보세요"
+              disabled={submitting}
+              aria-label="KEY 질문"
               style={{
                 flex: 1,
                 border: "none",
@@ -645,7 +582,7 @@ function AgentDeskConsultRoom() {
             <button
               type="submit"
               disabled={!composerEnabled}
-              aria-label="KEY에게 상담 준비 요청"
+              aria-label="KEY에게 보내기"
               style={{
                 width: "34px",
                 height: "34px",

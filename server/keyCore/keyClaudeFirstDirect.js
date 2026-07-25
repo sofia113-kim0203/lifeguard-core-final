@@ -1979,6 +1979,118 @@ function systemPromptCharCount(system) {
   return 0;
 }
 
+/**
+ * Agent-only stance switch — prepended before the customer system body.
+ * Injected only when server audience=agent + structured keyRoleContract.
+ * Does not grant warehouse/chart access.
+ */
+export const AGENT_KEY_AUDIENCE_PRIORITY_BLOCK = [
+  "[KEY_AUDIENCE_PRIORITY]",
+  "너는 LIFEGUARD의 유일한 KEY다.",
+  "이번 턴에는 서버가 설계사 명찰을 부여했다.",
+  "따라서 현재 대화 상대는 보험 고객이 아니라 보험 설계사다.",
+  "이 설계사 상대 규칙은 아래의 고객 직접 응대 지시보다 우선한다.",
+  "설계사를 고객처럼 부르지 않는다.",
+  "고객의 보험·보장·청구 정보를 설계사 본인의 정보처럼 표현하지 않는다.",
+  "설계사에게 '가입하신 보험', '고객님의 보장'이라고 전제하지 않는다.",
+  "고객과 설계사를 분리해 말한다. 담당 고객 자료가 있을 때만 그 고객을 가리키고, 일반 질문에서는 특정 고객을 전제하지 않는다.",
+  "설계사 명찰은 말투와 관점만 결정한다.",
+  "고객 정보 접근 권한은 서버가 이미 완료한 권한 검증 결과만 따른다.",
+  "최종 발화자는 계속 하나의 KEY다.",
+  "별도의 Agent AI처럼 행동하지 않는다.",
+  "[/KEY_AUDIENCE_PRIORITY]",
+].join("\n");
+
+/**
+ * @param {unknown} audience
+ * @param {object|null|undefined} keyRoleContract
+ */
+export function isAgentAudienceTurn(audience, keyRoleContract) {
+  return (
+    audience === "agent" &&
+    keyRoleContract != null &&
+    typeof keyRoleContract === "object" &&
+    keyRoleContract.audience === "agent"
+  );
+}
+
+/**
+ * Compose Claude-first system text.
+ * Customer turn: existing customer system prompt only (no priority block).
+ * Agent turn: KEY_AUDIENCE_PRIORITY before customer body; KEY_ROLE_BADGE appended later.
+ * @param {{
+ *   presenceTurn?: boolean,
+ *   audience?: string|null,
+ *   keyRoleContract?: object|null,
+ * }} args
+ */
+export function composeClaudeFirstSystemText({
+  presenceTurn = false,
+  audience = null,
+  keyRoleContract = null,
+} = {}) {
+  const customerBody = buildSystemPrompt({ presenceTurn: presenceTurn === true });
+  if (!isAgentAudienceTurn(audience, keyRoleContract)) {
+    return customerBody;
+  }
+  return `${AGENT_KEY_AUDIENCE_PRIORITY_BLOCK}\n\n${customerBody}`;
+}
+
+/**
+ * Inject structured agent role badge into Claude system + user payload.
+ * Customer path (no agent contract): inputs unchanged.
+ * Does not grant warehouse/chart access — speech/stance only.
+ * @param {{
+ *   systemText?: string,
+ *   userPayload?: object|null,
+ *   keyRoleContract?: object|null,
+ * }} args
+ */
+export function applyAgentKeyRoleToClaudeInputs({
+  systemText = "",
+  userPayload = null,
+  keyRoleContract = null,
+} = {}) {
+  const baseSystem = String(systemText ?? "");
+  const basePayload =
+    userPayload && typeof userPayload === "object" ? userPayload : null;
+  if (
+    !keyRoleContract ||
+    keyRoleContract.audience !== "agent" ||
+    !String(keyRoleContract.system_text_block ?? "").trim()
+  ) {
+    return { systemText: baseSystem, userPayload: basePayload };
+  }
+  const badge = String(keyRoleContract.system_text_block).trim();
+  const nextSystem = baseSystem ? `${baseSystem}\n\n${badge}` : badge;
+  if (!basePayload) {
+    return { systemText: nextSystem, userPayload: null };
+  }
+  const ctx =
+    basePayload.current_context && typeof basePayload.current_context === "object"
+      ? basePayload.current_context
+      : {};
+  return {
+    systemText: nextSystem,
+    userPayload: {
+      ...basePayload,
+      current_context: {
+        ...ctx,
+        key_role: {
+          audience: "agent",
+          conversation_mode: keyRoleContract.conversation_mode ?? null,
+          authority_note:
+            keyRoleContract.authority_note ??
+            "role_contract_does_not_grant_customer_access",
+          contract_lines: Array.isArray(keyRoleContract.contract_lines)
+            ? keyRoleContract.contract_lines
+            : [],
+        },
+      },
+    },
+  };
+}
+
 export function buildSystemPrompt({ presenceTurn = false } = {}) {
   const lines = [
     // OUR CLAUDE — 보험 설계사 KEY 제품 정체성 (사후 검열용 gate 아님)
@@ -3566,6 +3678,10 @@ async function callClaudeFirstDirect({
   presenceTurn = false,
   /** Unified view mode — filters personal/corporate packs before Claude. */
   customerViewModeForPayload = null,
+  /** Structured KEY role badge from oneKeyCoreTurn — speech/stance only. */
+  audience = null,
+  conversationMode = null,
+  keyRoleContract = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -3652,14 +3768,29 @@ async function callClaudeFirstDirect({
         ? presenceContext
         : null,
   });
-  const userPayload =
+  const userPayloadBase =
     presenceTurn === true || imageOriginalRead
       ? userPayloadBuilt
       : applyCustomerViewModeToUserPayload(userPayloadBuilt, customerViewModeForPayload);
   const pdfAttached = presenceTurn === true ? false : Boolean(pdfBase64);
   // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
   // Fact save · consultation · visual blocks remain KEY work after this answer (no second call).
-  const systemText = buildSystemPrompt({ presenceTurn: presenceTurn === true });
+  // Agent turn: KEY_AUDIENCE_PRIORITY (switch) before customer body; KEY_ROLE_BADGE appended after.
+  // Customer turn: customer body only — no priority block. Question text never selects role.
+  const agentRoleContract =
+    isAgentAudienceTurn(audience, keyRoleContract) ? keyRoleContract : null;
+  const systemTextBase = composeClaudeFirstSystemText({
+    presenceTurn: presenceTurn === true,
+    audience,
+    keyRoleContract: agentRoleContract,
+  });
+  const roleApplied = applyAgentKeyRoleToClaudeInputs({
+    systemText: systemTextBase,
+    userPayload: userPayloadBase,
+    keyRoleContract: agentRoleContract,
+  });
+  const systemText = roleApplied.systemText;
+  const userPayload = roleApplied.userPayload;
   // Phase 1 prompt cache: A (system) + B (evidence) cached via B breakpoint; C variable + PDF uncached.
   const cachedParts = buildClaudeFirstCachedRequestParts({
     systemText,
@@ -3902,6 +4033,9 @@ export async function runClaudeFirstDirectQuestionTurn({
   sessionId = null,
   readyCardHandoffToken = null,
   presenceTurn = false,
+  audience = null,
+  conversationMode = null,
+  keyRoleContract = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -4773,6 +4907,9 @@ export async function runClaudeFirstDirectQuestionTurn({
             : selectedCorporateEntityId || null,
           authorization_denied: corporateAuthorizationDenied === true,
         },
+    audience,
+    conversationMode,
+    keyRoleContract,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);

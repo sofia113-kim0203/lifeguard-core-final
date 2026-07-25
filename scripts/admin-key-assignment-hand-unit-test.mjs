@@ -550,8 +550,9 @@ const agents = [
   assert.ok(!hand.includes('includes("배정해줘")'));
 
   const menu = readFileSync(join(ROOT, "src/components/AdminMenuPanel.jsx"), "utf8");
-  assert.ok(menu.includes("KEY 배정 상담"));
-  assert.ok(menu.includes("AdminKeyAssignmentChatPanel"));
+  // Admin KEY chat UI hidden (product decision); Hand/API files preserved.
+  assert.equal(menu.includes("KEY 배정 상담"), false);
+  assert.equal(menu.includes("AdminKeyAssignmentChatPanel"), false);
   assert.ok(menu.includes("AdminAgentAssignmentPanel"));
 
   const panel = readFileSync(

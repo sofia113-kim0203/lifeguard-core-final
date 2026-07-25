@@ -127,34 +127,30 @@ export async function listAgentKeyBriefingAssignments({
 }
 
 /**
- * POST — gated KEY briefing + append-only insert.
- * deps injectable for unit tests.
+ * Active assignment + live consent + exactly one C1 binding.
+ * Shared by briefing create and agent free KEY customer-scoped turns.
+ * @param {{
+ *   userSupabase: import("@supabase/supabase-js").SupabaseClient,
+ *   agentUserId: string,
+ *   assignmentId: string,
+ *   adminSupabase?: import("@supabase/supabase-js").SupabaseClient | null,
+ *   env?: NodeJS.ProcessEnv,
+ * }} args
  */
-export async function createAgentKeyBriefing({
+export async function resolveAgentCustomerKeyAccess({
   userSupabase,
   agentUserId,
   assignmentId,
-  purpose: purposeRaw,
-  question: questionRaw,
   adminSupabase = null,
   env = process.env,
-  runKeyTurn = runOneKeyCoreTurn,
-  conversationWriteProbe = null,
 } = {}) {
   if (!userSupabase || !agentUserId) {
     return { ok: false, reason: "UNAUTHORIZED", status: 401 };
   }
-
   const assignmentIdClean = String(assignmentId ?? "").trim();
   if (!assignmentIdClean) {
     return { ok: false, reason: "ASSIGNMENT_ID_REQUIRED", status: 422 };
   }
-
-  const validated = validatePurposeQuestion(purposeRaw, questionRaw);
-  if (!validated.ok) {
-    return { ok: false, reason: validated.reason, status: 422 };
-  }
-  const { purpose, question } = validated;
 
   const admin = adminSupabase ?? createServiceRoleClient(env);
   if (!admin) {
@@ -223,7 +219,58 @@ export async function createAgentKeyBriefing({
   if (!bindings || bindings.length !== 1) {
     return { ok: false, reason: "CONSENT_BINDING_REQUIRED", status: 403 };
   }
-  const assignmentConsentId = bindings[0].id;
+
+  return {
+    ok: true,
+    status: 200,
+    admin,
+    assignment,
+    customerId: assignment.customer_id,
+    assignmentConsentId: bindings[0].id,
+  };
+}
+
+/**
+ * POST — gated KEY briefing + append-only insert.
+ * deps injectable for unit tests.
+ */
+export async function createAgentKeyBriefing({
+  userSupabase,
+  agentUserId,
+  assignmentId,
+  purpose: purposeRaw,
+  question: questionRaw,
+  adminSupabase = null,
+  env = process.env,
+  runKeyTurn = runOneKeyCoreTurn,
+  conversationWriteProbe = null,
+} = {}) {
+  if (!userSupabase || !agentUserId) {
+    return { ok: false, reason: "UNAUTHORIZED", status: 401 };
+  }
+
+  const validated = validatePurposeQuestion(purposeRaw, questionRaw);
+  if (!validated.ok) {
+    return { ok: false, reason: validated.reason, status: 422 };
+  }
+  const { purpose, question } = validated;
+
+  const access = await resolveAgentCustomerKeyAccess({
+    userSupabase,
+    agentUserId,
+    assignmentId,
+    adminSupabase,
+    env,
+  });
+  if (!access.ok) {
+    return {
+      ok: false,
+      reason: access.reason,
+      status: access.status ?? 403,
+      error_message: access.error_message,
+    };
+  }
+  const { admin, assignment, assignmentConsentId } = access;
 
   const framedQuestion = buildAgentBriefingKeyQuestion(purpose, question);
 

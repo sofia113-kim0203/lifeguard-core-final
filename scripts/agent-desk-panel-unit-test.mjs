@@ -13,12 +13,16 @@ import {
 import {
   AGENT_BRIEFING_GENERIC_ERROR,
   assignmentStatusLabel,
-  buildAgentBriefingPostBody,
-  canSubmitAgentBriefing,
   customerDisplayLabel,
   mapAgentBriefingErrorMessage,
   pickInitialAssignment,
 } from "../src/lib/agentKeyBriefing.js";
+import {
+  AGENT_FREE_KEY_GENERIC_ERROR,
+  buildAgentFreeKeyPostBody,
+  canSubmitAgentFreeKey,
+  mapAgentFreeKeyErrorMessage,
+} from "../src/lib/agentFreeKey.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -74,113 +78,86 @@ test("pickInitialAssignment prefers first eligible then first row", () => {
   assert.equal(pickInitialAssignment([]), null);
 });
 
-test("pending button disabled", () => {
+test("free KEY composer enabled by question only (scope does not gate submit)", () => {
   assert.equal(
-    canSubmitAgentBriefing({
-      selected: PENDING,
-      purpose: "목적",
-      question: "질문",
-      submitting: false,
-    }),
-    false,
-  );
-});
-
-test("active without consent button disabled", () => {
-  assert.equal(
-    canSubmitAgentBriefing({
-      selected: ACTIVE_NO_CONSENT,
-      purpose: "목적",
-      question: "질문",
-      submitting: false,
-    }),
-    false,
-  );
-});
-
-test("eligible selection enables button when purpose/question filled", () => {
-  assert.equal(
-    canSubmitAgentBriefing({
-      selected: ELIGIBLE,
-      purpose: "목적",
-      question: "질문",
-      submitting: false,
-    }),
+    canSubmitAgentFreeKey({ question: "실손 청구 기간이 어떻게 되나요?", submitting: false }),
     true,
   );
+  assert.equal(canSubmitAgentFreeKey({ question: "  ", submitting: false }), false);
   assert.equal(
-    canSubmitAgentBriefing({
-      selected: ELIGIBLE,
-      purpose: "  ",
-      question: "질문",
-      submitting: false,
-    }),
+    canSubmitAgentFreeKey({ question: "질문", submitting: true }),
     false,
   );
 });
 
-test("POST body has exactly three fields", () => {
-  const body = buildAgentBriefingPostBody({
-    assignmentId: "asg-eligible",
-    purpose: "보장 점검",
-    question: "공백을 요약해 주세요",
+test("POST body is agent-owned; never sends customer_id / agent_user_id", () => {
+  const general = buildAgentFreeKeyPostBody({
+    question: "실손 청구 기간이 어떻게 되나요?",
+    history: [{ role: "user", content: "이전 질문" }],
+    assignmentId: null,
   });
-  assert.deepEqual(Object.keys(body).sort(), [
-    "assignment_id",
-    "purpose",
-    "question",
-  ]);
-  assert.equal(body.assignment_id, "asg-eligible");
-  assert.equal(body.purpose, "보장 점검");
-  assert.equal(body.question, "공백을 요약해 주세요");
-  assert.equal(Object.prototype.hasOwnProperty.call(body, "customer_id"), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(body, "agent_user_id"), false);
+  assert.deepEqual(Object.keys(general).sort(), ["history", "question"]);
+  assert.equal(Object.prototype.hasOwnProperty.call(general, "assignment_id"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(general, "customer_id"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(general, "agent_user_id"), false);
+
+  const scoped = buildAgentFreeKeyPostBody({
+    question: "이 고객 보장 공백 알려줘",
+    history: [],
+    assignmentId: "asg-eligible",
+  });
+  assert.deepEqual(Object.keys(scoped).sort(), ["assignment_id", "history", "question"]);
+  assert.equal(scoped.assignment_id, "asg-eligible");
+  assert.equal(Object.prototype.hasOwnProperty.call(scoped, "customer_id"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(scoped, "agent_user_id"), false);
 });
 
 test("submitting blocks duplicate POST", () => {
   assert.equal(
-    canSubmitAgentBriefing({
-      selected: ELIGIBLE,
-      purpose: "목적",
-      question: "질문",
-      submitting: true,
-    }),
+    canSubmitAgentFreeKey({ question: "질문", submitting: true }),
     false,
   );
 });
 
-test("success briefing_text is displayed as KEY message as-is", () => {
+test("success KEY text is displayed as message as-is", () => {
   const panel = readFileSync(join(ROOT, "src/components/AgentDeskPanel.jsx"), "utf8");
   assert.match(panel, /LifeguardAssistantMarkdown/);
-  assert.match(panel, /msg\.briefing_text \?\? msg\.content/);
+  assert.match(panel, /result\.text/);
+  assert.match(panel, /postAgentFreeKeyChat/);
   assert.doesNotMatch(panel, /briefing_text\s*\+/);
   assert.doesNotMatch(panel, /summarize|rewrite|재작성|요약\(/);
-  assert.match(panel, /KEY 내부 브리핑/);
   assert.match(panel, /설계사 데스크/);
-  assert.match(panel, /어떤 고객 상담을 준비할까요\?/);
+  assert.match(panel, /KEY에게 무엇을 물어볼까요/);
+  assert.match(panel, /일반 질문/);
   assert.match(panel, /FINAL_UI/);
   assert.doesNotMatch(panel, /gridTemplateColumns:\s*"minmax\(240px/);
 });
 
 test("error codes map to customer-facing copy", () => {
   assert.equal(
-    mapAgentBriefingErrorMessage("FORBIDDEN_ROLE"),
+    mapAgentFreeKeyErrorMessage("FORBIDDEN_ROLE"),
     "설계사 계정만 이용할 수 있습니다.",
   );
   assert.equal(
-    mapAgentBriefingErrorMessage("NOT_ASSIGNED"),
-    "현재 설계사에게 배정된 고객이 아닙니다.",
+    mapAgentFreeKeyErrorMessage("INVALID_QUESTION"),
+    "질문을 확인해 주세요.",
   );
   assert.equal(
-    mapAgentBriefingErrorMessage("ASSIGNMENT_NOT_ACTIVE"),
-    "아직 활성화되지 않은 배정입니다.",
+    mapAgentFreeKeyErrorMessage("CLIENT_IDENTITY_FORBIDDEN"),
+    "요청 형식이 올바르지 않습니다.",
+  );
+  assert.equal(mapAgentFreeKeyErrorMessage("KEY_TURN_FAILED"), AGENT_FREE_KEY_GENERIC_ERROR);
+  assert.equal(mapAgentFreeKeyErrorMessage(null), AGENT_FREE_KEY_GENERIC_ERROR);
+  // Briefing helper messages remain for list/gate UX labels (not free-KEY POST errors).
+  assert.equal(
+    mapAgentBriefingErrorMessage("NOT_ASSIGNED"),
+    "현재 설계사에게 배정된 고객이 아닙니다.",
   );
   assert.equal(
     mapAgentBriefingErrorMessage("CONSENT_BINDING_REQUIRED"),
     "고객의 정보 공유 동의가 필요합니다.",
   );
   assert.equal(mapAgentBriefingErrorMessage("KEY_TURN_FAILED"), AGENT_BRIEFING_GENERIC_ERROR);
-  assert.equal(mapAgentBriefingErrorMessage(null), AGENT_BRIEFING_GENERIC_ERROR);
 });
 
 test("customer/admin route blocked; agent allowed", () => {
@@ -197,9 +174,10 @@ test("customer/admin route blocked; agent allowed", () => {
   assert.doesNotMatch(panel, /useCustomerContext/);
   assert.match(panel, /return <AgentDeskConsultRoom/);
   assert.match(panel, /설계사 데스크/);
-  assert.match(panel, /KEY에게 상담 준비 요청/);
+  assert.match(panel, /KEY에게 무엇을 물어볼까요/);
   assert.doesNotMatch(panel, /KEY 협진실/);
   assert.doesNotMatch(panel, /KEY에게 브리핑 요청/);
+  assert.doesNotMatch(panel, /KEY에게 상담 준비 요청/);
   const app = readFileSync(join(ROOT, "src/App.jsx"), "utf8");
   assert.match(app, /case \"agent\":\s*return <AgentDeskPanel/);
   assert.match(app, /import RoleAccessPanel/);
@@ -238,12 +216,15 @@ test("customer/admin route blocked; agent allowed", () => {
 test("PanelKeyVoice and customer_conversations stay unused", () => {
   const panel = readFileSync(join(ROOT, "src/components/AgentDeskPanel.jsx"), "utf8");
   const helper = readFileSync(join(ROOT, "src/lib/agentKeyBriefing.js"), "utf8");
-  for (const src of [panel, helper]) {
+  const freeHelper = readFileSync(join(ROOT, "src/lib/agentFreeKey.js"), "utf8");
+  for (const src of [panel, helper, freeHelper]) {
     assert.equal(src.includes("PanelKeyVoice"), false);
     assert.equal(src.includes("customer_conversations"), false);
     assert.equal(src.includes("/api/customer-home-brain-fact"), false);
-    assert.equal(src.includes("runOneKeyCoreTurn"), false);
   }
+  assert.equal(panel.includes("runOneKeyCoreTurn"), false);
+  assert.ok(panel.includes("postAgentFreeKeyChat"));
+  assert.ok(freeHelper.includes("/api/agent-key-chat"));
 });
 
 test("UUID fields are not rendered as visible labels", () => {
@@ -265,11 +246,13 @@ test("no foreign assignment input UI", () => {
   assert.match(panel, /role=\"listbox\"/);
 });
 
-test("ineligible disables composer; eligible uses chat composer", () => {
+test("free KEY composer always available; general scope present", () => {
   const panel = readFileSync(join(ROOT, "src/components/AgentDeskPanel.jsx"), "utf8");
-  assert.match(panel, /disabled=\{!eligible \|\| submitting \|\| !selected\}/);
+  assert.match(panel, /disabled=\{submitting\}/);
   assert.match(panel, /lg-v31-composer/);
   assert.match(panel, /KEY가 확인하고 있어요/);
+  assert.match(panel, /일반 질문/);
+  assert.match(panel, /postAgentFreeKeyChat/);
   assert.doesNotMatch(panel, /PanelKeyVoice/);
   assert.doesNotMatch(panel, /AiRecommendationPanel/);
 });
