@@ -1529,7 +1529,7 @@ export default function LifeguardHomeChat({
           },
         });
         if (!result.ok) {
-          paint.flush();
+          paint.cancel();
           if (!paint.hasPainted()) {
             setMessages((prev) =>
               prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
@@ -1538,9 +1538,8 @@ export default function LifeguardHomeChat({
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        // Flush pending rAF; seal exact server text into the same assistant message.
-        paint.flush();
-        const answer = paint.finalize(String(result.text ?? "").trim());
+        // After server done, keep revealing one grapheme/frame — no bulk flush.
+        const answer = await paint.finalize(String(result.text ?? "").trim());
         setAgentTurnMeta({
           mode: result.mode ?? null,
           customer_context_used: result.customer_context_used === true,
@@ -1555,7 +1554,7 @@ export default function LifeguardHomeChat({
           }),
         );
       } catch {
-        paint.flush();
+        paint.cancel();
         if (!paint.hasPainted()) {
           setMessages((prev) =>
             prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
