@@ -5,6 +5,8 @@
 
 export const ADMIN_ASSIGNMENT_PATH = "/api/admin-agent-assignment";
 export const ADMIN_ASSIGNMENT_OPTIONS_PATH = "/api/admin-agent-assignment-options";
+export const ADMIN_ASSIGNMENTS_LIVE_PATH = "/api/admin-agent-assignments";
+export const ADMIN_KEY_ASSIGNMENT_CHAT_PATH = "/api/admin-key-assignment-chat";
 
 export const ADMIN_ASSIGNMENT_ERROR_MESSAGES = {
   UNAUTHORIZED: "관리자 로그인이 필요합니다.",
@@ -260,4 +262,94 @@ export async function postAdminAssignmentAction(body) {
     binding_skipped_no_consent: json.binding_skipped_no_consent ?? null,
     binding_revoked_count: json.binding_revoked_count ?? null,
   };
+}
+
+/**
+ * Live pending/active assignments for rehydrate after refresh/new chat.
+ */
+export async function loadAdminLiveAssignments() {
+  const headers = await authHeaders();
+  const res = await fetch(ADMIN_ASSIGNMENTS_LIVE_PATH, {
+    method: "GET",
+    headers,
+  });
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+  if (!res.ok || json?.ok !== true) {
+    return {
+      ok: false,
+      reason: json?.reason ?? null,
+      error_message: mapAdminAssignmentErrorMessage(json?.reason),
+      assignments: [],
+    };
+  }
+  return {
+    ok: true,
+    assignments: Array.isArray(json.assignments) ? json.assignments : [],
+  };
+}
+
+/**
+ * KEY Hand turn — proposal card only; does not mutate assignments.
+ * @param {{ question: string, history?: Array<{ role?: string, content?: string }> }} args
+ */
+export async function postAdminKeyAssignmentChat({ question, history = [] }) {
+  const headers = await authHeaders();
+  const res = await fetch(ADMIN_KEY_ASSIGNMENT_CHAT_PATH, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      question: String(question ?? "").trim(),
+      history: Array.isArray(history) ? history : [],
+    }),
+  });
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+  if (!res.ok || json?.ok !== true) {
+    return {
+      ok: false,
+      reason: json?.reason ?? null,
+      error_message: mapAdminAssignmentErrorMessage(json?.reason),
+      text: json?.text ?? mapAdminAssignmentErrorMessage(json?.reason),
+      card: null,
+      assignments: [],
+    };
+  }
+  return {
+    ok: true,
+    reason: null,
+    error_message: null,
+    text: String(json.text ?? "").trim(),
+    card: json.card ?? null,
+    assignments: Array.isArray(json.assignments) ? json.assignments : [],
+  };
+}
+
+/**
+ * Pick one live row for panel rehydrate (pending preferred, else active).
+ * Ambiguous multi-row without filter → null (do not auto-pick).
+ * @param {object[]} assignments
+ * @param {{ customerId?: string }} [args]
+ */
+export function pickRehydratableLiveAssignment(assignments, { customerId = "" } = {}) {
+  let list = Array.isArray(assignments) ? assignments : [];
+  if (customerId) {
+    list = list.filter((row) => row?.customer?.id === customerId);
+  }
+  if (list.length === 0) return null;
+  if (list.length > 1 && !customerId) return null;
+  const pending = list.filter((row) => row.status === "pending");
+  if (pending.length === 1) return pending[0];
+  if (pending.length > 1) return null;
+  const active = list.filter((row) => row.status === "active");
+  if (active.length === 1) return active[0];
+  return null;
 }

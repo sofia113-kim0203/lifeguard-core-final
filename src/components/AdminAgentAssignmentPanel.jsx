@@ -9,7 +9,9 @@ import {
   canCreatePendingAssignment,
   formatAssignmentOptionLabel,
   loadAdminAssignmentOptions,
+  loadAdminLiveAssignments,
   mapAssignmentSuccessLines,
+  pickRehydratableLiveAssignment,
   postAdminAssignmentAction,
 } from "../lib/adminAgentAssignment.js";
 
@@ -113,6 +115,20 @@ export default function AdminAgentAssignmentPanel() {
     }
     setCustomers(result.customers);
     setAgents(result.agents);
+
+    // Rehydrate from server live rows — do not rely only on create response state.
+    const live = await loadAdminLiveAssignments();
+    if (live.ok) {
+      const row = pickRehydratableLiveAssignment(live.assignments);
+      if (row?.id) {
+        setAssignmentId(row.id);
+        setStatus(row.status ?? null);
+        setCustomerId(row.customer?.id || "");
+        setAgentUserId(row.agent?.id || "");
+        setCustomerLabel(formatAssignmentOptionLabel(row.customer || {}));
+        setAgentLabel(formatAssignmentOptionLabel(row.agent || {}));
+      }
+    }
     setLoadingOptions(false);
   }, []);
 
