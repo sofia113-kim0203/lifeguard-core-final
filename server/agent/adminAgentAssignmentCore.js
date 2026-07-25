@@ -456,13 +456,60 @@ export async function closeAgentAssignment({
   if (assignment.deleted_at != null) {
     return { ok: false, reason: "ASSIGNMENT_DELETED", status: 403 };
   }
-  if (assignment.status === "pending") {
-    return { ok: false, reason: "INVALID_TRANSITION", status: 403 };
-  }
-  if (assignment.status !== "active" && assignment.status !== "closed") {
+  if (
+    assignment.status !== "pending" &&
+    assignment.status !== "active" &&
+    assignment.status !== "closed"
+  ) {
     return { ok: false, reason: "INVALID_TRANSITION", status: 403 };
   }
 
+  // pending → closed: cancel wait only. No activate, no assigned_at, no C1 create, no briefing.
+  if (assignment.status === "pending") {
+    const { data: updated, error: updateError } = await admin
+      .from("agent_assignments")
+      .update({ status: "closed" })
+      .eq("id", assignmentIdClean)
+      .eq("status", "pending")
+      .is("deleted_at", null)
+      .select("id, customer_id, agent_user_id, status, assigned_at, created_at, deleted_at")
+      .maybeSingle();
+    if (updateError) {
+      return {
+        ok: false,
+        reason: "ASSIGNMENT_CLOSE_FAILED",
+        status: 500,
+        error_message: updateError.message,
+      };
+    }
+    if (!updated) {
+      return { ok: false, reason: "INVALID_TRANSITION", status: 409 };
+    }
+    assignment.status = updated.status;
+    assignment.assigned_at = updated.assigned_at;
+
+    const revokedPending = await revokeLiveAssignmentBindings(admin, assignmentIdClean);
+    if (!revokedPending.ok) return revokedPending;
+
+    return {
+      ok: true,
+      status: 200,
+      assignment: {
+        id: assignment.id,
+        customer_id: assignment.customer_id,
+        agent_user_id: assignment.agent_user_id,
+        status: "closed",
+        assigned_at: assignment.assigned_at,
+        created_at: assignment.created_at,
+        deleted_at: assignment.deleted_at,
+      },
+      binding_revoked_count: revokedPending.revoked_count,
+      binding_created: false,
+      binding_skipped_no_consent: false,
+    };
+  }
+
+  // active → closed (existing contract): revoke live C1 bindings.
   if (assignment.status === "active") {
     const { data: updated, error: updateError } = await admin
       .from("agent_assignments")

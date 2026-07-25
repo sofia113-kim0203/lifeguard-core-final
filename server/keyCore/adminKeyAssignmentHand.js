@@ -271,13 +271,17 @@ export function validateAdminAssignmentProposal({
     };
   }
 
+  const closeLabel =
+    assignment.status === "pending" ? "배정 취소" : "배정 종료";
   return {
     ok: true,
     reason: null,
     text:
       action === "activate"
         ? "아래 배정을 활성 배정으로 전환할까요?"
-        : "아래 배정을 종료할까요?",
+        : assignment.status === "pending"
+          ? "아래 배정 대기를 취소할까요?"
+          : "아래 배정을 종료할까요?",
     card: {
       kind: "admin_assignment_confirm",
       action,
@@ -288,7 +292,8 @@ export function validateAdminAssignmentProposal({
       customer_label: formatAssignmentOptionLabel(customer),
       agent_label: formatAssignmentOptionLabel(agent),
       status_label: assignment.status === "pending" ? "배정 대기" : "활성 배정",
-      primary_label: action === "activate" ? "활성화" : "배정 종료",
+      source_status: assignment.status,
+      primary_label: action === "activate" ? "활성화" : closeLabel,
       secondary_label: "취소",
     },
   };

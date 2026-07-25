@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  assignmentCloseActionLabel,
   assignmentStatusLabelKo,
   buildActivateBody,
   buildAlignedCreatePendingFromOptionIds,
@@ -218,6 +219,7 @@ export default function AdminAgentAssignmentPanel() {
           action,
           binding_created: result.binding_created,
           binding_skipped_no_consent: result.binding_skipped_no_consent,
+          source_status: action === "close" ? status : null,
         }),
       );
     } finally {
@@ -360,7 +362,7 @@ export default function AdminAgentAssignmentPanel() {
                   disabled={!closeEnabled}
                   onClick={() => void runAction("close")}
                 >
-                  종료
+                  {assignmentCloseActionLabel("pending")}
                 </button>
               </>
             ) : null}
@@ -375,7 +377,7 @@ export default function AdminAgentAssignmentPanel() {
                 disabled={!closeEnabled}
                 onClick={() => void runAction("close")}
               >
-                배정 종료
+                {assignmentCloseActionLabel("active")}
               </button>
             ) : null}
           </div>

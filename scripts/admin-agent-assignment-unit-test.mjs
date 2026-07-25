@@ -434,6 +434,7 @@ async function testCloseRevokesBinding() {
   assert.equal(result.assignment.status, "closed");
   assert.equal(result.binding_revoked_count, 1);
   assert.ok(state.bindings[0].revoked_at);
+  assert.equal(result.assignment.assigned_at, "2026-07-25T00:00:00.000Z");
 
   const closedActivate = await activateAgentAssignment({
     adminSupabase: buildAdminMock(state),
@@ -441,6 +442,61 @@ async function testCloseRevokesBinding() {
   });
   assert.equal(closedActivate.ok, false);
   assert.equal(closedActivate.reason, "INVALID_TRANSITION");
+}
+
+async function testClosePendingCancelsWithoutActivateOrBinding() {
+  const state = {
+    assignments: {
+      [ASSIGNMENT]: {
+        id: ASSIGNMENT,
+        customer_id: CUSTOMER,
+        agent_user_id: AGENT,
+        status: "pending",
+        assigned_at: null,
+        created_at: "2026-07-25T00:00:00.000Z",
+        deleted_at: null,
+      },
+    },
+    consents: [
+      {
+        id: CONSENT,
+        customer_id: CUSTOMER,
+        consent_type: "agent_sharing",
+        granted: true,
+        revoked_at: null,
+      },
+    ],
+    bindings: [],
+    inserts: [],
+    updates: [],
+  };
+  const result = await closeAgentAssignment({
+    adminSupabase: buildAdminMock(state),
+    assignmentId: ASSIGNMENT,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.assignment.status, "closed");
+  assert.equal(result.assignment.assigned_at, null);
+  assert.equal(result.binding_revoked_count, 0);
+  assert.equal(result.binding_created, false);
+  assert.equal(state.assignments[ASSIGNMENT].status, "closed");
+  assert.equal(state.assignments[ASSIGNMENT].assigned_at, null);
+  assert.equal(state.bindings.length, 0);
+  assert.ok(
+    !(state.inserts || []).some((row) => row.table === "agent_assignment_consents"),
+  );
+  assert.ok(
+    (state.updates || []).some(
+      (u) =>
+        u.table === "agent_assignments" &&
+        u.payload?.status === "closed" &&
+        u.payload?.status !== "active" &&
+        !Object.prototype.hasOwnProperty.call(u.payload, "assigned_at"),
+    ),
+  );
+  assert.ok(
+    !(state.updates || []).some((u) => u.payload?.status === "active"),
+  );
 }
 
 async function testRejectTransitionsAndFields() {
@@ -521,6 +577,7 @@ async function main() {
   await testActivateWithoutConsent();
   await testDuplicateActive();
   await testCloseRevokesBinding();
+  await testClosePendingCancelsWithoutActivateOrBinding();
   await testRejectTransitionsAndFields();
   testSourceContractsUnchanged();
   console.log("admin-agent-assignment-unit-test: PASS");

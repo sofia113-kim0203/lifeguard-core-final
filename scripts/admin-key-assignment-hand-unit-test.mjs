@@ -262,6 +262,21 @@ const agents = [
     assignment_id: ASSIGNMENT,
   });
 
+  const closePending = validateAdminAssignmentProposal({
+    proposal: { action: "close", assignment_id: ASSIGNMENT },
+    customers,
+    agents,
+    assignments,
+  });
+  assert.equal(closePending.card?.action, "close");
+  assert.equal(closePending.card?.source_status, "pending");
+  assert.equal(closePending.card?.primary_label, "배정 취소");
+  assert.match(closePending.text, /취소/);
+  assert.deepEqual(buildConfirmedAssignmentBody(closePending.card, { customers, agents }), {
+    action: "close",
+    assignment_id: ASSIGNMENT,
+  });
+
   const close = validateAdminAssignmentProposal({
     proposal: { action: "close", assignment_id: ASSIGNMENT },
     customers,
@@ -269,6 +284,8 @@ const agents = [
     assignments: [{ ...assignments[0], status: "active" }],
   });
   assert.equal(close.card?.action, "close");
+  assert.equal(close.card?.source_status, "active");
+  assert.equal(close.card?.primary_label, "배정 종료");
   assert.deepEqual(buildConfirmedAssignmentBody(close.card, { customers, agents }), {
     action: "close",
     assignment_id: ASSIGNMENT,

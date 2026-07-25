@@ -267,16 +267,26 @@ export function buildCloseBody({ assignmentId }) {
 }
 
 /**
+ * Close button / confirm label — pending cancel vs active end.
+ * @param {unknown} status
+ */
+export function assignmentCloseActionLabel(status) {
+  return String(status ?? "").trim() === "pending" ? "배정 취소" : "배정 종료";
+}
+
+/**
  * @param {{
  *   action: "create_pending" | "activate" | "close",
  *   binding_created?: boolean | null,
  *   binding_skipped_no_consent?: boolean | null,
+ *   source_status?: string | null,
  * }} args
  */
 export function mapAssignmentSuccessLines({
   action,
   binding_created = null,
   binding_skipped_no_consent = null,
+  source_status = null,
 }) {
   if (action === "create_pending") {
     return ["배정 대기로 등록했습니다."];
@@ -291,6 +301,9 @@ export function mapAssignmentSuccessLines({
     return lines;
   }
   if (action === "close") {
+    if (String(source_status ?? "").trim() === "pending") {
+      return ["배정 대기를 취소했습니다."];
+    }
     return ["배정을 종료했습니다."];
   }
   return [];

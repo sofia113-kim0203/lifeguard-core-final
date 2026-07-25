@@ -199,6 +199,7 @@ export default function AdminKeyAssignmentChatPanel() {
       action: card.action,
       binding_created: result.binding_created,
       binding_skipped_no_consent: result.binding_skipped_no_consent,
+      source_status: card.source_status || null,
     });
     setMessages((prev) => [
       ...prev.map((m) => (m.id === messageId ? { ...m, card: null } : m)),

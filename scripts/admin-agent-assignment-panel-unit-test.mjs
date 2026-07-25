@@ -12,6 +12,7 @@ import {
   loadAdminAgentAssignmentOptions,
 } from "../server/agent/adminAgentAssignmentOptionsCore.js";
 import {
+  assignmentCloseActionLabel,
   assignmentStatusLabelKo,
   buildActivateBody,
   buildCloseBody,
@@ -330,9 +331,19 @@ function fileSha(rel) {
       "현재 정보 공유 권한이 없어 설계사 상담 준비는 제한됩니다.",
     ],
   );
+  assert.equal(assignmentCloseActionLabel("pending"), "배정 취소");
+  assert.equal(assignmentCloseActionLabel("active"), "배정 종료");
+  assert.deepEqual(
+    mapAssignmentSuccessLines({ action: "close", source_status: "pending" }),
+    ["배정 대기를 취소했습니다."],
+  );
   assert.deepEqual(mapAssignmentSuccessLines({ action: "close" }), [
     "배정을 종료했습니다.",
   ]);
+  assert.deepEqual(
+    mapAssignmentSuccessLines({ action: "close", source_status: "active" }),
+    ["배정을 종료했습니다."],
+  );
   assert.equal(
     mapAdminAssignmentErrorMessage("FORBIDDEN_ROLE"),
     "관리자 계정만 이용할 수 있습니다.",
@@ -370,6 +381,9 @@ function fileSha(rel) {
   assert.ok(panel.includes("formatAssignmentOptionLabel"));
   assert.ok(!panel.includes("assignment UUID"));
   assert.ok(panel.includes("buildAlignedCreatePendingFromOptionIds"));
+  assert.ok(panel.includes("assignmentCloseActionLabel"));
+  assert.ok(panel.includes('assignmentCloseActionLabel("pending")'));
+  assert.ok(panel.includes('assignmentCloseActionLabel("active")'));
   assert.ok(panel.includes("buildActivateBody"));
   assert.ok(panel.includes("buildCloseBody"));
 
