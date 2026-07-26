@@ -59,17 +59,19 @@ export default function CustomerLifeguardShell({
   if (!user) {
     return (
       <div
+        data-customer-auth-shell
         style={{
           minHeight: "100vh",
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-start",
           justifyContent: "center",
-          padding: "24px",
+          padding: "24px 16px 48px",
           background: LG.bg,
+          boxSizing: "border-box",
         }}
       >
         {authLoading ? (
-          <div style={{ color: LG.textMuted, fontFamily: LG.sans, fontSize: "15px" }}>잠시만요…</div>
+          <div style={{ color: LG.textMuted, fontFamily: LG.sans, fontSize: "15px", marginTop: 48 }}>잠시만요…</div>
         ) : (
           <AuthPanel key={authMode} initialMode={authMode} onLoginSuccess={onLoginSuccess} />
         )}
