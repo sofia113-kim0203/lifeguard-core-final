@@ -220,6 +220,8 @@ function scopeBtnStyle(active) {
     /* V3.1 SSOT .scope button: no font-family → UA (Arial) */
     height: `${Math.max(28, FINAL_UI.tabsH - 8)}px`,
     boxSizing: "border-box",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   };
 }
 
@@ -1008,6 +1010,28 @@ export default function LifeguardHomeChat({
     setShowLatestAnswerBtn(false);
     scheduleScrollToBottom();
   }, [scheduleScrollToBottom]);
+
+  /** Prefer current entity; else first linked corporate entity (honest empty if none). */
+  const resolveCorporateEntityId = useCallback(() => {
+    const current = String(selectedEntityId ?? "").trim();
+    if (current) return current;
+    return String(corporateEntities[0]?.entity_id ?? "").trim() || null;
+  }, [selectedEntityId, corporateEntities]);
+
+  const selectPersonalScope = useCallback(() => {
+    setViewMode("personal");
+    setSelectedEntityId(null);
+  }, []);
+
+  const selectCorporateScope = useCallback(() => {
+    setViewMode("corporate");
+    setSelectedEntityId(resolveCorporateEntityId());
+  }, [resolveCorporateEntityId]);
+
+  const selectCombinedScope = useCallback(() => {
+    setViewMode("both");
+    setSelectedEntityId(resolveCorporateEntityId());
+  }, [resolveCorporateEntityId]);
 
   useEffect(() => () => {
     if (focusTimerRef.current) window.clearTimeout(focusTimerRef.current);
@@ -2576,55 +2600,61 @@ export default function LifeguardHomeChat({
             >
               ☰
             </button>
-            <span
-              style={{
-                fontFamily: LG.serif,
-                fontSize: `${FINAL_UI.headerLeftSize}px`,
-                fontWeight: FINAL_UI.headerLeftWeight,
-                color: FINAL_UI.navyDeep,
-                letterSpacing: "0.06em",
-                lineHeight: 1.1,
-              }}
-            >
-              LIFEGUARD
-            </span>
           </div>
 
           <div
+            role="group"
+            aria-label="상담 문맥"
+            className="lg-v31-scope lg-v31-header-scope"
             style={{
               flex: 1,
               minWidth: 0,
-              textAlign: "center",
               display: "flex",
-              flexDirection: "column",
+              flexDirection: "row",
+              flexWrap: "nowrap",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "flex-start",
+              gap: "8px",
+              overflowX: "auto",
+              overflowY: "hidden",
             }}
           >
-            <div
-              className="lg-v31-center-brand-mark"
-              style={{
-                fontFamily: LG.serif,
-                fontSize: `${FINAL_UI.logoSize}px`,
-                fontWeight: 600,
-                color: FINAL_UI.navyDeep,
-                letterSpacing: "0.06em",
-                lineHeight: 1,
-              }}
+            <button
+              type="button"
+              onClick={selectPersonalScope}
+              style={scopeBtnStyle(viewMode === "personal")}
             >
-              LIFEGUARD
-            </div>
-            <div
-              className={isAgentAudience ? "lg-agent-key-badge" : undefined}
-              style={{
-                fontSize: `${FINAL_UI.brandTagSize}px`,
-                color: FINAL_UI.muted,
-                marginTop: `${FINAL_UI.brandTagMtPx}px`,
-                lineHeight: 1.2,
-              }}
+              개인
+            </button>
+            <button
+              type="button"
+              onClick={selectCorporateScope}
+              style={scopeBtnStyle(viewMode === "corporate")}
             >
-              {isAgentAudience ? "설계사 KEY" : "늘 곁에 있는 보험 주치의"}
-            </div>
+              법인
+            </button>
+            <button
+              type="button"
+              onClick={selectCombinedScope}
+              style={scopeBtnStyle(viewMode === "both")}
+            >
+              개인+법인 함께
+            </button>
+            {isAgentAudience ? (
+              <span
+                className="lg-agent-key-badge"
+                style={{
+                  fontSize: `${FINAL_UI.brandTagSize}px`,
+                  color: FINAL_UI.muted,
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  marginLeft: "4px",
+                }}
+              >
+                설계사 KEY
+              </span>
+            ) : null}
           </div>
 
           <div
@@ -2800,6 +2830,32 @@ export default function LifeguardHomeChat({
               overflow: "hidden",
             }}
           >
+        {panelView === "chat" ? (
+          <div
+            className="lg-v31-action-slot lg-v31-content-rail"
+            style={finalUiContentRailStyle({
+              paddingTop: `${FINAL_UI.emptyActionPadTopPx}px`,
+              paddingBottom: `${FINAL_UI.actionSlotPadBottomPx}px`,
+              flexShrink: 0,
+            })}
+          >
+            <KeyNowActionCard
+              action={isAgentAudience ? AGENT_NOW_ACTION : finalShell?.nowAction || null}
+              disabled={isDisabled || loading || streaming}
+              onCta={() => {
+                if (isAgentAudience) {
+                  const text =
+                    String(AGENT_NOW_ACTION.submitText || "").trim() || "상담 준비를 도와주세요";
+                  submitQuestion(text);
+                  return;
+                }
+                const text =
+                  String(finalShell?.nowAction?.submitText || "").trim() || "준비가 되면 알려주기";
+                submitQuestion(text);
+              }}
+            />
+          </div>
+        ) : null}
         <div
           ref={chatScrollRef}
           onScroll={handleChatScroll}
@@ -2827,32 +2883,6 @@ export default function LifeguardHomeChat({
               minWidth: 0,
             }}
           >
-          {panelView === "chat" && messages.length === 0 ? (
-            <div
-              className="lg-v31-action-slot lg-v31-content-rail"
-              style={finalUiContentRailStyle({
-                /* Empty seat: start just below body — no fixed actionY spacer */
-                paddingTop: `${FINAL_UI.emptyActionPadTopPx}px`,
-                flexShrink: 0,
-              })}
-            >
-              <KeyNowActionCard
-                action={isAgentAudience ? AGENT_NOW_ACTION : finalShell?.nowAction || null}
-                disabled={isDisabled || loading || streaming}
-                onCta={() => {
-                  if (isAgentAudience) {
-                    const text = String(AGENT_NOW_ACTION.submitText || "").trim() || "상담 준비를 도와주세요";
-                    submitQuestion(text);
-                    return;
-                  }
-                  const text =
-                    String(finalShell?.nowAction?.submitText || "").trim() ||
-                    "준비가 되면 알려주기";
-                  submitQuestion(text);
-                }}
-              />
-            </div>
-          ) : null}
           {panelView === "insurance" ? (
             <LayerPanel title="내 보험 점검" onBack={goBackToChat}>
               <CustomerInsuranceList
@@ -3072,32 +3102,6 @@ export default function LifeguardHomeChat({
                 );
               })
             : null}
-          {panelView === "chat" && messages.length > 0 ? (
-            <div
-              className="lg-v31-action-slot lg-v31-content-rail"
-              style={finalUiContentRailStyle({
-                paddingTop: `${FINAL_UI.actionSlotPadTopPx}px`,
-                paddingBottom: `${FINAL_UI.actionSlotPadBottomPx}px`,
-                flexShrink: 0,
-              })}
-            >
-              <KeyNowActionCard
-                action={isAgentAudience ? AGENT_NOW_ACTION : finalShell?.nowAction || null}
-                disabled={isDisabled || loading || streaming}
-                onCta={() => {
-                  if (isAgentAudience) {
-                    const text = String(AGENT_NOW_ACTION.submitText || "").trim() || "상담 준비를 도와주세요";
-                    submitQuestion(text);
-                    return;
-                  }
-                  const text =
-                    String(finalShell?.nowAction?.submitText || "").trim() ||
-                    "준비가 되면 알려주기";
-                  submitQuestion(text);
-                }}
-              />
-            </div>
-          ) : null}
           </div>
         </div>
 
@@ -3193,83 +3197,6 @@ export default function LifeguardHomeChat({
                 ) : null}
               </div>
             ) : null}
-            <div
-              className="lg-v31-content-rail"
-              style={finalUiContentRailStyle({
-                marginBottom: `${Math.max(0, FINAL_UI.composerY - FINAL_UI.tabsY - FINAL_UI.tabsH)}px`,
-              })}
-            >
-            <div
-              role="group"
-              aria-label="상담 문맥"
-              className="lg-v31-scope"
-              style={{
-                display: "flex",
-                flexWrap: "nowrap",
-                gap: "8px",
-                marginLeft: 0,
-                width: "100%",
-                maxWidth: `${FINAL_UI.tabsW}px`,
-                height: `${FINAL_UI.tabsH}px`,
-                alignItems: "center",
-                boxSizing: "border-box",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode("personal");
-                  setSelectedEntityId(null);
-                }}
-                style={scopeBtnStyle(viewMode === "personal")}
-              >
-                개인
-              </button>
-              {corporateEntities.length > 0 ? (
-                <>
-                  {corporateEntities.slice(0, 6).map((row) => {
-                    const eid = String(row?.entity_id ?? "").trim();
-                    const active = viewMode === "corporate" && selectedEntityId === eid;
-                    return (
-                      <button
-                        key={eid}
-                        type="button"
-                        onClick={() => {
-                          setViewMode("corporate");
-                          setSelectedEntityId(eid);
-                        }}
-                        style={scopeBtnStyle(active)}
-                      >
-                        {String(row?.display_name ?? "회사").trim() || "회사"}
-                      </button>
-                    );
-                  })}
-                  {selectedEntityId ? (
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("both")}
-                      style={scopeBtnStyle(viewMode === "both")}
-                    >
-                      개인+회사 함께
-                    </button>
-                  ) : (
-                    <button type="button" style={scopeBtnStyle(false)} disabled>
-                      회사
-                    </button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <button type="button" style={scopeBtnStyle(false)} disabled>
-                    회사
-                  </button>
-                  <button type="button" style={scopeBtnStyle(false)} disabled>
-                    개인+회사 함께
-                  </button>
-                </>
-              )}
-            </div>
-            </div>
             {error ? <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{error}</div> : null}
             {chatAttachError ? (
               <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{chatAttachError}</div>

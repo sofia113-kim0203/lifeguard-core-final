@@ -109,6 +109,37 @@ test("CENTER empty-seat slot stays mounted for agent", () => {
   assert.match(chat, /isAgentAudience \? AGENT_NOW_ACTION/);
 });
 
+test("HEADER scope tabs replace duplicate LIFEGUARD; real viewMode wiring", () => {
+  assert.match(chat, /lg-v31-header-scope/);
+  assert.match(chat, /selectPersonalScope/);
+  assert.match(chat, /selectCorporateScope/);
+  assert.match(chat, /selectCombinedScope/);
+  assert.match(chat, /setViewMode\("personal"\)/);
+  assert.match(chat, /setViewMode\("corporate"\)/);
+  assert.match(chat, /setViewMode\("both"\)/);
+  assert.match(chat, />\s*개인\s*</);
+  assert.match(chat, />\s*법인\s*</);
+  assert.match(chat, />\s*개인\+법인 함께\s*</);
+  assert.doesNotMatch(chat, /lg-v31-center-brand-mark/);
+  assert.doesNotMatch(chat, /lg-v31-shell-header[\s\S]{0,900}>LIFEGUARD</);
+  assert.doesNotMatch(chat, /개인\+회사 함께/);
+  // Composer no longer hosts the old scope strip.
+  assert.doesNotMatch(chat, /lg-v31-composer-wrap[\s\S]{0,1200}lg-v31-scope/);
+});
+
+test("ACTION card sits outside growing message scroll content", () => {
+  const actionIdx = chat.indexOf('className="lg-v31-action-slot lg-v31-content-rail"');
+  const scrollIdx = chat.indexOf("ref={chatScrollRef}");
+  const contentIdx = chat.indexOf("ref={chatScrollContentRef}");
+  assert.ok(actionIdx >= 0 && scrollIdx > actionIdx, "action slot before chat scroll viewport");
+  assert.ok(contentIdx > scrollIdx, "message content ref inside scroll viewport");
+  assert.doesNotMatch(chat, /messages\.length > 0[\s\S]{0,200}lg-v31-action-slot/);
+  const card = readFileSync(join(ROOT, "src/components/KeyNowActionCard.jsx"), "utf8");
+  assert.match(card, /minHeight:\s*"2lh"/);
+  assert.match(card, /minHeight:\s*"40px"/);
+  assert.match(card, /height:\s*"auto"/);
+});
+
 test("CUSTOMER_PATH_CHANGED: customer default path preserved", () => {
   assert.match(chat, /audience = \"customer\"/);
   assert.match(chat, /fetchHomeBrainFactStream/);
