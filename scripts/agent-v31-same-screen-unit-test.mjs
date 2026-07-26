@@ -26,11 +26,32 @@ const right = readFileSync(join(ROOT, "src/components/KeyAgentRightRail.jsx"), "
 const freeHelper = readFileSync(join(ROOT, "src/lib/agentFreeKey.js"), "utf8");
 
 test("ROUTE /agent uses customer V3.1 shell with audience=agent", () => {
-  assert.match(app, /userRole === APP_ROLES\.AGENT && normalizeAppPath\(appPath\) === "\/agent"/);
+  assert.match(app, /isAgentV31ShellPath/);
+  assert.match(
+    app,
+    /userRole === APP_ROLES\.AGENT && \(agentAppPath === "\/agent" \|\| agentAppPath === "\/"\)/,
+  );
   assert.match(app, /audience="agent"/);
   assert.match(app, /CustomerLifeguardShell/);
   assert.doesNotMatch(app, /case \"agent\":\s*return <AgentDeskPanel/);
   assert.doesNotMatch(app, /import AgentDeskPanel/);
+});
+
+test("AGENT root `/` replaces to /agent; dark shell never hosts agent root", () => {
+  assert.match(app, /history\.replaceState\(\{\}, "", "\/agent"\)/);
+  assert.doesNotMatch(
+    app,
+    /normalizeAppPath\(appPath\) !== "\/"[\s\S]{0,80}history\.pushState/,
+  );
+  // Dark shell gradient must sit after the shared V3.1 agent branch.
+  const v31Idx = app.search(/isAgentV31ShellPath/);
+  const darkIdx = app.search(/linear-gradient\(145deg, #0b1220/);
+  assert.ok(v31Idx >= 0 && darkIdx > v31Idx, "V3.1 agent branch before dark shell");
+  const card = readFileSync(join(ROOT, "src/components/KeyNowActionCard.jsx"), "utf8");
+  assert.match(card, /minHeight:\s*"2lh"/);
+  assert.match(card, /height:\s*"auto"/);
+  assert.doesNotMatch(card, /lineClamp|line-clamp|WebkitLineClamp|textOverflow:\s*"ellipsis"/);
+  assert.doesNotMatch(card, /transition:|transform:|animation:/);
 });
 
 test("CUSTOMER_COMPONENT and AGENT_COMPONENT are the same LifeguardHomeChat", () => {

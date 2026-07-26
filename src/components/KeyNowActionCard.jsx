@@ -82,6 +82,7 @@ export default function KeyNowActionCard({
         style={{
           fontSize: `${C.actionBodySize}px`,
           lineHeight: C.actionBodyLine,
+          minHeight: "2lh",
           color: C.muted,
           margin: `0 0 ${C.actionBodyMbPx}px`,
         }}

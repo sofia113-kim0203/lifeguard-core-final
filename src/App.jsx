@@ -224,6 +224,14 @@ export default function App() {
     }
   }, [user, userRole, appPath, roleLoading, activeMenu]);
 
+  // Agent root `/` → `/agent` without push history (shared V3.1 shell renders on first paint).
+  useEffect(() => {
+    if (userRole !== APP_ROLES.AGENT) return;
+    if (normalizeAppPath(appPath) !== "/") return;
+    window.history.replaceState({}, "", "/agent");
+    setAppPath("/agent");
+  }, [userRole, appPath]);
+
   const handleMenuSelect = (menuId) => {
     setActiveMenu(menuId);
     if (user && isBackofficeRole(userRole)) {
@@ -289,8 +297,13 @@ export default function App() {
     );
   }
 
-  // Advisor KEY V3.1 same screen — /agent uses customer V3.1 shell + LifeguardHomeChat.
-  if (userRole === APP_ROLES.AGENT && normalizeAppPath(appPath) === "/agent") {
+  // Advisor KEY V3.1 same screen — /agent (and agent landing on /) share one shell.
+  // Agent `/` must never fall through to the legacy dark backoffice shell (0 frames).
+  const agentAppPath = normalizeAppPath(appPath);
+  const isAgentV31ShellPath =
+    userRole === APP_ROLES.AGENT && (agentAppPath === "/agent" || agentAppPath === "/");
+
+  if (isAgentV31ShellPath) {
     return (
       <CustomerLifeguardShell
         user={user}
