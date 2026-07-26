@@ -2208,6 +2208,11 @@ const chartPolicies = {
 {
   assert.equal(RECORD_CLAIM_CASE_UPDATES_TOOL.name, "record_claim_case_updates");
   assert.equal(String(buildSystemPrompt()).includes("record_claim_case_updates"), false);
+  const claimSpeakPrompt = String(buildSystemPrompt());
+  assert.match(claimSpeakPrompt, /사실 확인이 필요한 후보/);
+  assert.match(claimSpeakPrompt, /내부적으로 기록해뒀어요/);
+  assert.match(claimSpeakPrompt, /진행 중 보험금 청구는 없습니다/);
+  assert.match(claimSpeakPrompt, /status=identified는 보험사 접수가 아니다/);
 
   const hydratePayload = buildUserPayload({
     question: "지난 청구는 지금 어디까지 진행됐지?",

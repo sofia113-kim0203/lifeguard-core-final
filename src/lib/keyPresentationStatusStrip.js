@@ -11,9 +11,21 @@ export const KEY_HAND_FACT_PATHS = Object.freeze({
   paymentTruth: "key_payment_truth_items",
 });
 
+/** Insurer-progress statuses counted as "진행 중" on the customer left rail. */
+export const UI_CLAIM_IN_PROGRESS_STATUSES = Object.freeze([
+  "preparing",
+  "ready_for_customer_submission",
+  "submitted_by_customer",
+  "under_review",
+]);
+
+/** Candidate only — not insurer-filed; never shown as "접수" / "진행 중". */
+export const UI_CLAIM_CANDIDATE_STATUSES = Object.freeze(["identified"]);
+
 const CLAIM_STAGE = Object.freeze({
-  identified: "접수",
-  preparing: "접수",
+  identified: "확인 필요",
+  preparing: "준비",
+  ready_for_customer_submission: "준비",
   submitted_by_customer: "접수",
   under_review: "심사",
   paid: "지급",
@@ -70,16 +82,29 @@ export function buildKeyPresentationStatusStrip({
 
   const chips = [];
 
-  // 청구
+  // 청구 — prefer real progress / terminal; identified alone → 확인 필요 (never 접수)
   const claimRow =
-    claims.find((c) => ["under_review", "submitted_by_customer", "preparing", "paid", "denied"].includes(c.status)) ||
-    claims[0] ||
+    claims.find((c) =>
+      [
+        "under_review",
+        "submitted_by_customer",
+        "ready_for_customer_submission",
+        "preparing",
+        "paid",
+        "denied",
+      ].includes(String(c?.status ?? "")),
+    ) ||
+    claims.find((c) => UI_CLAIM_CANDIDATE_STATUSES.includes(String(c?.status ?? ""))) ||
     null;
   const claimStage =
     claimStageLabel(claimRow?.status) ||
     (done.corporateClaimStatus ? claimStageLabel(done.corporateClaimStatus) : null);
   if (claimStage) {
-    chips.push({ id: "claim", label: `청구 · ${claimStage}`, tone: "navy" });
+    chips.push({
+      id: "claim",
+      label: `청구 · ${claimStage}`,
+      tone: claimStage === "확인 필요" ? "amber" : "navy",
+    });
   }
 
   // 기한 — active clocks only
@@ -144,7 +169,23 @@ export function buildKeyPresentationStatusStrip({
   if (progressClaim && claimStageLabel(progressClaim.status)) {
     const stage = String(progressClaim.status);
     const stages = [
-      { key: "submitted", label: "접수", on: ["preparing", "submitted_by_customer", "under_review", "paid", "denied", "identified"].includes(stage) },
+      {
+        key: "prep",
+        label: "준비",
+        on: [
+          "preparing",
+          "ready_for_customer_submission",
+          "submitted_by_customer",
+          "under_review",
+          "paid",
+          "denied",
+        ].includes(stage),
+      },
+      {
+        key: "submitted",
+        label: "접수",
+        on: ["submitted_by_customer", "under_review", "paid", "denied"].includes(stage),
+      },
       { key: "review", label: "심사", on: ["under_review", "paid", "denied"].includes(stage) },
       { key: "paid", label: "지급", on: stage === "paid" },
       { key: "denied", label: "부지급", on: stage === "denied" },
@@ -309,10 +350,10 @@ export function resolvePdfWaitStatusText({ hasDocumentAttach = false } = {}) {
 
 /** Final customer UI shell — display model from verified KEY facts only. No demo invent. */
 const FINAL_CLAIM_STEPS = Object.freeze([
-  { key: "receipt", label: "접수" },
+  { key: "prep", label: "준비" },
   { key: "docs", label: "서류검토" },
+  { key: "filed", label: "접수" },
   { key: "review", label: "심사중" },
-  { key: "pay_due", label: "지급예정" },
   { key: "paid", label: "지급완료" },
 ]);
 
@@ -350,11 +391,20 @@ function daysUntil(dueAt) {
 function claimStepIndex(status) {
   const s = String(status ?? "").trim();
   if (s === "paid") return 4;
-  if (s === "denied") return 2;
-  if (s === "under_review") return 2;
-  if (s === "submitted_by_customer") return 1;
-  if (s === "preparing" || s === "identified") return 0;
+  if (s === "denied") return 3;
+  if (s === "under_review") return 3;
+  if (s === "submitted_by_customer") return 2;
+  if (s === "ready_for_customer_submission" || s === "preparing") return 0;
+  // identified is candidate-only — never mapped onto the in-progress stepper as 접수.
   return -1;
+}
+
+export function isUiClaimInProgressStatus(status) {
+  return UI_CLAIM_IN_PROGRESS_STATUSES.includes(String(status ?? "").trim());
+}
+
+export function isUiClaimCandidateStatus(status) {
+  return UI_CLAIM_CANDIDATE_STATUSES.includes(String(status ?? "").trim());
 }
 
 function formatCompactWon(value) {
@@ -392,11 +442,8 @@ export function buildCustomerUiFinalShellModel({
   const ledger = scopeRows(snap.ledger, scope);
   const paymentTruth = scopeRows(snap.paymentTruth, scope);
 
-  const activeClaims = claims.filter((c) =>
-    ["identified", "preparing", "submitted_by_customer", "under_review"].includes(
-      String(c?.status ?? ""),
-    ),
-  );
+  const activeClaims = claims.filter((c) => isUiClaimInProgressStatus(c?.status));
+  const candidateClaims = claims.filter((c) => isUiClaimCandidateStatus(c?.status));
   const primaryClaim = activeClaims[0] || null;
   let claimProgress;
   if (primaryClaim) {
@@ -407,16 +454,32 @@ export function buildCustomerUiFinalShellModel({
     }));
     claimProgress = {
       empty: false,
+      mode: "in_progress",
       activeCount: activeClaims.length,
+      candidateCount: candidateClaims.length,
       kindLabel: trim(primaryClaim.claim_type || primaryClaim.product_hint || "청구", 24) || "청구",
       receivedAt: trim(primaryClaim.received_at || primaryClaim.created_at || "", 32) || null,
       currentIndex: idx,
       steps,
     };
+  } else if (candidateClaims.length > 0) {
+    // Candidate only — not insurer-filed progress; no "N건 진행 중" / no 접수 stepper.
+    claimProgress = {
+      empty: false,
+      mode: "candidate",
+      activeCount: 0,
+      candidateCount: candidateClaims.length,
+      kindLabel: "확인 필요",
+      receivedAt: null,
+      currentIndex: -1,
+      steps: [],
+    };
   } else {
     claimProgress = {
       empty: true,
+      mode: "empty",
       activeCount: 0,
+      candidateCount: 0,
       kindLabel: null,
       receivedAt: null,
       currentIndex: -1,

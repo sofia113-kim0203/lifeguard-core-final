@@ -5,10 +5,10 @@ import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
 const C = FINAL_UI;
 
 const EMPTY_STEPS = [
-  { key: "received", label: "접수" },
+  { key: "prep", label: "준비" },
   { key: "docs", label: "서류검토" },
+  { key: "filed", label: "접수" },
   { key: "review", label: "심사중" },
-  { key: "pay_due", label: "지급예정" },
   { key: "paid", label: "지급완료" },
 ];
 
@@ -17,17 +17,65 @@ export default function KeyClaimProgress({
   embedded = false,
   overview = false,
 }) {
+  const mode = String(claimProgress?.mode || "");
+  const isCandidate =
+    mode === "candidate" ||
+    (Number(claimProgress?.candidateCount) > 0 &&
+      !(Number(claimProgress?.activeCount) > 0) &&
+      (!Array.isArray(claimProgress?.steps) || claimProgress.steps.length === 0));
   const empty =
     !claimProgress ||
     claimProgress.empty === true ||
-    !Array.isArray(claimProgress.steps) ||
-    claimProgress.steps.length === 0;
+    ((!Array.isArray(claimProgress.steps) || claimProgress.steps.length === 0) &&
+      !isCandidate);
 
   const pad = embedded
     ? { padding: "0" }
     : { padding: "14px 16px 12px", borderBottom: `1px solid ${C.line}` };
   const titleMb = overview ? "4px" : "8px";
   const gridMb = overview ? "4px" : "8px";
+
+  if (isCandidate && !empty) {
+    const candidateCount = Number(claimProgress.candidateCount) || 1;
+    return (
+      <section style={pad}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+          <div
+            style={{
+              fontSize: `${C.bodySize}px`,
+              fontWeight: 700,
+              color: C.text,
+              fontFamily: C.sans,
+            }}
+          >
+            확인 필요
+          </div>
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              color: C.muted,
+              background: C.barTrack,
+              borderRadius: "999px",
+              padding: "2px 8px",
+            }}
+          >
+            후보 {candidateCount}건
+          </span>
+        </div>
+        <div
+          style={{
+            fontSize: "12px",
+            color: C.muted,
+            fontFamily: C.sans,
+            lineHeight: 1.4,
+          }}
+        >
+          보험사에 접수된 청구는 아닙니다. 사실 확인이 필요한 후보입니다.
+        </div>
+      </section>
+    );
+  }
 
   if (empty) {
     return (

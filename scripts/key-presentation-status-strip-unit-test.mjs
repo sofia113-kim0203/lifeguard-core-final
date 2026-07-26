@@ -9,6 +9,8 @@ import {
   extractKeyStatusFromDonePayload,
   formatCustomerDocumentFactoryStatus,
   formatCustomerDocumentStorageStatus,
+  isUiClaimCandidateStatus,
+  isUiClaimInProgressStatus,
   resolvePdfWaitStatusText,
 } from "../src/lib/keyPresentationStatusStrip.js";
 
@@ -207,6 +209,48 @@ import {
   assert.ok(shell.actionPills.some((p) => p.id === "gap"));
   assert.equal(shell.nowAction?.pending, false);
   assert.match(String(shell.nowAction?.title || ""), /서류/);
+}
+
+// identified = candidate only — not 접수 / not 진행 중 count
+{
+  assert.equal(isUiClaimCandidateStatus("identified"), true);
+  assert.equal(isUiClaimInProgressStatus("identified"), false);
+  assert.equal(isUiClaimInProgressStatus("preparing"), true);
+  assert.equal(isUiClaimInProgressStatus("ready_for_customer_submission"), true);
+
+  const identifiedOnly = buildCustomerUiFinalShellModel({
+    handSnapshot: {
+      claims: [{ claim_case_key: "cand1", status: "identified", entity_id: null }],
+    },
+    viewMode: "personal",
+  });
+  assert.equal(identifiedOnly.claimProgress.empty, false);
+  assert.equal(identifiedOnly.claimProgress.mode, "candidate");
+  assert.equal(identifiedOnly.claimProgress.activeCount, 0);
+  assert.equal(identifiedOnly.claimProgress.candidateCount, 1);
+  assert.equal(identifiedOnly.claimProgress.steps.length, 0);
+  assert.equal(identifiedOnly.claimProgress.kindLabel, "확인 필요");
+
+  const stripId = buildKeyPresentationStatusStrip({
+    handSnapshot: {
+      claims: [{ claim_case_key: "cand1", status: "identified", entity_id: null }],
+    },
+    viewMode: "personal",
+  });
+  assert.ok(stripId.chips.some((c) => c.id === "claim" && c.label.includes("확인 필요")));
+  assert.ok(!stripId.chips.some((c) => c.label.includes("접수")));
+
+  const preparing = buildCustomerUiFinalShellModel({
+    handSnapshot: {
+      claims: [{ claim_case_key: "p1", status: "preparing", entity_id: null }],
+    },
+    viewMode: "personal",
+  });
+  assert.equal(preparing.claimProgress.mode, "in_progress");
+  assert.equal(preparing.claimProgress.activeCount, 1);
+  assert.ok(preparing.claimProgress.steps.length > 0);
+  assert.equal(preparing.claimProgress.steps[0].label, "준비");
+  assert.ok(!preparing.claimProgress.steps.some((s) => s.state === "current" && s.label === "접수"));
 }
 
 console.log("key-presentation-status-strip-unit-test: PASS");
