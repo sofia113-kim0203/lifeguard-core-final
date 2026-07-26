@@ -1,10 +1,14 @@
 /**
  * Admin LEFT rail — identical chrome to KeyAgentLeftRail; content only differs.
+ * Ops tools collapse by work group; spacing tokens = FINAL_UI only.
  */
+import { useMemo, useState } from "react";
 import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
 import {
+  ADMIN_V31_OPS_GROUPS,
   ADMIN_V31_PANELS,
   ADMIN_V31_PRIMARY_MENU,
+  adminV31PanelById,
 } from "../lib/adminV31Panels.jsx";
 
 const C = FINAL_UI;
@@ -16,6 +20,29 @@ export default function KeyAdminLeftRail({
   onSelectMenu = null,
   style = null,
 }) {
+  const selectedPanelId = useMemo(() => {
+    if (String(selectedMenuKey).startsWith("ops:")) {
+      return String(selectedMenuKey).slice(4);
+    }
+    return ADMIN_V31_PRIMARY_MENU.find((m) => m.menuKey === selectedMenuKey)?.panelId ?? null;
+  }, [selectedMenuKey]);
+
+  const [openGroups, setOpenGroups] = useState(() => {
+    const initial = {};
+    for (const g of ADMIN_V31_OPS_GROUPS) initial[g.id] = false;
+    return initial;
+  });
+
+  const effectiveOpen = useMemo(() => {
+    const next = { ...openGroups };
+    for (const g of ADMIN_V31_OPS_GROUPS) {
+      if (selectedPanelId && g.panelIds.includes(selectedPanelId)) {
+        next[g.id] = true;
+      }
+    }
+    return next;
+  }, [openGroups, selectedPanelId]);
+
   if (collapsed) {
     return (
       <aside
@@ -44,11 +71,10 @@ export default function KeyAdminLeftRail({
   }
 
   const col = `${C.leftColPx}px`;
-  const ops = ADMIN_V31_PANELS.filter((p) => p.group === "ops");
 
   return (
     <aside
-      className="lg-v31-rail"
+      className="lg-v31-rail lg-admin-left-rail"
       aria-label="관리자 메뉴"
       style={{
         width: col,
@@ -69,7 +95,7 @@ export default function KeyAdminLeftRail({
           maxWidth: "100%",
           boxSizing: "border-box",
           padding: `${C.cardPadY}px ${C.cardPadX}px`,
-          borderRadius: "16px",
+          borderRadius: `${C.cardRadius}px`,
           background: C.heroGradient,
           color: "#fff",
           position: "relative",
@@ -117,6 +143,7 @@ export default function KeyAdminLeftRail({
       </div>
 
       <div
+        className="lg-admin-left-stack"
         style={{
           flex: 1,
           overflowY: "auto",
@@ -128,9 +155,7 @@ export default function KeyAdminLeftRail({
         }}
       >
         <div style={whiteCard} className="lg-admin-menu-primary">
-          <div style={{ fontSize: "12px", fontWeight: 800, color: C.navy, marginBottom: "8px" }}>
-            관리 업무
-          </div>
+          <div style={secK}>관리 업무</div>
           <div role="listbox" aria-label="관리자 주요 메뉴" style={{ display: "grid", gap: "6px" }}>
             {ADMIN_V31_PRIMARY_MENU.map((item) => (
               <MenuRow
@@ -144,31 +169,74 @@ export default function KeyAdminLeftRail({
         </div>
 
         <div style={whiteCard} className="lg-admin-menu-ops">
-          <div style={{ fontSize: "12px", fontWeight: 800, color: C.navy, marginBottom: "8px" }}>
-            운영·약관 도구
-          </div>
-          <div role="listbox" aria-label="관리자 운영 메뉴" style={{ display: "grid", gap: "4px" }}>
-            {ops.map((item) => (
-              <MenuRow
-                key={item.id}
-                label={item.label}
-                active={selectedMenuKey === `ops:${item.id}`}
-                onClick={() =>
-                  onSelectMenu?.({
-                    menuKey: `ops:${item.id}`,
-                    panelId: item.id,
-                    label: item.label,
-                  })
-                }
-                compact
-              />
-            ))}
+          <div style={secK}>운영·약관 도구</div>
+          <div style={{ display: "grid", gap: `${C.railStackGapPx}px` }}>
+            {ADMIN_V31_OPS_GROUPS.map((group) => {
+              const open = effectiveOpen[group.id] === true;
+              const items = group.panelIds
+                .map((id) => adminV31PanelById(id) || ADMIN_V31_PANELS.find((p) => p.id === id))
+                .filter(Boolean);
+              return (
+                <div key={group.id} className="lg-admin-ops-group">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() =>
+                      setOpenGroups((prev) => ({
+                        ...prev,
+                        [group.id]: !prev[group.id],
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      border: "none",
+                      background: "transparent",
+                      padding: "6px 2px",
+                      cursor: "pointer",
+                      fontFamily: C.sans,
+                      fontSize: `${C.sectionTitleSize}px`,
+                      fontWeight: 700,
+                      color: C.navy,
+                    }}
+                  >
+                    <span>{group.label}</span>
+                    <span style={{ color: C.muted, fontSize: "11px" }}>{open ? "▾" : "▸"}</span>
+                  </button>
+                  {open ? (
+                    <div
+                      role="listbox"
+                      aria-label={group.label}
+                      style={{ display: "grid", gap: "6px" }}
+                    >
+                      {items.map((item) => (
+                        <MenuRow
+                          key={item.id}
+                          label={item.label}
+                          active={selectedMenuKey === `ops:${item.id}`}
+                          onClick={() =>
+                            onSelectMenu?.({
+                              menuKey: `ops:${item.id}`,
+                              panelId: item.id,
+                              label: item.label,
+                            })
+                          }
+                          compact
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {typeof onToggleCollapse === "function" ? (
-        <div style={{ padding: "8px 12px 12px", borderTop: "1px solid rgba(18,50,95,0.06)" }}>
+        <div style={{ padding: "8px 12px 12px" }}>
           <button
             type="button"
             aria-label="좌측 패널 접기"
@@ -193,15 +261,15 @@ function MenuRow({ label, active, onClick, compact = false }) {
       style={{
         width: "100%",
         textAlign: "left",
-        border: active ? `1px solid ${C.teal}` : `1px solid ${C.line}`,
-        background: active ? C.tealSoft : C.surface,
+        border: `1px solid ${C.line}`,
         borderRadius: "12px",
-        padding: compact ? "8px 10px" : "10px 12px",
+        padding: compact ? "8px 10px" : "9px 10px",
+        background: active ? C.tealSoft : "#fff",
         cursor: "pointer",
         fontFamily: C.sans,
-        fontSize: compact ? "12px" : "13px",
-        fontWeight: active ? 700 : 600,
-        color: active ? C.navy : C.text,
+        fontSize: compact ? "12px" : `${C.leftValueSize}px`,
+        fontWeight: active ? 700 : 650,
+        color: active ? C.teal : C.text,
         lineHeight: 1.35,
       }}
     >
@@ -212,9 +280,16 @@ function MenuRow({ label, active, onClick, compact = false }) {
 
 const whiteCard = {
   background: C.surface,
-  borderRadius: "18px",
+  borderRadius: `${C.cardRadius}px`,
   padding: `${C.cardPadY}px ${C.cardPadX}px`,
-  border: `1px solid ${C.line}`,
+};
+
+const secK = {
+  fontSize: `${C.sectionTitleSize}px`,
+  fontWeight: 700,
+  letterSpacing: "0.03em",
+  color: C.muted,
+  marginBottom: `${C.sectionKMbPx}px`,
 };
 
 const iconBtnStyle = {
@@ -228,11 +303,5 @@ const iconBtnStyle = {
 };
 
 function pulseStyle(bg) {
-  return {
-    width: "8px",
-    height: "8px",
-    borderRadius: "999px",
-    background: bg,
-    display: "inline-block",
-  };
+  return { flex: 1, height: "5px", borderRadius: "999px", background: bg, display: "block" };
 }

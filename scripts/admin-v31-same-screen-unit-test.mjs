@@ -53,11 +53,17 @@ test("Admin shell reuses FINAL_UI chrome tokens — bright, single header", () =
   assert.match(shell, /LIFEGUARD/);
   assert.match(shell, /FINAL_UI\.leftColPx/);
   assert.match(shell, /FINAL_UI\.rightColPx/);
-  assert.match(shell, /FINAL_UI\.centerColPx/);
   assert.match(shell, /FINAL_UI\.headerPx/);
+  assert.match(shell, /FINAL_UI\.gutterPx/);
+  assert.match(shell, /FINAL_UI\.roomInlinePx/);
+  assert.match(shell, /FINAL_UI\.bodyGapPx/);
+  assert.match(shell, /FINAL_UI\.emptyActionPadTopPx/);
+  assert.match(shell, /FINAL_UI\.cardPadX/);
   assert.match(shell, /FINAL_UI_ROOM_CSS/);
   assert.doesNotMatch(shell, /#0b1220|linear-gradient\(145deg, #0b1220/);
   assert.doesNotMatch(shell, /개인\+|selectPersonalScope|viewMode/);
+  assert.doesNotMatch(shell, /padding:\s*"16px 18px"/);
+  assert.doesNotMatch(shell, /maxWidth:\s*`\$\{FINAL_UI\.centerColPx\}px`/);
   // Single brand mark — no second LIFEGUARD title block outside header center.
   const brandHits = shell.match(/>\s*LIFEGUARD\s*</g) || [];
   assert.equal(brandHits.length, 1, "exactly one LIFEGUARD brand mark");
@@ -69,11 +75,17 @@ test("Header user chip is 관리자; left menu has required admin ops", () => {
   assert.match(left, /관리자 메뉴/);
   assert.match(left, /heroGradient/);
   assert.match(left, /ADMIN_V31_PRIMARY_MENU/);
+  assert.match(left, /ADMIN_V31_OPS_GROUPS/);
+  assert.match(left, /lg-admin-ops-group/);
+  assert.match(left, /aria-expanded/);
+  assert.match(left, /railStackGapPx/);
+  assert.match(left, /overflowY:\s*"auto"/);
   assert.match(panels, /label: "고객"/);
   assert.match(panels, /label: "설계사"/);
   assert.match(panels, /label: "배정 관리"/);
   assert.match(panels, /label: "동의·연결 상태"/);
   assert.match(panels, /ADMIN_V31_PRIMARY_MENU/);
+  assert.match(panels, /ADMIN_V31_OPS_GROUPS/);
 });
 
 test("Right rail shows selection / assignment / consent / result slots", () => {
@@ -95,6 +107,9 @@ test("Existing admin panels + assignment API wired; light tone only for V3.1", (
   assert.match(assign, /postAdminAssignmentAction/);
   assert.match(assign, /loadAdminAssignmentOptions/);
   assert.match(assign, /loadAdminLiveAssignments/);
+  assert.match(assign, /finally\s*\{/);
+  assert.match(assign, /AUTH_REQUIRED|OPTIONS_EXCEPTION/);
+  assert.match(assign, /data-admin-assignment-load-reason/);
 });
 
 test("No stray adminV31Panels.js JSX file", () => {

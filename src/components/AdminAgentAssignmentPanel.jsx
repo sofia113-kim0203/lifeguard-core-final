@@ -94,16 +94,16 @@ const S_LIGHT = {
   card: {
     background: FINAL_UI.surface,
     border: `1px solid ${FINAL_UI.line}`,
-    borderRadius: "18px",
-    padding: "20px 22px",
-    boxShadow: FINAL_UI.roomShadow,
+    borderRadius: `${FINAL_UI.cardRadius}px`,
+    padding: `${FINAL_UI.sectionPadY}px ${FINAL_UI.sectionPadX}px`,
+    flex: 1,
   },
   label: {
     display: "block",
-    fontSize: "13px",
+    fontSize: `${FINAL_UI.bodySize}px`,
     fontWeight: 600,
     color: FINAL_UI.muted,
-    marginBottom: "8px",
+    marginBottom: `${FINAL_UI.sectionKMbPx}px`,
   },
   select: {
     width: "100%",
@@ -112,7 +112,7 @@ const S_LIGHT = {
     border: `1px solid ${FINAL_UI.line}`,
     background: FINAL_UI.cream,
     color: FINAL_UI.text,
-    fontSize: "14px",
+    fontSize: `${FINAL_UI.bodySize}px`,
     fontFamily: FINAL_UI.sans,
     boxSizing: "border-box",
   },
@@ -124,41 +124,67 @@ const S_LIGHT = {
     border: `1px solid ${FINAL_UI.line}`,
     background: FINAL_UI.cream,
     color: FINAL_UI.text,
-    fontSize: "14px",
+    fontSize: `${FINAL_UI.bodySize}px`,
     fontFamily: FINAL_UI.sans,
     boxSizing: "border-box",
     resize: "vertical",
   },
   btn: {
-    padding: "12px 20px",
+    padding: `${FINAL_UI.actionCtaPadY}px ${FINAL_UI.actionCtaPadX}px`,
     borderRadius: "12px",
     border: "none",
     background: FINAL_UI.ctaGradient,
     color: "#fff",
-    fontSize: "15px",
+    fontSize: `${FINAL_UI.actionCtaSize}px`,
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: FINAL_UI.sans,
   },
   btnMuted: {
-    padding: "12px 20px",
+    padding: `${FINAL_UI.actionCtaPadY}px ${FINAL_UI.actionCtaPadX}px`,
     borderRadius: "12px",
     border: `1px solid ${FINAL_UI.line}`,
     background: FINAL_UI.surface,
     color: FINAL_UI.text,
-    fontSize: "15px",
+    fontSize: `${FINAL_UI.actionCtaSize}px`,
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: FINAL_UI.sans,
   },
-  title: { margin: "0 0 8px", fontSize: "18px", color: FINAL_UI.navyDeep },
-  sub: { margin: "0 0 20px", fontSize: "13px", color: FINAL_UI.muted, lineHeight: 1.5 },
-  body: { display: "grid", gap: "8px", fontSize: "14px", color: FINAL_UI.text },
+  title: {
+    margin: `0 0 ${FINAL_UI.cardHeadGapPx}px`,
+    fontSize: `${FINAL_UI.actionTitleSize}px`,
+    color: FINAL_UI.navyDeep,
+  },
+  sub: {
+    margin: `0 0 ${FINAL_UI.actionBodyMbPx}px`,
+    fontSize: `${FINAL_UI.actionBodySize}px`,
+    color: FINAL_UI.muted,
+    lineHeight: FINAL_UI.actionBodyLine,
+  },
+  body: {
+    display: "grid",
+    gap: `${FINAL_UI.railStackGapPx}px`,
+    fontSize: `${FINAL_UI.bodySize}px`,
+    color: FINAL_UI.text,
+  },
   muted: { color: FINAL_UI.muted },
-  err: { margin: "0 0 12px", color: FINAL_UI.coral, fontSize: "14px" },
-  okLine: { margin: "0 0 6px", color: FINAL_UI.teal, fontSize: "14px" },
-  errLine: { margin: 0, color: FINAL_UI.coral, fontSize: "14px" },
-  h3: { margin: "0 0 12px", fontSize: "16px", color: FINAL_UI.navy },
+  err: {
+    margin: `0 0 ${FINAL_UI.cardHeadGapPx}px`,
+    color: FINAL_UI.coral,
+    fontSize: `${FINAL_UI.bodySize}px`,
+  },
+  okLine: {
+    margin: `0 0 ${FINAL_UI.sectionKMbPx}px`,
+    color: FINAL_UI.teal,
+    fontSize: `${FINAL_UI.bodySize}px`,
+  },
+  errLine: { margin: 0, color: FINAL_UI.coral, fontSize: `${FINAL_UI.bodySize}px` },
+  h3: {
+    margin: `0 0 ${FINAL_UI.cardHeadGapPx}px`,
+    fontSize: `${FINAL_UI.metricTitleSize}px`,
+    color: FINAL_UI.navy,
+  },
 };
 
 function findPerson(list, id) {
@@ -188,35 +214,51 @@ export default function AdminAgentAssignmentPanel({
   const [busy, setBusy] = useState(false);
   const [bindingLabel, setBindingLabel] = useState("조회 전");
   const [consentLabel, setConsentLabel] = useState("조회 전");
+  const [loadReason, setLoadReason] = useState(null);
 
   const refreshOptions = useCallback(async () => {
     setLoadingOptions(true);
     setLoadError("");
-    const result = await loadAdminAssignmentOptions();
-    if (!result.ok) {
+    setLoadReason(null);
+    try {
+      const result = await loadAdminAssignmentOptions();
+      if (!result.ok) {
+        setCustomers([]);
+        setAgents([]);
+        setLoadReason(result.reason || "OPTIONS_LOAD_FAILED");
+        setLoadError(
+          result.error_message
+            ? `${result.error_message}${result.reason ? ` (${result.reason})` : ""}`
+            : `목록을 불러오지 못했습니다.${result.reason ? ` (${result.reason})` : ""}`,
+        );
+        return;
+      }
+      setCustomers(result.customers);
+      setAgents(result.agents);
+
+      // Rehydrate from server live rows — do not rely only on create response state.
+      const live = await loadAdminLiveAssignments();
+      if (live.ok) {
+        const row = pickRehydratableLiveAssignment(live.assignments);
+        if (row?.id) {
+          setAssignmentId(row.id);
+          setStatus(row.status ?? null);
+          setCustomerId(row.customer?.id || "");
+          setAgentUserId(row.agent?.id || "");
+          setCustomerLabel(formatAssignmentOptionLabel(row.customer || {}));
+          setAgentLabel(formatAssignmentOptionLabel(row.agent || {}));
+        }
+      }
+    } catch (err) {
       setCustomers([]);
       setAgents([]);
-      setLoadError(result.error_message || "목록을 불러오지 못했습니다.");
+      const msg = err instanceof Error ? err.message : String(err ?? "unknown");
+      const reason = /로그인/.test(msg) ? "AUTH_REQUIRED" : "OPTIONS_EXCEPTION";
+      setLoadReason(reason);
+      setLoadError(`${msg} (${reason})`);
+    } finally {
       setLoadingOptions(false);
-      return;
     }
-    setCustomers(result.customers);
-    setAgents(result.agents);
-
-    // Rehydrate from server live rows — do not rely only on create response state.
-    const live = await loadAdminLiveAssignments();
-    if (live.ok) {
-      const row = pickRehydratableLiveAssignment(live.assignments);
-      if (row?.id) {
-        setAssignmentId(row.id);
-        setStatus(row.status ?? null);
-        setCustomerId(row.customer?.id || "");
-        setAgentUserId(row.agent?.id || "");
-        setCustomerLabel(formatAssignmentOptionLabel(row.customer || {}));
-        setAgentLabel(formatAssignmentOptionLabel(row.agent || {}));
-      }
-    }
-    setLoadingOptions(false);
   }, []);
 
   useEffect(() => {
@@ -238,8 +280,12 @@ export default function AdminAgentAssignmentPanel({
       resultLines,
       errorMessage,
       loadError,
+      loadReason,
       bindingLabel,
       consentLabel,
+      customersCount: customers.length,
+      agentsCount: agents.length,
+      loadingOptions,
     });
   }, [
     onWorkspaceMeta,
@@ -254,8 +300,10 @@ export default function AdminAgentAssignmentPanel({
     resultLines,
     errorMessage,
     loadError,
+    loadReason,
     bindingLabel,
     consentLabel,
+    loadingOptions,
   ]);
 
   const selectedCustomer = useMemo(
@@ -359,11 +407,17 @@ export default function AdminAgentAssignmentPanel({
 
   return (
     <div
+      data-admin-assignment-load-reason={loadReason || ""}
+      data-admin-assignment-customers={String(customers.length)}
+      data-admin-assignment-agents={String(agents.length)}
+      data-admin-assignment-loading={loadingOptions ? "1" : "0"}
       style={{
         fontFamily: tone === "light" ? FINAL_UI.sans : FONT,
         display: "flex",
         flexDirection: "column",
-        gap: "16px",
+        gap: tone === "light" ? `${FINAL_UI.railStackGapPx}px` : "16px",
+        flex: tone === "light" ? 1 : undefined,
+        minHeight: tone === "light" ? 0 : undefined,
       }}
     >
       <div style={S.card}>

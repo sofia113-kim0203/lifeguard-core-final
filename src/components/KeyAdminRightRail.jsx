@@ -69,7 +69,7 @@ export default function KeyAdminRightRail({
       <div
         style={{
           flex: 1,
-          overflowY: "auto",
+          overflowY: "visible",
           padding: `${C.railInnerPadPx}px`,
           minHeight: 0,
           display: "flex",
@@ -89,12 +89,9 @@ export default function KeyAdminRightRail({
         </Block>
 
         <Block tone="activity" title="동의·연결" dot={C.teal}>
-          <MoneyRow label="동의" value={meta.consentLabel || "배정 화면에서 확인"} />
-          <MoneyRow label="Binding" value={meta.bindingLabel || "배정 화면에서 확인"} />
-          <EmptyLine
-            primary="동의·binding은 기존 배정 API 결과를 따릅니다"
-            secondary="새 계약을 만들지 않습니다"
-          />
+          <MoneyRow label="동의" value={meta.consentLabel || "조회 전"} />
+          <MoneyRow label="Binding" value={meta.bindingLabel || "조회 전"} />
+          <EmptyLine primary="배정 API 조회·작업 후에만 갱신됩니다" />
         </Block>
 
         <Block tone="result" title="작업 결과 · 주의" dot={C.coral}>
@@ -112,7 +109,7 @@ export default function KeyAdminRightRail({
       </div>
 
       {typeof onToggleCollapse === "function" ? (
-        <div style={{ padding: "8px 12px 12px", borderTop: "1px solid rgba(18,50,95,0.06)" }}>
+        <div style={{ padding: "8px 12px 12px" }}>
           <button
             type="button"
             aria-label="우측 패널 접기"

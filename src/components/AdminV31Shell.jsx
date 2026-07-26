@@ -327,17 +327,14 @@ export default function AdminV31Shell({ user: _user = null, onLogout = null }) {
               minWidth: 0,
               minHeight: 0,
               overflow: "hidden",
-              maxWidth: `${FINAL_UI.centerColPx}px`,
-              width: "100%",
-              margin: "0 auto",
             }}
           >
             {!isWideRoom ? (
               <div
                 style={{
                   display: "flex",
-                  gap: "8px",
-                  padding: "10px 12px",
+                  gap: `${FINAL_UI.railStackGapPx}px`,
+                  padding: `${FINAL_UI.railInnerPadPx}px ${FINAL_UI.cardPadX}px`,
                   flexWrap: "wrap",
                   borderBottom: `1px solid ${FINAL_UI.line}`,
                 }}
@@ -356,7 +353,7 @@ export default function AdminV31Shell({ user: _user = null, onLogout = null }) {
                         selectedMenuKey === item.menuKey ? FINAL_UI.tealSoft : FINAL_UI.surface,
                       borderRadius: "999px",
                       padding: "6px 12px",
-                      fontSize: "12px",
+                      fontSize: `${FINAL_UI.tabSize}px`,
                       fontWeight: 700,
                       cursor: "pointer",
                       fontFamily: FINAL_UI.sans,
@@ -374,10 +371,15 @@ export default function AdminV31Shell({ user: _user = null, onLogout = null }) {
                 flex: 1,
                 minHeight: 0,
                 overflowY: "auto",
-                padding: "16px 18px",
+                /* Match agent empty/action top + card pad — no invented 16/18 */
+                padding: `${FINAL_UI.emptyActionPadTopPx}px ${FINAL_UI.cardPadX}px ${FINAL_UI.railInnerPadPx}px`,
+                display: "flex",
+                flexDirection: "column",
               }}
             >
-              {renderAdminV31Panel(activePanelId, panelProps)}
+              <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                {renderAdminV31Panel(activePanelId, panelProps)}
+              </div>
             </div>
           </div>
 

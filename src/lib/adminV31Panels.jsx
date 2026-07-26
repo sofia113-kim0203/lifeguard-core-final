@@ -46,6 +46,61 @@ export const ADMIN_V31_PRIMARY_MENU = [
   { menuKey: "consent", panelId: "agent_assignment", label: "동의·연결 상태" },
 ];
 
+/**
+ * Ops tools grouped for left-rail collapse only — same panel ids as AdminMenuPanel.
+ * Labels are section headers, not new features.
+ */
+export const ADMIN_V31_OPS_GROUPS = [
+  {
+    id: "customer_ops",
+    label: "고객 운영",
+    panelIds: [
+      "customer_conversation_memory",
+      "customer_grounded_conversation",
+      "customer_ai_conversation_execution",
+    ],
+  },
+  {
+    id: "data_ops",
+    label: "운영 데이터",
+    panelIds: [
+      "real_data_readiness",
+      "carrier_product_ingestion",
+      "manual_knowledge_ingestion",
+      "manual_knowledge_search_review",
+      "production_data_flow_validation",
+    ],
+  },
+  {
+    id: "policy_ops",
+    label: "약관·지식",
+    panelIds: [
+      "policy_rag",
+      "policy_chunk_processing",
+      "policy_embedding_preparation",
+      "policy_vector_search",
+      "policy_grounding_context",
+      "claude_grounding_integration",
+      "policy_embedding_execution",
+      "claude_execution",
+      "policy_pdf_ingestion",
+      "policy_text_extraction",
+      "policy_chunk_generation",
+      "policy_embedding_pipeline",
+      "grounded_retrieval_validation",
+      "real_policy_knowledge_ingestion",
+      "real_policy_pdf_upload_storage",
+      "real_policy_pdf_extraction_pipeline",
+      "real_policy_text_extraction_execution",
+      "real_policy_chunk_generation",
+      "real_policy_embedding_preparation",
+      "real_policy_embedding_execution",
+      "real_policy_vector_search_integration",
+      "real_policy_customer_ai_conversation",
+    ],
+  },
+];
+
 /** Full panel registry — same ids as legacy AdminMenuPanel. */
 export const ADMIN_V31_PANELS = [
   { id: "agent_assignment", label: "배정 관리", group: "primary" },
@@ -81,6 +136,10 @@ export const ADMIN_V31_PANELS = [
   { id: "real_policy_vector_search_integration", label: "실제 약관 Vector Search 연동", group: "ops" },
   { id: "real_policy_customer_ai_conversation", label: "실제 약관 고객 AI 답변 준비", group: "ops" },
 ];
+
+export function adminV31PanelById(panelId) {
+  return ADMIN_V31_PANELS.find((p) => p.id === panelId) ?? null;
+}
 
 export const ADMIN_V31_DEFAULT_PANEL = "agent_assignment";
 
