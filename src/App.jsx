@@ -26,6 +26,7 @@ import {
 } from "./lib/appRouting.js";
 import { supabase } from "./lib/supabase.js";
 import CustomerLifeguardShell from "./components/CustomerLifeguardShell.jsx";
+import AdminV31Shell from "./components/AdminV31Shell.jsx";
 import KeyRoomVisualSeat, {
   isLocalKeyRoomVisualSeat,
 } from "./components/KeyRoomVisualSeat.jsx";
@@ -314,6 +315,22 @@ export default function App() {
         onOpenAuth={handleOpenAuth}
         onLoginSuccess={handleLoginSuccess}
         audience="agent"
+      />
+    );
+  }
+
+  // Admin Full-Shell V3.1 — same bright chrome as /agent; no dark backoffice double shell.
+  const isAdminV31ShellPath =
+    userRole === APP_ROLES.ADMIN && normalizeAppPath(appPath) === "/admin";
+
+  if (isAdminV31ShellPath) {
+    return (
+      <RoleAccessPanel
+        user={user}
+        title="관리자"
+        description="운영·데이터·약관 지식·AI 파이프라인 관리 화면입니다."
+        requiredRoles={["admin"]}
+        allowedContent={<AdminV31Shell user={user} onLogout={handleLogout} />}
       />
     );
   }
