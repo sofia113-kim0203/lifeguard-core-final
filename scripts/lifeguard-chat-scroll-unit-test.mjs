@@ -280,10 +280,22 @@ async function main() {
       assert.match(chatSource, /최신 답변으로 ↓/);
       assert.match(chatSource, /jumpToLatestAnswer/);
       assert.match(chatSource, /shouldShowJumpToLatestAnswer/);
+      assert.match(chatSource, /onClick=\{jumpToLatestAnswer\}/);
+      assert.match(
+        chatSource,
+        /jumpToLatestAnswer = useCallback\(\(\) => \{[\s\S]*?scrollChatContainerToBottom\(el/,
+      );
+      assert.match(
+        chatSource,
+        /jumpToLatestAnswer = useCallback\(\(\) => \{[\s\S]*?stickToBottomRef\.current = true/,
+      );
+      assert.doesNotMatch(
+        chatSource,
+        /jumpToLatestAnswer = useCallback\(\(\) => \{[\s\S]*?window\.scrollTo/,
+      );
       assert.match(chatSource, /\[messages\.length,/);
       assert.doesNotMatch(chatSource, /}, \[messages, loading, streaming,/);
       assert.doesNotMatch(chatSource, /MutationObserver/);
-      assert.doesNotMatch(chatSource, /requestAnimationFrame\(\(\) => \{\s*scrollChatContainerToBottom/);
       assert.doesNotMatch(chatSource, /sentenceHardLiteBlocks|sentence_hard_lite/);
       assert.doesNotMatch(chatSource, /createSentenceCommitStream/);
     })

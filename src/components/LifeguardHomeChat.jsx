@@ -104,6 +104,7 @@ import {
 import {
   createCoalescedScrollToBottom,
   isScrollNearBottom,
+  scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
   shouldShowJumpToLatestAnswer,
   resolveAppendOnlyAssistantText,
@@ -1006,10 +1007,18 @@ export default function LifeguardHomeChat({
   }, []);
 
   const jumpToLatestAnswer = useCallback(() => {
+    const el = chatScrollRef.current;
+    // Resume follow immediately; do not leave the user mid-glide after a long hold.
     stickToBottomRef.current = true;
     setShowLatestAnswerBtn(false);
-    scheduleScrollToBottom();
-  }, [scheduleScrollToBottom]);
+    coalescedScrollRef.current?.cancel();
+    if (el) {
+      // Jump uses the chat viewport only — never window/document scroll.
+      scrollChatContainerToBottom(el, { tolerancePx: 0 });
+      // Keep sticky follow armed for in-flight / next stream growth.
+      coalescedScrollRef.current?.schedule(el);
+    }
+  }, []);
 
   /** Prefer current entity; else first linked corporate entity (honest empty if none). */
   const resolveCorporateEntityId = useCallback(() => {
@@ -2568,15 +2577,50 @@ export default function LifeguardHomeChat({
             zIndex: 2,
           }}
         >
+          {/* True header-viewport center — not between L/R flex groups. */}
+          <div
+            className="lg-v31-center-brand-mark"
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              zIndex: 1,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: LG.serif,
+                fontSize: "24px",
+                fontWeight: 600,
+                color: FINAL_UI.navyDeep,
+                letterSpacing: "0.06em",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              LIFEGUARD
+            </span>
+          </div>
+
           <div
             style={{
               width: showInsuranceInline ? leftCol : "auto",
-              minWidth: showInsuranceInline ? leftCol : 0,
+              maxWidth: showInsuranceInline ? leftCol : "46%",
               display: "flex",
               alignItems: "center",
               gap: "10px",
               paddingLeft: "4px",
-              flexShrink: 0,
+              flexShrink: 1,
+              minWidth: 0,
+              position: "relative",
+              zIndex: 2,
             }}
           >
             <button
@@ -2600,73 +2644,75 @@ export default function LifeguardHomeChat({
             >
               ☰
             </button>
-          </div>
-
-          <div
-            role="group"
-            aria-label="상담 문맥"
-            className="lg-v31-scope lg-v31-header-scope"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              display: "flex",
-              flexDirection: "row",
-              flexWrap: "nowrap",
-              alignItems: "center",
-              justifyContent: "flex-start",
-              gap: "8px",
-              overflowX: "auto",
-              overflowY: "hidden",
-            }}
-          >
-            <button
-              type="button"
-              onClick={selectPersonalScope}
-              style={scopeBtnStyle(viewMode === "personal")}
+            <div
+              role="group"
+              aria-label="상담 문맥"
+              className="lg-v31-scope lg-v31-header-scope"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "row",
+                flexWrap: "nowrap",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                gap: "8px",
+                overflowX: "auto",
+                overflowY: "hidden",
+              }}
             >
-              개인
-            </button>
-            <button
-              type="button"
-              onClick={selectCorporateScope}
-              style={scopeBtnStyle(viewMode === "corporate")}
-            >
-              법인
-            </button>
-            <button
-              type="button"
-              onClick={selectCombinedScope}
-              style={scopeBtnStyle(viewMode === "both")}
-            >
-              개인+법인 함께
-            </button>
-            {isAgentAudience ? (
-              <span
-                className="lg-agent-key-badge"
-                style={{
-                  fontSize: `${FINAL_UI.brandTagSize}px`,
-                  color: FINAL_UI.muted,
-                  lineHeight: 1.2,
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                  marginLeft: "4px",
-                }}
+              <button
+                type="button"
+                onClick={selectPersonalScope}
+                style={scopeBtnStyle(viewMode === "personal")}
               >
-                설계사 KEY
-              </span>
-            ) : null}
+                개인
+              </button>
+              <button
+                type="button"
+                onClick={selectCorporateScope}
+                style={scopeBtnStyle(viewMode === "corporate")}
+              >
+                법인
+              </button>
+              <button
+                type="button"
+                onClick={selectCombinedScope}
+                style={scopeBtnStyle(viewMode === "both")}
+              >
+                개인+법인 함께
+              </button>
+              {isAgentAudience ? (
+                <span
+                  className="lg-agent-key-badge"
+                  style={{
+                    fontSize: `${FINAL_UI.brandTagSize}px`,
+                    color: FINAL_UI.muted,
+                    lineHeight: 1.2,
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    marginLeft: "4px",
+                  }}
+                >
+                  설계사 KEY
+                </span>
+              ) : null}
+            </div>
           </div>
 
           <div
             style={{
               width: showMirrorInline ? rightCol : "auto",
               minWidth: showMirrorInline ? rightCol : 0,
+              marginLeft: "auto",
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-end",
               gap: "10px",
               paddingRight: "4px",
               flexShrink: 0,
+              position: "relative",
+              zIndex: 2,
             }}
           >
             {showMirrorInline ? (

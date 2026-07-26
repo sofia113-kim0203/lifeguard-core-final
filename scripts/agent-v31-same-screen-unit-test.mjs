@@ -109,7 +109,7 @@ test("CENTER empty-seat slot stays mounted for agent", () => {
   assert.match(chat, /isAgentAudience \? AGENT_NOW_ACTION/);
 });
 
-test("HEADER scope tabs replace duplicate LIFEGUARD; real viewMode wiring", () => {
+test("HEADER scope tabs + one centered LIFEGUARD brand; real viewMode wiring", () => {
   assert.match(chat, /lg-v31-header-scope/);
   assert.match(chat, /selectPersonalScope/);
   assert.match(chat, /selectCorporateScope/);
@@ -120,9 +120,18 @@ test("HEADER scope tabs replace duplicate LIFEGUARD; real viewMode wiring", () =
   assert.match(chat, />\s*개인\s*</);
   assert.match(chat, />\s*법인\s*</);
   assert.match(chat, />\s*개인\+법인 함께\s*</);
-  assert.doesNotMatch(chat, /lg-v31-center-brand-mark/);
-  assert.doesNotMatch(chat, /lg-v31-shell-header[\s\S]{0,900}>LIFEGUARD</);
+  assert.match(chat, /lg-v31-center-brand-mark/);
+  assert.match(chat, /fontFamily:\s*LG\.serif/);
+  assert.match(chat, /fontSize:\s*"24px"/);
+  assert.match(chat, /justifyContent:\s*"center"/);
   assert.doesNotMatch(chat, /개인\+회사 함께/);
+  // Exactly one LIFEGUARD label inside the shell header brand mark.
+  const headerChunk = chat.match(
+    /className="lg-v31-shell-header"[\s\S]*?<\/header>/,
+  );
+  assert.ok(headerChunk, "shell header present");
+  const brandHits = headerChunk[0].match(/>\s*LIFEGUARD\s*</g) || [];
+  assert.equal(brandHits.length, 1, "exactly one LIFEGUARD in header");
   // Composer no longer hosts the old scope strip.
   assert.doesNotMatch(chat, /lg-v31-composer-wrap[\s\S]{0,1200}lg-v31-scope/);
 });
