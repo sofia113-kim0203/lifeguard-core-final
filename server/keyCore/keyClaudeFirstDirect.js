@@ -14,6 +14,7 @@ import {
   ANTHROPIC_WEB_SEARCH_TOOL,
   shouldEnablePublicWebSearch,
 } from "./keyBorrowedSensesSpeak.js";
+import { buildOutOfDomainPlaceRecommendAddendum } from "./keyOutOfDomainRecommend.js";
 import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js";
 import {
   buildClaudeFullContextPack,
@@ -2032,8 +2033,16 @@ export function composeClaudeFirstSystemText({
   presenceTurn = false,
   audience = null,
   keyRoleContract = null,
+  question = "",
+  history = [],
 } = {}) {
-  const customerBody = buildSystemPrompt({ presenceTurn: presenceTurn === true });
+  let customerBody = buildSystemPrompt({ presenceTurn: presenceTurn === true });
+  if (presenceTurn !== true) {
+    const placeAddendum = buildOutOfDomainPlaceRecommendAddendum({ question, history });
+    if (placeAddendum) {
+      customerBody = `${customerBody}\n${placeAddendum}`;
+    }
+  }
   if (!isAgentAudienceTurn(audience, keyRoleContract)) {
     return customerBody;
   }
@@ -2102,6 +2111,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "보험 전문성을 바탕으로 고객의 삶·건강·가족·재산을 오래 지키고, 필요한 보험을 근거와 함께 고객에게 딱 맞게 안내한다.",
     "고객의 현재 질문과 감정, 전체 대화의 흐름을 먼저 이해한다. 질문에 직접 답하고, 설계사답게 친절하고 쉽게 설명하며, 필요한 내용을 충분히 마무리한다. 한두 문장으로 대화를 끊지 않는다.",
     "일상 대화·안부·맛집·생활 정보에도 질문 자체에 충실히 답한다. 순수한 일상 질문 한가운데 보험을 기계적으로 끼워 넣지 않는다. 인사나 맛집 질문에 갑자기 보험료 절감 이야기를 삽입하지 않는다.",
+    "맛집·장소·시설 추천에서는 공개 검색으로 확인된 실제 상호만 제시한다. 미확인 가게명·골목·영업시간을 만들지 않으며, 네이버/카카오에서 직접 검색하라고 떠넘기지 않는다.",
     "그러나 고객의 말에서 삶·건강·가족·재산·돈·보장·계약·서류·사고·질병·걱정과 같이 보험으로 연결할 수 있는 신호가 보이면, 보험 설계사답게 자연스럽게 상담으로 이끈다.",
     "보험 유도는 고객의 걱정과 현재 상황을 먼저 이해한 뒤, 지금 보장에서 함께 확인하면 좋은 점·필요한 서류·다음 점검을 제안하는 방식으로 한다. 실제 필요성이 확인되면 가입·유지·정리·보완을 근거와 함께 자신 있게 제안한다.",
     "보험 유도는 강요가 아니다. 근거 없는 상품 추천, 고객이 거절했는데 밀어붙이는 행동, '지금 가입하세요/해지해도 됩니다/무조건 이 상품' 같은 확정 지시, 모든 대화를 보험으로 끝내려는 기계적 행동은 하지 않는다.",
@@ -3786,16 +3796,25 @@ async function callClaudeFirstDirect({
       ? userPayloadBuilt
       : applyCustomerViewModeToUserPayload(userPayloadBuilt, customerViewModeForPayload);
   const pdfAttached = presenceTurn === true ? false : Boolean(pdfBase64);
-  // Customer-answer Anthropic request: text-only — no tools / tool_choice / tool-hint prompts.
-  // Fact save · consultation · visual blocks remain KEY work after this answer (no second call).
+  // Customer-answer path: no client record_* tools (no Continue/tool_result loop).
+  // Public place/daily facts may use Anthropic server web_search only (existing tool).
+  // Fact save · consultation · visual blocks remain KEY work after this answer.
   // Agent turn: KEY_AUDIENCE_PRIORITY (switch) before customer body; KEY_ROLE_BADGE appended after.
   // Customer turn: customer body only — no priority block. Question text never selects role.
   const agentRoleContract =
     isAgentAudienceTurn(audience, keyRoleContract) ? keyRoleContract : null;
+  const publicWebSearchTools =
+    presenceTurn === true || imageOriginalRead
+      ? []
+      : shouldEnablePublicWebSearch({ question, history })
+        ? [ANTHROPIC_WEB_SEARCH_TOOL]
+        : [];
   const systemTextBase = composeClaudeFirstSystemText({
     presenceTurn: presenceTurn === true,
     audience,
     keyRoleContract: agentRoleContract,
+    question: presenceTurn === true ? "" : question,
+    history: presenceTurn === true ? [] : history,
   });
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -3827,7 +3846,7 @@ async function callClaudeFirstDirect({
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
   let providerUsage = pickAnthropicUsageNumbers(null);
-  // Mid-turn client tool extraction skipped on customer-answer path (tools not sent).
+  // Mid-turn client tool extraction skipped (record_* tools not sent).
   const confirmedSourceFacts = [];
   const coverageBaselineFacts = [];
   const claimCaseUpdates = [];
@@ -3839,12 +3858,13 @@ async function callClaudeFirstDirect({
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
 
-  // SINGLE provider call only — no Continue / tool_result re-call / force tool_choice.
+  // Answer path: optional server web_search only. No client tool_result / force tool_choice.
   let emptyAnswerDiag = {
     input: null,
     response: null,
   };
-  for (let turn = 0; turn < 1; turn += 1) {
+  const maxProviderTurns = publicWebSearchTools.length > 0 ? 3 : 1;
+  for (let turn = 0; turn < maxProviderTurns; turn += 1) {
     const body = {
       model,
       max_tokens: 4096,
@@ -3852,6 +3872,7 @@ async function callClaudeFirstDirect({
       system,
       messages,
       stream: true,
+      ...(publicWebSearchTools.length ? { tools: publicWebSearchTools } : {}),
     };
     emptyAnswerDiag.input = buildEmptyAnswerInputDiag({
       question,
@@ -3882,7 +3903,7 @@ async function callClaudeFirstDirect({
         errText,
         pdfAttachedAttempted: pdfAttached === true,
         pdfBase64,
-        toolCount: 0,
+        toolCount: publicWebSearchTools.length,
         providerCallNumber: messagesRequestCount,
         requestPhase: "claude_first_messages_request",
       });
@@ -3955,7 +3976,6 @@ async function callClaudeFirstDirect({
       }
     }
 
-    // Text answer only — never second Anthropic call for tools / Continue.
     if (picked.customer_answer) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
@@ -3963,7 +3983,17 @@ async function callClaudeFirstDirect({
     }
 
     if (!assistantContent.length) break;
-    // Fail closed — empty customer answer, no Continue / tool_result re-call.
+
+    // Server web_search pause — re-send assistant content only (no user Continue text).
+    const usedServerSearch = assistantContent.some(
+      (b) =>
+        (b?.type === "server_tool_use" && b?.name === "web_search") ||
+        b?.type === "web_search_tool_result",
+    );
+    if (publicWebSearchTools.length && usedServerSearch && turn + 1 < maxProviderTurns) {
+      messages = [...messages, { role: "assistant", content: assistantContent }];
+      continue;
+    }
     break;
   }
 

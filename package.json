@@ -41,6 +41,7 @@
     "test:phase30-claim-bridge": "node scripts/phase30-claim-bridge-routing-test.mjs",
     "test:phase29-signup-basic-profile": "node scripts/phase29-signup-basic-profile-test.mjs",
     "test:key-signup-onboarding-chart": "node scripts/key-signup-onboarding-chart-unit-test.mjs",
+    "test:key-out-of-domain-recommend": "node scripts/key-out-of-domain-recommend-unit-test.mjs",
     "test:phase31c-p0-policy-explorer": "node scripts/phase31c-p0-policy-explorer-unit-test.mjs",
     "test:phase31c-p1-chat-policy-explorer": "node scripts/phase31c-p1-chat-policy-explorer-test.mjs",
     "test:phase31c-p1-chat-policy-explorer-production": "node scripts/phase31c-p1-chat-policy-explorer-production-verify.mjs",
