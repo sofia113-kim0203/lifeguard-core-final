@@ -188,33 +188,46 @@ export async function persistOnboardingProfileExtras(customerId, payload) {
   return { error: null };
 }
 
+/** Leftover pending cleanup on login only — not the new direct-signup path. */
 export async function flushPendingOnboardingAfterAuth() {
   const pending = readPendingOnboarding();
   if (!pending) return { error: null, flushed: false };
 
-  const profile = {
-    displayName: pending.account?.displayName,
-    phone: pending.account?.phone,
-    birthDate: pending.account?.birthDate,
-    gender: pending.account?.gender,
-    jobCategory: pending.lifestyle?.occupation || null,
-  };
-
-  const { error: bootError, customerId } = await bootstrapSignupRecords(profile);
-  if (bootError) return { error: bootError, flushed: false };
-
-  const { error: consentError } = await recordOnboardingConsents(customerId, pending.consents);
-  if (consentError) return { error: consentError, flushed: false, customerId };
-
-  const { error: extraError } = await persistOnboardingProfileExtras(customerId, pending);
-  if (extraError) return { error: extraError, flushed: false, customerId };
-
-  clearPendingOnboarding();
-  return { error: null, flushed: true, customerId };
+  const completed = await completeOnboardingAfterSession(pending);
+  if (completed.error) return { error: completed.error, flushed: false, customerId: completed.customerId };
+  return { error: null, flushed: true, customerId: completed.customerId };
 }
 
 /**
- * Step 4 "가입하기" only — creates auth user via existing engine, then persists onboarding.
+ * Persist onboarding extras after auth session exists (direct path — no pending wait).
+ */
+export async function completeOnboardingAfterSession(payload) {
+  if (!payload) return { error: new Error("persist_payload_missing") };
+
+  const profile = {
+    displayName: payload.account?.displayName,
+    phone: payload.account?.phone,
+    birthDate: payload.account?.birthDate,
+    gender: payload.account?.gender,
+    jobCategory: payload.lifestyle?.occupation || null,
+  };
+
+  const { error: bootError, customerId } = await bootstrapSignupRecords(profile);
+  if (bootError) return { error: bootError };
+
+  const { error: consentError } = await recordOnboardingConsents(customerId, payload.consents);
+  if (consentError) return { error: consentError, customerId };
+
+  const { error: extraError } = await persistOnboardingProfileExtras(customerId, payload);
+  if (extraError) return { error: extraError, customerId };
+
+  clearPendingOnboarding();
+  return { error: null, customerId };
+}
+
+/**
+ * Step 4 "가입하기" — auth.signUp → session → bootstrap → direct KEY entry.
+ * Does not use email-verification wait / pending-bootstrap as the normal path.
  */
 export async function submitSignupOnboarding(form) {
   if (submitInFlight) {
@@ -258,8 +271,6 @@ export async function submitSignupOnboarding(form) {
       customer_type: payload.account.customerType || null,
     };
 
-    stashPendingOnboarding(payload);
-
     const { data, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -267,7 +278,6 @@ export async function submitSignupOnboarding(form) {
     });
 
     if (authError) {
-      clearPendingOnboarding();
       return {
         ok: false,
         error: safeErrorMessage(authError, "회원가입에 실패했습니다."),
@@ -276,29 +286,34 @@ export async function submitSignupOnboarding(form) {
     }
 
     if (!data?.user) {
-      clearPendingOnboarding();
       return { ok: false, error: "계정 생성에 실패했습니다. 다시 시도해 주세요.", code: "auth_failed" };
     }
 
-    if (!data.session) {
-      return {
-        ok: true,
-        needsEmailVerification: true,
-        message: "회원가입 완료. 이메일 인증 후 로그인해 주세요.",
-      };
+    let session = data.session;
+    if (!session) {
+      // Preview Auth should autoconfirm. One sign-in retry if session was delayed.
+      const signedIn = await supabase.auth.signInWithPassword({ email, password });
+      if (signedIn.error || !signedIn.data?.session) {
+        return {
+          ok: false,
+          error:
+            "가입 직후 로그인이 되지 않았습니다. 이메일 인증 대기 없이 바로 이용할 수 있도록 설정 확인이 필요합니다.",
+          code: "session_missing",
+          authUserCreated: true,
+        };
+      }
+      session = signedIn.data.session;
     }
 
-    if (data.user) {
-      await supabase.auth.updateUser({ data: signupMetadata });
-    }
+    await supabase.auth.updateUser({ data: signupMetadata });
 
-    const flush = await flushPendingOnboardingAfterAuth();
-    if (flush.error) {
+    const completed = await completeOnboardingAfterSession(payload);
+    if (completed.error) {
       return {
         ok: false,
         error:
           "회원가입은 되었지만 프로필 저장에 실패했습니다. " +
-          safeErrorMessage(flush.error, "잠시 후 다시 로그인해 주세요."),
+          safeErrorMessage(completed.error, "잠시 후 다시 로그인해 주세요."),
         code: "bootstrap_failed",
         authUserCreated: true,
       };
@@ -307,7 +322,10 @@ export async function submitSignupOnboarding(form) {
     return {
       ok: true,
       needsEmailVerification: false,
-      customerId: flush.customerId,
+      directKeyEntry: true,
+      sessionCreated: Boolean(session),
+      customerId: completed.customerId,
+      displayName: signupProfile.displayName,
       message: "회원가입이 완료되었습니다.",
     };
   } finally {

@@ -1310,7 +1310,13 @@ export default function SignupOnboardingV1Prototype({
         setSubmitError(result.error || "회원가입에 실패했습니다.");
         return;
       }
-      setNeedsEmailVerification(Boolean(result.needsEmailVerification));
+      // Direct KEY path — no email-verify wait, no Step 5 gate.
+      if (result.directKeyEntry || !result.needsEmailVerification) {
+        setNeedsEmailVerification(false);
+        onAuthSuccess?.(result);
+        return;
+      }
+      setNeedsEmailVerification(true);
       setSubmitMessage(result.message || "회원가입이 완료되었습니다.");
       onAuthSuccess?.(result);
       setStep(5);

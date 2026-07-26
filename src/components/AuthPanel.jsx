@@ -480,6 +480,10 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
       <SignupOnboardingV1Prototype
         integrationEnabled
         onAuthSuccess={(result) => {
+          if (result?.ok && (result.directKeyEntry || !result.needsEmailVerification)) {
+            onLoginSuccess?.();
+            return;
+          }
           if (result?.needsEmailVerification) {
             setMessage(result.message || "회원가입 완료. 이메일 인증 후 로그인해 주세요.");
           }
