@@ -2472,6 +2472,7 @@ export default function LifeguardHomeChat({
             ) : (
               <KeyCustomerLeftRail
                 shell={finalShell}
+                displayName={displayName}
                 collapsed={false}
                 onToggleCollapse={() => setInsuranceRailOpen(false)}
                 onOpenFamily={() => {
@@ -2846,6 +2847,7 @@ export default function LifeguardHomeChat({
             ) : (
               <KeyCustomerLeftRail
                 shell={finalShell}
+                displayName={displayName}
                 collapsed={leftRailCollapsed}
                 onToggleCollapse={() => setLeftRailCollapsed((v) => !v)}
                 onOpenFamily={() => setSidebarOpen(true)}

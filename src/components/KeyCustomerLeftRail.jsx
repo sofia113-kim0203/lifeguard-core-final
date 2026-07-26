@@ -6,6 +6,7 @@ const C = FINAL_UI;
 
 export default function KeyCustomerLeftRail({
   shell = null,
+  displayName = null,
   collapsed = false,
   onToggleCollapse = null,
   onOpenFamily = null,
@@ -44,9 +45,9 @@ export default function KeyCustomerLeftRail({
   const metrics = Array.isArray(shell?.coreMetrics) ? shell.coreMetrics : [];
   const diagnosis = Array.isArray(shell?.diagnosis) ? shell.diagnosis : [];
   const gap = shell?.coverageGap || null;
-  const familyHint =
-    String(shell?.familyMemory?.hint || "").trim() || "기억한 가족 · 아직 기록 없음";
   const familyCount = Number(shell?.familyMemory?.count);
+  const customerDisplayName = String(displayName || "").trim() || "고객";
+  const nameInitial = customerDisplayName.slice(0, 1) || "고";
   const col = `${C.leftColPx}px`;
 
   return (
@@ -147,12 +148,14 @@ export default function KeyCustomerLeftRail({
                 flexShrink: 0,
               }}
             >
-              고
+              {nameInitial}
             </div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: "14px", color: C.text }}>고객님</div>
+              <div style={{ fontWeight: 700, fontSize: "14px", color: C.text }}>
+                {customerDisplayName}님
+              </div>
               <div style={{ fontSize: "12px", color: C.muted, marginTop: "3px", lineHeight: 1.4 }}>
-                {familyHint}
+                내 보험 주치의 KEY
               </div>
             </div>
           </div>

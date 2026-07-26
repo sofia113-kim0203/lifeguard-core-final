@@ -137,6 +137,10 @@ import {
   softPaymentTruthContext,
 } from "./keyPaymentTruthMap.js";
 import {
+  extractSignupOnboardingChartMaterial,
+  softSignupOnboardingContext,
+} from "./keySignupOnboardingChart.js";
+import {
   buildLifeLedgerHandBrief,
   buildLifeLedgerUpdatesFromUtterance,
   filterLifeLedgerByScope,
@@ -2122,6 +2126,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "입력 current_context.claim_evidence가 있으면 KEY가 소유한 청구 증거 패키지 참고다. held/submitted/insurer/outcome과 verification_status(original·customer_reported·insurer_verified·unverified)만 사용한다. 문서에 없는 사실·거절 사유를 만들지 말고, 고객 진술을 보험사 확인처럼 말하지 않는다. 원본·추출·해석을 섞지 않는다.",
     "입력 current_context.life_ledger가 있으면 KEY가 소유한 고객 장기 맥락 참고다. goals·preferences·decisions·open_questions·life_threads·outcomes만 사용한다. 참고용이며 답변 템플릿·강제 추천·답변 차단에 쓰지 않는다. 저장되지 않은 목표·선호·생활 맥락을 만들지 말고, 고객이 말하지 않은 의사를 단정하지 않는다.",
     "입력 current_context.payment_truth_map이 있으면 KEY가 조립한 고객별 지급 진실 맵 참고다. policy↔claim↔submission↔outcome↔insurer_response↔reason_verbatim↔evidence_ids↔verification_status만 사용한다. reason_verbatim(문서 원문)과 reason_customer_stated(고객 진술)를 섞지 말고, customer_reported를 insurer_verified처럼 말하지 않는다. 부지급 확률·보험사 의도·교차고객 일반화를 만들지 않는다.",
+    "입력 current_context.signup_onboarding이 있으면 가입 과정에서 고객이 직접 입력한 건강·보험 정보다. source=signup_onboarding, customer_reported=true, verified=false다. 질문에 답할 때 저장된 값을 그대로 말하고, 가입 시 고객이 직접 입력한 정보이며 아직 증권·청약서·의료서류로 확인되지 않았다고 구분한다. 확인된 계약·확정 병력처럼 단정하지 않는다. 정보가 있는데 '보관하지 않는다/확인할 자료가 없다/가입 보험사에 문의하라'고 말하지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -2614,12 +2619,14 @@ export function buildUserPayload({
   now = null,
   readyCardMeta = null,
   presenceContext = null,
+  signupOnboardingBrief = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
   const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
   const ready_card =
     readyCardMeta && typeof readyCardMeta === "object" ? readyCardMeta : null;
+  const softSignupOnboarding = softSignupOnboardingContext(signupOnboardingBrief);
   const softSessionGoal =
     sessionGoal &&
     typeof sessionGoal === "object" &&
@@ -2686,6 +2693,7 @@ export function buildUserPayload({
         ...(presenceContext && typeof presenceContext === "object"
           ? { presence_context: presenceContext }
           : {}),
+        ...(softSignupOnboarding ? softSignupOnboarding : {}),
         ...(ready_card ? { ready_card } : {}),
       },
       available_verified_evidence: {
@@ -2782,6 +2790,7 @@ export function buildUserPayload({
       ...(softClaimEvidence ? softClaimEvidence : {}),
       ...(softLifeLedger ? softLifeLedger : {}),
       ...(softPaymentTruth ? softPaymentTruth : {}),
+      ...(softSignupOnboarding ? softSignupOnboarding : {}),
       ...(ready_card ? { ready_card } : {}),
     },
     available_verified_evidence: {
@@ -3676,6 +3685,8 @@ async function callClaudeFirstDirect({
   /** Triangle T6 Presence materials (listen_focus). */
   presenceContext = null,
   presenceTurn = false,
+  /** Customer-reported signup health/insurance — never verified chart. */
+  signupOnboardingBrief = null,
   /** Unified view mode — filters personal/corporate packs before Claude. */
   customerViewModeForPayload = null,
   /** Structured KEY role badge from oneKeyCoreTurn — speech/stance only. */
@@ -3767,6 +3778,8 @@ async function callClaudeFirstDirect({
       presenceTurn === true && presenceContext && typeof presenceContext === "object"
         ? presenceContext
         : null,
+    signupOnboardingBrief:
+      presenceTurn === true || imageOriginalRead ? null : signupOnboardingBrief,
   });
   const userPayloadBase =
     presenceTurn === true || imageOriginalRead
@@ -4207,6 +4220,9 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? extracted.policy_count
       : readyMaterials.policy_count;
   const reality = { policies, policy_count };
+  const signupOnboardingBrief = extractSignupOnboardingChartMaterial(
+    unifiedState?.health_details ?? null,
+  );
 
   // Triangle T6 — Presence materials (listen_focus). No PDF parallel Claude.
   const lifeThreadsForPresence = Array.isArray(priorConsultationForContext?.life_threads)
@@ -4897,6 +4913,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     readyCardMeta: isPresenceTurn ? null : readyCardMeta,
     presenceContext: isPresenceTurn ? presenceContextBuilt : null,
     presenceTurn: isPresenceTurn,
+    signupOnboardingBrief: isPresenceTurn ? null : signupOnboardingBrief,
     customerViewModeForPayload: isPresenceTurn
       ? null
       : {
