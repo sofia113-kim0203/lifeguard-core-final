@@ -82,10 +82,15 @@ await test("wiring: customer + agent share same paint controller", () => {
   assert.doesNotMatch(agentBlock[0], /takeNaturalStreamBatch/);
 
   assert.match(chat, /onDelta:\s*\(chunk\)\s*=>\s*\{\s*markFirstSse\(\);\s*paint\.append\(chunk\);\s*\}/);
-  assert.match(chat, /await paint\.finalize\(finalText\)/);
+  assert.match(chat, /await paint\.finalize\(finalizeInput\)/);
+  assert.match(chat, /sealedText\.startsWith\(paintedNow\)/);
+  assert.match(chat, /patchLastAssistantMessage\(liveMessages/);
+  assert.doesNotMatch(chat, /stream paint final text mismatch/);
   assert.doesNotMatch(chat, /splitKeyAnswerMeaningUnits/);
   assert.doesNotMatch(paintSrc, /takeNaturalStreamBatch/);
   assert.doesNotMatch(paintSrc, /AGENT_STREAM_MIN_EOJEOL/);
+  assert.match(paintSrc, /Append-only seal vs already-painted/);
+  assert.doesNotMatch(paintSrc, /paintedCount = commonGraphemePrefixCount/);
 });
 
 await test("grapheme segmentation: hangul + emoji", () => {
@@ -283,6 +288,133 @@ await test("no eojol batch / no setInterval typing / no meaning-unit fake typing
   assert.doesNotMatch(paintSrc, /splitKeyAnswerMeaningUnits/);
   assert.match(paintSrc, /exactly one Unicode grapheme/i);
   assert.match(paintSrc, /no bulk flush/i);
+});
+
+function drainPaintFully(paint, clock, pending) {
+  let resolved = null;
+  pending.then((v) => {
+    resolved = v;
+  });
+  while (resolved == null && clock.scheduled.length) {
+    clock.tick();
+  }
+  return pending;
+}
+
+await test("A: equal final — no additional paint after full stream", async () => {
+  const paints = [];
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: (text) => paints.push(text),
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+  paint.append("암보험은");
+  clock.drain();
+  assert.equal(paint.getPainted(), "암보험은");
+  const before = paints.length;
+  const out = await drainPaintFully(paint, clock, paint.finalize("암보험은"));
+  assert.equal(out, "암보험은");
+  assert.equal(paints.length, before, "equal final must not paint again");
+  assert.equal(paint.getPainted(), "암보험은");
+});
+
+await test("B: continuation final — suffix only append", async () => {
+  const paints = [];
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: (text) => paints.push(text),
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+  paint.append("암보험은");
+  clock.drain();
+  const beforeTexts = paints.slice();
+  const pending = paint.finalize("암보험은 확인이 필요해요.");
+  assert.equal(paint.getPainted(), "암보험은");
+  const out = await drainPaintFully(paint, clock, pending);
+  assert.equal(out, "암보험은 확인이 필요해요.");
+  assert.equal(paint.getPainted(), "암보험은 확인이 필요해요.");
+  for (let i = 1; i < paints.length; i += 1) {
+    assert.ok(
+      paints[i].startsWith(paints[i - 1]) || paints[i] === paints[i - 1],
+      "paints must be append-only",
+    );
+    assert.ok(paints[i].length >= paints[i - 1].length, "no shorter paint");
+  }
+  assert.ok(beforeTexts.every((t, i) => paints[i] === t));
+});
+
+await test("C: divergent final — no rewind / no shorter paint", async () => {
+  const paints = [];
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: (text) => paints.push(text),
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+  paint.append("암보험은 괜찮");
+  clock.drain();
+  assert.equal(paint.getPainted(), "암보험은 괜찮");
+  const before = paints.length;
+  const last = paints[paints.length - 1];
+  const out = await drainPaintFully(
+    paint,
+    clock,
+    paint.finalize("암보험이 괜찮은지는 확인이 필요해요."),
+  );
+  assert.equal(out, "암보험은 괜찮");
+  assert.equal(paint.getPainted(), "암보험은 괜찮");
+  assert.equal(paints.length, before);
+  assert.equal(paints[paints.length - 1], last);
+  for (let i = 1; i < paints.length; i += 1) {
+    assert.ok(paints[i].length >= paints[i - 1].length, "shorter paint forbidden");
+  }
+});
+
+await test("D: no stream — final paints once via drain", async () => {
+  const paints = [];
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: (text) => paints.push(text),
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+  const pending = paint.finalize("확인해 드릴게요.");
+  assert.equal(paint.getPainted(), "확");
+  assert.equal(paints[0], "확");
+  const out = await drainPaintFully(paint, clock, pending);
+  assert.equal(out, "확인해 드릴게요.");
+  assert.equal(paint.getPainted(), "확인해 드릴게요.");
+  assert.ok(paints.length >= 1);
+  assert.equal(paints.filter((t) => t === "").length, 0, "empty paint forbidden");
+  for (let i = 1; i < paints.length; i += 1) {
+    assert.ok(paints[i].length >= paints[i - 1].length, "no shorter paint");
+  }
+});
+
+await test("E: displayed equals finalize return; single assistant content path", async () => {
+  const clock = mockRaf();
+  const paint = createAgentStreamPaintController({
+    onPaint: () => {},
+    raf: clock.raf,
+    caf: clock.caf,
+  });
+  paint.append("암보험은 괜찮");
+  clock.drain();
+  const displayed = paint.getPainted();
+  const saved = await drainPaintFully(
+    paint,
+    clock,
+    paint.finalize("암보험이 괜찮은지는 확인이 필요해요."),
+  );
+  assert.equal(saved, displayed);
+  assert.equal(saved, "암보험은 괜찮");
+  assert.match(chat, /patchLastAssistantMessage\(liveMessages/);
+  assert.doesNotMatch(
+    chat,
+    /const completedMessages = hasCustomerAnswer\s*\?\s*\[\s*\.\.\.nextMessages,\s*\{\s*role:\s*"assistant"/,
+  );
 });
 
 console.log(`agent-key-chat-stream-paint-unit-test: PASS (${passed})`);

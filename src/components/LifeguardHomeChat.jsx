@@ -107,7 +107,6 @@ import {
   scrollChatContainerToBottom,
   shouldAutoFollowChatScroll,
   shouldShowJumpToLatestAnswer,
-  resolveAppendOnlyAssistantText,
 } from "../lib/lifeguardChatScroll.js";
 import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
 import {
@@ -1607,12 +1606,8 @@ export default function LifeguardHomeChat({
           setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
-        // After server done, drain remaining graphemes — no bulk flush.
+        // After server done: append-only finalize — displayed text wins over divergent seal.
         const answer = await paint.finalize(String(result.text ?? "").trim());
-        if (answer !== String(result.text ?? "").trim() && String(result.text ?? "").trim()) {
-          paint.cancel();
-          throw new Error("stream paint final text mismatch");
-        }
         setAgentTurnMeta({
           mode: result.mode ?? null,
           customer_context_used: result.customer_context_used === true,
@@ -1884,25 +1879,29 @@ export default function LifeguardHomeChat({
       markSseDone();
 
       const sealedText = String(result.answerText ?? "");
-      const merged = resolveAppendOnlyAssistantText(
-        paint.getAccumulated() || streamedText,
-        sealedText || paint.getAccumulated() || streamedText,
+      const paintedNow = String(paint.getPainted() || streamedText || "");
+      // Append-only: sealed may extend painted; divergent sealed must not replace display.
+      const finalizeInput = (() => {
+        if (!paintedNow) return sealedText || String(paint.getAccumulated() || "");
+        if (!sealedText) return paintedNow;
+        if (sealedText === paintedNow || sealedText.startsWith(paintedNow)) return sealedText;
+        return paintedNow;
+      })();
+      const hasCustomerAnswer = Boolean(
+        String(finalizeInput || paintedNow || paint.getAccumulated() || "").trim(),
       );
-      // Prefer sealed Claude original as the authoritative full string.
-      const finalText = sealedText || merged;
-      // Server empty content: never commit an empty assistant bubble (no client failure copy).
-      const hasCustomerAnswer = Boolean(String(finalText).trim());
 
+      let finalText = paintedNow;
       if (hasCustomerAnswer) {
         setStreaming(true);
         setLoading(false);
-        const paintedFinal = await paint.finalize(finalText);
-        if (paintedFinal !== finalText) {
-          paint.cancel();
-          throw new Error("stream paint final text mismatch");
+        const paintedFinal = await paint.finalize(finalizeInput);
+        // Customer-visible text is authoritative for screen + persist (never divergent seal).
+        finalText = String(paintedFinal || paint.getPainted() || paintedNow || "");
+        streamedText = finalText;
+        if (finalText) {
+          patchAssistantContent(finalText);
         }
-        streamedText = paintedFinal;
-        patchAssistantContent(paintedFinal);
       } else {
         paint.cancel();
       }
@@ -1921,25 +1920,22 @@ export default function LifeguardHomeChat({
         viewMode,
         entityId: selectedEntityId,
       });
+      // Patch the existing assistant row — do not delete/recreate (keep turnId).
       const completedMessages = hasCustomerAnswer
-        ? [
-            ...nextMessages,
-            {
-              role: "assistant",
-              content: finalText,
-              thinking: false,
-              turnId,
-              visual_blocks: visualBlocks,
-              visual_blocks_gate: visualBlocksGate,
-              key_status_strip: stripForTurn,
-              ...(turnSessionGoal
-                ? {
-                    session_goal: turnSessionGoal,
-                    metadata: { session_goal: turnSessionGoal },
-                  }
-                : {}),
-            },
-          ]
+        ? patchLastAssistantMessage(liveMessages, {
+            content: finalText,
+            thinking: false,
+            turnId,
+            visual_blocks: visualBlocks,
+            visual_blocks_gate: visualBlocksGate,
+            key_status_strip: stripForTurn,
+            ...(turnSessionGoal
+              ? {
+                  session_goal: turnSessionGoal,
+                  metadata: { session_goal: turnSessionGoal },
+                }
+              : {}),
+          })
         : nextMessages;
       appendHomeChatStreamTrace("streamed_answer_commit");
       syncLiveMessages(completedMessages, {

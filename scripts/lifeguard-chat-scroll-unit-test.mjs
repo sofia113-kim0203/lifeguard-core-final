@@ -275,7 +275,9 @@ async function main() {
       assert.match(chatSource, /chatScrollContentRef/);
       assert.match(chatSource, /ro\.observe\(contentEl\)/);
       assert.match(chatSource, /coalescedScrollRef\.current\?\.cancel\(\)/);
-      assert.match(chatSource, /resolveAppendOnlyAssistantText/);
+      assert.match(chatSource, /finalizeInput/);
+      assert.match(chatSource, /patchLastAssistantMessage\(liveMessages/);
+      assert.match(chatSource, /sealedText\.startsWith\(paintedNow\)/);
       assert.match(chatSource, /aria-expanded=\{sidebarOpen\}/);
       assert.match(chatSource, /최신 답변으로 ↓/);
       assert.match(chatSource, /jumpToLatestAnswer/);

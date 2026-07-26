@@ -6,7 +6,8 @@
  * - Punctuation breath: comma-family +1 frame; sentence-end/newline +2 frames.
  * - Backlog ≥120 skips breath only; still 1 grapheme/paint. Restore below 60.
  * - Done drains remaining one grapheme at a time — no bulk flush.
- * - Final painted text must equal server final text. No rewrite.
+ * - Finalize is append-only vs already-painted text:
+ *   equal → no-op; continuation → paint suffix only; divergent → keep painted (no rewind).
  */
 
 export const STREAM_BACKLOG_SKIP_BREATH = 120;
@@ -197,43 +198,88 @@ export function createAgentStreamPaintController({
     },
 
     /**
-     * Seal with server final text; drain remaining one grapheme per frame.
+     * Append-only seal vs already-painted customer text.
+     * - No paint yet → adopt serverText and drain one grapheme per frame.
+     * - Equal → no-op (keep display).
+     * - Continuation → append suffix only (never rewind).
+     * - Divergent → keep painted / stream backlog; never shorter onPaint / replace.
      * Never bulk-flushes remaining characters.
      * @param {unknown} serverText
-     * @returns {Promise<string>}
+     * @returns {Promise<string>} painted text the customer sees
      */
     finalize(serverText) {
       if (cancelled) return Promise.resolve(paintedText());
 
       const sealedText = String(serverText ?? "");
-      const next = sealedText.length > 0 ? sealedText : source;
-      const prevPainted = segmentGraphemes(paintedText());
-      source = next;
-      syncSourceGraphemes();
-      paintedCount = commonGraphemePrefixCount(prevPainted, sourceGraphemes);
-      if (paintedCount < prevPainted.length) {
-        onPaint(paintedText(), { first: false });
-      }
-      sealed = true;
+      const currentlyPainted = paintedText();
 
-      const finalExact = exactSource();
-      if (finalExact !== source) {
-        return Promise.reject(new Error("stream paint final text mismatch"));
-      }
-
-      if (paintedCount >= sourceGraphemes.length && idleFramesLeft <= 0) {
-        if (paintedText() !== finalExact) {
+      const beginDrain = () => {
+        const finalExact = exactSource();
+        if (finalExact !== source) {
           return Promise.reject(new Error("stream paint final text mismatch"));
         }
-        onPaint(finalExact, { first: false });
-        return Promise.resolve(finalExact);
+        if (paintedCount >= sourceGraphemes.length && idleFramesLeft <= 0) {
+          // Already fully painted — no extra onPaint (avoids duplicate / empty paints).
+          return Promise.resolve(paintedText());
+        }
+        return new Promise((resolve, reject) => {
+          resolveDrain = resolve;
+          rejectDrain = reject;
+          schedule();
+        });
+      };
+
+      // 1) Nothing painted yet — show server final (or any prior accumulated source).
+      if (paintedCount === 0) {
+        const next = sealedText.length > 0 ? sealedText : source;
+        source = next;
+        syncSourceGraphemes();
+        sealed = true;
+        if (!source) {
+          return Promise.resolve("");
+        }
+        // First grapheme immediate (same as append) — never leave an empty bubble.
+        cancelScheduled();
+        const more = advanceOne();
+        if (!more && idleFramesLeft <= 0) {
+          return Promise.resolve(paintedText());
+        }
+        return beginDrain();
       }
 
-      return new Promise((resolve, reject) => {
-        resolveDrain = resolve;
-        rejectDrain = reject;
-        schedule();
-      });
+      // 2) Identical to display — no-op.
+      if (sealedText === currentlyPainted) {
+        sealed = true;
+        source = currentlyPainted;
+        syncSourceGraphemes();
+        paintedCount = sourceGraphemes.length;
+        idleFramesLeft = 0;
+        cancelScheduled();
+        return Promise.resolve(currentlyPainted);
+      }
+
+      // 3) Continuation of display — append suffix only.
+      if (sealedText.startsWith(currentlyPainted)) {
+        source = sealedText;
+        syncSourceGraphemes();
+        // paintedCount unchanged — never rewind.
+        sealed = true;
+        return beginDrain();
+      }
+
+      // 4) Divergent sealed — keep customer-visible text; never rewind/replace.
+      sealed = true;
+      if (source.startsWith(currentlyPainted) && source.length > currentlyPainted.length) {
+        // Finish any already-received stream backlog (append-only).
+        syncSourceGraphemes();
+        return beginDrain();
+      }
+      source = currentlyPainted;
+      syncSourceGraphemes();
+      paintedCount = sourceGraphemes.length;
+      idleFramesLeft = 0;
+      cancelScheduled();
+      return Promise.resolve(currentlyPainted);
     },
 
     /** Stop animation; leave currently painted text (error path). */
