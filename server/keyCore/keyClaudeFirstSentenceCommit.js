@@ -3,21 +3,95 @@
  * Committed sentences are never replaced (KEY monopoly / no onReplace).
  * Slice 8: hard-lite word abort removed from the normal customer path —
  * stream is transmission stability only. Real enroll/cancel pressure uses hard-only.
- * T4: createImmediateAnswerDeltaStream — no sentence/paragraph wait (customer first paint).
+ * Completeness: emit only sentence/block boundaries; never EOF-flush incomplete tails;
+ * catch-up appends only complete sealed continuation.
  */
 
 const DEFAULT_SAFETY_BUFFER = 8;
 
+/** Sentence / block boundary at end of text. */
+export function endsWithSentenceBoundary(text = "") {
+  const src = String(text ?? "");
+  if (!src) return false;
+  return /(?:[.!?。…]["”']?)\s*$/.test(src) || /\n\s*$/.test(src);
+}
+
 /**
- * Triangle T4 — emit every new non-empty chunk immediately (no sentence boundary wait).
+ * Split into emit-safe prefix + held trailing fragment.
+ * Kept for diagnostics / tests — stream emit uses sentence boundaries.
+ */
+export function splitEmitSafeAndHeld(text = "") {
+  const src = String(text ?? "");
+  if (!src) return { emit: "", hold: "" };
+  if (endsWithSentenceBoundary(src) || /\s$/.test(src)) {
+    return { emit: src, hold: "" };
+  }
+  const m = src.match(/^(.*?)(\S+)$/s);
+  if (!m) return { emit: src, hold: "" };
+  return { emit: m[1], hold: m[2] };
+}
+
+/**
+ * Keep text through the last committable sentence/block boundary.
+ * Incomplete trailing fragments (e.g. "…뭔지 바") are dropped.
+ */
+export function trimToLastCompleteSentence(text = "") {
+  const src = String(text ?? "");
+  if (!src) return "";
+  if (endsWithSentenceBoundary(src)) return src;
+  let pending = src;
+  let out = "";
+  while (true) {
+    const end = findNextCommitEnd(pending, {
+      flushAll: false,
+      safetyBufferChars: 0,
+    });
+    if (end < 0) break;
+    out += pending.slice(0, end);
+    pending = pending.slice(end);
+  }
+  return out;
+}
+
+/**
+ * Customer-facing complete answer from Claude final text.
+ * - max_tokens → last complete sentence only (may be empty if none).
+ * - Has complete sentence(s) + incomplete trailing fragment → drop the fragment.
+ * - Whole answer without sentence punctuation (common Korean) → keep as-is.
+ */
+export function resolveCompleteAnswerText(text = "", { stopReason = null } = {}) {
+  const src = String(text ?? "");
+  if (!src) return "";
+  const reason = String(stopReason ?? "").trim();
+  const trimmed = trimToLastCompleteSentence(src);
+  if (reason === "max_tokens") {
+    return trimmed;
+  }
+  if (
+    trimmed &&
+    trimmed.length < src.replace(/\s+$/u, "").length &&
+    !endsWithSentenceBoundary(src)
+  ) {
+    return trimmed;
+  }
+  return src;
+}
+
+/**
+ * Customer stream — emit sentence/block boundaries only; hold incomplete tails.
  * onCommit(slice) → { keep: true } | { keep: false, abort: true, reason?: string }
  */
-export function createImmediateAnswerDeltaStream({ onCommit = null } = {}) {
+export function createImmediateAnswerDeltaStream({
+  onCommit = null,
+  safetyBufferChars = 0,
+} = {}) {
   let committed = "";
+  let pending = "";
   let lastSeen = "";
   let catchUpAppended = false;
   let aborted = false;
   let abortReason = null;
+  let droppedPendingLen = 0;
 
   function commitSlice(slice) {
     if (!slice || aborted) return;
@@ -31,6 +105,19 @@ export function createImmediateAnswerDeltaStream({ onCommit = null } = {}) {
     committed += slice;
   }
 
+  function drainCompleteUnits() {
+    while (true) {
+      const end = findNextCommitEnd(pending, {
+        flushAll: false,
+        safetyBufferChars,
+      });
+      if (end < 0) break;
+      const slice = pending.slice(0, end);
+      pending = pending.slice(end);
+      commitSlice(slice);
+    }
+  }
+
   return {
     pushAnswerText(fullText = "") {
       if (aborted) return { aborted: true };
@@ -38,36 +125,66 @@ export function createImmediateAnswerDeltaStream({ onCommit = null } = {}) {
       if (next.length <= lastSeen.length) return { aborted: false };
       const chunk = next.slice(lastSeen.length);
       lastSeen = next;
-      if (chunk) commitSlice(chunk);
+      if (chunk) {
+        pending += chunk;
+        drainCompleteUnits();
+      }
       return { aborted };
     },
-    catchUpFinalAnswer(finalAnswer = "") {
+    /**
+     * Append-only catch-up from sealed/complete final.
+     * Drops held incomplete pending; never flushes mid-word/sentence tails.
+     * Appends only when resolved complete final starts with committed.
+     */
+    catchUpFinalAnswer(finalAnswer = "", { stopReason = null } = {}) {
       if (aborted) return { aborted: true, appended: false, reason: "already_aborted" };
-      const final = String(finalAnswer ?? "");
-      if (!final) {
+      if (pending) {
+        droppedPendingLen += pending.length;
+        pending = "";
+      }
+      const raw = String(finalAnswer ?? "");
+      if (!raw) {
         return { aborted: false, appended: false, reason: "empty_final" };
       }
-      if (!final.startsWith(committed)) {
+      if (committed && !raw.startsWith(committed)) {
         return { aborted: false, appended: false, reason: "final_not_prefix_of_committed" };
       }
-      if (final.length <= committed.length) {
-        lastSeen = final;
+      const complete = resolveCompleteAnswerText(raw, { stopReason });
+      const target =
+        complete && (!committed || complete.startsWith(committed))
+          ? complete
+          : "";
+      if (!target) {
+        return {
+          aborted: false,
+          appended: false,
+          reason: committed ? "no_complete_continuation" : "no_complete_sentence",
+        };
+      }
+      if (target.length <= committed.length) {
+        lastSeen = raw.length > lastSeen.length ? raw : lastSeen;
         return { aborted: false, appended: false, reason: "already_complete" };
       }
-      const suffix = final.slice(committed.length);
-      lastSeen = final;
+      const suffix = target.slice(committed.length);
+      lastSeen = raw.length > lastSeen.length ? raw : target;
       catchUpAppended = true;
+      // Complete suffix may include multiple sentences — commit as one append-only block.
       commitSlice(suffix);
       return { aborted, appended: !aborted, suffix_len: suffix.length };
     },
+    /** Drop held incomplete pending — do not flush mid-word/sentence fragments. */
     flush() {
-      return { aborted };
+      if (pending) {
+        droppedPendingLen += pending.length;
+        pending = "";
+      }
+      return { aborted, dropped_pending_len: droppedPendingLen };
     },
     getCommitted() {
       return committed;
     },
     getPending() {
-      return "";
+      return pending;
     },
     isAborted() {
       return aborted;
@@ -77,6 +194,9 @@ export function createImmediateAnswerDeltaStream({ onCommit = null } = {}) {
     },
     didCatchUpAppend() {
       return catchUpAppended;
+    },
+    getDroppedPendingLen() {
+      return droppedPendingLen;
     },
   };
 }

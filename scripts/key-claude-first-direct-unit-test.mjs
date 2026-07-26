@@ -2413,7 +2413,8 @@ const chartPolicies = {
     true,
   );
   // Slice 1B: preparation sidecar persists after sealed Claude answer (tools still 0).
-  assert.equal(healthWrites.length, 1);
+  // Claim / clock / payment-truth may each update profile_health; require claim write present.
+  assert.ok(healthWrites.length >= 1);
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
@@ -2429,8 +2430,12 @@ const chartPolicies = {
       ?.ok,
     true,
   );
+  const claimWrite =
+    healthWrites.find((w) =>
+      Array.isArray(w?.payload?.details_json?.key_active_claim_cases),
+    ) ?? healthWrites[0];
   const prepCases =
-    healthWrites[0]?.payload?.details_json?.key_active_claim_cases ?? [];
+    claimWrite?.payload?.details_json?.key_active_claim_cases ?? [];
   assert.equal(prepCases.length, 1);
   assert.equal(prepCases[0].status, "preparing");
   assert.ok((prepCases[0].available_documents ?? []).includes("진단서"));
@@ -5303,9 +5308,12 @@ console.log("key-claude-first-direct-unit-test: PASS");
     true,
   );
   assert.ok(claimHealthWrites.length >= 1);
+  const claimWrite =
+    claimHealthWrites.find((w) =>
+      Array.isArray(w?.payload?.details_json?.key_active_claim_cases),
+    ) ?? claimHealthWrites[claimHealthWrites.length - 1];
   const cases =
-    claimHealthWrites[claimHealthWrites.length - 1].payload?.details_json
-      ?.key_active_claim_cases ?? [];
+    claimWrite?.payload?.details_json?.key_active_claim_cases ?? [];
   assert.equal(cases.length, 1);
   assert.equal(cases[0].status, "identified");
   assert.equal(cases[0].source, "customer_statement");

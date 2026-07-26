@@ -74,7 +74,10 @@ import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { neutralizeUnsupportedInsurerProductLiterals } from "./keyVerifiedLiteralConflict.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity, buildPersistableLatencyMarks } from "./keyLatencyMarks.js";
-import { createImmediateAnswerDeltaStream } from "./keyClaudeFirstSentenceCommit.js";
+import {
+  createImmediateAnswerDeltaStream,
+  resolveCompleteAnswerText,
+} from "./keyClaudeFirstSentenceCommit.js";
 import {
   decidePdfAttachMode,
   loadCustomerDocumentChunksByDocumentId,
@@ -3863,6 +3866,7 @@ async function callClaudeFirstDirect({
     input: null,
     response: null,
   };
+  let lastStopReason = null;
   const maxProviderTurns = publicWebSearchTools.length > 0 ? 3 : 1;
   for (let turn = 0; turn < maxProviderTurns; turn += 1) {
     const body = {
@@ -3942,6 +3946,7 @@ async function callClaudeFirstDirect({
     });
     if (streamed.ttft_ms != null && lastTtft == null) lastTtft = streamed.ttft_ms;
     if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
+    if (streamed.stop_reason != null) lastStopReason = String(streamed.stop_reason);
     providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
 
     const picked = pickCustomerAnswer(streamed.dataRaw);
@@ -4048,6 +4053,7 @@ async function callClaudeFirstDirect({
     public_evidence: publicEvidence,
     empty_answer_diag: emptyAnswerDiag,
     provider_usage: providerUsage,
+    stop_reason: lastStopReason,
     prompt_cache: {
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,
@@ -4998,21 +5004,16 @@ export async function runClaudeFirstDirectQuestionTurn({
     cache_creation_ephemeral_5m_input_tokens:
       claude?.provider_usage?.cache_creation_ephemeral_5m_input_tokens ?? null,
   };
-  // Completeness: progressive extract can lag the final customer_answer.
-  // Append-only catch-up — exact suffix after committed; never replace sent text.
-  let sentenceCatchUp = null;
-  if (!sentenceStreamAborted && claude.ok && claude.customer_answer) {
-    sentenceCatchUp = commitStream.catchUpFinalAnswer(claude.customer_answer);
-    if (sentenceCatchUp?.aborted) {
-      sentenceStreamAborted = true;
-      sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
-    }
-  }
+  // Drop held incomplete trailing words — never EOF-flush mid-word fragments into the customer stream.
   commitStream.flush();
   if (commitStream.isAborted()) {
     sentenceStreamAborted = true;
     sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
   }
+  const claudeStopReason =
+    claude?.stop_reason != null ? String(claude.stop_reason) : null;
+  let sentenceCatchUp = null;
+  let postStreamMutatorDiscarded = false;
 
   // T6 — intentional Presence silence is a successful quiet turn (provider_calls=1, no bubble).
   const presenceRawAnswer = String(claude?.customer_answer ?? "").trim();
@@ -5134,9 +5135,10 @@ export async function runClaudeFirstDirectQuestionTurn({
     return emptyFailureResult;
   }
 
-  let finalText = presenceChoseSilence
+  const claudeOriginal = presenceChoseSilence
     ? ""
     : String(claude.customer_answer ?? "");
+  let finalText = claudeOriginal;
   if (isPresenceTurn && isPresenceSilenceAnswer(finalText)) {
     finalText = "";
   }
@@ -5161,7 +5163,8 @@ export async function runClaudeFirstDirectQuestionTurn({
       failureReason = "empty_answer";
     }
   }
-  // Fact-alignment: strip only unverified insurer/product literals (no full rewrite, no 2nd Claude).
+  const emittedCommitted = String(commitStream.getCommitted() ?? "");
+  // Fact-alignment / bareYeyo may run, but must not change already-emitted customer prefix.
   // Corporate turns: do not let personal-policy allowlist authorize corp insurer/product claims.
   const corporateLiteralAllow = collectCorporateInsurerProductAllowlist(corporateContexts);
   const literalAllowEntities =
@@ -5179,8 +5182,9 @@ export async function runClaudeFirstDirectQuestionTurn({
     : neutralizeUnsupportedInsurerProductLiterals(finalText, {
         allowedEntities: literalAllowEntities,
       });
+  let mutatorCandidate = finalText;
   if (literalGuard.changed) {
-    finalText = literalGuard.text;
+    mutatorCandidate = literalGuard.text;
   }
   const keyVerifiedLiteralConflict = {
     conflict: literalGuard.stripped_count > 0,
@@ -5203,15 +5207,76 @@ export async function runClaudeFirstDirectQuestionTurn({
       ).length;
   const bareYeyoGuard = presenceChoseSilence
     ? { customerText: "", completeness_guard: { applied: false, reason: null } }
-    : repairInProgressClaimZeroBareYeyo(finalText, { verifiedInProgressClaimCount });
+    : repairInProgressClaimZeroBareYeyo(mutatorCandidate, {
+        verifiedInProgressClaimCount,
+      });
   if (bareYeyoGuard.completeness_guard?.applied) {
-    finalText = bareYeyoGuard.customerText;
+    mutatorCandidate = bareYeyoGuard.customerText;
   }
-  // Seal after fact-alignment strip + scoped hard completeness repair only.
-  // Presence silence seals empty (token never shown / never stored as customer fact).
-  // Empty failureMode → official safety sentence via finalize (never seal "" directly).
-  const sealed =
-    !presenceChoseSilence && usedFailure && !String(finalText ?? "").trim()
+  // Post-stream rewrite forbidden for customer final.
+  // After first emit: mutator may only keep/extend emitted prefix.
+  // If nothing emitted yet: keep Claude original lineage (mutators are not customer rewrites).
+  if (!emittedCommitted) {
+    finalText = claudeOriginal || mutatorCandidate;
+    if (
+      String(mutatorCandidate ?? "") !== String(claudeOriginal ?? "") &&
+      String(claudeOriginal ?? "").trim()
+    ) {
+      postStreamMutatorDiscarded = true;
+    }
+  } else if (mutatorCandidate.startsWith(emittedCommitted)) {
+    finalText = mutatorCandidate;
+  } else if (claudeOriginal.startsWith(emittedCommitted)) {
+    finalText = claudeOriginal;
+    postStreamMutatorDiscarded = true;
+  } else {
+    finalText = emittedCommitted;
+    postStreamMutatorDiscarded = true;
+  }
+  // max_tokens / incomplete trailing sentence → last complete sentence only (prefix preserved).
+  const completeFinal = resolveCompleteAnswerText(finalText, {
+    stopReason: claudeStopReason,
+  });
+  if (completeFinal && (!emittedCommitted || completeFinal.startsWith(emittedCommitted))) {
+    finalText = completeFinal;
+  } else if (emittedCommitted) {
+    finalText = emittedCommitted;
+  }
+  // Append-only catch-up of complete continuation before seal/done.
+  if (!sentenceStreamAborted && !presenceChoseSilence && finalText) {
+    sentenceCatchUp = commitStream.catchUpFinalAnswer(finalText, {
+      stopReason: claudeStopReason,
+    });
+    if (sentenceCatchUp?.aborted) {
+      sentenceStreamAborted = true;
+      sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
+    }
+  }
+  // Customer authority after catch-up: committed stream (equals or is prefix-safe final).
+  const customerCommitted = String(commitStream.getCommitted() ?? "");
+  if (customerCommitted && finalText.startsWith(customerCommitted)) {
+    finalText = customerCommitted.length >= finalText.length ? customerCommitted : finalText;
+  }
+  if (customerCommitted && !finalText.startsWith(customerCommitted)) {
+    finalText = customerCommitted;
+  }
+  if (!customerCommitted && !String(finalText ?? "").trim() && !presenceChoseSilence) {
+    usedFailure = true;
+    failureReason = failureReason || "empty_answer";
+  }
+  // Seal from committed lineage: equal to emitted or continuation of emitted (never divergent rewrite).
+  // Presence silence seals empty. Empty failureMode → official safety sentence via finalize.
+  const sealSource = (() => {
+    const committed = String(commitStream.getCommitted() ?? "");
+    const candidate = String(finalText ?? "");
+    if (committed && candidate.startsWith(committed)) {
+      return candidate.length >= committed.length ? candidate : committed;
+    }
+    if (committed) return committed;
+    return candidate;
+  })();
+  let sealed =
+    !presenceChoseSilence && usedFailure && !String(sealSource ?? "").trim()
       ? (() => {
           const outlet = finalizeKeyCustomerText("", {
             failureMode: true,
@@ -5219,15 +5284,23 @@ export async function runClaudeFirstDirectQuestionTurn({
           });
           return { key_speak_original: outlet.keySpeakOriginal };
         })()
-      : sealKeyCustomerText(finalText);
-  // Catch up any trailing gap so streamed text matches sealed before customer done.
+      : sealKeyCustomerText(sealSource);
+  // Final catch-up so customer deltas match sealed before done.
   if (!sentenceStreamAborted && sealed.key_speak_original) {
-    const sealedCatchUp = commitStream.catchUpFinalAnswer(sealed.key_speak_original);
+    const sealedCatchUp = commitStream.catchUpFinalAnswer(sealed.key_speak_original, {
+      stopReason: claudeStopReason,
+    });
     if (sealedCatchUp?.aborted) {
       sentenceStreamAborted = true;
       sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
     }
   }
+  // done.answerText === committed stream after catch-up (prefix-immutable).
+  const doneAnswerText = String(commitStream.getCommitted() ?? sealed.key_speak_original ?? "");
+  if (doneAnswerText && sealed.key_speak_original !== doneAnswerText) {
+    sealed = sealKeyCustomerText(doneAnswerText);
+  }
+  sseEmittedText = String(commitStream.getCommitted() ?? sseEmittedText ?? "");
   const streamedEqualsSealed =
     String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? "");
   const customerDoneMs = relMs(startedAt);
@@ -5405,6 +5478,8 @@ export async function runClaudeFirstDirectQuestionTurn({
               corporate_hand: corporateHandSeatAudit,
               corporate_claim_hand: corporateClaimHandSeatAudit,
               key_verified_literal_conflict: keyVerifiedLiteralConflict,
+              stop_reason: claudeStopReason,
+              post_stream_mutator_discarded: postStreamMutatorDiscarded === true,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
               life_threads_brief: earlyLifeThreadsBrief,
               life_threads_attach_reason:
