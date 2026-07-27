@@ -56,6 +56,62 @@ export function isInsuranceDocumentRecallQuestion(question = "") {
   );
 }
 
+/** Contract-count / list questions — ledger is sole confirmed count authority. */
+export function isPolicyCountOrLedgerQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  return (
+    /가입\s*건수/.test(q) ||
+    /계약\s*(이\s*)?몇\s*건/.test(q) ||
+    /보험\s*(이\s*)?몇\s*건/.test(q) ||
+    /몇\s*건(?:이야|인가요|이지|임|인지)/.test(q) ||
+    /계약\s*수/.test(q) ||
+    /보험\s*건수/.test(q) ||
+    /보험\s*목록/.test(q) ||
+    /계약\s*목록/.test(q) ||
+    /내\s*보험\s*(이\s*)?몇/.test(q) ||
+    /가입한\s*보험\s*(이\s*)?몇/.test(q)
+  );
+}
+
+/** Document-box recheck that should reload the whole owned insurance vault. */
+export function isInsuranceVaultDocumentBoxRecheckQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  if (!isExplicitDocumentBoxMentionQuestion(q) && !/문서함|올려\s*둔\s*문서|보관함/.test(q)) {
+    return false;
+  }
+  return (
+    /다시\s*(봐|확인|읽어|점검)/.test(q) ||
+    /문서함.*(봐|확인|읽어)/.test(q) ||
+    /지금\s*다시/.test(q) ||
+    /원본.*(봐|확인)/.test(q) ||
+    /문서.*(전부|전체|다)\s*(봐|확인)/.test(q)
+  );
+}
+
+/**
+ * Turns that must attach owned insurance-series originals (sha-deduped), not chat memory.
+ * Shared by server Claude-first path and customer rail refresh.
+ */
+export function wantsOwnedInsuranceVaultEvidence(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  if (isPolicyCountOrLedgerQuestion(q)) return true;
+  if (isInsuranceDocumentRecallQuestion(q)) return true;
+  if (isInsuranceVaultDocumentBoxRecheckQuestion(q)) return true;
+  if (isOriginalDocumentRereadQuestion(q) && /보험|계약|갱신|담보|보험료|증권/.test(q)) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Follow-up that needs Storage original bytes again (not chart-memory summary).
  * Used with prior_attach_follow_up — does not delete reuse policy for soft summary turns.

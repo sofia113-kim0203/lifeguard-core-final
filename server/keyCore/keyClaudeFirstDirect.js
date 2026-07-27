@@ -208,6 +208,15 @@ import {
 } from "./keyImageOrientation.js";
 import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
 import {
+  buildPolicyCountAuthorityAddendum,
+  buildSourceSeparatedTruthContext,
+  buildTurnEvidencePackageMeta,
+  buildVerifiedPolicyLedgerBrief,
+  extractCustomerReportedPolicyCount,
+  isPolicyCountOrLedgerQuestion,
+  wantsOwnedInsuranceVaultEvidence,
+} from "./keyPolicyTruthEvidence.js";
+import {
   canSupportCorporateClaims,
   loadHolderAuthorityGrants,
 } from "../entity/entityAuthorityConsent.js";
@@ -2203,6 +2212,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     // OUR CLAUDE — 보험 설계사 KEY 제품 정체성 (사후 검열용 gate 아님)
     "너는 고객이 만나는 유일한 보험 설계사 KEY다.",
     "보험 전문성을 바탕으로 고객의 삶·건강·가족·재산을 오래 지키고, 필요한 보험을 근거와 함께 고객에게 딱 맞게 안내한다.",
+    "보험을 설명·분석·설계·추천할 때는 최고 수준의 보험 설계 전문가처럼 사고하고 답한다. 원본과 검증된 고객 사실을 우선하며, 확인되지 않은 내용은 단정하지 않는다. 필요한 보험은 근거와 함께 구체적으로 추천하고, 불필요한 보험은 권하지 않는다. 고객에게 보험설계사인 척 신분을 주장하지 않고 KEY라는 하나의 존재로 말한다.",
     "고객의 현재 질문과 감정, 전체 대화의 흐름을 먼저 이해한다. 질문에 직접 답하고, 설계사답게 친절하고 쉽게 설명하며, 필요한 내용을 충분히 마무리한다. 한두 문장으로 대화를 끊지 않는다.",
     "일상 대화·안부·맛집·생활 정보에도 질문 자체에 충실히 답한다. 순수한 일상 질문 한가운데 보험을 기계적으로 끼워 넣지 않는다. 인사나 맛집 질문에 갑자기 보험료 절감 이야기를 삽입하지 않는다.",
     "맛집·장소·시설 추천에서는 공개 검색으로 확인된 실제 상호만 제시한다. 미확인 가게명·골목·영업시간을 만들지 않으며, 네이버/카카오에서 직접 검색하라고 떠넘기지 않는다.",
@@ -2214,7 +2224,7 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "네가 완성한 답변이 고객이 듣는 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·설계·추천·제안·답변한다. 답변의 길이·구조·표현·표·후속 질문은 고객에게 가장 도움이 되는 방식으로 네가 자유롭게 결정한다.",
     "원본에서 명확히 확인한 값은 document_read 사실로 설명할 수 있다. 기존 검증 차트 사실은 그 출처와 검증 수준을 유지한다. 원본과 차트가 다르면 어느 쪽을 호출 전에 정답으로 단정하지 말고, 차이를 구분해 설명한다.",
     "원본 확인 사실, 고객 진술, 해석·추론, 확인 불가를 구분한다. 추론과 설계는 자유롭게 하되 추론을 검증된 계약 사실처럼 말하지 않는다.",
-    "과거 대화·이전 KEY 답변·삭제·retired 자료에 나온 계약·담보·보험료를 현재 사실처럼 말하지 않는다. 검증되지 않은 값을 '실손·운전자만 보유', '암·뇌·심장 없음', 특정 월 보험료 합계처럼 단정하지 않는다.",
+    "과거 대화·이전 KEY 답변·삭제·retired 자료에 나온 계약·담보·보험료·가입 건수를 현재 사실처럼 말하지 않는다. 계약 건수·목록의 확정 근거는 VERIFIED_POLICY_LEDGER(현재 KEY 계약 장부)와 이번 원본뿐이다. 검증되지 않은 값을 '실손·운전자만 보유', '암·뇌·심장 없음', 특정 월 보험료 합계처럼 단정하지 않는다.",
     "계약상 수익자와 법정상속인을 같은 개념으로 취급하지 않는다. 가족관계·자금 부담자를 이름만으로 추정하지 않는다.",
     "필요한 보험은 검증된 부족과 근거를 바탕으로 구체적으로 추천할 수 있다. 여러 대안이 유용하면 장단점과 우선순위를 비교한다. 현재 정보가 필요하면 제공된 검색 능력을 사용한다.",
     "보험 추천·맞춤 추천 질문에서는 정보 부족 감사·상황 요약 표·공백 표·나이·성별·가족·소득 필수 질문지로 답변을 축소하거나 멈추지 않는다. 현재 자료로 할 수 있는 판단과 추천을 첫 문장부터 바로 말한다.",
@@ -2738,6 +2748,8 @@ export function buildUserPayload({
   signupOnboardingBrief = null,
   authenticatedCustomerIdentity = null,
   documentSubjectIdentity = null,
+  /** Source-separated policy truth (ledger / customer_reported / evidence meta). */
+  policyTruthContext = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
@@ -2875,6 +2887,9 @@ export function buildUserPayload({
       ...(softDocSubject ? softDocSubject : {}),
       ...(softSignupOnboarding ? softSignupOnboarding : {}),
       ...(ready_card ? { ready_card } : {}),
+      ...(policyTruthContext && typeof policyTruthContext === "object"
+        ? { policy_truth: policyTruthContext }
+        : {}),
     },
     available_verified_evidence: {
       personal: {
@@ -3812,6 +3827,9 @@ async function callClaudeFirstDirect({
   audience = null,
   conversationMode = null,
   keyRoleContract = null,
+  /** Source-separated ledger / customer_reported / evidence package for Claude. */
+  policyTruthContext = null,
+  policyCountAuthorityAddendum = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -3890,6 +3908,12 @@ async function callClaudeFirstDirect({
     authenticatedCustomerIdentity,
     documentSubjectIdentity:
       presenceTurn === true ? null : documentSubjectIdentity,
+    policyTruthContext:
+      presenceTurn === true
+        ? null
+        : policyTruthContext && typeof policyTruthContext === "object"
+          ? policyTruthContext
+          : null,
   });
   const userPayloadBase =
     presenceTurn === true
@@ -3945,6 +3969,13 @@ async function callClaudeFirstDirect({
       documentIds: attachDocumentIds,
       primaryDocumentId: pdfMeta?.document_id ?? null,
     })}`;
+  }
+  if (
+    presenceTurn !== true &&
+    typeof policyCountAuthorityAddendum === "string" &&
+    policyCountAuthorityAddendum.trim()
+  ) {
+    systemTextBase = `${systemTextBase}\n\n[POLICY_COUNT_AUTHORITY]\n${policyCountAuthorityAddendum.trim()}`;
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -4597,9 +4628,11 @@ export async function runClaudeFirstDirectQuestionTurn({
     return quietResult;
   }
 
-  // Physical active attachment / explicit mention / insurance vault recall.
+  // Physical active attachment / insurance vault recall / explicit mention.
   // Never invent latest document; allowLatestFallback stays false.
   // Presence must not mix PDF/document Claude work into the login opener.
+  // Vault evidence (count / analysis / document-box recheck) runs BEFORE single-doc
+  // mention so one filename mention cannot shrink the owned insurance original set.
   let explicitDocumentId = isPresenceTurn
     ? ""
     : String(attachedDocumentId ?? "").trim();
@@ -4607,33 +4640,14 @@ export async function runClaudeFirstDirectQuestionTurn({
   let vaultRecall = null;
   let pdfAttachmentsForClaude = null;
   let pdfFetchMs = null;
-  // B: explicit 내 문서 / filename pointer → lookup owned document (no silent latest invent).
-  if (!isPresenceTurn && !explicitDocumentId && userSupabase && customerId) {
-    const mentionedFilenames = extractMentionedFilenamesFromChat(question, history);
-    const wantsBox =
-      isExplicitDocumentBoxMentionQuestion(question) ||
-      mentionedFilenames.length > 0 ||
-      isPriorAttachFollowUpQuestion(question, { history, priorAttachFollowUp });
-    if (wantsBox) {
-      documentMentionResolve = await resolveExplicitCustomerDocumentMention({
-        supabase: userSupabase,
-        customerId,
-        question,
-        history,
-        mentionedFilenames,
-      });
-      if (documentMentionResolve?.ok && documentMentionResolve.documentId) {
-        explicitDocumentId = String(documentMentionResolve.documentId).trim();
-      }
-    }
-  }
-  // C: “내 보험 분석”류 — owned insurance-series vault recall (sha256 dedupe; no silent latest).
+  const wantsVaultEvidence =
+    !isPresenceTurn && wantsOwnedInsuranceVaultEvidence(question) === true;
+  // C-first: owned insurance-series vault recall (sha256 dedupe; no silent latest).
   if (
-    !isPresenceTurn &&
+    wantsVaultEvidence &&
     !explicitDocumentId &&
     userSupabase &&
-    customerId &&
-    isInsuranceDocumentRecallQuestion(question)
+    customerId
   ) {
     const fetchStarted = Date.now();
     vaultRecall = await resolveOwnedInsuranceVaultRecall({
@@ -4653,6 +4667,33 @@ export async function runClaudeFirstDirectQuestionTurn({
       // Runtime EXIF/orientation normalize for Claude only — Storage originals untouched.
       pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows);
       explicitDocumentId = String(vaultRecall.attachments[0].document_id).trim();
+    }
+  }
+  // B: explicit 내 문서 / filename pointer — only when vault evidence was not requested
+  // (or vault did not set an attach id). Never invent latest.
+  if (
+    !isPresenceTurn &&
+    !explicitDocumentId &&
+    !wantsVaultEvidence &&
+    userSupabase &&
+    customerId
+  ) {
+    const mentionedFilenames = extractMentionedFilenamesFromChat(question, history);
+    const wantsBox =
+      isExplicitDocumentBoxMentionQuestion(question) ||
+      mentionedFilenames.length > 0 ||
+      isPriorAttachFollowUpQuestion(question, { history, priorAttachFollowUp });
+    if (wantsBox) {
+      documentMentionResolve = await resolveExplicitCustomerDocumentMention({
+        supabase: userSupabase,
+        customerId,
+        question,
+        history,
+        mentionedFilenames,
+      });
+      if (documentMentionResolve?.ok && documentMentionResolve.documentId) {
+        explicitDocumentId = String(documentMentionResolve.documentId).trim();
+      }
     }
   }
   const allowLatestFallback = false;
@@ -5253,6 +5294,47 @@ export async function runClaudeFirstDirectQuestionTurn({
     document_mention_resolve: documentMentionResolve?.reason ?? null,
   };
 
+  // Policy truth evidence package — PII-safe meta; ledger is sole confirmed count authority.
+  const countOrLedgerQuestion =
+    !isPresenceTurn && isPolicyCountOrLedgerQuestion(question) === true;
+  const customerReportedPolicyCount = isPresenceTurn
+    ? null
+    : extractCustomerReportedPolicyCount(question);
+  const verifiedPolicyLedgerBrief = isPresenceTurn
+    ? null
+    : buildVerifiedPolicyLedgerBrief(policies);
+  const turnEvidencePackage = isPresenceTurn
+    ? null
+    : buildTurnEvidencePackageMeta({
+        evidence_scope: wantsVaultEvidence
+          ? "owned_insurance_vault"
+          : pdfAttachmentsForClaude?.length || pdf?.meta?.attached
+            ? "attached_originals"
+            : "none",
+        vaultRecall,
+        attachments: pdfAttachmentsForClaude?.length
+          ? pdfAttachmentsForClaude
+          : vaultRecall?.attachments,
+        candidate_document_count: Array.isArray(vaultRecall?.listing)
+          ? vaultRecall.listing.length
+          : null,
+      });
+  const policyTruthContextForClaude = isPresenceTurn
+    ? null
+    : buildSourceSeparatedTruthContext({
+        ledgerBrief: verifiedPolicyLedgerBrief,
+        customerReportedCount: customerReportedPolicyCount,
+        evidenceMeta: turnEvidencePackage,
+        countQuestion: countOrLedgerQuestion,
+      });
+  const policyCountAuthorityAddendum = countOrLedgerQuestion
+    ? buildPolicyCountAuthorityAddendum({
+        ledgerBrief: verifiedPolicyLedgerBrief,
+        evidenceMeta: turnEvidencePackage,
+        customerReportedCount: customerReportedPolicyCount,
+      })
+    : null;
+
   // Active documents for history pack filter — prefer READY CARD; fall back only if absent.
   const activeDocumentsForHistory = Array.isArray(activeDocumentsFromCard)
     ? activeDocumentsFromCard
@@ -5340,6 +5422,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     audience,
     conversationMode,
     keyRoleContract,
+    policyTruthContext: policyTruthContextForClaude,
+    policyCountAuthorityAddendum,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -5860,6 +5944,12 @@ export async function runClaudeFirstDirectQuestionTurn({
               key_verified_literal_conflict: keyVerifiedLiteralConflict,
               stop_reason: claudeStopReason,
               post_stream_mutator_discarded: postStreamMutatorDiscarded === true,
+              pdf_attached: claude.pdf_attached === true,
+              original_attachment_count:
+                Number(claude.original_attachment_count ?? 0) || 0,
+              evidence_package: turnEvidencePackage,
+              verified_policy_ledger_count:
+                verifiedPolicyLedgerBrief?.active_distinct_count ?? null,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
               life_threads_brief: earlyLifeThreadsBrief,
               life_threads_attach_reason:
@@ -5967,9 +6057,38 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
 
     // Policy inventory SSOT upsert — non-blocking; never rewrites sealed answer.
-    const inventoryFacts = Array.isArray(claude.policy_inventory_facts)
+    const shaByDocumentId = new Map();
+    for (const row of [
+      ...(Array.isArray(pdfAttachmentsForClaude) ? pdfAttachmentsForClaude : []),
+      ...(Array.isArray(vaultRecall?.attachments) ? vaultRecall.attachments : []),
+    ]) {
+      const id = String(row?.document_id ?? "").trim();
+      const sha = String(row?.content_sha256 ?? row?.sha256 ?? "").trim().toLowerCase();
+      if (id && sha) shaByDocumentId.set(id, sha);
+    }
+    if (pdf?.meta?.document_id && pdf?.meta?.content_sha256) {
+      shaByDocumentId.set(
+        String(pdf.meta.document_id).trim(),
+        String(pdf.meta.content_sha256).trim().toLowerCase(),
+      );
+    }
+    const inventoryFacts = (Array.isArray(claude.policy_inventory_facts)
       ? claude.policy_inventory_facts
-      : [];
+      : []
+    ).map((fact) => {
+      if (!fact || typeof fact !== "object") return fact;
+      const docId = String(fact.source_document_id ?? "").trim();
+      const sha =
+        String(fact.source_content_sha256 ?? fact.source_sha256 ?? "").trim() ||
+        (docId ? shaByDocumentId.get(docId) : null) ||
+        "";
+      if (!sha) return fact;
+      return {
+        ...fact,
+        source_content_sha256: sha,
+        source_sha256: sha,
+      };
+    });
     if (inventoryFacts.length > 0) {
       try {
         keyInventoryPersist = await persistPolicyInventoryFactsToPolicies({
@@ -5980,6 +6099,13 @@ export async function runClaudeFirstDirectQuestionTurn({
             ? ownedAttachDocumentIds
             : null,
         });
+        if (keyInventoryPersist?.ok === true || keyInventoryPersist?.stored > 0) {
+          try {
+            invalidateReadyCardCacheForCustomer(customerId);
+          } catch {
+            /* non-blocking */
+          }
+        }
       } catch (err) {
         keyInventoryPersist = {
           attempted: true,
@@ -6679,6 +6805,17 @@ export async function runClaudeFirstDirectQuestionTurn({
           pdf_attached: claude.pdf_attached === true,
           original_attachment_count:
             Number(claude.original_attachment_count ?? 0) || 0,
+          evidence_package: turnEvidencePackage,
+          verified_policy_ledger: verifiedPolicyLedgerBrief
+            ? {
+                active_distinct_count:
+                  verifiedPolicyLedgerBrief.active_distinct_count,
+                confirmed_count: verifiedPolicyLedgerBrief.confirmed_count,
+                needs_count: verifiedPolicyLedgerBrief.needs_count,
+              }
+            : null,
+          customer_reported_policy_count: customerReportedPolicyCount,
+          count_or_ledger_question: countOrLedgerQuestion === true,
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],

@@ -27,6 +27,7 @@ import {
   normalizeActiveAttachment,
   scrubDeletedDocumentFromMessageActiveAttachments,
   shouldClearActiveAttachmentAfterTurn,
+  wantsOwnedInsuranceVaultEvidence,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import {
@@ -2097,7 +2098,8 @@ export default function LifeguardHomeChat({
         Boolean(documentIdForTurn) ||
         result?.pdfAttached === true ||
         Number(result?.originalAttachmentCount ?? 0) > 0 ||
-        isInsuranceDocumentRecallQuestion(trimmed) === true;
+        isInsuranceDocumentRecallQuestion(trimmed) === true ||
+        wantsOwnedInsuranceVaultEvidence(trimmed) === true;
       if (
         shouldRefreshRailsAfterPersist &&
         typeof session?.refreshSession === "function" &&

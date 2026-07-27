@@ -258,6 +258,7 @@ assert.equal(isProgressOnlyCustomerAnswer("원본 기준으로 12건입니다. �
   assert.match(prompt, /실제 원본을 직접 확인/);
   assert.match(prompt, /구체적으로 추천/);
   assert.match(prompt, /장단점과 우선순위/);
+  assert.match(prompt, /최고 수준의 보험 설계 전문가처럼/);
   assert.equal(/available_verified_evidence의 현재 검증 자료에만 근거/.test(prompt), false);
 }
 
