@@ -120,6 +120,16 @@ assert.match(productAddendum, /고객 이름|생년월일|병력|청구 정보/)
 assert.match(productAddendum, /공식 상품명|현재 판매 확인|2026-07-27/);
 assert.match(productAddendum, /월보험료를 숫자로 제시하지|월 5~10만|월 7~12만/);
 assert.match(productAddendum, /부족한 수를 지어내지|검색 결과에 없는 상품명/);
+assert.match(productAddendum, /마케팅 페이지가 열리는 것만으로|현재 판매 중이라고 단정하지/);
+assert.match(productAddendum, /가격공시실|판매 시작일|상품설계가 가능한 공식 화면/);
+assert.match(productAddendum, /현재 판매 여부는 확인되지 않았습니다/);
+assert.match(productAddendum, /2607|전체 이름을 그대로/);
+assert.match(productAddendum, /공식 예시라고 명시|임의 보간하지/);
+assert.match(productAddendum, /확인되지 않았다.?고 답하지/);
+assert.match(productAddendum, /만 55~56세|만 나이를 한 살로 확정하지/);
+assert.match(productAddendum, /거절·부담보 가능성이 높다고 선판단하지/);
+assert.match(productAddendum, /저와 함께 실제 견적을 내보겠습니다/);
+assert.match(productAddendum, /보험사 공식 보험료 계산 또는 설계 상담이 필요합니다/);
 
 const productSystem = composeClaudeFirstSystemText({
   question: productAsk,
@@ -128,6 +138,8 @@ const productSystem = composeClaudeFirstSystemText({
 assert.match(productSystem, /CURRENT_INSURANCE_PRODUCT_SHOWCASE/);
 assert.match(productSystem, /공식 예시 보험료|월보험료를 숫자로 제시하지/);
 assert.match(productSystem, /웹 검색 query에는 고객 이름/);
+assert.match(productSystem, /마케팅 페이지가 열리는 것만으로/);
+assert.match(productSystem, /보험사 공식 보험료 계산 또는 설계 상담이 필요합니다/);
 
 const helloSystem = composeClaudeFirstSystemText({
   question: "안녕하세요",
