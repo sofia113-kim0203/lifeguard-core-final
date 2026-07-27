@@ -6,6 +6,9 @@ export default function KeyCustomerRightRail({
   shell = null,
   collapsed = false,
   onToggleCollapse = null,
+  onOpenFamily = null,
+  onOpenSessions = null,
+  onOpenVault = null,
   style = null,
 }) {
   if (collapsed) {
@@ -41,6 +44,8 @@ export default function KeyCustomerRightRail({
   const goals = Array.isArray(shell?.goals) ? shell.goals : [];
   const results = Array.isArray(shell?.paymentResults) ? shell.paymentResults : [];
   const reviewing = Number(money.reviewingCount) || 0;
+  const gap = shell?.coverageGap || null;
+  const familyCount = Number(shell?.familyMemory?.count);
   const col = `${C.rightColPx}px`;
 
   return (
@@ -55,6 +60,7 @@ export default function KeyCustomerRightRail({
         flexDirection: "column",
         minHeight: 0,
         overflow: "hidden",
+        boxSizing: "border-box",
         fontFamily: C.sans,
         ...style,
       }}
@@ -62,7 +68,8 @@ export default function KeyCustomerRightRail({
       <div
         style={{
           flex: 1,
-          overflowY: "visible",
+          overflowY: "auto",
+          overflowX: "hidden",
           padding: `${C.railInnerPadPx}px`,
           minHeight: 0,
           display: "flex",
@@ -185,10 +192,76 @@ export default function KeyCustomerRightRail({
             />
           )}
         </Block>
+
+        {/* Moved from left rail — same data/handlers, no duplicate left render */}
+        <div
+          style={{
+            borderRadius: "16px",
+            padding: `${C.cardPadY}px ${C.cardPadX}px`,
+            background: C.coralSoft,
+          }}
+        >
+          <div
+            style={{
+              fontSize: `${C.sectionTitleSize}px`,
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              color: C.coral,
+              marginBottom: `${C.sectionKMbPx}px`,
+            }}
+          >
+            보장 공백
+          </div>
+          <div style={{ fontSize: "14px", fontWeight: 700, lineHeight: 1.35, color: C.text }}>
+            {gap?.pending === false && gap?.title ? gap.title : "확인 전"}
+          </div>
+          <div style={{ marginTop: "4px", fontSize: "12px", color: C.muted, lineHeight: 1.45 }}>
+            {gap?.sub || "확인된 공백이 생기면 여기에 모읍니다"}
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: C.surface,
+            borderRadius: "16px",
+            padding: `${C.cardPadY}px ${C.cardPadX}px`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: `${C.sectionTitleSize}px`,
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              color: C.muted,
+              marginBottom: `${C.sectionKMbPx}px`,
+            }}
+          >
+            알아둔 것
+          </div>
+          <div style={{ fontSize: "13px", color: C.muted, lineHeight: 1.5 }}>
+            {String(shell?.notesMemory?.text || "").trim() || "아직 기록 없음"}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px", padding: "2px 0" }}>
+          <NavBtn
+            label="가족"
+            count={Number.isFinite(familyCount) ? familyCount : 0}
+            onClick={onOpenFamily}
+          />
+          <NavBtn label="지난 상담" onClick={onOpenSessions} />
+          <NavBtn label="내 자료 금고" onClick={onOpenVault} />
+        </div>
       </div>
 
       {typeof onToggleCollapse === "function" ? (
-        <div style={{ padding: "8px 12px 12px", borderTop: "1px solid rgba(18,50,95,0.06)" }}>
+        <div
+          style={{
+            padding: "8px 12px 12px",
+            borderTop: "1px solid rgba(18,50,95,0.06)",
+            flexShrink: 0,
+          }}
+        >
           <button
             type="button"
             aria-label="우측 패널 접기"
@@ -287,5 +360,48 @@ function EmptyLine({ primary, secondary = null }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function NavBtn({ label, onClick, count = null }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: "none",
+        background: "transparent",
+        textAlign: "left",
+        padding: "8px 8px",
+        borderRadius: "10px",
+        fontSize: `${C.bodySize}px`,
+        fontWeight: 650,
+        color: C.text,
+        cursor: typeof onClick === "function" ? "pointer" : "default",
+        fontFamily: C.sans,
+      }}
+    >
+      {label}
+      {count != null ? (
+        <span
+          style={{
+            display: "inline-flex",
+            minWidth: "18px",
+            height: "18px",
+            marginLeft: "6px",
+            padding: "0 5px",
+            borderRadius: "999px",
+            background: C.skySoft,
+            color: C.sky,
+            fontSize: "11px",
+            fontWeight: 800,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {count}
+        </span>
+      ) : null}
+    </button>
   );
 }
