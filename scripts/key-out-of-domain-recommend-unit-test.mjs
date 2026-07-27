@@ -9,7 +9,11 @@ import {
   buildOutOfDomainPlaceRecommendAddendum,
 } from "../server/keyCore/keyOutOfDomainRecommend.js";
 import { composeClaudeFirstSystemText } from "../server/keyCore/keyClaudeFirstDirect.js";
-import { shouldEnablePublicWebSearch } from "../server/keyCore/keyBorrowedSensesSpeak.js";
+import {
+  shouldEnablePublicWebSearch,
+  isExplicitCurrentInsuranceProductRequest,
+  buildCurrentInsuranceProductShowcaseAddendum,
+} from "../server/keyCore/keyBorrowedSensesSpeak.js";
 
 assert.equal(isStopAskingRecommendIntent("어딘지 소개만 시켜줘 그만 물어보고"), true);
 assert.equal(isStopAskingRecommendIntent("그냥 추천해줘"), true);
@@ -85,11 +89,52 @@ assert.equal(
   false,
 );
 
+// Explicit current-product showcase: web_search on (same Claude; insurance alone does not block).
+const productAsk =
+  "내 상황에 맞는 현재 판매 중인 암보험 상품 2~3개를 보험회사, 상품명, 대략적인 월보험료, 추천 이유와 함께 알려줘.";
+assert.equal(isExplicitCurrentInsuranceProductRequest(productAsk), true);
+assert.equal(shouldEnablePublicWebSearch({ question: productAsk, history: [] }), true);
+assert.equal(
+  isExplicitCurrentInsuranceProductRequest("암보험이 뭐예요? 보장 구조만 설명해 주세요."),
+  false,
+);
+assert.equal(
+  shouldEnablePublicWebSearch({
+    question: "암보험이 뭐예요? 보장 구조만 설명해 주세요.",
+    history: [],
+  }),
+  false,
+);
+assert.equal(
+  isExplicitCurrentInsuranceProductRequest("지금 가입할 수 있는 암보험 공식 상품과 보험료 예시 알려줘"),
+  true,
+);
+assert.equal(
+  isExplicitCurrentInsuranceProductRequest("여러 회사 상품 소개해줘. 보험회사와 상품명 알려줘"),
+  true,
+);
+
+const productAddendum = buildCurrentInsuranceProductShowcaseAddendum({ question: productAsk });
+assert.match(productAddendum, /web_search_20250305|web_search/);
+assert.match(productAddendum, /고객 이름|생년월일|병력|청구 정보/);
+assert.match(productAddendum, /공식 상품명|현재 판매 확인|2026-07-27/);
+assert.match(productAddendum, /월보험료를 숫자로 제시하지|월 5~10만|월 7~12만/);
+assert.match(productAddendum, /부족한 수를 지어내지|검색 결과에 없는 상품명/);
+
+const productSystem = composeClaudeFirstSystemText({
+  question: productAsk,
+  history: [],
+});
+assert.match(productSystem, /CURRENT_INSURANCE_PRODUCT_SHOWCASE/);
+assert.match(productSystem, /공식 예시 보험료|월보험료를 숫자로 제시하지/);
+assert.match(productSystem, /웹 검색 query에는 고객 이름/);
+
 const helloSystem = composeClaudeFirstSystemText({
   question: "안녕하세요",
   history: [],
 });
 assert.equal(/야키토리 골목/.test(helloSystem), false);
 assert.equal(/추가 질문 중단/.test(helloSystem), false);
+assert.equal(/CURRENT_INSURANCE_PRODUCT_SHOWCASE/.test(helloSystem), false);
 
 console.log("key-out-of-domain-recommend-unit-test: PASS");

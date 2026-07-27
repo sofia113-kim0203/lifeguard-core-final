@@ -280,6 +280,55 @@ export function isClearNewTopicInsuranceAsk(question = "") {
   );
 }
 
+/**
+ * Explicit ask for currently sold insurance products (company + official name / compare / joinable now).
+ * Does not match general insurance explanation or portfolio adequacy alone.
+ */
+export function isExplicitCurrentInsuranceProductRequest(question = "") {
+  const q = String(question ?? "").trim();
+  if (!q) return false;
+  const insuranceLane =
+    /보험|암\s*보험|건강\s*보험|실손|종신|정기\s*보험|간편\s*심사|일반\s*심사/.test(q);
+  if (!insuranceLane) return false;
+  if (
+    /현재\s*판매|판매\s*중|지금\s*가입할\s*수|가입할\s*수\s*있는|공식\s*상품|공식\s*확인\s*근거|공식\s*.*보험료|보험료\s*예시/.test(
+      q,
+    )
+  ) {
+    return true;
+  }
+  if (/보험\s*회사|보험회사/.test(q) && /상품\s*명|상품명/.test(q)) return true;
+  if (/여러\s*회사/.test(q) && /상품|소개|비교|추천/.test(q)) return true;
+  if (
+    /상품/.test(q) &&
+    /(?:[2２]\s*~\s*[3３]|2~3|두\s*세\s*개|비교해|소개해|추천\s*이유)/.test(q) &&
+    /보험|암|가입/.test(q)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Narrow material contract for the same Claude turn when current-product showcase is requested.
+ * No second Claude · no catalog · no premium inventing.
+ */
+export function buildCurrentInsuranceProductShowcaseAddendum({ question = "" } = {}) {
+  if (!isExplicitCurrentInsuranceProductRequest(question)) return "";
+  return [
+    "[CURRENT_INSURANCE_PRODUCT_SHOWCASE]",
+    "고객이 현재 판매 중인 보험상품을 회사·공식 상품명·근거와 함께 요청했다.",
+    "이 턴에서는 제공된 web_search(web_search_20250305)로 공개 사실만 확인한 뒤, 같은 답변에서 비교·추천·설명한다. 두 번째 모델 호출이나 후처리 rewrite로 바꾸지 않는다.",
+    "웹 검색 query에는 고객 이름·생년월일 전체·약명·병력 상세·고객 계약 내용·문서 원문·청구 정보를 넣지 않는다. 공개 일반 조건만 쓴다(예: 2026년 현재 판매 암보험 공식 상품, 간편심사 암보험 공식 상품, 보험사 공식 홈페이지 암보험 상품, 보험상품 공시 판매 중 상품).",
+    "고객 상황과 검색 결과의 비교는 이 Claude 요청 내부에서만 한다.",
+    "실제 상품을 제시할 때는 최소한 보험회사·정확한 공식 상품명·현재 판매 확인 여부·확인 기준일·공식 출처명·일반심사/간편심사·주요 보장 특징을 함께 말한다. 갱신형/비갱신형은 확인된 경우만 말한다.",
+    "확인 기준일은 2026-07-27 현재 검색 확인 기준이다. 공식 출처 또는 판매 근거가 확인되지 않은 상품을 현재 판매 상품으로 단정하지 않는다.",
+    "검색으로 확인된 상품이 2~3개 미만이면 확인된 것만 보여주고 부족한 수를 지어내지 않는다. 검색 결과에 없는 상품명·상품 계열을 공식 상품명처럼 만들지 않는다.",
+    "월보험료 숫자는 (A) 보험사 공식 예시 보험료 (B) 공식 상품설명서·공시의 예시 (C) 검증 가능한 실제 견적 결과가 있을 때만 말한다. 숫자와 함께 성별·보험나이 또는 출생 조건·가입금액·주요 담보·납입기간·보험기간·만기·갱신 여부·일반심사/간편심사·기준일을 표시한다.",
+    "근거가 없으면 '월 5~10만 원'·'월 7~12만 원'·'대략 이 정도' 같은 숫자 범위를 만들지 말고, 공식 예시 보험료 또는 실제 설계 견적이 확인되지 않아 현재 답변에서 월보험료를 숫자로 제시하지 않겠다고 자연스럽게 설명한다.",
+  ].join("\n");
+}
+
 function historyTurnText(h = null) {
   return String(h?.text ?? h?.content ?? h?.message ?? "").trim();
 }
@@ -334,6 +383,8 @@ export function shouldEnablePublicWebSearch({ question = "", decision = null, hi
   if (priority === "claim_prep" || situation === "claim_need_check") return false;
   const q = String(question ?? "").trim();
   if (!q) return false;
+  // Explicit current-product showcase: do not disable web_search merely because it is insurance.
+  if (isExplicitCurrentInsuranceProductRequest(q)) return true;
   if (isClearNewTopicInsuranceAsk(q)) return false;
   // Explicit public-fact need (place/facility/hours/lookup) or unfinished place thread.
   if (needsFreshPublicFacts({ question: q, history })) return true;

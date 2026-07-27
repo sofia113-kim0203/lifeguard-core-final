@@ -13,6 +13,7 @@ import {
   buildVerifiedCustomerChart,
   ANTHROPIC_WEB_SEARCH_TOOL,
   shouldEnablePublicWebSearch,
+  buildCurrentInsuranceProductShowcaseAddendum,
 } from "./keyBorrowedSensesSpeak.js";
 import { buildOutOfDomainPlaceRecommendAddendum } from "./keyOutOfDomainRecommend.js";
 import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js";
@@ -2053,6 +2054,10 @@ export function composeClaudeFirstSystemText({
     if (placeAddendum) {
       customerBody = `${customerBody}\n${placeAddendum}`;
     }
+    const productAddendum = buildCurrentInsuranceProductShowcaseAddendum({ question });
+    if (productAddendum) {
+      customerBody = `${customerBody}\n${productAddendum}`;
+    }
   }
   if (!isAgentAudienceTurn(audience, keyRoleContract)) {
     return customerBody;
@@ -3912,7 +3917,7 @@ async function callClaudeFirstDirect({
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
 
-  // Answer path: optional server web_search only. No client tool_result / force tool_choice.
+  // Answer path: optional server web_search only. No client tool_result / force any specific tool.
   let emptyAnswerDiag = {
     input: null,
     response: null,
@@ -3927,7 +3932,9 @@ async function callClaudeFirstDirect({
       system,
       messages,
       stream: true,
-      ...(publicWebSearchTools.length ? { tools: publicWebSearchTools } : {}),
+      ...(publicWebSearchTools.length
+        ? { tools: publicWebSearchTools, tool_choice: { type: "auto" } }
+        : {}),
     };
     emptyAnswerDiag.input = buildEmptyAnswerInputDiag({
       question,
