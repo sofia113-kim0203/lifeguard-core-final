@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
-import { RailMoreBelowHint, useRailOverflowMore } from "./KeyCustomerLeftRail.jsx";
+import { RailMoreBelowButton, useRailOverflowMore } from "./KeyCustomerLeftRail.jsx";
 
 const C = FINAL_UI;
 
@@ -89,7 +89,6 @@ export default function KeyCustomerRightRail({
           overflowY: "auto",
           overflowX: "hidden",
           padding: `${C.railInnerPadPx}px`,
-          paddingBottom: showMoreBelow ? "10px" : `${C.railInnerPadPx}px`,
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
@@ -273,26 +272,34 @@ export default function KeyCustomerRightRail({
         </div>
       </div>
 
-      <RailMoreBelowHint scrollRef={scrollRef} show={showMoreBelow} />
-
       {typeof onToggleCollapse === "function" ? (
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "6px",
             padding: "8px 12px 12px",
             borderTop: "1px solid rgba(18,50,95,0.06)",
             flexShrink: 0,
+            minWidth: 0,
           }}
         >
+          <RailMoreBelowButton scrollRef={scrollRef} show={showMoreBelow} />
           <button
             type="button"
             aria-label="우측 패널 접기"
             onClick={onToggleCollapse}
-            style={{ ...iconBtnStyle, marginLeft: "auto", display: "block" }}
+            style={{ ...iconBtnStyle, flexShrink: 0 }}
           >
             ›
           </button>
         </div>
-      ) : null}
+      ) : (
+        <div style={{ padding: "8px 12px 12px", display: "flex", justifyContent: "flex-end" }}>
+          <RailMoreBelowButton scrollRef={scrollRef} show={showMoreBelow} />
+        </div>
+      )}
     </aside>
   );
 }

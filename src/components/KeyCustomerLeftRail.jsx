@@ -46,52 +46,31 @@ export function useRailOverflowMore(scrollRef, contentKey = "") {
   return { showMoreBelow, refreshMoreBelow };
 }
 
-/** Lightweight sticky rail affordance — does not move chat or the other rail. */
-export function RailMoreBelowHint({ scrollRef, show }) {
+/** Compact footer control — sits beside collapse; never a full-width bar. */
+export function RailMoreBelowButton({ scrollRef, show }) {
   if (!show) return null;
   return (
-    <div
-      style={{
-        flexShrink: 0,
-        position: "relative",
-        padding: "0 10px 6px",
-        background: "linear-gradient(180deg, rgba(243,246,251,0) 0%, rgba(243,246,251,0.92) 36%, rgba(243,246,251,0.98) 100%)",
+    <button
+      type="button"
+      aria-label="아래 내용 더 보기"
+      title="아래 내용 더 있어요"
+      onClick={() => {
+        const el = scrollRef?.current;
+        if (!el) return;
+        const step = Math.max(80, Math.round(el.clientHeight * 0.8));
+        if (typeof el.scrollBy === "function") {
+          el.scrollBy({ top: step, behavior: "smooth" });
+        } else {
+          el.scrollTop = Math.min(
+            el.scrollHeight - el.clientHeight,
+            (Number(el.scrollTop) || 0) + step,
+          );
+        }
       }}
+      style={moreBelowBtnStyle}
     >
-      <button
-        type="button"
-        aria-label="아래 내용 더 보기"
-        onClick={() => {
-          const el = scrollRef?.current;
-          if (!el) return;
-          const step = Math.max(80, Math.round(el.clientHeight * 0.8));
-          if (typeof el.scrollBy === "function") {
-            el.scrollBy({ top: step, behavior: "smooth" });
-          } else {
-            el.scrollTop = Math.min(
-              el.scrollHeight - el.clientHeight,
-              (Number(el.scrollTop) || 0) + step,
-            );
-          }
-        }}
-        style={{
-          width: "100%",
-          border: `1px solid ${C.line}`,
-          borderRadius: "999px",
-          background: "rgba(255,255,255,0.88)",
-          color: C.muted,
-          fontSize: "12px",
-          fontWeight: 700,
-          fontFamily: C.sans,
-          lineHeight: 1.3,
-          padding: "7px 12px",
-          cursor: "pointer",
-          boxShadow: "0 2px 8px rgba(18, 50, 95, 0.06)",
-        }}
-      >
-        아래 내용 더 있어요 ↓
-      </button>
-    </div>
+      아래 내용 더 있어요 ↓
+    </button>
   );
 }
 
@@ -224,7 +203,6 @@ export default function KeyCustomerLeftRail({
           overflowX: "hidden",
           minHeight: 0,
           padding: `${C.railInnerPadPx}px`,
-          paddingBottom: showMoreBelow ? "10px" : `${C.railInnerPadPx}px`,
           display: "flex",
           flexDirection: "column",
           gap: `${C.railStackGapPx}px`,
@@ -309,15 +287,16 @@ export default function KeyCustomerLeftRail({
         </div>
       </div>
 
-      <RailMoreBelowHint scrollRef={scrollRef} show={showMoreBelow} />
-
       {typeof onToggleCollapse === "function" ? (
-        <div style={{ padding: "8px 12px 12px", flexShrink: 0 }}>
+        <div style={footerRowStyle}>
           <button type="button" aria-label="좌측 패널 접기" onClick={onToggleCollapse} style={iconBtnStyle}>
             ‹
           </button>
+          <RailMoreBelowButton scrollRef={scrollRef} show={showMoreBelow} />
         </div>
-      ) : null}
+      ) : (
+        <RailMoreBelowButton scrollRef={scrollRef} show={showMoreBelow} />
+      )}
     </aside>
   );
 }
@@ -344,6 +323,37 @@ const iconBtnStyle = {
   background: C.surface,
   cursor: "pointer",
   color: C.muted,
+  flexShrink: 0,
+};
+
+const footerRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  padding: "8px 12px 12px",
+  flexShrink: 0,
+  minWidth: 0,
+};
+
+const moreBelowBtnStyle = {
+  height: "32px",
+  width: "fit-content",
+  maxWidth: "calc(100% - 38px)",
+  minWidth: 0,
+  flex: "0 1 auto",
+  border: `1px solid ${C.line}`,
+  borderRadius: "8px",
+  background: C.surface,
+  color: C.muted,
+  fontSize: "11px",
+  fontWeight: 700,
+  fontFamily: C.sans,
+  lineHeight: 1,
+  padding: "0 10px",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 function pulseStyle(bg) {
