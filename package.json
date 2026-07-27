@@ -174,7 +174,9 @@
     "test:key-judgment-validation-v1-checks": "node scripts/key-judgment-validation-v1-checks-unit-test.mjs",
     "test:key-claude-first-truth-sync": "node scripts/key-claude-first-truth-sync-unit-test.mjs",
     "test:key-policy-truth-evidence": "node scripts/key-policy-truth-evidence-unit-test.mjs",
-    "test:key-claude-first-direct": "node scripts/key-claude-first-direct-unit-test.mjs"
+    "test:key-claude-first-direct": "node scripts/key-claude-first-direct-unit-test.mjs",
+    "test:key-qa-turn-recorder": "node scripts/key-qa-turn-recorder-unit-test.mjs",
+    "purge:key-qa-turn-traces": "node scripts/key-qa-turn-trace-purge.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

@@ -195,9 +195,11 @@ import {
   filterKeyActiveClaimCasesByScope,
   isKeyClaimOpenStatus,
 } from "../documentPolicyUploadPersist.js";
-import {
+  import {
   buildKeyRecordSidecarHint,
   isProgressOnlyCustomerAnswer,
+  KEY_RECORD_SIDECAR_END,
+  KEY_RECORD_SIDECAR_START,
   normalizeKeyRecordSidecar,
   splitCustomerAnswerAndKeyRecord,
   stripKeyRecordFromStreamText,
@@ -216,6 +218,18 @@ import {
   isPolicyCountOrLedgerQuestion,
   wantsOwnedInsuranceVaultEvidence,
 } from "./keyPolicyTruthEvidence.js";
+import {
+  buildClaudeCapture,
+  buildLedgerCapture,
+  buildOriginalsManifest,
+  buildSystemCapture,
+  buildUserPayloadCapture,
+  createQaTurnCaptureBag,
+  createTurnTraceId,
+  isHistoryFullEnabled,
+  recordQaTurnTrace,
+  shouldActivateQaTurnRecorder,
+} from "./keyQaTurnRecorder.js";
 import {
   canSupportCorporateClaims,
   loadHolderAuthorityGrants,
@@ -4051,6 +4065,8 @@ async function callClaudeFirstDirect({
   /** Source-separated ledger / customer_reported / evidence package for Claude. */
   policyTruthContext = null,
   policyCountAuthorityAddendum = null,
+  /** Preview QA turn capture bag (Surgery 0) — mutate-only; never affects customer path. */
+  qaTurnCapture = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -4225,6 +4241,46 @@ async function callClaudeFirstDirect({
   });
   const systemText = roleApplied.systemText;
   const userPayload = roleApplied.userPayload;
+  // Preview QA turn recorder — capture final system/payload/manifest before provider fetch.
+  if (qaTurnCapture && qaTurnCapture.active === true) {
+    try {
+      qaTurnCapture.model = model;
+      qaTurnCapture.system = buildSystemCapture({
+        systemText,
+        policyCountAuthorityAddendum,
+        hasDomainContext: /\[DOMAIN_CONTEXT\]/i.test(systemText),
+        hasSidecarHint: presenceTurn !== true && pdfAttached,
+        hasPlaceAddendum: /PLACE_RECOMMEND|out_of_domain_place/i.test(systemText),
+        hasProductAddendum: /CURRENT_INSURANCE_PRODUCT|insurance_product_showcase/i.test(
+          systemText,
+        ),
+        hasAgentPriority: Boolean(agentRoleContract),
+      });
+      qaTurnCapture.user_payload = buildUserPayloadCapture({
+        userPayload,
+        history: presenceTurn === true ? [] : history,
+        question: presenceTurn === true ? "" : question,
+        historyFull: isHistoryFullEnabled(env),
+      });
+      // Prefer outer vaultRecall manifest when already set; else build from attach rows.
+      if (!qaTurnCapture.originals_manifest) {
+        qaTurnCapture.originals_manifest = buildOriginalsManifest({
+          vaultRecall: pdfMeta?.vault_recall_mode
+            ? {
+                mode: pdfMeta.vault_recall_mode,
+                listing: pdfMeta.document_box_listing,
+                failed: pdfMeta.vault_failed,
+                reason: pdfMeta.note,
+              }
+            : null,
+          attachments: multiAttachments,
+          pdfMeta,
+        });
+      }
+    } catch {
+      /* capture must never break Claude path */
+    }
+  }
   // Phase 1 prompt cache: A (system) + B (evidence) cached via B breakpoint; C variable + PDF uncached.
   const cachedParts = buildClaudeFirstCachedRequestParts({
     systemText,
@@ -4264,6 +4320,8 @@ async function callClaudeFirstDirect({
     ok: false,
     error: null,
   };
+  let lastProviderDataRaw = null;
+  let lastProviderRawTextJoined = "";
   const claimCaseUpdates = [];
   const sessionGoalRecord = null;
   const sessionGoalToolSeen = false;
@@ -4421,6 +4479,8 @@ async function callClaudeFirstDirect({
       .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
       .map((b) => String(b.text).trim())
       .join("\n\n");
+    lastProviderDataRaw = streamed.dataRaw ?? null;
+    lastProviderRawTextJoined = rawTextJoined || streamed.streamed_answer || "";
     const split = splitCustomerAnswerAndKeyRecord(rawTextJoined || streamed.streamed_answer || "");
     keyRecordSidecarMeta = {
       present: split.sidecar_present === true,
@@ -4520,6 +4580,48 @@ async function callClaudeFirstDirect({
     phase_b_call_count: 0,
   };
 
+  if (qaTurnCapture && qaTurnCapture.active === true) {
+    try {
+      const rawJoined =
+        lastProviderRawTextJoined || customer_answer || streamedAnswer || "";
+      const splitForTrace = splitCustomerAnswerAndKeyRecord(rawJoined);
+      let sidecarRaw = null;
+      if (splitForTrace.sidecar_present === true) {
+        const startIdx = rawJoined.indexOf(KEY_RECORD_SIDECAR_START);
+        const endIdx = rawJoined.indexOf(KEY_RECORD_SIDECAR_END);
+        if (startIdx >= 0) {
+          sidecarRaw =
+            endIdx > startIdx
+              ? rawJoined.slice(startIdx, endIdx + KEY_RECORD_SIDECAR_END.length)
+              : rawJoined.slice(startIdx);
+        }
+      }
+      const toolNames = [];
+      const contentBlocks = Array.isArray(lastProviderDataRaw?.content)
+        ? lastProviderDataRaw.content
+        : [];
+      for (const block of contentBlocks) {
+        if (block?.type === "tool_use" || block?.type === "server_tool_use") {
+          toolNames.push(String(block.name ?? block.type));
+        }
+      }
+      qaTurnCapture.claude_partial = {
+        provider_raw_customer_text: rawJoined,
+        stop_reason: lastStopReason,
+        tool_use_present: toolNames.length > 0,
+        tool_names: toolNames,
+        sidecar_raw: sidecarRaw,
+        sidecar_parse_ok: splitForTrace.sidecar_ok === true,
+        policy_inventory_facts_count: Array.isArray(policyInventoryFacts)
+          ? policyInventoryFacts.length
+          : 0,
+        provider_messages_request_count: messagesRequestCount,
+      };
+    } catch {
+      /* non-blocking */
+    }
+  }
+
   return {
     ok: Boolean(customer_answer) && !progressOnly,
     customer_answer: progressOnly ? "" : customer_answer,
@@ -4606,6 +4708,19 @@ export async function runClaudeFirstDirectQuestionTurn({
 } = {}) {
   const span = startSpan(startedAt);
   const isPresenceTurn = presenceTurn === true;
+
+  // Surgery 0 — Preview QA turn recorder (AND-locked; default OFF).
+  const qaRecorderActive = shouldActivateQaTurnRecorder({
+    env,
+    customerId,
+    presenceTurn: isPresenceTurn,
+    audience,
+    keyRoleContract,
+  });
+  const qaTurnCapture = qaRecorderActive
+    ? createQaTurnCaptureBag({ turnTraceId: createTurnTraceId(), env })
+    : null;
+  let qaTurnRecordMeta = null;
 
   // GO3 SSOT — never trust client prior_session_goal; load from conversations only.
   const discardRequested =
@@ -5599,6 +5714,18 @@ export async function runClaudeFirstDirectQuestionTurn({
       });
 
   const questionClaudeStartMs = relMs(startedAt);
+  if (qaTurnCapture) {
+    try {
+      qaTurnCapture.ledger_before = verifiedPolicyLedgerBrief;
+      qaTurnCapture.originals_manifest = buildOriginalsManifest({
+        vaultRecall,
+        attachments: pdfAttachmentsForClaude,
+        pdfMeta: pdfMetaForClaude,
+      });
+    } catch {
+      /* non-blocking */
+    }
+  }
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
     history: isPresenceTurn ? [] : history,
@@ -5606,6 +5733,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     env,
     fetchImpl,
     startedAt,
+    qaTurnCapture,
     onFirstContent: (ms) => {
       if (firstTokenMs == null) firstTokenMs = ms;
     },
@@ -6196,6 +6324,8 @@ export async function runClaudeFirstDirectQuestionTurn({
               life_threads_attach_reason:
                 readyResolved?.life_threads_attach_reason ?? null,
               ready_card_source: readyCardSource,
+              qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
+              qa_turn_record: null,
               latency_marks: {
                 ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
                 triangle_t0: {
@@ -6356,6 +6486,112 @@ export async function runClaudeFirstDirectQuestionTurn({
         };
         console.error("[key_policy_inventory_persist]", keyInventoryPersist);
       }
+    }
+  }
+
+  // Surgery 0 — after seal + inventory persist: bounded QA turn write (≤800ms).
+  // Never throws into customer path; stream/seal already completed above.
+  if (qaTurnCapture && qaTurnCapture.active === true) {
+    try {
+      const partial = qaTurnCapture.claude_partial || {};
+      qaTurnCapture.claude = buildClaudeCapture({
+        providerRawCustomerText: partial.provider_raw_customer_text,
+        stopReason: partial.stop_reason ?? claudeStopReason,
+        toolUsePresent: partial.tool_use_present === true,
+        toolNames: partial.tool_names,
+        sidecarRaw: partial.sidecar_raw,
+        sidecarParseOk: partial.sidecar_parse_ok === true,
+        policyInventoryFactsCount:
+          partial.policy_inventory_facts_count ??
+          (Array.isArray(claude.policy_inventory_facts)
+            ? claude.policy_inventory_facts.length
+            : 0),
+        textBeforeFinalize: String(finalText ?? ""),
+        textAfterSeal: String(sealed?.key_speak_original ?? ""),
+        sealedMatchesClaude:
+          !usedFailure &&
+          String(sealed?.key_speak_original ?? "") ===
+            String(claude.customer_answer ?? ""),
+        streamedEqualsSealed,
+        providerMessagesRequestCount:
+          partial.provider_messages_request_count ??
+          claude.provider_messages_request_count ??
+          1,
+      });
+      qaTurnCapture.sidecar_candidates = Array.isArray(claude.policy_inventory_facts)
+        ? claude.policy_inventory_facts
+        : [];
+      qaTurnCapture.upsert = keyInventoryPersist;
+      qaTurnCapture.refresh_session_signal =
+        keyInventoryPersist?.ok === true ||
+        Number(keyInventoryPersist?.stored ?? 0) > 0;
+
+      let ledgerAfterBrief = verifiedPolicyLedgerBrief;
+      if (
+        userSupabase &&
+        customerId &&
+        (keyInventoryPersist?.attempted === true ||
+          Number(keyInventoryPersist?.stored ?? 0) > 0)
+      ) {
+        try {
+          const { data: afterRows } = await userSupabase
+            .from("profile_insurance_policies")
+            .select(
+              "id, insurer_name, product_name, monthly_premium, is_active, deleted_at, source, coverage_summary",
+            )
+            .eq("customer_id", String(customerId))
+            .is("deleted_at", null)
+            .limit(80);
+          ledgerAfterBrief = buildVerifiedPolicyLedgerBrief(afterRows || []);
+        } catch {
+          /* keep before brief */
+        }
+      }
+      qaTurnCapture.ledger_after = ledgerAfterBrief;
+
+      let waitUntilImpl = null;
+      try {
+        const vercelFns = await import("@vercel/functions");
+        if (typeof vercelFns.waitUntil === "function") {
+          waitUntilImpl = vercelFns.waitUntil.bind(vercelFns);
+        }
+      } catch {
+        waitUntilImpl = null;
+      }
+
+      qaTurnRecordMeta = await recordQaTurnTrace({
+        env,
+        customerId,
+        sessionId,
+        presenceTurn: isPresenceTurn,
+        audience,
+        keyRoleContract,
+        model: qaTurnCapture.model ?? claude?.model ?? null,
+        turnTraceId: qaTurnCapture.turn_trace_id,
+        systemCapture: qaTurnCapture.system,
+        userPayloadCapture: qaTurnCapture.user_payload,
+        originalsManifest: qaTurnCapture.originals_manifest,
+        claudeCapture: qaTurnCapture.claude,
+        ledgerCapture: buildLedgerCapture({
+          beforeBrief: qaTurnCapture.ledger_before,
+          afterBrief: qaTurnCapture.ledger_after,
+          sidecarCandidates: qaTurnCapture.sidecar_candidates,
+          upsert: qaTurnCapture.upsert,
+          refreshSessionSignal: qaTurnCapture.refresh_session_signal,
+          env,
+        }),
+        waitUntilImpl,
+      });
+      qaTurnCapture.record = qaTurnRecordMeta;
+    } catch (err) {
+      qaTurnRecordMeta = {
+        attempted: true,
+        ok: false,
+        error_code: "storage_fail",
+        write_ms: null,
+        turn_trace_id: qaTurnCapture.turn_trace_id,
+        error: String(err?.message ?? err).slice(0, 200),
+      };
     }
   }
 
@@ -7113,6 +7349,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             String(sealed.key_speak_original ?? "") === String(claude.customer_answer ?? ""),
           streamed_equals_sealed:
             String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? ""),
+          qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
+          qa_turn_record: qaTurnRecordMeta,
           sentence_commit: {
             mode: "immediate_delta_t4",
             aborted: sentenceStreamAborted,
