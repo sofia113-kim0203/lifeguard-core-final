@@ -62,6 +62,7 @@ export default function KeyCustomerLeftRail({
         flexDirection: "column",
         minHeight: 0,
         overflow: "hidden",
+        boxSizing: "border-box",
         fontFamily: C.sans,
         ...style,
       }}
@@ -124,7 +125,8 @@ export default function KeyCustomerLeftRail({
       <div
         style={{
           flex: 1,
-          overflowY: "visible",
+          overflowY: "auto",
+          overflowX: "hidden",
           minHeight: 0,
           padding: `${C.railInnerPadPx}px`,
           display: "flex",

@@ -526,6 +526,7 @@ export default function LifeguardHomeChat({
   const chatScrollContentRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const restoreForceScrollRef = useRef(false);
+  const lastChatScrollTopRef = useRef(0);
   const coalescedScrollRef = useRef(null);
   if (!coalescedScrollRef.current) {
     coalescedScrollRef.current = createCoalescedScrollToBottom({
@@ -991,18 +992,32 @@ export default function LifeguardHomeChat({
   const handleChatScroll = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
+    const scrollTop = Number(el.scrollTop);
+    if (!Number.isFinite(scrollTop)) return;
+    const prevTop = lastChatScrollTopRef.current;
+    const movedUp = scrollTop < prevTop;
+    const movedDown = scrollTop > prevTop;
+    const pending = Boolean(coalescedScrollRef.current?.pending);
+    // Programmatic sticky follow writes scrollTop downward — do not treat as user leave.
+    if (pending && movedDown) {
+      lastChatScrollTopRef.current = scrollTop;
+      return;
+    }
     const nearBottom = isScrollNearBottom(el);
-    stickToBottomRef.current = nearBottom;
-    if (!nearBottom) {
-      // Leave bottom: cancel any coalesced follow so reading position stays fixed.
-      coalescedScrollRef.current?.cancel();
+    if (movedUp || !pending) {
+      stickToBottomRef.current = nearBottom;
+      if (!nearBottom) {
+        // Leave bottom: cancel any coalesced follow so reading position stays fixed.
+        coalescedScrollRef.current?.cancel();
+      }
     }
     setShowLatestAnswerBtn(
       shouldShowJumpToLatestAnswer({
-        stickToBottom: nearBottom,
+        stickToBottom: stickToBottomRef.current,
         nearBottom,
       }),
     );
+    lastChatScrollTopRef.current = scrollTop;
   }, []);
 
   const jumpToLatestAnswer = useCallback(() => {
@@ -1014,6 +1029,7 @@ export default function LifeguardHomeChat({
     if (el) {
       // Jump uses the chat viewport only — never window/document scroll.
       scrollChatContainerToBottom(el, { tolerancePx: 0 });
+      lastChatScrollTopRef.current = Number(el.scrollTop) || 0;
       // Keep sticky follow armed for in-flight / next stream growth.
       coalescedScrollRef.current?.schedule(el);
     }
@@ -1105,6 +1121,14 @@ export default function LifeguardHomeChat({
   useEffect(() => {
     focusChatInputRef.current = focusChatInput;
   }, [focusChatInput]);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(120, Math.max(56, el.scrollHeight));
+    el.style.height = `${next}px`;
+  }, [input]);
 
   const goBackToChat = useCallback(() => {
     setPanelView("chat");
@@ -1706,6 +1730,8 @@ export default function LifeguardHomeChat({
 
     setPanelView("chat");
     setSidebarOpen(false);
+    stickToBottomRef.current = true;
+    setShowLatestAnswerBtn(false);
     const turnId = createLifeguardSessionId();
     inflightTurnIdRef.current = turnId;
     appendHomeChatStreamTrace("chat_submit");
@@ -2098,6 +2124,7 @@ export default function LifeguardHomeChat({
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = 0;
     }
+    lastChatScrollTopRef.current = 0;
     if (customerId) {
       writeActiveSessionId(customerId, newSessionId);
       clearLifeguardChatSnapshot(customerId);
@@ -3346,7 +3373,7 @@ export default function LifeguardHomeChat({
               className="lg-v31-composer"
               style={{
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-end",
                 gap: "8px",
                 padding: "0 18px",
                 borderRadius: "999px",
@@ -3355,7 +3382,8 @@ export default function LifeguardHomeChat({
                 boxShadow: "0 4px 14px rgba(18, 50, 95, 0.05)",
                 width: "100%",
                 maxWidth: "100%",
-                height: `${FINAL_UI.composerH}px`,
+                minHeight: "56px",
+                height: "auto",
                 boxSizing: "border-box",
               }}
             >
@@ -3415,7 +3443,9 @@ export default function LifeguardHomeChat({
                   resize: "none",
                   lineHeight: 1.5,
                   padding: "6px 0",
+                  minHeight: "56px",
                   maxHeight: "120px",
+                  overflowY: "auto",
                 }}
               />
               <button
