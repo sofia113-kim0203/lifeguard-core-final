@@ -1,8 +1,99 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import KeyClaimProgress from "./KeyClaimProgress.jsx";
 import KeyDiagnosisCoverageSummary from "./KeyDiagnosisCoverageSummary.jsx";
 import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
 
 const C = FINAL_UI;
+const RAIL_BOTTOM_EPS_PX = 8;
+
+/** Shared: show sticky “more below” when a rail scrollport has overflow and is not at bottom. */
+export function useRailOverflowMore(scrollRef, contentKey = "") {
+  const [showMoreBelow, setShowMoreBelow] = useState(false);
+
+  const refreshMoreBelow = useCallback(() => {
+    const el = scrollRef?.current;
+    if (!el) {
+      setShowMoreBelow(false);
+      return;
+    }
+    const scrollHeight = Number(el.scrollHeight) || 0;
+    const clientHeight = Number(el.clientHeight) || 0;
+    const scrollTop = Number(el.scrollTop) || 0;
+    const hasOverflow = scrollHeight > clientHeight + 1;
+    const distance = scrollHeight - scrollTop - clientHeight;
+    setShowMoreBelow(hasOverflow && distance > RAIL_BOTTOM_EPS_PX);
+  }, [scrollRef]);
+
+  useEffect(() => {
+    refreshMoreBelow();
+    const el = scrollRef?.current;
+    if (!el || typeof ResizeObserver === "undefined") {
+      if (typeof window !== "undefined") {
+        window.addEventListener("resize", refreshMoreBelow);
+        return () => window.removeEventListener("resize", refreshMoreBelow);
+      }
+      return undefined;
+    }
+    const ro = new ResizeObserver(() => refreshMoreBelow());
+    ro.observe(el);
+    window.addEventListener("resize", refreshMoreBelow);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", refreshMoreBelow);
+    };
+  }, [refreshMoreBelow, scrollRef, contentKey]);
+
+  return { showMoreBelow, refreshMoreBelow };
+}
+
+/** Lightweight sticky rail affordance — does not move chat or the other rail. */
+export function RailMoreBelowHint({ scrollRef, show }) {
+  if (!show) return null;
+  return (
+    <div
+      style={{
+        flexShrink: 0,
+        position: "relative",
+        padding: "0 10px 6px",
+        background: "linear-gradient(180deg, rgba(243,246,251,0) 0%, rgba(243,246,251,0.92) 36%, rgba(243,246,251,0.98) 100%)",
+      }}
+    >
+      <button
+        type="button"
+        aria-label="아래 내용 더 보기"
+        onClick={() => {
+          const el = scrollRef?.current;
+          if (!el) return;
+          const step = Math.max(80, Math.round(el.clientHeight * 0.8));
+          if (typeof el.scrollBy === "function") {
+            el.scrollBy({ top: step, behavior: "smooth" });
+          } else {
+            el.scrollTop = Math.min(
+              el.scrollHeight - el.clientHeight,
+              (Number(el.scrollTop) || 0) + step,
+            );
+          }
+        }}
+        style={{
+          width: "100%",
+          border: `1px solid ${C.line}`,
+          borderRadius: "999px",
+          background: "rgba(255,255,255,0.88)",
+          color: C.muted,
+          fontSize: "12px",
+          fontWeight: 700,
+          fontFamily: C.sans,
+          lineHeight: 1.3,
+          padding: "7px 12px",
+          cursor: "pointer",
+          boxShadow: "0 2px 8px rgba(18, 50, 95, 0.06)",
+        }}
+      >
+        아래 내용 더 있어요 ↓
+      </button>
+    </div>
+  );
+}
 
 /** Left rail — hero + core insurance summary only (aux cards live on the right). */
 export default function KeyCustomerLeftRail({
@@ -13,6 +104,14 @@ export default function KeyCustomerLeftRail({
   onOpenDiagnosisDetail = null,
   style = null,
 }) {
+  const scrollRef = useRef(null);
+  const metrics = Array.isArray(shell?.coreMetrics) ? shell.coreMetrics : [];
+  const diagnosis = Array.isArray(shell?.diagnosis) ? shell.diagnosis : [];
+  const contentKey = collapsed
+    ? "collapsed"
+    : `${metrics.length}:${diagnosis.length}:${String(shell?.claimProgress?.status || "")}`;
+  const { showMoreBelow, refreshMoreBelow } = useRailOverflowMore(scrollRef, contentKey);
+
   if (collapsed) {
     return (
       <aside
@@ -40,8 +139,6 @@ export default function KeyCustomerLeftRail({
     );
   }
 
-  const metrics = Array.isArray(shell?.coreMetrics) ? shell.coreMetrics : [];
-  const diagnosis = Array.isArray(shell?.diagnosis) ? shell.diagnosis : [];
   const customerDisplayName = String(displayName || "").trim() || "고객";
   const nameInitial = customerDisplayName.slice(0, 1) || "고";
   const col = `${C.leftColPx}px`;
@@ -119,12 +216,15 @@ export default function KeyCustomerLeftRail({
       </div>
 
       <div
+        ref={scrollRef}
+        onScroll={refreshMoreBelow}
         style={{
           flex: 1,
           overflowY: "auto",
           overflowX: "hidden",
           minHeight: 0,
           padding: `${C.railInnerPadPx}px`,
+          paddingBottom: showMoreBelow ? "10px" : `${C.railInnerPadPx}px`,
           display: "flex",
           flexDirection: "column",
           gap: `${C.railStackGapPx}px`,
@@ -208,6 +308,8 @@ export default function KeyCustomerLeftRail({
           />
         </div>
       </div>
+
+      <RailMoreBelowHint scrollRef={scrollRef} show={showMoreBelow} />
 
       {typeof onToggleCollapse === "function" ? (
         <div style={{ padding: "8px 12px 12px", flexShrink: 0 }}>

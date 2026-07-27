@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
+import { RailMoreBelowHint, useRailOverflowMore } from "./KeyCustomerLeftRail.jsx";
 
 const C = FINAL_UI;
 
@@ -11,6 +13,28 @@ export default function KeyCustomerRightRail({
   onOpenVault = null,
   style = null,
 }) {
+  const scrollRef = useRef(null);
+  const money = shell?.moneyFlow || {};
+  const schedules = Array.isArray(shell?.schedules) ? shell.schedules : [];
+  const activities = Array.isArray(shell?.activities) ? shell.activities : [];
+  const goals = Array.isArray(shell?.goals) ? shell.goals : [];
+  const results = Array.isArray(shell?.paymentResults) ? shell.paymentResults : [];
+  const reviewing = Number(money.reviewingCount) || 0;
+  const gap = shell?.coverageGap || null;
+  const familyCount = Number(shell?.familyMemory?.count);
+  const contentKey = collapsed
+    ? "collapsed"
+    : [
+        schedules.length,
+        activities.length,
+        goals.length,
+        results.length,
+        String(gap?.title || ""),
+        String(shell?.notesMemory?.text || "").length,
+        familyCount,
+      ].join(":");
+  const { showMoreBelow, refreshMoreBelow } = useRailOverflowMore(scrollRef, contentKey);
+
   if (collapsed) {
     return (
       <aside
@@ -38,14 +62,6 @@ export default function KeyCustomerRightRail({
     );
   }
 
-  const money = shell?.moneyFlow || {};
-  const schedules = Array.isArray(shell?.schedules) ? shell.schedules : [];
-  const activities = Array.isArray(shell?.activities) ? shell.activities : [];
-  const goals = Array.isArray(shell?.goals) ? shell.goals : [];
-  const results = Array.isArray(shell?.paymentResults) ? shell.paymentResults : [];
-  const reviewing = Number(money.reviewingCount) || 0;
-  const gap = shell?.coverageGap || null;
-  const familyCount = Number(shell?.familyMemory?.count);
   const col = `${C.rightColPx}px`;
 
   return (
@@ -66,11 +82,14 @@ export default function KeyCustomerRightRail({
       }}
     >
       <div
+        ref={scrollRef}
+        onScroll={refreshMoreBelow}
         style={{
           flex: 1,
           overflowY: "auto",
           overflowX: "hidden",
           padding: `${C.railInnerPadPx}px`,
+          paddingBottom: showMoreBelow ? "10px" : `${C.railInnerPadPx}px`,
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
@@ -253,6 +272,8 @@ export default function KeyCustomerRightRail({
           <NavBtn label="내 자료 금고" onClick={onOpenVault} />
         </div>
       </div>
+
+      <RailMoreBelowHint scrollRef={scrollRef} show={showMoreBelow} />
 
       {typeof onToggleCollapse === "function" ? (
         <div
