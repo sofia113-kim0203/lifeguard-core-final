@@ -67,36 +67,299 @@ export function isRetiredPolicyRow(policy = null) {
   return false;
 }
 
-export function buildMyInsuranceStatus(policies = []) {
-  const rows = Array.isArray(policies) ? policies : [];
-  const visible = [];
-  const seen = new Set();
-  for (const policy of rows) {
-    if (isRetiredPolicyRow(policy)) continue;
-    const insurer = String(policy.insurer_name ?? "").trim() || null;
-    const product = String(policy.product_name ?? "").trim() || null;
-    const premium = resolvePolicyPremium(policy);
-    const hasCore = Boolean(insurer || product);
-    if (!hasCore && premium == null) continue;
-    const dedupeKey = `${insurer ?? ""}::${product ?? ""}::${premium ?? "na"}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    const confirmed = Boolean(insurer && (product || premium != null));
-    visible.push({
-      id: String(policy.id ?? ""),
-      insurer_name: insurer,
-      product_name: product,
-      monthly_premium: premium,
-      status: confirmed ? "\uD655\uC778\uB428" : "\uD655\uC778 \uD544\uC694",
-    });
+/** Normalize identity tokens — whitespace / case / common separators only. */
+export function normalizeIdentityToken(value = "") {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-_/.,·•]+/g, "");
+}
+
+function summaryOf(policy) {
+  return policy?.coverage_summary && typeof policy.coverage_summary === "object"
+    ? policy.coverage_summary
+    : {};
+}
+
+function pickPolicyNumber(policy) {
+  const s = summaryOf(policy);
+  return (
+    String(
+      policy?.policy_number ??
+        s.policy_number ??
+        s.extraction_json?.policy_number ??
+        "",
+    ).trim() || null
+  );
+}
+
+function pickSourceSha(policy) {
+  const s = summaryOf(policy);
+  const sha = String(
+    policy?.source_content_sha256 ??
+      s.source_content_sha256 ??
+      s.source_sha256 ??
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  return sha || null;
+}
+
+function pickLocator(policy) {
+  const s = summaryOf(policy);
+  const loc = String(
+    s.source_page_or_image ??
+      s.source_locator ??
+      s.contract_locator ??
+      s.page_index ??
+      policy?.source_page_or_image ??
+      "",
+  ).trim();
+  return loc || null;
+}
+
+function partyNames(policy) {
+  const s = summaryOf(policy);
+  const contractor = String(
+    s.contractor_name ?? s.contract_holder ?? s.contractor ?? policy?.contractor_name ?? "",
+  ).trim();
+  const insured = String(
+    s.insured_name ?? s.insured ?? policy?.insured_name ?? "",
+  ).trim();
+  return { contractor: contractor || null, insured: insured || null };
+}
+
+/** Known non-customer fixture / placeholder subjects — never personal confirmed. */
+const FOREIGN_SUBJECT_RE =
+  /^(홍길동|김철수|이영희|테스트|test\s*user|qa\s*fixture)$/i;
+
+/**
+ * Ownership gate — foreign/unverified party names cannot enter confirmed.
+ * opts.customerNameHints: optional list of accepted names for this customer.
+ */
+export function isPersonalOwnershipOk(policy, opts = {}) {
+  const { contractor, insured } = partyNames(policy);
+  const hints = Array.isArray(opts.customerNameHints)
+    ? opts.customerNameHints.map((n) => normalizeIdentityToken(n)).filter(Boolean)
+    : [];
+  for (const name of [contractor, insured]) {
+    if (!name) continue;
+    if (FOREIGN_SUBJECT_RE.test(name.trim())) return false;
+    if (hints.length) {
+      const norm = normalizeIdentityToken(name);
+      if (norm && !hints.some((h) => h && (h === norm || norm.includes(h) || h.includes(norm)))) {
+        return false;
+      }
+    }
   }
-  const confirmedCount = visible.filter((r) => r.status === "\uD655\uC778\uB428").length;
-  const needsCount = visible.filter((r) => r.status === "\uD655\uC778 \uD544\uC694").length;
+  return true;
+}
+
+/** Contract fact fingerprint from verified schema fields only (no LLM prose). */
+export function buildContractFactFingerprint(policy = {}) {
+  const s = summaryOf(policy);
+  const insurer = normalizeIdentityToken(policy.insurer_name ?? s.insurer ?? "");
+  const product = normalizeIdentityToken(policy.product_name ?? s.product_name ?? "");
+  const pn = normalizeIdentityToken(pickPolicyNumber(policy) ?? "");
+  const start = normalizeIdentityToken(
+    policy.effective_from ?? s.effective_from ?? s.policy_start_date ?? s.contract_date ?? "",
+  );
+  const end = normalizeIdentityToken(
+    s.maturity_date ?? s.policy_end_date ?? s.end_date ?? "",
+  );
+  const premium = resolvePolicyPremium(policy);
+  const premPart = premium != null && Number.isFinite(Number(premium)) ? String(Number(premium)) : "";
+  const { contractor, insured } = partyNames(policy);
+  const locator = normalizeIdentityToken(pickLocator(policy) ?? "");
+  const parts = [
+    insurer,
+    product,
+    pn,
+    start,
+    end,
+    premPart,
+    normalizeIdentityToken(contractor ?? ""),
+    normalizeIdentityToken(insured ?? ""),
+    locator,
+  ];
+  if (!parts.some(Boolean)) return null;
+  return parts.join("|");
+}
+
+/**
+ * source_fact_key — same original extract re-run identity (idempotent persist).
+ * Prefer SHA+locator+fingerprint; else document_id+fingerprint.
+ */
+export function buildSourceFactKey(policy = {}) {
+  const existing = String(policy.source_fact_key ?? summaryOf(policy).source_fact_key ?? "").trim();
+  if (existing) return existing;
+  const sha = pickSourceSha(policy);
+  const docId = String(
+    summaryOf(policy).source_document_id ?? policy.source_document_id ?? "",
+  ).trim();
+  const fp = buildContractFactFingerprint(policy);
+  const locator = pickLocator(policy) || "";
+  if (sha && fp) return `sha:${sha}:loc:${locator}:fp:${fp}`;
+  if (docId && fp) return `doc:${docId}:loc:${locator}:fp:${fp}`;
+  if (sha && docId) return `sha:${sha}:doc:${docId}:loc:${locator}`;
+  return null;
+}
+
+/**
+ * Strong contract identity only:
+ * 1) verified policy_number
+ * 2) stored contract_identity_key / verified contract id
+ * 3) SHA + locator + fact fingerprint
+ * Never insurer+product(+premium) alone.
+ */
+export function buildContractIdentityKey(policy = {}, opts = {}) {
+  const existing = String(
+    policy.contract_identity_key ?? summaryOf(policy).contract_identity_key ?? "",
+  ).trim();
+  if (existing) {
+    return isPersonalOwnershipOk(policy, opts) ? existing : null;
+  }
+  if (!isPersonalOwnershipOk(policy, opts)) return null;
+
+  const pn = pickPolicyNumber(policy);
+  // Keep hyphenated numbers usable: normalize only for the key; length uses de-spaced raw.
+  const pnCompact = String(pn ?? "").replace(/\s+/g, "");
+  const pnNorm = normalizeIdentityToken(pn ?? "");
+  if (pn && pnCompact.length >= 3 && pnNorm.length >= 3) {
+    return `pn:${pnNorm}`;
+  }
+
+  const verifiedId = String(
+    summaryOf(policy).verified_contract_id ?? policy.verified_contract_id ?? "",
+  ).trim();
+  if (verifiedId) return `vcid:${normalizeIdentityToken(verifiedId)}`;
+
+  const sha = pickSourceSha(policy);
+  const locator = pickLocator(policy);
+  const fp = buildContractFactFingerprint(policy);
+  if (sha && locator && fp) {
+    return `sha:${sha}:loc:${normalizeIdentityToken(locator)}:fp:${fp}`;
+  }
+  // Same SHA + fingerprint without locator still strong enough when policy_number absent
+  // only if fingerprint includes policy_number or dates — require locator OR policy_number part in fp
+  if (sha && fp && (fp.includes("|") && pn)) {
+    return `sha:${sha}:fp:${fp}`;
+  }
+  return null;
+}
+
+function toRailCard(policy, statusLabel) {
+  const insurer = String(policy.insurer_name ?? "").trim() || null;
+  const product = String(policy.product_name ?? "").trim() || null;
+  const premium = resolvePolicyPremium(policy);
   return {
-    policies: visible,
-    confirmedCount,
-    needsCount,
-    totalCount: visible.length,
+    id: String(policy.id ?? policy.contract_identity_key ?? ""),
+    insurer_name: insurer,
+    product_name: product,
+    monthly_premium: premium,
+    status: statusLabel,
+    contract_identity_key: policy.contract_identity_key ?? null,
+    source_fact_key: policy.source_fact_key ?? null,
+    source_document_id:
+      summaryOf(policy).source_document_id != null
+        ? String(summaryOf(policy).source_document_id)
+        : null,
+  };
+}
+
+/**
+ * Canonical contract projection — single SSOT for count / list / UI / Claude.
+ * confirmed = strong identity only; weak → review_candidates (never merge by insurer+product+premium).
+ */
+export function projectCanonicalContracts(policies = [], opts = {}) {
+  const rows = Array.isArray(policies) ? policies : [];
+  const active = rows.filter((p) => p && !isRetiredPolicyRow(p) && p.is_active !== false);
+  const confirmedByKey = new Map();
+  const review_candidates = [];
+  const source_links = [];
+  let ownership_exclusions = 0;
+
+  for (const policy of active) {
+    const source_fact_key = buildSourceFactKey(policy);
+    const contract_identity_key = buildContractIdentityKey(policy, opts);
+    const enriched = {
+      ...policy,
+      source_fact_key,
+      contract_identity_key,
+    };
+    const docId = summaryOf(policy).source_document_id ?? null;
+    if (docId || pickSourceSha(policy)) {
+      source_links.push({
+        policy_id: policy.id ?? null,
+        source_document_id: docId != null ? String(docId) : null,
+        source_content_sha256_present: Boolean(pickSourceSha(policy)),
+        contract_identity_key,
+        source_fact_key,
+      });
+    }
+
+    if (!isPersonalOwnershipOk(policy, opts)) {
+      ownership_exclusions += 1;
+      review_candidates.push({
+        ...enriched,
+        review_reason: "ownership_mismatch_or_foreign_subject",
+      });
+      continue;
+    }
+
+    if (!contract_identity_key) {
+      review_candidates.push({
+        ...enriched,
+        review_reason: "weak_identity",
+      });
+      continue;
+    }
+
+    const prev = confirmedByKey.get(contract_identity_key);
+    if (!prev) {
+      confirmedByKey.set(contract_identity_key, enriched);
+    } else {
+      // Prefer row with more source linkage; keep single confirmed contract.
+      const prevLinks = Number(Boolean(summaryOf(prev).source_document_id)) +
+        Number(Boolean(pickSourceSha(prev)));
+      const nextLinks = Number(Boolean(docId)) + Number(Boolean(pickSourceSha(policy)));
+      if (nextLinks > prevLinks) confirmedByKey.set(contract_identity_key, enriched);
+    }
+  }
+
+  const confirmed_contracts = [...confirmedByKey.values()];
+  return {
+    confirmed_contracts,
+    review_candidates,
+    active_distinct_count: confirmed_contracts.length,
+    review_candidate_count: review_candidates.length,
+    raw_source_row_count: active.length,
+    source_links,
+    ownership_exclusions,
+  };
+}
+
+export function buildMyInsuranceStatus(policies = [], opts = {}) {
+  const projection = projectCanonicalContracts(policies, opts);
+  const confirmedCards = projection.confirmed_contracts.map((p) =>
+    toRailCard(p, "\uD655\uC778\uB428"),
+  );
+  const reviewCards = projection.review_candidates.map((p) =>
+    toRailCard(p, "\uD655\uC778 \uD544\uC694"),
+  );
+  return {
+    policies: [...confirmedCards, ...reviewCards],
+    confirmedPolicies: confirmedCards,
+    reviewCandidates: reviewCards,
+    confirmedCount: confirmedCards.length,
+    needsCount: reviewCards.length,
+    // UI / authority 건수 = 확정만
+    totalCount: confirmedCards.length,
+    active_distinct_count: projection.active_distinct_count,
+    review_candidate_count: projection.review_candidate_count,
+    raw_source_row_count: projection.raw_source_row_count,
+    canonical: projection,
   };
 }
 

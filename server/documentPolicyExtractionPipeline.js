@@ -175,6 +175,19 @@ export async function persistExtractedPolicies(admin, customerId, documentId, mu
       continue;
     }
 
+    // No identity keys at all → skip insert (prevents append storms).
+    // source_fact_key enables same-doc extract idempotency; strong contract_identity_key
+    // is required for confirmed count promotion (projection layer).
+    if (!row.contract_identity_key && !row.source_fact_key) {
+      actions.push({
+        policy_id: null,
+        action: "skipped_weak_merge",
+        upload_extract_key: uploadExtractKey,
+        block_index: candidate.block_index ?? null,
+      });
+      continue;
+    }
+
     const { data, error } = await admin
       .from("profile_insurance_policies")
       .insert(row)

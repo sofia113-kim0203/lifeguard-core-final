@@ -235,6 +235,23 @@ function ok(name) {
   ok("10_history_full_default_off");
 }
 
+// 10b. nested current_context.policy_truth preferred over top-level null
+{
+  const capture = buildUserPayloadCapture({
+    question: "가입 건수?",
+    userPayload: {
+      current_context: {
+        policy_truth: {
+          VERIFIED_POLICY_LEDGER: { active_distinct_count: 3, contracts: [{}, {}, {}] },
+        },
+      },
+      policy_truth: null,
+    },
+  });
+  assert.equal(capture.policy_truth?.VERIFIED_POLICY_LEDGER?.active_distinct_count, 3);
+  ok("10b_nested_policy_truth_capture");
+}
+
 // 11. purge dry-run / trace-id / expired
 {
   const store = [

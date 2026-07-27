@@ -45,7 +45,10 @@ export function isInsuranceDocumentRecallQuestion(question = "") {
   // Already an explicit box/filename pointer — existing mention path owns that turn.
   if (isExplicitDocumentBoxMentionQuestion(q)) return false;
   return (
-    /내\s*보험\s*(을\s*)?(분석|점검|확인|봐|보여)/.test(q) ||
+    // Allow fillers between 보험 and 분석: 전체/전부/조사 등 ("내 보험 전체를 분석…")
+    /내\s*보험\s*(?:전체|전부|조사|현황)?\s*(을\s*|를\s*)?(분석|점검|확인|봐|보여)/.test(q) ||
+    /가입한\s*보험\s*(?:전체|전부)?\s*(을\s*|를\s*)?(분석|점검|확인)/.test(q) ||
+    /가입한\s*보험\s*(이\s*)?(뭐야|무엇|뭔지)/.test(q) ||
     /내가\s*가입한\s*보험/.test(q) ||
     /내\s*보장\s*(을\s*)?(분석|점검|확인)/.test(q) ||
     /내\s*보험에서/.test(q) ||

@@ -1512,6 +1512,7 @@ const chartPolicies = {
         monthly_premium: 45000,
         end_date: "9999세",
         coverage_summary: {
+          policy_number: "PN-SLICE6-001",
           payment_period: "20년납",
           insurance_period: "9999세",
           source_document_id: "doc-src",
@@ -1553,6 +1554,7 @@ const chartPolicies = {
         insurer_name: "A",
         product_name: "B",
         coverage_summary: {
+          policy_number: "PN-SLICE6-AMT",
           rider_details: [{ coverage_amount: 10000000, coverage_amount_raw: "1000만원" }],
         },
       },
@@ -1596,8 +1598,18 @@ const chartPolicies = {
     chart: buildVerifiedCustomerChart({
       policy_count: 2,
       policies: [
-        { insurer_name: "한화생명", product_name: "건강보험", monthly_premium: 10000 },
-        { insurer_name: "삼성생명", product_name: "실손", monthly_premium: 45000 },
+        {
+          insurer_name: "한화생명",
+          product_name: "건강보험",
+          monthly_premium: 10000,
+          coverage_summary: { policy_number: "PN-CORP-H1" },
+        },
+        {
+          insurer_name: "삼성생명",
+          product_name: "실손",
+          monthly_premium: 45000,
+          coverage_summary: { policy_number: "PN-CORP-S1" },
+        },
       ],
     }),
     contextPack: { recent_conversation_originals: [] },
@@ -1676,8 +1688,9 @@ const chartPolicies = {
         product_name: "실손",
         monthly_premium: 45000,
         coverage_summary: {
-          policyholder: "홍길동",
-          insured: "김영희",
+          policy_number: "PN-PARTY-A",
+          policyholder: "가상갑",
+          insured: "가상을",
           source_document_id: "doc-a",
           extractor_version: "step4-ocr-policy-v3-multi",
           extracted_at: "2026-01-10T00:00:00.000Z",
@@ -1688,8 +1701,9 @@ const chartPolicies = {
         id: "pol-b",
         insurer_name: "한화생명",
         product_name: "건강",
-        insured_name: "이순신",
+        insured_name: "가상병",
         coverage_summary: {
+          policy_number: "PN-PARTY-B",
           source_document_id: "doc-b",
           detected_coverages: ["실손"],
         },
@@ -1698,22 +1712,22 @@ const chartPolicies = {
   });
   const a = chart.contracts[0];
   const b = chart.contracts[1];
-  assert.equal(a.policyholder, "홍길동");
-  assert.equal(a.insured, "김영희");
+  assert.equal(a.policyholder, "가상갑");
+  assert.equal(a.insured, "가상을");
   assert.equal(a.parties.policyholder.evidence_state, "verified");
   assert.equal(a.parties.insured.evidence_state, "verified");
   assert.equal(a.provenance.document_id, "doc-a");
   assert.equal(a.parties.policyholder.provenance.document_id, "doc-a");
   // Contract B: insured_name alias → insured; no policyholder → unknown
-  assert.equal(b.insured, "이순신");
-  assert.equal(b.verified_fields.insured_name, "이순신");
+  assert.equal(b.insured, "가상병");
+  assert.equal(b.verified_fields.insured_name, "가상병");
   assert.equal(b.policyholder, null);
   assert.equal(b.parties.policyholder.evidence_state, "unknown");
   assert.equal(b.unknown_fields.includes("policyholder"), true);
   // No cross-contract mix
-  assert.equal(a.insured.includes("이순신"), false);
-  assert.equal(JSON.stringify(b).includes("홍길동"), false);
-  assert.equal(JSON.stringify(b).includes("김영희"), false);
+  assert.equal(a.insured.includes("가상병"), false);
+  assert.equal(JSON.stringify(b).includes("가상갑"), false);
+  assert.equal(JSON.stringify(b).includes("가상을"), false);
 }
 
 {
@@ -1724,7 +1738,11 @@ const chartPolicies = {
       {
         insurer_name: "A",
         product_name: "B",
-        coverage_summary: { insured: "박씨", policyholder: "박씨" },
+        coverage_summary: {
+          policy_number: "PN-PARTY-C",
+          insured: "박씨",
+          policyholder: "박씨",
+        },
       },
     ],
   });
@@ -1742,6 +1760,7 @@ const chartPolicies = {
         insurer_name: "삼성생명",
         product_name: "종신",
         coverage_summary: {
+          policy_number: "PN-BEN-A",
           policyholder: "갑",
           insured: "갑",
           beneficiaries: [
@@ -1787,6 +1806,7 @@ const chartPolicies = {
         insurer_name: "한화생명",
         product_name: "건강",
         coverage_summary: {
+          policy_number: "PN-BEN-B",
           policyholder: "신",
           insured: "신",
           source_document_id: "doc-b",
@@ -1822,6 +1842,7 @@ const chartPolicies = {
         insurer_name: "A",
         product_name: "B",
         coverage_summary: {
+          policy_number: "PN-FUNDER-1",
           policyholder: "갑",
           insured: "갑",
           actual_premium_funder: { name: "갑" },
@@ -1924,6 +1945,7 @@ const chartPolicies = {
         insurer_name: "OCR보험",
         product_name: "OCR상품",
         coverage_summary: {
+          policy_number: "PN-KEY-OCR-1",
           source_document_id: "doc-key-1",
           policyholder: "OCR계약자",
           key_confirmed_source_facts: [

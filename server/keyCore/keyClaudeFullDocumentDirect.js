@@ -661,13 +661,19 @@ export async function resolveOwnedInsuranceVaultRecall({
     const did = String(doc?.id ?? "").trim();
     if (!did) continue;
 
-    // Hitting unique cap with more rows left → must ask customer (no silent drop).
+    // Cap: keep best-effort maxUnique attaches; never wipe to [].
     if (unique.length >= maxUnique) {
+      const excluded = listed.documents.slice(i).map((d) => ({
+        document_id: String(d?.id ?? "").trim() || null,
+        original_filename: d?.original_filename ?? null,
+        reason: "beyond_attach_cap",
+      }));
       return {
-        mode: "choose",
-        reason: "unique_attach_cap_exceeded",
-        attachments: [],
+        mode: "partial_attach",
+        reason: "unique_attach_cap_partial",
+        attachments: unique,
         listing: listed.listing,
+        excluded,
         failed,
       };
     }
@@ -694,11 +700,17 @@ export async function resolveOwnedInsuranceVaultRecall({
 
     const size = Number(fetched.fileSizeBytes) || 0;
     if (unique.length > 0 && totalBytes + size > budget) {
+      const excluded = listed.documents.slice(i).map((d) => ({
+        document_id: String(d?.id ?? "").trim() || null,
+        original_filename: d?.original_filename ?? null,
+        reason: "beyond_byte_budget",
+      }));
       return {
-        mode: "choose",
-        reason: "attach_byte_budget_exceeded",
-        attachments: [],
+        mode: "partial_attach",
+        reason: "attach_byte_budget_partial",
+        attachments: unique,
         listing: listed.listing,
+        excluded,
         failed,
       };
     }

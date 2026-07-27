@@ -13,6 +13,10 @@ import {
   policyInventoryDedupeKey,
   policyInventoryStrongFingerprint,
 } from "./keyCore/keyRecordSidecar.js";
+import {
+  buildContractIdentityKey,
+  buildSourceFactKey,
+} from "../src/lib/keyInsuranceScreenFacts.js";
 
 export {
   normalizeKeyCoverageBaselineFacts,
@@ -52,6 +56,18 @@ export function buildCoverageSummaryFromCandidate(documentId, candidate, existin
     product_name: fields.product_name ?? null,
     plan_name: fields.plan_name ?? fields.product_name ?? null,
   };
+  const sourceSha = String(
+    fields.source_content_sha256 ??
+      candidate.source_content_sha256 ??
+      existingSummary?.source_content_sha256 ??
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  const locator =
+    fields.source_page_or_image ??
+    fields.source_locator ??
+    (candidate.block_index != null ? `block:${candidate.block_index}` : null);
 
   return mergeCoverageSummary(
     existingSummary,
@@ -63,6 +79,8 @@ export function buildCoverageSummaryFromCandidate(documentId, candidate, existin
       extraction_tier: candidate.tier ?? "full",
       candidate_tier: candidate.candidate_tier ?? null,
       block_index: candidate.block_index ?? null,
+      ...(sourceSha ? { source_content_sha256: sourceSha } : {}),
+      ...(locator != null ? { source_page_or_image: String(locator) } : {}),
       policyholder: fields.policyholder,
       insured: fields.insured,
       beneficiaries: Array.isArray(fields.beneficiaries) ? fields.beneficiaries : [],
@@ -99,6 +117,18 @@ export function buildCoverageSummaryFromCandidate(documentId, candidate, existin
 export function buildPolicyRowFromCandidate(customerId, documentId, candidate, existingCoverageSummary = null) {
   const fields = candidate.fields ?? {};
   const coverageSummary = buildCoverageSummaryFromCandidate(documentId, candidate, existingCoverageSummary);
+  const shape = {
+    insurer_name: fields.insurer_name,
+    product_name: fields.product_name,
+    monthly_premium: fields.monthly_premium,
+    effective_from: fields.effective_from ?? null,
+    coverage_summary: coverageSummary,
+    source_content_sha256: coverageSummary.source_content_sha256 ?? null,
+  };
+  const source_fact_key = buildSourceFactKey(shape);
+  const contract_identity_key = buildContractIdentityKey(shape);
+  if (source_fact_key) coverageSummary.source_fact_key = source_fact_key;
+  if (contract_identity_key) coverageSummary.contract_identity_key = contract_identity_key;
 
   return {
     customer_id: customerId,
@@ -108,6 +138,9 @@ export function buildPolicyRowFromCandidate(customerId, documentId, candidate, e
     monthly_premium: fields.monthly_premium,
     effective_from: fields.effective_from ?? null,
     coverage_summary: coverageSummary,
+    source_content_sha256: coverageSummary.source_content_sha256 ?? null,
+    source_fact_key,
+    contract_identity_key,
     source: "upload_extract",
     is_active: true,
     updated_at: new Date().toISOString(),
@@ -118,16 +151,67 @@ export function resolveExistingPolicyForCandidate(existingRows, documentId, cand
   const fields = candidate.fields ?? {};
   const uploadExtractKey = buildUploadExtractKey(documentId, fields);
   const activeRows = (existingRows ?? []).filter((row) => row.is_active !== false);
+  const draft = buildPolicyRowFromCandidate("resolve", documentId, candidate, null);
+  const sourceFactKey = draft.source_fact_key;
+  const contractIdentityKey = draft.contract_identity_key;
+
+  if (sourceFactKey) {
+    const bySf = activeRows.find(
+      (row) =>
+        String(row?.source_fact_key ?? row?.coverage_summary?.source_fact_key ?? "").trim() ===
+        sourceFactKey,
+    );
+    if (bySf) {
+      return {
+        row: bySf,
+        upload_extract_key: uploadExtractKey,
+        source_fact_key: sourceFactKey,
+        contract_identity_key: contractIdentityKey,
+      };
+    }
+  }
+  if (contractIdentityKey) {
+    const byCi = activeRows.find(
+      (row) =>
+        String(row?.contract_identity_key ?? row?.coverage_summary?.contract_identity_key ?? "").trim() ===
+        contractIdentityKey,
+    );
+    if (byCi) {
+      return {
+        row: byCi,
+        upload_extract_key: uploadExtractKey,
+        source_fact_key: sourceFactKey,
+        contract_identity_key: contractIdentityKey,
+      };
+    }
+  }
 
   const byKey = activeRows.find((row) => row.coverage_summary?.upload_extract_key === uploadExtractKey);
-  if (byKey) return { row: byKey, upload_extract_key: uploadExtractKey };
+  if (byKey) {
+    return {
+      row: byKey,
+      upload_extract_key: uploadExtractKey,
+      source_fact_key: sourceFactKey,
+      contract_identity_key: contractIdentityKey,
+    };
+  }
 
   const legacyRows = activeRows.filter((row) => row.coverage_summary?.source_document_id === documentId);
   if (legacyRows.length === 1 && candidateCount === 1 && !legacyRows[0].coverage_summary?.upload_extract_key) {
-    return { row: legacyRows[0], upload_extract_key: uploadExtractKey };
+    return {
+      row: legacyRows[0],
+      upload_extract_key: uploadExtractKey,
+      source_fact_key: sourceFactKey,
+      contract_identity_key: contractIdentityKey,
+    };
   }
 
-  return { row: null, upload_extract_key: uploadExtractKey };
+  return {
+    row: null,
+    upload_extract_key: uploadExtractKey,
+    source_fact_key: sourceFactKey,
+    contract_identity_key: contractIdentityKey,
+  };
 }
 
 export function planRetiredPolicyIds(existingRows, documentId, activeKeys) {
@@ -1565,13 +1649,37 @@ export async function persistPolicyInventoryFactsToPolicies({
       ? new Set([...ownedDocumentIds].map((id) => String(id).trim()).filter(Boolean))
       : null;
 
-  const { data: rows, error: selectError } = await supabase
-    .from("profile_insurance_policies")
-    .select(
-      "id, coverage_summary, is_active, insurer_name, product_name, monthly_premium, source, effective_from",
-    )
-    .eq("customer_id", customerId)
-    .eq("is_active", true);
+  // Prefer new lineage columns when migration applied; fall back if absent.
+  let rows = null;
+  let selectError = null;
+  {
+    const wide = await supabase
+      .from("profile_insurance_policies")
+      .select(
+        "id, coverage_summary, is_active, insurer_name, product_name, monthly_premium, source, effective_from, source_content_sha256, source_fact_key, contract_identity_key",
+      )
+      .eq("customer_id", customerId)
+      .eq("is_active", true);
+    if (
+      wide.error &&
+      /source_fact_key|contract_identity_key|source_content_sha256|column/i.test(
+        String(wide.error.message ?? ""),
+      )
+    ) {
+      const narrow = await supabase
+        .from("profile_insurance_policies")
+        .select(
+          "id, coverage_summary, is_active, insurer_name, product_name, monthly_premium, source, effective_from",
+        )
+        .eq("customer_id", customerId)
+        .eq("is_active", true);
+      rows = narrow.data;
+      selectError = narrow.error;
+    } else {
+      rows = wide.data;
+      selectError = wide.error;
+    }
+  }
 
   if (selectError) {
     return {
@@ -1580,6 +1688,7 @@ export async function persistPolicyInventoryFactsToPolicies({
       stored: 0,
       updated_policy_ids: [],
       created_policy_ids: [],
+      skipped_weak_merge: 0,
       error: selectError.message,
     };
   }
@@ -1601,15 +1710,28 @@ export async function persistPolicyInventoryFactsToPolicies({
     if (seenFactKeys.has(factKey)) continue;
     seenFactKeys.add(factKey);
 
-    const match = findExistingPolicyRowForInventoryFact(activeRows, fact);
-    if (match?.mode === "needs_confirmation_insert") {
-      // No strong identity against existing — insert new document_read row.
-    } else if (match?.mode === "skip_weak") {
+    const shape = inventoryFactToPolicyShape(fact);
+    const source_fact_key = buildSourceFactKey(shape);
+    const contract_identity_key = buildContractIdentityKey(shape);
+
+    const match = findExistingPolicyRowForInventoryFact(activeRows, fact, {
+      source_fact_key,
+      contract_identity_key,
+    });
+    if (match?.mode === "skip_weak") {
+      skipped_weak_merge += 1;
+      continue;
+    }
+
+    // No existing row and no strong identity → never insert confirmed policy row.
+    if (!match?.row && !contract_identity_key) {
       skipped_weak_merge += 1;
       continue;
     }
 
     const coverage_summary = buildCoverageSummaryFromInventoryFact(fact, match?.row ?? null);
+    if (source_fact_key) coverage_summary.source_fact_key = source_fact_key;
+    if (contract_identity_key) coverage_summary.contract_identity_key = contract_identity_key;
     const fields = {
       insurer_name: fact.insurer ?? match?.row?.insurer_name ?? null,
       product_name: fact.product_name ?? match?.row?.product_name ?? null,
@@ -1619,6 +1741,13 @@ export async function persistPolicyInventoryFactsToPolicies({
           : match?.row?.monthly_premium ?? null,
       effective_from: fact.contract_date ?? match?.row?.effective_from ?? null,
       coverage_summary,
+      source_content_sha256:
+        fact.source_content_sha256 ??
+        match?.row?.source_content_sha256 ??
+        coverage_summary.source_content_sha256 ??
+        null,
+      source_fact_key,
+      contract_identity_key,
       // Keep signup source when enriching an existing signup/customer_reported row.
       source:
         match?.row?.source === "signup" || match?.row?.source === "import"
@@ -1628,7 +1757,18 @@ export async function persistPolicyInventoryFactsToPolicies({
       updated_at: new Date().toISOString(),
     };
 
-    if (match?.row?.id && match.mode === "update") {
+    if (match?.row?.id && (match.mode === "update" || match.mode === "update_by_key")) {
+      // Preserve prior source links when merging same strong identity across docs.
+      const priorLinks = Array.isArray(match.row.coverage_summary?.source_document_links)
+        ? match.row.coverage_summary.source_document_links
+        : [];
+      const docId = String(fact.source_document_id ?? "").trim();
+      if (docId && !priorLinks.includes(docId)) {
+        fields.coverage_summary = {
+          ...coverage_summary,
+          source_document_links: [...priorLinks, docId].slice(0, 24),
+        };
+      }
       const { error: updateError } = await supabase
         .from("profile_insurance_policies")
         .update(fields)
@@ -1640,11 +1780,12 @@ export async function persistPolicyInventoryFactsToPolicies({
       }
       updated_policy_ids.push(match.row.id);
       stored += 1;
-      // Refresh in-memory row for subsequent fingerprint matches in this batch.
-      match.row.insurer_name = fields.insurer_name;
-      match.row.product_name = fields.product_name;
-      match.row.monthly_premium = fields.monthly_premium;
-      match.row.coverage_summary = coverage_summary;
+      Object.assign(match.row, fields, { id: match.row.id });
+      continue;
+    }
+
+    if (!contract_identity_key) {
+      skipped_weak_merge += 1;
       continue;
     }
 
@@ -1683,7 +1824,47 @@ export async function persistPolicyInventoryFactsToPolicies({
   };
 }
 
-function findExistingPolicyRowForInventoryFact(rows = [], fact = {}) {
+function inventoryFactToPolicyShape(fact = {}) {
+  return {
+    insurer_name: fact.insurer ?? null,
+    product_name: fact.product_name ?? null,
+    monthly_premium: fact.monthly_premium ?? null,
+    effective_from: fact.contract_date ?? null,
+    policy_number: fact.policy_number ?? null,
+    source_content_sha256: fact.source_content_sha256 ?? null,
+    coverage_summary: {
+      policy_number: fact.policy_number ?? null,
+      source_document_id: fact.source_document_id ?? null,
+      source_content_sha256: fact.source_content_sha256 ?? null,
+      source_page_or_image: fact.source_page_or_image ?? null,
+      maturity_date: fact.maturity_date ?? null,
+      effective_from: fact.contract_date ?? null,
+    },
+  };
+}
+
+function findExistingPolicyRowForInventoryFact(rows = [], fact = {}, keys = {}) {
+  const sourceFactKey = String(keys.source_fact_key ?? "").trim();
+  const contractIdentityKey = String(keys.contract_identity_key ?? "").trim();
+
+  if (sourceFactKey) {
+    const bySf = rows.find(
+      (row) =>
+        String(row?.source_fact_key ?? row?.coverage_summary?.source_fact_key ?? "").trim() ===
+        sourceFactKey,
+    );
+    if (bySf) return { mode: "update_by_key", row: bySf };
+  }
+  if (contractIdentityKey) {
+    const byCi = rows.find(
+      (row) =>
+        String(
+          row?.contract_identity_key ?? row?.coverage_summary?.contract_identity_key ?? "",
+        ).trim() === contractIdentityKey,
+    );
+    if (byCi) return { mode: "update_by_key", row: byCi };
+  }
+
   const pn = String(fact.policy_number ?? "").trim().toLowerCase();
   if (pn) {
     const byPn = rows.find((row) => {
@@ -1734,15 +1915,20 @@ function findExistingPolicyRowForInventoryFact(rows = [], fact = {}) {
     if (hit) return { mode: "update", row: hit };
   }
 
-  // Content-sha re-upload of identical originals: match prior document_read by fingerprint-lite.
+  // Content-sha re-upload of identical originals: match prior document_read by strong locator/fp only.
   const sha = String(fact.source_content_sha256 ?? "").trim().toLowerCase();
-  if (sha && insurer && product) {
+  const locator = String(fact.source_page_or_image ?? "").trim();
+  if (sha && locator && insurer && product) {
     const bySha = rows.find((row) => {
-      const rowSha = String(row?.coverage_summary?.source_content_sha256 ?? "")
+      const rowSha = String(
+        row?.source_content_sha256 ?? row?.coverage_summary?.source_content_sha256 ?? "",
+      )
         .trim()
         .toLowerCase();
       if (rowSha !== sha) return false;
+      const rowLoc = String(row?.coverage_summary?.source_page_or_image ?? "").trim();
       return (
+        rowLoc === locator &&
         String(row.insurer_name ?? "").trim().toLowerCase() === insurer &&
         String(row.product_name ?? "").trim().toLowerCase() === product
       );
@@ -1750,11 +1936,8 @@ function findExistingPolicyRowForInventoryFact(rows = [], fact = {}) {
     if (bySha) return { mode: "update", row: bySha };
   }
 
-  // Strong identity missing vs other customers' vague names — still insert document_read.
-  if (!pn && !fp) {
-    return { mode: "needs_confirmation_insert", row: null };
-  }
-  return { mode: "needs_confirmation_insert", row: null };
+  // No existing row — caller inserts only when contract_identity_key is strong.
+  return { mode: "insert_candidate", row: null };
 }
 
 function buildCoverageSummaryFromInventoryFact(fact, existingRow = null) {

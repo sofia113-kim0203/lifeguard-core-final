@@ -40,6 +40,7 @@ const status = buildMyInsuranceStatus([
     insurer_name: "삼성생명",
     product_name: "종신",
     monthly_premium: 50000,
+    coverage_summary: { policy_number: "PN-SAMSUNG-1" },
   },
   {
     id: "p2",
@@ -55,9 +56,9 @@ const status = buildMyInsuranceStatus([
     coverage_summary: { retired_reason: "source_document_deleted" },
   },
 ]);
-assert.equal(status.totalCount, 2);
+assert.equal(status.totalCount, 1, "confirmed = strong identity only");
 assert.equal(status.confirmedCount, 1);
-assert.equal(status.needsCount, 1);
+assert.equal(status.needsCount, 1, "weak row stays review candidate");
 assert.equal(sumConfirmedMonthlyPremium(status.policies), 50000);
 assert.equal(
   status.policies.some((p) => p.id === "gone"),
@@ -79,7 +80,12 @@ const deduped = buildMyInsuranceStatus([
     monthly_premium: 42860,
   },
 ]);
-assert.equal(deduped.totalCount, 1, "left rail drops duplicate insurer+product+premium cards");
+assert.equal(
+  deduped.totalCount,
+  0,
+  "insurer+product+premium alone must not become confirmed count",
+);
+assert.equal(deduped.review_candidate_count, 2, "weak duplicates stay separate review candidates");
 
 const emptyMirror = buildKeyTurnMirror({
   answerText: "분당에서 가족 식사하기 좋은 곳 알려드릴게요.",

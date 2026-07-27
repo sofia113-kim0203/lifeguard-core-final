@@ -188,17 +188,29 @@ assert.equal(extractCustomerReportedPolicyCount("파일상으로 7건"), 7);
   assert.equal(ctx.VERIFIED_POLICY_LEDGER.active_distinct_count, 2);
 }
 
-// H — distinct count via same helper as left rail
+// H — distinct count via same helper as left rail (strong identity)
 {
   const policies = [
-    { id: "1", insurer_name: "A", product_name: "P1", is_active: true },
-    { id: "2", insurer_name: "B", product_name: "P2", is_active: true },
+    {
+      id: "1",
+      insurer_name: "A",
+      product_name: "P1",
+      is_active: true,
+      coverage_summary: { policy_number: "PN-1" },
+    },
+    {
+      id: "2",
+      insurer_name: "B",
+      product_name: "P2",
+      is_active: true,
+      coverage_summary: { policy_number: "PN-2" },
+    },
     {
       id: "3",
       insurer_name: "C",
       product_name: "P3",
       is_active: false,
-      coverage_summary: { retired_reason: "source_deleted" },
+      coverage_summary: { retired_reason: "source_deleted", policy_number: "PN-3" },
     },
   ];
   const counts = countActiveDistinctPolicies(policies);
@@ -340,7 +352,12 @@ assert.equal(extractCustomerReportedPolicyCount("파일상으로 7건"), 7);
     contextPack: {},
     policyTruthContext: buildSourceSeparatedTruthContext({
       ledgerBrief: buildVerifiedPolicyLedgerBrief([
-        { insurer_name: "A", product_name: "P", is_active: true },
+        {
+          insurer_name: "A",
+          product_name: "P",
+          is_active: true,
+          coverage_summary: { policy_number: "PN-LEDGER-1" },
+        },
       ]),
       countQuestion: true,
     }),
@@ -474,8 +491,20 @@ assert.equal(extractCustomerReportedPolicyCount("파일상으로 7건"), 7);
     ],
     loadedContext: {
       policies: [
-        { id: "p1", insurer_name: "A", product_name: "1", is_active: true },
-        { id: "p2", insurer_name: "B", product_name: "2", is_active: true },
+        {
+          id: "p1",
+          insurer_name: "A",
+          product_name: "1",
+          is_active: true,
+          coverage_summary: { policy_number: "PN-A1" },
+        },
+        {
+          id: "p2",
+          insurer_name: "B",
+          product_name: "2",
+          is_active: true,
+          coverage_summary: { policy_number: "PN-B2" },
+        },
       ],
       policy_count: 2,
     },
@@ -570,6 +599,7 @@ assert.equal(wantsOwnedInsuranceVaultEvidence("문서함에 있는 거 지금 �
     product_name: `Product${i + 1}`,
     is_active: true,
     monthly_premium: 1000 + i,
+    coverage_summary: { policy_number: `PN-JW-${i + 1}` },
   }));
   const left = buildMyInsuranceStatus(policies).totalCount;
   const ledger = buildVerifiedPolicyLedgerBrief(policies).active_distinct_count;

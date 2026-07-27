@@ -25,6 +25,7 @@ import {
   isClaudeFullRequestTooLarge,
 } from "./keyClaudeFullDocumentDirect.js";
 import { relMs } from "./keyLatencyMarks.js";
+import { projectCanonicalContracts } from "../../src/lib/keyInsuranceScreenFacts.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_TIMEOUT_MS = 35000;
@@ -1124,8 +1125,11 @@ function buildContractProvenance(p = null, summary = null) {
  */
 export function buildVerifiedCustomerChart(reality = null) {
   const policies = Array.isArray(reality?.policies) ? reality.policies : [];
-  const declaredCount = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
-  const contracts = policies.map((p, index) => {
+  // Canonical SSOT: chart contracts / policy_count = confirmed strong identity only.
+  const projection = projectCanonicalContracts(policies);
+  const confirmedPolicies = projection.confirmed_contracts;
+  const declaredCount = projection.active_distinct_count;
+  const contracts = confirmedPolicies.map((p, index) => {
     const summary =
       p?.coverage_summary && typeof p.coverage_summary === "object" ? p.coverage_summary : {};
     const verified = {};
@@ -1217,6 +1221,8 @@ export function buildVerifiedCustomerChart(reality = null) {
     const contract = {
       index,
       contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
+      contract_identity_key: p?.contract_identity_key ?? null,
+      source_fact_key: p?.source_fact_key ?? null,
       insurer,
       product_name: pickFirstPresent(verified.product_name),
       start_date,
@@ -1245,6 +1251,17 @@ export function buildVerifiedCustomerChart(reality = null) {
     return contract;
   });
 
+  const review_candidates = projection.review_candidates.slice(0, 40).map((p, index) => ({
+    index: index + 1,
+    contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
+    insurer: pickFirstPresent(p?.insurer_name, p?.company_name),
+    product_name: pickFirstPresent(p?.product_name),
+    monthly_premium: pickFirstPresent(p?.monthly_premium, p?.premium_amount),
+    review_reason: p?.review_reason ?? "weak_identity",
+    contract_identity_key: p?.contract_identity_key ?? null,
+    source_fact_key: p?.source_fact_key ?? null,
+  }));
+
   const aggregatesRaw =
     reality?.factory_aggregates ??
     reality?.aggregates ??
@@ -1271,18 +1288,24 @@ export function buildVerifiedCustomerChart(reality = null) {
     policy_count: {
       value: declaredCount,
       status: declaredCount > 0 ? "verified" : "unknown",
-      source: "factory",
+      source: "canonical_confirmed",
     },
+    // Compat: contracts === confirmed_contracts
     contracts,
+    confirmed_contracts: contracts,
+    review_candidates,
+    active_distinct_count: projection.active_distinct_count,
+    review_candidate_count: projection.review_candidate_count,
     key_confirmed_source_facts,
     factory_aggregates,
     chart_completeness: {
       listed_contracts: contracts.length,
       declared_policy_count: declaredCount,
-      all_contracts_listed: contracts.length === declaredCount && declaredCount > 0,
+      all_contracts_listed: contracts.length === declaredCount,
+      review_candidate_count: projection.review_candidate_count,
     },
     ownership:
-      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts.",
+      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; review_candidates are not confirmed counts.",
   };
 }
 

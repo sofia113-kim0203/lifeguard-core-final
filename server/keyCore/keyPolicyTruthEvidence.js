@@ -1,6 +1,6 @@
 /**
  * All-customer policy truth evidence — vault scope, ledger count authority, turn meta.
- * No customer-specific counts or filenames hardcoded.
+ * Canonical confirmed_contracts is sole confirmed count/list authority.
  */
 
 import {
@@ -8,12 +8,16 @@ import {
   isInsuranceVaultDocumentBoxRecheckQuestion,
   wantsOwnedInsuranceVaultEvidence,
 } from "../../src/lib/chatActiveAttachment.js";
-import { buildMyInsuranceStatus } from "../../src/lib/keyInsuranceScreenFacts.js";
+import {
+  buildMyInsuranceStatus,
+  projectCanonicalContracts,
+} from "../../src/lib/keyInsuranceScreenFacts.js";
 
 export {
   isPolicyCountOrLedgerQuestion,
   isInsuranceVaultDocumentBoxRecheckQuestion,
   wantsOwnedInsuranceVaultEvidence,
+  projectCanonicalContracts,
 };
 
 /**
@@ -23,7 +27,6 @@ export {
 export function extractCustomerReportedPolicyCount(question = "") {
   const q = String(question ?? "").replace(/\s+/g, " ").trim();
   if (!q) return null;
-  // "나는 12건이야", "파일상으로 12건", "12건이잖아"
   const m =
     q.match(
       /(?:나는|난|저(?:는)?|파일\s*상(?:으로)?|실제(?:로는)?)\s*(\d{1,3})\s*건/,
@@ -35,55 +38,89 @@ export function extractCustomerReportedPolicyCount(question = "") {
   return n;
 }
 
-/** Active distinct ledger count from policy rows (same helper as left rail). */
-export function countActiveDistinctPolicies(policies = []) {
-  const status = buildMyInsuranceStatus(policies);
+/** Active distinct = confirmed_contracts.length (strong identity only). */
+export function countActiveDistinctPolicies(policies = [], opts = {}) {
+  const projection = projectCanonicalContracts(policies, opts);
   return {
-    active_distinct_count: Number(status?.totalCount ?? 0) || 0,
-    confirmed_count: Number(status?.confirmedCount ?? 0) || 0,
-    needs_count: Number(status?.needsCount ?? 0) || 0,
+    active_distinct_count: projection.active_distinct_count,
+    confirmed_count: projection.active_distinct_count,
+    needs_count: projection.review_candidate_count,
+    review_candidate_count: projection.review_candidate_count,
+    raw_source_row_count: projection.raw_source_row_count,
+  };
+}
+
+function mapContractRow(p, index) {
+  const summary =
+    p?.coverage_summary && typeof p.coverage_summary === "object"
+      ? p.coverage_summary
+      : {};
+  return {
+    index: index + 1,
+    insurer: String(p.insurer_name ?? "").trim() || null,
+    product_name: String(p.product_name ?? "").trim() || null,
+    monthly_premium:
+      p.monthly_premium != null && Number.isFinite(Number(p.monthly_premium))
+        ? Number(p.monthly_premium)
+        : null,
+    source_document_id:
+      summary.source_document_id != null
+        ? String(summary.source_document_id)
+        : p.source_document_id != null
+          ? String(p.source_document_id)
+          : null,
+    source_content_sha256:
+      summary.source_content_sha256 != null
+        ? String(summary.source_content_sha256)
+        : p.source_content_sha256 != null
+          ? String(p.source_content_sha256)
+          : null,
+    contract_identity_key: p.contract_identity_key ?? null,
+    source_fact_key: p.source_fact_key ?? null,
+    verification_status:
+      summary.verification_status ??
+      summary.key_verification_status ??
+      (p.source === "signup" ? "customer_reported" : null),
+    policy_number:
+      summary.policy_number != null
+        ? String(summary.policy_number)
+        : p.policy_number != null
+          ? String(p.policy_number)
+          : null,
   };
 }
 
 /**
- * Compact ledger brief for Claude — source-separated, no invented totals.
+ * Compact ledger brief for Claude — confirmed list only (not raw rows).
  */
 export function buildVerifiedPolicyLedgerBrief(policies = [], opts = {}) {
-  const rows = Array.isArray(policies) ? policies : [];
-  const counts = countActiveDistinctPolicies(rows);
-  const list = (opts.includeList === false
-    ? []
-    : rows
-        .filter((p) => p && p.is_active !== false && !p.deleted_at)
+  const projection = projectCanonicalContracts(policies, opts);
+  const includeList = opts.includeList !== false;
+  const confirmedList = includeList
+    ? projection.confirmed_contracts.map((p, index) => mapContractRow(p, index))
+    : [];
+  const reviewList = includeList
+    ? projection.review_candidates
         .slice(0, 40)
         .map((p, index) => ({
-          index: index + 1,
-          insurer: String(p.insurer_name ?? "").trim() || null,
-          product_name: String(p.product_name ?? "").trim() || null,
-          monthly_premium:
-            p.monthly_premium != null && Number.isFinite(Number(p.monthly_premium))
-              ? Number(p.monthly_premium)
-              : null,
-          source_document_id:
-            p.coverage_summary?.source_document_id != null
-              ? String(p.coverage_summary.source_document_id)
-              : null,
-          verification_status:
-            p.coverage_summary?.verification_status ??
-            p.coverage_summary?.key_verification_status ??
-            (p.source === "signup" ? "customer_reported" : null),
-          policy_number:
-            p.coverage_summary?.policy_number != null
-              ? String(p.coverage_summary.policy_number)
-              : null,
+          ...mapContractRow(p, index),
+          review_reason: p.review_reason ?? "weak_identity",
         }))
-  );
+    : [];
+
   return {
     authority: "verified_policy_ledger",
     note:
-      "Active distinct contract rows on KEY SSOT. This count — not prior chat numbers — is the confirmed count source.",
-    ...counts,
-    contracts: list,
+      "Confirmed contracts use strong identity only. raw_source_row_count is diagnostic — never customer contract count.",
+    active_distinct_count: projection.active_distinct_count,
+    confirmed_count: projection.active_distinct_count,
+    review_candidate_count: projection.review_candidate_count,
+    raw_source_row_count: projection.raw_source_row_count,
+    confirmed_contracts: confirmedList,
+    // Compat: contracts === confirmed_contracts
+    contracts: confirmedList,
+    review_candidates: reviewList,
+    needs_count: projection.review_candidate_count,
   };
 }
 
@@ -119,6 +156,9 @@ export function buildTurnEvidencePackageMeta({
   if (vaultRecall?.mode === "choose") {
     excluded_reasons.push(String(vaultRecall.reason ?? "choose_required"));
   }
+  if (vaultRecall?.mode === "partial_attach") {
+    excluded_reasons.push(String(vaultRecall.reason ?? "partial_attach"));
+  }
   if (vaultRecall?.mode === "empty") excluded_reasons.push("vault_empty");
   if (vaultRecall?.mode === "unavailable") {
     excluded_reasons.push(String(vaultRecall.reason ?? "unavailable"));
@@ -126,6 +166,7 @@ export function buildTurnEvidencePackageMeta({
   for (const row of failed) {
     if (row?.reason) excluded_reasons.push(String(row.reason).slice(0, 64));
   }
+  const excluded = Array.isArray(vaultRecall?.excluded) ? vaultRecall.excluded : [];
   return {
     evidence_scope: evidence_scope || "none",
     candidate_document_count:
@@ -136,6 +177,7 @@ export function buildTurnEvidencePackageMeta({
     attached_document_ids,
     attached_sha256,
     failed_document_ids,
+    excluded_document_count: excluded.length,
     excluded_reasons: [...new Set(excluded_reasons)].slice(0, 16),
     image_or_document_block_count: attached_document_ids.length,
     vault_mode: vaultRecall?.mode ?? null,
@@ -143,13 +185,14 @@ export function buildTurnEvidencePackageMeta({
     partial_originals:
       attached_document_ids.length > 0 &&
       (failed_document_ids.length > 0 ||
+        vaultRecall?.mode === "partial_attach" ||
         vaultRecall?.mode === "choose" ||
         (listing.length > 0 && attached_document_ids.length < listing.length)),
   };
 }
 
 /**
- * System addendum for count/list questions — ledger authority, history blocked.
+ * System addendum for count/list questions — confirmed_n authority; raw rows never count.
  */
 export function buildPolicyCountAuthorityAddendum({
   ledgerBrief = null,
@@ -160,21 +203,45 @@ export function buildPolicyCountAuthorityAddendum({
     ledgerBrief && Number.isFinite(Number(ledgerBrief.active_distinct_count))
       ? Number(ledgerBrief.active_distinct_count)
       : null;
+  const reviewN =
+    ledgerBrief && Number.isFinite(Number(ledgerBrief.review_candidate_count))
+      ? Number(ledgerBrief.review_candidate_count)
+      : null;
+  const rawN =
+    ledgerBrief && Number.isFinite(Number(ledgerBrief.raw_source_row_count))
+      ? Number(ledgerBrief.raw_source_row_count)
+      : null;
   const attached = Number(evidenceMeta?.attached_document_count ?? 0) || 0;
   const partial = evidenceMeta?.partial_originals === true;
   const lines = [
-    "계약 건수·가입 건수·보험 목록 질문에서는 VERIFIED_POLICY_LEDGER.active_distinct_count만 확정 숫자 근거다.",
-    "이전 KEY/Claude 답변에 나온 건수(예: 과거 대화의 N건)는 대화 맥락일 뿐 현재 확정 근거로 쓰지 않는다.",
+    "계약 건수·가입 건수·보험 목록 질문에서는 VERIFIED_POLICY_LEDGER.active_distinct_count(= confirmed_contracts.length)만 확정 숫자 근거다.",
+    "원행(raw_source_row_count)·보험사+상품+보험료 그룹 수는 확정 계약 수가 아니다. 고객에게 원행 수를 건수로 말하지 않는다.",
+    "이전 KEY/Claude 답변에 나온 건수는 대화 맥락일 뿐 현재 확정 근거로 쓰지 않는다.",
     "고객이 말한 건수는 CUSTOMER_REPORTED_FACTS로만 존중하고, 원본·장부 검증 없이 SSOT나 확정 건수를 덮어쓰지 않는다.",
   ];
   if (n != null) {
     lines.push(
-      `현재 KEY 계약 장부의 활성 distinct 계약 수: ${n}건. 확정 답변의 숫자는 이 값을 쓴다.`,
+      `현재 KEY 확정 계약 수(confirmed_n / active_distinct_count): ${n}건. 확정 답변의 숫자는 이 값을 쓴다.`,
+    );
+  }
+  if (reviewN != null && reviewN > 0) {
+    lines.push(
+      `확인이 필요한 후보(review_candidate_count): ${reviewN}건. 확정 건수와 분리해 말한다.`,
+    );
+  }
+  if (rawN != null && n != null && rawN !== n) {
+    lines.push(
+      `내부 진단용 raw_source_row_count=${rawN} — 고객 답변·확정 건수에 쓰지 않는다.`,
+    );
+  }
+  if (n === 0 && (reviewN > 0 || (rawN != null && rawN > 0))) {
+    lines.push(
+      "확정 identity가 부족하면 그룹 수나 원행 수를 확정 계약 수로 말하지 말고, 확인 필요·원본 확인을 안내한다.",
     );
   }
   if (partial || (attached > 0 && evidenceMeta?.failed_document_ids?.length)) {
     lines.push(
-      "관련 원본 일부가 연결되지 않았거나 다운로드 실패했다. 전체 건수로 단정하지 말고, 현재 연결된 원본·장부 범위와 확인 불가를 구분해 말한다.",
+      "관련 원본 일부가 연결되지 않았거나 일부만 첨부됐다. 전체 건수로 단정하지 말고 범위를 구분해 말한다.",
     );
   }
   if (customerReportedCount != null) {
@@ -208,6 +275,9 @@ export function buildSourceSeparatedTruthContext({
     COUNT_QUESTION: countQuestion === true,
     HISTORY_COUNTS_NOT_AUTHORITY: true,
     SOURCE_SEPARATION_RULE:
-      "Do not mix CURRENT_ORIGINALS, VERIFIED_POLICY_LEDGER, CUSTOMER_REPORTED_FACTS, prior KEY answers, inference, and unknown.",
+      "Do not mix CURRENT_ORIGINALS, VERIFIED_POLICY_LEDGER, CUSTOMER_REPORTED_FACTS, prior KEY answers, inference, and unknown. confirmed_contracts only for confirmed counts; review_candidates are not confirmed.",
   };
 }
+
+// Re-export screen status for consumers that import from this module historically.
+export { buildMyInsuranceStatus };

@@ -285,7 +285,10 @@ export function buildUserPayloadCapture({
   }
   const out = {
     current_question: scrubSecretsInText(String(question ?? "")).slice(0, 2000),
-    policy_truth: scrubDeepForQaTrace(payload.policy_truth ?? null),
+    // Runtime nests under current_context; keep top-level fallback for tests/legacy.
+    policy_truth: scrubDeepForQaTrace(
+      payload?.current_context?.policy_truth ?? payload?.policy_truth ?? null,
+    ),
     available_verified_evidence_personal_chart: summarizeChart(
       payload?.available_verified_evidence?.personal?.chart ??
         payload?.chart ??
@@ -454,8 +457,25 @@ export function summarizeLedgerBrief(ledgerBrief, env = process.env) {
           ? Number(row.monthly_premium)
           : null,
       source_document_id: row?.source_document_id ?? null,
+      source_content_sha256: row?.source_content_sha256
+        ? String(row.source_content_sha256).slice(0, 64)
+        : null,
+      contract_identity_key: row?.contract_identity_key ?? null,
+      source_fact_key: row?.source_fact_key ?? null,
       policy_number: row?.policy_number ?? null,
     })),
+    active_distinct_count:
+      ledgerBrief.active_distinct_count != null
+        ? Number(ledgerBrief.active_distinct_count)
+        : null,
+    review_candidate_count:
+      ledgerBrief.review_candidate_count != null
+        ? Number(ledgerBrief.review_candidate_count)
+        : null,
+    raw_source_row_count:
+      ledgerBrief.raw_source_row_count != null
+        ? Number(ledgerBrief.raw_source_row_count)
+        : null,
   };
 }
 

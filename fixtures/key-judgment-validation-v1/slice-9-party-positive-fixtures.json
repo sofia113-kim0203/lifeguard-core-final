@@ -19,6 +19,7 @@
               "extractor_version": "slice-9-fixture-v1",
               "extracted_at": "2026-07-14T00:00:00.000Z",
               "source_document_id": "fixture-doc-s9-a",
+              "policy_number": "PN-SLICE9-A",
               "policyholder": "가상갑",
               "insured": "가상갑",
               "beneficiaries": [
@@ -103,6 +104,7 @@
               "extractor_version": "slice-9-fixture-v1",
               "extracted_at": "2026-07-14T00:00:00.000Z",
               "source_document_id": "fixture-doc-s9-b",
+              "policy_number": "PN-SLICE9-B",
               "policyholder": "가상정",
               "insured": "가상무",
               "beneficiaries": [
