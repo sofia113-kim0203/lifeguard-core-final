@@ -71,6 +71,8 @@ import {
   extractMentionedFilenamesFromChat,
   hasRecentAttachReadoutContext,
   readChatTurnText,
+  isInsuranceDocumentRecallQuestion,
+  isOriginalDocumentRereadQuestion,
 } from "../src/lib/chatActiveAttachment.js";
 import {
   buildSessionMetadata,
@@ -89,7 +91,13 @@ import {
   normalizeClaudeDirectAttachMediaType,
   requestHasForbiddenClientImageBytes,
   buildAttachOpsSignals,
+  resolveOwnedInsuranceVaultRecall,
+  contentSha256Hex,
+  isInsurancePolicySeriesDocument,
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
+import { decidePdfAttachMode } from "../server/keyCore/keyClaudePdfAttachPolicy.js";
+import { baselineFactIdentityKey } from "../src/lib/keyCoverageBaselineFacts.js";
+import { keyConfirmedSourceFactDedupeKey } from "../server/documentPolicyUploadPersist.js";
 import {
   isChatPdfFile,
   isChatAttachFile,
@@ -977,13 +985,16 @@ const chartPolicies = {
   assert.equal(sawHint, false);
   assert.equal(sawChartObject, false);
   assert.equal(sawFillPressure, false);
-  assert.deepEqual(toolNames, [], "customer-answer path: tools absent");
-  assert.equal(firstToolChoice, null, "customer-answer path: tool_choice absent");
+  // Path A: same-turn record_* tools when original attached (no Continue / provider stays 1).
+  assert.equal(toolNames.includes("record_confirmed_source_facts"), true, "record facts tool");
+  assert.equal(toolNames.includes("record_coverage_baseline_facts"), true, "record baseline tool");
+  assert.equal(toolNames.includes("record_session_goal"), false, "session_goal not on live path");
+  assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice auto");
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
-    0,
-    "tools_sent=0",
+    2,
+    "tools_sent=2 record_*",
   );
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
@@ -2082,7 +2093,7 @@ const chartPolicies = {
   });
 
   assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
-  assert.equal(sawFactsTool, false, "customer-answer: tools not sent");
+  assert.equal(sawFactsTool, true, "Path A: record_* sent when original attached");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, customerAnswer);
   assert.equal(
@@ -2094,17 +2105,13 @@ const chartPolicies = {
       ?.phase_b_call_count,
     0,
   );
-  // Mid-turn fact tool extraction skipped — no persist from this path.
-  assert.equal(policyUpdates.length, 0);
-  assert.equal(
-    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_confirmed_persist?.ok,
-    false,
-  );
+  // Same-turn extract + persist attempt — never a second Claude call.
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
-    0,
+    2,
   );
+  void policyUpdates;
 }
 
 {
@@ -4657,7 +4664,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   });
 
   assert.equal(claudeCalls, 1, "provider call count = 1 (no continue)");
-  assert.equal(firstToolChoice, null, "tool_choice absent on customer-answer");
+  assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice auto for record_*");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, answerText, "final answer ok");
   assert.equal(result.keySpeakOriginal, answerText);
@@ -4667,7 +4674,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(result.salesDirectorTrace?.session_goal, null, "session_goal tool skipped");
   const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
   assert.equal(voice?.recommendation_basis_tool_seen, false, "GO4 mid-turn skipped");
-  assert.equal(voice?.empty_answer_diag?.input?.tools_sent, 0, "tools_sent=0");
+  assert.equal(voice?.empty_answer_diag?.input?.tools_sent, 2, "tools_sent=2 record_*");
 
   // Text-nudge continue removed: first-call answer kept; provider_calls stays 1.
   {
@@ -5664,5 +5671,529 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(orphan.ok, false);
 
   console.log("CLAIM GUARDIAN SLICE 1C CHECKS OK");
+}
+
+// --- DOCUMENT ORIGINAL RECALL + CHART SYNC P0 (A–H) ---
+{
+  assert.equal(isInsuranceDocumentRecallQuestion("내 보험 분석해줘"), true, "A intent");
+  assert.equal(isInsuranceDocumentRecallQuestion("보관한 보험 자료로 분석해줘"), true);
+  assert.equal(isInsuranceDocumentRecallQuestion("내 문서 분석해줘"), false, "box path owns this");
+  assert.equal(isInsuranceDocumentRecallQuestion("잘 지내?"), false);
+  assert.equal(isOriginalDocumentRereadQuestion("원문을 다시 확인해줘"), true, "B reread");
+  assert.equal(isOriginalDocumentRereadQuestion("갱신형인지 원문을 다시 확인해줘"), true);
+  assert.equal(isOriginalDocumentRereadQuestion("방금 말한 내용을 짧게 정리해줘"), false, "C soft");
+  assert.equal(isOriginalDocumentRereadQuestion("내 암 진단비가 얼마였지"), false, "C memory");
+
+  const forceMode = decidePdfAttachMode({
+    documentId: "doc-1",
+    priorAttachFollowUp: true,
+    forceFullOriginal: true,
+    question: "원문을 다시 확인해줘",
+    chunkCount: 3,
+  });
+  assert.equal(forceMode.attach_full_base64, true, "B force original");
+  assert.equal(forceMode.reason, "force_full_original_reread");
+
+  const reuseMode = decidePdfAttachMode({
+    documentId: "doc-1",
+    priorAttachFollowUp: true,
+    forceFullOriginal: false,
+    question: "방금 말한 내용을 짧게 정리해줘",
+    chunkCount: 0,
+  });
+  assert.equal(reuseMode.attach_full_base64, false, "C no reattach");
+  assert.equal(reuseMode.mode, "reuse_no_repeat");
+
+  assert.equal(
+    isInsurancePolicySeriesDocument({
+      customer_hint_type: "insurance_policy",
+      doc_class: "policy_certificate",
+    }),
+    true,
+  );
+  assert.equal(
+    isInsurancePolicySeriesDocument({ customer_hint_type: "medical", doc_class: "medical" }),
+    false,
+  );
+
+  const jpegA = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00,
+    0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
+  ]);
+  const shaA = contentSha256Hex(jpegA);
+  assert.ok(shaA && shaA.length === 64);
+
+  // A+G+H: vault recall “내 보험 분석해줘” → owned doc attach + record_* + 1 Claude call
+  {
+    let claudeCalls = 0;
+    let imageBlocks = 0;
+    let toolNames = [];
+    let confirmedPersist = 0;
+    let baselinePersist = 0;
+    const docs = [
+      {
+        id: "doc-vault-a",
+        customer_id: "cust-vault",
+        storage_path: "cust-vault/doc-vault-a.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "보장분석-김진우 jpg.jpg",
+        deleted_at: null,
+        created_at: "2026-07-01T00:00:00.000Z",
+        doc_class: "policy_certificate",
+        customer_hint_type: "insurance_policy",
+        metadata_json: { category_key: "insurance_policy" },
+      },
+      {
+        id: "doc-vault-dup",
+        customer_id: "cust-vault",
+        storage_path: "cust-vault/doc-vault-dup.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "김진우.jpg",
+        deleted_at: null,
+        created_at: "2026-07-02T00:00:00.000Z",
+        doc_class: "policy_certificate",
+        customer_hint_type: "insurance_policy",
+        metadata_json: { category_key: "insurance_policy" },
+      },
+    ];
+    const userSupabase = {
+      from(table) {
+        if (table === "customer_documents") {
+          const filters = {};
+          const api = {
+            select() {
+              return api;
+            },
+            eq(col, val) {
+              filters[col] = val;
+              return api;
+            },
+            is() {
+              return api;
+            },
+            order() {
+              return api;
+            },
+            limit() {
+              return api;
+            },
+            maybeSingle() {
+              const hit = docs.find(
+                (d) =>
+                  (!filters.id || d.id === filters.id) &&
+                  (!filters.customer_id || d.customer_id === filters.customer_id),
+              );
+              return Promise.resolve({ data: hit ?? null, error: null });
+            },
+            then(resolve) {
+              resolve({ data: docs, error: null });
+            },
+          };
+          return api;
+        }
+        if (table === "profile_insurance_policies") {
+          let mode = "select";
+          const api = {
+            select() {
+              mode = "select";
+              return api;
+            },
+            update() {
+              mode = "update";
+              confirmedPersist += 1;
+              baselinePersist += 1;
+              return api;
+            },
+            insert() {
+              mode = "insert";
+              confirmedPersist += 1;
+              baselinePersist += 1;
+              return api;
+            },
+            eq() {
+              return api;
+            },
+            then(resolve) {
+              resolve({ data: mode === "select" ? [] : null, error: null });
+            },
+          };
+          return api;
+        }
+        if (table === "customer_document_chunks") {
+          const api = {
+            select() {
+              return api;
+            },
+            eq() {
+              return api;
+            },
+            order() {
+              return api;
+            },
+            limit() {
+              return Promise.resolve({ data: [], error: null });
+            },
+          };
+          return api;
+        }
+        return makeAttachQuery({ data: null, error: null });
+      },
+      storage: {
+        from() {
+          return {
+            download: async () => ({ data: makeBlobFromBuffer(jpegA), error: null }),
+          };
+        },
+      },
+    };
+
+    const answerText =
+      "보관하신 보험 원본 기준으로 암 진단비는 3천만 원으로 확인됩니다.";
+    const result = await runClaudeFirstDirectQuestionTurn({
+      question: "내 보험 분석해줘",
+      history: [],
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-vault",
+      userSupabase,
+      env: failClosedEnv,
+      fetchImpl: async (_url, opts) => {
+        claudeCalls += 1;
+        const body = JSON.parse(String(opts?.body ?? "{}"));
+        toolNames = (body.tools ?? []).map((t) => t?.name).filter(Boolean);
+        const content = body?.messages?.[0]?.content;
+        if (Array.isArray(content)) {
+          imageBlocks = content.filter((b) => b?.type === "image" || b?.type === "document").length;
+        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [
+                { type: "text", text: answerText },
+                {
+                  type: "tool_use",
+                  id: "tu_fact_vault",
+                  name: RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
+                  input: {
+                    confirmed_source_facts: [
+                      {
+                        fact_type: "insurer_name",
+                        literal_value: "테스트손보",
+                        source_document_id: "doc-vault-a",
+                        source_content_sha256: shaA,
+                      },
+                      {
+                        fact_type: "product_name",
+                        literal_value: "테스트암보험",
+                        source_document_id: "doc-vault-a",
+                        source_content_sha256: shaA,
+                      },
+                    ],
+                  },
+                },
+                {
+                  type: "tool_use",
+                  id: "tu_base_vault",
+                  name: "record_coverage_baseline_facts",
+                  input: {
+                    coverage_baseline_facts: [
+                      {
+                        baseline_item_id: "cancer_diagnosis",
+                        original_coverage_name: "일반암진단비",
+                        coverage_amount: 30000000,
+                        source_document_id: "doc-vault-a",
+                        source_content_sha256: shaA,
+                        insurer_name: "테스트손보",
+                        product_name: "테스트암보험",
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+          },
+        };
+      },
+    });
+
+    assert.equal(claudeCalls, 1, "H: Claude calls = 1");
+    assert.ok(imageBlocks >= 1, "A: Claude image/document block >= 1");
+    assert.equal(imageBlocks, 1, "E sha: duplicate file attached once");
+    assert.equal(toolNames.includes("record_confirmed_source_facts"), true, "D tools");
+    assert.equal(toolNames.includes("record_coverage_baseline_facts"), true, "D tools");
+    assert.equal(result.key_monopoly_failure, false);
+    assert.equal(result.customerText, answerText, "H seal preserved");
+    assert.equal(result.customerText.includes("record_"), false, "no tool leak");
+  }
+
+  // B: prior attach + original reread → attach_full_base64
+  {
+    let imageBlocks = 0;
+    const tinyPdf = Buffer.from("%PDF-1.1\n%%EOF\n");
+    await runClaudeFirstDirectQuestionTurn({
+      question: "원문을 다시 확인해줘",
+      history: [
+        { role: "user", content: "이 사진 분석해줘\n\n(첨부: policy.jpg)" },
+        { role: "assistant", content: "첨부 사진에서 보험사는 미확인입니다." },
+      ],
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-reread",
+      attachedDocumentId: "doc-reread",
+      priorAttachFollowUp: true,
+      userSupabase: makeAttachSupabase({
+        document: {
+          id: "doc-reread",
+          customer_id: "cust-reread",
+          storage_path: "cust-reread/doc-reread.pdf",
+          mime_type: "application/pdf",
+          original_filename: "policy.pdf",
+          deleted_at: null,
+        },
+        blob: makeBlobFromBuffer(tinyPdf),
+      }),
+      env: failClosedEnv,
+      fetchImpl: async (_url, opts) => {
+        const body = JSON.parse(String(opts?.body ?? "{}"));
+        const content = body?.messages?.[0]?.content;
+        if (Array.isArray(content)) {
+          imageBlocks = content.filter((b) => b?.type === "image" || b?.type === "document").length;
+        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              content: [{ type: "text", text: "원문 기준으로 다시 확인했습니다." }],
+            };
+          },
+        };
+      },
+    });
+    assert.ok(imageBlocks >= 1, "B: prior attach still re-attaches original");
+  }
+
+  // C: soft summary prior attach → no original bytes
+  {
+    let imageBlocks = 0;
+    await runClaudeFirstDirectQuestionTurn({
+      question: "방금 말한 내용을 짧게 정리해줘",
+      history: [
+        { role: "user", content: "이 사진 분석해줘\n\n(첨부: policy.jpg)" },
+        { role: "assistant", content: "첨부 사진에서 보험사는 미확인입니다." },
+      ],
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-soft",
+      attachedDocumentId: "doc-soft",
+      priorAttachFollowUp: true,
+      userSupabase: makeAttachSupabase({
+        document: {
+          id: "doc-soft",
+          customer_id: "cust-soft",
+          storage_path: "cust-soft/doc-soft.pdf",
+          mime_type: "application/pdf",
+          original_filename: "policy.pdf",
+          deleted_at: null,
+        },
+        blob: makeBlobFromBuffer(Buffer.from("%PDF-1.1\n%%EOF\n")),
+      }),
+      env: failClosedEnv,
+      fetchImpl: async (_url, opts) => {
+        const body = JSON.parse(String(opts?.body ?? "{}"));
+        const content = body?.messages?.[0]?.content;
+        if (Array.isArray(content)) {
+          imageBlocks = content.filter((b) => b?.type === "image" || b?.type === "document").length;
+        }
+        return {
+          ok: true,
+          async json() {
+            return { content: [{ type: "text", text: "짧게 정리하면 미확인입니다." }] };
+          },
+        };
+      },
+    });
+    assert.equal(imageBlocks, 0, "C: soft summary no reattach");
+  }
+
+  // G: download failure → do not claim read
+  {
+    const failResult = await runClaudeFirstDirectQuestionTurn({
+      question: "이 첨부 증권 다시 봐줘",
+      history: [],
+      loadedContext: { policies: [], policy_count: 0 },
+      customerId: "cust-fail",
+      attachedDocumentId: "doc-fail",
+      userSupabase: {
+        from(table) {
+          if (table === "customer_documents") {
+            return makeAttachQuery({
+              data: {
+                id: "doc-fail",
+                customer_id: "cust-fail",
+                storage_path: "cust-fail/doc-fail.pdf",
+                mime_type: "application/pdf",
+                original_filename: "gone.pdf",
+                deleted_at: null,
+              },
+              error: null,
+            });
+          }
+          return makeAttachQuery({ data: null, error: null });
+        },
+        storage: {
+          from() {
+            return {
+              download: async () => ({ data: null, error: { message: "not found" } }),
+            };
+          },
+        },
+      },
+      env: failClosedEnv,
+      fetchImpl: async () => {
+        throw new Error("Claude must not be called when attach failed");
+      },
+    });
+    assert.equal(failResult.key_monopoly_failure, true, "G fail-closed");
+    assert.equal(
+      /원본|첨부|확인/.test(String(failResult.customerText ?? "")),
+      true,
+    );
+    assert.equal(String(failResult.customerText ?? "").includes("record_"), false);
+  }
+
+  // E/F: sha256 + contract dedupe keys do not double-count
+  {
+    const k1 = baselineFactIdentityKey({
+      source_document_id: "doc-1",
+      source_content_sha256: shaA,
+      original_coverage_name: "일반암진단비",
+      baseline_item_id: "cancer_diagnosis",
+      coverage_amount: 30000000,
+    });
+    const k2 = baselineFactIdentityKey({
+      source_document_id: "doc-2",
+      source_content_sha256: shaA,
+      original_coverage_name: "일반암진단비",
+      baseline_item_id: "cancer_diagnosis",
+      coverage_amount: 30000000,
+    });
+    assert.equal(k1, k2, "E same sha → same baseline identity");
+
+    const c1 = keyConfirmedSourceFactDedupeKey({
+      fact_type: "insurer_name",
+      literal_value: "테스트손보",
+      source_document_id: "doc-1",
+      source_content_sha256: shaA,
+    });
+    const c2 = keyConfirmedSourceFactDedupeKey({
+      fact_type: "insurer_name",
+      literal_value: "테스트손보",
+      source_document_id: "doc-2",
+      source_content_sha256: shaA,
+    });
+    assert.equal(c1, c2, "E same sha confirmed dedupe");
+
+    const contractKey = baselineFactIdentityKey({
+      source_document_id: "doc-x",
+      policy_number: "POL-123",
+      insurer_name: "테스트손보",
+      product_name: "테스트암보험",
+      original_coverage_name: "일반암진단비",
+      baseline_item_id: "cancer_diagnosis",
+      coverage_amount: 30000000,
+    });
+    const contractKey2 = baselineFactIdentityKey({
+      source_document_id: "doc-y",
+      policy_number: "POL-123",
+      insurer_name: "테스트손보",
+      product_name: "테스트암보험",
+      original_coverage_name: "일반암진단비",
+      baseline_item_id: "cancer_diagnosis",
+      coverage_amount: 30000000,
+    });
+    assert.equal(contractKey, contractKey2, "F same contract+coverage identity");
+  }
+
+  // Vault recall unit: identical bytes collapse to one attach
+  {
+    const docs = [
+      {
+        id: "d1",
+        customer_id: "c1",
+        storage_path: "c1/d1.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "a.jpg",
+        deleted_at: null,
+        created_at: "2026-07-01T00:00:00.000Z",
+        doc_class: "policy_certificate",
+        customer_hint_type: "insurance_policy",
+        metadata_json: { category_key: "insurance_policy" },
+      },
+      {
+        id: "d2",
+        customer_id: "c1",
+        storage_path: "c1/d2.jpg",
+        mime_type: "image/jpeg",
+        original_filename: "b.jpg",
+        deleted_at: null,
+        created_at: "2026-07-02T00:00:00.000Z",
+        doc_class: "policy_certificate",
+        customer_hint_type: "insurance_policy",
+        metadata_json: { category_key: "insurance_policy" },
+      },
+    ];
+    const sb = {
+      from() {
+        const api = {
+          select() {
+            return api;
+          },
+          eq() {
+            return api;
+          },
+          is() {
+            return api;
+          },
+          order() {
+            return api;
+          },
+          limit() {
+            return api;
+          },
+          maybeSingle() {
+            return Promise.resolve({ data: docs[0], error: null });
+          },
+          then(resolve) {
+            resolve({ data: docs, error: null });
+          },
+        };
+        return api;
+      },
+      storage: {
+        from() {
+          return {
+            download: async () => ({ data: makeBlobFromBuffer(jpegA), error: null }),
+          };
+        },
+      },
+    };
+    const recall = await resolveOwnedInsuranceVaultRecall({
+      supabase: sb,
+      customerId: "c1",
+      verifyAndFetch: async ({ documentId }) => {
+        const doc = docs.find((d) => d.id === documentId);
+        return {
+          ok: true,
+          pdfBase64: jpegA.toString("base64"),
+          mediaType: "image/jpeg",
+          fileSizeBytes: jpegA.length,
+          content_sha256: shaA,
+          document: doc,
+        };
+      },
+    });
+    assert.equal(recall.mode, "attach");
+    assert.equal(recall.attachments.length, 1, "sha dedupe → 1 attach");
+  }
+
+  console.log("DOCUMENT_ORIGINAL_RECALL_CHART_SYNC_P0_CHECKS OK");
 }
 

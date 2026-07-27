@@ -171,9 +171,21 @@ export const KEY_CONFIRMED_SOURCE_FACT_TYPES = Object.freeze([
 const KEY_CONFIRMED_FACT_TYPE_SET = new Set(KEY_CONFIRMED_SOURCE_FACT_TYPES);
 
 export function keyConfirmedSourceFactDedupeKey(fact = {}) {
+  const sha = String(fact.source_content_sha256 ?? "").trim().toLowerCase();
+  const factType = String(fact.fact_type ?? "").trim().toLowerCase();
+  const literal = String(fact.literal_value ?? "").trim();
+  if (sha && factType && literal) {
+    return `sha:${sha}::${factType}::${literal}`;
+  }
+  const policyNo = String(
+    fact.policy_number ?? fact.contract_number ?? fact.contract_fingerprint ?? "",
+  ).trim();
+  if (policyNo && factType && literal) {
+    return `contract:${policyNo}::${factType}::${literal}`;
+  }
   return [
-    String(fact.fact_type ?? "").trim().toLowerCase(),
-    String(fact.literal_value ?? "").trim(),
+    factType,
+    literal,
     String(fact.source_document_id ?? "").trim(),
   ].join("::");
 }
@@ -219,10 +231,25 @@ export function normalizeKeyConfirmedSourceFacts(rawFacts = [], defaults = {}) {
       if (Object.keys(source_locator).length === 0) source_locator = null;
     }
 
+    const source_content_sha256 =
+      row.source_content_sha256 != null && String(row.source_content_sha256).trim()
+        ? String(row.source_content_sha256).trim().toLowerCase()
+        : defaults.source_content_sha256 != null &&
+            String(defaults.source_content_sha256).trim()
+          ? String(defaults.source_content_sha256).trim().toLowerCase()
+          : null;
+    const policy_number =
+      row.policy_number != null && String(row.policy_number).trim()
+        ? String(row.policy_number).trim()
+        : row.contract_number != null && String(row.contract_number).trim()
+          ? String(row.contract_number).trim()
+          : null;
     const fact = {
       fact_type,
       literal_value,
       source_document_id,
+      ...(source_content_sha256 ? { source_content_sha256 } : {}),
+      ...(policy_number ? { policy_number } : {}),
       source_locator,
       confirmed_at:
         row.confirmed_at != null && String(row.confirmed_at).trim()

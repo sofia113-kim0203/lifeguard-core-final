@@ -4,13 +4,49 @@
  * Bytes/base64/signed URLs must never enter DB trace/metadata/logs.
  */
 
+import { createHash } from "crypto";
+
 export const CUSTOMER_DOCUMENTS_BUCKET = "customer-documents";
 export const CLAUDE_FULL_PDF_MAX_BYTES = 20 * 1024 * 1024; // align with upload cap
 /** Full Anthropic Messages request body safety cap (PDF + context + tools/schema). */
 export const CLAUDE_FULL_REQUEST_MAX_BYTES = 30 * 1024 * 1024;
+/** Vault recall: max unique content hashes attached in one Claude turn (no silent drop). */
+export const CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH = 6;
+/** Vault recall: decoded-byte budget for originals in one turn. */
+export const CLAUDE_FIRST_VAULT_ATTACH_BYTE_BUDGET = 22 * 1024 * 1024;
 export const CLAUDE_FULL_PDF_MEDIA_TYPE = "application/pdf";
 export const CLAUDE_FULL_JPEG_MEDIA_TYPE = "image/jpeg";
 export const CLAUDE_FULL_PNG_MEDIA_TYPE = "image/png";
+
+/** insurance_policy series — HomeChat + coverage analysis originals only. */
+export const INSURANCE_POLICY_SERIES_HINT_TYPES = Object.freeze([
+  "insurance_policy",
+  "coverage_analysis_sheet",
+]);
+export const INSURANCE_POLICY_SERIES_DOC_CLASSES = Object.freeze([
+  "policy_certificate",
+  "coverage_analysis_sheet",
+]);
+export const INSURANCE_POLICY_SERIES_CATEGORY_KEYS = Object.freeze([
+  "insurance_policy",
+  "coverage_analysis_sheet",
+]);
+
+export function contentSha256Hex(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) return null;
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+export function isInsurancePolicySeriesDocument(doc = null) {
+  if (!doc || typeof doc !== "object") return false;
+  const hint = String(doc.customer_hint_type ?? "").trim();
+  const docClass = String(doc.doc_class ?? "").trim();
+  const categoryKey = String(doc.metadata_json?.category_key ?? "").trim();
+  if (INSURANCE_POLICY_SERIES_HINT_TYPES.includes(hint)) return true;
+  if (INSURANCE_POLICY_SERIES_DOC_CLASSES.includes(docClass)) return true;
+  if (INSURANCE_POLICY_SERIES_CATEGORY_KEYS.includes(categoryKey)) return true;
+  return false;
+}
 
 /** Honest customer text when PDF+context exceeds request cap — never S3/S4/S5. */
 export const DOCUMENT_DIRECT_REQUEST_TOO_LARGE_CUSTOMER_TEXT =
@@ -334,6 +370,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
     }
     const fetchMs = Math.max(0, Date.now() - fetchStarted);
     const attachStarted = Date.now();
+    const content_sha256 = contentSha256Hex(buf);
     const pdfBase64 = buf.toString("base64");
     const attachMs = Math.max(0, Date.now() - attachStarted);
     return {
@@ -341,6 +378,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
       pdfBase64,
       mediaType: mime,
       fileSizeBytes: buf.length,
+      content_sha256,
       document: {
         id: did,
         customer_id: cid,
@@ -501,6 +539,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
   }
 
   const attachStarted = Date.now();
+  const content_sha256 = contentSha256Hex(buf);
   const pdfBase64 = buf.toString("base64");
   const attachMs = Math.max(0, Date.now() - attachStarted);
 
@@ -509,6 +548,7 @@ export async function verifyAndFetchCustomerPdfOriginal({
     pdfBase64,
     mediaType: mime,
     fileSizeBytes: buf.length,
+    content_sha256,
     document: {
       id: document.id,
       customer_id: document.customer_id,
@@ -525,6 +565,173 @@ export async function verifyAndFetchCustomerPdfOriginal({
       documentAttachMs: attachMs,
       ownershipVerified: true,
     }),
+  };
+}
+
+/**
+ * List owned active insurance-series originals (no silent latest invent).
+ * deleted_at IS NULL · customer ownership · insurance_policy series only.
+ */
+export async function listOwnedInsuranceOriginalDocuments({
+  supabase = null,
+  customerId = null,
+  limit = 40,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  if (!supabase || !cid) {
+    return { ok: false, reason: "missing_auth", documents: [], listing: [] };
+  }
+  const cap = Math.min(Math.max(Number(limit) || 40, 1), 80);
+  const { data: rows, error } = await supabase
+    .from("customer_documents")
+    .select(
+      "id, customer_id, original_filename, created_at, deleted_at, mime_type, storage_path, doc_class, customer_hint_type, metadata_json",
+    )
+    .eq("customer_id", cid)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(cap);
+
+  if (error) {
+    return { ok: false, reason: "document_list_failed", documents: [], listing: [] };
+  }
+
+  const documents = (Array.isArray(rows) ? rows : []).filter((doc) => {
+    if (!isInsurancePolicySeriesDocument(doc)) return false;
+    if (!isClaudeDirectAttachMediaType(doc?.mime_type)) return false;
+    if (!String(doc?.storage_path ?? "").trim()) return false;
+    if (String(doc?.customer_id ?? "") !== cid) return false;
+    return true;
+  });
+
+  const listing = documents.map((doc) => ({
+    document_id: doc?.id != null ? String(doc.id) : null,
+    original_filename: doc?.original_filename ?? null,
+    created_at: doc?.created_at ?? null,
+    mime_type: doc?.mime_type ?? null,
+  }));
+
+  return { ok: true, reason: "ok", documents, listing };
+}
+
+/**
+ * Vault recall for “내 보험 분석” — fetch owned originals, dedupe by content sha256.
+ * Never silently picks latest-only. If unique set would exceed attach budget, returns choose.
+ */
+export async function resolveOwnedInsuranceVaultRecall({
+  supabase = null,
+  customerId = null,
+  env = process.env,
+  maxUniqueAttach = CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
+  byteBudget = CLAUDE_FIRST_VAULT_ATTACH_BYTE_BUDGET,
+  verifyAndFetch = verifyAndFetchCustomerPdfOriginal,
+} = {}) {
+  const listed = await listOwnedInsuranceOriginalDocuments({ supabase, customerId, limit: 40 });
+  if (!listed.ok) {
+    return {
+      mode: "unavailable",
+      reason: listed.reason,
+      attachments: [],
+      listing: [],
+      failed: [],
+    };
+  }
+  if (!listed.documents.length) {
+    return {
+      mode: "empty",
+      reason: "insurance_vault_empty",
+      attachments: [],
+      listing: [],
+      failed: [],
+    };
+  }
+
+  const unique = [];
+  const seenSha = new Set();
+  const failed = [];
+  let totalBytes = 0;
+  const maxUnique = Math.min(Math.max(Number(maxUniqueAttach) || 6, 1), 8);
+  const budget = Math.min(
+    Math.max(Number(byteBudget) || CLAUDE_FIRST_VAULT_ATTACH_BYTE_BUDGET, 1),
+    CLAUDE_FULL_REQUEST_MAX_BYTES,
+  );
+
+  for (let i = 0; i < listed.documents.length; i += 1) {
+    const doc = listed.documents[i];
+    const did = String(doc?.id ?? "").trim();
+    if (!did) continue;
+
+    // Hitting unique cap with more rows left → must ask customer (no silent drop).
+    if (unique.length >= maxUnique) {
+      return {
+        mode: "choose",
+        reason: "unique_attach_cap_exceeded",
+        attachments: [],
+        listing: listed.listing,
+        failed,
+      };
+    }
+
+    const fetched = await verifyAndFetch({
+      supabase,
+      customerId,
+      documentId: did,
+      env,
+    });
+    if (!fetched?.ok || !fetched.pdfBase64) {
+      failed.push({
+        document_id: did,
+        original_filename: doc?.original_filename ?? null,
+        reason: fetched?.reason ?? "pdf_download_failed",
+      });
+      continue;
+    }
+
+    const sha = String(fetched.content_sha256 ?? "").trim();
+    if (sha && seenSha.has(sha)) {
+      continue; // identical file bytes — one Claude attach only
+    }
+
+    const size = Number(fetched.fileSizeBytes) || 0;
+    if (unique.length > 0 && totalBytes + size > budget) {
+      return {
+        mode: "choose",
+        reason: "attach_byte_budget_exceeded",
+        attachments: [],
+        listing: listed.listing,
+        failed,
+      };
+    }
+
+    if (sha) seenSha.add(sha);
+    totalBytes += size;
+    unique.push({
+      document_id: did,
+      original_filename: fetched.document?.original_filename ?? doc?.original_filename ?? null,
+      pdfBase64: fetched.pdfBase64,
+      mediaType: fetched.mediaType,
+      fileSizeBytes: size,
+      content_sha256: sha || null,
+      created_at: doc?.created_at ?? null,
+    });
+  }
+
+  if (!unique.length) {
+    return {
+      mode: "unavailable",
+      reason: failed.length ? "all_originals_unavailable" : "insurance_vault_empty",
+      attachments: [],
+      listing: listed.listing,
+      failed,
+    };
+  }
+
+  return {
+    mode: "attach",
+    reason: "owned_insurance_vault_deduped",
+    attachments: unique,
+    listing: listed.listing,
+    failed,
   };
 }
 

@@ -27,6 +27,8 @@ export function decidePdfAttachMode({
   question = "",
   chunkCount = 0,
   mediaType = null,
+  /** When true, Storage original must be re-attached even on prior_attach_follow_up. */
+  forceFullOriginal = false,
 } = {}) {
   const docId = String(documentId ?? "").trim();
   if (!docId) {
@@ -41,6 +43,17 @@ export function decidePdfAttachMode({
 
   const mime = String(mediaType ?? "").trim().toLowerCase();
   const isImage = mime.startsWith("image/");
+
+  // Explicit original re-read / amount re-check — keep document_id, re-fetch bytes.
+  if (forceFullOriginal === true) {
+    return {
+      mode: "full_original_once",
+      attach_full_base64: true,
+      review_scope: "full_original_precision_review_this_turn",
+      evidence_status: "document_source_confirmed",
+      reason: "force_full_original_reread",
+    };
+  }
 
   // Subsequent turns with active prior attach: never re-ship full original bytes.
   if (priorAttachFollowUp === true) {

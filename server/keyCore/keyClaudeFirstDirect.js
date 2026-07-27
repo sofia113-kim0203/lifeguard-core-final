@@ -54,6 +54,7 @@ import {
   buildAnthropicDirectAttachBlock,
   verifyAndFetchCustomerPdfOriginal,
   resolveExplicitCustomerDocumentMention,
+  resolveOwnedInsuranceVaultRecall,
   CLAUDE_FULL_PDF_MAX_BYTES,
   isClaudeDirectImageMediaType,
   normalizeClaudeDirectAttachMediaType,
@@ -63,6 +64,8 @@ import {
   isPriorAttachFollowUpQuestion,
   isExplicitDocumentBoxMentionQuestion,
   extractMentionedFilenamesFromChat,
+  isInsuranceDocumentRecallQuestion,
+  isOriginalDocumentRereadQuestion,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
   gateKeyVoiceAnswer,
@@ -1930,6 +1933,8 @@ export function buildClaudeFirstCachedRequestParts({
   userPayload = null,
   pdfBase64 = null,
   mediaType = null,
+  /** Optional multi-original attach: [{ base64, mediaType }] — sha-deduped upstream. */
+  attachments = null,
   cacheControl = ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
 } = {}) {
   const { block_b, block_c } = splitUserPayloadForPromptCache(userPayload);
@@ -1948,10 +1953,21 @@ export function buildClaudeFirstCachedRequestParts({
         : { ...ANTHROPIC_PROMPT_CACHE_CONTROL_5M },
     },
   ];
-  const attachBlock = pdfBase64
-    ? buildAnthropicDirectAttachBlock({ base64: pdfBase64, mediaType })
-    : null;
-  if (attachBlock) content.push(attachBlock);
+  const attachList =
+    Array.isArray(attachments) && attachments.length > 0
+      ? attachments
+      : pdfBase64
+        ? [{ base64: pdfBase64, mediaType }]
+        : [];
+  for (const row of attachList) {
+    const attachBlock = row?.base64
+      ? buildAnthropicDirectAttachBlock({
+          base64: row.base64,
+          mediaType: row.mediaType ?? mediaType,
+        })
+      : null;
+    if (attachBlock) content.push(attachBlock);
+  }
   content.push({
     type: "text",
     text: JSON.stringify(block_c, null, 2),
@@ -3570,6 +3586,7 @@ async function resolveOptionalPdfAttachment({
           original_filename: fetched.document?.original_filename ?? null,
           mime_type: fetched.mediaType,
           storage_mime_type: fetched.mediaType,
+          content_sha256: fetched.content_sha256 ?? null,
           claude_image_source: "storage_original",
           attach_signals: buildAttachOpsSignals({
             attachment_requested: true,
@@ -3615,6 +3632,7 @@ async function resolveOptionalPdfAttachment({
         original_filename: fetched.document?.original_filename ?? null,
         mime_type: built.mediaType,
         storage_mime_type: fetched.mediaType ?? null,
+        content_sha256: fetched.content_sha256 ?? null,
         claude_image_source: built.claude_image_source,
         attach_signals:
           built.attach_signals ??
@@ -3722,6 +3740,8 @@ async function callClaudeFirstDirect({
   onAnswerProgress = null,
   pdfBase64 = null,
   pdfMediaType = null,
+  /** Multi-original blocks (vault recall). Each: { base64, mediaType }. */
+  pdfAttachments = null,
   pdfMeta = null,
   corporateContexts = null,
   corporateGapEvidence = null,
@@ -3854,27 +3874,49 @@ async function callClaudeFirstDirect({
     presenceTurn === true || imageOriginalRead
       ? userPayloadBuilt
       : applyCustomerViewModeToUserPayload(userPayloadBuilt, customerViewModeForPayload);
-  const pdfAttached = presenceTurn === true ? false : Boolean(pdfBase64);
-  // Customer-answer path: no client record_* tools (no Continue/tool_result loop).
+  const multiAttachments =
+    presenceTurn === true
+      ? []
+      : Array.isArray(pdfAttachments)
+        ? pdfAttachments.filter((row) => row?.base64)
+        : [];
+  const primaryPdfBase64 =
+    presenceTurn === true
+      ? null
+      : pdfBase64 || multiAttachments[0]?.base64 || null;
+  const primaryPdfMediaType =
+    presenceTurn === true
+      ? null
+      : pdfMediaType || multiAttachments[0]?.mediaType || null;
+  const pdfAttached = Boolean(primaryPdfBase64);
+  // Path A: when original is attached, send existing record_* tools in the SAME Claude call.
+  // Extract tool_use from the first response — never Continue / never second Claude call for facts.
   // Public place/daily facts may use Anthropic server web_search only (existing tool).
-  // Fact save · consultation · visual blocks remain KEY work after this answer.
   // Agent turn: KEY_AUDIENCE_PRIORITY (switch) before customer body; KEY_ROLE_BADGE appended after.
   // Customer turn: customer body only — no priority block. Question text never selects role.
   const agentRoleContract =
     isAgentAudienceTurn(audience, keyRoleContract) ? keyRoleContract : null;
   const publicWebSearchTools =
-    presenceTurn === true || imageOriginalRead
+    presenceTurn === true || imageOriginalRead || pdfAttached
       ? []
       : shouldEnablePublicWebSearch({ question, history })
         ? [ANTHROPIC_WEB_SEARCH_TOOL]
         : [];
-  const systemTextBase = composeClaudeFirstSystemText({
+  const documentRecordTools =
+    presenceTurn !== true && pdfAttached
+      ? [RECORD_CONFIRMED_SOURCE_FACTS_TOOL, RECORD_COVERAGE_BASELINE_FACTS_TOOL]
+      : [];
+  const requestTools = [...publicWebSearchTools, ...documentRecordTools];
+  let systemTextBase = composeClaudeFirstSystemText({
     presenceTurn: presenceTurn === true,
     audience,
     keyRoleContract: agentRoleContract,
     question: presenceTurn === true ? "" : question,
     history: presenceTurn === true ? [] : history,
   });
+  if (documentRecordTools.length > 0) {
+    systemTextBase = `${systemTextBase}\n${buildConfirmedSourceFactsToolHint(pdfMeta)}`;
+  }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
     userPayload: userPayloadBase,
@@ -3886,8 +3928,15 @@ async function callClaudeFirstDirect({
   const cachedParts = buildClaudeFirstCachedRequestParts({
     systemText,
     userPayload,
-    pdfBase64: presenceTurn === true ? null : pdfBase64,
-    mediaType: presenceTurn === true ? null : pdfMediaType,
+    pdfBase64: primaryPdfBase64,
+    mediaType: primaryPdfMediaType,
+    attachments:
+      multiAttachments.length > 1
+        ? multiAttachments.map((row) => ({
+            base64: row.base64,
+            mediaType: row.mediaType,
+          }))
+        : null,
     cacheControl: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
   });
   const system = cachedParts.system;
@@ -3905,9 +3954,8 @@ async function callClaudeFirstDirect({
   let webSearchTrace = emptyWebSearchTrace();
   let publicEvidence = [];
   let providerUsage = pickAnthropicUsageNumbers(null);
-  // Mid-turn client tool extraction skipped (record_* tools not sent).
-  const confirmedSourceFacts = [];
-  const coverageBaselineFacts = [];
+  let confirmedSourceFacts = [];
+  let coverageBaselineFacts = [];
   const claimCaseUpdates = [];
   const sessionGoalRecord = null;
   const sessionGoalToolSeen = false;
@@ -3917,7 +3965,7 @@ async function callClaudeFirstDirect({
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
 
-  // Answer path: optional server web_search only. No client tool_result / force any specific tool.
+  // Answer path: optional server web_search + same-turn record_* extract (no tool_result Continue).
   let emptyAnswerDiag = {
     input: null,
     response: null,
@@ -3932,8 +3980,8 @@ async function callClaudeFirstDirect({
       system,
       messages,
       stream: true,
-      ...(publicWebSearchTools.length
-        ? { tools: publicWebSearchTools, tool_choice: { type: "auto" } }
+      ...(requestTools.length
+        ? { tools: requestTools, tool_choice: { type: "auto" } }
         : {}),
     };
     emptyAnswerDiag.input = buildEmptyAnswerInputDiag({
@@ -3965,7 +4013,7 @@ async function callClaudeFirstDirect({
         errText,
         pdfAttachedAttempted: pdfAttached === true,
         pdfBase64,
-        toolCount: publicWebSearchTools.length,
+        toolCount: requestTools.length,
         providerCallNumber: messagesRequestCount,
         requestPhase: "claude_first_messages_request",
       });
@@ -4019,6 +4067,21 @@ async function callClaudeFirstDirect({
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
+    // Same-turn record_* extraction — never sends tool_result / never Continue for facts.
+    if (documentRecordTools.length > 0 && assistantContent.length) {
+      const factDefaults = {
+        source_document_id: pdfMeta?.document_id ?? null,
+        source_content_sha256: pdfMeta?.content_sha256 ?? null,
+      };
+      confirmedSourceFacts = extractConfirmedSourceFactsFromContent(
+        assistantContent,
+        factDefaults,
+      );
+      coverageBaselineFacts = extractCoverageBaselineFactsFromContent(
+        assistantContent,
+        factDefaults,
+      );
+    }
     webSearchTrace = accumulateWebSearchTrace(
       webSearchTrace,
       assistantContent,
@@ -4042,12 +4105,14 @@ async function callClaudeFirstDirect({
     if (picked.customer_answer) {
       lastPicked = { ...picked, source: picked.source || "plain_text" };
       onAnswerProgress?.(picked.customer_answer);
+      // Client record_* never drives a second Claude call — break after first answer text.
       break;
     }
 
     if (!assistantContent.length) break;
 
     // Server web_search pause — re-send assistant content only (no user Continue text).
+    // Client tool_use (record_*) must NOT continue the provider loop.
     const usedServerSearch = assistantContent.some(
       (b) =>
         (b?.type === "server_tool_use" && b?.name === "web_search") ||
@@ -4106,12 +4171,16 @@ async function callClaudeFirstDirect({
     ttft_ms: lastTtft,
     chart,
     allowlist,
-    pdf_attached: Boolean(pdfBase64),
+    pdf_attached: pdfAttached,
+    original_attachment_count:
+      multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
     web_search_trace: webSearchTrace,
     public_evidence: publicEvidence,
     empty_answer_diag: emptyAnswerDiag,
     provider_usage: providerUsage,
     stop_reason: lastStopReason,
+    document_record_tools_sent: documentRecordTools.length,
+    provider_messages_request_count: messagesRequestCount,
     prompt_cache: {
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,
@@ -4414,12 +4483,16 @@ export async function runClaudeFirstDirectQuestionTurn({
     return quietResult;
   }
 
-  // Physical active attachment only — never invent latest document; never keyword-classify the question.
+  // Physical active attachment / explicit mention / insurance vault recall.
+  // Never invent latest document; allowLatestFallback stays false.
   // Presence must not mix PDF/document Claude work into the login opener.
   let explicitDocumentId = isPresenceTurn
     ? ""
     : String(attachedDocumentId ?? "").trim();
   let documentMentionResolve = null;
+  let vaultRecall = null;
+  let pdfAttachmentsForClaude = null;
+  let pdfFetchMs = null;
   // B: explicit 내 문서 / filename pointer → lookup owned document (no silent latest invent).
   if (!isPresenceTurn && !explicitDocumentId && userSupabase && customerId) {
     const mentionedFilenames = extractMentionedFilenamesFromChat(question, history);
@@ -4440,13 +4513,45 @@ export async function runClaudeFirstDirectQuestionTurn({
       }
     }
   }
+  // C: “내 보험 분석”류 — owned insurance-series vault recall (sha256 dedupe; no silent latest).
+  if (
+    !isPresenceTurn &&
+    !explicitDocumentId &&
+    userSupabase &&
+    customerId &&
+    isInsuranceDocumentRecallQuestion(question)
+  ) {
+    const fetchStarted = Date.now();
+    vaultRecall = await resolveOwnedInsuranceVaultRecall({
+      supabase: userSupabase,
+      customerId,
+      env,
+    });
+    pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+    if (vaultRecall.mode === "attach" && vaultRecall.attachments?.length) {
+      pdfAttachmentsForClaude = vaultRecall.attachments.map((row) => ({
+        base64: row.pdfBase64,
+        mediaType: row.mediaType,
+        document_id: row.document_id,
+        original_filename: row.original_filename,
+        content_sha256: row.content_sha256,
+      }));
+      explicitDocumentId = String(vaultRecall.attachments[0].document_id).trim();
+    }
+  }
   const allowLatestFallback = false;
   const clientPriorAttach = priorAttachFollowUp === true;
+  const forceFullOriginal =
+    !isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true;
 
   // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
   let documentChunksForClaude = [];
-  let pdfFetchMs = null;
-  if (explicitDocumentId && userSupabase && customerId) {
+  if (
+    explicitDocumentId &&
+    userSupabase &&
+    customerId &&
+    !pdfAttachmentsForClaude
+  ) {
     const chunkLoadStarted = Date.now();
     documentChunksForClaude = await loadCustomerDocumentChunksByDocumentId({
       supabase: userSupabase,
@@ -4464,6 +4569,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     question,
     chunkCount: documentChunksForClaude.length,
     mediaType: null,
+    forceFullOriginal,
   });
 
   let pdf = {
@@ -4478,7 +4584,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       document_evidence_status: attachModeDecision.evidence_status,
       note: attachModeDecision.reason,
       attach_signals: buildAttachOpsSignals({
-        attachment_requested: Boolean(explicitDocumentId),
+        attachment_requested: Boolean(explicitDocumentId) || Boolean(vaultRecall),
         attachment_attached: false,
         attachment_failed: false,
         attachment_block_built: false,
@@ -4486,7 +4592,67 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
   };
 
-  if (explicitDocumentId && attachModeDecision.attach_full_base64 === true) {
+  if (pdfAttachmentsForClaude?.length && vaultRecall?.attachments?.length) {
+    // Vault originals already fetched + sha-deduped (single or multi).
+    const primary = vaultRecall.attachments[0];
+    pdf = {
+      pdfBase64: primary.pdfBase64,
+      mediaType: primary.mediaType,
+      meta: {
+        attached: true,
+        document_id: primary.document_id,
+        original_filename: primary.original_filename ?? null,
+        mime_type: primary.mediaType,
+        content_sha256: primary.content_sha256 ?? null,
+        pdf_attach_mode: "full_original_once",
+        document_review_scope:
+          pdfAttachmentsForClaude.length > 1
+            ? "owned_insurance_vault_multi_original"
+            : "owned_insurance_vault_original",
+        document_evidence_status: "document_source_confirmed",
+        note: vaultRecall.reason,
+        document_box_listing: vaultRecall.listing ?? [],
+        vault_attach_count: pdfAttachmentsForClaude.length,
+        attach_signals: buildAttachOpsSignals({
+          attachment_requested: true,
+          attachment_attached: true,
+          attachment_failed: false,
+          attachment_block_built: true,
+        }),
+      },
+    };
+  } else if (
+    vaultRecall &&
+    (vaultRecall.mode === "choose" ||
+      vaultRecall.mode === "empty" ||
+      vaultRecall.mode === "unavailable")
+  ) {
+    // Listing only — Claude asks customer to choose; never silent latest / never pretend read.
+    pdf = {
+      pdfBase64: null,
+      mediaType: null,
+      meta: {
+        attached: false,
+        document_id: null,
+        reuse_without_bytes: false,
+        pdf_attach_mode: "none",
+        document_review_scope: "vault_listing_customer_choice_required",
+        document_evidence_status: "unknown",
+        note: vaultRecall.reason,
+        document_box_listing: vaultRecall.listing ?? [],
+        vault_recall_mode: vaultRecall.mode,
+        vault_failed: Array.isArray(vaultRecall.failed) ? vaultRecall.failed : [],
+        attach_signals: buildAttachOpsSignals({
+          attachment_requested: true,
+          attachment_attached: false,
+          attachment_failed: vaultRecall.mode === "unavailable",
+          attachment_failure_code:
+            vaultRecall.mode === "unavailable" ? vaultRecall.reason : null,
+          attachment_block_built: false,
+        }),
+      },
+    };
+  } else if (explicitDocumentId && attachModeDecision.attach_full_base64 === true) {
     const fetchStarted = Date.now();
     pdf = await resolveOptionalPdfAttachment({
       userSupabase,
@@ -4498,6 +4664,14 @@ export async function runClaudeFirstDirectQuestionTurn({
       allowLatestFallback,
     });
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+    // Single-doc vault attach: carry sha from fetch when present.
+    if (
+      vaultRecall?.mode === "attach" &&
+      vaultRecall.attachments?.[0]?.content_sha256 &&
+      pdf?.meta
+    ) {
+      pdf.meta.content_sha256 = vaultRecall.attachments[0].content_sha256;
+    }
     pdf = {
       ...pdf,
       meta: {
@@ -4506,6 +4680,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         document_review_scope: attachModeDecision.review_scope,
         document_evidence_status: attachModeDecision.evidence_status,
         reuse_without_bytes: false,
+        ...(vaultRecall?.listing ? { document_box_listing: vaultRecall.listing } : {}),
       },
     };
   } else if (explicitDocumentId && attachModeDecision.attach_full_base64 === false) {
@@ -5006,6 +5181,11 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
     pdfBase64: isPresenceTurn ? null : pdf.pdfBase64,
     pdfMediaType: isPresenceTurn ? null : pdf.mediaType,
+    pdfAttachments: isPresenceTurn
+      ? null
+      : Array.isArray(pdfAttachmentsForClaude) && pdfAttachmentsForClaude.length > 1
+        ? pdfAttachmentsForClaude
+        : null,
     pdfMeta: isPresenceTurn ? null : pdfMetaForClaude,
     corporateContexts: isPresenceTurn ? null : corporateContexts,
     corporateGapEvidence: isPresenceTurn ? null : corporateGapEvidence,

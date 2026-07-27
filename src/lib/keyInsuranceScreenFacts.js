@@ -525,7 +525,13 @@ function collectBaselineItemRows(policies, itemId) {
   const seen = new Set();
 
   for (const fact of verified) {
-    const identity = `${fact.source_document_id ?? ""}::${normalizeCoverageName(fact.original_coverage_name)}::${fact.baseline_item_id}`;
+    const sha = String(fact.source_content_sha256 ?? "").trim().toLowerCase();
+    const policyNo = String(fact.policy_number ?? fact.contract_number ?? "").trim();
+    const identity = sha
+      ? `sha:${sha}::${normalizeCoverageName(fact.original_coverage_name)}::${fact.baseline_item_id}::${fact.coverage_amount ?? ""}`
+      : policyNo
+        ? `contract:${policyNo}::${normalizeCoverageName(fact.original_coverage_name)}::${fact.baseline_item_id}::${fact.coverage_amount ?? ""}`
+        : `${fact.source_document_id ?? ""}::${normalizeCoverageName(fact.original_coverage_name)}::${fact.baseline_item_id}`;
     if (seen.has(identity)) continue;
     seen.add(identity);
     let amount = fact.coverage_amount != null ? Number(fact.coverage_amount) : null;

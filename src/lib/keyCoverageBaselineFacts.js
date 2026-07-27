@@ -98,11 +98,33 @@ function locatorKey(locator) {
   ].join("|");
 }
 
+/**
+ * Identity for merge/dedupe.
+ * Prefer content sha256 (same file re-upload) or strong contract fingerprint
+ * so duplicate UUID uploads do not double-count diagnosis amounts.
+ */
 export function baselineFactIdentityKey(fact = {}) {
+  const coverage = normalizeNameKey(fact.original_coverage_name);
+  const amount =
+    fact.coverage_amount != null && Number.isFinite(Number(fact.coverage_amount))
+      ? String(Number(fact.coverage_amount))
+      : "";
+  const item = String(fact.baseline_item_id ?? "").trim();
+  const sha = String(fact.source_content_sha256 ?? "").trim().toLowerCase();
+  if (sha && coverage) {
+    return `sha:${sha}::${coverage}::${item}::${amount}`;
+  }
+  const policyNo = cleanText(fact.policy_number ?? fact.contract_number ?? fact.contract_fingerprint);
+  const insurer = normalizeNameKey(fact.insurer_name);
+  const product = normalizeNameKey(fact.product_name);
+  const contractDate = cleanText(fact.contract_date ?? fact.effective_from);
+  if (policyNo && coverage) {
+    return `contract:${insurer}::${product}::${policyNo}::${contractDate ?? ""}::${coverage}::${item}::${amount}`;
+  }
   return [
     String(fact.source_document_id ?? "").trim(),
     locatorKey(fact.source_locator),
-    normalizeNameKey(fact.original_coverage_name),
+    coverage,
   ].join("::");
 }
 
@@ -173,11 +195,21 @@ export function normalizeKeyCoverageBaselineFacts(rawFacts = [], defaults = {}) 
           ? Number(row.confidence)
           : cleanText(row.confidence);
     const unresolved_reason = cleanText(row.unresolved_reason);
+    const source_content_sha256 =
+      cleanText(row.source_content_sha256) ||
+      cleanText(defaults.source_content_sha256);
+    const policy_number = cleanText(
+      row.policy_number ?? row.contract_number ?? row.contract_fingerprint,
+    );
+    const insurer_name = cleanText(row.insurer_name ?? row.insurer);
+    const product_name = cleanText(row.product_name);
+    const contract_date = cleanText(row.contract_date ?? row.effective_from);
 
     // Claude must not self-verify; strip any incoming status.
     const fact = {
       original_coverage_name,
       source_document_id,
+      source_content_sha256,
       source_locator,
       baseline_item_id,
       major_treatment_region,
@@ -191,6 +223,10 @@ export function normalizeKeyCoverageBaselineFacts(rawFacts = [], defaults = {}) 
       reduction_condition,
       confidence,
       unresolved_reason,
+      policy_number,
+      insurer_name,
+      product_name,
+      contract_date,
       status: KEY_BASELINE_FACT_STATUSES.PENDING,
       confirmation_source: "key_claude_baseline_analysis",
       confirmed_at: cleanText(defaults.confirmed_at) || new Date().toISOString(),

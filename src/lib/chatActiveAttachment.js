@@ -32,6 +32,60 @@ export function isExplicitDocumentBoxMentionQuestion(question = "") {
   );
 }
 
+/**
+ * Explicit whole-insurance / vault-original recall intent.
+ * Not a new rule engine — narrow customer ask that owned insurance originals should be selected.
+ * Does NOT itself invent a document_id (server ownership list + allowLatestFallback=false).
+ */
+export function isInsuranceDocumentRecallQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  // Already an explicit box/filename pointer — existing mention path owns that turn.
+  if (isExplicitDocumentBoxMentionQuestion(q)) return false;
+  return (
+    /내\s*보험\s*(을\s*)?(분석|점검|확인|봐|보여)/.test(q) ||
+    /내가\s*가입한\s*보험/.test(q) ||
+    /내\s*보장\s*(을\s*)?(분석|점검|확인)/.test(q) ||
+    /내\s*보험에서/.test(q) ||
+    /보관한\s*보험\s*(자료|문서|파일|원본)/.test(q) ||
+    /보험\s*(자료|문서|원본)\s*(으로|로)\s*(분석|점검|확인)/.test(q) ||
+    /내\s*암\s*·?\s*뇌혈관|암\s*·\s*뇌혈관\s*·\s*허혈/.test(q) ||
+    /진단비\s*(를\s*)?(알려|확인|분석|점검)/.test(q)
+  );
+}
+
+/**
+ * Follow-up that needs Storage original bytes again (not chart-memory summary).
+ * Used with prior_attach_follow_up — does not delete reuse policy for soft summary turns.
+ */
+export function isOriginalDocumentRereadQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  // Soft summary / memory asks — keep reuse_no_repeat.
+  if (
+    /짧게\s*정리|결론이\s*뭐|얼마였지|지난\s*분석|방금\s*말한\s*내용|기억나|다시\s*말해/.test(q) &&
+    !/원문|서류|파일|사진|첨부|문서/.test(q)
+  ) {
+    return false;
+  }
+  return (
+    /원문\s*(을\s*)?(다시\s*)?(봐|확인|읽어|검토)/.test(q) ||
+    /다시\s*정확히\s*(분석|확인|봐|읽어)/.test(q) ||
+    /서류에서\s*(확인|찾아|봐)/.test(q) ||
+    /파일에서\s*(확인|찾아|봐)/.test(q) ||
+    /첨부\s*(파일|사진|문서|원본)\s*(을\s*)?(다시\s*)?(봐|확인|읽어)/.test(q) ||
+    /갱신형인지\s*(원문|서류|파일)?/.test(q) ||
+    /이\s*담보\s*금액\s*(을\s*)?다시/.test(q) ||
+    /아까\s*분석한\s*숫자/.test(q) ||
+    /다른\s*보장도\s*(서류|원문|파일)/.test(q) ||
+    /원문을\s*다시\s*확인/.test(q)
+  );
+}
+
 /** Filenames referenced in chat bubbles / question text — used to resolve a named document only. */
 export function extractMentionedFilenamesFromChat(question = "", history = []) {
   const names = [];
