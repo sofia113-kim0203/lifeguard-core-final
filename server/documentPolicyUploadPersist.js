@@ -8,6 +8,11 @@ import {
   keyValidateCoverageBaselineFacts,
   KEY_BASELINE_FACT_STATUSES,
 } from "../src/lib/keyCoverageBaselineFacts.js";
+import {
+  normalizePolicyInventoryFacts,
+  policyInventoryDedupeKey,
+  policyInventoryStrongFingerprint,
+} from "./keyCore/keyRecordSidecar.js";
 
 export {
   normalizeKeyCoverageBaselineFacts,
@@ -1521,6 +1526,347 @@ export async function persistKeyActiveClaimCases({
     attempted: true,
     stored: incoming.length,
     case_count: merged.length,
+  };
+}
+
+/**
+ * Upsert document_read policy inventory into existing profile_insurance_policies SSOT.
+ * No new table. Never deletes customer_reported / signup rows.
+ * Match: policy_number exact → strong fingerprint (insurer+product+contract_date+premium+maturity).
+ * Insufficient fields → insert as needs_confirmation document_read (no weak-name merge).
+ */
+export async function persistPolicyInventoryFactsToPolicies({
+  supabase = null,
+  customerId = null,
+  facts = [],
+  ownedDocumentIds = null,
+} = {}) {
+  const normalized = normalizePolicyInventoryFacts(facts);
+  if (!supabase || !customerId || normalized.length === 0) {
+    return {
+      ok: false,
+      attempted: Boolean(supabase && customerId && Array.isArray(facts) && facts.length),
+      reason: !supabase
+        ? "no_supabase"
+        : !customerId
+          ? "no_customer_id"
+          : normalized.length === 0
+            ? "no_valid_facts"
+            : "skip",
+      stored: 0,
+      updated_policy_ids: [],
+      created_policy_ids: [],
+      skipped_weak_merge: 0,
+    };
+  }
+
+  const owned =
+    ownedDocumentIds != null
+      ? new Set([...ownedDocumentIds].map((id) => String(id).trim()).filter(Boolean))
+      : null;
+
+  const { data: rows, error: selectError } = await supabase
+    .from("profile_insurance_policies")
+    .select(
+      "id, coverage_summary, is_active, insurer_name, product_name, monthly_premium, source, effective_from",
+    )
+    .eq("customer_id", customerId)
+    .eq("is_active", true);
+
+  if (selectError) {
+    return {
+      ok: false,
+      attempted: true,
+      stored: 0,
+      updated_policy_ids: [],
+      created_policy_ids: [],
+      error: selectError.message,
+    };
+  }
+
+  const activeRows = Array.isArray(rows) ? rows : [];
+  const updated_policy_ids = [];
+  const created_policy_ids = [];
+  const errors = [];
+  let stored = 0;
+  let skipped_weak_merge = 0;
+  const seenFactKeys = new Set();
+
+  for (const fact of normalized) {
+    if (owned && !owned.has(fact.source_document_id)) {
+      skipped_weak_merge += 1;
+      continue;
+    }
+    const factKey = policyInventoryDedupeKey(fact);
+    if (seenFactKeys.has(factKey)) continue;
+    seenFactKeys.add(factKey);
+
+    const match = findExistingPolicyRowForInventoryFact(activeRows, fact);
+    if (match?.mode === "needs_confirmation_insert") {
+      // No strong identity against existing — insert new document_read row.
+    } else if (match?.mode === "skip_weak") {
+      skipped_weak_merge += 1;
+      continue;
+    }
+
+    const coverage_summary = buildCoverageSummaryFromInventoryFact(fact, match?.row ?? null);
+    const fields = {
+      insurer_name: fact.insurer ?? match?.row?.insurer_name ?? null,
+      product_name: fact.product_name ?? match?.row?.product_name ?? null,
+      monthly_premium:
+        fact.monthly_premium != null
+          ? fact.monthly_premium
+          : match?.row?.monthly_premium ?? null,
+      effective_from: fact.contract_date ?? match?.row?.effective_from ?? null,
+      coverage_summary,
+      // Keep signup source when enriching an existing signup/customer_reported row.
+      source:
+        match?.row?.source === "signup" || match?.row?.source === "import"
+          ? match.row.source
+          : "manual",
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (match?.row?.id && match.mode === "update") {
+      const { error: updateError } = await supabase
+        .from("profile_insurance_policies")
+        .update(fields)
+        .eq("id", match.row.id)
+        .eq("customer_id", customerId);
+      if (updateError) {
+        errors.push({ stage: "update", message: updateError.message, policy_id: match.row.id });
+        continue;
+      }
+      updated_policy_ids.push(match.row.id);
+      stored += 1;
+      // Refresh in-memory row for subsequent fingerprint matches in this batch.
+      match.row.insurer_name = fields.insurer_name;
+      match.row.product_name = fields.product_name;
+      match.row.monthly_premium = fields.monthly_premium;
+      match.row.coverage_summary = coverage_summary;
+      continue;
+    }
+
+    const insertRow = {
+      customer_id: customerId,
+      ...fields,
+    };
+    const { data: inserted, error: insertError } = await supabase
+      .from("profile_insurance_policies")
+      .insert(insertRow)
+      .select("id")
+      .single();
+    if (insertError) {
+      errors.push({ stage: "insert", message: insertError.message });
+      continue;
+    }
+    if (inserted?.id) {
+      created_policy_ids.push(inserted.id);
+      updated_policy_ids.push(inserted.id);
+      stored += 1;
+      activeRows.push({
+        id: inserted.id,
+        ...insertRow,
+      });
+    }
+  }
+
+  return {
+    ok: errors.length === 0 && stored > 0,
+    attempted: true,
+    stored,
+    updated_policy_ids,
+    created_policy_ids,
+    skipped_weak_merge,
+    errors,
+  };
+}
+
+function findExistingPolicyRowForInventoryFact(rows = [], fact = {}) {
+  const pn = String(fact.policy_number ?? "").trim().toLowerCase();
+  if (pn) {
+    const byPn = rows.find((row) => {
+      const rowPn = String(
+        row?.coverage_summary?.policy_number ??
+          row?.coverage_summary?.extraction_json?.policy_number ??
+          "",
+      )
+        .trim()
+        .toLowerCase();
+      return rowPn && rowPn === pn;
+    });
+    if (byPn) return { mode: "update", row: byPn };
+  }
+
+  const fp = policyInventoryStrongFingerprint(fact);
+  if (fp) {
+    const byFp = rows.find((row) => {
+      const rowFp = policyInventoryStrongFingerprint({
+        insurer: row.insurer_name,
+        product_name: row.product_name,
+        contract_date: row.effective_from ?? row.coverage_summary?.effective_from,
+        monthly_premium: row.monthly_premium,
+        maturity_date: row.coverage_summary?.maturity_date,
+      });
+      return rowFp && rowFp === fp;
+    });
+    if (byFp) return { mode: "update", row: byFp };
+  }
+
+  // Same source document + same weak core fields → update (re-upload idempotency).
+  const docId = String(fact.source_document_id ?? "").trim();
+  const insurer = String(fact.insurer ?? "").trim().toLowerCase();
+  const product = String(fact.product_name ?? "").trim().toLowerCase();
+  if (docId && insurer && product) {
+    const sameDoc = rows.filter(
+      (row) => String(row?.coverage_summary?.source_document_id ?? "").trim() === docId,
+    );
+    const hit = sameDoc.find((row) => {
+      const ri = String(row.insurer_name ?? "").trim().toLowerCase();
+      const rp = String(row.product_name ?? "").trim().toLowerCase();
+      if (ri !== insurer || rp !== product) return false;
+      if (fact.monthly_premium != null && row.monthly_premium != null) {
+        return Number(row.monthly_premium) === Number(fact.monthly_premium);
+      }
+      return fact.monthly_premium == null && row.monthly_premium == null;
+    });
+    if (hit) return { mode: "update", row: hit };
+  }
+
+  // Content-sha re-upload of identical originals: match prior document_read by fingerprint-lite.
+  const sha = String(fact.source_content_sha256 ?? "").trim().toLowerCase();
+  if (sha && insurer && product) {
+    const bySha = rows.find((row) => {
+      const rowSha = String(row?.coverage_summary?.source_content_sha256 ?? "")
+        .trim()
+        .toLowerCase();
+      if (rowSha !== sha) return false;
+      return (
+        String(row.insurer_name ?? "").trim().toLowerCase() === insurer &&
+        String(row.product_name ?? "").trim().toLowerCase() === product
+      );
+    });
+    if (bySha) return { mode: "update", row: bySha };
+  }
+
+  // Strong identity missing vs other customers' vague names — still insert document_read.
+  if (!pn && !fp) {
+    return { mode: "needs_confirmation_insert", row: null };
+  }
+  return { mode: "needs_confirmation_insert", row: null };
+}
+
+function buildCoverageSummaryFromInventoryFact(fact, existingRow = null) {
+  const existing =
+    existingRow?.coverage_summary && typeof existingRow.coverage_summary === "object"
+      ? existingRow.coverage_summary
+      : {};
+  const priorStatus = existing.verification_status ?? existing.key_verification_status ?? null;
+  const verification_status =
+    priorStatus === "insurer_verified" ? "insurer_verified" : "document_read";
+  const priorCustomerReported =
+    priorStatus === "customer_reported" ||
+    existing.customer_reported === true ||
+    existingRow?.source === "signup";
+
+  return {
+    ...existing,
+    source_document_id: fact.source_document_id,
+    ...(fact.source_content_sha256
+      ? { source_content_sha256: fact.source_content_sha256 }
+      : {}),
+    ...(fact.source_page_or_image != null
+      ? { source_page_or_image: fact.source_page_or_image }
+      : {}),
+    ...(fact.policy_number ? { policy_number: fact.policy_number } : {}),
+    ...(fact.payment_term ? { payment_period: fact.payment_term } : {}),
+    ...(fact.maturity_date ? { maturity_date: fact.maturity_date } : {}),
+    ...(fact.contract_date ? { effective_from: fact.contract_date } : {}),
+    ...(fact.contract_status ? { contract_status: fact.contract_status } : {}),
+    verification_status,
+    key_verification_status: verification_status,
+    ...(priorCustomerReported
+      ? {
+          customer_reported: true,
+          customer_reported_preserved: true,
+        }
+      : {}),
+    uncertain_fields: Array.isArray(fact.uncertain_fields) ? fact.uncertain_fields : [],
+    inventory_source: "key_claude_document_read",
+    needs_confirmation: !fact.policy_number && !policyInventoryStrongFingerprint(fact),
+  };
+}
+
+/**
+ * Multi-document KEY confirm: accept facts whose source_document_id is in owned set.
+ */
+export async function resolveKeyConfirmableFactsForOwnedDocuments({
+  supabase = null,
+  customerId = null,
+  activeDocumentIds = [],
+  facts = [],
+} = {}) {
+  const ids = [
+    ...new Set(
+      (Array.isArray(activeDocumentIds) ? activeDocumentIds : [])
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const rawFacts = Array.isArray(facts) ? facts : [];
+  if (rawFacts.length === 0 || ids.length === 0) {
+    return resolveKeyConfirmableFactsForPersist({
+      supabase,
+      customerId,
+      activeDocumentId: ids[0] ?? null,
+      facts: rawFacts,
+    });
+  }
+
+  const accepted = [];
+  const rejected = [];
+  let ownership_ok = true;
+  let ownership_query_count = 0;
+  for (const docId of ids) {
+    ownership_query_count += 1;
+    const owned = await assertOwnedActiveSourceDocument({
+      supabase,
+      customerId,
+      documentId: docId,
+    });
+    if (owned.ok !== true) {
+      ownership_ok = false;
+      continue;
+    }
+    const gated = selectKeyConfirmableSourceFacts({
+      facts: rawFacts.filter(
+        (f) => String(f?.source_document_id ?? "").trim() === docId,
+      ),
+      activeDocumentId: docId,
+      ownedActiveDocumentId: docId,
+      ownershipFailed: false,
+    });
+    accepted.push(...gated.accepted);
+    rejected.push(...gated.rejected);
+  }
+  // Facts pointing at unknown docs
+  for (const f of rawFacts) {
+    const sid = String(f?.source_document_id ?? "").trim();
+    if (sid && !ids.includes(sid)) {
+      rejected.push({ reason: "source_document_mismatch", fact_type: f?.fact_type ?? null });
+    }
+  }
+  return {
+    accepted,
+    gate: buildKeyConfirmedFactGateTrace({
+      attempted: true,
+      accepted,
+      rejected,
+      ownership_ok,
+      ownership_query_count,
+      active_document_present: ids.length > 0,
+    }),
   };
 }
 

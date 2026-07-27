@@ -180,7 +180,9 @@ import {
   normalizeKeyConfirmedSourceFacts,
   mergeKeyConfirmedSourceFacts,
   resolveKeyConfirmableFactsForPersist,
+  resolveKeyConfirmableFactsForOwnedDocuments,
   persistKeyConfirmedSourceFactsToPolicies,
+  persistPolicyInventoryFactsToPolicies,
   normalizeKeyCoverageBaselineFacts,
   mergeKeyCoverageBaselineFacts,
   keyValidateCoverageBaselineFacts,
@@ -193,6 +195,18 @@ import {
   filterKeyActiveClaimCasesByScope,
   isKeyClaimOpenStatus,
 } from "../documentPolicyUploadPersist.js";
+import {
+  buildKeyRecordSidecarHint,
+  isProgressOnlyCustomerAnswer,
+  normalizeKeyRecordSidecar,
+  splitCustomerAnswerAndKeyRecord,
+  stripKeyRecordFromStreamText,
+} from "./keyRecordSidecar.js";
+import {
+  normalizeAttachmentRowsForClaude,
+  normalizeImageOrientationForClaude,
+} from "./keyImageOrientation.js";
+import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
 import {
   canSupportCorporateClaims,
   loadHolderAuthorityGrants,
@@ -675,6 +689,64 @@ function extractConfirmedSourceFactsFromContent(content = [], defaults = {}) {
   return facts;
 }
 
+/** Lift sidecar inventory rows into KEY confirmed literal facts (document_read only). */
+function liftInventoryToConfirmedSourceFacts(inventory = []) {
+  const out = [];
+  for (const row of Array.isArray(inventory) ? inventory : []) {
+    const docId = String(row?.source_document_id ?? "").trim();
+    if (!docId) continue;
+    const base = {
+      source_document_id: docId,
+      ...(row.source_content_sha256
+        ? { source_content_sha256: row.source_content_sha256 }
+        : {}),
+      ...(row.policy_number ? { policy_number: row.policy_number } : {}),
+      ...(row.source_page_or_image != null
+        ? { source_locator: { page: row.source_page_or_image } }
+        : {}),
+    };
+    if (row.insurer) {
+      out.push({ ...base, fact_type: "insurer", literal_value: String(row.insurer) });
+    }
+    if (row.product_name) {
+      out.push({
+        ...base,
+        fact_type: "product_name",
+        literal_value: String(row.product_name),
+      });
+    }
+    if (row.monthly_premium != null) {
+      out.push({
+        ...base,
+        fact_type: "monthly_premium",
+        literal_value: String(row.monthly_premium),
+      });
+    }
+    if (row.contract_date) {
+      out.push({
+        ...base,
+        fact_type: "effective_from",
+        literal_value: String(row.contract_date),
+      });
+    }
+    if (row.maturity_date) {
+      out.push({
+        ...base,
+        fact_type: "maturity_date",
+        literal_value: String(row.maturity_date),
+      });
+    }
+    if (row.policy_number) {
+      out.push({
+        ...base,
+        fact_type: "policy_number",
+        literal_value: String(row.policy_number),
+      });
+    }
+  }
+  return normalizeKeyConfirmedSourceFacts(out);
+}
+
 function extractClaimCaseUpdatesFromContent(content = [], defaults = {}) {
   const blocks = Array.isArray(content) ? content : [];
   let cases = [];
@@ -786,10 +858,10 @@ export const RECORD_RECOMMENDATION_BASIS_TOOL = Object.freeze({
 const RECOMMENDATION_BASIS_TOOL_NAME = RECORD_RECOMMENDATION_BASIS_TOOL.name;
 
 /**
- * Assemble Claude-first answer tools from confirmed turn context only.
- * No new keyword/intent router — document attach bytes, loaded claim cases,
- * and the existing public web-search path decide inclusion.
- * Tool definitions and validation stay intact; this only chooses which schemas to send.
+ * Assemble Claude-first customer-answer tools.
+ * web_search may be used when Claude needs current public info.
+ * Client-side record_* / session_goal / basis tools are not sent — they can truncate
+ * the customer answer via tool_use. KEY inventory uses a non-blocking text sidecar.
  */
 export function buildClaudeFirstAnswerTools({
   pdfAttached = false,
@@ -797,22 +869,12 @@ export function buildClaudeFirstAnswerTools({
   question = "",
   history = [],
 } = {}) {
-  const tools = [];
-  const hasDoc = pdfAttached === true;
-  const hasClaim =
-    Array.isArray(activeClaimCases) && activeClaimCases.length > 0;
-  // Document-read / contract-confirm turns: web_search off by default (existing path).
-  const includeWeb =
-    !hasDoc && shouldEnablePublicWebSearch({ question, history });
-
-  if (includeWeb) tools.push(ANTHROPIC_WEB_SEARCH_TOOL);
-  if (hasDoc) {
-    tools.push(RECORD_CONFIRMED_SOURCE_FACTS_TOOL, RECORD_COVERAGE_BASELINE_FACTS_TOOL);
-  }
-  if (hasClaim) tools.push(RECORD_CLAIM_CASE_UPDATES_TOOL);
-  // GO3 + GO4A optional tools — never force an extra provider round-trip.
-  tools.push(RECORD_SESSION_GOAL_TOOL, RECORD_RECOMMENDATION_BASIS_TOOL);
-  return tools;
+  void pdfAttached;
+  void activeClaimCases;
+  void question;
+  void history;
+  void shouldEnablePublicWebSearch;
+  return [ANTHROPIC_WEB_SEARCH_TOOL];
 }
 
 export function listClaudeFirstAnswerToolNames(opts = {}) {
@@ -2148,13 +2210,16 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "보험 유도는 고객의 걱정과 현재 상황을 먼저 이해한 뒤, 지금 보장에서 함께 확인하면 좋은 점·필요한 서류·다음 점검을 제안하는 방식으로 한다. 실제 필요성이 확인되면 가입·유지·정리·보완을 근거와 함께 자신 있게 제안한다.",
     "보험 유도는 강요가 아니다. 근거 없는 상품 추천, 고객이 거절했는데 밀어붙이는 행동, '지금 가입하세요/해지해도 됩니다/무조건 이 상품' 같은 확정 지시, 모든 대화를 보험으로 끝내려는 기계적 행동은 하지 않는다.",
     "고객이 지금은 일상 이야기만 하고 싶어 하거나 보험 상담을 원하지 않으면 그 선택을 존중한다. 나중에 필요할 때 보험과 보장을 함께 볼 수 있다는 관계는 자연스럽게 남긴다.",
-    "제공된 질문, 대화, 검증 사실, 원본 첨부, 이전 상담 참고를 충분히 보고 스스로 이해하고, 필요한 경우 조사·검색·비교·계산·판단하여 답한다.",
-    "네가 완성한 답변이 고객이 듣는 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·판단·답변한다. 답변의 길이·구조·표현·표·후속 질문은 고객에게 가장 도움이 되는 방식으로 네가 자유롭게 결정한다.",
-    "검증된 고객 계약 사실과 법령·공공 기준을 구분하고, 고객 계약·담보·보험료 사실은 available_verified_evidence의 현재 검증 자료에만 근거한다.",
+    "고객 질문, 실제 원본, 검증된 고객 차트와 대화 맥락을 함께 이해한다. 문서 내용에 관한 질문은 첨부된 실제 원본을 직접 확인한다.",
+    "네가 완성한 답변이 고객이 듣는 최종 KEY 답변이다. 별도 추천 엔진·고정 답변 골격·필수 질문지·답변 재작성 없이, 한 번에 이해·비교·설계·추천·제안·답변한다. 답변의 길이·구조·표현·표·후속 질문은 고객에게 가장 도움이 되는 방식으로 네가 자유롭게 결정한다.",
+    "원본에서 명확히 확인한 값은 document_read 사실로 설명할 수 있다. 기존 검증 차트 사실은 그 출처와 검증 수준을 유지한다. 원본과 차트가 다르면 어느 쪽을 호출 전에 정답으로 단정하지 말고, 차이를 구분해 설명한다.",
+    "원본 확인 사실, 고객 진술, 해석·추론, 확인 불가를 구분한다. 추론과 설계는 자유롭게 하되 추론을 검증된 계약 사실처럼 말하지 않는다.",
     "과거 대화·이전 KEY 답변·삭제·retired 자료에 나온 계약·담보·보험료를 현재 사실처럼 말하지 않는다. 검증되지 않은 값을 '실손·운전자만 보유', '암·뇌·심장 없음', 특정 월 보험료 합계처럼 단정하지 않는다.",
     "계약상 수익자와 법정상속인을 같은 개념으로 취급하지 않는다. 가족관계·자금 부담자를 이름만으로 추정하지 않는다.",
+    "필요한 보험은 검증된 부족과 근거를 바탕으로 구체적으로 추천할 수 있다. 여러 대안이 유용하면 장단점과 우선순위를 비교한다. 현재 정보가 필요하면 제공된 검색 능력을 사용한다.",
     "보험 추천·맞춤 추천 질문에서는 정보 부족 감사·상황 요약 표·공백 표·나이·성별·가족·소득 필수 질문지로 답변을 축소하거나 멈추지 않는다. 현재 자료로 할 수 있는 판단과 추천을 첫 문장부터 바로 말한다.",
     "확인된 계약·담보는 정확히 설명하고, 부족·보완이 검증된 축은 구체적으로 추천한다. 확인되지 않은 부분은 '없음/미가입/공백'이 아니라 '확인되지 않음'으로 말한다.",
+    "'찾아볼게요', '확인해볼게요', '분석해드릴게요' 같은 진행 예고만 남기지 말고 현재 고객 질문에 완결된 답을 제공한다.",
     "자료가 부족할 때에는 대화를 짧게 포기하지 않고, 지금 판단 가능한 범위와 다음에 필요한 자료·확인 방법을 안내한다. 추가 질문은 정말 필요한 것 하나만 자연스럽게 묻는다.",
     "고정된 표·제목·문단 순서·'현재 확인된 상황 요약'·'지금 자료로 보이는 공백'·'추천을 제대로 드리려면' 같은 감사 템플릿을 강요하지 않는다.",
     "자동조회·본인인증 기능이 실제 작동하는 것처럼 말하지 않는다. 내보험다보여·보험다보여 안내를 자동으로 붙이지 않는다. 추가 자료가 정말 필요할 때만 보험증권 또는 보장내역서 업로드를 한 번 자연스럽게 요청할 수 있다. 추천 답변을 내보험다보여 안내로 끝내지 않는다.",
@@ -2191,12 +2256,15 @@ export function isAttachDocumentReadQuestion(_question = "") {
   return false;
 }
 
-/** @deprecated Slice 5 — Phase B removed. Always false. */
+/**
+ * Visual blocks channel is open on Claude-first — Claude decides when to emit.
+ * Same-message renderer only; no second Claude / table engine.
+ */
 export function wantsClaudeFirstVisualBlocks(
   _question = "",
   _opts = {},
 ) {
-  return false;
+  return true;
 }
 
 function normalizeCorporateContexts(corporateContexts = null) {
@@ -2721,53 +2789,9 @@ export function buildUserPayload({
   const softLifeLedger = softLifeLedgerContext(lifeLedgerBrief);
   const softPaymentTruth = softPaymentTruthContext(paymentTruthBrief);
 
-  // Image original read: question + conversation + original image only.
-  // No factory chart / OCR / contracts / corporate / claim cards mixed in.
-  if (isImageAttachMeta(pdfMeta)) {
-    return {
-      current_question: String(question ?? ""),
-      current_context: {
-        current_datetime: clock.current_datetime,
-        current_date: clock.current_date,
-        timezone: clock.timezone,
-        conversation: {
-          recent_conversation_originals:
-            contextPack?.recent_conversation_originals ??
-            contextPack?.recent_turns ??
-            [],
-          older_conversation_summary:
-            contextPack?.older_conversation_summary ??
-            contextPack?.older_summary ??
-            null,
-          retained_past_originals: contextPack?.retained_past_originals ?? [],
-        },
-        ...(softSessionGoal ? { session_goal: softSessionGoal } : {}),
-        ...(softPrior ? { prior_consultation: softPrior } : {}),
-        ...(softLifeThreads.length ? { life_threads: softLifeThreads } : {}),
-        ...(presenceContext && typeof presenceContext === "object"
-          ? { presence_context: presenceContext }
-          : {}),
-        ...(softAuthIdentity ? softAuthIdentity : {}),
-        ...(softDocSubject ? softDocSubject : {}),
-        // Image/PDF original read: full signup soft chart stays out; identity anchor may remain.
-        ...(softSignupOnboarding ? softSignupOnboarding : {}),
-        ...(ready_card ? { ready_card } : {}),
-      },
-      available_verified_evidence: {
-        personal: {
-          subject_type: "individual",
-          chart: null,
-          key_confirmed_source_facts: [],
-          active_claim_cases: [],
-          provenance: null,
-          evidence_state: "unknown",
-        },
-        corporate: [],
-        documents,
-        public_evidence: [],
-      },
-    };
-  }
+  // Image original + verified chart/KEY materials travel together.
+  // Do not null chart merely because an image is attached (GO 1-1).
+  // Fall through to the normal personal payload builder below.
 
   const corporate = buildCorporateEvidenceEntries({
     corporateContexts,
@@ -3623,17 +3647,27 @@ async function resolveOptionalPdfAttachment({
       };
     }
 
-    return {
-      pdfBase64: built.base64,
+    const oriented = await normalizeImageOrientationForClaude({
+      base64: built.base64,
       mediaType: built.mediaType,
+    });
+    return {
+      pdfBase64: oriented.base64 || built.base64,
+      mediaType: oriented.mediaType || built.mediaType,
       meta: {
         attached: true,
         document_id: documentId,
         original_filename: fetched.document?.original_filename ?? null,
-        mime_type: built.mediaType,
+        mime_type: oriented.mediaType || built.mediaType,
         storage_mime_type: fetched.mediaType ?? null,
         content_sha256: fetched.content_sha256 ?? null,
         claude_image_source: built.claude_image_source,
+        orientation: {
+          rotated: oriented.rotated === true,
+          before: oriented.orientation_before,
+          after: oriented.orientation_after,
+          reason: oriented.reason,
+        },
         attach_signals:
           built.attach_signals ??
           buildAttachOpsSignals({
@@ -3789,11 +3823,10 @@ async function callClaudeFirstDirect({
   }
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
   const imageOriginalRead = isImageAttachMeta(pdfMeta) && Boolean(pdfBase64);
-  const chart = imageOriginalRead ? null : buildVerifiedCustomerChart(reality);
+  // GO: original + verified chart always together — never chart=null merely because image attached.
+  const chart = presenceTurn === true ? null : buildVerifiedCustomerChart(reality);
   // Allowlist stays KEY-internal for hard-only — never shown in Claude payload.
-  const allowlist = imageOriginalRead
-    ? { allowed_numbers: [], allowed_entities: [] }
-    : collectVerifiedSpeakAllowlistFromReality(reality);
+  const allowlist = collectVerifiedSpeakAllowlistFromReality(reality);
   // Soft-deleted source turns must not re-enter Claude conversation pack.
   // Loader miss (null) → [] fail-closed. This-turn explicit document_id stays active.
   // Deleted-doc recheck (no current attach bytes) forces full attach scrub.
@@ -3829,49 +3862,37 @@ async function callClaudeFirstDirect({
     chart: presenceTurn === true ? null : chart,
     contextPack,
     pdfMeta: presenceTurn === true ? null : pdfMeta,
-    corporateContexts:
-      presenceTurn === true || imageOriginalRead ? null : corporateContexts,
-    corporateGapEvidence:
-      presenceTurn === true || imageOriginalRead ? null : corporateGapEvidence,
+    corporateContexts: presenceTurn === true ? null : corporateContexts,
+    corporateGapEvidence: presenceTurn === true ? null : corporateGapEvidence,
     corporateRecommendationCandidates:
-      presenceTurn === true || imageOriginalRead
-        ? null
-        : corporateRecommendationCandidates,
-    corporateUnknowns:
-      presenceTurn === true || imageOriginalRead ? null : corporateUnknowns,
+      presenceTurn === true ? null : corporateRecommendationCandidates,
+    corporateUnknowns: presenceTurn === true ? null : corporateUnknowns,
     selectedCorporateEntityId:
-      presenceTurn === true || imageOriginalRead ? null : selectedCorporateEntityId,
+      presenceTurn === true ? null : selectedCorporateEntityId,
     publicEvidence: [],
-    activeClaimCases:
-      presenceTurn === true || imageOriginalRead ? null : activeClaimCases,
-    insuranceClockBrief:
-      presenceTurn === true || imageOriginalRead ? null : insuranceClockBrief,
-    claimEvidenceBrief:
-      presenceTurn === true || imageOriginalRead ? null : claimEvidenceBrief,
-    lifeLedgerBrief:
-      presenceTurn === true || imageOriginalRead ? null : lifeLedgerBrief,
-    paymentTruthBrief:
-      presenceTurn === true || imageOriginalRead ? null : paymentTruthBrief,
+    activeClaimCases: presenceTurn === true ? null : activeClaimCases,
+    insuranceClockBrief: presenceTurn === true ? null : insuranceClockBrief,
+    claimEvidenceBrief: presenceTurn === true ? null : claimEvidenceBrief,
+    lifeLedgerBrief: presenceTurn === true ? null : lifeLedgerBrief,
+    paymentTruthBrief: presenceTurn === true ? null : paymentTruthBrief,
     sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
       priorConsultationForContext && typeof priorConsultationForContext === "object"
         ? priorConsultationForContext
         : null,
     now: requestNow,
-    readyCardMeta: presenceTurn === true || imageOriginalRead ? null : readyCardMeta,
+    readyCardMeta: presenceTurn === true ? null : readyCardMeta,
     presenceContext:
       presenceTurn === true && presenceContext && typeof presenceContext === "object"
         ? presenceContext
         : null,
-    // Full soft signup stays off presence / image-original; identity anchor remains.
-    signupOnboardingBrief:
-      presenceTurn === true || imageOriginalRead ? null : signupOnboardingBrief,
+    signupOnboardingBrief: presenceTurn === true ? null : signupOnboardingBrief,
     authenticatedCustomerIdentity,
     documentSubjectIdentity:
       presenceTurn === true ? null : documentSubjectIdentity,
   });
   const userPayloadBase =
-    presenceTurn === true || imageOriginalRead
+    presenceTurn === true
       ? userPayloadBuilt
       : applyCustomerViewModeToUserPayload(userPayloadBuilt, customerViewModeForPayload);
   const multiAttachments =
@@ -3889,24 +3910,29 @@ async function callClaudeFirstDirect({
       ? null
       : pdfMediaType || multiAttachments[0]?.mediaType || null;
   const pdfAttached = Boolean(primaryPdfBase64);
-  // Path A: when original is attached, send existing record_* tools in the SAME Claude call.
-  // Extract tool_use from the first response — never Continue / never second Claude call for facts.
-  // Public place/daily facts may use Anthropic server web_search only (existing tool).
+  // Customer path: no client-side record_* tools (tool_use must not truncate the answer).
+  // Sidecar after completed customer_answer carries KEY inventory facts non-blocking.
+  // web_search stays available even when originals are attached — Claude decides use.
   // Agent turn: KEY_AUDIENCE_PRIORITY (switch) before customer body; KEY_ROLE_BADGE appended after.
   // Customer turn: customer body only — no priority block. Question text never selects role.
   const agentRoleContract =
     isAgentAudienceTurn(audience, keyRoleContract) ? keyRoleContract : null;
   const publicWebSearchTools =
-    presenceTurn === true || imageOriginalRead || pdfAttached
+    presenceTurn === true
       ? []
-      : shouldEnablePublicWebSearch({ question, history })
-        ? [ANTHROPIC_WEB_SEARCH_TOOL]
-        : [];
-  const documentRecordTools =
-    presenceTurn !== true && pdfAttached
-      ? [RECORD_CONFIRMED_SOURCE_FACTS_TOOL, RECORD_COVERAGE_BASELINE_FACTS_TOOL]
-      : [];
-  const requestTools = [...publicWebSearchTools, ...documentRecordTools];
+      : [ANTHROPIC_WEB_SEARCH_TOOL];
+  const documentRecordTools = [];
+  const requestTools = [...publicWebSearchTools];
+  const attachDocumentIds = [
+    ...new Set(
+      [
+        pdfMeta?.document_id,
+        ...multiAttachments.map((row) => row?.document_id),
+      ]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
   let systemTextBase = composeClaudeFirstSystemText({
     presenceTurn: presenceTurn === true,
     audience,
@@ -3914,8 +3940,11 @@ async function callClaudeFirstDirect({
     question: presenceTurn === true ? "" : question,
     history: presenceTurn === true ? [] : history,
   });
-  if (documentRecordTools.length > 0) {
-    systemTextBase = `${systemTextBase}\n${buildConfirmedSourceFactsToolHint(pdfMeta)}`;
+  if (presenceTurn !== true && pdfAttached) {
+    systemTextBase = `${systemTextBase}\n${buildKeyRecordSidecarHint({
+      documentIds: attachDocumentIds,
+      primaryDocumentId: pdfMeta?.document_id ?? null,
+    })}`;
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -3956,6 +3985,13 @@ async function callClaudeFirstDirect({
   let providerUsage = pickAnthropicUsageNumbers(null);
   let confirmedSourceFacts = [];
   let coverageBaselineFacts = [];
+  let policyInventoryFacts = [];
+  let visualBlocks = [];
+  let keyRecordSidecarMeta = {
+    present: false,
+    ok: false,
+    error: null,
+  };
   const claimCaseUpdates = [];
   const sessionGoalRecord = null;
   const sessionGoalToolSeen = false;
@@ -3964,14 +4000,19 @@ async function callClaudeFirstDirect({
   const recommendationBasisTrace = emptyRecommendationBasisTrace();
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
+  const PROVIDER_TURN_TIMEOUT_MS = 180_000;
 
-  // Answer path: optional server web_search + same-turn record_* extract (no tool_result Continue).
+  // Answer path: server web_search may pause; no client record_* / no Continue for facts.
   let emptyAnswerDiag = {
     input: null,
     response: null,
   };
   let lastStopReason = null;
   const maxProviderTurns = publicWebSearchTools.length > 0 ? 3 : 1;
+  const streamProgressSafe = (text) => {
+    const visible = stripKeyRecordFromStreamText(text);
+    if (visible) onAnswerProgress?.(visible);
+  };
   for (let turn = 0; turn < maxProviderTurns; turn += 1) {
     const body = {
       model,
@@ -3996,17 +4037,45 @@ async function callClaudeFirstDirect({
       userPayload,
     });
 
-    const res = await fetchImpl(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), PROVIDER_TURN_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetchImpl(ANTHROPIC_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const aborted = err?.name === "AbortError" || /aborted/i.test(String(err?.message ?? err));
+      return {
+        ok: false,
+        error: aborted ? "ANTHROPIC_TIMEOUT" : "ANTHROPIC_FETCH_FAILED",
+        empty_answer_diag: emptyAnswerDiag,
+        model,
+        confirmed_source_facts: [],
+        coverage_baseline_facts: [],
+        policy_inventory_facts: [],
+        claim_case_updates: [],
+        visual_blocks: [],
+        pdf_attached: false,
+        pdf_attached_attempted: pdfAttached === true,
+        web_search_trace: {
+          ...webSearchTrace,
+          claude_messages_request_count: messagesRequestCount,
+          phase_b_call_count: 0,
+        },
+      };
+    }
     messagesRequestCount += 1;
     if (!res.ok) {
+      clearTimeout(timeoutId);
       const errText = await res.text().catch(() => "");
       const anthropic_upstream_diag = buildAnthropicUpstreamDiag({
         status: res.status,
@@ -4033,6 +4102,7 @@ async function callClaudeFirstDirect({
         model,
         confirmed_source_facts: confirmedSourceFacts,
         coverage_baseline_facts: coverageBaselineFacts,
+        policy_inventory_facts: policyInventoryFacts,
         claim_case_updates: claimCaseUpdates,
         pdf_attached: false,
         pdf_attached_attempted: pdfAttached === true,
@@ -4044,14 +4114,21 @@ async function callClaudeFirstDirect({
       };
     }
 
-    const streamed = await readAnthropicSseWithAnswerStream({
-      res,
-      startedAt,
-      onFirstContent: turn === 0 ? onFirstContent : null,
-      onAnswerProgress,
-    });
+    let streamed;
+    try {
+      streamed = await readAnthropicSseWithAnswerStream({
+        res,
+        startedAt,
+        onFirstContent: turn === 0 ? onFirstContent : null,
+        onAnswerProgress: streamProgressSafe,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (streamed.ttft_ms != null && lastTtft == null) lastTtft = streamed.ttft_ms;
-    if (streamed.streamed_answer) streamedAnswer = streamed.streamed_answer;
+    if (streamed.streamed_answer) {
+      streamedAnswer = stripKeyRecordFromStreamText(streamed.streamed_answer);
+    }
     if (streamed.stop_reason != null) lastStopReason = String(streamed.stop_reason);
     providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
 
@@ -4067,21 +4144,46 @@ async function callClaudeFirstDirect({
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
-    // Same-turn record_* extraction — never sends tool_result / never Continue for facts.
-    if (documentRecordTools.length > 0 && assistantContent.length) {
-      const factDefaults = {
+    // Non-blocking sidecar parse from plain text — never Continue / never second Claude.
+    const rawTextJoined = assistantContent
+      .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
+      .map((b) => String(b.text).trim())
+      .join("\n\n");
+    const split = splitCustomerAnswerAndKeyRecord(rawTextJoined || streamed.streamed_answer || "");
+    keyRecordSidecarMeta = {
+      present: split.sidecar_present === true,
+      ok: split.sidecar_ok === true,
+      error: split.sidecar_error,
+    };
+    if (split.sidecar_ok && split.key_record) {
+      const normalizedSidecar = normalizeKeyRecordSidecar(split.key_record, {
         source_document_id: pdfMeta?.document_id ?? null,
         source_content_sha256: pdfMeta?.content_sha256 ?? null,
-      };
-      confirmedSourceFacts = extractConfirmedSourceFactsFromContent(
-        assistantContent,
-        factDefaults,
+      });
+      policyInventoryFacts = normalizedSidecar.policy_inventory_facts;
+      confirmedSourceFacts = normalizeKeyConfirmedSourceFacts(
+        normalizedSidecar.confirmed_source_facts,
+        {
+          source_document_id: pdfMeta?.document_id ?? null,
+          source_content_sha256: pdfMeta?.content_sha256 ?? null,
+        },
       );
-      coverageBaselineFacts = extractCoverageBaselineFactsFromContent(
-        assistantContent,
-        factDefaults,
+      // Also lift inventory rows into confirmed literal facts when typed.
+      if (!confirmedSourceFacts.length && policyInventoryFacts.length) {
+        confirmedSourceFacts = liftInventoryToConfirmedSourceFacts(policyInventoryFacts);
+      }
+      coverageBaselineFacts = normalizeKeyCoverageBaselineFacts(
+        normalizedSidecar.coverage_baseline_facts,
       );
+      try {
+        visualBlocks = wantsClaudeFirstVisualBlocks(question)
+          ? normalizeVisualBlocks(normalizedSidecar.visual_blocks)
+          : [];
+      } catch {
+        visualBlocks = [];
+      }
     }
+    const customerVisible = split.customer_answer || stripKeyRecordFromStreamText(picked.customer_answer);
     webSearchTrace = accumulateWebSearchTrace(
       webSearchTrace,
       assistantContent,
@@ -4102,17 +4204,21 @@ async function callClaudeFirstDirect({
       }
     }
 
-    if (picked.customer_answer) {
-      lastPicked = { ...picked, source: picked.source || "plain_text" };
-      onAnswerProgress?.(picked.customer_answer);
-      // Client record_* never drives a second Claude call — break after first answer text.
+    if (customerVisible) {
+      lastPicked = {
+        customer_answer: customerVisible,
+        visual_blocks: visualBlocks,
+        decision: null,
+        session_goal: null,
+        source: picked.source || "plain_text",
+      };
+      streamProgressSafe(customerVisible);
       break;
     }
 
     if (!assistantContent.length) break;
 
     // Server web_search pause — re-send assistant content only (no user Continue text).
-    // Client tool_use (record_*) must NOT continue the provider loop.
     const usedServerSearch = assistantContent.some(
       (b) =>
         (b?.type === "server_tool_use" && b?.name === "web_search") ||
@@ -4128,6 +4234,7 @@ async function callClaudeFirstDirect({
   const customer_answer = String(
     lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
+  const progressOnly = isProgressOnlyCustomerAnswer(customer_answer);
 
   if (webSearchTrace.web_search_used) {
     webSearchTrace = {
@@ -4142,12 +4249,15 @@ async function callClaudeFirstDirect({
   };
 
   return {
-    ok: Boolean(customer_answer),
-    customer_answer,
+    ok: Boolean(customer_answer) && !progressOnly,
+    customer_answer: progressOnly ? "" : customer_answer,
+    progress_only_answer: progressOnly === true,
     confirmed_source_facts: confirmedSourceFacts,
     coverage_baseline_facts: coverageBaselineFacts,
+    policy_inventory_facts: policyInventoryFacts,
     claim_case_updates: claimCaseUpdates,
-    visual_blocks: [],
+    visual_blocks: visualBlocks,
+    key_record_sidecar: keyRecordSidecarMeta,
     // GO3: decision never generated/persisted on Claude-first.
     decision: null,
     session_goal: sessionGoalRecord,
@@ -4167,7 +4277,7 @@ async function callClaudeFirstDirect({
       : [],
     recommendation_basis_ok: recommendationBasisTrace.recommendation_basis_ok !== false,
     decision_persisted: false,
-    answer_source: lastPicked.source || (customer_answer ? "plain_text" : null),
+    answer_source: lastPicked.source || (customer_answer && !progressOnly ? "plain_text" : null),
     ttft_ms: lastTtft,
     chart,
     allowlist,
@@ -4179,14 +4289,18 @@ async function callClaudeFirstDirect({
     empty_answer_diag: emptyAnswerDiag,
     provider_usage: providerUsage,
     stop_reason: lastStopReason,
-    document_record_tools_sent: documentRecordTools.length,
+    document_record_tools_sent: 0,
     provider_messages_request_count: messagesRequestCount,
     prompt_cache: {
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,
       control: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
     },
-    error: customer_answer ? null : "empty_customer_answer",
+    error: progressOnly
+      ? "progress_only_answer"
+      : customer_answer
+        ? null
+        : "empty_customer_answer",
   };
 }
 
@@ -4529,13 +4643,15 @@ export async function runClaudeFirstDirectQuestionTurn({
     });
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
     if (vaultRecall.mode === "attach" && vaultRecall.attachments?.length) {
-      pdfAttachmentsForClaude = vaultRecall.attachments.map((row) => ({
+      const rawRows = vaultRecall.attachments.map((row) => ({
         base64: row.pdfBase64,
         mediaType: row.mediaType,
         document_id: row.document_id,
         original_filename: row.original_filename,
         content_sha256: row.content_sha256,
       }));
+      // Runtime EXIF/orientation normalize for Claude only — Storage originals untouched.
+      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows);
       explicitDocumentId = String(vaultRecall.attachments[0].document_id).trim();
     }
   }
@@ -5787,6 +5903,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Customer answer is fixed. Persist facts/baseline/claim cases only — never rewrite answer on failure.
   // GO1: KEY confirm gate — active doc + ownership + schema + source match — before persist.
   let keyConfirmedPersist = { attempted: false, ok: false, stored: 0 };
+  let keyInventoryPersist = { attempted: false, ok: false, stored: 0 };
   let keyConfirmedFactGate = {
     attempted: false,
     accepted_count: 0,
@@ -5796,18 +5913,38 @@ export async function runClaudeFirstDirectQuestionTurn({
     active_document_present: false,
   };
   let factsToPersist = [];
+  const ownedAttachDocumentIds = [
+    ...new Set(
+      [
+        pdf?.meta?.document_id,
+        ...(Array.isArray(pdfAttachmentsForClaude)
+          ? pdfAttachmentsForClaude.map((row) => row?.document_id)
+          : []),
+      ]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
   if (!usedFailure && userSupabase && customerId) {
     const rawFacts = Array.isArray(claude.confirmed_source_facts)
       ? claude.confirmed_source_facts
       : [];
     const activeDocumentId =
       String(pdf?.meta?.document_id ?? "").trim() || null;
-    const resolved = await resolveKeyConfirmableFactsForPersist({
-      supabase: userSupabase,
-      customerId,
-      activeDocumentId,
-      facts: rawFacts,
-    });
+    const resolved =
+      ownedAttachDocumentIds.length > 1
+        ? await resolveKeyConfirmableFactsForOwnedDocuments({
+            supabase: userSupabase,
+            customerId,
+            activeDocumentIds: ownedAttachDocumentIds,
+            facts: rawFacts,
+          })
+        : await resolveKeyConfirmableFactsForPersist({
+            supabase: userSupabase,
+            customerId,
+            activeDocumentId,
+            facts: rawFacts,
+          });
     keyConfirmedFactGate = resolved.gate;
     factsToPersist = resolved.accepted;
 
@@ -5828,6 +5965,31 @@ export async function runClaudeFirstDirectQuestionTurn({
         console.error("[key_confirmed_source_facts_persist]", keyConfirmedPersist);
       }
     }
+
+    // Policy inventory SSOT upsert — non-blocking; never rewrites sealed answer.
+    const inventoryFacts = Array.isArray(claude.policy_inventory_facts)
+      ? claude.policy_inventory_facts
+      : [];
+    if (inventoryFacts.length > 0) {
+      try {
+        keyInventoryPersist = await persistPolicyInventoryFactsToPolicies({
+          supabase: userSupabase,
+          customerId,
+          facts: inventoryFacts,
+          ownedDocumentIds: ownedAttachDocumentIds.length
+            ? ownedAttachDocumentIds
+            : null,
+        });
+      } catch (err) {
+        keyInventoryPersist = {
+          attempted: true,
+          ok: false,
+          stored: 0,
+          error: String(err?.message ?? err).slice(0, 200),
+        };
+        console.error("[key_policy_inventory_persist]", keyInventoryPersist);
+      }
+    }
   }
 
   // Hand after KEY seal + policy persist — never rewrite customer_answer.
@@ -5838,7 +6000,10 @@ export async function runClaudeFirstDirectQuestionTurn({
     reason: "not_run",
     customer_id: customerId ? String(customerId) : null,
   };
-  if (keyConfirmedPersist?.ok === true && customerId) {
+  if (
+    (keyConfirmedPersist?.ok === true || keyInventoryPersist?.ok === true) &&
+    customerId
+  ) {
     keyMemoryRebuild.attempted = true;
     try {
       const supabaseUrl = resolveSupabaseUrl(env);
@@ -6512,13 +6677,19 @@ export async function runClaudeFirstDirectQuestionTurn({
             : [],
           recommendation_basis_ok: claude.recommendation_basis_ok !== false,
           pdf_attached: claude.pdf_attached === true,
+          original_attachment_count:
+            Number(claude.original_attachment_count ?? 0) || 0,
           attach_signals: pdf?.meta?.attach_signals ?? null,
           web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
           public_evidence: Array.isArray(claude.public_evidence) ? claude.public_evidence : [],
           empty_answer_diag: claude.empty_answer_diag ?? null,
+          document_record_tools_sent:
+            Number(claude.document_record_tools_sent ?? 0) || 0,
+          key_record_sidecar: claude.key_record_sidecar ?? null,
           confirmed_source_facts_count: factsToPersist.length,
           key_confirmed_fact_gate: keyConfirmedFactGate,
           key_confirmed_persist: keyConfirmedPersist,
+          key_policy_inventory_persist: keyInventoryPersist,
           key_coverage_baseline_persist: keyBaselinePersist,
           key_verified_literal_conflict: keyVerifiedLiteralConflict,
           key_memory_rebuild: keyMemoryRebuild,

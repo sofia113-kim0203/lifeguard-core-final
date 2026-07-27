@@ -189,6 +189,16 @@ export function mapHomeBrainFactPayload(payload) {
       payload.presence_quiet === true ||
       payload.sales_director_trace?.key_compose_trace?.key_voice_trace?.presence_quiet ===
         true,
+    pdfAttached:
+      payload.pdf_attached === true ||
+      payload.sales_director_trace?.key_compose_trace?.key_voice_trace?.pdf_attached ===
+        true,
+    originalAttachmentCount: Number(
+      payload.original_attachment_count ??
+        payload.sales_director_trace?.key_compose_trace?.key_voice_trace
+          ?.original_attachment_count ??
+        0,
+    ) || 0,
     // Presentation strip — existing done fields only (no invent).
     keyStatus: extractKeyStatusFromDonePayload(payload),
   };

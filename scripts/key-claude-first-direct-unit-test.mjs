@@ -479,14 +479,15 @@ assert.equal(
   wantsClaudeFirstVisualBlocks("이 사진에서 병원명 찾아 표로 정리해줘.", {
     documentAttached: true,
   }),
-  false,
+  true,
+  "visual_blocks channel open — Claude decides emit",
 );
 assert.equal(
   wantsClaudeFirstVisualBlocks("내 보험 현황을 차트로 보여줘", {
     documentAttached: false,
   }),
-  false,
-  "Slice 5: Phase B removed",
+  true,
+  "visual_blocks channel open",
 );
 
 const attachPayload = buildUserPayload({
@@ -532,7 +533,10 @@ assert.equal(
   attachPayload.available_verified_evidence?.personal?.subject_type,
   "individual",
 );
-assert.equal(attachPayload.available_verified_evidence?.personal?.chart, null);
+assert.deepEqual(
+  attachPayload.available_verified_evidence?.personal?.chart,
+  { policy_count: { value: 22 }, subject: "personal", subject_type: "individual" },
+);
 assert.deepEqual(
   attachPayload.available_verified_evidence?.personal?.key_confirmed_source_facts,
   [],
@@ -646,7 +650,13 @@ assert.equal(/orientation|independently|column|지금 바로 말한다/i.test(pr
       document_id: "doc-hint",
     },
   });
-  assert.equal(payload.available_verified_evidence.personal.chart, null);
+  // GO 1-1: chart arg provided with image attach → chart kept (not nulled).
+  assert.deepEqual(payload.available_verified_evidence.personal.chart, {
+    policies: [],
+    policy_count: { value: 0 },
+    subject: "personal",
+    subject_type: "individual",
+  });
   assert.equal(
     Object.prototype.hasOwnProperty.call(
       payload.available_verified_evidence.documents[0],
@@ -716,7 +726,8 @@ assert.equal(
 
 assert.equal(
   wantsClaudeFirstVisualBlocks("잘못 읽은 것 같아", { documentAttached: true }),
-  false,
+  true,
+  "visual_blocks channel always open — Claude decides emit",
 );
 
 assert.equal(
@@ -980,21 +991,28 @@ const chartPolicies = {
     false,
     "success path must not inject monopoly stub",
   );
-  assert.equal(imageB64FromClaude, validJpeg8.toString("base64"));
-  assert.equal(sha256Hex(Buffer.from(imageB64FromClaude, "base64")), sha256Hex(validJpeg8));
+  // Runtime EXIF/orientation normalize may rewrite Claude bytes; Storage original untouched.
+  assert.ok(imageB64FromClaude, "image block sent to Claude");
+  assert.match(String(imageB64FromClaude), /^\/9j\//, "Claude receives JPEG base64");
   assert.equal(sawHint, false);
-  assert.equal(sawChartObject, false);
+  assert.equal(sawChartObject, true, "GO: chart kept with image original + policies");
   assert.equal(sawFillPressure, false);
-  // Path A: same-turn record_* tools when original attached (no Continue / provider stays 1).
-  assert.equal(toolNames.includes("record_confirmed_source_facts"), true, "record facts tool");
-  assert.equal(toolNames.includes("record_coverage_baseline_facts"), true, "record baseline tool");
+  // Live Claude-first: only web_search (no record_*). document_record_tools_sent=0.
+  assert.deepEqual(toolNames, ["web_search"], "attach turn tools = web_search only");
+  assert.equal(toolNames.includes("record_confirmed_source_facts"), false, "no record facts");
+  assert.equal(toolNames.includes("record_coverage_baseline_facts"), false, "no record baseline");
   assert.equal(toolNames.includes("record_session_goal"), false, "session_goal not on live path");
   assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice auto");
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
-    2,
-    "tools_sent=2 record_*",
+    1,
+    "tools_sent=1 web_search",
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.document_record_tools_sent,
+    0,
+    "document_record_tools_sent=0",
   );
   const signals =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.attach_signals;
@@ -1354,7 +1372,8 @@ const chartPolicies = {
   });
   assert.equal(claudeCalls, 1, "attach success: Claude-first single call (Phase B skipped)");
   assert.equal(sawImageBlock, true);
-  assert.equal(imageHash, sha256Hex(validJpeg8));
+  // Orientation normalize for Claude may change bytes; still must send an image hash.
+  assert.ok(imageHash && String(imageHash).length === 64, "Claude image hash present");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(
     result.customerText.includes(ATTACH_PROCESS_FAILED_CUSTOMER_TEXT),
@@ -1953,14 +1972,12 @@ const chartPolicies = {
   const customerAnswer =
     "이 문서에서 확인되는 계약자는 홍길동이고, 보장기간 표기는 9999세입니다.";
   let claudeCalls = 0;
-  let sawFactsTool = false;
+  let toolNames = [];
   let policyUpdates = [];
   const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
     const body = JSON.parse(String(opts?.body ?? "{}"));
-    sawFactsTool = (body.tools ?? []).some(
-      (t) => t?.name === RECORD_CONFIRMED_SOURCE_FACTS_TOOL.name,
-    );
+    toolNames = (body.tools ?? []).map((t) => t?.name).filter(Boolean);
     assert.equal(
       (body.tools ?? []).some((t) => t?.name === "emit_claude_full"),
       false,
@@ -2093,7 +2110,8 @@ const chartPolicies = {
   });
 
   assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
-  assert.equal(sawFactsTool, true, "Path A: record_* sent when original attached");
+  assert.deepEqual(toolNames, ["web_search"], "Path A: web_search only when original attached");
+  assert.equal(toolNames.includes("record_confirmed_source_facts"), false, "no record_*");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, customerAnswer);
   assert.equal(
@@ -2105,11 +2123,16 @@ const chartPolicies = {
       ?.phase_b_call_count,
     0,
   );
-  // Same-turn extract + persist attempt — never a second Claude call.
+  // Single provider call; live tools = web_search only.
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
-    2,
+    1,
+    "tools_sent=1 web_search",
+  );
+  assert.equal(
+    result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.document_record_tools_sent,
+    0,
   );
   void policyUpdates;
 }
@@ -2407,7 +2430,7 @@ const chartPolicies = {
   });
 
   assert.equal(claudeCalls, 1, "Claude-first call count must stay 1");
-  assert.equal(sawClaimTool, false, "customer-answer: tools not sent");
+  assert.equal(sawClaimTool, false, "customer-answer: claim tool not sent");
   assert.equal(sawHydratedCase, true);
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, customerAnswer);
@@ -2424,13 +2447,14 @@ const chartPolicies = {
     result.oneKeyCoreTrace?.legacy_paths_blocked?.includes("claim_bridge_speak"),
     true,
   );
-  // Slice 1B: preparation sidecar persists after sealed Claude answer (tools still 0).
+  // Slice 1B: preparation sidecar persists after sealed Claude answer (web_search only).
   // Claim / clock / payment-truth may each update profile_health; require claim write present.
   assert.ok(healthWrites.length >= 1);
   assert.equal(
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
       ?.tools_sent,
-    0,
+    1,
+    "tools_sent=1 web_search",
   );
   const prepIntake =
     result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.key_claim_intake_sidecar;
@@ -4029,7 +4053,7 @@ async function runGo2ConflictTurn({
 
 console.log("key-claude-first-direct-unit-test: PASS");
 
-// --- REQUEST LIGHTENING: confirmed-context tool assembly (no new keyword router) ---
+// --- REQUEST LIGHTENING: always web_search only (no record_* on live path) ---
 {
   const BEFORE = {
     general: [
@@ -4048,7 +4072,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
     ],
   };
 
-  // A: general question — facts/baseline/claim excluded; session_goal/basis included
+  // A: greeting — web_search only; no record_*
   {
     const names = listClaudeFirstAnswerToolNames({
       question: "안녕하세요. 짧게만 인사해 주세요.",
@@ -4056,17 +4080,12 @@ console.log("key-claude-first-direct-unit-test: PASS");
       pdfAttached: false,
       activeClaimCases: [],
     });
-    assert.equal(names.includes("record_session_goal"), true, "A: session_goal");
-    assert.equal(names.includes("record_recommendation_basis"), true, "A: basis");
+    assert.deepEqual(names, ["web_search"], "A: exact tool list");
+    assert.equal(names.includes("record_session_goal"), false, "A: no session_goal");
+    assert.equal(names.includes("record_recommendation_basis"), false, "A: no basis");
     assert.equal(names.includes("record_confirmed_source_facts"), false, "A: no facts");
     assert.equal(names.includes("record_coverage_baseline_facts"), false, "A: no baseline");
     assert.equal(names.includes("record_claim_case_updates"), false, "A: no claim");
-    assert.equal(names.includes("web_search"), false, "A: no web on plain greeting");
-    assert.deepEqual(
-      names,
-      ["record_session_goal", "record_recommendation_basis"],
-      "A: exact tool list",
-    );
 
     const hello = "안녕하세요. KEY입니다.";
     const counter = { n: 0 };
@@ -4091,16 +4110,16 @@ console.log("key-claude-first-direct-unit-test: PASS");
     assert.equal(counter.n, 1, "A: provider 1");
     assert.equal(result.customerText, hello, "A: answer");
     assert.equal(result.keySpeakOriginal, hello, "A: sealed");
-    assert.deepEqual(sawTools, [], "A: customer-answer request tools absent");
+    assert.deepEqual(sawTools, ["web_search"], "A: greeting live path sends web_search");
     assert.equal(
       result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
         ?.tools_sent,
-      0,
-      "A: tools_sent=0",
+      1,
+      "A: tools_sent=1",
     );
   }
 
-  // B: PDF document question — facts/baseline on; web/claim off without claim context
+  // B: PDF document question — still web_search only (no record_*)
   {
     const names = listClaudeFirstAnswerToolNames({
       question: "이 첨부 증권 내용 정리해 주세요.",
@@ -4108,27 +4127,32 @@ console.log("key-claude-first-direct-unit-test: PASS");
       pdfAttached: true,
       activeClaimCases: [],
     });
-    assert.equal(names.includes("record_confirmed_source_facts"), true, "B: facts");
-    assert.equal(names.includes("record_coverage_baseline_facts"), true, "B: baseline");
-    assert.equal(names.includes("record_session_goal"), true, "B: session_goal");
-    assert.equal(names.includes("record_recommendation_basis"), true, "B: basis");
-    assert.equal(names.includes("web_search"), false, "B: no web on document turn");
+    assert.deepEqual(names, ["web_search"], "B: web_search only");
+    assert.equal(names.includes("record_confirmed_source_facts"), false, "B: no facts");
+    assert.equal(names.includes("record_coverage_baseline_facts"), false, "B: no baseline");
+    assert.equal(names.includes("record_session_goal"), false, "B: no session_goal");
+    assert.equal(names.includes("record_recommendation_basis"), false, "B: no basis");
     assert.equal(names.includes("record_claim_case_updates"), false, "B: no claim");
-    assert.equal(names.length, 4, "B: tool count 4");
+    assert.equal(names.length, 1, "B: tool count 1");
 
     const tools = buildClaudeFirstAnswerTools({
       pdfAttached: true,
       activeClaimCases: [],
       question: "이 첨부 증권 내용 정리해 주세요.",
     });
+    assert.deepEqual(
+      tools.map((t) => t?.name),
+      ["web_search"],
+      "B: buildClaudeFirstAnswerTools = web_search",
+    );
     assert.equal(
       tools.some((t) => t === RECORD_CONFIRMED_SOURCE_FACTS_TOOL),
-      true,
-      "B: same tool object",
+      false,
+      "B: no record facts tool object",
     );
   }
 
-  // C: claim context present / absent
+  // C: claim context present / absent — claim tool never on live path
   {
     const withClaim = listClaudeFirstAnswerToolNames({
       question: "청구 진행 어디까지야?",
@@ -4140,23 +4164,21 @@ console.log("key-claude-first-direct-unit-test: PASS");
       pdfAttached: false,
       activeClaimCases: [],
     });
-    assert.equal(withClaim.includes("record_claim_case_updates"), true, "C: claim on");
-    assert.equal(withoutClaim.includes("record_claim_case_updates"), false, "C: claim off");
-    assert.equal(
-      withoutClaim.filter((n) => n === "record_claim_case_updates").length,
-      0,
-      "C: claim tool 0",
-    );
+    assert.deepEqual(withClaim, ["web_search"], "C: claim on → still web_search only");
+    assert.deepEqual(withoutClaim, ["web_search"], "C: claim off → web_search only");
+    assert.equal(withClaim.includes("record_claim_case_updates"), false, "C: claim tool off");
+    assert.equal(withoutClaim.includes("record_claim_case_updates"), false, "C: claim tool 0");
   }
 
-  // D: recommendation_basis still available on natural recommend; no extra provider call
+  // D: recommendation_basis not sent; no extra provider call; mid-turn basis skipped
   {
     const names = listClaudeFirstAnswerToolNames({
       question: "암 보장 보완 방향 짧게 추천해 주세요.",
       pdfAttached: false,
       activeClaimCases: [],
     });
-    assert.equal(names.includes("record_recommendation_basis"), true, "D: basis available");
+    assert.deepEqual(names, ["web_search"], "D: web_search only");
+    assert.equal(names.includes("record_recommendation_basis"), false, "D: no basis tool");
     const answerText = "확인된 계약을 기준으로 암 진단비 축부터 보면 좋겠습니다.";
     const counter = { n: 0 };
     const DOC = "doc-light-d";
@@ -4228,8 +4250,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
     assert.equal(
       result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.empty_answer_diag?.input
         ?.tools_sent,
-      0,
-      "D: tools_sent=0",
+      1,
+      "D: tools_sent=1 web_search",
     );
   }
 
@@ -4259,6 +4281,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
         },
       }),
     );
+    assert.deepEqual(afterGeneral, ["web_search"], "G: general = web_search");
+    assert.deepEqual(afterPdf, ["web_search"], "G: pdf = web_search");
     assert.ok(afterGeneral.length < BEFORE.general.length, "G: general lighter");
     assert.ok(afterPdf.length < BEFORE.pdf.length, "G: pdf lighter");
   }
@@ -4664,7 +4688,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   });
 
   assert.equal(claudeCalls, 1, "provider call count = 1 (no continue)");
-  assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice auto for record_*");
+  assert.deepEqual(firstToolChoice, { type: "auto" }, "tool_choice auto for web_search");
   assert.equal(result.key_monopoly_failure, false);
   assert.equal(result.customerText, answerText, "final answer ok");
   assert.equal(result.keySpeakOriginal, answerText);
@@ -4674,7 +4698,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(result.salesDirectorTrace?.session_goal, null, "session_goal tool skipped");
   const voice = result.salesDirectorTrace?.key_compose_trace?.key_voice_trace;
   assert.equal(voice?.recommendation_basis_tool_seen, false, "GO4 mid-turn skipped");
-  assert.equal(voice?.empty_answer_diag?.input?.tools_sent, 2, "tools_sent=2 record_*");
+  assert.equal(voice?.empty_answer_diag?.input?.tools_sent, 1, "tools_sent=1 web_search");
+  assert.equal(voice?.document_record_tools_sent, 0, "document_record_tools_sent=0");
 
   // Text-nudge continue removed: first-call answer kept; provider_calls stays 1.
   {
@@ -4940,10 +4965,11 @@ console.log("key-claude-first-direct-unit-test: PASS");
     assert.equal(stated.length, 0, "no outcome from Claude-like text");
   }
 
-  // integration: customer goal utterance → persistable session_goal; monopoly/tools absent
+  // integration: customer goal utterance → persistable session_goal; live tools = web_search only
   {
     let providerCalls = 0;
     let toolsSent = null;
+    let toolNames = [];
     const goalQ =
       "나는 새 보험부터 가입하기보다 기존 보험을 먼저 제대로 보고 싶어.";
     const result = await runClaudeFirstDirectQuestionTurn({
@@ -4981,6 +5007,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
       fetchImpl: async (_url, init) => {
         providerCalls += 1;
         const body = JSON.parse(String(init?.body ?? "{}"));
+        toolNames = (body.tools ?? []).map((t) => t?.name).filter(Boolean);
         toolsSent = Array.isArray(body.tools) ? body.tools.length : 0;
         return {
           ok: true,
@@ -4993,7 +5020,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
       },
     });
     assert.equal(providerCalls, 1);
-    assert.equal(toolsSent, 0, "tools absent on answer path");
+    assert.deepEqual(toolNames, ["web_search"], "web_search only on answer path");
+    assert.equal(toolsSent, 1, "tools_sent=1 web_search");
     assert.equal(result.key_monopoly_failure, false);
     assert.equal(result.salesDirectorTrace?.session_goal?.goal, "기존 보험을 먼저 보고 싶음");
     assert.equal(result.salesDirectorTrace?.session_goal?.status, "active");
@@ -5129,7 +5157,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   console.log("PROMPT CACHE PHASE1 PACKAGING CHECKS OK");
 }
 
-// --- Claim Guardian Slice 1A — KEY claim intake sidecar (post-answer, tools=0) ---
+// --- Claim Guardian Slice 1A — KEY claim intake sidecar (post-answer, web_search only) ---
 {
   const {
     buildKeyClaimIntakeUpdate,
@@ -5234,16 +5262,16 @@ console.log("key-claude-first-direct-unit-test: PASS");
   assert.equal(storedCases[0].source, "customer_statement");
   assert.equal(storedCases[0].status, "identified");
 
-  // Wire: claim intake after Claude answer; tools stay off; answer untouched on persist.
+  // Wire: claim intake after Claude answer; live tools = web_search only; answer untouched on persist.
   const customerAnswer =
     "지금은 확인된 계약·서류 기준으로 청구 준비를 같이 보면 됩니다. 지급은 확정할 수 없어요.";
   let claudeCalls = 0;
-  let sawTools = false;
+  let toolNames = [];
   let claimHealthWrites = [];
   const fetchImpl = async (_url, opts) => {
     claudeCalls += 1;
     const body = JSON.parse(String(opts?.body ?? "{}"));
-    sawTools = Array.isArray(body.tools) && body.tools.length > 0;
+    toolNames = (body.tools ?? []).map((t) => t?.name).filter(Boolean);
     return {
       ok: true,
       async json() {
@@ -5306,7 +5334,8 @@ console.log("key-claude-first-direct-unit-test: PASS");
     fetchImpl,
   });
   assert.equal(claudeCalls, 1);
-  assert.equal(sawTools, false, "tools=0 preserved");
+  assert.deepEqual(toolNames, ["web_search"], "live tools = web_search only");
+  assert.equal(toolNames.includes("record_claim_case_updates"), false, "no claim record tool");
   assert.equal(wired.customerText, customerAnswer);
   assert.equal(wired.key_monopoly_failure, false);
   const intake =
@@ -5723,7 +5752,7 @@ console.log("key-claude-first-direct-unit-test: PASS");
   const shaA = contentSha256Hex(jpegA);
   assert.ok(shaA && shaA.length === 64);
 
-  // A+G+H: vault recall “내 보험 분석해줘” → owned doc attach + record_* + 1 Claude call
+  // A+G+H: vault recall “내 보험 분석해줘” → owned doc attach + web_search only + 1 Claude call
   {
     let claudeCalls = 0;
     let imageBlocks = 0;
@@ -5919,8 +5948,14 @@ console.log("key-claude-first-direct-unit-test: PASS");
     assert.equal(claudeCalls, 1, "H: Claude calls = 1");
     assert.ok(imageBlocks >= 1, "A: Claude image/document block >= 1");
     assert.equal(imageBlocks, 1, "E sha: duplicate file attached once");
-    assert.equal(toolNames.includes("record_confirmed_source_facts"), true, "D tools");
-    assert.equal(toolNames.includes("record_coverage_baseline_facts"), true, "D tools");
+    assert.deepEqual(toolNames, ["web_search"], "D tools: web_search only");
+    assert.equal(toolNames.includes("record_confirmed_source_facts"), false, "D: no record_*");
+    assert.equal(toolNames.includes("record_coverage_baseline_facts"), false, "D: no record_*");
+    assert.equal(
+      result.salesDirectorTrace?.key_compose_trace?.key_voice_trace?.document_record_tools_sent,
+      0,
+      "document_record_tools_sent=0",
+    );
     assert.equal(result.key_monopoly_failure, false);
     assert.equal(result.customerText, answerText, "H seal preserved");
     assert.equal(result.customerText.includes("record_"), false, "no tool leak");

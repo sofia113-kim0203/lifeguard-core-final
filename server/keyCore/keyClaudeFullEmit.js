@@ -241,7 +241,8 @@ export function stripInternalReasoningFields(value, { depth = 0 } = {}) {
   return out;
 }
 
-function normalizeVisualBlocks(raw) {
+/** Normalize Claude visual_blocks for the existing same-message renderer. */
+export function normalizeVisualBlocks(raw) {
   if (!Array.isArray(raw)) return [];
   const allowed = new Set(CLAUDE_FULL_VISUAL_BLOCK_TYPES);
   return raw

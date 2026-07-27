@@ -22,6 +22,7 @@ import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.
 import {
   clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
+  isInsuranceDocumentRecallQuestion,
   isReusableActiveAttachmentId,
   normalizeActiveAttachment,
   scrubDeletedDocumentFromMessageActiveAttachments,
@@ -2089,10 +2090,16 @@ export default function LifeguardHomeChat({
         setThreads(recent);
       }
 
-      // KEY persist + deferred factory may update chart/baseline — refresh left/right rails only.
+      // KEY persist may update policy SSOT / chart — refresh left/right rails only.
       // B: do not let unified-state refresh replace the streamed customer_answer for this turn.
+      // Vault recall (no composer attach) also needs rail refresh after inventory upsert.
+      const shouldRefreshRailsAfterPersist =
+        Boolean(documentIdForTurn) ||
+        result?.pdfAttached === true ||
+        Number(result?.originalAttachmentCount ?? 0) > 0 ||
+        isInsuranceDocumentRecallQuestion(trimmed) === true;
       if (
-        documentIdForTurn &&
+        shouldRefreshRailsAfterPersist &&
         typeof session?.refreshSession === "function" &&
         !shouldClearActiveAttachmentAfterTurn(result)
       ) {
