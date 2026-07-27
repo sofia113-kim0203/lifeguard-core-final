@@ -145,6 +145,13 @@ import {
   softSignupOnboardingContext,
 } from "./keySignupOnboardingChart.js";
 import {
+  buildAuthenticatedCustomerIdentity,
+  buildDocumentSubjectIdentity,
+  detectFactIdentityMismatch,
+  softAuthenticatedCustomerIdentityContext,
+  softDocumentSubjectIdentityContext,
+} from "./keyCustomerIdentitySeparation.js";
+import {
   buildLifeLedgerHandBrief,
   buildLifeLedgerUpdatesFromUtterance,
   filterLifeLedgerByScope,
@@ -1769,6 +1776,7 @@ const CLOSED_HARD = new Set([
   "unsupported_public_research_claim",
   "unsupported_place_claim",
   "unsourced_public_assertion",
+  "fact_identity_mismatch",
 ]);
 
 export function isClaudeFirstDirectPreview(env = process.env) {
@@ -2143,7 +2151,9 @@ export function buildSystemPrompt({ presenceTurn = false } = {}) {
     "입력 current_context.claim_evidence가 있으면 KEY가 소유한 청구 증거 패키지 참고다. held/submitted/insurer/outcome과 verification_status(original·customer_reported·insurer_verified·unverified)만 사용한다. 문서에 없는 사실·거절 사유를 만들지 말고, 고객 진술을 보험사 확인처럼 말하지 않는다. 원본·추출·해석을 섞지 않는다.",
     "입력 current_context.life_ledger가 있으면 KEY가 소유한 고객 장기 맥락 참고다. goals·preferences·decisions·open_questions·life_threads·outcomes만 사용한다. 참고용이며 답변 템플릿·강제 추천·답변 차단에 쓰지 않는다. 저장되지 않은 목표·선호·생활 맥락을 만들지 말고, 고객이 말하지 않은 의사를 단정하지 않는다.",
     "입력 current_context.payment_truth_map이 있으면 KEY가 조립한 고객별 지급 진실 맵 참고다. policy↔claim↔submission↔outcome↔insurer_response↔reason_verbatim↔evidence_ids↔verification_status만 사용한다. reason_verbatim(문서 원문)과 reason_customer_stated(고객 진술)를 섞지 말고, customer_reported를 insurer_verified처럼 말하지 않는다. 부지급 확률·보험사 의도·교차고객 일반화를 만들지 않는다.",
-    "입력 current_context.signup_onboarding이 있으면 가입 과정에서 고객이 직접 입력한 건강·보험 정보다. source=signup_onboarding, customer_reported=true, verified=false다. 질문에 답할 때 저장된 값을 그대로 말하고, 가입 시 고객이 직접 입력한 정보이며 아직 증권·청약서·의료서류로 확인되지 않았다고 구분한다. 확인된 계약·확정 병력처럼 단정하지 않는다. 정보가 있는데 '보관하지 않는다/확인할 자료가 없다/가입 보험사에 문의하라'고 말하지 않는다.",
+    "입력 current_context.signup_onboarding이 있으면 가입 과정에서 고객이 직접 입력한 건강·보험 정보다. source=signup_onboarding, customer_reported=true, verified=false다. 질문에 답할 때 저장된 값을 그대로 말하고, 가입 시 고객이 직접 입력한 정보이며 아직 증권·청약서·의료서류로 확인되지 않았다고 구분한다. 확인된 계약·확정 병력처럼 단정하지 않는다. 정보가 있는데 '보관하지 않는다/확인할 자료가 없다/가입 보험사에 문의하라/등록된 고객 기록이 없다'고 말하지 않는다.",
+    "입력 current_context.authenticated_customer_identity는 현재 로그인한 고객의 최소 정체성 앵커다. 이름·성별·출생연도는 이 앵커와 profile/signup 근거가 있을 때만 말한다. 문서 피보험자·계약자를 이 앵커로 바꾸지 않는다.",
+    "입력 current_context.document_subject_identity는 문서 속 인물(계약자·피보험자·수익자·진단/청구 주체)이다. 문서 주체를 로그인 고객 본인으로 자동 승격하지 않는다. same_as_authenticated_customer=false이면 다른 사람이다. true는 고객의 명시적 확인 또는 검증 근거 없이는 쓰지 않으며, 이름만 같다고 true로 단정하지 않는다. 가족·자녀·배우자·직원 문서 분석은 허용하되 관계를 추측하지 않는다.",
   ];
   if (presenceTurn === true) {
     lines.push(buildPresenceSystemAddendum());
@@ -2424,7 +2434,7 @@ function buildDocumentsEvidence(pdfMeta = null) {
         evidence_state: "attached",
         // C: document parties are not the logged-in customer profile.
         document_subject_vs_customer:
-          "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields.",
+          "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields. Use current_context.document_subject_identity and authenticated_customer_identity separately.",
         ...reviewFields,
       },
       ...listing.filter((row) => String(row.document_id) !== String(pdfMeta.document_id ?? "")),
@@ -2449,7 +2459,7 @@ function buildDocumentsEvidence(pdfMeta = null) {
             ? "reused_without_full_original"
             : "missing",
         document_subject_vs_customer:
-          "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields.",
+          "Document insured/policyholder facts belong to the contract document, not automatic customer profile fields. Use current_context.document_subject_identity and authenticated_customer_identity separately.",
         ...reviewFields,
       },
       ...listing.filter((row) => String(row.document_id) !== String(pdfMeta.document_id ?? "")),
@@ -2637,6 +2647,8 @@ export function buildUserPayload({
   readyCardMeta = null,
   presenceContext = null,
   signupOnboardingBrief = null,
+  authenticatedCustomerIdentity = null,
+  documentSubjectIdentity = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
@@ -2644,6 +2656,10 @@ export function buildUserPayload({
   const ready_card =
     readyCardMeta && typeof readyCardMeta === "object" ? readyCardMeta : null;
   const softSignupOnboarding = softSignupOnboardingContext(signupOnboardingBrief);
+  const softAuthIdentity = softAuthenticatedCustomerIdentityContext(
+    authenticatedCustomerIdentity,
+  );
+  const softDocSubject = softDocumentSubjectIdentityContext(documentSubjectIdentity);
   const softSessionGoal =
     sessionGoal &&
     typeof sessionGoal === "object" &&
@@ -2710,6 +2726,9 @@ export function buildUserPayload({
         ...(presenceContext && typeof presenceContext === "object"
           ? { presence_context: presenceContext }
           : {}),
+        ...(softAuthIdentity ? softAuthIdentity : {}),
+        ...(softDocSubject ? softDocSubject : {}),
+        // Image/PDF original read: full signup soft chart stays out; identity anchor may remain.
         ...(softSignupOnboarding ? softSignupOnboarding : {}),
         ...(ready_card ? { ready_card } : {}),
       },
@@ -2807,6 +2826,8 @@ export function buildUserPayload({
       ...(softClaimEvidence ? softClaimEvidence : {}),
       ...(softLifeLedger ? softLifeLedger : {}),
       ...(softPaymentTruth ? softPaymentTruth : {}),
+      ...(softAuthIdentity ? softAuthIdentity : {}),
+      ...(softDocSubject ? softDocSubject : {}),
       ...(softSignupOnboarding ? softSignupOnboarding : {}),
       ...(ready_card ? { ready_card } : {}),
     },
@@ -3623,7 +3644,15 @@ async function resolveOptionalPdfAttachment({
 /**
  * Concrete CLOSED hard only — soft reasons never veto or rewrite.
  */
-export function hardOnlySafetyCheck(text, { allowed_numbers = [], allowed_entities = [] } = {}) {
+export function hardOnlySafetyCheck(
+  text,
+  {
+    allowed_numbers = [],
+    allowed_entities = [],
+    authenticatedCustomerIdentity = null,
+    documentSubjectIdentity = null,
+  } = {},
+) {
   const insurerGuess =
     allowed_entities.find((e) => /생명|손보|화재|해상|보험/.test(String(e))) ?? null;
   const directive = {
@@ -3659,11 +3688,21 @@ export function hardOnlySafetyCheck(text, { allowed_numbers = [], allowed_entiti
   if (!String(text ?? "").trim() && !hard.includes("empty_answer")) {
     hard.push("empty_answer");
   }
+  const identityMismatch = detectFactIdentityMismatch(text, {
+    authenticatedCustomerIdentity,
+    documentSubjectIdentity,
+  });
+  if (identityMismatch.hard_fail) {
+    for (const reason of identityMismatch.hard) {
+      if (!hard.includes(reason)) hard.push(reason);
+    }
+  }
   return {
     hard_fail: hard.length > 0,
     hard,
     soft: (gate.reasons ?? []).filter((r) => !hard.includes(r)),
     jailbreak_detail: jail,
+    identity_mismatch_detail: identityMismatch.detail,
   };
 }
 
@@ -3704,6 +3743,10 @@ async function callClaudeFirstDirect({
   presenceTurn = false,
   /** Customer-reported signup health/insurance — never verified chart. */
   signupOnboardingBrief = null,
+  /** Minimal login-customer identity anchor — kept on presence / image turns. */
+  authenticatedCustomerIdentity = null,
+  /** Document parties only — never auto-promoted to login customer. */
+  documentSubjectIdentity = null,
   /** Unified view mode — filters personal/corporate packs before Claude. */
   customerViewModeForPayload = null,
   /** Structured KEY role badge from oneKeyCoreTurn — speech/stance only. */
@@ -3795,8 +3838,12 @@ async function callClaudeFirstDirect({
       presenceTurn === true && presenceContext && typeof presenceContext === "object"
         ? presenceContext
         : null,
+    // Full soft signup stays off presence / image-original; identity anchor remains.
     signupOnboardingBrief:
       presenceTurn === true || imageOriginalRead ? null : signupOnboardingBrief,
+    authenticatedCustomerIdentity,
+    documentSubjectIdentity:
+      presenceTurn === true ? null : documentSubjectIdentity,
   });
   const userPayloadBase =
     presenceTurn === true || imageOriginalRead
@@ -4263,6 +4310,11 @@ export async function runClaudeFirstDirectQuestionTurn({
   const signupOnboardingBrief = extractSignupOnboardingChartMaterial(
     unifiedState?.health_details ?? null,
   );
+  const authenticatedCustomerIdentity = buildAuthenticatedCustomerIdentity({
+    customerId,
+    profile: unifiedState?.profile ?? null,
+    signupOnboardingBrief,
+  });
 
   // Triangle T6 — Presence materials (listen_focus). No PDF parallel Claude.
   const lifeThreadsForPresence = Array.isArray(priorConsultationForContext?.life_threads)
@@ -4911,6 +4963,20 @@ export async function runClaudeFirstDirectQuestionTurn({
         customerId,
       });
 
+  const documentSubjectIdentity = isPresenceTurn
+    ? null
+    : buildDocumentSubjectIdentity({
+        pdfMeta: pdfMetaForClaude,
+        documentEvidence: documentChunksForClaude,
+        policies,
+        authenticatedCustomerIdentity,
+        documentInPlay:
+          Boolean(pdfMetaForClaude?.document_id) ||
+          Boolean(pdfMetaForClaude?.attached) ||
+          (Array.isArray(documentChunksForClaude) && documentChunksForClaude.length > 0) ||
+          (Array.isArray(activeDocumentsForHistory) && activeDocumentsForHistory.length > 0),
+      });
+
   const questionClaudeStartMs = relMs(startedAt);
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
@@ -4953,7 +5019,11 @@ export async function runClaudeFirstDirectQuestionTurn({
     readyCardMeta: isPresenceTurn ? null : readyCardMeta,
     presenceContext: isPresenceTurn ? presenceContextBuilt : null,
     presenceTurn: isPresenceTurn,
+    // Customer question turns: keep soft signup even with empty history / empty verified chart.
+    // Presence: no full signup force-inject. Image original: handled inside callClaudeFirstDirect.
     signupOnboardingBrief: isPresenceTurn ? null : signupOnboardingBrief,
+    authenticatedCustomerIdentity,
+    documentSubjectIdentity,
     customerViewModeForPayload: isPresenceTurn
       ? null
       : {
@@ -5149,9 +5219,12 @@ export async function runClaudeFirstDirectQuestionTurn({
   let usedFailure = false;
   let failureReason = null;
   // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
+  // fact_identity_mismatch is recorded only; does not rewrite customer text.
   let safety = hardOnlySafetyCheck(presenceChoseSilence ? "" : claude.customer_answer, {
     allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
     allowed_entities: claude.allowlist?.allowed_entities ?? [],
+    authenticatedCustomerIdentity,
+    documentSubjectIdentity,
   });
   let replacingHard = [];
   let alreadyCommitted =
