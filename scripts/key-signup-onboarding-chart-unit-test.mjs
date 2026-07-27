@@ -11,7 +11,11 @@ import {
   softSignupOnboardingContext,
   SIGNUP_ONBOARDING_CHART_SOURCE,
 } from "../server/keyCore/keySignupOnboardingChart.js";
-import { buildUserPayload, buildSystemPrompt } from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  buildUserPayload,
+  buildSystemPrompt,
+  buildDomainContextSystemAddendum,
+} from "../server/keyCore/keyClaudeFirstDirect.js";
 import { buildSourceSummaryFromUnifiedState } from "../server/unifiedCustomerState.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -110,9 +114,13 @@ assert.equal(
 );
 
 const prompt = buildSystemPrompt();
-assert.match(prompt, /signup_onboarding/);
-assert.match(prompt, /customer_reported/);
-assert.match(prompt, /verified=false/);
+assert.equal(/signup_onboarding/.test(prompt), false, "signup detail is dynamic DOMAIN_CONTEXT");
+const domain = buildDomainContextSystemAddendum({
+  signupOnboardingBrief: soft.signup_onboarding,
+});
+assert.match(domain, /signup_onboarding/);
+assert.match(domain, /customer_reported/);
+assert.match(domain, /verified=false/);
 
 const summary = buildSourceSummaryFromUnifiedState({
   profile: { display_name: "김직행" },

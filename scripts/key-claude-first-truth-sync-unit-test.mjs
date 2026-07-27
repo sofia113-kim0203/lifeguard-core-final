@@ -252,13 +252,16 @@ assert.equal(isProgressOnlyCustomerAnswer("원본 기준으로 12건입니다. �
   assert.equal(wantsClaudeFirstVisualBlocks("표로"), true);
 }
 
-// System prompt conflict removed / allowances present
+// System prompt full replacement — ledger authority + insurance transition
 {
   const prompt = buildSystemPrompt();
-  assert.match(prompt, /실제 원본을 직접 확인/);
-  assert.match(prompt, /구체적으로 추천/);
-  assert.match(prompt, /장단점과 우선순위/);
-  assert.match(prompt, /최고 수준의 보험 설계 전문가처럼/);
+  assert.match(prompt, /AI 보험 주치의 KEY/);
+  assert.match(prompt, /VERIFIED_POLICY_LEDGER/);
+  assert.match(prompt, /active_distinct_count/);
+  assert.match(prompt, /insurance_transition/);
+  assert.match(prompt, /먼저 고객이 지금 물은 질문에 충실/);
+  assert.match(prompt, /최고 수준의 보험 전문가/);
+  assert.equal(/유일한 보험 설계사 KEY/.test(prompt), false);
   assert.equal(/available_verified_evidence의 현재 검증 자료에만 근거/.test(prompt), false);
 }
 

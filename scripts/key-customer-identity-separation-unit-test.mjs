@@ -11,6 +11,7 @@ import {
 } from "../server/keyCore/keyCustomerIdentitySeparation.js";
 import {
   buildSystemPrompt,
+  buildDomainContextSystemAddendum,
   buildUserPayload,
   hardOnlySafetyCheck,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
@@ -130,9 +131,19 @@ assert.ok(presencePayload.current_context.authenticated_customer_identity);
 assert.equal(presencePayload.current_context.signup_onboarding, undefined);
 
 const prompt = buildSystemPrompt();
-assert.match(prompt, /authenticated_customer_identity/);
-assert.match(prompt, /document_subject_identity/);
-assert.match(prompt, /등록된 고객 기록이 없다/);
+assert.equal(
+  /authenticated_customer_identity/.test(prompt),
+  false,
+  "identity detail is dynamic DOMAIN_CONTEXT",
+);
+const domain = buildDomainContextSystemAddendum({
+  authenticatedCustomerIdentity: auth,
+  documentSubjectIdentity: { same_as_authenticated_customer: false },
+  signupOnboardingBrief: { source: "signup_onboarding" },
+});
+assert.match(domain, /authenticated_customer_identity/);
+assert.match(domain, /document_subject_identity/);
+assert.match(domain, /등록된 고객 기록이 없다/);
 
 const mismatch = detectFactIdentityMismatch(
   "고객님 본인은 김수정입니다. 1976년생이세요.",

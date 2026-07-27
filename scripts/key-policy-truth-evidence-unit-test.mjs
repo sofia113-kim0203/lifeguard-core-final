@@ -322,12 +322,14 @@ assert.equal(extractCustomerReportedPolicyCount("파일상으로 7건"), 7);
   assert.match(addendum, /전체 건수로 단정하지/);
 }
 
-// Prompt expert sentence + count authority language
+// Prompt base replacement — ledger authority language
 {
   const prompt = buildSystemPrompt();
-  assert.match(prompt, /최고 수준의 보험 설계 전문가처럼/);
-  assert.match(prompt, /KEY라는 하나의 존재/);
+  assert.match(prompt, /최고 수준의 보험 전문가/);
+  assert.match(prompt, /언제나 KEY로 말한다/);
   assert.match(prompt, /VERIFIED_POLICY_LEDGER/);
+  assert.match(prompt, /active_distinct_count/);
+  assert.match(prompt, /EVIDENCE_SCOPE/);
 }
 
 // Payload source separation

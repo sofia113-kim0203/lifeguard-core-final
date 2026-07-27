@@ -7,6 +7,7 @@ import {
   extractPartialCustomerAnswer,
   hardOnlySafetyCheck,
   buildSystemPrompt,
+  buildDomainContextSystemAddendum,
   splitUserPayloadForPromptCache,
   buildClaudeFirstCachedRequestParts,
   pickAnthropicUsageNumbers,
@@ -185,23 +186,19 @@ const hard = hardOnlySafetyCheck("지금 가입하세요. 해지해도 됩니다
 assert.equal(hard.hard_fail, true);
 
 const prompt = buildSystemPrompt();
-assert.match(prompt, /유일한 보험 설계사 KEY/);
-assert.match(prompt, /일상 대화/);
-assert.match(prompt, /자연스럽게 상담으로 이끈다/);
-assert.match(prompt, /가입·유지·정리·보완/);
+assert.match(prompt, /AI 보험 주치의 KEY/);
+assert.match(prompt, /insurance_transition/);
+assert.match(prompt, /먼저 고객이 지금 물은 질문에 충실/);
+assert.match(prompt, /VERIFIED_POLICY_LEDGER/);
 assert.match(prompt, /최종 KEY 답변/);
 assert.equal(/웹 검색어|record_session_goal|record_recommendation_basis|record_claim_case_updates|record_confirmed_source_facts/.test(prompt), false);
-assert.match(prompt, /보험 추천·맞춤 추천/);
-assert.match(prompt, /첫 문장부터 바로 말한다/);
-assert.match(prompt, /확인되지 않음/);
-assert.match(prompt, /내보험다보여·보험다보여 안내를 자동으로 붙이지 않는다/);
-assert.match(prompt, /추천 답변을 내보험다보여 안내로 끝내지 않는다/);
-assert.match(prompt, /prior_consultation/);
+assert.match(prompt, /구체적으로 추천/);
+assert.match(prompt, /필요하지 않은 보험은 권하지 않는다/);
+assert.equal(/유일한 보험 설계사 KEY/.test(prompt), false);
 assert.equal(/부족하면 무엇이 부족한지 구체적으로 밝힌다/.test(prompt), false);
 assert.equal(/올려주시면 정리·확인한다고 말하고/.test(prompt), false);
 assert.equal(/내보험다보여 조회자료/.test(prompt), false);
-assert.equal(/자료가 더 필요하면/.test(prompt), false);
-assert.equal(/No emoji|Tone \(required\)|emit_claude_full|특약|ATTACHED FILE/i.test(prompt), false);
+assert.equal(/No emoji|Tone \(required\)|emit_claude_full|ATTACHED FILE/i.test(prompt), false);
 
 {
   const mixed = extractPoliciesFromContext({
@@ -464,7 +461,7 @@ assert.equal(heicDenied.ok, false);
 assert.equal(heicDenied.reason, "mime_not_supported_for_direct");
 
 const promptImage = buildSystemPrompt();
-assert.match(promptImage, /유일한 보험 설계사 KEY/);
+assert.match(promptImage, /AI 보험 주치의 KEY/);
 assert.equal(/웹 검색어|record_confirmed_source_facts|record_session_goal/.test(promptImage), false);
 assert.equal(/9999세|종신형|ATTACHED FILE|emit_claude_full|Tone \(required\)/i.test(promptImage), false);
 
@@ -636,7 +633,7 @@ assert.equal(
 );
 
 const promptTable = buildSystemPrompt();
-assert.match(promptTable, /유일한 보험 설계사 KEY/);
+assert.match(promptTable, /AI 보험 주치의 KEY/);
 assert.equal(/orientation|independently|column|지금 바로 말한다/i.test(promptTable), false);
 
 {
@@ -1908,8 +1905,11 @@ const chartPolicies = {
 
   const sys = buildSystemPrompt();
   assert.equal(/상속\s*모드|세무\s*persona|classifier/i.test(sys), false);
-  assert.ok(sys.includes("법정상속인"));
-  assert.ok(sys.includes("내부 필드명"));
+  assert.ok(sys.includes("장부 필드명") || sys.includes("내부"));
+  const domainIdentity = buildDomainContextSystemAddendum({
+    documentSubjectIdentity: { same_as_authenticated_customer: false },
+  });
+  assert.ok(domainIdentity.includes("법정상속인"));
 }
 
 // --- KEY confirmed source facts → customer card (existing coverage_summary) ---
@@ -2238,7 +2238,11 @@ const chartPolicies = {
 {
   assert.equal(RECORD_CLAIM_CASE_UPDATES_TOOL.name, "record_claim_case_updates");
   assert.equal(String(buildSystemPrompt()).includes("record_claim_case_updates"), false);
-  const claimSpeakPrompt = String(buildSystemPrompt());
+  const claimSpeakPrompt = String(
+    buildDomainContextSystemAddendum({
+      activeClaimCases: [{ status: "identified", source: "customer_utterance" }],
+    }),
+  );
   assert.match(claimSpeakPrompt, /사실 확인이 필요한 후보/);
   assert.match(claimSpeakPrompt, /내부적으로 기록해뒀어요/);
   assert.match(claimSpeakPrompt, /진행 중 보험금 청구는 없습니다/);
@@ -3467,7 +3471,12 @@ async function runGo2ConflictTurn({
     );
   }
 
-  assert.match(buildSystemPrompt(), /참고용/);
+  assert.match(
+    buildDomainContextSystemAddendum({
+      sessionGoal: { goal: "보장 점검", status: "active" },
+    }),
+    /참고용/,
+  );
   assert.equal(resolveSessionGoalForContext(null, "x"), null);
 }
 
@@ -3482,7 +3491,13 @@ async function runGo2ConflictTurn({
   {
     const sys = buildSystemPrompt();
     assert.equal(/record_session_goal|record_recommendation_basis/.test(sys), false);
-    assert.match(sys, /참고용이다/, "GO4A: soft session_goal still reference-only");
+    assert.match(
+      buildDomainContextSystemAddendum({
+        sessionGoal: { goal: "보장 점검", status: "active" },
+      }),
+      /참고용/,
+      "GO4A: soft session_goal still reference-only via DOMAIN_CONTEXT",
+    );
   }
 
   const DOC = "doc-go4a-owned";

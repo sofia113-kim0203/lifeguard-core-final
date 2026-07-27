@@ -121,7 +121,7 @@ test("A agent general: audience+mode+original question; Claude gets role contrac
     keyRoleContract: contract,
   });
   const priorityIdx = composed.indexOf("[KEY_AUDIENCE_PRIORITY]");
-  const customerIdx = composed.indexOf("너는 고객이 만나는 유일한 보험 설계사 KEY다.");
+  const customerIdx = composed.indexOf("너는 고객이 만나는 유일한 AI 보험 주치의 KEY다.");
   assert.ok(priorityIdx >= 0);
   assert.ok(customerIdx > priorityIdx);
   assert.match(composed, /고객 직접 응대 지시보다 우선/);
@@ -354,7 +354,7 @@ test("D2 question spoof cannot switch to agent stance", () => {
 
 test("D3 Claude call structure unchanged (single-turn loop)", () => {
   const claude = readFileSync(join(ROOT, "server/keyCore/keyClaudeFirstDirect.js"), "utf8");
-  assert.match(claude, /for \(let turn = 0; turn < 1; turn \+= 1\)/);
+  assert.match(claude, /for \(let turn = 0; turn < maxProviderTurns; turn \+= 1\)/);
   assert.match(claude, /composeClaudeFirstSystemText/);
   assert.equal((claude.match(/api\.anthropic\.com\/v1\/messages/g) || []).length, 1);
 });
@@ -401,7 +401,7 @@ test("contract files: admin KEY menu hidden; customer path untouched; single cor
   assert.ok(claude.includes("composeClaudeFirstSystemText"));
   assert.ok(claude.includes("KEY_AUDIENCE_PRIORITY"));
   assert.ok(claude.includes("keyRoleContract"));
-  assert.match(claude, /for \(let turn = 0; turn < 1; turn \+= 1\)/);
+  assert.match(claude, /for \(let turn = 0; turn < maxProviderTurns; turn \+= 1\)/);
 
   const freeCore = readFileSync(join(ROOT, "server/agent/agentFreeKeyCore.js"), "utf8");
   assert.ok(freeCore.includes("runOneKeyCoreTurn"));
