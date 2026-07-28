@@ -122,7 +122,9 @@ import {
   assembleInsuranceClockItemsForHand,
   buildInsuranceClockHandBrief,
   buildInsuranceClockUpdatesFromUtterance,
+  filterInsuranceClocksByProductFocus,
   filterInsuranceClocksByScope,
+  isInsuranceClockRecallUtterance,
   loadInsuranceClockItems,
   persistInsuranceClockItems,
   softInsuranceClockContext,
@@ -2432,10 +2434,20 @@ export function buildDomainContextSystemAddendum({
   if (insuranceClockBrief && typeof insuranceClockBrief === "object") {
     lines.push(
       "insurance_clock이 있으면 upcoming·overdue·unknown_date·completed_recent만 사용한다.",
-      "날짜를 새로 발명하지 말고, unknown_date는 정확한 날짜를 확인한다.",
+      "날짜를 새로 발명하지 말고, unknown_date·date_status=날짜 미확인은 미확인으로만 말한다.",
+      "next_check_at이 비어 있으면 ‘까지 확인’ 같은 새 날짜를 만들지 않는다.",
       "completed·cancelled는 현재 할 일처럼 말하지 않는다.",
       "법정 시효·‘보통 3년’ 같은 일반론을 고객 고유 due_at처럼 말하지 않는다.",
     );
+    if (insuranceClockBrief.product_focus) {
+      lines.push(
+        "product_focus가 있으면 그 계약의 insurance_clock 행만 말한다.",
+        "대화에 다른 계약이 있어도 요청하지 않은 계약명·만기·납입일을 섞지 않는다.",
+        "insurance_clock 팩에 없는 계약은 '시계 미등록·시계에 없음·다른 계약'으로도 이름을 대지 않는다.",
+        "같은 보험사·같은 만기라는 이유로 형제 계약을 합치거나 비교하지 않는다.",
+        "확인할 날짜가 없으면 날짜 미확인으로만 말하고 추정하지 않는다.",
+      );
+    }
   }
   if (claimEvidenceBrief && typeof claimEvidenceBrief === "object") {
     lines.push(
@@ -4880,11 +4892,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   const insuranceClockItemsFromCard = Array.isArray(readyMaterials.insuranceClockItems)
     ? readyMaterials.insuranceClockItems
     : null;
-  const insuranceClockBriefFromCard =
-    readyMaterials.insuranceClockBrief &&
-    typeof readyMaterials.insuranceClockBrief === "object"
-      ? readyMaterials.insuranceClockBrief
-      : null;
+  // insuranceClockBrief from card is intentionally unused: always rebuild with
+  // conversation product focus so sibling contracts cannot bypass the Hand filter.
 
   const sessionGoalForContext = discardRequested
     ? null
@@ -5480,6 +5489,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   let insuranceClockItemsAll = Array.isArray(insuranceClockItemsFromCard)
     ? insuranceClockItemsFromCard
     : [];
+  let insuranceClockStoredOnly = [];
   if (!Array.isArray(insuranceClockItemsFromCard) && userSupabase && customerId) {
     try {
       const [stored, policyDateFacts] = await Promise.all([
@@ -5492,6 +5502,7 @@ export async function runClaudeFirstDirectQuestionTurn({
           customerId,
         }),
       ]);
+      insuranceClockStoredOnly = Array.isArray(stored) ? stored : [];
       insuranceClockItemsAll = assembleInsuranceClockItemsForHand({
         storedClocks: stored,
         corporateContexts,
@@ -5504,6 +5515,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     } catch (err) {
       console.error("[key_insurance_clock_load]", String(err?.message ?? err).slice(0, 200));
       insuranceClockItemsAll = [];
+      insuranceClockStoredOnly = [];
     }
   }
   const viewModeForClock = String(customerViewMode?.mode ?? "personal");
@@ -5516,10 +5528,43 @@ export async function runClaudeFirstDirectQuestionTurn({
           ? "both"
           : "personal",
   });
-  const insuranceClockBrief =
-    insuranceClockBriefFromCard && viewModeForClock === "both"
-      ? insuranceClockBriefFromCard
-      : buildInsuranceClockHandBrief(insuranceClockItemsScoped);
+  // Conversation focus for clock Hand: current question + recent USER turns only
+  // (assistant replies may list sibling contracts — must not steal product focus).
+  const insuranceClockFocusText = [
+    String(question || ""),
+    ...(Array.isArray(history) ? history.slice(-12) : [])
+      .filter((m) => m && typeof m === "object")
+      .filter((m) => {
+        const role = String(m.role || "").toLowerCase();
+        return role === "user" || role === "customer" || role === "human";
+      })
+      .map((m) => `user: ${String(m.content || m.text || "").slice(0, 400)}`),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  // Sibling-mix boundary: never hand Claude the unfocused ready-card clock brief
+  // (viewMode=both previously bypassed product focus). Always rebuild with focus.
+  // On recall, prefer TURN-3 stored rows so sibling policy projections cannot
+  // enter as "미등록" candidates beside the remembered contract.
+  const storedScoped = filterInsuranceClocksByScope(insuranceClockStoredOnly, {
+    entityId: selectedCorporateEntityId,
+    mode:
+      viewModeForClock === "corporate"
+        ? "corporate"
+        : viewModeForClock === "both"
+          ? "both"
+          : "personal",
+  });
+  const recallFocused = isInsuranceClockRecallUtterance(question)
+    ? filterInsuranceClocksByProductFocus(storedScoped, {
+        focusText: insuranceClockFocusText,
+      })
+    : [];
+  const insuranceClockBriefSource =
+    recallFocused.length > 0 ? recallFocused : insuranceClockItemsScoped;
+  const insuranceClockBrief = buildInsuranceClockHandBrief(insuranceClockBriefSource, {
+    focusText: insuranceClockFocusText,
+  });
 
   // Evidence Vault Slice 1 — claim evidence package; Claude explains only.
   let claimEvidenceItemsAll = Array.isArray(readyMaterials.claimEvidenceItems)

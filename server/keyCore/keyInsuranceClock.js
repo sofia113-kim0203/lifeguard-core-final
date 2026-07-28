@@ -200,11 +200,11 @@ export function parseCustomerStatedDeadline(
     }
   }
 
-  // Vague — no due_at invention
+  // Vague — no due_at and no invented check-by calendar day
   if (/곧|빨리|조만간|이번\s*주\s*안|며칠\s*안|서둘러|제출해야|내야\s*해/.test(text)) {
     return {
       due_at: null,
-      next_check_at: addDaysToYmd(parts.ymd, 3),
+      next_check_at: null,
       status: "unknown_date",
       reason: "vague_deadline_needs_date",
       ...anchor,
@@ -259,10 +259,10 @@ export function normalizeInsuranceClockItems(raw = [], { now = new Date() } = {}
     const due_at = parseIsoDateOnly(row.due_at);
     let next_check_at = parseIsoDateOnly(row.next_check_at) || due_at;
     if (!due_at && status === "active") status = "unknown_date";
-    if (status === "unknown_date" && !next_check_at) {
-      const d = now instanceof Date ? now : new Date(now);
-      d.setDate(d.getDate() + 3);
-      next_check_at = ymdLocal(d);
+    // unknown_date: never invent or retain a check-by YMD — Hand speaks "날짜 미확인" only.
+    if (status === "unknown_date" || !due_at) {
+      next_check_at = null;
+      if (!due_at) status = "unknown_date";
     }
     // Expire consent/policy clocks past due when still active.
     if (
@@ -297,6 +297,7 @@ export function normalizeInsuranceClockItems(raw = [], { now = new Date() } = {}
       source,
       source_message_id: trim(row.source_message_id),
       evidence_id: trim(row.evidence_id),
+      product_name: trim(row.product_name),
       label: trim(row.label),
       note: trim(row.note),
       relative_anchor_date: parseIsoDateOnly(row.relative_anchor_date),
@@ -356,13 +357,23 @@ export function mergeInsuranceClockItems(existing = [], incoming = [], { now = n
       due_at = prior.due_at;
       status = prior.status;
     }
-    const next_check_at = row.next_check_at || prior.next_check_at || due_at;
+    let next_check_at = row.next_check_at || prior.next_check_at || due_at;
+    if (status === "unknown_date" || !due_at) next_check_at = null;
+    const product_name = trim(row.product_name) || trim(prior.product_name) || null;
+    const label =
+      trim(row.label) ||
+      trim(prior.label) ||
+      null;
     map.set(key, {
       ...prior,
       ...row,
       due_at,
       next_check_at,
       status,
+      product_name,
+      label: product_name && label && !String(label).includes(product_name)
+        ? `${product_name} — ${label}`
+        : label,
       completed_at:
         status === "completed" || status === "cancelled" || status === "expired"
           ? row.completed_at || prior.completed_at || stampNow(now)
@@ -388,6 +399,60 @@ export function filterInsuranceClocksByScope(
     return rows.filter((r) => !r.entity_id || (eid && trim(r.entity_id) === eid));
   }
   return rows.filter((r) => !r.entity_id);
+}
+
+/**
+ * Conversation product focus for Insurance Clock Hand.
+ * Prefer current question; else last distinctive product mentioned in focusText.
+ * Returns null when no focus → keep all rows (general clock questions).
+ */
+export function resolveInsuranceClockProductFocus(focusText = "") {
+  const text = String(focusText || "");
+  if (!text.trim()) return null;
+  const hits = [];
+  const push = (key, index, matchRe) => {
+    if (index < 0) return;
+    hits.push({ key, index, matchRe });
+  };
+  // Distinctive QA markers first (avoid QA TEST matching inside REINJECTION phrasing).
+  for (const m of text.matchAll(/REINJECTION\s*TEST/gi)) {
+    push("reinjection", m.index, /REINJECTION/i);
+  }
+  for (const m of text.matchAll(/\bQA\s+TEST\b/gi)) {
+    // Skip if this QA TEST is part of REINJECTION line nearby
+    const around = text.slice(Math.max(0, m.index - 24), m.index + 48);
+    if (/REINJECTION/i.test(around)) continue;
+    push("qa_test", m.index, /QA\s+TEST/i);
+  }
+  // Quoted / named full product (『…』 '…' "…")
+  for (const m of text.matchAll(/[『「'"]([^『」'"]{8,80})[』」'"]/g)) {
+    const name = String(m[1] || "").trim();
+    if (!/보험|건강보험|암|종신|실손|The\s*H/i.test(name)) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    push(`name:${name}`, m.index, new RegExp(escaped, "i"));
+  }
+  if (!hits.length) return null;
+  hits.sort((a, b) => a.index - b.index);
+  const last = hits[hits.length - 1];
+  return { key: last.key, matchRe: last.matchRe };
+}
+
+/**
+ * When conversation focus names a contract, keep only matching policy clocks
+ * (and rows that carry that product_name/label). Unsolicited sibling contracts drop.
+ * Rows with no product identity (e.g. bare claim_followup) drop under product focus.
+ */
+export function filterInsuranceClocksByProductFocus(items = [], { focusText = "" } = {}) {
+  const focus = resolveInsuranceClockProductFocus(focusText);
+  if (!focus?.matchRe) return Array.isArray(items) ? items : [];
+  const rows = Array.isArray(items) ? items : [];
+  return rows.filter((r) => {
+    const hay = [r?.product_name, r?.label, r?.note, r?.subject_id]
+      .map((x) => String(x || ""))
+      .join(" ");
+    if (!hay.trim()) return false;
+    return focus.matchRe.test(hay);
+  });
 }
 
 export async function loadInsuranceClockItems({ supabase = null, customerId = null } = {}) {
@@ -707,9 +772,27 @@ export function assembleInsuranceClockItemsForHand({
     customerId,
     now,
   });
+  const productByPolicyId = new Map();
+  for (const p of Array.isArray(policies) ? policies : []) {
+    const pid = trim(p?.id) || trim(p?.policy_id);
+    const pname =
+      trim(p?.product_name) || trim(p?.coverage_summary?.product_name) || null;
+    if (pid && pname) productByPolicyId.set(pid, pname);
+  }
+  const dateFactsWithProduct = fromDateFacts.map((r) => {
+    const pname = trim(r.product_name) || productByPolicyId.get(trim(r.subject_id)) || null;
+    if (!pname) return r;
+    const baseLabel = trim(r.label);
+    return {
+      ...r,
+      product_name: pname,
+      label:
+        baseLabel && !baseLabel.includes(pname) ? `${pname} — ${baseLabel}` : baseLabel || pname,
+    };
+  });
   const merged = mergeInsuranceClockItems(
     storedClocks,
-    [...projectedConsent, ...fromPolicies, ...fromDateFacts],
+    [...projectedConsent, ...fromPolicies, ...dateFactsWithProduct],
     { now },
   );
   return filterInsuranceClocksByScope(merged, { entityId, mode });
@@ -779,9 +862,12 @@ export function buildPolicyDateClocksFromPolicies({
     const pid = trim(p?.id) || trim(p?.policy_id);
     if (!pid) continue;
     const rowEntity = eid || trim(p?.entity_id) || null;
+    const product_name =
+      trim(p?.product_name) || trim(p?.coverage_summary?.product_name) || null;
     for (const rule of fieldRules) {
       const due = rule.pick(p);
       if (!due) continue;
+      const baseLabel = rule.label(due);
       out.push({
         id: `${rule.idPrefix}_${pid}`.slice(0, 120),
         customer_id: cid,
@@ -793,7 +879,8 @@ export function buildPolicyDateClocksFromPolicies({
         next_check_at: due,
         status: "active",
         source: "document_evidence",
-        label: rule.label(due),
+        product_name,
+        label: product_name ? `${product_name} — ${baseLabel}` : baseLabel,
         note: rule.note,
         created_at: stampNow(now),
         updated_at: stampNow(now),
@@ -803,8 +890,12 @@ export function buildPolicyDateClocksFromPolicies({
   return normalizeInsuranceClockItems(out, { now });
 }
 
-export function buildInsuranceClockHandBrief(items = [], { now = new Date() } = {}) {
-  const rows = normalizeInsuranceClockItems(items, { now });
+export function buildInsuranceClockHandBrief(
+  items = [],
+  { now = new Date(), focusText = "" } = {},
+) {
+  const focused = filterInsuranceClocksByProductFocus(items, { focusText });
+  const rows = normalizeInsuranceClockItems(focused, { now });
   const today = ymdLocal(now instanceof Date ? now : new Date(now));
   const upcoming = [];
   const overdue = [];
@@ -825,20 +916,28 @@ export function buildInsuranceClockHandBrief(items = [], { now = new Date() } = 
     }
     if (row.status === "active") upcoming.push(row);
   }
-  const sortByDue = (a, b) => String(a.due_at || a.next_check_at || "").localeCompare(String(b.due_at || b.next_check_at || ""));
+  const sortByDue = (a, b) =>
+    String(a.due_at || "").localeCompare(String(b.due_at || ""));
   upcoming.sort(sortByDue);
   overdue.sort(sortByDue);
-  const briefRow = (r) => ({
-    id: r.id,
-    clock_type: r.clock_type,
-    entity_id: r.entity_id,
-    subject_id: r.subject_id,
-    due_at: r.due_at,
-    next_check_at: r.next_check_at,
-    status: r.status,
-    source: r.source,
-    label: r.label,
-  });
+  const briefRow = (r) => {
+    const undated = r.status === "unknown_date" || !r.due_at;
+    return {
+      id: r.id,
+      clock_type: r.clock_type,
+      entity_id: r.entity_id,
+      subject_id: r.subject_id,
+      product_name: r.product_name || null,
+      due_at: r.due_at,
+      // Speak surface: verified due_at only. Undated todos stay 날짜 미확인.
+      next_check_at: undated ? null : r.next_check_at || r.due_at,
+      status: r.status,
+      source: r.source,
+      label: r.label,
+      date_status: undated ? "날짜 미확인" : "verified_date",
+    };
+  };
+  const focus = resolveInsuranceClockProductFocus(focusText);
   return {
     hand: "key_insurance_clock",
     upcoming: upcoming.slice(0, 6).map(briefRow),
@@ -846,19 +945,50 @@ export function buildInsuranceClockHandBrief(items = [], { now = new Date() } = 
     unknown_date: unknown_date.slice(0, 6).map(briefRow),
     completed_recent: completed_recent.slice(0, 4).map(briefRow),
     packs_separated: true,
-    note: "key_owns_dates_claude_explains_only_no_invented_deadlines",
+    product_focus: focus?.key || null,
+    note: focus?.key
+      ? "key_owns_dates_focused_contract_only_no_sibling_mix_no_invented_deadlines"
+      : "key_owns_dates_claude_explains_only_no_invented_deadlines_verified_due_at_only",
   };
+}
+
+/**
+ * True when the customer is asking to recall the insurance clock just remembered.
+ * Hand then prefers stored (TURN-3 registered) rows over live sibling projections.
+ */
+export function isInsuranceClockRecallUtterance(text = "") {
+  return /방금\s*기억한|기억한.{0,16}보험\s*시계|보험\s*시계를\s*다시/i.test(
+    String(text || ""),
+  );
 }
 
 export function softInsuranceClockContext(brief = null) {
   if (!brief || typeof brief !== "object") return null;
+  const rows = [
+    ...(Array.isArray(brief.upcoming) ? brief.upcoming : []),
+    ...(Array.isArray(brief.overdue) ? brief.overdue : []),
+    ...(Array.isArray(brief.unknown_date) ? brief.unknown_date : []),
+    ...(Array.isArray(brief.completed_recent) ? brief.completed_recent : []),
+  ];
+  const speak_only_product_names = [
+    ...new Set(
+      rows
+        .map((r) => String(r?.product_name || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const focused = Boolean(brief.product_focus);
   return {
     insurance_clock: {
       upcoming: brief.upcoming || [],
       overdue: brief.overdue || [],
       unknown_date: brief.unknown_date || [],
       completed_recent: brief.completed_recent || [],
-      note: "soft_context_reference_only_dates_must_match_clock_rows",
+      product_focus: brief.product_focus || null,
+      speak_only_product_names: focused ? speak_only_product_names : null,
+      note: focused
+        ? "speak_only_listed_clock_rows_never_mention_other_contracts_even_as_unregistered"
+        : "soft_context_reference_only_dates_must_match_clock_rows",
     },
   };
 }

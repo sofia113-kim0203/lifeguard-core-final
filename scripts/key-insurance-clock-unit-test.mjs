@@ -9,10 +9,15 @@ import {
   buildInsuranceClockHandBrief,
   buildInsuranceClockUpdatesFromUtterance,
   buildPolicyDateClocksFromPolicies,
+  filterInsuranceClocksByProductFocus,
   filterInsuranceClocksByScope,
+  isInsuranceClockRecallUtterance,
   mergeInsuranceClockItems,
   parseCustomerStatedDeadline,
+  resolveInsuranceClockProductFocus,
+  softInsuranceClockContext,
 } from "../server/keyCore/keyInsuranceClock.js";
+import { buildDomainContextSystemAddendum } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
   buildInsuranceClocksFromPolicyDateFacts,
   buildPolicyDateFactFromDocumentEvidence,
@@ -66,12 +71,12 @@ const openSurgery = {
   assert.equal(built.updates[0].evidence?.timezone, "Asia/Seoul");
 }
 
-// --- Seat B: vague — no invented due_at (even beside dated claim clock) ---
+// --- Seat B: vague — no invented due_at and no invented next_check_at ---
 {
   const parsed = parseCustomerStatedDeadline("서류를 곧 내야 해.", { now: NOW });
   assert.equal(parsed.status, "unknown_date");
   assert.equal(parsed.due_at, null);
-  assert.ok(parsed.next_check_at);
+  assert.equal(parsed.next_check_at, null);
 
   const dated = buildInsuranceClockUpdatesFromUtterance({
     question: "다음 주 금요일까지 진단서를 제출해야 해.",
@@ -342,6 +347,135 @@ const openSurgery = {
   assert.equal(brief.completed_recent.length, 1);
   assert.equal(brief.upcoming[0].due_at, "2026-07-24");
   assert.equal(brief.unknown_date[0].due_at, null);
+  assert.equal(brief.unknown_date[0].next_check_at, null);
+  assert.equal(brief.unknown_date[0].date_status, "날짜 미확인");
+}
+
+// --- Seat G2: unknown_date never invents check-by YMD; product focus excludes siblings ---
+{
+  const invented = buildInsuranceClockHandBrief(
+    [
+      {
+        id: "u-unknown",
+        clock_type: "claim_followup",
+        subject_id: "utterance:unknown:x",
+        due_at: null,
+        next_check_at: null,
+        status: "unknown_date",
+        source: "customer_statement",
+        label: "청구 서류 제출 — 정확한 날짜 확인 필요",
+      },
+    ],
+    { now: new Date("2026-07-28T10:00:00+09:00") },
+  );
+  assert.equal(invented.unknown_date.length, 1);
+  assert.equal(invented.unknown_date[0].next_check_at, null);
+  assert.equal(invented.unknown_date[0].date_status, "날짜 미확인");
+
+  const focus = resolveInsuranceClockProductFocus(
+    "user: ‘간편가입 The H 건강보험 QA REINJECTION TEST’는 언제까지 보장되고\n내가 놓치면 안 되는 보험 날짜만 기억해줘.",
+  );
+  assert.equal(focus?.key, "reinjection");
+
+  const policyClocks = buildPolicyDateClocksFromPolicies({
+    policies: [
+      {
+        id: "pol-re",
+        product_name: "간편가입 The H 건강보험 QA REINJECTION TEST",
+        coverage_summary: { maturity_date: "2099-12-31" },
+      },
+      {
+        id: "pol-qa",
+        product_name: "간편가입 The H 건강보험 QA TEST",
+        coverage_summary: { maturity_date: "2099-12-31" },
+      },
+    ],
+    customerId: CUSTOMER,
+    now: NOW,
+  });
+  const focused = filterInsuranceClocksByProductFocus(policyClocks, {
+    focusText:
+      "‘간편가입 The H 건강보험 QA REINJECTION TEST’ 만기\n내가 놓치면 안 되는 보험 날짜만 기억해줘.",
+  });
+  assert.equal(focused.length, 1);
+  assert.match(String(focused[0].product_name), /REINJECTION/);
+
+  const briefFocus = buildInsuranceClockHandBrief(
+    [
+      ...policyClocks,
+      {
+        id: "claim-undated",
+        clock_type: "claim_followup",
+        subject_id: "utterance:unknown:y",
+        due_at: null,
+        status: "unknown_date",
+        source: "customer_statement",
+        label: "청구 서류 제출 — 정확한 날짜 확인 필요",
+      },
+    ],
+    {
+      now: NOW,
+      focusText:
+        "‘간편가입 The H 건강보험 QA REINJECTION TEST’\n방금 기억한 내 보험 시계를 다시 알려줘.",
+    },
+  );
+  assert.equal(briefFocus.upcoming.length, 1);
+  assert.match(String(briefFocus.upcoming[0].product_name), /REINJECTION/);
+  assert.equal(briefFocus.unknown_date.length, 0);
+  assert.equal(briefFocus.product_focus, "reinjection");
+
+  // User-only focus text: assistant listing QA TEST must not steal REINJECTION focus.
+  const userFocusText = [
+    "user: ‘간편가입 The H 건강보험 QA REINJECTION TEST’는 언제까지 보장되고",
+    "user: 내가 놓치면 안 되는 보험 날짜만 기억해줘.",
+  ].join("\n");
+  // Old mixed text: last distinctive product is assistant's QA TEST (after user REINJECTION).
+  const stolenIfAssistant = [
+    "user: ‘간편가입 The H 건강보험 QA REINJECTION TEST’는 언제까지 보장되고",
+    "assistant: ① REINJECTION TEST 만기 2099-12-31",
+    "assistant: ② 간편가입 The H 건강보험 QA TEST 만기 2099-12-31",
+    "user: 내가 놓치면 안 되는 보험 날짜만 기억해줘.",
+  ].join("\n");
+  assert.equal(resolveInsuranceClockProductFocus(stolenIfAssistant)?.key, "qa_test");
+  // User-only focus keeps REINJECTION.
+  assert.equal(resolveInsuranceClockProductFocus(userFocusText)?.key, "reinjection");
+  const briefUserFocus = buildInsuranceClockHandBrief(policyClocks, {
+    now: NOW,
+    focusText: userFocusText,
+  });
+  assert.equal(briefUserFocus.upcoming.length, 1);
+  assert.match(String(briefUserFocus.upcoming[0].product_name), /REINJECTION/);
+
+  // TURN 4 recall: stored REINJECTION only — sibling never enters soft/domain speak surface.
+  assert.equal(
+    isInsuranceClockRecallUtterance("방금 기억한 내 보험 시계를 다시 알려줘."),
+    true,
+  );
+  const storedOnly = policyClocks.filter((r) => /REINJECTION/i.test(r.product_name || ""));
+  const recallBrief = buildInsuranceClockHandBrief(storedOnly, {
+    now: NOW,
+    focusText: userFocusText + "\n방금 기억한 내 보험 시계를 다시 알려줘.",
+  });
+  assert.equal(recallBrief.upcoming.length, 1);
+  assert.match(String(recallBrief.upcoming[0].product_name), /REINJECTION/);
+  assert.equal(
+    recallBrief.upcoming.some((r) => /QA\s+TEST/i.test(r.product_name || "")),
+    false,
+  );
+  const soft = softInsuranceClockContext(recallBrief);
+  assert.equal(soft.insurance_clock.product_focus, "reinjection");
+  assert.deepEqual(soft.insurance_clock.speak_only_product_names, [
+    "간편가입 The H 건강보험 QA REINJECTION TEST",
+  ]);
+  assert.match(
+    String(soft.insurance_clock.note),
+    /never_mention_other_contracts_even_as_unregistered/,
+  );
+  const domain = buildDomainContextSystemAddendum({
+    insuranceClockBrief: recallBrief,
+  });
+  assert.match(domain, /시계 미등록/);
+  assert.match(domain, /형제 계약/);
 }
 
 // Assemble: consent projected + stored claim followup
