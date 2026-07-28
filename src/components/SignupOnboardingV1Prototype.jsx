@@ -11,6 +11,11 @@ import {
   countPendingLogos,
 } from "../lib/signupOnboardingInsurersV1.js";
 import { submitSignupOnboarding } from "../lib/signupOnboardingIntegrate.js";
+import {
+  isSignupBirthDateOk,
+  validateSignupBirthDate,
+} from "../lib/signupBirthDate.js";
+import SignupBirthDateFields from "./SignupBirthDateFields.jsx";
 
 /** Meeting layout tokens. Step3 uses wider financial chart surface (1120~1180). */
 const CONTENT_MAX_PX = 1040;
@@ -433,6 +438,49 @@ const LAYOUT_CSS = `
   width: 100%;
   max-width: 100%;
 }
+[data-signup-onboarding-v1] .signup-birth-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+[data-signup-onboarding-v1] .signup-birth-part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 0;
+}
+[data-signup-onboarding-v1] .signup-birth-part:first-child {
+  flex: 1.35 1 0;
+}
+[data-signup-onboarding-v1] .signup-birth-input {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+[data-signup-onboarding-v1] .signup-birth-unit {
+  flex: 0 0 auto;
+  font-size: ${TYPE.labelSize}px;
+  font-weight: ${TYPE.labelWeight};
+  line-height: ${TYPE.labelLh};
+  color: ${LG.textMuted};
+  white-space: nowrap;
+}
+[data-signup-onboarding-v1] .signup-birth-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 [data-signup-onboarding-v1] .signup-helper-block .signup-helper-slot {
   max-height: none;
   margin: 0;
@@ -657,7 +705,13 @@ function emptyForm() {
 }
 
 function isBirthOk(v) {
-  return /^\d{4}\.\d{2}\.\d{2}$/.test(String(v || "").trim());
+  return isSignupBirthDateOk(v);
+}
+
+function birthDateErrorMessage(v) {
+  const result = validateSignupBirthDate(v);
+  if (result.ok) return null;
+  return result.error || "올바른 생년월일을 입력해 주세요.";
 }
 
 function isEmailOk(v) {
@@ -1358,7 +1412,9 @@ export default function SignupOnboardingV1Prototype({
     if (form.passwordConfirm && form.passwordConfirm !== form.password) {
       e.passwordConfirm = "비밀번호가 일치하지 않습니다.";
     }
-    if (form.birthDate && !isBirthOk(form.birthDate)) e.birthDate = "YYYY.MM.DD 형식으로 입력해 주세요.";
+    if (form.birthDate && !isBirthOk(form.birthDate)) {
+      e.birthDate = birthDateErrorMessage(form.birthDate);
+    }
     return e;
   }, [form]);
 
@@ -1452,13 +1508,14 @@ export default function SignupOnboardingV1Prototype({
               <FieldLabel label="이름" required>
                 <TextInput value={form.name} onChange={(e) => setField("name", e.target.value)} />
               </FieldLabel>
-              <FieldLabel label="생년월일" required>
-                <TextInput
+              <div>
+                <SectionLabel required>생년월일</SectionLabel>
+                <SignupBirthDateFields
                   value={form.birthDate}
-                  onChange={(e) => setField("birthDate", e.target.value)}
-                  placeholder="YYYY.MM.DD"
+                  onChange={(v) => setField("birthDate", v)}
                 />
-              </FieldLabel>
+                <FieldError>{touched.birthDate ? step1Errors.birthDate : null}</FieldError>
+              </div>
               <div>
                 <SectionLabel required>성별</SectionLabel>
                 <ChoiceRow

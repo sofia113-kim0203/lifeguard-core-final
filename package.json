@@ -40,6 +40,7 @@
     "test:phase29-intent-gate": "node scripts/phase29-intent-gate-routing-test.mjs",
     "test:phase30-claim-bridge": "node scripts/phase30-claim-bridge-routing-test.mjs",
     "test:phase29-signup-basic-profile": "node scripts/phase29-signup-basic-profile-test.mjs",
+    "test:signup-birthdate-ux": "node scripts/signup-birthdate-ux-unit-test.mjs",
     "test:key-signup-onboarding-chart": "node scripts/key-signup-onboarding-chart-unit-test.mjs",
     "test:key-customer-identity-separation": "node scripts/key-customer-identity-separation-unit-test.mjs",
     "test:key-out-of-domain-recommend": "node scripts/key-out-of-domain-recommend-unit-test.mjs",
