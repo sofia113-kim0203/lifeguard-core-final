@@ -135,6 +135,17 @@ function normalizeBaselineItemId(raw) {
   return ITEM_SET.has(id) ? id : null;
 }
 
+/** Infer baseline item only from clear coverage-name taxonomy — never invents amounts. */
+function inferBaselineItemIdFromCoverageName(name = "") {
+  const key = normalizeNameKey(name);
+  if (!key) return null;
+  if (/유사암|소액암|경계성|제자리암|상피내/.test(key) && !/일반암/.test(key)) return null;
+  if (/일반암/.test(key) && /진단/.test(key)) return "cancer_diagnosis";
+  if (/뇌혈관|뇌출혈|뇌경색/.test(key) && /진단/.test(key)) return "cerebrovascular_diagnosis";
+  if (/허혈성심장|급성심근경색|심근경색/.test(key) && /진단/.test(key)) return "ischemic_heart_diagnosis";
+  return null;
+}
+
 function normalizeMajorRegion(raw) {
   if (raw == null || raw === "") return null;
   const r = String(raw).trim();
@@ -161,8 +172,21 @@ export function normalizeKeyCoverageBaselineFacts(rawFacts = [], defaults = {}) 
 
     const source_document_id =
       cleanText(row.source_document_id) || defaultDocId;
-    const source_locator = normalizeLocator(row.source_locator);
-    let baseline_item_id = normalizeBaselineItemId(row.baseline_item_id);
+    let source_locator = normalizeLocator(row.source_locator);
+    if (!source_locator) {
+      // Preserve document-read provenance when Claude omits structured locator keys.
+      const pageFromRow =
+        row.source_page_or_image != null && String(row.source_page_or_image).trim()
+          ? String(row.source_page_or_image).trim()
+          : null;
+      source_locator = normalizeLocator({
+        ...(pageFromRow ? { page: pageFromRow } : {}),
+        source_text: original_coverage_name,
+      });
+    }
+    let baseline_item_id =
+      normalizeBaselineItemId(row.baseline_item_id) ||
+      inferBaselineItemIdFromCoverageName(original_coverage_name);
     let major_treatment_region = normalizeMajorRegion(row.major_treatment_region);
 
     // Never keep dual region; treat as null for KEY to mark conflict/unresolved.

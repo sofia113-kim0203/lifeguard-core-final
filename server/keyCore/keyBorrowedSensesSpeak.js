@@ -1084,6 +1084,35 @@ function extractVerifiedCoverageDetailsFromPolicy(p = null) {
     });
   }
 
+  // KEY verified baseline facts (same SSOT the customer UI rail already reads).
+  // Without this, later turns without PDF re-attach drop document-read coverage amounts.
+  if (Array.isArray(summary.key_coverage_baseline_facts)) {
+    for (const fact of summary.key_coverage_baseline_facts) {
+      if (!fact || typeof fact !== "object") continue;
+      const status = String(fact.status ?? "").trim().toLowerCase();
+      if (status !== "verified") continue;
+      const name = pickFirstPresent(
+        fact.original_coverage_name,
+        fact.coverage_name,
+        fact.rider_name,
+      );
+      const amount =
+        fact.coverage_amount != null && fact.coverage_amount !== ""
+          ? fact.coverage_amount
+          : null;
+      if (name == null && amount == null) continue;
+      pushCoverage({
+        coverage_name: name,
+        coverage_amount: amount,
+        coverage_amount_raw: amount,
+        evidence_state: "verified",
+        source_document_id: fact.source_document_id,
+        source_locator: fact.source_locator,
+        baseline_item_id: fact.baseline_item_id,
+      });
+    }
+  }
+
   // Label-only factory coverages (no amount) — keep as partial name rows if not already added
   const labels = extractVerifiedCoveragesFromPolicy(p) ?? [];
   for (const label of labels) {

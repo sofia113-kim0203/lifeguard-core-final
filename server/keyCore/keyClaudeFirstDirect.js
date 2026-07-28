@@ -4506,6 +4506,10 @@ async function callClaudeFirstDirect({
       }
       coverageBaselineFacts = normalizeKeyCoverageBaselineFacts(
         normalizedSidecar.coverage_baseline_facts,
+        {
+          source_document_id: pdfMeta?.document_id ?? null,
+          source_content_sha256: pdfMeta?.content_sha256 ?? null,
+        },
       );
       try {
         visualBlocks = wantsClaudeFirstVisualBlocks(question)
