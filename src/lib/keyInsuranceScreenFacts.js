@@ -135,10 +135,21 @@ const FOREIGN_SUBJECT_RE =
   /^(홍길동|김철수|이영희|테스트|test\s*user|qa\s*fixture)$/i;
 
 /**
- * Ownership gate — foreign/unverified party names cannot enter confirmed.
+ * Ownership / subject / scope gate for personal customer surfaces.
+ * Uses existing verification fields only — never insurer/product hardcoding.
  * opts.customerNameHints: optional list of accepted names for this customer.
  */
 export function isPersonalOwnershipOk(policy, opts = {}) {
+  const s = summaryOf(policy);
+  const claimScope = String(policy?.claim_scope ?? s.claim_scope ?? "")
+    .trim()
+    .toLowerCase();
+  const subjectScope = String(policy?.subject_scope ?? s.subject_scope ?? "")
+    .trim()
+    .toLowerCase();
+  if (claimScope === "corporate" || subjectScope === "corporate") return false;
+  if (subjectScope === "fixture" || claimScope === "fixture") return false;
+
   const { contractor, insured } = partyNames(policy);
   const hints = Array.isArray(opts.customerNameHints)
     ? opts.customerNameHints.map((n) => normalizeIdentityToken(n)).filter(Boolean)
@@ -154,6 +165,17 @@ export function isPersonalOwnershipOk(policy, opts = {}) {
     }
   }
   return true;
+}
+
+/** Active rows that may appear on personal customer UI / chart / Claude personal review. */
+export function filterPersonalCustomerPolicies(policies = [], opts = {}) {
+  return (Array.isArray(policies) ? policies : []).filter(
+    (p) =>
+      p &&
+      !isRetiredPolicyRow(p) &&
+      p.is_active !== false &&
+      isPersonalOwnershipOk(p, opts),
+  );
 }
 
 /** Contract fact fingerprint from verified schema fields only (no LLM prose). */
@@ -270,13 +292,16 @@ function toRailCard(policy, statusLabel) {
 
 /**
  * Canonical contract projection — single SSOT for count / list / UI / Claude.
- * confirmed = strong identity only; weak → review_candidates (never merge by insurer+product+premium).
+ * confirmed = strong identity only; weak personal → personal_review_candidates.
+ * Full review_candidates keeps foreign/corporate/fixture for audit evidence only.
+ * Customer surfaces must consume personal_* only (never CSS-hide, never delete rows).
  */
 export function projectCanonicalContracts(policies = [], opts = {}) {
   const rows = Array.isArray(policies) ? policies : [];
   const active = rows.filter((p) => p && !isRetiredPolicyRow(p) && p.is_active !== false);
   const confirmedByKey = new Map();
   const review_candidates = [];
+  const personal_review_candidates = [];
   const source_links = [];
   let ownership_exclusions = 0;
 
@@ -309,10 +334,12 @@ export function projectCanonicalContracts(policies = [], opts = {}) {
     }
 
     if (!contract_identity_key) {
-      review_candidates.push({
+      const weak = {
         ...enriched,
         review_reason: "weak_identity",
-      });
+      };
+      review_candidates.push(weak);
+      personal_review_candidates.push(weak);
       continue;
     }
 
@@ -329,11 +356,18 @@ export function projectCanonicalContracts(policies = [], opts = {}) {
   }
 
   const confirmed_contracts = [...confirmedByKey.values()];
+  const personal_confirmed_contracts = confirmed_contracts;
   return {
     confirmed_contracts,
+    personal_confirmed_contracts,
     review_candidates,
+    personal_review_candidates,
     active_distinct_count: confirmed_contracts.length,
-    review_candidate_count: review_candidates.length,
+    // Customer-facing review count = personal only (foreign kept in review_candidates for audit).
+    review_candidate_count: personal_review_candidates.length,
+    personal_review_candidate_count: personal_review_candidates.length,
+    audit_review_candidate_count: review_candidates.length,
+    foreign_rows_excluded: ownership_exclusions,
     raw_source_row_count: active.length,
     source_links,
     ownership_exclusions,
@@ -342,10 +376,10 @@ export function projectCanonicalContracts(policies = [], opts = {}) {
 
 export function buildMyInsuranceStatus(policies = [], opts = {}) {
   const projection = projectCanonicalContracts(policies, opts);
-  const confirmedCards = projection.confirmed_contracts.map((p) =>
+  const confirmedCards = projection.personal_confirmed_contracts.map((p) =>
     toRailCard(p, "\uD655\uC778\uB428"),
   );
-  const reviewCards = projection.review_candidates.map((p) =>
+  const reviewCards = projection.personal_review_candidates.map((p) =>
     toRailCard(p, "\uD655\uC778 \uD544\uC694"),
   );
   return {
@@ -357,7 +391,9 @@ export function buildMyInsuranceStatus(policies = [], opts = {}) {
     // UI / authority 건수 = 확정만
     totalCount: confirmedCards.length,
     active_distinct_count: projection.active_distinct_count,
-    review_candidate_count: projection.review_candidate_count,
+    review_candidate_count: projection.personal_review_candidate_count,
+    personal_review_candidate_count: projection.personal_review_candidate_count,
+    foreign_rows_excluded: projection.foreign_rows_excluded,
     raw_source_row_count: projection.raw_source_row_count,
     canonical: projection,
   };
@@ -964,12 +1000,14 @@ function decideBaselineStatus({ item, matchedRows, sumAmount, compareMode }) {
  * Never invents industry numbers; never treats unknown as shortfall.
  * pending/conflict/unresolved never enter amounts or 확인됨 counts.
  */
-export function buildIndustryCoverageBaseline(policies = []) {
-  const allKeyFacts = collectKeyCoverageBaselineFactsFromPolicies(policies);
+export function buildIndustryCoverageBaseline(policies = [], opts = {}) {
+  // Customer rail/detail: personal ownership only — foreign/corporate/fixture stay in audit projection.
+  const personalPolicies = filterPersonalCustomerPolicies(policies, opts);
+  const allKeyFacts = collectKeyCoverageBaselineFactsFromPolicies(personalPolicies);
   const verifiedKeyFacts = allKeyFacts.filter(isVerifiedBaselineFact);
 
   const items = KEY_INDUSTRY_COVERAGE_BASELINE_ITEMS.map((item) => {
-    const matched = collectBaselineItemRows(policies, item.id);
+    const matched = collectBaselineItemRows(personalPolicies, item.id);
     let sumAmount = null;
     if (item.compareMode === "lump_sum") {
       let sum = 0;
@@ -1046,7 +1084,7 @@ export function buildIndustryCoverageBaseline(policies = []) {
       includedCoverages,
       unclearParts: matched.filter((r) => !r.has_amount).map((r) => r.coverage_name),
       key_baseline_fact_count: verifiedKeyFacts.filter((f) => f.baseline_item_id === item.id).length,
-      has_key_baseline_facts: policiesHaveKeyBaselineFacts(policies),
+      has_key_baseline_facts: policiesHaveKeyBaselineFacts(personalPolicies),
     };
   });
 

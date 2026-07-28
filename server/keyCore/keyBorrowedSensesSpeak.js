@@ -1251,7 +1251,8 @@ export function buildVerifiedCustomerChart(reality = null) {
     return contract;
   });
 
-  const review_candidates = projection.review_candidates.slice(0, 40).map((p, index) => ({
+  // Personal review only for Claude chart — foreign/corporate/fixture stay in audit projection.
+  const review_candidates = projection.personal_review_candidates.slice(0, 40).map((p, index) => ({
     index: index + 1,
     contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
     insurer: pickFirstPresent(p?.insurer_name, p?.company_name),
@@ -1293,19 +1294,25 @@ export function buildVerifiedCustomerChart(reality = null) {
     // Compat: contracts === confirmed_contracts
     contracts,
     confirmed_contracts: contracts,
+    personal_confirmed_contracts: contracts,
     review_candidates,
+    personal_review_candidates: review_candidates,
     active_distinct_count: projection.active_distinct_count,
-    review_candidate_count: projection.review_candidate_count,
+    review_candidate_count: projection.personal_review_candidate_count,
+    personal_review_candidate_count: projection.personal_review_candidate_count,
+    foreign_rows_excluded: projection.foreign_rows_excluded,
     key_confirmed_source_facts,
     factory_aggregates,
     chart_completeness: {
       listed_contracts: contracts.length,
       declared_policy_count: declaredCount,
       all_contracts_listed: contracts.length === declaredCount,
-      review_candidate_count: projection.review_candidate_count,
+      review_candidate_count: projection.personal_review_candidate_count,
+      personal_review_candidate_count: projection.personal_review_candidate_count,
+      foreign_rows_excluded: projection.foreign_rows_excluded,
     },
     ownership:
-      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; review_candidates are not confirmed counts.",
+      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; personal_review_candidates are not confirmed counts; foreign/corporate/fixture rows are excluded from personal surfaces.",
   };
 }
 

@@ -285,4 +285,37 @@ assert.equal(
   70000000,
 );
 
+// Foreign subject coverages must not enter personal overlap detail list.
+{
+  const foreignLeakBaseline = buildIndustryCoverageBaseline([
+    {
+      id: "personal-weak",
+      insurer_name: "QA테스트손보",
+      product_name: "테스트",
+      coverage_summary: {
+        rider_details: [{ rider_name: "암진단비", coverage_amount: 10000000 }],
+      },
+    },
+    {
+      id: "foreign-1",
+      insurer_name: "삼성생명",
+      product_name: "종신",
+      coverage_summary: {
+        contractor_name: "홍길동",
+        insured_name: "홍길동",
+        rider_details: [{ rider_name: "암진단비", coverage_amount: 50000000 }],
+      },
+    },
+  ]);
+  const cancer = foreignLeakBaseline.items.find((i) => i.id === "cancer_diagnosis");
+  assert.ok(cancer);
+  assert.equal(cancer.includedCoverages.length, 1);
+  assert.equal(cancer.includedCoverages[0].insurer_name, "QA테스트손보");
+  assert.equal(
+    cancer.includedCoverages.some((r) => String(r.insurer_name ?? "").includes("삼성")),
+    false,
+    "foreign insurer rows excluded from personal detail",
+  );
+}
+
 console.log("PASS key-insurance-screen-facts-unit-test");

@@ -168,7 +168,7 @@ function pnPolicy(id, pn, extra = {}) {
   assert.equal(buildVerifiedCustomerChart({ policies: rows }).contracts.length, 12);
 }
 
-// 7. Ownership mismatch → personal confirmed excluded
+// 7. Ownership mismatch → personal confirmed excluded; audit keeps foreign; personal review excludes
 {
   const rows = [
     pnPolicy("ok", "PN-OK"),
@@ -176,8 +176,69 @@ function pnPolicy(id, pn, extra = {}) {
   ];
   const p = projectCanonicalContracts(rows);
   assert.equal(p.confirmed_contracts.length, 1);
+  assert.equal(p.personal_confirmed_contracts.length, 1);
   assert.equal(p.ownership_exclusions, 1);
-  assert.ok(p.review_candidates.some((r) => r.id === "bad"));
+  assert.equal(p.foreign_rows_excluded, 1);
+  assert.ok(p.review_candidates.some((r) => r.id === "bad"), "audit keeps foreign");
+  assert.equal(
+    p.personal_review_candidates.some((r) => r.id === "bad"),
+    false,
+    "personal review excludes foreign",
+  );
+  assert.equal(p.personal_review_candidate_count, 0);
+  assert.equal(buildMyInsuranceStatus(rows).needsCount, 0);
+  assert.equal(buildVerifiedPolicyLedgerBrief(rows).review_candidates.length, 0);
+  assert.equal(buildVerifiedCustomerChart({ policies: rows }).review_candidates.length, 0);
+}
+
+// 7b. Confirmed + foreign ×21 + weak personal review → personal counts 1/1; foreign excluded 21
+{
+  const rows = [
+    pnPolicy("hanwha", "PN-HANWHA-1", {
+      insurer_name: "한화생명",
+      product_name: "간편가입 The H 건강보험",
+    }),
+    {
+      id: "qa-weak",
+      insurer_name: "QA테스트손보",
+      product_name: "테스트상품",
+      monthly_premium: 1000,
+      is_active: true,
+      coverage_summary: { source_document_id: "doc-qa-weak" },
+    },
+  ];
+  for (let i = 0; i < 21; i += 1) {
+    rows.push(
+      pnPolicy(`foreign-${i}`, `PN-F-${i}`, {
+        insurer_name: "삼성생명",
+        product_name: `상품${i}`,
+        contractor_name: "홍길동",
+        insured_name: "홍길동",
+      }),
+    );
+  }
+  const p = projectCanonicalContracts(rows);
+  const status = buildMyInsuranceStatus(rows);
+  const ledger = buildVerifiedPolicyLedgerBrief(rows);
+  const chart = buildVerifiedCustomerChart({ policies: rows });
+  assert.equal(p.confirmed_contracts.length, 1);
+  assert.equal(p.personal_confirmed_contracts.length, 1);
+  assert.equal(p.personal_review_candidates.length, 1);
+  assert.equal(p.personal_review_candidate_count, 1);
+  assert.equal(p.foreign_rows_excluded, 21);
+  assert.equal(p.review_candidates.length, 22, "audit = foreign 21 + personal weak 1");
+  assert.equal(status.needsCount, 1);
+  assert.equal(status.confirmedCount, 1);
+  assert.equal(status.totalCount, 1);
+  assert.equal(ledger.review_candidate_count, 1);
+  assert.equal(ledger.review_candidates.length, 1);
+  assert.equal(chart.review_candidate_count, 1);
+  assert.equal(chart.review_candidates.length, 1);
+  assert.equal(status.reviewCandidates[0].insurer_name, "QA테스트손보");
+  assert.equal(
+    status.reviewCandidates.some((r) => String(r.insurer_name ?? "").includes("삼성")),
+    false,
+  );
 }
 
 // Consumer path coherence

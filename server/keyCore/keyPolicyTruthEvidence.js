@@ -44,8 +44,10 @@ export function countActiveDistinctPolicies(policies = [], opts = {}) {
   return {
     active_distinct_count: projection.active_distinct_count,
     confirmed_count: projection.active_distinct_count,
-    needs_count: projection.review_candidate_count,
-    review_candidate_count: projection.review_candidate_count,
+    needs_count: projection.personal_review_candidate_count,
+    review_candidate_count: projection.personal_review_candidate_count,
+    personal_review_candidate_count: projection.personal_review_candidate_count,
+    foreign_rows_excluded: projection.foreign_rows_excluded,
     raw_source_row_count: projection.raw_source_row_count,
   };
 }
@@ -97,10 +99,11 @@ export function buildVerifiedPolicyLedgerBrief(policies = [], opts = {}) {
   const projection = projectCanonicalContracts(policies, opts);
   const includeList = opts.includeList !== false;
   const confirmedList = includeList
-    ? projection.confirmed_contracts.map((p, index) => mapContractRow(p, index))
+    ? projection.personal_confirmed_contracts.map((p, index) => mapContractRow(p, index))
     : [];
+  // Claude / customer personal review only — foreign stays in projection.review_candidates (audit).
   const reviewList = includeList
-    ? projection.review_candidates
+    ? projection.personal_review_candidates
         .slice(0, 40)
         .map((p, index) => ({
           ...mapContractRow(p, index),
@@ -111,16 +114,20 @@ export function buildVerifiedPolicyLedgerBrief(policies = [], opts = {}) {
   return {
     authority: "verified_policy_ledger",
     note:
-      "Confirmed contracts use strong identity only. raw_source_row_count is diagnostic — never customer contract count.",
+      "Confirmed contracts use strong identity only. personal_review_candidates only for customer/Claude review. raw_source_row_count and audit review_candidates are diagnostic — never customer contract count.",
     active_distinct_count: projection.active_distinct_count,
     confirmed_count: projection.active_distinct_count,
-    review_candidate_count: projection.review_candidate_count,
+    review_candidate_count: projection.personal_review_candidate_count,
+    personal_review_candidate_count: projection.personal_review_candidate_count,
+    foreign_rows_excluded: projection.foreign_rows_excluded,
     raw_source_row_count: projection.raw_source_row_count,
     confirmed_contracts: confirmedList,
+    personal_confirmed_contracts: confirmedList,
     // Compat: contracts === confirmed_contracts
     contracts: confirmedList,
     review_candidates: reviewList,
-    needs_count: projection.review_candidate_count,
+    personal_review_candidates: reviewList,
+    needs_count: projection.personal_review_candidate_count,
   };
 }
 
