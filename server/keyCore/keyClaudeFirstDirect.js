@@ -213,6 +213,7 @@ import {
   buildPolicyCountAuthorityAddendum,
   buildSourceSeparatedTruthContext,
   buildTurnEvidencePackageMeta,
+  buildVerifiedCoverageAuthorityAddendum,
   buildVerifiedPolicyLedgerBrief,
   extractCustomerReportedPolicyCount,
   isPolicyCountOrLedgerQuestion,
@@ -2250,6 +2251,7 @@ export const LIFEGUARD_KEY_SYSTEM_PROMPT = `<lifeguard_key_system>
 <truth_authority>
 사실의 권위는 질문의 종류에 따라 결정한다.
 - 원본에 무엇이 적혀 있는가 → 이번 턴에 실제 제공된 원본
+- 이미 KEY가 원본에서 검증해 verified_document_coverages 또는 VERIFIED_POLICY_LEDGER에 올린 담보명·보장금액 → 문서 사실 (이번 턴 원본 재첨부 불필요)
 - 현재 확정 가입 건수·활성 계약 목록·계약 상태 → VERIFIED_POLICY_LEDGER
 - 고객의 목표·선호·예산·고민·경험 → 고객이 직접 말한 내용
 - 고객이 말한 계약 수·보험료·상품·보장금액 → 중요한 고객 진술이지만 검증 전에는 확정 계약 사실이 아님
@@ -2260,6 +2262,7 @@ export const LIFEGUARD_KEY_SYSTEM_PROMPT = `<lifeguard_key_system>
 원본 사실, 장부 사실, 고객 진술, 공개 정보,
 과거 KEY 답변, 해석·추론과 확인 불가를 같은 확정 사실처럼 섞지 않는다.
 과거 KEY 답변 자체는 현재 계약 사실의 증거가 아니다.
+review_candidate(weak identity)여도 verified_document_coverages에 있는 담보금액은 지워지지 않는다.
 </truth_authority>
 <policy_count_and_list>
 고객이 가입 건수, 계약 수 또는 보험 목록을 물으면
@@ -2299,6 +2302,9 @@ unknown이면 이번 턴에 실제 제공된 원본만 확인했다는 범위를
 납입기간과 만기만 보고 갱신형·비갱신형을 확정하지 않는다.
 계약 전체와 개별 특약의 갱신 여부를 구분한다.
 제공되지 않은 문서나 기록을 본 것처럼 말하지 않는다.
+이미 verified_document_coverages에 있는 담보명·보장금액은 과거 원본에서 KEY가 검증한 문서 사실이다.
+이번 턴에 원본이 첨부되지 않았더라도 그 금액을 위해 원본 재첨부를 요구하지 않는다.
+이번 턴 원본이 있을 때만 새로 보이는 항목을 추가 확인한다.
 </document_understanding>
 <analysis_and_recommendation>
 보험 분석은 계약을 나열하는 데서 끝내지 않는다.
@@ -4065,6 +4071,8 @@ async function callClaudeFirstDirect({
   /** Source-separated ledger / customer_reported / evidence package for Claude. */
   policyTruthContext = null,
   policyCountAuthorityAddendum = null,
+  /** Already-ledgered verified coverages — no PDF re-attach required for those amounts. */
+  verifiedCoverageAuthorityAddendum = null,
   /** Preview QA turn capture bag (Surgery 0) — mutate-only; never affects customer path. */
   qaTurnCapture = null,
 }) {
@@ -4233,6 +4241,13 @@ async function callClaudeFirstDirect({
     policyCountAuthorityAddendum.trim()
   ) {
     systemTextBase = `${systemTextBase}\n\n[POLICY_COUNT_AUTHORITY]\n${policyCountAuthorityAddendum.trim()}`;
+  }
+  if (
+    presenceTurn !== true &&
+    typeof verifiedCoverageAuthorityAddendum === "string" &&
+    verifiedCoverageAuthorityAddendum.trim()
+  ) {
+    systemTextBase = `${systemTextBase}\n\n[VERIFIED_COVERAGE_AUTHORITY]\n${verifiedCoverageAuthorityAddendum.trim()}`;
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -5694,6 +5709,12 @@ export async function runClaudeFirstDirectQuestionTurn({
         customerReportedCount: customerReportedPolicyCount,
       })
     : null;
+  const verifiedCoverageAuthorityAddendum = isPresenceTurn
+    ? null
+    : buildVerifiedCoverageAuthorityAddendum({
+        ledgerBrief: verifiedPolicyLedgerBrief,
+        chart: buildVerifiedCustomerChart({ policies, policy_count: policies.length }),
+      });
 
   // Active documents for history pack filter — prefer READY CARD; fall back only if absent.
   const activeDocumentsForHistory = Array.isArray(activeDocumentsFromCard)
@@ -5797,6 +5818,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     keyRoleContract,
     policyTruthContext: policyTruthContextForClaude,
     policyCountAuthorityAddendum,
+    verifiedCoverageAuthorityAddendum,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);

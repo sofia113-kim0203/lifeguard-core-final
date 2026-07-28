@@ -12,7 +12,11 @@ import {
   buildVerifiedCustomerChart,
   buildEarlyBorrowedFactBoundary,
 } from "../server/keyCore/keyBorrowedSensesSpeak.js";
-import { buildVerifiedPolicyLedgerBrief } from "../server/keyCore/keyPolicyTruthEvidence.js";
+import {
+  buildVerifiedCoverageAuthorityAddendum,
+  buildVerifiedPolicyLedgerBrief,
+} from "../server/keyCore/keyPolicyTruthEvidence.js";
+import { LIFEGUARD_KEY_SYSTEM_PROMPT } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { buildKeyRecordSidecarHint } from "../server/keyCore/keyRecordSidecar.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -240,6 +244,20 @@ function testWeakIdentityReviewCandidateKeepsVerifiedCoverage() {
     nums.has(String(FIXTURE.coverage_amount)) || nums.has("50000000"),
     "verified coverage amount must be speak-allowed without PDF re-attach",
   );
+
+  const addendum = buildVerifiedCoverageAuthorityAddendum({
+    ledgerBrief: ledger,
+    chart,
+  });
+  assert.ok(addendum, "coverage authority addendum required when verified coverages exist");
+  assert.match(addendum, /재첨부/);
+  assert.match(addendum, /present_count=/);
+  assert.match(
+    LIFEGUARD_KEY_SYSTEM_PROMPT,
+    /verified_document_coverages/,
+    "system prompt must treat ledger coverages as document facts",
+  );
+  assert.match(LIFEGUARD_KEY_SYSTEM_PROMPT, /원본 재첨부/);
 }
 
 let failed = 0;

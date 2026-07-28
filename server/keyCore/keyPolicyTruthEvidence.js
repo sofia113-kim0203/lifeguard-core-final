@@ -253,6 +253,41 @@ export function buildTurnEvidencePackageMeta({
 }
 
 /**
+ * Follow-up chat authority: already-ledgered verified coverages need no PDF re-attach.
+ */
+export function buildVerifiedCoverageAuthorityAddendum({
+  ledgerBrief = null,
+  chart = null,
+} = {}) {
+  const rows = [
+    ...(Array.isArray(chart?.verified_document_coverages)
+      ? chart.verified_document_coverages
+      : []),
+    ...(Array.isArray(ledgerBrief?.verified_document_coverages)
+      ? ledgerBrief.verified_document_coverages
+      : []),
+  ];
+  if (rows.length === 0) return null;
+  const unique = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const key = `${row?.coverage_name || ""}::${row?.coverage_amount ?? ""}::${row?.product_name || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  if (unique.length === 0) return null;
+  return [
+    "VERIFIED_DOCUMENT_COVERAGES_AUTHORITY",
+    "verified_customer_chart.verified_document_coverages와 VERIFIED_POLICY_LEDGER.verified_document_coverages는 과거 원본에서 KEY가 검증한 문서 사실이다.",
+    "그 담보명·보장금액은 문서 사실로 말한다.",
+    "이미 있는 금액을 위해 원본 재첨부·재업로드를 요구하지 않는다.",
+    "review_candidate / weak identity여도 이미 검증된 담보금액은 유지한다.",
+    `present_count=${unique.length}`,
+  ].join("\n");
+}
+
+/**
  * System addendum for count/list questions — confirmed_n authority; raw rows never count.
  */
 export function buildPolicyCountAuthorityAddendum({
