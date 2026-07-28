@@ -8,7 +8,10 @@ import {
   keyValidateCoverageBaselineFacts,
   KEY_BASELINE_FACT_STATUSES,
 } from "../src/lib/keyCoverageBaselineFacts.js";
-import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
+import {
+  buildVerifiedCustomerChart,
+  buildEarlyBorrowedFactBoundary,
+} from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import { buildKeyRecordSidecarHint } from "../server/keyCore/keyRecordSidecar.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -186,6 +189,42 @@ function testNoHardcodedProductInHint() {
   assert.doesNotMatch(hint, /The H|QA TEST|123,?450|한화/);
 }
 
+function testWeakIdentityReviewCandidateKeepsVerifiedCoverage() {
+  const weak = makePolicyWithVerifiedBaseline({ includeIdentity: false });
+  weak.policy_number = null;
+  weak.contract_identity_key = null;
+  weak.source_fact_key = null;
+  weak.source_content_sha256 = null;
+  weak.coverage_summary.source_content_sha256 = null;
+
+  const chart = buildVerifiedCustomerChart({ policies: [weak] });
+  assert.equal((chart.contracts || []).length, 0, "weak identity must not inflate confirmed count");
+  assert.ok((chart.review_candidates || []).length >= 1, "weak identity stays review candidate");
+  const review = chart.review_candidates[0];
+  const hit = (review.coverages || []).find(
+    (c) =>
+      String(c.coverage_name ?? "").includes("일반암") &&
+      Number(String(c.coverage_amount ?? "").replace(/,/g, "")) === FIXTURE.coverage_amount,
+  );
+  assert.ok(hit, "verified coverage must reach Claude via review_candidates coverages");
+  const baselineHit = (review.key_coverage_baseline_facts || []).find(
+    (f) =>
+      String(f.status || "").toLowerCase() === "verified" &&
+      Number(f.coverage_amount) === FIXTURE.coverage_amount,
+  );
+  assert.ok(baselineHit, "verified baseline facts must be exposed on review candidate");
+
+  const early = buildEarlyBorrowedFactBoundary({
+    reality: { policies: [weak], policy_count: 1 },
+    question: "암 진단금이 부족한 것 같아",
+  });
+  const nums = new Set((early.allowed_numbers || []).map(String));
+  assert.ok(
+    nums.has(String(FIXTURE.coverage_amount)) || nums.has("50000000"),
+    "verified coverage amount must be speak-allowed without PDF re-attach",
+  );
+}
+
 let failed = 0;
 for (const [name, fn] of [
   ["sidecar_hint_coverage_facts", testSidecarHintAsksForCoverageFacts],
@@ -194,6 +233,10 @@ for (const [name, fn] of [
   ["chart_reinjects_verified_coverage", testChartReinjectsVerifiedCoverageWithoutPdf],
   ["opinion_foreign_not_promoted", testOpinionAndForeignCoverageNotPromoted],
   ["no_hardcoded_product_in_hint", testNoHardcodedProductInHint],
+  [
+    "weak_identity_review_keeps_verified_coverage",
+    testWeakIdentityReviewCandidateKeepsVerifiedCoverage,
+  ],
 ]) {
   try {
     fn();

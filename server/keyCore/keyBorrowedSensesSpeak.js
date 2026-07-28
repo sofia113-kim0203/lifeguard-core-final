@@ -1281,16 +1281,30 @@ export function buildVerifiedCustomerChart(reality = null) {
   });
 
   // Personal review only for Claude chart — foreign/corporate/fixture stay in audit projection.
-  const review_candidates = projection.personal_review_candidates.slice(0, 40).map((p, index) => ({
-    index: index + 1,
-    contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
-    insurer: pickFirstPresent(p?.insurer_name, p?.company_name),
-    product_name: pickFirstPresent(p?.product_name),
-    monthly_premium: pickFirstPresent(p?.monthly_premium, p?.premium_amount),
-    review_reason: p?.review_reason ?? "weak_identity",
-    contract_identity_key: p?.contract_identity_key ?? null,
-    source_fact_key: p?.source_fact_key ?? null,
-  }));
+  // Still pass already-verified document coverages (ledger baseline) so follow-up chat
+  // does not drop known amounts and ask to re-attach the original PDF.
+  // Review rows remain non-confirmed counts — coverages here are read-only Claude input.
+  const review_candidates = projection.personal_review_candidates.slice(0, 40).map((p, index) => {
+    const coverages = extractVerifiedCoverageDetailsFromPolicy(p);
+    return {
+      index: index + 1,
+      contract_id: pickFirstPresent(p?.id, p?.policy_id, p?.contract_id),
+      insurer: pickFirstPresent(p?.insurer_name, p?.company_name),
+      product_name: pickFirstPresent(p?.product_name),
+      monthly_premium: pickFirstPresent(p?.monthly_premium, p?.premium_amount),
+      review_reason: p?.review_reason ?? "weak_identity",
+      contract_identity_key: p?.contract_identity_key ?? null,
+      source_fact_key: p?.source_fact_key ?? null,
+      evidence_state: "review_candidate",
+      coverages,
+      // Explicit document-verified coverage facts for Claude (same ledger SSOT as rail).
+      key_coverage_baseline_facts: Array.isArray(p?.coverage_summary?.key_coverage_baseline_facts)
+        ? p.coverage_summary.key_coverage_baseline_facts.filter(
+            (f) => f && typeof f === "object" && String(f.status ?? "").toLowerCase() === "verified",
+          )
+        : [],
+    };
+  });
 
   const aggregatesRaw =
     reality?.factory_aggregates ??
@@ -1341,7 +1355,7 @@ export function buildVerifiedCustomerChart(reality = null) {
       foreign_rows_excluded: projection.foreign_rows_excluded,
     },
     ownership:
-      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; personal_review_candidates are not confirmed counts; foreign/corporate/fixture rows are excluded from personal surfaces.",
+      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; personal_review_candidates are not confirmed counts but may carry already-verified document coverages for Claude read (do not ask to re-attach originals for those amounts); foreign/corporate/fixture rows are excluded from personal surfaces.",
   };
 }
 
@@ -1459,6 +1473,36 @@ export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" }
     const prem = v.monthly_premium ?? v.premium_amount;
     if (prem != null) {
       for (const n of String(prem).match(/\d+/g) ?? []) allowed_numbers.add(n);
+    }
+    for (const cov of c.coverages ?? []) {
+      if (cov?.coverage_amount != null) {
+        for (const n of String(cov.coverage_amount).match(/\d+/g) ?? []) {
+          allowed_numbers.add(n);
+        }
+      }
+    }
+  }
+  // Review-candidate rows are not confirmed contracts, but their already-verified
+  // document coverages must remain speakable without PDF re-attach.
+  for (const r of verified_customer_chart.review_candidates ?? []) {
+    if (r?.insurer) allowed_entities.add(String(r.insurer));
+    if (r?.product_name) allowed_entities.add(String(r.product_name));
+    if (r?.monthly_premium != null) {
+      for (const n of String(r.monthly_premium).match(/\d+/g) ?? []) allowed_numbers.add(n);
+    }
+    for (const cov of r.coverages ?? []) {
+      if (cov?.coverage_amount != null) {
+        for (const n of String(cov.coverage_amount).match(/\d+/g) ?? []) {
+          allowed_numbers.add(n);
+        }
+      }
+    }
+    for (const fact of r.key_coverage_baseline_facts ?? []) {
+      if (fact?.coverage_amount != null) {
+        for (const n of String(fact.coverage_amount).match(/\d+/g) ?? []) {
+          allowed_numbers.add(n);
+        }
+      }
     }
   }
 
