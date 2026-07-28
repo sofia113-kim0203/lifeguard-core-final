@@ -52,11 +52,46 @@ export function countActiveDistinctPolicies(policies = [], opts = {}) {
   };
 }
 
+function mapVerifiedDocumentCoverages(p = null) {
+  const summary =
+    p?.coverage_summary && typeof p.coverage_summary === "object"
+      ? p.coverage_summary
+      : {};
+  const facts = Array.isArray(summary.key_coverage_baseline_facts)
+    ? summary.key_coverage_baseline_facts
+    : [];
+  const out = [];
+  for (const fact of facts) {
+    if (!fact || typeof fact !== "object") continue;
+    if (String(fact.status ?? "").toLowerCase() !== "verified") continue;
+    const coverage_name =
+      String(fact.original_coverage_name ?? fact.coverage_name ?? "").trim() || null;
+    const coverage_amount =
+      fact.coverage_amount != null && fact.coverage_amount !== ""
+        ? fact.coverage_amount
+        : null;
+    if (!coverage_name && coverage_amount == null) continue;
+    out.push({
+      coverage_name,
+      coverage_amount,
+      status: "verified",
+      source_document_id:
+        fact.source_document_id != null
+          ? String(fact.source_document_id)
+          : summary.source_document_id != null
+            ? String(summary.source_document_id)
+            : null,
+    });
+  }
+  return out;
+}
+
 function mapContractRow(p, index) {
   const summary =
     p?.coverage_summary && typeof p.coverage_summary === "object"
       ? p.coverage_summary
       : {};
+  const coverages = mapVerifiedDocumentCoverages(p);
   return {
     index: index + 1,
     insurer: String(p.insurer_name ?? "").trim() || null,
@@ -89,6 +124,8 @@ function mapContractRow(p, index) {
         : p.policy_number != null
           ? String(p.policy_number)
           : null,
+    // Already-ledgered verified coverages — speakable even when identity is still review-only.
+    coverages,
   };
 }
 
@@ -111,10 +148,26 @@ export function buildVerifiedPolicyLedgerBrief(policies = [], opts = {}) {
         }))
     : [];
 
+  const verified_document_coverages = [];
+  const seen = new Set();
+  for (const row of [...confirmedList, ...reviewList]) {
+    for (const cov of row.coverages ?? []) {
+      const key = `${row.product_name || ""}::${cov.coverage_name || ""}::${cov.coverage_amount ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      verified_document_coverages.push({
+        ...cov,
+        insurer: row.insurer ?? null,
+        product_name: row.product_name ?? null,
+        chart_surface: row.review_reason ? "review_candidate" : "confirmed_contract",
+      });
+    }
+  }
+
   return {
     authority: "verified_policy_ledger",
     note:
-      "Confirmed contracts use strong identity only. personal_review_candidates only for customer/Claude review. raw_source_row_count and audit review_candidates are diagnostic — never customer contract count.",
+      "Confirmed contracts use strong identity only. personal_review_candidates only for customer/Claude review. raw_source_row_count and audit review_candidates are diagnostic — never customer contract count. verified_document_coverages are already-verified document facts — speak them without asking to re-attach originals; do not promote review rows into confirmed counts.",
     active_distinct_count: projection.active_distinct_count,
     confirmed_count: projection.active_distinct_count,
     review_candidate_count: projection.personal_review_candidate_count,
@@ -127,6 +180,7 @@ export function buildVerifiedPolicyLedgerBrief(policies = [], opts = {}) {
     contracts: confirmedList,
     review_candidates: reviewList,
     personal_review_candidates: reviewList,
+    verified_document_coverages,
     needs_count: projection.personal_review_candidate_count,
   };
 }
@@ -242,9 +296,18 @@ export function buildPolicyCountAuthorityAddendum({
     );
   }
   if (n === 0 && (reviewN > 0 || (rawN != null && rawN > 0))) {
-    lines.push(
-      "확정 identity가 부족하면 그룹 수나 원행 수를 확정 계약 수로 말하지 말고, 확인 필요·원본 확인을 안내한다.",
-    );
+    const verifiedCovN = Array.isArray(ledgerBrief?.verified_document_coverages)
+      ? ledgerBrief.verified_document_coverages.length
+      : 0;
+    if (verifiedCovN > 0) {
+      lines.push(
+        "확정 identity가 부족해도 VERIFIED_POLICY_LEDGER.verified_document_coverages에 이미 검증된 담보 금액이 있으면 문서 사실로 말하고, 그 금액을 위해 원본 재첨부를 요구하지 않는다. 확정 계약 수 자체만 확인 필요로 분리한다.",
+      );
+    } else {
+      lines.push(
+        "확정 identity가 부족하면 그룹 수나 원행 수를 확정 계약 수로 말하지 말고, 확인 필요·원본 확인을 안내한다.",
+      );
+    }
   }
   if (partial || (attached > 0 && evidenceMeta?.failed_document_ids?.length)) {
     lines.push(
@@ -282,7 +345,7 @@ export function buildSourceSeparatedTruthContext({
     COUNT_QUESTION: countQuestion === true,
     HISTORY_COUNTS_NOT_AUTHORITY: true,
     SOURCE_SEPARATION_RULE:
-      "Do not mix CURRENT_ORIGINALS, VERIFIED_POLICY_LEDGER, CUSTOMER_REPORTED_FACTS, prior KEY answers, inference, and unknown. confirmed_contracts only for confirmed counts; review_candidates are not confirmed.",
+      "Do not mix CURRENT_ORIGINALS, VERIFIED_POLICY_LEDGER, CUSTOMER_REPORTED_FACTS, prior KEY answers, inference, and unknown. confirmed_contracts only for confirmed counts; review_candidates are not confirmed. verified_document_coverages on the ledger/chart are already-verified document facts — speak them without re-attach requests.",
   };
 }
 

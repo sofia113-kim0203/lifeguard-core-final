@@ -12,6 +12,7 @@ import {
   buildVerifiedCustomerChart,
   buildEarlyBorrowedFactBoundary,
 } from "../server/keyCore/keyBorrowedSensesSpeak.js";
+import { buildVerifiedPolicyLedgerBrief } from "../server/keyCore/keyPolicyTruthEvidence.js";
 import { buildKeyRecordSidecarHint } from "../server/keyCore/keyRecordSidecar.js";
 
 const DOC_ID = "11111111-1111-4111-8111-111111111111";
@@ -213,6 +214,22 @@ function testWeakIdentityReviewCandidateKeepsVerifiedCoverage() {
       Number(f.coverage_amount) === FIXTURE.coverage_amount,
   );
   assert.ok(baselineHit, "verified baseline facts must be exposed on review candidate");
+  const flat = (chart.verified_document_coverages || []).find(
+    (c) =>
+      String(c.coverage_name ?? "").includes("일반암") &&
+      Number(String(c.coverage_amount ?? "").replace(/,/g, "")) === FIXTURE.coverage_amount,
+  );
+  assert.ok(flat, "flat verified_document_coverages must expose weak-identity cancer amount");
+
+  const ledger = buildVerifiedPolicyLedgerBrief([weak]);
+  assert.equal(ledger.confirmed_count, 0);
+  assert.ok((ledger.review_candidates || [])[0]?.coverages?.length >= 1);
+  assert.ok(
+    (ledger.verified_document_coverages || []).some(
+      (c) => Number(c.coverage_amount) === FIXTURE.coverage_amount,
+    ),
+    "policy_truth ledger brief must carry verified coverages",
+  );
 
   const early = buildEarlyBorrowedFactBoundary({
     reality: { policies: [weak], policy_count: 1 },

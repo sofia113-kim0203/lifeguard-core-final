@@ -1327,6 +1327,71 @@ export function buildVerifiedCustomerChart(reality = null) {
     }
   }
 
+  // Flat Claude-facing surface: verified ledger coverages from confirmed AND review rows.
+  // Prevents follow-up chat from treating coverages as unknown just because identity is weak.
+  const verified_document_coverages = [];
+  const covSeen = new Set();
+  const pushDocCoverage = (row, source) => {
+    if (!row || typeof row !== "object") return;
+    const name = pickFirstPresent(
+      row.coverage_name,
+      row.original_coverage_name,
+      row.rider_name,
+    );
+    const amount =
+      row.coverage_amount != null && row.coverage_amount !== ""
+        ? row.coverage_amount
+        : null;
+    if (name == null && amount == null) return;
+    const key = `${String(name ?? "")}::${String(amount ?? "")}::${String(row.source_document_id ?? row.contract_id ?? "")}`;
+    if (covSeen.has(key)) return;
+    covSeen.add(key);
+    verified_document_coverages.push({
+      coverage_name: name,
+      coverage_amount: amount,
+      status: "verified",
+      source_document_id: pickFirstPresent(row.source_document_id, row.document_id),
+      contract_id: pickFirstPresent(row.contract_id, source?.contract_id),
+      product_name: pickFirstPresent(source?.product_name, row.product_name),
+      insurer: pickFirstPresent(source?.insurer, row.insurer_name, row.insurer),
+      chart_surface: source?.chart_surface ?? "unknown",
+    });
+  };
+  for (const c of contracts) {
+    for (const cov of c.coverages ?? []) {
+      pushDocCoverage(
+        { ...cov, contract_id: c.contract_id },
+        {
+          chart_surface: "confirmed_contract",
+          contract_id: c.contract_id,
+          product_name: c.product_name,
+          insurer: c.insurer,
+        },
+      );
+    }
+  }
+  for (const r of review_candidates) {
+    for (const cov of r.coverages ?? []) {
+      pushDocCoverage(
+        { ...cov, contract_id: r.contract_id },
+        {
+          chart_surface: "review_candidate",
+          contract_id: r.contract_id,
+          product_name: r.product_name,
+          insurer: r.insurer,
+        },
+      );
+    }
+    for (const fact of r.key_coverage_baseline_facts ?? []) {
+      pushDocCoverage(fact, {
+        chart_surface: "review_candidate",
+        contract_id: r.contract_id,
+        product_name: r.product_name,
+        insurer: r.insurer,
+      });
+    }
+  }
+
   return {
     schema: "verified_customer_chart_v1",
     policy_count: {
@@ -1340,6 +1405,7 @@ export function buildVerifiedCustomerChart(reality = null) {
     personal_confirmed_contracts: contracts,
     review_candidates,
     personal_review_candidates: review_candidates,
+    verified_document_coverages,
     active_distinct_count: projection.active_distinct_count,
     review_candidate_count: projection.personal_review_candidate_count,
     personal_review_candidate_count: projection.personal_review_candidate_count,
@@ -1353,9 +1419,10 @@ export function buildVerifiedCustomerChart(reality = null) {
       review_candidate_count: projection.personal_review_candidate_count,
       personal_review_candidate_count: projection.personal_review_candidate_count,
       foreign_rows_excluded: projection.foreign_rows_excluded,
+      verified_document_coverage_count: verified_document_coverages.length,
     },
     ownership:
-      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; personal_review_candidates are not confirmed counts but may carry already-verified document coverages for Claude read (do not ask to re-attach originals for those amounts); foreign/corporate/fixture rows are excluded from personal surfaces.",
+      "KEY owns chart record and final judgment. Claude may read and analyze only — never store, mutate, or adopt facts. Prefer key_confirmed_source_facts (KEY read from original document) over factory OCR on the same item; do not auto-merge or invent. Conversation goals are not contract facts. confirmed_contracts only; personal_review_candidates are not confirmed counts. verified_document_coverages holds already-verified document coverage amounts from confirmed and review rows — speak those as document facts and do not ask to re-attach originals for them; foreign/corporate/fixture rows are excluded from personal surfaces.",
   };
 }
 
@@ -1504,6 +1571,15 @@ export function buildEarlyBorrowedFactBoundary({ reality = null, question = "" }
         }
       }
     }
+  }
+  for (const cov of verified_customer_chart.verified_document_coverages ?? []) {
+    if (cov?.coverage_amount != null) {
+      for (const n of String(cov.coverage_amount).match(/\d+/g) ?? []) {
+        allowed_numbers.add(n);
+      }
+    }
+    if (cov?.insurer) allowed_entities.add(String(cov.insurer));
+    if (cov?.product_name) allowed_entities.add(String(cov.product_name));
   }
 
   const focus = deriveKeyVoiceQuestionFocus(question, null);
