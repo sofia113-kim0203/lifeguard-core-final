@@ -177,6 +177,25 @@ export const KEY_CONVERSATION_PATTERNS = [
     },
   },
   {
+    id: "casual_visit_boredom",
+    kind: "conversation_pattern",
+    scene: "Relationship",
+    reason: "Customer visits without agenda — KEY stays alongside, no insurance turn.",
+    compose_mode: "key_social",
+    match(q) {
+      if (SOCIAL_INSURANCE_MENTION_RE.test(q)) return false;
+      return /심심해서?\s*왔|그냥\s*왔|그냥\s*들렀/.test(q);
+    },
+    buildResponse(q) {
+      return normalizeText(
+        pickVariant(q, [
+          "그래도 와 주셔서 반가워요. 편하게 이야기해도 됩니다.",
+          "오셨군요. 오늘은 어떤 이야기든 괜찮아요.",
+        ]),
+      );
+    },
+  },
+  {
     id: "thanks_acknowledgment",
     kind: "conversation_pattern",
     scene: "A",

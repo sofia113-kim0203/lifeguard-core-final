@@ -15,6 +15,7 @@ import {
   writeHomeBrainFactSseError,
   writeHomeBrainFactSseEvent,
 } from "../server/homeBrainFactStream.js";
+import { resolveShadowVisualBlocksOverride } from "../server/keyCore/shadowVisualBlocksOverride.js";
 
 function wantsStream(body, req) {
   if (body?.stream === true) return true;
@@ -43,8 +44,49 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
+    const presenceTurn = body?.presence === true || body?.presence_turn === true;
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
+    const attachedDocumentId = String(
+      body?.document_id ?? body?.documentId ?? body?.attached_document_id ?? "",
+    ).trim() || null;
+    const { requestHasForbiddenClientImageBytes } = await import(
+      "../server/keyCore/keyClaudeFullDocumentDirect.js"
+    );
+    if (requestHasForbiddenClientImageBytes(body)) {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: "INVALID_BODY",
+          error_message: "클라이언트 이미지 bytes는 사용할 수 없습니다.",
+        }),
+      );
+      return;
+    }
+    const priorAttachFollowUp = Boolean(
+      body?.prior_attach_follow_up ?? body?.priorAttachFollowUp ?? false,
+    );
+    // GO3: session_id scopes server SSOT goal load. Ignore any client prior_session_goal.
+    const sessionId = String(body?.session_id ?? body?.sessionId ?? "").trim() || null;
+    // T2.1 — opaque handoff token only (never accept client plaintext card JSON).
+    const readyCardHandoffToken =
+      String(body?.ready_card_handoff_token ?? body?.readyCardHandoffToken ?? "").trim() ||
+      null;
+    void body?.prior_session_goal;
+    void body?.priorSessionGoal;
+    void body?.ready_card;
+    void body?.readyCard;
+    const { parseEntityContextFromRequestBody } = await import(
+      "../server/entity/entityApiContextPassthrough.js"
+    );
+    const entityContext = parseEntityContextFromRequestBody(body);
+    // Shadow-only: accepted only when KEY_BORROWED_SENSES=shadow (never customer UI blocks).
+    const shadowVisualBlocksOverride = resolveShadowVisualBlocksOverride(
+      body?.shadow_visual_blocks ?? body?.shadowVisualBlocksOverride ?? null,
+      process.env,
+    );
     const stream = wantsStream(body, req);
 
     const authHeader = readCustomerAuthHeader(req);
@@ -67,8 +109,10 @@ export default async function handler(req, res) {
     if (stream) {
       initHomeBrainFactSseResponse(res);
       const requestStartedAt = Date.now();
+      let earlyDoneSent = false;
       const streamHandlers = {
         _emitted: false,
+        _earlyCustomerDone: false,
         onKeyWaitAck(text) {
           writeHomeBrainFactSseEvent(res, "ack", { text: String(text ?? "") });
         },
@@ -79,26 +123,61 @@ export default async function handler(req, res) {
         onFirstToken(ttftMs) {
           writeHomeBrainFactSseEvent(res, "ttft", { ttft_ms: ttftMs });
         },
-        onReplace(text) {
-          writeHomeBrainFactSseEvent(res, "replace", { text: String(text ?? "") });
+        onReplace(_text) {
+          // KEY monopoly — post-KEY replace forbidden on customer stream
+        },
+        // T4 — customer screen completes before persist/probe (request stays open).
+        onEarlyCustomerDone(payload) {
+          if (earlyDoneSent || !payload) return;
+          earlyDoneSent = true;
+          streamHandlers._earlyCustomerDone = true;
+          writeHomeBrainFactSseEvent(res, "done", payload);
         },
       };
 
       const result = await handleHomeBrainFactRequest({
         userSupabase,
         customerId: resolved.customerId,
-        question,
-        history,
+        authUserId: resolved.user?.id ?? null,
+        entityContext,
+        question: presenceTurn ? "" : question,
+        history: presenceTurn ? [] : history,
+        attachedDocumentId: presenceTurn ? null : attachedDocumentId,
+        priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
+        sessionId,
+        readyCardHandoffToken,
+        presenceTurn,
+        shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
+        accessToken: authHeader,
         streamHandlers,
         requestStartedAt,
       });
 
       if (!result.ok) {
-        writeHomeBrainFactSseError(res, result);
+        if (!earlyDoneSent) writeHomeBrainFactSseError(res, result);
+        res.end();
         return;
       }
 
-      writeHomeBrainFactSseEvent(res, "done", result);
+      // Early done already closed the customer UI; do not emit a second done.
+      if (!earlyDoneSent) {
+        writeHomeBrainFactSseEvent(res, "done", result);
+      } else {
+        // Trailing marks only — client ignores; seat evidence for persist timing.
+        const lm =
+          result?.sales_director_trace?.key_compose_trace?.key_voice_trace?.latency_marks ??
+          null;
+        const t0 = lm?.triangle_t0 ?? null;
+        writeHomeBrainFactSseEvent(res, "marks", {
+          triangle_t0: t0,
+          streamed_equals_sealed:
+            t0?.streamed_equals_sealed ??
+            result?.sales_director_trace?.key_compose_trace?.streamed_equals_sealed ??
+            null,
+          ttft_ms: lm?.ttft_ms ?? null,
+          git_commit_sha: lm?.git_commit_sha ?? null,
+        });
+      }
       res.end();
       return;
     }
@@ -106,8 +185,17 @@ export default async function handler(req, res) {
     const result = await handleHomeBrainFactRequest({
       userSupabase,
       customerId: resolved.customerId,
-      question,
-      history,
+      authUserId: resolved.user?.id ?? null,
+      entityContext,
+      question: presenceTurn ? "" : question,
+      history: presenceTurn ? [] : history,
+      attachedDocumentId: presenceTurn ? null : attachedDocumentId,
+      priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
+      sessionId,
+      readyCardHandoffToken,
+      presenceTurn,
+      shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
+      accessToken: authHeader,
     });
 
     if (!result.ok) {

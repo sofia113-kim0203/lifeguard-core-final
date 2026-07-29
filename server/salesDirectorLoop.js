@@ -1,103 +1,33 @@
 /**
- * P6-2A — Sales Director Loop skeleton (wraps existing Tom paths; no engine rewrite).
+ * P6-2A — Sales Director Loop observability helpers (speak via ONE KEY Core).
  */
-import { classifyConsultationIntent } from "./intentGateLayer.js";
+import { classifyConsultationIntent, hasInsuranceTopicSignal } from "./intentGateLayer.js";
 import {
-  runHomeAgentTomTurn,
-  resolveTomInternalRoute,
-  TOM_INTERNAL_ROUTES,
-  INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE,
-} from "./homeAgentTom.js";
+  hasHighStakesSignal,
+  isCasualHomeQuestion,
+  isConversationalInsuranceBridgeQuestion,
+} from "./homeBrainRouter.js";
 import { matchP5BrainPilotQuestion } from "./p5BrainPilotQuestions.js";
-import { shouldUseTomGapLightPath } from "./tomGapLightPath.js";
-import {
-  buildLoadedContextFromSnapshot,
-  buildReconciliationWarning,
-  loadSalesDirectorTurnContext,
-  snapshotToContextBundle,
-} from "./customerContextSnapshot.js";
 import {
   buildFactoryCalled,
   buildSalesDirectorObservability,
   detectLoadedContextContradictions,
   SALES_DIRECTOR_MODES,
 } from "./customerObservability.js";
-import {
-  buildSnapshotToolTraceOnly,
-  planSalesDirectorToolBrain,
-  runSalesDirectorToolBrainSlice,
-} from "./salesDirectorToolBrain.js";
-import { refineWithConversationBrain, shouldApplyConversationBrain } from "./salesDirectorConversationBrain.js";
-import {
-  createSalesDirectorLatencyBucket,
-  markLatencyMs,
-} from "./salesDirectorLatencyAudit.js";
-import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
-import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
-import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
-import { loadSalesDirectorInsuranceDesignContext } from "./salesDirectorInsuranceDesignContext.js";
-import {
-  isKeyLegacyFallbackEnabled,
-  runSalesDirectorKeyTurn,
-  shouldUseSalesDirectorKeyOrchestrator,
-} from "./salesDirectorKeyOrchestrator.js";
-import { resolveEntityRuntimeForTurn } from "./entity/entityConversationRouter.js";
-import { resolveEntityLoopBranchDecision } from "./entity/entityLoopBranchDecision.js";
-import { buildEntityContextPassthroughTrace } from "./entity/entityApiContextPassthrough.js";
-import {
-  runCorporateKeyLoopTurn,
-  shouldRunCorporateKeyLoopTurn,
-} from "./entity/corporate/runCorporateKeyLoopTurn.js";
-import {
-  attachF8LegacyBackfillToTrace,
-  attachKeyPreloadControlToSalesDirectorTrace,
-  backfillMissingLegacyFactoryPreloads,
-  buildKeyChatPreloadActiveFallbackTrace,
-  buildKeyChatPreloadActiveTrace,
-  buildKeyChatPreloadShadowTrace,
-  buildKeyPreloadPlanBundle,
-  executeSelectiveFactoryPreloads,
-  factoryContextsFromTuple,
-  getKeyChatPreloadControlMode,
-  KEY_CHAT_PRELOAD_CONTROL_MODES,
-  loadFactoryPreloadByKey,
-  shouldExecuteSelectivePreload,
-} from "./keyBrain/chatPreloadControl.js";
 
 export { SALES_DIRECTOR_MODES } from "./customerObservability.js";
 
-const CHAT_FACTORY_PRELOAD_LOADERS = {
-  loadCoverageGap: loadSalesDirectorCoverageGapContext,
-  loadUnderwriting: loadSalesDirectorUnderwritingRiskContext,
-  loadRecommendation: loadSalesDirectorRecommendationContext,
-  loadDesign: loadSalesDirectorInsuranceDesignContext,
-};
-
-async function loadLegacyFullFactoryPreloads(userSupabase, customerId) {
-  return Promise.all([
-    loadSalesDirectorCoverageGapContext(userSupabase, customerId),
-    loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
-    loadSalesDirectorRecommendationContext(userSupabase, customerId),
-    loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
-  ]);
-}
-
-function createChatFactoryPreloadLoader(userSupabase, customerId) {
-  return (factoryKey) =>
-    loadFactoryPreloadByKey(userSupabase, customerId, factoryKey, CHAT_FACTORY_PRELOAD_LOADERS);
-}
-
-function withKeyPreloadShadowTrace(result, keyPreloadShadowTrace) {
-  if (!result || !keyPreloadShadowTrace) return result;
-  result.salesDirectorTrace = attachKeyPreloadControlToSalesDirectorTrace(
-    result.salesDirectorTrace,
-    keyPreloadShadowTrace,
-  );
-  return result;
-}
-
 export function normalizeSalesDirectorQuestion(question = "") {
   return String(question ?? "").replace(/\s+/g, " ").trim();
+}
+
+function resolveTomInternalRouteForMode(question = "", consultationIntent = null) {
+  const classification = consultationIntent ?? classifyConsultationIntent(question);
+  if (hasHighStakesSignal(question, classification)) return "defer";
+  if (isConversationalInsuranceBridgeQuestion(question, classification)) return "chat";
+  if (isCasualHomeQuestion(question, classification)) return "chat";
+  if (hasInsuranceTopicSignal(question)) return "defer";
+  return "defer";
 }
 
 /** P6-2B placeholder — Truth Gate v0.2 design hooks only. */
@@ -132,24 +62,13 @@ export function decideSalesDirectorMode({
     return {
       mode: SALES_DIRECTOR_MODES.PILOT,
       pilotKey,
-      tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
+      tomInternalRoute: "chat",
       consultationIntent: classification,
     };
   }
 
-  const tomInternalRoute = resolveTomInternalRoute(trimmedQuestion, classification);
-  if (
-    tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL &&
-    shouldUseTomGapLightPath(classification, env)
-  ) {
-    return {
-      mode: SALES_DIRECTOR_MODES.GAP,
-      pilotKey: null,
-      tomInternalRoute,
-      consultationIntent: classification,
-    };
-  }
-  if (tomInternalRoute === TOM_INTERNAL_ROUTES.DEFER) {
+  const tomInternalRoute = resolveTomInternalRouteForMode(trimmedQuestion, classification);
+  if (tomInternalRoute === "defer") {
     return {
       mode: SALES_DIRECTOR_MODES.DEFER,
       pilotKey: null,
@@ -160,566 +79,9 @@ export function decideSalesDirectorMode({
   return {
     mode: SALES_DIRECTOR_MODES.CHAT,
     pilotKey: null,
-    tomInternalRoute: TOM_INTERNAL_ROUTES.CHAT,
+    tomInternalRoute: "chat",
     consultationIntent: classification,
   };
-}
-
-function assertSnapshotReady(contextSnapshot) {
-  const loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
-  if (!contextSnapshot || !contextSnapshot.context_snapshot_id || !loadedContext) {
-    return {
-      ok: false,
-      reason: "SNAPSHOT_REQUIRED",
-      error_message: "Customer context snapshot is required before composing a response.",
-    };
-  }
-  return { ok: true, loadedContext, bundle: snapshotToContextBundle(contextSnapshot) };
-}
-
-function buildConversationBrainStubTurn(question, consultationIntent) {
-  return {
-    text: INSURANCE_DEFER_WITHOUT_TOOL_MESSAGE,
-    tomInternalRoute: TOM_INTERNAL_ROUTES.DEFER,
-    consultationIntent,
-    toolUsed: null,
-    responseSource: "tom_internal_defer",
-    factBundle: { question, policy_count: 0, policies: [] },
-    tomGapVoiceHandled: false,
-    trace: { agent: "sales_director_stub_defer", tool_used: null, tom_ran: false },
-  };
-}
-
-function buildLoopEntityRuntimeTraceFields(entityRuntime, branchDecision) {
-  return {
-    entity_runtime: {
-      ...(entityRuntime.trace ?? {}),
-      wired_to_loop: true,
-    },
-    runtime_decision: branchDecision?.runtime_decision ?? null,
-  };
-}
-
-/**
- * P6-2A loop skeleton:
- * load snapshot → understand intent → decide mode → existing handler → compose (caller) → observability
- */
-export async function runSalesDirectorLoopTurn({
-  userSupabase,
-  customerId,
-  question,
-  history = [],
-  contextSnapshot = null,
-  unifiedState = null,
-  env = process.env,
-  fetchImpl = fetch,
-  startedAt = Date.now(),
-  streamHandlers = null,
-  requestStartedAt = null,
-  conversationContext = {},
-  existingSession = null,
-  entityRecord = null,
-  membership = null,
-} = {}) {
-  const trimmedQuestion = normalizeSalesDirectorQuestion(question);
-  const loopStartedAt = startedAt ?? Date.now();
-  const latency = createSalesDirectorLatencyBucket();
-
-  let snapshot = contextSnapshot;
-  let unified = unifiedState;
-  let coverageGapContext = null;
-  let underwritingRiskContext = null;
-  let recommendationContext = null;
-  let designContext = null;
-  let keyPreloadShadowTrace = null;
-  const preloadControlMode = getKeyChatPreloadControlMode(env);
-  const shadowPreloadEnabled =
-    preloadControlMode === KEY_CHAT_PRELOAD_CONTROL_MODES.SHADOW;
-  const activePreloadEnabled =
-    preloadControlMode === KEY_CHAT_PRELOAD_CONTROL_MODES.ACTIVE;
-  const snapshotFirstPreloadEnabled = shadowPreloadEnabled || activePreloadEnabled;
-
-  if (!snapshot || !unified) {
-    const snapshotLoadStart = Date.now();
-    if (snapshotFirstPreloadEnabled) {
-      const turnContext = await loadSalesDirectorTurnContext(userSupabase, customerId, {
-        requestHistory: history,
-      });
-      snapshot = snapshot ?? turnContext.snapshot;
-      unified = unified ?? turnContext.unifiedState;
-      latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
-      if (turnContext.from_cache) {
-        latency.snapshot_cache_hit = true;
-      }
-
-      const earlySnapshotCheck = assertSnapshotReady(snapshot);
-      const classification = earlySnapshotCheck.ok
-        ? classifyConsultationIntent(trimmedQuestion)
-        : null;
-      const keyOrchestratorEligible =
-        earlySnapshotCheck.ok &&
-        shouldUseSalesDirectorKeyOrchestrator({
-          question: trimmedQuestion,
-          customerId,
-          consultationIntent: classification,
-          env,
-        });
-
-      if (shadowPreloadEnabled && earlySnapshotCheck.ok) {
-        keyPreloadShadowTrace = buildKeyChatPreloadShadowTrace({
-          question: trimmedQuestion,
-          loadedContext: earlySnapshotCheck.loadedContext,
-          history,
-          unified,
-          customerId,
-        });
-      }
-
-      if (
-        shouldExecuteSelectivePreload({
-          preloadControlMode,
-          keyOrchestratorEligible,
-        }) &&
-        earlySnapshotCheck.ok
-      ) {
-        const preloadStartedAt = Date.now();
-        try {
-          const planBundle = buildKeyPreloadPlanBundle({
-            question: trimmedQuestion,
-            loadedContext: earlySnapshotCheck.loadedContext,
-            history,
-            unified,
-            customerId,
-          });
-          const loadFactoryPreload = createChatFactoryPreloadLoader(userSupabase, customerId);
-          const selectiveResult = await executeSelectiveFactoryPreloads({
-            factoryKeys: planBundle.keyPlannedFactoryPreloads,
-            loadFactoryPreload,
-          });
-          keyPreloadShadowTrace = buildKeyChatPreloadActiveTrace({
-            planBundle,
-            selectiveResult,
-            latencyPreloadMs: markLatencyMs(preloadStartedAt),
-          });
-          ({ coverageGapContext, underwritingRiskContext, recommendationContext, designContext } =
-            selectiveResult.contexts);
-        } catch (error) {
-          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
-            fallbackReason: "plan_failed",
-            error: error instanceof Error ? error.message : "active_preload_failed",
-          });
-          [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
-            await loadLegacyFullFactoryPreloads(userSupabase, customerId);
-        }
-      } else {
-        if (activePreloadEnabled && earlySnapshotCheck.ok) {
-          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
-            planBundle: buildKeyPreloadPlanBundle({
-              question: trimmedQuestion,
-              loadedContext: earlySnapshotCheck.loadedContext,
-              history,
-              unified,
-              customerId,
-            }),
-            fallbackReason: keyOrchestratorEligible ? "plan_failed" : "orchestrator_ineligible",
-          });
-        }
-        [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
-          await loadLegacyFullFactoryPreloads(userSupabase, customerId);
-      }
-    } else {
-      const [turnContext, gapContext, uwContext, recContext, desContext] = await Promise.all([
-        loadSalesDirectorTurnContext(userSupabase, customerId, {
-          requestHistory: history,
-        }),
-        loadSalesDirectorCoverageGapContext(userSupabase, customerId),
-        loadSalesDirectorUnderwritingRiskContext(userSupabase, customerId),
-        loadSalesDirectorRecommendationContext(userSupabase, customerId),
-        loadSalesDirectorInsuranceDesignContext(userSupabase, customerId),
-      ]);
-      snapshot = snapshot ?? turnContext.snapshot;
-      unified = unified ?? turnContext.unifiedState;
-      coverageGapContext = gapContext;
-      underwritingRiskContext = uwContext;
-      recommendationContext = recContext;
-      designContext = desContext;
-      latency.snapshot_ms = markLatencyMs(snapshotLoadStart);
-      if (turnContext.from_cache) {
-        latency.snapshot_cache_hit = true;
-      }
-    }
-  } else {
-    if (snapshotFirstPreloadEnabled) {
-      const earlySnapshotCheck = assertSnapshotReady(snapshot);
-      const classification = earlySnapshotCheck.ok
-        ? classifyConsultationIntent(trimmedQuestion)
-        : null;
-      const keyOrchestratorEligible =
-        earlySnapshotCheck.ok &&
-        shouldUseSalesDirectorKeyOrchestrator({
-          question: trimmedQuestion,
-          customerId,
-          consultationIntent: classification,
-          env,
-        });
-
-      if (shadowPreloadEnabled && earlySnapshotCheck.ok) {
-        keyPreloadShadowTrace = buildKeyChatPreloadShadowTrace({
-          question: trimmedQuestion,
-          loadedContext: earlySnapshotCheck.loadedContext,
-          history,
-          unified,
-          customerId,
-        });
-      }
-
-      if (
-        shouldExecuteSelectivePreload({
-          preloadControlMode,
-          keyOrchestratorEligible,
-        }) &&
-        earlySnapshotCheck.ok
-      ) {
-        const preloadStartedAt = Date.now();
-        try {
-          const planBundle = buildKeyPreloadPlanBundle({
-            question: trimmedQuestion,
-            loadedContext: earlySnapshotCheck.loadedContext,
-            history,
-            unified,
-            customerId,
-          });
-          const loadFactoryPreload = createChatFactoryPreloadLoader(userSupabase, customerId);
-          const selectiveResult = await executeSelectiveFactoryPreloads({
-            factoryKeys: planBundle.keyPlannedFactoryPreloads,
-            loadFactoryPreload,
-          });
-          keyPreloadShadowTrace = buildKeyChatPreloadActiveTrace({
-            planBundle,
-            selectiveResult,
-            latencyPreloadMs: markLatencyMs(preloadStartedAt),
-          });
-          ({ coverageGapContext, underwritingRiskContext, recommendationContext, designContext } =
-            selectiveResult.contexts);
-        } catch (error) {
-          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
-            fallbackReason: "plan_failed",
-            error: error instanceof Error ? error.message : "active_preload_failed",
-          });
-          [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
-            await loadLegacyFullFactoryPreloads(userSupabase, customerId);
-        }
-      } else {
-        if (activePreloadEnabled && earlySnapshotCheck.ok) {
-          keyPreloadShadowTrace = buildKeyChatPreloadActiveFallbackTrace({
-            planBundle: buildKeyPreloadPlanBundle({
-              question: trimmedQuestion,
-              loadedContext: earlySnapshotCheck.loadedContext,
-              history,
-              unified,
-              customerId,
-            }),
-            fallbackReason: keyOrchestratorEligible ? "plan_failed" : "orchestrator_ineligible",
-          });
-        }
-        [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
-          await loadLegacyFullFactoryPreloads(userSupabase, customerId);
-      }
-    } else {
-      [coverageGapContext, underwritingRiskContext, recommendationContext, designContext] =
-        await loadLegacyFullFactoryPreloads(userSupabase, customerId);
-    }
-  }
-
-  const memoryHydrateStart = Date.now();
-  const snapshotCheck = assertSnapshotReady(snapshot);
-  if (!snapshotCheck.ok) return withKeyPreloadShadowTrace(snapshotCheck, keyPreloadShadowTrace);
-
-  const { loadedContext, bundle: customerContextBundle } = snapshotCheck;
-  customerContextBundle.coverageGapContext = coverageGapContext ?? customerContextBundle.coverageGapContext;
-  customerContextBundle.underwritingRiskContext =
-    underwritingRiskContext ?? customerContextBundle.underwritingRiskContext;
-  customerContextBundle.recommendationContext =
-    recommendationContext ?? customerContextBundle.recommendationContext;
-  customerContextBundle.designContext = designContext ?? customerContextBundle.designContext;
-  const reconciliationWarning = buildReconciliationWarning(unified, snapshot);
-
-  const modeDecision = decideSalesDirectorMode({
-    question: trimmedQuestion,
-    consultationIntent: classifyConsultationIntent(trimmedQuestion),
-    env,
-  });
-  latency.memory_ms = markLatencyMs(memoryHydrateStart);
-
-  const conversationContextResolved = conversationContext ?? {};
-  const entityContextPassthrough = buildEntityContextPassthroughTrace({
-    conversationContext: conversationContextResolved,
-    existingSession,
-    entityRecord,
-    membership,
-  });
-
-  const entityRuntime = await resolveEntityRuntimeForTurn({
-    userSupabase,
-    customerId,
-    conversationContext: conversationContextResolved,
-    existingSession,
-    entityRecord,
-    membership,
-    env,
-  });
-  const branchDecision = resolveEntityLoopBranchDecision(entityRuntime);
-  const entityRuntimeTraceFields = buildLoopEntityRuntimeTraceFields(entityRuntime, branchDecision);
-
-  let keyLoopTrace = {
-    entered: false,
-    handled: false,
-    failed_reason: null,
-    legacy_fallback: null,
-    corporate_key_path: false,
-  };
-
-  if (shouldRunCorporateKeyLoopTurn({ branchDecision, entityRuntime })) {
-    keyLoopTrace.entered = true;
-    keyLoopTrace.corporate_key_path = true;
-    const corpTurn = runCorporateKeyLoopTurn({
-      question: trimmedQuestion,
-      history,
-      entityRuntime,
-      branchDecision,
-      snapshot,
-      unified,
-      loadedContext,
-      customerContextBundle,
-      reconciliationWarning,
-      loopStartedAt,
-      entityRuntimeTraceFields,
-    });
-    if (corpTurn?.handled && corpTurn.result) {
-      keyLoopTrace.handled = true;
-      corpTurn.result.salesDirectorTrace = {
-        ...(corpTurn.result.salesDirectorTrace ?? {}),
-        entity_context_passthrough: entityContextPassthrough,
-        key_loop_trace: keyLoopTrace,
-      };
-      return withKeyPreloadShadowTrace(corpTurn.result, keyPreloadShadowTrace);
-    }
-  }
-
-  if (
-    shouldUseSalesDirectorKeyOrchestrator({
-      question: trimmedQuestion,
-      customerId,
-      consultationIntent: modeDecision.consultationIntent,
-      env,
-    })
-  ) {
-    keyLoopTrace.entered = true;
-    const keyTurn = await runSalesDirectorKeyTurn({
-      userSupabase,
-      customerId,
-      question: trimmedQuestion,
-      history,
-      env,
-      fetchImpl,
-      startedAt: loopStartedAt,
-      streamHandlers,
-      requestStartedAt: requestStartedAt ?? startedAt,
-      snapshot,
-      unified,
-      loadedContext,
-      customerContextBundle,
-      reconciliationWarning,
-      modeDecision,
-      latency,
-      loopStartedAt,
-    });
-
-    if (keyTurn?.handled && keyTurn.result) {
-      keyLoopTrace.handled = true;
-      keyTurn.result.salesDirectorTrace = {
-        ...(keyTurn.result.salesDirectorTrace ?? {}),
-        ...entityRuntimeTraceFields,
-        entity_context_passthrough: entityContextPassthrough,
-        key_loop_trace: keyLoopTrace,
-      };
-      return withKeyPreloadShadowTrace(keyTurn.result, keyPreloadShadowTrace);
-    }
-
-    keyLoopTrace.failed_reason = keyTurn?.reason ?? "key_turn_not_handled";
-    keyLoopTrace.legacy_fallback = keyTurn?.legacy_fallback ?? isKeyLegacyFallbackEnabled(env);
-
-    if (!isKeyLegacyFallbackEnabled(env)) {
-      return withKeyPreloadShadowTrace(
-        {
-          ok: false,
-          reason: "KEY_ORCHESTRATOR_FAILED",
-          error_message: keyTurn?.reason ?? "key_turn_failed",
-        },
-        keyPreloadShadowTrace,
-      );
-    }
-
-    if (keyPreloadShadowTrace?.executed_selective_preload) {
-      const currentContexts = factoryContextsFromTuple([
-        coverageGapContext,
-        underwritingRiskContext,
-        recommendationContext,
-        designContext,
-      ]);
-      const loadFactoryPreload = createChatFactoryPreloadLoader(userSupabase, customerId);
-      const backfill = await backfillMissingLegacyFactoryPreloads({
-        contexts: currentContexts,
-        loadFactoryPreload,
-      });
-      if (backfill.f8_backfill_executed) {
-        coverageGapContext = backfill.contexts.coverageGapContext;
-        underwritingRiskContext = backfill.contexts.underwritingRiskContext;
-        recommendationContext = backfill.contexts.recommendationContext;
-        designContext = backfill.contexts.designContext;
-        customerContextBundle.coverageGapContext = coverageGapContext;
-        customerContextBundle.underwritingRiskContext = underwritingRiskContext;
-        customerContextBundle.recommendationContext = recommendationContext;
-        customerContextBundle.designContext = designContext;
-        keyPreloadShadowTrace = attachF8LegacyBackfillToTrace(keyPreloadShadowTrace, backfill);
-        keyLoopTrace.f8_legacy_backfill = {
-          executed: true,
-          backfilled: backfill.backfilled,
-          f8_backfill_full: backfill.f8_backfill_full,
-        };
-      }
-    }
-  }
-
-  const toolBrainStart = Date.now();
-  const toolPlan = planSalesDirectorToolBrain({
-    question: trimmedQuestion,
-    loadedContext,
-    modeDecision,
-    pilotKey: modeDecision.pilotKey,
-  });
-
-  let toolBrainResult = runSalesDirectorToolBrainSlice({
-    plan: toolPlan,
-    question: trimmedQuestion,
-    customerContextBundle,
-    loadedContext,
-    consultationIntent: modeDecision.consultationIntent,
-    unified,
-  });
-  latency.tool_brain_ms = markLatencyMs(toolBrainStart);
-
-  let agentTurn;
-  if (toolBrainResult?.handled) {
-    agentTurn = toolBrainResult.agentTurn;
-    if (modeDecision.mode !== SALES_DIRECTOR_MODES.GAP) {
-      modeDecision.tool_brain_handled = true;
-      modeDecision.mode = SALES_DIRECTOR_MODES.PILOT;
-    }
-  } else {
-    const stubTurn = buildConversationBrainStubTurn(trimmedQuestion, modeDecision.consultationIntent);
-    const conversationPlan = shouldApplyConversationBrain({
-      question: trimmedQuestion,
-      loadedContext,
-      customerContextBundle,
-      agentTurn: stubTurn,
-    });
-    if (conversationPlan.apply) {
-      agentTurn = stubTurn;
-      latency.handler_ms = 0;
-    } else {
-      const handlerStart = Date.now();
-      agentTurn = await runHomeAgentTomTurn({
-        question: trimmedQuestion,
-        history,
-        userSupabase,
-        customerId,
-        customerContextBundle,
-        unified,
-        env,
-        fetchImpl,
-        startedAt: loopStartedAt,
-      });
-      latency.handler_ms = markLatencyMs(handlerStart);
-    }
-  }
-
-  const conversationRefinement = await refineWithConversationBrain({
-    agentTurn,
-    question: trimmedQuestion,
-    history,
-    customerContextBundle,
-    loadedContext,
-    unified,
-    consultationIntent: modeDecision.consultationIntent,
-    contextSnapshotId: snapshot.context_snapshot_id ?? "",
-    fetchImpl,
-    env,
-    latencyBucket: latency,
-    streamHandlers,
-    requestStartedAt: requestStartedAt ?? startedAt,
-  });
-  if (conversationRefinement.applied) {
-    agentTurn = conversationRefinement.agentTurn;
-    if (modeDecision.mode !== SALES_DIRECTOR_MODES.GAP) {
-      modeDecision.conversation_brain_handled = true;
-      modeDecision.mode = SALES_DIRECTOR_MODES.PILOT;
-    }
-  }
-
-  const snapshotToolTrace =
-    toolPlan.snapshot_trace_only === true
-      ? buildSnapshotToolTraceOnly({ plan: toolPlan, loadedContext, customerContextBundle, unified })
-      : toolBrainResult?.agentTurn?.toolBrainTrace ?? null;
-
-  const truthGate = createTruthGatePlaceholder({
-    draftText: agentTurn.text,
-    factBundle: agentTurn.factBundle ?? {},
-    loadedContext,
-  });
-
-  const salesDirectorTrace = {
-    sales_director_loop: true,
-    sales_director_mode: modeDecision.mode,
-    sales_director_step: conversationRefinement.freeThinkingApplied
-      ? "free_thinking_complete"
-      : conversationRefinement.applied
-        ? "conversation_brain_complete"
-        : toolBrainResult?.handled
-          ? "tool_brain_complete"
-          : "handler_complete",
-    legacy_response_source: agentTurn.responseSource ?? null,
-    legacy_tom_internal_route: agentTurn.tomInternalRoute ?? null,
-    tool_brain: snapshotToolTrace ?? agentTurn.trace?.tool_brain ?? null,
-    conversation_brain: agentTurn.trace?.conversation_brain ?? null,
-    ...entityRuntimeTraceFields,
-    entity_context_passthrough: entityContextPassthrough,
-    key_loop_trace: keyLoopTrace,
-    truth_gate: truthGate,
-    snapshot_cache_hit: latency.snapshot_cache_hit === true,
-    latency: {
-      ...latency,
-      total_ms: markLatencyMs(loopStartedAt),
-    },
-  };
-
-  return withKeyPreloadShadowTrace(
-    {
-      ok: true,
-      contextSnapshot: snapshot,
-      unifiedState: unified,
-      loadedContext,
-      reconciliationWarning,
-      customerContextBundle,
-      modeDecision,
-      agentTurn,
-      salesDirectorTrace,
-      truthGate,
-      latency,
-      loopStartedAt,
-    },
-    keyPreloadShadowTrace,
-  );
 }
 
 export function buildSalesDirectorLoopObservability({
@@ -745,6 +107,7 @@ export function buildSalesDirectorLoopObservability({
     guardResult,
     contextSnapshotId,
     reconciliationWarning,
+    factsUsed,
     loadedContextContradictions,
     salesDirectorTrace,
   });
@@ -753,16 +116,18 @@ export function buildSalesDirectorLoopObservability({
     ...observability,
     sales_director_loop: true,
     sales_director_mode: modeDecision?.mode ?? null,
+    legacy_response_source: agentTurn?.responseSource ?? null,
+    legacy_tom_internal_route: agentTurn?.tomInternalRoute ?? null,
   };
 }
 
-function resolveFactsUsedActivePolicyCount(agentTurn = {}) {
+function resolveFactsUsedActivePolicyCount(agentTurn) {
   const factBundle = agentTurn?.factBundle ?? {};
-  if (factBundle.active_policy_count != null) {
-    return Number(factBundle.active_policy_count);
+  if (typeof factBundle.active_policy_count === "number") {
+    return factBundle.active_policy_count;
   }
-  if (factBundle.policy_count != null) {
-    return Number(factBundle.policy_count);
+  if (typeof factBundle.policy_count === "number") {
+    return factBundle.policy_count;
   }
   return null;
 }

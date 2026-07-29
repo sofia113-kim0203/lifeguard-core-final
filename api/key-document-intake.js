@@ -1,44 +1,20 @@
 /**
  * KU-1 — POST /api/key-document-intake
- * KU-2a+2b+2c — active: unified KEY upload authority (judgment + speak + Work Order gate).
- * S02-1 — ONE_KEY_CORE_DOCUMENT=1 → runOneKeyCoreTurn({ event: "document" }).
+ * KEY Master only — runOneKeyCoreTurn({ event: "document" }).
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
 import {
-  buildLoadedContextFromSnapshot,
-  loadSalesDirectorTurnContext,
-  snapshotToContextBundle,
-} from "../server/customerContextSnapshot.js";
-import { buildKeyDocumentIntakeShadowTrace } from "../server/keyBrain/documentIntakeShadow.js";
-import {
-  appendKeyFirstSpeakTrace,
-  buildCustomerFirstSentence,
-  finalizeDocumentIntakeFirstSentence,
-} from "../server/keyBrain/documentFirstSpeak.js";
-import {
-  KEY_ENTRY,
-  runSalesDirectorKeyTurn,
-} from "../server/salesDirectorKeyOrchestrator.js";
-import {
   getKeyUploadEntryMode,
-  isKeyUploadEntryActiveEnabled,
-  KEY_UPLOAD_ACTIVE_GATE,
   KEY_UPLOAD_ENTRY_MODES,
 } from "../server/keyBrain/uploadEntryFlags.js";
-import {
-  buildKeyWorkOrderRecord,
-  mintKeyWorkOrderId,
-  persistKeyWorkOrder,
-  resolveKeyWorkOrderTtlMs,
-} from "../server/keyBrain/workOrder.js";
 import {
   createUserSupabaseClient,
   readCustomerAuthHeader,
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
 import {
-  isOneKeyCoreDocumentEnabled,
+  resolveOneKeyCoreDocumentEnv,
   runOneKeyCoreTurn,
 } from "../server/keyCore/oneKeyCoreTurn.js";
 
@@ -132,203 +108,37 @@ export default async function handler(req, res) {
   }
 
   const hasAnalysisConsent = await hasDocumentAnalysisConsent(supabase, auth.customerId);
-  const activeAuthority = isKeyUploadEntryActiveEnabled(process.env);
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
+  const customerQuestion = String(body.question ?? body.customer_question ?? "").trim();
 
-  if (isOneKeyCoreDocumentEnabled(process.env)) {
-    const coreResult = await runOneKeyCoreTurn({
-      event: "document",
-      userSupabase: supabase,
-      customerId: auth.customerId,
-      document,
-      hasAnalysisConsent,
-      uploadSource: String(body.upload_source ?? "web"),
-      categoryKey: body.category_key ?? null,
-      uploadEntryMode: mode,
-      env: process.env,
-    });
+  const coreResult = await runOneKeyCoreTurn({
+    event: "document",
+    userSupabase: supabase,
+    customerId: auth.customerId,
+    document,
+    hasAnalysisConsent,
+    uploadSource: String(body.upload_source ?? "web"),
+    categoryKey: body.category_key ?? null,
+    uploadEntryMode: mode,
+    customerQuestion,
+    env: resolveOneKeyCoreDocumentEnv(process.env),
+  });
 
-    if (!coreResult.ok) {
-      res.statusCode = coreResult.reason === "work_order_persist_failed" ? 500 : 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: false,
-          reason: coreResult.reason ?? "one_key_core_document_failed",
-          error_message: coreResult.error_message ?? null,
-          one_key_core_trace: coreResult.one_key_core_trace ?? null,
-        }),
-      );
-      return;
-    }
-
-    const resolvedTrace = coreResult.intakeTrace;
-    res.statusCode = 200;
+  if (!coreResult.ok) {
+    res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
-        ok: true,
-        mode: responseMode,
-        subject: "KEY",
-        document_id: documentId,
-        response_source: coreResult.response_source,
-        one_key_core_event: "document",
-        intake_trace: resolvedTrace,
-        key_first_judgment: resolvedTrace.key_first_judgment ?? null,
-        customer_first_sentence: resolvedTrace.customer_first_sentence ?? null,
-        persona_outlet: resolvedTrace.persona_outlet ?? null,
-        work_order_id: coreResult.workOrderId ?? null,
-        work_order_ordered_by: coreResult.workOrderId ? "KEY" : null,
-        factory_executed: false,
-        customer_speak_changed: Boolean(resolvedTrace.customer_speak_changed),
+        ok: false,
+        reason: coreResult.reason ?? "one_key_core_document_failed",
+        error_message: coreResult.error_message ?? null,
+        one_key_core_trace: coreResult.one_key_core_trace ?? null,
       }),
     );
     return;
   }
 
-  let contextSnapshot = null;
-  let loadedContext = null;
-  let snapshotFromCache = false;
-  let unifiedState = null;
-  try {
-    const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
-      requestHistory: [],
-    });
-    contextSnapshot = turnContext.snapshot;
-    unifiedState = turnContext.unifiedState;
-    loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
-    snapshotFromCache = turnContext.from_cache === true;
-  } catch {
-    res.statusCode = 500;
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: false, reason: "context_snapshot_load_failed" }));
-    return;
-  }
-
-  let keyRuntimeEntered = false;
-  let keyTurnResult = null;
-  if (activeAuthority) {
-    const customerContextBundle = snapshotToContextBundle(contextSnapshot) ?? {};
-    const keyTurn = await runSalesDirectorKeyTurn({
-      userSupabase: supabase,
-      customerId: auth.customerId,
-      question: "",
-      keyEntry: KEY_ENTRY.DOCUMENT_INTAKE,
-      document,
-      hasAnalysisConsent,
-      snapshot: contextSnapshot,
-      unified: unifiedState,
-      loadedContext,
-      customerContextBundle,
-      reconciliationWarning: null,
-      env: process.env,
-    });
-
-    if (!keyTurn?.handled || !keyTurn.result) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: false,
-          reason: "key_runtime_failed",
-          detail: keyTurn?.reason ?? "runSalesDirectorKeyTurn_not_handled",
-        }),
-      );
-      return;
-    }
-    keyTurnResult = keyTurn.result;
-    keyRuntimeEntered = true;
-  }
-
-  const intakeTrace = buildKeyDocumentIntakeShadowTrace({
-    document,
-    hasAnalysisConsent,
-    uploadSource: String(body.upload_source ?? "web"),
-    categoryKey: body.category_key ?? null,
-    includeFirstJudgment: activeAuthority,
-    loadedContext,
-    contextSnapshot,
-    snapshotFromCache,
-    keyRuntimeEntered,
-    keyEntry: KEY_ENTRY.DOCUMENT_INTAKE,
-  });
-
-  let customerFirstSentence = null;
-  let personaMeta = null;
-  if (activeAuthority && intakeTrace.key_first_judgment) {
-    const staticDraft = buildCustomerFirstSentence(intakeTrace.key_first_judgment, {
-      document,
-      contextSnapshot,
-      loadedContext,
-    });
-    const finalized = finalizeDocumentIntakeFirstSentence(staticDraft, {
-      keyTurnResult,
-      document,
-    });
-    if (finalized?.text) {
-      customerFirstSentence = finalized.text;
-      personaMeta = finalized;
-    }
-  }
-  let resolvedTrace = customerFirstSentence
-    ? appendKeyFirstSpeakTrace(intakeTrace, customerFirstSentence, personaMeta)
-    : intakeTrace;
-
-  if (customerFirstSentence && contextSnapshot) {
-    resolvedTrace = {
-      ...resolvedTrace,
-      du1_fusion: {
-        schema_version: "du-1-document-upload-first-speak-v2",
-        four_inputs: {
-          document: true,
-          policies: (contextSnapshot?.bundle?.policies ?? []).length,
-          memory: (contextSnapshot?.bundle?.memoryFacts ?? []).length,
-          conversation: contextSnapshot?.flags?.has_recent_conversation === true,
-        },
-      },
-    };
-  }
-
-  let workOrderId = null;
-
-  if (mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE) {
-    workOrderId = mintKeyWorkOrderId();
-    const workOrderRecord = buildKeyWorkOrderRecord({
-      workOrderId,
-      customerId: auth.customerId,
-      documentId,
-      dispatchPlan: resolvedTrace.dispatch_plan,
-      ttlMs: resolveKeyWorkOrderTtlMs(process.env),
-    });
-
-    try {
-      await persistKeyWorkOrder(supabase, {
-        documentId,
-        customerId: auth.customerId,
-        workOrderRecord,
-        existingMetadata: document.metadata_json ?? {},
-      });
-    } catch {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: false, reason: "work_order_persist_failed" }));
-      return;
-    }
-
-    resolvedTrace.gate = KEY_UPLOAD_ACTIVE_GATE;
-    resolvedTrace.work_order = workOrderRecord;
-    resolvedTrace.trace_steps = [
-      ...(resolvedTrace.trace_steps ?? []),
-      {
-        step: "work_order_issued",
-        actor: "KEY",
-        work_order_id: workOrderId,
-        ordered_by: "KEY",
-        gate: "KU-2a",
-      },
-    ];
-  }
-
+  const resolvedTrace = coreResult.intakeTrace;
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/json");
   res.end(
@@ -337,12 +147,15 @@ export default async function handler(req, res) {
       mode: responseMode,
       subject: "KEY",
       document_id: documentId,
+      response_source: coreResult.response_source,
+      one_key_core_event: "document",
+      key_speak_master: true,
       intake_trace: resolvedTrace,
       key_first_judgment: resolvedTrace.key_first_judgment ?? null,
       customer_first_sentence: resolvedTrace.customer_first_sentence ?? null,
-      persona_outlet: resolvedTrace.persona_outlet ?? null,
-      work_order_id: workOrderId,
-      work_order_ordered_by: workOrderId ? "KEY" : null,
+      persona_outlet: resolvedTrace.persona_outlet ?? "keySpeak(key_master)",
+      work_order_id: coreResult.workOrderId ?? null,
+      work_order_ordered_by: coreResult.workOrderId ? "KEY" : null,
       factory_executed: false,
       customer_speak_changed: Boolean(resolvedTrace.customer_speak_changed),
     }),

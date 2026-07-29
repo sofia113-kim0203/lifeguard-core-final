@@ -9,43 +9,388 @@ import {
   classifyHomeBrainIntent,
 } from "./homeBrainRouter.js";
 import {
-  delegateGeneralKnowledgeChatTurn,
-  shouldRunGeneralKnowledgeDelegation,
-  TOM_INTERNAL_ROUTES,
-} from "./homeAgentTom.js";
-import { finalizeOneBrainResponse, ONE_BRAIN_SURFACES } from "./oneBrainResponseLayer.js";
-import {
-  finalizeSalesDirectorResponse,
-  resolveSalesDirectorJudgmentIntent,
-  shouldApplySalesDirectorFormatter,
-} from "./salesDirectorFormatter.js";
-import {
   buildSalesDirectorFactsUsed,
   buildSalesDirectorLoopObservability,
-  runSalesDirectorLoopTurn,
 } from "./salesDirectorLoop.js";
 import {
   buildSalesDirectorFactoryAudit,
   probeStoredFactoryRecords,
 } from "./salesDirectorFactoryAudit.js";
 import { buildSalesDirectorJudgmentAudit } from "./salesDirectorJudgmentAudit.js";
-import { buildKeyPathRuntimeTrace } from "./keyPathRuntimeTrace.js";
-import {
-  buildGuardResult,
-  isSalesDirectorPilotResponseSource,
-} from "./customerObservability.js";
 import { resolveActivePolicyCountFromUnified } from "./unifiedCustomerState.js";
 import { buildKeyWaitAck } from "./keyWaitAck.js";
-import { isOneKeyCoreS1Enabled, runOneKeyCoreTurn } from "./keyCore/oneKeyCoreTurn.js";
+import { resolveOneKeyCoreS1Env, runOneKeyCoreTurn } from "./keyCore/oneKeyCoreTurn.js";
+import { buildKeyCustomerTextFailureEnvelope } from "./keyCore/keyCustomerMonopoly.js";
+import { enforceKeyCustomerTextIntegrity } from "./keyCore/keyCustomerTextSeal.js";
+import { ONE_KEY_CORE_RESPONSE_SOURCE } from "./keyCore/oneKeyCoreFlags.js";
+import { resolveSupabaseConfig } from "./claudeGroundedExecutionCore.js";
+import { buildDocumentDispatchPlanShadow } from "./keyBrain/documentIntakeShadow.js";
+import {
+  buildKeyWorkOrderRecord,
+  mintKeyWorkOrderId,
+  persistKeyWorkOrder,
+  resolveKeyWorkOrderTtlMs,
+} from "./keyBrain/workOrder.js";
+import { runDocumentPolicyExtraction } from "./documentPolicyExtractionPipeline.js";
+
+/** Reuse Claude-first turn fields for factory post-processing (no second Claude call). */
+export function buildClaudeFactoryDirectionFromTurn({
+  question = "",
+  documentId = null,
+  coreResult = null,
+} = {}) {
+  const trace = coreResult?.salesDirectorTrace ?? {};
+  const voice = trace?.key_compose_trace?.key_voice_trace ?? {};
+  const facts = Array.isArray(coreResult?.agentTurn?.factBundle?.key_confirmed_source_facts)
+    ? coreResult.agentTurn.factBundle.key_confirmed_source_facts
+    : [];
+  const decision = null;
+  const session_goal = trace.session_goal ?? null;
+  const sessionGoalText =
+    session_goal && typeof session_goal === "object"
+      ? String(session_goal.goal ?? "").trim() || null
+      : session_goal != null
+        ? String(session_goal).trim() || null
+        : null;
+  const recheck = facts
+    .map((fact) => fact?.field ?? fact?.fact_key ?? fact?.label ?? null)
+    .filter(Boolean)
+    .slice(0, 40);
+  return {
+    schema_version: "claude-factory-direction-v1",
+    source: "claude_first_direct",
+    document_id: documentId,
+    customer_question_focus: String(question ?? "").trim().slice(0, 500),
+    session_goal: sessionGoalText,
+    decision,
+    document_understanding:
+      sessionGoalText ??
+      (facts.length ? "confirmed_source_facts_present" : null),
+    confirm_items: facts.slice(0, 40).map((fact) => ({
+      field: fact?.field ?? fact?.fact_key ?? null,
+      value: fact?.value ?? null,
+      uncertain: fact?.uncertain === true || fact?.confidence === "low",
+    })),
+    uncertain_parts: facts
+      .filter((fact) => fact?.uncertain === true || fact?.confidence === "low")
+      .slice(0, 20),
+    recheck_on_original: recheck,
+    compare_or_calc_basis: sessionGoalText,
+    pdf_attached: voice.pdf_attached === true,
+    gaps: {
+      decision_null: true,
+      session_goal_null: sessionGoalText == null,
+      note:
+        "Claude-first: decision never persisted; session_goal is short-term work state only (or null)",
+    },
+  };
+}
+
+async function hasDocumentAnalysisConsent(supabase, customerId) {
+  const { data, error } = await supabase
+    .from("customer_consents")
+    .select("id")
+    .eq("customer_id", customerId)
+    .eq("consent_type", "document_analysis")
+    .eq("granted", true)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+async function invokeDocumentIngestWorkerAfterClaude({
+  env,
+  accessToken,
+  documentId,
+  workOrderId,
+  fetchImpl = fetch,
+}) {
+  const { url, anonKey } = resolveSupabaseConfig(env);
+  const token = String(accessToken ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!url || !anonKey || !token) {
+    return { ok: false, reason: "missing_worker_auth" };
+  }
+  const body = { document_id: documentId };
+  if (workOrderId) body.work_order_id = workOrderId;
+  const response = await fetchImpl(`${url}/functions/v1/document-ingest-worker`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      reason: "worker_failed",
+      status: response.status,
+      error: payload?.error_message ?? payload?.error ?? null,
+    };
+  }
+  return { ok: true, payload };
+}
+
+/**
+ * After Claude seal: issue WO carrying Claude direction, then existing ingest path.
+ * Never throws to caller — factory failure must not alter the sealed customer answer.
+ */
+export async function runHomeChatFactoryAfterClaude({
+  userSupabase,
+  customerId,
+  documentId,
+  claudeFactoryDirection,
+  accessToken = null,
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const trimmedId = String(documentId ?? "").trim();
+  if (!userSupabase || !customerId || !trimmedId) {
+    return { ok: false, reason: "missing_args" };
+  }
+
+  const hasConsent = await hasDocumentAnalysisConsent(userSupabase, customerId);
+  if (!hasConsent) {
+    return { ok: false, reason: "analysis_consent_missing" };
+  }
+
+  const { data: document, error: docError } = await userSupabase
+    .from("customer_documents")
+    .select("id, customer_id, metadata_json, customer_hint_type, doc_class, ingest_status")
+    .eq("id", trimmedId)
+    .eq("customer_id", customerId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (docError || !document) {
+    return { ok: false, reason: "document_not_found" };
+  }
+
+  const dispatchPlan = buildDocumentDispatchPlanShadow({
+    document,
+    hasAnalysisConsent: true,
+    claudeFactoryDirection,
+  });
+  const workOrderId = mintKeyWorkOrderId();
+  const workOrderRecord = buildKeyWorkOrderRecord({
+    workOrderId,
+    customerId,
+    documentId: trimmedId,
+    dispatchPlan,
+    ttlMs: resolveKeyWorkOrderTtlMs(env),
+  });
+  workOrderRecord.claude_factory_direction = claudeFactoryDirection ?? null;
+
+  await persistKeyWorkOrder(userSupabase, {
+    documentId: trimmedId,
+    customerId,
+    workOrderRecord,
+    existingMetadata: {
+      ...(document.metadata_json ?? {}),
+      claude_factory_direction: claudeFactoryDirection ?? null,
+      factory_deferred_until_claude: false,
+      factory_started_after_claude: true,
+    },
+  });
+
+  const { data: rpcData, error: rpcError } = await userSupabase.rpc(
+    "lifeguard_request_customer_document_ingest",
+    { p_document_id: trimmedId },
+  );
+  if (rpcError) {
+    return { ok: false, reason: "ingest_rpc_failed", error: rpcError.message, work_order_id: workOrderId };
+  }
+  if (rpcData?.blocked) {
+    return {
+      ok: false,
+      reason: "ingest_blocked",
+      work_order_id: workOrderId,
+      message: rpcData.message ?? null,
+    };
+  }
+
+  const worker = await invokeDocumentIngestWorkerAfterClaude({
+    env,
+    accessToken,
+    documentId: trimmedId,
+    workOrderId,
+    fetchImpl,
+  });
+
+  let policyExtraction = null;
+  if (worker.ok && worker.payload?.ingest_status === "ready") {
+    try {
+      policyExtraction = await runDocumentPolicyExtraction({
+        customerId,
+        documentId: trimmedId,
+        env,
+        invokeMemory: true,
+      });
+    } catch (extractError) {
+      policyExtraction = {
+        ok: false,
+        reason: "extract_failed",
+        message: String(extractError?.message ?? extractError).slice(0, 200),
+      };
+    }
+  }
+
+  return {
+    ok: worker.ok === true,
+    work_order_id: workOrderId,
+    claude_factory_direction: claudeFactoryDirection ?? null,
+    worker,
+    policyExtraction,
+  };
+}
+
+export function scheduleHomeChatFactoryAfterClaude(args) {
+  void runHomeChatFactoryAfterClaude(args).catch((error) => {
+    console.error(
+      "[homechat_factory_after_claude]",
+      String(error?.message ?? error).slice(0, 240),
+    );
+  });
+}
 
 export {
   HOME_BRAIN_SUPPORTED_INTENTS,
   HOME_HIGH_STAKES_DEFER_MESSAGE,
   classifyHomeBrainIntent,
-  TOM_INTERNAL_ROUTES,
 };
 
 export const HOME_BRAIN_UNSUPPORTED_MESSAGE = HOME_HIGH_STAKES_DEFER_MESSAGE;
+
+function passThroughKeyCustomerText(coreResult) {
+  const keySpeakOriginal = coreResult.keySpeakOriginal ?? coreResult.customerText ?? "";
+  const responseSource =
+    coreResult.agentTurn?.responseSource ?? ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION;
+  const answerText = keySpeakOriginal;
+  // Monopoly failure with empty customer text: allow pass-through (do not invent KEY copy).
+  if (coreResult.key_monopoly_failure === true && !String(keySpeakOriginal).trim()) {
+    return {
+      answerText: "",
+      responseSource,
+      keySpeakOriginal: "",
+      key_text_integrity: {
+        ok: true,
+        reason: "key_monopoly_failure_empty",
+        text_equal: true,
+        response_source: responseSource,
+      },
+    };
+  }
+  const integrity = enforceKeyCustomerTextIntegrity({
+    keySpeakOriginal,
+    finalCustomerText: answerText,
+    responseSource,
+    postMutators: [],
+  });
+  return {
+    answerText,
+    responseSource,
+    keySpeakOriginal,
+    key_text_integrity: integrity,
+  };
+}
+
+function buildKeyCustomerFactReturn({
+  coreResult,
+  answerText,
+  responseSource,
+  keySpeakOriginal,
+  keyTextIntegrity,
+  startedAt,
+  extras = {},
+}) {
+  const allowEmptyMonopolyFailure =
+    (coreResult?.key_monopoly_failure === true || extras?.key_monopoly_failure === true) &&
+    !String(keySpeakOriginal ?? "").trim();
+  if (!allowEmptyMonopolyFailure) {
+    enforceKeyCustomerTextIntegrity({
+      keySpeakOriginal,
+      finalCustomerText: answerText,
+      responseSource,
+      postMutators: [],
+    });
+  }
+  return {
+    ok: true,
+    answerText,
+    response_source: responseSource,
+    key_speak_original: keySpeakOriginal,
+    key_text_equal: keySpeakOriginal === answerText,
+    key_text_integrity: keyTextIntegrity,
+    key_customer_monopoly: true,
+    response_latency_ms: Date.now() - startedAt,
+    ...extras,
+  };
+}
+
+function resolveVisualBlocksFromCoreResult(coreResult = {}) {
+  const speakStep = coreResult?.oneKeyCoreTrace?.steps?.find((row) => row.step === "speak");
+  const payload = speakStep?.payload ?? {};
+  const visual_blocks = Array.isArray(coreResult.visualBlocks) && coreResult.visualBlocks.length
+    ? coreResult.visualBlocks
+    : Array.isArray(payload.visual_blocks)
+      ? payload.visual_blocks
+      : Array.isArray(payload.key_compose_trace?.visual_blocks)
+        ? payload.key_compose_trace.visual_blocks
+        : [];
+  const gateRaw =
+    payload.visual_blocks_gate ??
+    payload.key_voice_trace?.visual_blocks_gate ??
+    payload.key_compose_trace?.key_voice_trace?.visual_blocks_gate ??
+    null;
+  const visual_blocks_gate = gateRaw
+    ? {
+        accepted_count:
+          typeof gateRaw.accepted_count === "number"
+            ? gateRaw.accepted_count
+            : Array.isArray(gateRaw.accepted)
+              ? gateRaw.accepted.length
+              : visual_blocks.length,
+        omitted_count:
+          typeof gateRaw.omitted_count === "number"
+            ? gateRaw.omitted_count
+            : Array.isArray(gateRaw.omitted)
+              ? gateRaw.omitted.length
+              : 0,
+        omitted: gateRaw.omitted ?? [],
+      }
+    : null;
+  return { visual_blocks, visual_blocks_gate };
+}
+
+/** SSE done + JSON response payload — includes KEY Voice visual_blocks from core turn. */
+export function buildDonePayload({
+  coreResult,
+  answerText,
+  responseSource,
+  keySpeakOriginal,
+  keyTextIntegrity,
+  startedAt,
+  extras = {},
+}) {
+  return {
+    ...buildKeyCustomerFactReturn({
+      coreResult,
+      answerText,
+      responseSource,
+      keySpeakOriginal,
+      keyTextIntegrity,
+      startedAt,
+      extras,
+    }),
+    ...resolveVisualBlocksFromCoreResult(coreResult),
+  };
+}
 
 export const P5_BRAIN_RESPONSE_SOURCES = new Set([
   "p5_brain_customer_state",
@@ -56,20 +401,16 @@ export function isP5BrainResponseSource(responseSource) {
   return P5_BRAIN_RESPONSE_SOURCES.has(responseSource);
 }
 
+/**
+ * Triangle T3 — raw question direct.
+ * Trim ends only. Do NOT collapse newlines/spaces (no rewrite / spell-fix / intent reshape).
+ */
+export function normalizeHomeBrainQuestion(question) {
+  return String(question ?? "").trim();
+}
+
 function normalizeQuestion(question) {
-  return String(question ?? "").replace(/\s+/g, " ").trim();
-}
-
-function joinLabels(labels) {
-  const list = (labels ?? []).filter(Boolean);
-  if (list.length === 0) return "";
-  if (list.length === 1) return list[0];
-  if (list.length === 2) return `${list[0]}과 ${list[1]}`;
-  return `${list.slice(0, -1).join(", ")}과 ${list[list.length - 1]}`;
-}
-
-function formatWonAmount(amount) {
-  return `${Number(amount).toLocaleString("ko-KR")}`.replace(/,/g, "");
+  return normalizeHomeBrainQuestion(question);
 }
 
 export function applyHomeInventoryHardGuard(text = "") {
@@ -100,286 +441,29 @@ export function buildHomeBrainFactsUsed(unified, stats) {
   };
 }
 
-function customerLabel(unified) {
-  const name = unified?.profile?.display_name;
-  return name ? `${name}님` : "고객님";
-}
-
-export function formatHomeBrainAnswer(intent, unified, stats) {
-  const label = customerLabel(unified);
-  const policyCount = resolveHomeBrainPolicyCount(unified);
-
-  if (policyCount === 0 && intent !== "memory_recall_lookup") {
-    return `${label}, 지금은 등록된 가입 보험 정보를 찾지 못했어요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
-  }
-
-  switch (intent) {
-    case "premium_lookup": {
-      if (stats.premiumKnownCount === 0) {
-        return `${label}, 지금 확인된 납입 보험료가 있는 계약은 없어요.`;
-      }
-      return `확인된 납입 보험료 합계는 ${formatWonAmount(stats.premiumTotal)}원이에요.`;
-    }
-    case "policy_count": {
-      if (typeof policyCount === "number" && policyCount > 0) {
-        return `${label}, 지금 확인된 가입 보험은 ${policyCount}개예요.`;
-      }
-      return `${label}, 지금 가입 보험 개수는 확인 중이에요. 보험 정보를 저장해 주시면 같이 확인해 볼게요.`;
-    }
-    case "insurer_lookup": {
-      const insurers = Array.from(
-        new Set((unified?.policies ?? []).map((policy) => policy.insurer_name).filter(Boolean)),
-      );
-      if (!insurers.length) {
-        return `${label}, 지금은 가입 보험사 정보를 확인하지 못했어요.`;
-      }
-      return `${label}, 가입하신 보험사는 ${joinLabels(insurers)}이에요.`;
-    }
-    case "premium_unknown_lookup":
-      return stats.premiumUnknownCount === 0
-        ? `${label}, 지금 확인된 계약은 모두 납입 보험료가 확인됐어요.`
-        : `${label}, 아직 납입 보험료가 확인되지 않은 계약이 있어요.`;
-    case "memory_recall_lookup":
-      return `${label}, 기억해 둔 정보가 있어요. 필요하시면 말씀해 주세요.`;
-    default:
-      return HOME_HIGH_STAKES_DEFER_MESSAGE;
-  }
-}
-
-/** Legacy compose helper — kept for unit tests; home runtime uses Sales Director Loop. */
-export function composeHomeBrainFactAnswer(unified, question) {
-  const intent = classifyHomeBrainIntent(question);
-  if (!HOME_BRAIN_SUPPORTED_INTENTS.has(intent)) {
-    return {
-      ok: true,
-      answerText: HOME_HIGH_STAKES_DEFER_MESSAGE,
-      intent: "unsupported",
-      factsUsed: buildHomeBrainFactsUsed(unified ?? {}, {
-        premiumKnownCount: 0,
-        premiumUnknownCount: 0,
-        premiumTotal: 0,
-      }),
-    };
-  }
-  const policies = unified?.policies ?? [];
-  const stats = computePremiumLookupStats(policies);
-  return {
-    ok: true,
-    answerText: formatHomeBrainAnswer(intent, unified, stats),
-    intent,
-    factsUsed: buildHomeBrainFactsUsed(unified, stats),
-  };
-}
-
-function resolveHomeBrainRoute(tomInternalRoute = null) {
-  if (tomInternalRoute === TOM_INTERNAL_ROUTES.GAP_TOOL) return "gap_grounded";
-  if (tomInternalRoute === TOM_INTERNAL_ROUTES.CHAT) return "casual_chat";
-  return "high_stakes_defer";
-}
-
-function isHomeKeyOrchestratorFinalize({
-  factBundle = {},
-  customerState = null,
-  responseSource = null,
-  salesDirectorResponseSource = null,
-} = {}) {
-  if (factBundle?.key_orchestrator === true) return true;
-  if (customerState?.keyOrchestrator === true) return true;
-  const source = salesDirectorResponseSource ?? responseSource;
-  return source === "sales_director_key";
-}
-
-function finalizeHomeKeyOrchestratorResponse({
-  text,
-  question,
-  intent,
-  factBundle = {},
-  customerState = null,
-  tomInternalRoute = null,
-  responseSource = null,
-  freeThinking = null,
-  history = [],
-}) {
-  const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
-  const keyFactBundle = {
-    ...factBundle,
-    key_orchestrator: true,
-    question: factBundle.question ?? question,
-  };
-  return finalizeSalesDirectorResponse({
-    rawText: text,
-    intent: resolveSalesDirectorJudgmentIntent(intent, question),
-    classificationIntent: intent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle: keyFactBundle,
-    customerState: {
-      ...(customerState ?? {}),
-      question: customerState?.question ?? question,
-      keyOrchestrator: true,
-    },
-    homeBrainIntent: "unsupported",
-    homeRoute,
-    conversationContext: {
-      freeThinking,
-      responseSource,
-      history,
-    },
-  });
-}
-
-function applyHomeSalesDirectorFormatter({
-  text,
-  question,
-  intent,
-  factBundle = {},
-  customerState = null,
-  tomInternalRoute = null,
-  responseSource = null,
-  freeThinking = null,
-  history = [],
-}) {
-  const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
-
-  if (
-    !shouldApplySalesDirectorFormatter(intent, question, {
-      surface: ONE_BRAIN_SURFACES.HOME,
-      homeBrainIntent: "unsupported",
-      homeRoute,
-    })
-  ) {
-    return text;
-  }
-
-  return finalizeSalesDirectorResponse({
-    rawText: text,
-    intent: resolveSalesDirectorJudgmentIntent(intent, question),
-    classificationIntent: intent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle,
-    customerState,
-    responseSource,
-    conversationContext: {
-      freeThinking,
-      responseSource,
-      history,
-    },
-  });
-}
-
-function finalizeHomeAgentResponse({
-  text,
-  question,
-  intent,
-  factBundle = {},
-  tomGapVoiceHandled = false,
-  tomInternalRoute = null,
-  responseSource = null,
-  salesDirectorResponseSource = null,
-  customerState = null,
-  history = [],
-}) {
-  const originalText = text;
-  const pilotSource = salesDirectorResponseSource ?? responseSource;
-
-  if (
-    isHomeKeyOrchestratorFinalize({
-      factBundle,
-      customerState,
-      responseSource,
-      salesDirectorResponseSource: pilotSource,
-    })
-  ) {
-    const finalized = finalizeHomeKeyOrchestratorResponse({
-      text,
-      question,
-      intent,
-      factBundle,
-      customerState,
-      tomInternalRoute,
-      responseSource,
-      freeThinking: customerState?.freeThinking ?? null,
-      history,
-    });
-    const finalText = applyP5BrainCustomerTextGuard(finalized.text);
-    return {
-      text: finalText,
-      preserveGateTrace: finalized.preserve_gate_trace ?? null,
-      finalizeTrace: finalized,
-      guardResult: buildGuardResult({
-        responseSource: pilotSource ?? "sales_director_key",
-        originalText,
-        afterFinalizeText: finalized.text,
-        finalText,
-      }),
-    };
-  }
-
-  if (isP5BrainResponseSource(responseSource) || isSalesDirectorPilotResponseSource(pilotSource)) {
-    const finalized = applyHomeSalesDirectorFormatter({
-      text,
-      question,
-      intent,
-      factBundle,
-      customerState,
-      tomInternalRoute,
-      responseSource,
-      freeThinking: customerState?.freeThinking ?? null,
-      history,
-    });
-    const formatted = finalized.text;
-    const finalText = applyP5BrainCustomerTextGuard(formatted);
-    return {
-      text: finalText,
-      preserveGateTrace: finalized.preserve_gate_trace ?? null,
-      finalizeTrace: finalized,
-      guardResult: buildGuardResult({
-        responseSource: pilotSource,
-        originalText,
-        afterFinalizeText: formatted,
-        finalText,
-        p5BrainGuarded:
-          responseSource === "p5_brain_state_guarded" ||
-          salesDirectorResponseSource === "sales_director_pilot_guarded",
-      }),
-    };
-  }
-
-  const homeRoute = resolveHomeBrainRoute(tomInternalRoute);
-
-  const afterFinalize = finalizeOneBrainResponse({
-    text,
-    question,
-    intent,
-    surface: ONE_BRAIN_SURFACES.HOME,
-    factBundle,
-    homeBrainIntent: "unsupported",
-    homeRoute,
-    tomGapVoiceHandled,
-  });
-  const finalText = applyHomeInventoryHardGuard(afterFinalize);
-
-  return {
-    text: finalText,
-    guardResult: buildGuardResult({
-      responseSource: salesDirectorResponseSource ?? responseSource,
-      originalText,
-      afterFinalizeText: afterFinalize,
-      finalText,
-    }),
-  };
-}
-
 export async function handleHomeBrainFactRequest({
   userSupabase,
   customerId,
+  authUserId = null,
+  entityContext = null,
   question,
   history = [],
+  attachedDocumentId = null,
+  priorAttachFollowUp = false,
+  sessionId = null,
+  readyCardHandoffToken = null,
+  presenceTurn = false,
+  shadowVisualBlocksOverride = null,
+  accessToken = null,
   env = process.env,
   fetchImpl = fetch,
   streamHandlers = null,
   requestStartedAt = null,
 }) {
-  const trimmedQuestion = normalizeQuestion(question);
+  const isPresenceTurn = presenceTurn === true;
+  const trimmedQuestion = isPresenceTurn
+    ? "__KEY_PRESENCE_LISTEN_FOCUS__"
+    : normalizeQuestion(question);
   if (!trimmedQuestion) {
     return {
       ok: false,
@@ -416,10 +500,8 @@ export async function handleHomeBrainFactRequest({
         }
         streamHandlers.onDelta?.(text);
       },
-      onReplace(text) {
-        sseTrace.replace_count += 1;
-        sseTrace.replace_preview = String(text ?? "").slice(0, 300);
-        streamHandlers.onReplace?.(text);
+      onReplace(_text) {
+        // KEY monopoly — post-KEY replace forbidden on customer stream
       },
       onFirstToken: streamHandlers.onFirstToken,
       get _emitted() {
@@ -431,107 +513,207 @@ export async function handleHomeBrainFactRequest({
     };
   }
 
-  if (activeStreamHandlers?.onKeyWaitAck) {
+  // Presence opener: no wait-ack filler (not a customer question).
+  if (activeStreamHandlers?.onKeyWaitAck && !isPresenceTurn) {
     const ackText = buildKeyWaitAck(trimmedQuestion);
     sseTrace.key_wait_ack_text = ackText;
     sseTrace.key_wait_ack_ms = Math.max(0, Date.now() - startedAt);
     activeStreamHandlers.onKeyWaitAck(ackText);
   }
 
-  if (isOneKeyCoreS1Enabled(env)) {
-    const coreResult = await runOneKeyCoreTurn({
-      userSupabase,
-      customerId,
-      question: trimmedQuestion,
-      history,
-      env,
-      fetchImpl,
-      startedAt,
+  const keyEnv = resolveOneKeyCoreS1Env(env);
+  const coreResult = await runOneKeyCoreTurn({
+    userSupabase,
+    customerId,
+    authUserId,
+    entityContext,
+    question: trimmedQuestion,
+    history: isPresenceTurn ? [] : history,
+    attachedDocumentId: isPresenceTurn ? null : attachedDocumentId,
+    priorAttachFollowUp: isPresenceTurn ? false : priorAttachFollowUp,
+    sessionId,
+    readyCardHandoffToken,
+    presenceTurn: isPresenceTurn,
+    shadowVisualBlocksOverride: isPresenceTurn ? null : shadowVisualBlocksOverride,
+    streamHandlers: activeStreamHandlers,
+    env: keyEnv,
+    fetchImpl,
+    startedAt,
+  });
+
+  if (!coreResult.ok) {
+    const failureEnvelope = buildKeyCustomerTextFailureEnvelope({
+      reason: coreResult.reason ?? "one_key_core_failed",
+      trace: coreResult.oneKeyCoreTrace ?? null,
     });
-
-    if (!coreResult.ok) {
-      return {
-        ok: false,
-        reason: coreResult.reason ?? "ONE_KEY_CORE_S1_FAILED",
-        error_message: coreResult.error_message ?? coreResult.reason ?? "one_key_core_failed",
-        one_key_core_trace: coreResult.one_key_core_trace ?? null,
-      };
-    }
-
-    const {
-      agentTurn,
-      modeDecision,
-      loadedContext,
-      contextSnapshot,
-      salesDirectorTrace,
-      truthGate,
-      latency: loopLatency,
-      customerText: answerText,
-      customerContextBundle,
-    } = coreResult;
-
-    if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
-      activeStreamHandlers.onDelta(answerText);
+    const keyPass = passThroughKeyCustomerText(failureEnvelope);
+    if (activeStreamHandlers?.onDelta) {
+      activeStreamHandlers.onDelta(keyPass.answerText);
       activeStreamHandlers._emitted = true;
       activeStreamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
     }
-
-    const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
-    const storedFactoryProbe = await probeStoredFactoryRecords(userSupabase, customerId);
-    const factoryAudit = buildSalesDirectorFactoryAudit({
-      customerContextBundle,
-      loadedContext,
-      agentTurn,
-      salesDirectorTrace,
-      storedProbe: storedFactoryProbe,
-      keyComposeTrace: salesDirectorTrace?.finalize_trace?.key_compose_trace ?? null,
-    });
-
-    const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
-      agentTurn,
-      customerContextBundle,
-      loadedContext,
-      computeStats: computePremiumLookupStats,
-      buildFactsUsed: buildHomeBrainFactsUsed,
-    });
-
-    const judgmentAudit = buildSalesDirectorJudgmentAudit({
-      answerText,
-      customerContextBundle,
-      factoryAudit,
-      answerEvidence: factoryAudit.answer_evidence,
-    });
-
-    const observability = buildSalesDirectorLoopObservability({
-      modeDecision,
-      agentTurn,
-      loadedContext,
-      guardResult: null,
-      contextSnapshotId: contextSnapshot.context_snapshot_id,
-      reconciliationWarning: null,
-      factsUsed,
-      loadedContextContradictions,
-      salesDirectorTrace: {
-        ...salesDirectorTrace,
-        truth_gate: truthGate,
-        sales_director_factory_audit: factoryAudit,
-        sales_director_judgment_audit: judgmentAudit,
-        answer_evidence: factoryAudit.answer_evidence,
-        finalize_trace: salesDirectorTrace?.finalize_trace ?? null,
-        p10_4_key_path_trace: {
-          one_key_core_s1: true,
-          legacy_paths_blocked: salesDirectorTrace?.legacy_paths_blocked ?? [],
-        },
-        latency: {
-          ...(loopLatency ?? {}),
-          total_ms: Date.now() - startedAt,
-        },
+    return buildDonePayload({
+      coreResult: failureEnvelope,
+      answerText: keyPass.answerText,
+      responseSource: keyPass.responseSource,
+      keySpeakOriginal: keyPass.keySpeakOriginal,
+      keyTextIntegrity: keyPass.key_text_integrity,
+      startedAt,
+      extras: {
+        intent: "general_consultation",
+        agent: "one_key_core_s1",
+        key_monopoly_failure: true,
+        failure_reason: coreResult.reason ?? "one_key_core_failed",
+        one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
       },
     });
+  }
 
-    return {
-      ok: true,
+  const keyPass = passThroughKeyCustomerText(coreResult);
+  const answerText = keyPass.answerText;
+  const responseSource = keyPass.responseSource;
+  const keySpeakOriginal = keyPass.keySpeakOriginal;
+
+  const {
+    agentTurn,
+    modeDecision,
+    loadedContext,
+    contextSnapshot,
+    salesDirectorTrace,
+    truthGate,
+    latency: loopLatency,
+    customerContextBundle,
+  } = coreResult;
+
+  if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
+    activeStreamHandlers.onDelta(answerText);
+    activeStreamHandlers._emitted = true;
+    activeStreamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
+  }
+
+  if (coreResult.key_monopoly_failure === true) {
+    // Keep internal traces (incl. anthropic_upstream_diag on key_voice_trace).
+    // Do not rebuild observability — customer text / SSE stay monopoly pass-through.
+    return buildDonePayload({
+      coreResult,
       answerText,
+      responseSource,
+      keySpeakOriginal,
+      keyTextIntegrity: keyPass.key_text_integrity,
+      startedAt,
+      extras: {
+        intent: agentTurn.consultationIntent?.intent ?? "general_consultation",
+        agent: "one_key_core_s1",
+        key_monopoly_failure: true,
+        failure_reason: coreResult.failure_reason ?? null,
+        one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
+        sales_director_trace: salesDirectorTrace ?? null,
+      },
+    });
+  }
+
+  const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
+  const triangleT0 =
+    salesDirectorTrace?.key_compose_trace?.key_voice_trace?.latency_marks?.triangle_t0 ?? null;
+  // T4 — do not overwrite Claude-path persist marks with probe timing.
+  if (
+    triangleT0 &&
+    typeof triangleT0 === "object" &&
+    triangleT0.persist_start_ms == null
+  ) {
+    triangleT0.persist_start_ms = Math.max(0, Date.now() - startedAt);
+  }
+  const storedFactoryProbe = await probeStoredFactoryRecords(userSupabase, customerId);
+  if (
+    triangleT0 &&
+    typeof triangleT0 === "object" &&
+    triangleT0.persist_complete_ms == null
+  ) {
+    triangleT0.persist_complete_ms = Math.max(0, Date.now() - startedAt);
+  }
+  const factoryAudit = buildSalesDirectorFactoryAudit({
+    customerContextBundle,
+    loadedContext,
+    agentTurn: { ...agentTurn, text: answerText },
+    salesDirectorTrace,
+    storedProbe: storedFactoryProbe,
+    keyComposeTrace: salesDirectorTrace?.key_compose_trace ?? null,
+  });
+
+  const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
+    agentTurn: { ...agentTurn, text: answerText },
+    customerContextBundle,
+    loadedContext,
+    computeStats: computePremiumLookupStats,
+    buildFactsUsed: buildHomeBrainFactsUsed,
+  });
+
+  const judgmentAudit = buildSalesDirectorJudgmentAudit({
+    answerText,
+    customerContextBundle,
+    factoryAudit,
+    answerEvidence: factoryAudit.answer_evidence,
+  });
+
+  const observability = buildSalesDirectorLoopObservability({
+    modeDecision,
+    agentTurn: { ...agentTurn, text: answerText },
+    loadedContext,
+    guardResult: null,
+    contextSnapshotId: contextSnapshot.context_snapshot_id,
+    reconciliationWarning: null,
+    factsUsed,
+    loadedContextContradictions,
+    salesDirectorTrace: {
+      ...salesDirectorTrace,
+      truth_gate: truthGate,
+      sales_director_factory_audit: factoryAudit,
+      sales_director_judgment_audit: judgmentAudit,
+      answer_evidence: factoryAudit.answer_evidence,
+      key_customer_monopoly: true,
+      persona_rewrite_blocked: true,
+      p10_4_key_path_trace: {
+        one_key_core_s1: true,
+        legacy_paths_blocked: salesDirectorTrace?.legacy_paths_blocked ?? [],
+        key_text_integrity: keyPass.key_text_integrity,
+      },
+      latency: {
+        ...(loopLatency ?? {}),
+        total_ms: Date.now() - startedAt,
+      },
+    },
+  });
+
+  const attachedId = String(attachedDocumentId ?? "").trim() || null;
+  const claudeFactoryDirection = attachedId
+    ? buildClaudeFactoryDirectionFromTurn({
+        question: trimmedQuestion,
+        documentId: attachedId,
+        coreResult,
+      })
+    : null;
+
+  // Customer answer is already sealed/streamed — factory must not delay or rewrite it.
+  if (attachedId && claudeFactoryDirection) {
+    scheduleHomeChatFactoryAfterClaude({
+      userSupabase,
+      customerId,
+      documentId: attachedId,
+      claudeFactoryDirection,
+      accessToken,
+      env,
+      fetchImpl,
+    });
+  }
+
+  return buildDonePayload({
+    coreResult,
+    answerText,
+    responseSource,
+    keySpeakOriginal,
+    keyTextIntegrity: keyPass.key_text_integrity,
+    startedAt,
+    extras: {
       intent,
       home_route: agentTurn.tomInternalRoute,
       tom_internal_route: agentTurn.tomInternalRoute,
@@ -539,7 +721,6 @@ export async function handleHomeBrainFactRequest({
       agent: "one_key_core_s1",
       sales_director_loop: true,
       sales_director_mode: observability.sales_director_mode,
-      response_source: "one_key_core_s1",
       selected_route: observability.selected_route,
       loaded_context: observability.loaded_context,
       factory_called: observability.factory_called,
@@ -552,224 +733,22 @@ export async function handleHomeBrainFactRequest({
       sales_director_judgment_audit: judgmentAudit,
       answer_evidence: factoryAudit.answer_evidence,
       one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
+      key_monopoly_failure: coreResult.key_monopoly_failure === true,
+      failure_reason: coreResult.failure_reason ?? null,
+      // GO3 — short-term session work state for client metadata persist (not decision/memory).
+      session_goal: coreResult.salesDirectorTrace?.session_goal ?? null,
+      // OUR CLAUDE memory loop — consultation kinds for assistant metadata (not verified fact).
+      key_consultation_record: coreResult.salesDirectorTrace?.key_consultation_record ?? null,
+      decision_persisted: false,
       factsUsed,
-      response_latency_ms: Date.now() - startedAt,
-    };
-  }
-
-  const [loopResult, storedFactoryProbe] = await Promise.all([
-    runSalesDirectorLoopTurn({
-      userSupabase,
-      customerId,
-      question: trimmedQuestion,
-      history,
-      env,
-      fetchImpl,
-      startedAt,
-      streamHandlers: activeStreamHandlers,
-      requestStartedAt: startedAt,
-    }),
-    probeStoredFactoryRecords(userSupabase, customerId),
-  ]);
-
-  if (!loopResult.ok) return loopResult;
-
-  const {
-    agentTurn,
-    modeDecision,
-    loadedContext,
-    reconciliationWarning,
-    contextSnapshot,
-    salesDirectorTrace,
-    truthGate,
-    latency: loopLatency,
-    loopStartedAt,
-  } = loopResult;
-
-  const intent = agentTurn.consultationIntent?.intent ?? "general_consultation";
-  const consultationIntent = agentTurn.consultationIntent ?? modeDecision.consultationIntent;
-
-  const keyOrchestratorActive =
-    agentTurn.factBundle?.key_orchestrator === true ||
-    loopResult.modeDecision?.key_orchestrator === true;
-
-  if (
-    shouldRunGeneralKnowledgeDelegation({
-      question: trimmedQuestion,
-      consultationIntent,
-      keyOrchestrator: keyOrchestratorActive,
-    })
-  ) {
-    const delegated = await delegateGeneralKnowledgeChatTurn({
-      question: trimmedQuestion,
-      history,
-      fetchImpl,
-      env,
-    });
-    agentTurn.text = delegated.text;
-    agentTurn.responseSource = delegated.response_source;
-    agentTurn.factBundle = {
-      ...(agentTurn.factBundle ?? {}),
-      general_knowledge_delegation: true,
-      chat_profile: delegated.chat_profile ?? "gi1",
-      gi1_max_chars: delegated.max_chars_applied ?? null,
-      classification_intent: consultationIntent?.intent ?? intent,
-    };
-  }
-
-  const composeStart = Date.now();
-  let factoryAudit = buildSalesDirectorFactoryAudit({
-    customerContextBundle: loopResult.customerContextBundle,
-    loadedContext,
-    agentTurn,
-    salesDirectorTrace,
-    storedProbe: storedFactoryProbe,
-  });
-
-  const observabilityPreview = buildSalesDirectorLoopObservability({
-    modeDecision,
-    agentTurn,
-    loadedContext,
-    guardResult: null,
-    contextSnapshotId: contextSnapshot.context_snapshot_id,
-    reconciliationWarning,
-    factsUsed: null,
-    loadedContextContradictions: null,
-    salesDirectorTrace,
-  });
-
-  const finalized = finalizeHomeAgentResponse({
-    text: agentTurn.text,
-    question: trimmedQuestion,
-    intent,
-    factBundle: agentTurn.factBundle ?? {
-      question: trimmedQuestion,
-      ...resolveActivePolicyCountFromUnified(null),
-      policies: [],
-    },
-    tomGapVoiceHandled: agentTurn.tomGapVoiceHandled === true,
-    tomInternalRoute: agentTurn.tomInternalRoute,
-    responseSource: agentTurn.responseSource ?? null,
-    salesDirectorResponseSource: observabilityPreview.response_source,
-    history,
-    customerState: {
-      question: trimmedQuestion,
-      coverageGapContext: loopResult.customerContextBundle?.coverageGapContext ?? null,
-      recommendationContext: loopResult.customerContextBundle?.recommendationContext ?? null,
-      underwritingRiskContext: loopResult.customerContextBundle?.underwritingRiskContext ?? null,
-      designContext: loopResult.customerContextBundle?.designContext ?? null,
-      keyOrchestrator: loopResult.modeDecision?.key_orchestrator === true,
-      freeThinking: salesDirectorTrace?.conversation_brain?.free_thinking ?? null,
+      claude_factory_direction: claudeFactoryDirection,
+      factory_enqueue: attachedId
+        ? {
+            deferred_until_after_claude: true,
+            document_id: attachedId,
+            started_async: true,
+          }
+        : null,
     },
   });
-  const answerText = finalized.text;
-
-  factoryAudit = buildSalesDirectorFactoryAudit({
-    customerContextBundle: loopResult.customerContextBundle,
-    loadedContext,
-    agentTurn,
-    salesDirectorTrace,
-    storedProbe: storedFactoryProbe,
-    keyComposeTrace: finalized.finalizeTrace?.key_compose_trace ?? null,
-  });
-
-  if (activeStreamHandlers?.onDelta && !activeStreamHandlers._emitted) {
-    activeStreamHandlers.onDelta(answerText);
-    activeStreamHandlers._emitted = true;
-    activeStreamHandlers.onFirstToken?.(Math.max(0, Date.now() - startedAt));
-  } else if (
-    activeStreamHandlers?.onReplace &&
-    activeStreamHandlers._emitted &&
-    answerText !== agentTurn.text
-  ) {
-    activeStreamHandlers.onReplace(answerText);
-  }
-
-  const { factsUsed, loadedContextContradictions } = buildSalesDirectorFactsUsed({
-    agentTurn,
-    customerContextBundle: loopResult.customerContextBundle,
-    loadedContext,
-    computeStats: computePremiumLookupStats,
-    buildFactsUsed: buildHomeBrainFactsUsed,
-  });
-
-  const judgmentAudit = buildSalesDirectorJudgmentAudit({
-    answerText,
-    customerContextBundle: loopResult.customerContextBundle,
-    factoryAudit,
-    answerEvidence: factoryAudit.answer_evidence,
-  });
-
-  const keyPathTrace = buildKeyPathRuntimeTrace({
-    question: trimmedQuestion,
-    customerId,
-    consultationIntent: agentTurn.consultationIntent ?? modeDecision.consultationIntent,
-    env,
-    modeDecision,
-    agentTurn,
-    salesDirectorTrace,
-    keyLoop: salesDirectorTrace?.key_loop_trace ?? null,
-    finalizeTrace: finalized.finalizeTrace ?? null,
-    observability: observabilityPreview,
-    answerText,
-    sseTrace,
-  });
-
-  const observability = buildSalesDirectorLoopObservability({
-    modeDecision,
-    agentTurn,
-    loadedContext,
-    guardResult: finalized.guardResult,
-    contextSnapshotId: contextSnapshot.context_snapshot_id,
-    reconciliationWarning,
-    factsUsed,
-    loadedContextContradictions,
-    salesDirectorTrace: {
-      ...salesDirectorTrace,
-      truth_gate: truthGate,
-      sales_director_factory_audit: factoryAudit,
-      sales_director_judgment_audit: judgmentAudit,
-      answer_evidence: factoryAudit.answer_evidence,
-      p10_3e_preserve_gate: finalized.preserveGateTrace ?? null,
-      finalize_trace: finalized.finalizeTrace ?? null,
-      p10_4_key_path_trace: keyPathTrace,
-      latency: {
-        ...(loopLatency ?? {}),
-        compose_ms: Date.now() - composeStart,
-        total_ms: Date.now() - startedAt,
-      },
-    },
-  });
-
-  return {
-    ok: true,
-    answerText,
-    intent,
-    home_route: agentTurn.tomInternalRoute,
-    tom_internal_route: agentTurn.tomInternalRoute,
-    tool_used: agentTurn.toolUsed,
-    agent: "sales_director_loop",
-    sales_director_loop: true,
-    sales_director_mode: observability.sales_director_mode,
-    response_source: observability.response_source,
-    selected_route: observability.selected_route,
-    loaded_context: observability.loaded_context,
-    factory_called: observability.factory_called,
-    guard_result: observability.guard_result,
-    context_snapshot_id: observability.context_snapshot_id,
-    reconciliation_warning: observability.reconciliation_warning,
-    loaded_context_contradictions: observability.loaded_context_contradictions,
-    sales_director_trace: observability.sales_director_trace,
-    sales_director_factory_audit: factoryAudit,
-    sales_director_judgment_audit: judgmentAudit,
-    answer_evidence: factoryAudit.answer_evidence,
-    factory_hypothesis: factoryAudit.hypothesis,
-    factory_primary_disconnect: factoryAudit.primary_disconnect,
-    tom_voice_trace: agentTurn.tomVoiceTrace ?? agentTurn.trace,
-    tom_gap_light_path: agentTurn.tomGapLightPath === true,
-    tom_turn_ms: agentTurn.tomTurnMs ?? null,
-    skipped_stages: agentTurn.skippedStages ?? null,
-    factsUsed,
-    response_latency_ms: Date.now() - startedAt,
-  };
 }

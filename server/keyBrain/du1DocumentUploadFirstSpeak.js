@@ -3,6 +3,15 @@
  * Document / Policies / Memory / Conversation are separate sources with epistemic tiers.
  */
 import { LOOKUP_CATEGORIES, matchPolicyToCategory } from "../intentGateLayer.js";
+import {
+  isKeySocialTurn,
+  resolveKeySocialConversationPattern,
+} from "../keyConversationPatterns.js";
+import {
+  buildSpeechProfileJudgmentSegments,
+  classifyAndResolveSpeechProfile,
+  SPEECH_TURN_TYPE,
+} from "./keySpeechTurnType.js";
 
 export const DU1_SCHEMA_VERSION = "du-1-document-upload-first-speak-v2";
 
@@ -238,17 +247,20 @@ export function assertDu1FourInputsPresent(bundle) {
   return true;
 }
 
-export function validateDu1CustomerSpeech(text = "") {
+export function validateDu1CustomerSpeech(text = "", { policyFactSpeak = false, slice4UnderstandingSpeak = false } = {}) {
   const normalized = normalizeText(text);
   if (!normalized) {
     return { ok: false, reason: "empty_speech" };
   }
-  for (const pattern of OCR_FORBIDDEN_SPEECH_RE) {
+  const speechPatterns = policyFactSpeak
+    ? OCR_FORBIDDEN_SPEECH_RE.filter((_, index) => index !== 1)
+    : OCR_FORBIDDEN_SPEECH_RE;
+  for (const pattern of speechPatterns) {
     if (pattern.test(normalized)) {
       return { ok: false, reason: "ocr_forbidden_speech", pattern: String(pattern) };
     }
   }
-  if (/Gap|추천|청구\s*가능|담보\s*부족/.test(normalized)) {
+  if (!slice4UnderstandingSpeak && /Gap|추천|청구\s*가능|담보\s*부족/.test(normalized)) {
     return { ok: false, reason: "forbidden_product_leap" };
   }
   if (SPECULATION_RE.test(normalized)) {
@@ -709,7 +721,7 @@ function buildFollowUpPolicySegments(
   return segments;
 }
 
-function segmentsToCustomerText(segments = []) {
+export function segmentsToCustomerText(segments = []) {
   const paragraphs = [];
   let buffer = [];
 
@@ -900,6 +912,162 @@ export function buildPhaseAFollowUpCustomerSpeak({
     segments,
     inputGates,
   };
+}
+
+function buildQuestionJudgmentSegments(
+  question = "",
+  consultationIntent = null,
+  { speechProfile = null, conversation = null } = {},
+) {
+  const profileSegments = buildSpeechProfileJudgmentSegments(question, {
+    consultationIntent,
+    profile: speechProfile,
+    conversation,
+  });
+
+  return profileSegments.map((segment) => ({
+    source: DU1_INPUT_SOURCE.JUDGMENT,
+    tier:
+      segment.tier === "certain"
+        ? DU1_EPISTEMIC_TIER.CERTAIN
+        : segment.tier === "inference"
+          ? DU1_EPISTEMIC_TIER.INFERENCE
+          : DU1_EPISTEMIC_TIER.UNKNOWN,
+    text: segment.text,
+    basis: "speech_constitution_v1_1",
+  }));
+}
+
+/**
+ * Question event — DU-1 epistemic compose (no document intake opener).
+ */
+export function composeQuestionWithEpistemicTrace(
+  bundle,
+  { question = "", consultationIntent = null, speechProfile = null, turnType = null } = {},
+) {
+  const gates = bundle.inputGates ?? resolveDu1InputGates(bundle.loadedContext, bundle);
+  const speech =
+    speechProfile && turnType
+      ? { turnType, profile: speechProfile }
+      : classifyAndResolveSpeechProfile(question, {
+          conversation: bundle.conversation,
+          consultationIntent,
+        });
+  const profile = speech.profile;
+
+  const segments = [];
+
+  segments.push(
+    ...buildQuestionJudgmentSegments(question, consultationIntent, {
+      speechProfile: profile,
+      conversation: bundle.conversation,
+    }),
+  );
+
+  if (profile.skipInsuranceStack) {
+    const text = segmentsToCustomerText(segments);
+    return { segments, text, inputGates: gates, speech_turn_type: speech.turnType, speech_profile: profile };
+  }
+
+  if (gates.policiesPresent) {
+    segments.push(...buildPolicySegments(bundle.policies, []));
+  } else if (!profile.skipPolicyAbsentBoilerplate) {
+    segments.push({
+      source: DU1_INPUT_SOURCE.POLICIES,
+      tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+      text: "등록된 가입 정보가 아직 없습니다.",
+    });
+  }
+
+  if (gates.memoryPresent) {
+    segments.push(...buildMemorySegments(bundle.memoryFacts));
+  }
+
+  if (
+    gates.conversationPresent &&
+    speech.turnType !== SPEECH_TURN_TYPE.REPEAT &&
+    speech.turnType !== SPEECH_TURN_TYPE.SOCIAL
+  ) {
+    segments.push(...buildConversationSegments(bundle.conversation));
+  }
+
+  if (!profile.skipFixedClosing && segments.length > 0) {
+    const lastText = segments[segments.length - 1]?.text ?? "";
+    if (!/같이\s*보|이어가|보면\s*됩니다/.test(lastText)) {
+      segments.push({
+        source: DU1_INPUT_SOURCE.JUDGMENT,
+        tier: DU1_EPISTEMIC_TIER.UNKNOWN,
+        text: "확인되는 범위부터 같이 보겠습니다.",
+        basis: "speech_forward_step",
+      });
+    }
+  }
+
+  const text = segmentsToCustomerText(segments);
+  return { segments, text, inputGates: gates, speech_turn_type: speech.turnType, speech_profile: profile };
+}
+
+/**
+ * KEY Master — question customer speak (Upload KEY epistemic voice).
+ */
+export function buildQuestionCustomerFirstSentence(
+  keyFirstJudgment,
+  {
+    question = "",
+    contextSnapshot = null,
+    loadedContext = null,
+    consultationIntent = null,
+  } = {},
+) {
+  if (isKeySocialTurn(question)) {
+    const social = resolveKeySocialConversationPattern(question);
+    const text = normalizeText(social?.text ?? "반갑습니다. 천천히 맞춰가면 됩니다.");
+    const speechValidation = validateDu1CustomerSpeech(text);
+    return speechValidation.ok ? text : null;
+  }
+
+  if (!keyFirstJudgment || typeof keyFirstJudgment !== "object") {
+    return null;
+  }
+
+  const bundle = buildDu1InputBundle({
+    document: { id: null, event_type: "question" },
+    contextSnapshot,
+    loadedContext,
+    keyFirstJudgment,
+  });
+
+  if (!assertDu1FourInputsPresent(bundle)) {
+    return null;
+  }
+
+  const { turnType, profile } = classifyAndResolveSpeechProfile(question, {
+    conversation: bundle.conversation,
+    consultationIntent,
+  });
+
+  const { text, segments } = composeQuestionWithEpistemicTrace(bundle, {
+    question,
+    consultationIntent,
+    speechProfile: profile,
+    turnType,
+  });
+  let speechValidation = validateDu1CustomerSpeech(text);
+  let segmentValidation = validateDu1EpistemicSegments(segments);
+  if (!speechValidation.ok || !segmentValidation.ok) {
+    const fallbackSegments = buildQuestionJudgmentSegments(question, consultationIntent, {
+      speechProfile: { ...profile, skipInsuranceStack: true },
+      conversation: bundle.conversation,
+    });
+    const fallbackText = segmentsToCustomerText(fallbackSegments);
+    speechValidation = validateDu1CustomerSpeech(fallbackText);
+    segmentValidation = validateDu1EpistemicSegments(fallbackSegments);
+    if (speechValidation.ok && segmentValidation.ok) {
+      return fallbackText;
+    }
+    return null;
+  }
+  return text;
 }
 
 /**

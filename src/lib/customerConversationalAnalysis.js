@@ -48,6 +48,8 @@ export async function sendConversationalQuestion({ question, autoProcess = false
 
   return {
     fastResponse: payload.fast_response,
+    visualBlocks: payload.visual_blocks ?? [],
+    visualBlocksGate: payload.visual_blocks_gate ?? null,
     initialResponseTimeMs: payload.initial_response_time_ms ?? 0,
     analysisJobId: payload.analysis_job_id ?? null,
     analysisJob: payload.analysis_job ?? null,

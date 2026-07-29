@@ -1,11 +1,14 @@
 /**
- * ONE KEY Core — Interpret + Thinking (question event · Prototype generalization).
+ * ONE KEY Core — Interpret + Thinking (question event · Slice 3/4 Thinking Flow).
  */
 import { classifyConsultationIntent } from "../intentGateLayer.js";
+import { buildUnderstandingTurnBundle } from "./keyCustomerUnderstanding.js";
 import {
-  buildDu1InputBundle,
-  resolveDu1InputGates,
-} from "../keyBrain/du1DocumentUploadFirstSpeak.js";
+  isKeyCustomerUnderstandingEnabled,
+  isKeyRuntimeS5Active,
+} from "./oneKeyCoreFlags.js";
+import { buildRuntimeS5TurnBundle } from "./keyRuntimeS5.js";
+import { buildQuestionThinkingBundle as buildThinkingFlowBundle } from "./keyThinkingFlow.js";
 
 export function buildQuestionInterpretShadow({
   question = "",
@@ -51,35 +54,20 @@ export function buildQuestionInterpretShadow({
   };
 }
 
-export function buildQuestionThinkingBundle({
-  question = "",
-  contextSnapshot = null,
-  loadedContext = null,
-  keyInterprets = null,
-} = {}) {
-  const bundle = buildDu1InputBundle({
-    document: { id: null, event_type: "question" },
-    contextSnapshot,
-    loadedContext,
-    keyFirstJudgment: keyInterprets
-      ? {
-          judgment_scope: keyInterprets.judgment_scope,
-          hold: keyInterprets.hold,
-          posture: keyInterprets.orient_speech_planned?.posture ?? "question_provisional",
-        }
-      : null,
-  });
-
-  return {
-    schema_version: "one-key-core-thinking-question-v1",
-    question,
-    inputGates: resolveDu1InputGates(loadedContext, bundle),
-    four_inputs: {
-      document: false,
-      policies: (bundle.policies ?? []).length,
-      memory: (bundle.memoryFacts ?? []).length,
-      conversation: bundle.conversation?.has_recent === true,
-    },
-    snapshot_loaded: bundle.context_snapshot_loaded === true,
-  };
+export function buildQuestionThinkingBundle(params = {}, env = process.env) {
+  if (isKeyRuntimeS5Active(env)) {
+    const bundle = buildRuntimeS5TurnBundle(params);
+    return bundle;
+  }
+  if (isKeyCustomerUnderstandingEnabled(env)) {
+    const bundle = buildUnderstandingTurnBundle(params);
+    return {
+      ...bundle.thinkingBundle,
+      customer_understanding: bundle.customerUnderstanding,
+      fact_selection: bundle.factSelection,
+      reality: bundle.reality,
+      slice4_enabled: true,
+    };
+  }
+  return buildThinkingFlowBundle(params);
 }

@@ -43,6 +43,10 @@ function gapToRecommendationItem(gap, action) {
     reason: gap.reason ?? "gap_reason_missing",
     provenance: gap.provenance ?? "unknown",
     confidence: gapConfidence(gap),
+    // priority_items / address_gap are review candidates — not severity/urgency ranks.
+    ...(action === "address_gap"
+      ? { action_meaning: "known_gap_review_candidate_not_risk_rank" }
+      : {}),
   };
 }
 
@@ -114,11 +118,14 @@ export function generateCorporateRecommendations({
     priority_items: priorityItems,
     maintain_items: maintainItems,
     deferred_items: deferredItems,
+    // Compat field name: not a severity/urgency ranking.
+    priority_meaning: "known_gap_review_candidates_not_severity_rank",
     summary: {
       priority_count: priorityItems.length,
       maintain_count: maintainItems.length,
       deferred_count: deferredItems.length,
       invented_recommendation: false,
+      priority_meaning: "known_gap_review_candidates_not_severity_rank",
     },
     invented_recommendation: false,
   };

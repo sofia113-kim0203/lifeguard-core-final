@@ -49,8 +49,12 @@ export const DOCUMENT_UI_MESSAGES = {
     "보험·청구·의료 서류를 안전하게 보관하기 위해 문서 보관 동의가 필요합니다. 동의 후 업로드할 수 있습니다.",
   consentAction: "동의하고 계속",
   uploadSuccess: "문서가 업로드되었습니다.",
-  deleteSuccess: "문서가 삭제되었습니다.",
-  deleteConfirm: "이 문서를 삭제하시겠습니까?",
+  deleteSuccess: "삭제된 파일의 정보가 현재 보험 현황에서 제외되었습니다.",
+  deleteConfirm:
+    "이 파일을 삭제할까요?\n\n삭제된 파일의 정보는 현재 보험 현황에서 제외됩니다. 새 파일을 올리면 KEY가 다시 확인합니다.",
+  deleteUploadHint: "새 파일 올리기",
+  deleteClaimScrubFailed: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
+  deleteStorageRetryHint: "파일 정보는 제외되었습니다. 원본 정리에 실패해 다시 시도해 주세요.",
   emptyList: "아직 업로드된 문서가 없습니다.",
   selectFile: "파일을 선택해 주세요.",
   uploadAction: "업로드",
@@ -60,7 +64,7 @@ export const DOCUMENT_UI_MESSAGES = {
   allCategories: "전체",
   loginRequired: "로그인이 필요합니다.",
   analysisNotice:
-    "업로드 후 문서 분석 동의가 있으면 OCR 분석이 자동으로 시작됩니다. 동의가 없으면 상태가 '분석 동의 필요'로 표시됩니다.",
+    "업로드 후 문서 분석 동의가 있으면 KEY가 확인을 자동으로 시작합니다. 동의가 없으면 상태가 '분석 동의 필요'로 표시됩니다.",
   analysisConsentTitle: "문서 분석 동의",
   analysisConsentBody:
     "업로드한 보험·청구·의료 서류에서 보험 정보를 추출하고 맞춤 분석에 활용하려면 문서 분석 동의가 필요합니다.",
@@ -70,9 +74,9 @@ export const DOCUMENT_UI_MESSAGES = {
   ingestQueuedNotice: "문서 분석이 대기열에 등록되었습니다.",
   ingestFailedNotice: "문서 분석 시작에 실패했습니다. 잠시 후 다시 시도해 주세요.",
   policyExtractSuccessNotice: "보험정보 추출이 완료되었습니다.",
-  policyExtractPartialNotice: "문서 OCR은 완료되었으나 보험정보 추출에 필요한 항목이 부족합니다.",
-  pipelineRefreshSuccessNotice: "보장·인수·추천·설계 분석이 자동 갱신되었습니다.",
-  pipelineAnalysisFailedNotice: "문서 OCR·보험정보 추출은 완료되었으나 분석 갱신에 실패했습니다.",
+  policyExtractPartialNotice: "KEY 확인은 끝났으나 보험정보 추출에 필요한 항목이 부족합니다.",
+  pipelineRefreshSuccessNotice: "보장·인수·점검·설계 분석이 자동 갱신되었습니다.",
+  pipelineAnalysisFailedNotice: "KEY 확인·보험정보 추출은 완료되었으나 분석 갱신에 실패했습니다.",
   pipelineMemoryFailedNotice: "보험정보는 추출되었으나 메모리 동기화에 실패했습니다.",
 };
 
@@ -167,13 +171,13 @@ export function formatDocumentPipelineStatus(document) {
     return "분석·보험정보 추출 완료";
   }
   if (ingestStatus === "ready" && extractionStatus === "pending_manual_review") {
-    return "OCR 완료 · 관리자 검토 대기";
+    return "KEY 확인 완료 · 관리자 검토 대기";
   }
   if (ingestStatus === "ready" && extractionStatus === "extraction_failed") {
-    return "OCR 완료 · 보험정보 추출 필요";
+    return "KEY 확인 완료 · 보험정보 추출 필요";
   }
   if (ingestStatus === "ready" && !extractionStatus) {
-    return "OCR 완료 · 보험정보 추출 대기";
+    return "KEY가 확인하고 있어요 · 보험정보 추출 대기";
   }
   return formatIngestStatus(ingestStatus);
 }

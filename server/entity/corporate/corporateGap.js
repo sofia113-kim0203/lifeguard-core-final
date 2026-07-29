@@ -73,10 +73,8 @@ function normalizeSignal(raw) {
   if (ABSENT_VALUES.has(lower) || ABSENT_VALUES.has(trimmed)) {
     return { known: true, present: false, absent: true };
   }
-  if (lower === "unknown" || lower === "미확인") {
-    return { known: false, present: false, absent: false };
-  }
-  return { known: true, present: true, absent: false, value: trimmed };
+  // Unsupported free text / unknown labels are never coverage-existence evidence.
+  return { known: false, present: false, absent: false };
 }
 
 function evaluateGroupInsuranceStatus(status, unknowns, provenance) {
@@ -150,7 +148,7 @@ function evaluateCoverageSignal(itemDef, rawValue, unknowns, provenance) {
       known_gap: false,
       unknown_gap: true,
       sufficient: false,
-      reason: "Snapshot.derived.unknowns",
+      reason: "unsupported_or_unknown_coverage_signal",
       provenance,
       snapshot_field: itemDef.snapshot_field,
     };
@@ -181,41 +179,18 @@ function evaluateCoverageSignal(itemDef, rawValue, unknowns, provenance) {
   };
 }
 
-function evaluateEmployeeBenefit(rawCount, unknowns, provenance) {
-  if (isUnknownLabel(unknowns, "employee_count")) {
-    return {
-      item: "employee_benefit",
-      status: "unknown",
-      known_gap: false,
-      unknown_gap: true,
-      sufficient: false,
-      reason: "Snapshot.derived.unknowns",
-      provenance,
-      snapshot_field: "derived.employee_count",
-    };
-  }
-
-  const count = Number(rawCount);
-  if (Number.isFinite(count) && count > 0) {
-    return {
-      item: "employee_benefit",
-      status: "sufficient",
-      known_gap: true,
-      unknown_gap: false,
-      sufficient: true,
-      reason: "derived.employee_count>0",
-      provenance,
-      snapshot_field: "derived.employee_count",
-    };
-  }
-
+/**
+ * Employee count is never employee-benefit coverage sufficiency.
+ * Without an explicit employee-benefit coverage fact → unknown + defer.
+ */
+function evaluateEmployeeBenefit(_rawCount, _unknowns, provenance) {
   return {
     item: "employee_benefit",
-    status: "known_gap",
-    known_gap: true,
-    unknown_gap: false,
+    status: "unknown",
+    known_gap: false,
+    unknown_gap: true,
     sufficient: false,
-    reason: "derived.employee_count=0",
+    reason: "employee_benefit_coverage_fact_absent; employee_count_not_sufficiency_evidence",
     provenance,
     snapshot_field: "derived.employee_count",
   };

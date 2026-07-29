@@ -10,7 +10,6 @@ import {
   RC_CONTINUITY_COMPANION_CLUSTER_ID,
   RC_RECOGNITION_COMPANION_CLUSTER_ID,
 } from "./intentGateLayer.js";
-import { isDelegationIntentQuestion } from "./keyBrain/phaseBSlice3DelegationJudgment.js";
 import { loadSalesDirectorCoverageGapContext } from "./salesDirectorCoverageGapContext.js";
 import { loadSalesDirectorUnderwritingRiskContext } from "./salesDirectorUnderwritingRiskContext.js";
 import { loadSalesDirectorRecommendationContext } from "./salesDirectorRecommendationContext.js";
@@ -32,6 +31,19 @@ const COVERAGE_JUDGMENT_QUESTION_RE =
 /** J07/J08/J09 — stored underwriting panel read (not a new engine). */
 const UNDERWRITING_BOUND_QUESTION_RE =
   /(?:고혈압|당뇨|질병|건강(?:\s*상태)?|수술|입원|진단|혈압|투약|복용).{0,24}(?:가입\s*(?:가능|돼|되)|들\s*수|거절|인수)|(?:가입\s*(?:가능|돼|되)|들\s*수|거절(?:될|되)|인수).{0,24}(?:고혈압|당뇨|질병|건강|수술|입원|진단|혈압)|건강\s*상태.{0,12}거절|(?:암|실손|운전자|뇌|심장).{0,20}(?:들\s*수|지금\s*가입|새로\s*가입|가입\s*(?:가능|돼))/;
+
+function isDelegationIntentQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  if (/(?:알아서|맡길|맡겨|전적으로)/.test(q) && /(?:봐|봐줘|해|해줘|보자|확인)/.test(q)) {
+    return true;
+  }
+  if (/그냥\s*알아서/.test(q)) return true;
+  if (/(?:제일\s*필요|나한테\s*제일).{0,16}(?:봐|보|확인)/.test(q)) return true;
+  return false;
+}
 
 export const KEY_TOOLS = {
   SNAPSHOT: "snapshot",

@@ -1,7 +1,22 @@
 /**
  * P4-A — Customer-facing output guard (inventory + engine term leak + deflection).
  */
-import { violatesHomeInventoryDump } from "./tomThinkingLoop.js";
+
+const INVENTORY_DUMP_PATTERNS = [
+  /현재\s*\d+\s*건의\s*보험/,
+  /월\s*보험료/,
+  /318,683|31만8천/,
+  /등록된\s*서류\s*\d+\s*건/,
+  /등록된\s*고객\s*정보\s*\d+\s*건/,
+  /문서\s*\d+\s*건/,
+  /AI\s*상담실/,
+];
+
+export function violatesHomeInventoryDump(text = "") {
+  const normalized = String(text ?? "").trim();
+  if (!normalized) return false;
+  return INVENTORY_DUMP_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 
 export const ENGINE_TERM_PATTERNS = [
   /\bGap\b/i,

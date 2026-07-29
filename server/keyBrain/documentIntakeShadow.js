@@ -26,8 +26,23 @@ function pickDocumentRow(document = {}) {
   return row;
 }
 
-export function buildDocumentDispatchPlanShadow({ document = {}, hasAnalysisConsent = false }) {
+export function buildDocumentDispatchPlanShadow({
+  document = {},
+  hasAnalysisConsent = false,
+  claudeFactoryDirection = null,
+} = {}) {
   const workOrders = [];
+  const direction =
+    claudeFactoryDirection && typeof claudeFactoryDirection === "object"
+      ? claudeFactoryDirection
+      : null;
+  const directionReason = direction
+    ? `claude_first_direction:${String(direction.customer_question_focus ?? "").slice(0, 120)}`
+    : "first_orientation";
+  const confirmLimit = Array.isArray(direction?.recheck_on_original)
+    ? `claude_recheck:${direction.recheck_on_original.slice(0, 12).join(",")}`
+    : null;
+
   if (!hasAnalysisConsent) {
     return {
       actor: "KEY",
@@ -36,36 +51,41 @@ export function buildDocumentDispatchPlanShadow({ document = {}, hasAnalysisCons
       hold_reason: "analysis_consent_missing",
       factory_work_orders: [],
       deferred_factories: ["document_ocr", "policy_extract", "analysis_refresh"],
+      claude_factory_direction: direction,
     };
   }
 
   workOrders.push({
     factory: "document_ocr",
     role: "KEY의_눈",
-    mode: "peek_then_full_planned",
-    scope: "metadata_first",
-    reason: "first_orientation",
-    limit: "filename_hint_mime_only_until_key_expands",
+    mode: direction ? "claude_directed_structure" : "peek_then_full_planned",
+    scope: direction ? "claude_confirm_items" : "metadata_first",
+    reason: directionReason,
+    limit: confirmLimit || "filename_hint_mime_only_until_key_expands",
     ordered_by: "KEY",
     executed_in_ku1: false,
+    claude_factory_direction: direction,
   });
 
   const hint = String(document.customer_hint_type ?? document.doc_class ?? "");
-  if (/insurance|policy|certificate|coverage/i.test(hint)) {
+  if (/insurance|policy|certificate|coverage/i.test(hint) || direction) {
     workOrders.push({
       factory: "policy_extract",
-      scope: "contract_first_planned",
-      reason: "coverage_orientation",
-      limit: "contract_fields_only",
+      scope: direction ? "claude_contract_verify" : "contract_first_planned",
+      reason: direction
+        ? `claude_verify:${String(direction.document_understanding ?? direction.session_goal ?? "contract").slice(0, 120)}`
+        : "coverage_orientation",
+      limit: confirmLimit || "contract_fields_only",
       ordered_by: "KEY",
       executed_in_ku1: false,
+      claude_factory_direction: direction,
     });
   }
 
   workOrders.push({
     factory: "analysis_refresh",
     scope: "post_extract_refresh",
-    reason: "unified_state_sync",
+    reason: direction ? "claude_directed_sync" : "unified_state_sync",
     limit: "document_linked_analysis_only",
     ordered_by: "KEY",
     executed_in_ku1: false,
@@ -78,7 +98,10 @@ export function buildDocumentDispatchPlanShadow({ document = {}, hasAnalysisCons
     hold_reason: null,
     factory_work_orders: workOrders,
     gap_rec_auto_refresh: false,
-    note: "KU-1 shadow — dispatch plan only · legacy pipeline continues separately",
+    claude_factory_direction: direction,
+    note: direction
+      ? "Claude-first direction → factory structure/verify only (no independent recommend)"
+      : "KU-1 shadow — dispatch plan only · legacy pipeline continues separately",
   };
 }
 

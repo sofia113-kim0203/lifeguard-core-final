@@ -3,9 +3,8 @@
  * Transforms raw answers into constitution-aligned structure at the final output boundary.
  * 정보 → 해석 → 우선순위 → 다음 행동
  *
- * P9-2: basisTagged facts remain as thinking material; final speech via Human Understanding Loop.
+ * P9-2: basisTagged facts remain as thinking material; final customer speech via KEY Master only.
  */
-import { finalizeHumanSalesDirectorResponse, shouldApplyHumanUnderstandingLoop } from "./humanUnderstandingLoop.js";
 import {
   LOOKUP_CATEGORIES,
   matchPolicyToCategory,
@@ -361,12 +360,8 @@ export function resolveSalesDirectorJudgmentIntent(classificationIntent = "", qu
   }
 }
 
-export function shouldApplySalesDirectorFormatter(
-  classificationIntent = "",
-  question = "",
-  opts = {},
-) {
-  return shouldApplyHumanUnderstandingLoop(classificationIntent, question, opts);
+export function shouldApplySalesDirectorFormatter() {
+  return false;
 }
 
 function insightRiskForTopic(topicLabel = null) {
@@ -865,28 +860,13 @@ export function validateStatementBasis(item = {}) {
 
 export function finalizeSalesDirectorResponse({
   rawText = "",
-  intent = null,
-  classificationIntent = null,
-  surface = null,
-  factBundle = {},
-  customerState = null,
-  homeBrainIntent = null,
-  homeRoute = null,
-  homeVerifiedIntents = null,
-  conversationContext = null,
 } = {}) {
-  return finalizeHumanSalesDirectorResponse({
-    rawText,
-    intent,
-    classificationIntent,
-    surface,
-    factBundle,
-    customerState,
-    homeBrainIntent,
-    homeRoute,
-    homeVerifiedIntents,
-    conversationContext,
-  });
+  const text = String(rawText ?? "").trim();
+  return {
+    text,
+    compose_mode: "legacy_blocked",
+    persona_outlet: null,
+  };
 }
 
 export function scoreSalesDirectorAnswer(text = "", factBundle = {}) {

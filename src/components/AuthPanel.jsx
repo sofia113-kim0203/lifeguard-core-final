@@ -6,9 +6,11 @@ import {
   buildSignupMetadata,
   extractSignupProfileFromMetadata,
 } from "../lib/signupBootstrap.js";
+import { flushPendingOnboardingAfterAuth } from "../lib/signupOnboardingIntegrate.js";
 import { validateSignupBasicProfile } from "../lib/signupValidation.js";
 import { formatLoginErrorMessage, toCustomerErrorMessage } from "../lib/uiLocale.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
+import SignupOnboardingV1Prototype from "./SignupOnboardingV1Prototype.jsx";
 
 const CONSENTS = [
   { key: "consent_personal", label: "개인정보 수집 및 이용 동의", required: true },
@@ -179,6 +181,8 @@ function Notice({ type, children }) {
 
 export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
   const [mode, setMode] = useState(() => normalizeInitialMode(initialMode));
+  /** onboarding = 5-step SSOT; classic = existing AuthPanel fallback (kept). */
+  const [signupPath, setSignupPath] = useState("onboarding");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -200,9 +204,31 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
   };
   const switchMode = (nextMode) => {
     setMode(nextMode);
+    if (nextMode === "signup") setSignupPath("onboarding");
     reset();
   };
   const toggleConsent = (key) => setConsents((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const finishAuthenticatedEntry = async (userMetadata = {}) => {
+    const profileFromMeta = extractSignupProfileFromMetadata(userMetadata);
+    const { error: bootstrapError } = await bootstrapSignupRecords(profileFromMeta);
+    if (bootstrapError) {
+      return {
+        error:
+          "로그인은 되었지만 프로필 동기화에 실패했습니다. " +
+          toCustomerErrorMessage(bootstrapError, "잠시 후 다시 시도해 주세요."),
+      };
+    }
+    const flush = await flushPendingOnboardingAfterAuth();
+    if (flush.error) {
+      return {
+        error:
+          "로그인은 되었지만 온보딩 정보 저장에 실패했습니다. " +
+          toCustomerErrorMessage(flush.error, "잠시 후 다시 시도해 주세요."),
+      };
+    }
+    return { error: null };
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -215,18 +241,29 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
       return;
     }
 
-    const profileFromMeta = extractSignupProfileFromMetadata(data.user?.user_metadata ?? {});
-    const { error: bootstrapError } = await bootstrapSignupRecords(profileFromMeta);
+    const finished = await finishAuthenticatedEntry(data.user?.user_metadata ?? {});
     setLoading(false);
-    if (bootstrapError) {
-      setError(
-        "로그인은 되었지만 프로필 동기화에 실패했습니다. " +
-          toCustomerErrorMessage(bootstrapError, "잠시 후 다시 시도해 주세요."),
-      );
+    if (finished.error) {
+      setError(finished.error);
       return;
     }
 
     onLoginSuccess?.();
+  };
+
+  const handleOnboardingCompleteAction = (choice) => {
+    if (choice === "talk") {
+      onLoginSuccess?.();
+      return;
+    }
+    if (choice === "later") {
+      onLoginSuccess?.();
+      return;
+    }
+    if (choice === "upload") {
+      // Upload later from KEY shell — do not invent upload engine here.
+      onLoginSuccess?.();
+    }
   };
 
   const handleSignup = async (e) => {
@@ -351,12 +388,15 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
     </>
   );
 
-  const renderSignup = () => (
+  const renderSignupClassic = () => (
     <>
       <TextLink onClick={() => switchMode("login")} style={{ marginBottom: "8px", textAlign: "left", width: "100%" }}>
         ← 로그인
       </TextLink>
       <MasterBrand signup />
+      <p style={{ margin: "0 0 16px", fontSize: 13, color: LG.textMuted, textAlign: "center" }}>
+        간단 가입 (기존 AuthPanel 경로 · fallback)
+      </p>
       <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         <FieldLabel>
           이름
@@ -416,8 +456,45 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
           {loading ? "처리 중…" : "가입하기"}
         </PrimaryButton>
       </form>
+      <div style={{ marginTop: 20, textAlign: "center" }}>
+        <TextLink onClick={() => setSignupPath("onboarding")}>5단계 가입으로 돌아가기</TextLink>
+      </div>
     </>
   );
+
+  const renderSignupOnboarding = () => (
+    <div data-signup-onboarding-auth-path="yes" style={{ width: "100%" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <TextLink onClick={() => switchMode("login")}>← 로그인</TextLink>
+        <TextLink onClick={() => setSignupPath("classic")}>간단 가입 (기존)</TextLink>
+      </div>
+      <SignupOnboardingV1Prototype
+        integrationEnabled
+        onAuthSuccess={(result) => {
+          if (result?.ok && (result.directKeyEntry || !result.needsEmailVerification)) {
+            onLoginSuccess?.();
+            return;
+          }
+          if (result?.needsEmailVerification) {
+            setMessage(result.message || "회원가입 완료. 이메일 인증 후 로그인해 주세요.");
+          }
+        }}
+        onRequestLogin={() => switchMode("login")}
+        onCompleteAction={handleOnboardingCompleteAction}
+      />
+    </div>
+  );
+
+  const renderSignup = () => (signupPath === "classic" ? renderSignupClassic() : renderSignupOnboarding());
 
   const renderForgotPassword = () => (
     <>
@@ -442,18 +519,24 @@ export default function AuthPanel({ onLoginSuccess, initialMode = "login" }) {
     </>
   );
 
+  const wideSignup = mode === "signup" && signupPath === "onboarding";
+
   return (
     <div
+      data-auth-panel
+      data-signup-path={mode === "signup" ? signupPath : mode}
       style={{
         width: "100%",
-        maxWidth: "400px",
+        maxWidth: wideSignup ? "1200px" : "400px",
         margin: "0 auto",
         fontFamily: LG.sans,
         color: LG.text,
       }}
     >
       {error ? <Notice type="error">{error}</Notice> : null}
-      {message ? <Notice type="success">{message}</Notice> : null}
+      {message && !(mode === "signup" && signupPath === "onboarding") ? (
+        <Notice type="success">{message}</Notice>
+      ) : null}
       {mode === "login" ? renderLogin() : mode === "signup" ? renderSignup() : renderForgotPassword()}
     </div>
   );

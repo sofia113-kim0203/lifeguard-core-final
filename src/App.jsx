@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import AdminMenuPanel from "./components/AdminMenuPanel.jsx";
-import AgentDeskPanel from "./components/AgentDeskPanel.jsx";
 import AiRecommendationPanel from "./components/AiRecommendationPanel.jsx";
 import AuthPanel from "./components/AuthPanel.jsx";
 import ResetPasswordPanel from "./components/ResetPasswordPanel.jsx";
@@ -27,6 +26,10 @@ import {
 } from "./lib/appRouting.js";
 import { supabase } from "./lib/supabase.js";
 import CustomerLifeguardShell from "./components/CustomerLifeguardShell.jsx";
+import AdminV31Shell from "./components/AdminV31Shell.jsx";
+import KeyRoomVisualSeat, {
+  isLocalKeyRoomVisualSeat,
+} from "./components/KeyRoomVisualSeat.jsx";
 import { LG } from "./lib/lifeguardCustomerTheme.js";
 
 const CUSTOMER_DASHBOARD_MENU = "customer";
@@ -37,7 +40,7 @@ const MENU_ITEMS = [
   { id: "home", label: "홈", mark: "H" },
   { id: CUSTOMER_DASHBOARD_MENU, label: "고객 분석", mark: "C" },
   { id: AI_CHAT_MENU, label: "AI 상담실", mark: "S" },
-  { id: "ai", label: "AI 보험 추천", mark: "R" },
+  { id: "ai", label: "내 보험 점검", mark: "R" },
   { id: "claim", label: "보험금 청구 확인", mark: "P" },
   { id: "documents", label: "문서 관리", mark: "D" },
   { id: "corporate", label: "법인장", mark: "B" },
@@ -102,7 +105,9 @@ function renderMainContent(
     case "corporate":
       return <CorporatePanel />;
     case "agent":
-      return <AgentDeskPanel user={user} />;
+      // /agent primary UI is CustomerLifeguardShell + LifeguardHomeChat (audience=agent).
+      // Dark backoffice must not host a separate Agent Desk panel as the main screen.
+      return null;
     case "admin":
       return (
         <RoleAccessPanel
@@ -137,7 +142,8 @@ export default function App() {
   );
   const { session, user, loading: authLoading } = useAuthSession();
   const { context, loading: roleLoading } = useCustomerContext(user);
-  const userRole = context?.userRole ?? (user ? APP_ROLES.CUSTOMER : null);
+  // Settled role only — never invent "customer" from user presence while role is unknown.
+  const userRole = context?.userRole ?? null;
 
   useEffect(() => {
     const syncPath = () => setAppPath(normalizeAppPath(window.location.pathname));
@@ -160,8 +166,21 @@ export default function App() {
   };
 
   const handleLoginSuccess = () => {
-    setActiveMenu("home");
-    navigateTo(LIFEGUARD_PATH);
+    const requestedPath = normalizeAppPath(
+      typeof window !== "undefined" ? window.location.pathname : LIFEGUARD_PATH,
+    );
+    // Role may still be loading right after auth — keep the requested path, then let the
+    // existing access effect apply getRedirectPathForRole once userRole is known.
+    if (userRole && !roleLoading) {
+      const nextPath = canAccessPath(requestedPath, userRole)
+        ? normalizeAppPath(requestedPath)
+        : getRedirectPathForRole(requestedPath, userRole);
+      setActiveMenu(resolveMenuIdFromPath(nextPath) ?? "home");
+      navigateTo(nextPath);
+      return;
+    }
+    setActiveMenu(resolveMenuIdFromPath(requestedPath) ?? "home");
+    navigateTo(requestedPath);
   };
 
   const handleOpenAuth = (mode = "login") => {
@@ -170,6 +189,13 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    try {
+      const { clearAllAgentKeyChatSessions } = await import("./lib/agentKeyChatSession.js");
+      const agentId = String(user?.id ?? "").trim();
+      if (agentId) clearAllAgentKeyChatSessions(agentId);
+    } catch {
+      /* ignore session clear */
+    }
     await supabase.auth.signOut();
     setActiveMenu("home");
     navigateTo(LIFEGUARD_PATH);
@@ -182,7 +208,8 @@ export default function App() {
   }, [session, activeMenu]);
 
   useEffect(() => {
-    if (!user || roleLoading) return;
+    // Role-unsettled is not customer: no redirect until context.userRole is known.
+    if (!user || roleLoading || !userRole) return;
     if (userRole === APP_ROLES.CUSTOMER) {
       if (isBackofficePath(appPath)) {
         navigateTo(LIFEGUARD_PATH);
@@ -198,6 +225,14 @@ export default function App() {
     }
   }, [user, userRole, appPath, roleLoading, activeMenu]);
 
+  // Agent root `/` → `/agent` without push history (shared V3.1 shell renders on first paint).
+  useEffect(() => {
+    if (userRole !== APP_ROLES.AGENT) return;
+    if (normalizeAppPath(appPath) !== "/") return;
+    window.history.replaceState({}, "", "/agent");
+    setAppPath("/agent");
+  }, [userRole, appPath]);
+
   const handleMenuSelect = (menuId) => {
     setActiveMenu(menuId);
     if (user && isBackofficeRole(userRole)) {
@@ -209,11 +244,15 @@ export default function App() {
     handleMenuSelect(menuId);
   };
 
+  if (isLocalKeyRoomVisualSeat()) {
+    return <KeyRoomVisualSeat />;
+  }
+
   if (isResetPasswordPath(appPath)) {
     return <ResetPasswordPanel onGoToLogin={handleGoToLogin} />;
   }
 
-  if (authLoading || (user && roleLoading)) {
+  if (authLoading || (user && (roleLoading || !userRole))) {
     return (
       <div
         style={{
@@ -231,16 +270,67 @@ export default function App() {
     );
   }
 
-  if (!user || userRole === APP_ROLES.CUSTOMER) {
+  if (!user) {
     return (
       <CustomerLifeguardShell
         user={user}
-        userRole={userRole ?? APP_ROLES.CUSTOMER}
+        userRole={APP_ROLES.CUSTOMER}
         session={session}
         authLoading={authLoading}
         authMode={authMode}
         onOpenAuth={handleOpenAuth}
         onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
+  if (userRole === APP_ROLES.CUSTOMER) {
+    return (
+      <CustomerLifeguardShell
+        user={user}
+        userRole={userRole}
+        session={session}
+        authLoading={authLoading}
+        authMode={authMode}
+        onOpenAuth={handleOpenAuth}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
+  // Advisor KEY V3.1 same screen — /agent (and agent landing on /) share one shell.
+  // Agent `/` must never fall through to the legacy dark backoffice shell (0 frames).
+  const agentAppPath = normalizeAppPath(appPath);
+  const isAgentV31ShellPath =
+    userRole === APP_ROLES.AGENT && (agentAppPath === "/agent" || agentAppPath === "/");
+
+  if (isAgentV31ShellPath) {
+    return (
+      <CustomerLifeguardShell
+        user={user}
+        userRole={userRole}
+        session={session}
+        authLoading={authLoading}
+        authMode={authMode}
+        onOpenAuth={handleOpenAuth}
+        onLoginSuccess={handleLoginSuccess}
+        audience="agent"
+      />
+    );
+  }
+
+  // Admin Full-Shell V3.1 — same bright chrome as /agent; no dark backoffice double shell.
+  const isAdminV31ShellPath =
+    userRole === APP_ROLES.ADMIN && normalizeAppPath(appPath) === "/admin";
+
+  if (isAdminV31ShellPath) {
+    return (
+      <RoleAccessPanel
+        user={user}
+        title="관리자"
+        description="운영·데이터·약관 지식·AI 파이프라인 관리 화면입니다."
+        requiredRoles={["admin"]}
+        allowedContent={<AdminV31Shell user={user} onLogout={handleLogout} />}
       />
     );
   }

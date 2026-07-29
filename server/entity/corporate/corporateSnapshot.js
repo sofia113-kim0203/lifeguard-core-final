@@ -7,18 +7,42 @@ import { ENTITY_TYPES } from "../entityTypes.js";
 
 export const CORPORATE_SNAPSHOT_V1 = "corp-snapshot-v1";
 
-/** Derived dimensions v1 tracks — missing facts become derived.unknowns (honest gap input later). */
+/** Derived dimensions — missing facts become derived.unknowns (never invent). */
 const V1_DERIVED_TRACKING = [
   { field: "industry", fact_key: "corporate.basic.industry", unknown_label: "industry" },
+  {
+    field: "business_description",
+    fact_keys: ["corporate.basic.business_description", "corporate.basic.business"],
+    unknown_label: "business_description",
+  },
   {
     field: "group_insurance_status",
     fact_key: "corporate.group_insurance.presence",
     unknown_label: "group_insurance_status",
   },
   { field: "employee_count", fact_key: "corporate.basic.employee_count", unknown_label: "employee_count" },
+  {
+    field: "workplace_or_facilities",
+    fact_keys: [
+      "corporate.basic.workplace_or_facilities",
+      "corporate.basic.workplace",
+      "corporate.basic.facilities",
+    ],
+    unknown_label: "workplace_or_facilities",
+  },
   { field: "executive_protection", fact_key: "corporate.executive_protection", unknown_label: "executive_protection" },
   { field: "fire_insurance", fact_key: "corporate.fire_insurance", unknown_label: "fire_insurance" },
   { field: "liability", fact_key: "corporate.liability", unknown_label: "liability" },
+  {
+    field: "confirmed_goals",
+    fact_keys: ["corporate.goal.confirmed", "corporate.goals.confirmed"],
+    unknown_label: "confirmed_goals",
+  },
+  {
+    field: "concerns",
+    fact_keys: ["corporate.concern.confirmed", "corporate.concerns.confirmed"],
+    unknown_label: "concerns",
+  },
 ];
 
 const PRESENT_VALUES = new Set(["있음", "yes", "present", "y", "true", "1"]);
@@ -80,7 +104,18 @@ export function buildCorporateSnapshot({ entityRecord, memorySnapshot } = {}) {
   const unknowns = [];
 
   for (const track of V1_DERIVED_TRACKING) {
-    const fact = factsByKey.get(track.fact_key) ?? null;
+    const keys = Array.isArray(track.fact_keys)
+      ? track.fact_keys
+      : track.fact_key
+        ? [track.fact_key]
+        : [];
+    let fact = null;
+    for (const key of keys) {
+      if (factsByKey.has(key)) {
+        fact = factsByKey.get(key);
+        break;
+      }
+    }
     const { value, known } = resolveDerivedField(track.field, fact);
     derivedValues[track.field] = value;
 
@@ -109,11 +144,15 @@ export function buildCorporateSnapshot({ entityRecord, memorySnapshot } = {}) {
     },
     derived: {
       industry: derivedValues.industry ?? null,
+      business_description: derivedValues.business_description ?? null,
       group_insurance_status: derivedValues.group_insurance_status ?? "unknown",
       employee_count: derivedValues.employee_count ?? null,
+      workplace_or_facilities: derivedValues.workplace_or_facilities ?? null,
       executive_protection: derivedValues.executive_protection ?? null,
       fire_insurance: derivedValues.fire_insurance ?? null,
       liability: derivedValues.liability ?? null,
+      confirmed_goals: derivedValues.confirmed_goals ?? null,
+      concerns: derivedValues.concerns ?? null,
       unknowns,
     },
   };

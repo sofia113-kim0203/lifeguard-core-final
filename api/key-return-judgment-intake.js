@@ -1,7 +1,6 @@
 /**
  * P5-C — POST /api/key-return-judgment-intake
- * After P5-B Bridge → gap ≥ 72h → anchor → KEY_ENTRY.RETURN_JUDGMENT → next judgment line.
- * S02-4 — ONE_KEY_CORE_RETURN_JUDGMENT=1 → runOneKeyCoreTurn({ event: "return_judgment" }).
+ * KEY Master only — runOneKeyCoreTurn({ event: "return_judgment" }).
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
@@ -18,20 +17,7 @@ import {
   threadHasReturnJudgmentRow,
 } from "../server/keyBrain/returnJudgmentIntakeGate.js";
 import { buildKeyReturnJudgmentIntakeShadowTrace } from "../server/keyBrain/returnJudgmentIntakeShadow.js";
-import {
-  finalizeReturnJudgmentSentence,
-  jobHasPanelResults,
-  scanReturnJudgmentSentence,
-} from "../server/keyBrain/returnJudgmentFirstSpeak.js";
-import {
-  buildLoadedContextFromSnapshot,
-  loadSalesDirectorTurnContext,
-  snapshotToContextBundle,
-} from "../server/customerContextSnapshot.js";
-import {
-  KEY_ENTRY,
-  runSalesDirectorKeyTurn,
-} from "../server/salesDirectorKeyOrchestrator.js";
+import { jobHasPanelResults } from "../server/keyBrain/returnJudgmentFirstSpeak.js";
 import {
   getKeyUploadEntryMode,
   isKeyUploadEntryActiveEnabled,
@@ -42,8 +28,9 @@ import {
   readCustomerAuthHeader,
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
+import { KEY_ENTRY } from "../server/salesDirectorKeyOrchestrator.js";
 import {
-  isOneKeyCoreReturnJudgmentEnabled,
+  resolveOneKeyCoreReturnJudgmentEnv,
   runOneKeyCoreTurn,
 } from "../server/keyCore/oneKeyCoreTurn.js";
 
@@ -223,7 +210,7 @@ export default async function handler(req, res) {
     panelResultsPresent,
   });
 
-  let intakeTrace = buildKeyReturnJudgmentIntakeShadowTrace({
+  const intakeTrace = buildKeyReturnJudgmentIntakeShadowTrace({
     sessionId,
     gapHours,
     anchorJobId,
@@ -253,8 +240,37 @@ export default async function handler(req, res) {
 
   const responseMode = mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow";
 
-  if (isOneKeyCoreReturnJudgmentEnabled(process.env)) {
-    if (!activeAuthority) {
+  if (!activeAuthority) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: true,
+        mode: responseMode,
+        return_judgment_skipped: true,
+        skip_reasons: ["upload_entry_inactive"],
+        session_id: sessionId,
+        anchor_job_id: anchorJobId,
+        intake_trace: intakeTrace,
+      }),
+    );
+    return;
+  }
+
+  const coreResult = await runOneKeyCoreTurn({
+    event: "return_judgment",
+    userSupabase: supabase,
+    customerId: auth.customerId,
+    sessionId,
+    analysisJob: anchorJob,
+    gapHours,
+    gate,
+    transitionObservedAt,
+    env: resolveOneKeyCoreReturnJudgmentEnv(process.env),
+  });
+
+  if (!coreResult.ok) {
+    if (coreResult.reason === "forbidden_speech_guard") {
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(
@@ -262,170 +278,23 @@ export default async function handler(req, res) {
           ok: true,
           mode: responseMode,
           return_judgment_skipped: true,
-          skip_reasons: ["upload_entry_inactive"],
+          skip_reasons: ["forbidden_speech_guard"],
           session_id: sessionId,
           anchor_job_id: anchorJobId,
-          intake_trace: intakeTrace,
+          intake_trace: coreResult.intakeTrace ?? intakeTrace,
         }),
       );
       return;
     }
 
-    const coreResult = await runOneKeyCoreTurn({
-      event: "return_judgment",
-      userSupabase: supabase,
-      customerId: auth.customerId,
-      sessionId,
-      analysisJob: anchorJob,
-      gapHours,
-      gate,
-      transitionObservedAt,
-      env: process.env,
-    });
-
-    if (!coreResult.ok) {
-      if (coreResult.reason === "forbidden_speech_guard") {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: true,
-            mode: responseMode,
-            return_judgment_skipped: true,
-            skip_reasons: ["forbidden_speech_guard"],
-            session_id: sessionId,
-            anchor_job_id: anchorJobId,
-            intake_trace: coreResult.intakeTrace ?? intakeTrace,
-          }),
-        );
-        return;
-      }
-
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: false,
-          reason: coreResult.reason ?? "one_key_core_return_judgment_failed",
-          error_message: coreResult.error_message ?? null,
-          one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
-        }),
-      );
-      return;
-    }
-
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        ok: true,
-        mode: responseMode,
-        subject: "KEY",
-        key_entry: KEY_ENTRY.RETURN_JUDGMENT,
-        session_id: sessionId,
-        anchor_job_id: anchorJobId,
-        gap_hours: gapHours,
-        return_judgment_sentence: coreResult.returnJudgmentSentence,
-        persona_outlet: coreResult.personaMeta?.persona_outlet ?? null,
-        key_first_judgment: coreResult.keyFirstJudgment,
-        intake_trace: coreResult.intakeTrace,
-        response_source: coreResult.response_source,
-        one_key_core_event: "return_judgment",
-        work_order_id: null,
-      }),
-    );
-    return;
-  }
-
-  let contextSnapshot = null;
-  let loadedContext = null;
-  let unifiedState = null;
-  try {
-    const turnContext = await loadSalesDirectorTurnContext(supabase, auth.customerId, {
-      requestHistory: [],
-    });
-    contextSnapshot = turnContext.snapshot;
-    unifiedState = turnContext.unifiedState;
-    loadedContext = buildLoadedContextFromSnapshot(contextSnapshot);
-  } catch {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: false, reason: "context_snapshot_load_failed" }));
-    return;
-  }
-
-  let keyRuntimeEntered = false;
-  let keyTurnResult = null;
-  if (activeAuthority) {
-    const customerContextBundle = snapshotToContextBundle(contextSnapshot) ?? {};
-    const keyTurn = await runSalesDirectorKeyTurn({
-      userSupabase: supabase,
-      customerId: auth.customerId,
-      question: "",
-      keyEntry: KEY_ENTRY.RETURN_JUDGMENT,
-      analysisJob: anchorJob,
-      snapshot: contextSnapshot,
-      unified: unifiedState,
-      loadedContext,
-      customerContextBundle,
-      reconciliationWarning: null,
-      env: process.env,
-    });
-
-    if (!keyTurn?.handled || !keyTurn.result) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          ok: false,
-          reason: "key_runtime_failed",
-          detail: keyTurn?.reason ?? "runSalesDirectorKeyTurn_not_handled",
-        }),
-      );
-      return;
-    }
-    keyTurnResult = keyTurn.result;
-    keyRuntimeEntered = true;
-  }
-
-  let returnJudgmentSentence = null;
-  let personaMeta = null;
-  let keyFirstJudgment = null;
-  if (activeAuthority && keyRuntimeEntered) {
-    const finalized = finalizeReturnJudgmentSentence({
-      keyTurnResult,
-      analysisJob: anchorJob,
-      loadedContext,
-    });
-    keyFirstJudgment = finalized?.key_first_judgment ?? null;
-    const scan = scanReturnJudgmentSentence(finalized?.text ?? "");
-    if (finalized?.text && scan.ok) {
-      returnJudgmentSentence = finalized.text;
-      personaMeta = finalized;
-    }
-    intakeTrace = buildKeyReturnJudgmentIntakeShadowTrace({
-      sessionId,
-      gapHours,
-      anchorJobId,
-      keyRuntimeEntered: true,
-      keyEntry: KEY_ENTRY.RETURN_JUDGMENT,
-      gate,
-      keyFirstJudgment,
-    });
-  }
-
-  if (!returnJudgmentSentence) {
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
-        ok: true,
-        mode: mode === KEY_UPLOAD_ENTRY_MODES.ACTIVE ? "active" : "shadow",
-        return_judgment_skipped: true,
-        skip_reasons: ["forbidden_speech_guard"],
-        session_id: sessionId,
-        anchor_job_id: anchorJobId,
-        intake_trace: intakeTrace,
+        ok: false,
+        reason: coreResult.reason ?? "one_key_core_return_judgment_failed",
+        error_message: coreResult.error_message ?? null,
+        one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
       }),
     );
     return;
@@ -442,10 +311,14 @@ export default async function handler(req, res) {
       session_id: sessionId,
       anchor_job_id: anchorJobId,
       gap_hours: gapHours,
-      return_judgment_sentence: returnJudgmentSentence,
-      persona_outlet: personaMeta?.persona_outlet ?? null,
-      key_first_judgment: keyFirstJudgment,
-      intake_trace: intakeTrace,
+      return_judgment_sentence: coreResult.returnJudgmentSentence,
+      persona_outlet: "keySpeak(key_master)",
+      key_speak_master: true,
+      key_first_judgment: coreResult.keyFirstJudgment,
+      intake_trace: coreResult.intakeTrace,
+      response_source: coreResult.response_source,
+      one_key_core_event: "return_judgment",
+      work_order_id: null,
     }),
   );
 }

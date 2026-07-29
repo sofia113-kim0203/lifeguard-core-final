@@ -75,5 +75,19 @@ export function writeEmitterTrace(partial, storage = null) {
   );
 }
 
+/** Ordered HomeChat stream timing marks only — no question/answer/PII payloads. */
+export function appendHomeChatStreamTrace(eventName, storage = null) {
+  const name = String(eventName ?? "").trim();
+  if (!name) return;
+  const store = storage ?? (typeof sessionStorage !== "undefined" ? sessionStorage : null);
+  const prev = readEmitterTrace(store) ?? {};
+  const prior = Array.isArray(prev.home_chat_stream_trace) ? prev.home_chat_stream_trace : [];
+  const next = [...prior, { t: Date.now(), e: name }].slice(-80);
+  writeEmitterTrace({ home_chat_stream_trace: next }, store);
+  if (typeof window !== "undefined") {
+    window.__LIFEGUARD_HOME_CHAT_STREAM_TRACE__ = next;
+  }
+}
+
 export const KEY_ANALYSIS_COMPLETE_POLL_INTERVAL_MS = 3000;
 export const KEY_ANALYSIS_COMPLETE_POLL_MAX_MS = 300000;

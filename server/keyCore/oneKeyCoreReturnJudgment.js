@@ -3,10 +3,10 @@
  */
 import {
   buildReturnJudgment,
-  finalizeReturnJudgmentSentence,
   jobHasPanelResults,
-  scanReturnJudgmentSentence,
 } from "../keyBrain/returnJudgmentFirstSpeak.js";
+import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { buildKeyReturnJudgmentIntakeShadowTrace } from "../keyBrain/returnJudgmentIntakeShadow.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
@@ -71,7 +71,7 @@ function buildReturnJudgmentThinkingBundle({
       conn_005_rebalancing: plan?.conn_005_rebalancing_panel_wired === true,
     },
     posture: keyJudgment?.posture ?? null,
-    speak_chain: "finalizeReturnJudgmentSentence (CONN-002~005 preserved)",
+    speak_chain: "keySpeak(key_master_return_judgment)",
   };
 }
 
@@ -287,39 +287,38 @@ export async function runOneKeyCoreReturnJudgmentTurn({
   };
   recordStep("evidence", buildReturnJudgmentEvidenceBundle({ factBundle, analysisJob: anchorJob }));
 
-  const finalized = finalizeReturnJudgmentSentence({
-    keyTurnResult: keyTurn.result,
-    analysisJob: anchorJob,
+  const speakResult = await keySpeakAsync({
+    event: "return_judgment",
+    keyFirstJudgment: keyJudgment,
+    contextSnapshot,
     loadedContext,
   });
-
-  const keyFirstJudgment = finalized?.key_first_judgment ?? keyJudgment;
-  const scan = scanReturnJudgmentSentence(finalized?.text ?? "");
-  const returnJudgmentSentence = finalized?.text && scan.ok ? finalized.text : null;
-  const personaMeta = returnJudgmentSentence ? finalized : null;
-
   recordStep("speak", {
-    compose_mode: "finalizeReturnJudgmentSentence",
-    text_preview: String(returnJudgmentSentence ?? "").slice(0, 300),
-    conn_002_panel_wired: personaMeta?.conn_002_panel_wired === true,
-    conn_003_panel_wired: personaMeta?.conn_003_panel_wired === true,
-    conn_004_weave_wired: personaMeta?.conn_004_weave_wired === true,
-    conn_005_continuity_weave_wired: personaMeta?.conn_005_continuity_weave_wired === true,
-    speech_guard_ok: scan.ok,
+    compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_return_judgment",
+    key_speak_master: true,
+    text_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
+    ghost_path_reached: speakResult.key_compose_trace?.ghost_path_reached ?? [],
   });
 
-  trace.customer_text_path.push(
-    "resolveKeyPanelPriority",
-    "finalizeReturnJudgmentSentence",
-    "appendReturnJudgmentDesignWeave",
-    "appendReturnJudgmentContinuityWeave",
-    "polishLifeguardCustomerText",
-  );
+  trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
+
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft, {
+    failureMode:
+      speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
+  });
+  const keyFirstJudgment = keyJudgment;
+  const returnJudgmentSentence = outletResult.keySpeakOriginal;
+  const personaMeta = {
+    generation_mode: outletResult.generation_mode,
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
+  };
 
   recordStep("persona", {
-    generation_mode: personaMeta?.generation_mode ?? null,
+    generation_mode: personaMeta.generation_mode,
     text_preview: String(returnJudgmentSentence ?? "").slice(0, 300),
-    persona_outlet: personaMeta?.persona_outlet ?? null,
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
   });
 
   const stepNames = trace.steps.map((row) => row.step);

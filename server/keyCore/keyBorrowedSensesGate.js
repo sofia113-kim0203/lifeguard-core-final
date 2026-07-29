@@ -1,0 +1,638 @@
+/**
+ * S7-a — Borrowed Senses shadow gate (trace/audit only · does not block S6 final_answer).
+ */
+import { deriveKeyVoiceQuestionFocus } from "./keyVoiceDirective.js";
+
+export const S7_BORROWED_SENSES_SCHEMA = "key-borrowed-senses-s7a-v0";
+export const S7_BORROWED_SENSES_SCHEMA_B = "key-borrowed-senses-s7b-v0";
+
+export const S7B_EXPERTISE_TAXONOMY = [
+  "실손",
+  "진단비",
+  "수술비",
+  "사망보장",
+  "운전자",
+  "간병",
+  "갱신",
+  "중복",
+  "납입부담",
+  "보장구성",
+  "계약정리",
+  "환급/해지손실",
+  "미확인",
+];
+
+const AXIS_TERM_RE = /보장축|우선순위\s*축|암\s*보장축|필수축|축별|축으로|축을|축부터|축\s*설정/;
+const PASSIVE_LEADERSHIP_RE =
+  /^(?:편하|말씀|언제든|천천히|궁금).{0,40}(?:말씀해|말해)\s*주세요\.?$/;
+const LEADERSHIP_CANCEL_CERTAINTY_RE =
+  /(?:해지(?:하|해)\s*(?:세요|시길|해도\s*됩)|(?:꼭|반드시)\s*가입)/;
+const ENROLLMENT_RE = /(?:지금\s*)?가입(?:하|을)\s*(?:시|는|세요)|(?:꼭\s*)?가입하시(?:길|기)/;
+// Assertive product/enroll push only.
+// Does NOT match: "지금 … 가입 얘기 하지 않아도", "지금 보험 추천을 원하시는" (negation / meta).
+const PRODUCT_PUSH_RE =
+  /(?:(?<![가-힣])이\s*상품|(?<![가-힣])이\s*보험).{0,16}(?:을\s*|를\s*)?(?:추천|가입)|(?:바로|지금)\s*(?:이\s*(?:상품|보험)\s*)?(?:가입(?:하(?:세요|십시오|는\s*게)|을\s*(?:추천|권유)|하세요)|추천(?:합니다|드려요|드립니다|해요)(?!\s*원하))/;
+// Hard sales push — always FAIL (wins over nearby anti-push/meta phrasing)
+const HARD_SALES_PUSH_RE =
+  /(?:(?<![가-힣])이\s*상품|(?<![가-힣])이\s*보험).{0,20}(?:가입하(?:세요|십시오|는\s*게)|가입을\s*(?:추천|권유)|무조건\s*가입)|(?:지금|바로)\s*가입(?:하(?:세요|십시오|는\s*게)|을\s*(?:추천|권유))|가입하는\s*게\s*좋|갈아타세요|해지(?:하(?:세요|십시오|셔야)|해도\s*됩니다)/;
+const CANCELLATION_RE = /(?:지금\s*)?해지(?:하|할)\s*(?:시|는|세요)|(?:바로\s*)?해지(?:하|해)\s*(?:보|는)/;
+const TERMINATION_CLOSE_RE = /(?:최종\s*)?(?:체결|가입\s*확정|설계\s*완료|지금\s*결정)/;
+const DEFINITIVE_VERDICT_RE =
+  /(?:충분합니다|부족합니다|문제\s*없(?:어|습니다)|완벽(?:해|합니다|해요)|틀림없|확실히\s*(?:부족|충분|괜찮)|꼭\s*필요(?:합니다|해요|한\s*거(?:야|예)?))/;
+const PREMIUM_SCOPE_BLUR_RE = /22건,\s*월|기준으로\s*전체\s*보험료|전체\s*보험료\s*=\s*월/;
+// Quantitative partial invent only — bare qualitative "대부분/절반의 점검" is NOT number invent.
+// FAIL: "절반이 중복", "대부분을 줄일 수 있", "대부분 30%", "절반 원"
+// PASS: "대부분의 점검에서 이 두 가지가 먼저", "처음이면 … 부터"
+const CALCULATED_PARTIAL_RE =
+  /(?:절반|대부분).{0,16}(?:\d|%|원|건|줄이|합산|합계|중복)|(?:\d+\s*%|\d+\s*건|월\s*[\d만천억,]+\s*원).{0,16}(?:절반|대부분)/;
+const REMAINING_PREMIUM_INVENT_RE = /나머지\s*(?:[\d만천억\s,]{1,20})\s*원/;
+// bare "나머지 45000" invent — but not "나머지 21건" (do not allow \d+ to backtrack into 21→2)
+const REMAINING_BARE_NUMBER_RE = /나머지\s*\d+(?!\d)(?!\s*건)/;
+// "22건 중 15건이 중복" 식 invent — 대표 확인 "22건 중 1건"은 제외
+const POLICY_SUBSET_INVENT_RE = /\d+\s*건\s*중\s*(?!1\s*건|한\s*건)\d+/;
+// "당연히 드는 생각" 공감 메타 제외 · "당연히 필요하다/부족" 단정은 유지
+const HYPOTHESIS_AS_FACT_RE =
+  /(?:분명|확실(?!신)|틀림없|당연히(?!\s*드는\s*생각)).{0,20}(?:원하|필요(?!성)|걱정|불안)/;
+const PRIOR_MEMORY_CLAIM_RE = /(?:지난번|저번|앞서\s*말(?:씀|한)|전에\s*(?:말|이야기))/;
+const NEGATION_MUST_NOT_RE =
+  /(?:하지\s*(?:않|말)|단정하지|가정하지|추정하지|없음|없다고|암시하지|언급하지)/;
+
+const KNOWN_INSURERS = ["메리츠", "현대해상", "KB손보", "한화", "DB손보", "삼성생명", "교보", "NH"];
+
+function normalizeText(text = "") {
+  return String(text ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractNumbers(text = "") {
+  return [...String(text).matchAll(/\d[\d,]*(?:\.\d+)?/g)].map((m) => m[0].replace(/,/g, ""));
+}
+
+function collectLeadershipText(borrowed = {}) {
+  const parts = [
+    borrowed.key_purpose,
+    borrowed.leadership_move,
+    ...(Array.isArray(borrowed.insurance_expertise_angle) ? borrowed.insurance_expertise_angle : []),
+    borrowed.insurance_expertise_rationale,
+    borrowed.proposal_direction,
+    ...(Array.isArray(borrowed.next_decision_point) ? borrowed.next_decision_point : []),
+  ];
+  return normalizeText(parts.filter(Boolean).join(" "));
+}
+
+function collectLeadershipAuditText(borrowed = {}) {
+  return normalizeText(
+    [collectLeadershipText(borrowed), borrowed.voice_raw_candidate].filter(Boolean).join(" "),
+  );
+}
+
+function requiresLeadershipFields(question = "", directive = null) {
+  const q = normalizeText(question);
+  if (/^(?:안녕|반갑|하이|hello)/i.test(q)) return false;
+  if (/그냥\s*둘러/.test(q)) return false;
+  if (directive?.answer_mode === "social") return false;
+  return true;
+}
+
+function hasS7bLeadershipPayload(borrowed = {}) {
+  return Boolean(
+    String(borrowed.key_purpose ?? "").trim() ||
+      String(borrowed.leadership_move ?? "").trim() ||
+      (Array.isArray(borrowed.insurance_expertise_angle) && borrowed.insurance_expertise_angle.length) ||
+      String(borrowed.proposal_direction ?? "").trim() ||
+      (Array.isArray(borrowed.next_decision_point) && borrowed.next_decision_point.length),
+  );
+}
+
+function checkCustomerFacingAxisTerm(borrowed = {}) {
+  return AXIS_TERM_RE.test(collectLeadershipAuditText(borrowed));
+}
+
+function checkPassiveLeadership(borrowed = {}, question = "", directive = null) {
+  if (!requiresLeadershipFields(question, directive)) return false;
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  const move = normalizeText(borrowed.leadership_move ?? "");
+  const choices = borrowed.next_decision_point ?? [];
+  const passiveOnly =
+    !move ||
+    PASSIVE_LEADERSHIP_RE.test(move) ||
+    /^편하실\s*때/.test(move) ||
+    (/말씀해\s*주세요/.test(move) && move.length < 40);
+  return passiveOnly && (!Array.isArray(choices) || choices.length < 2);
+}
+
+function checkLeadershipWithoutBasis(borrowed = {}, directive = {}, question = "") {
+  if (!requiresLeadershipFields(question, directive)) return false;
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  const blob = collectLeadershipText(borrowed);
+  if (!blob) return false;
+  const angles = borrowed.insurance_expertise_angle ?? [];
+  if (
+    angles.some((tag) => tag && !S7B_EXPERTISE_TAXONOMY.includes(String(tag).trim()))
+  ) {
+    return true;
+  }
+  const needsFacts = /22|보험료|암|해지|표|납입|실손/.test(blob);
+  const used = (borrowed.used_facts ?? []).length;
+  if (needsFacts && used === 0 && (directive?.facts_to_speak ?? []).length > 0) {
+    return true;
+  }
+  return false;
+}
+
+function isProposalNegation(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return /(?:추천\s*(?:불|안)|가입\s*push\s*없|상품\s*추천\s*대신|바로\s*상품|무작위|방향\s*없이\s*추천|줄이기\s*전|확인\s*한\s*뒤|먼저\s*정)/.test(
+    t,
+  );
+}
+
+/** Negated enroll / anti-push — not a sales push. */
+function isNegatedEnrollOrAntiPushContext(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    /가입\s*(?:얘기|이야기|권유|추천).{0,16}(?:하지\s*않|안\s*해|않아도|말지)/.test(t) ||
+    /(?:가입|해지).{0,10}(?:부터\s*)?(?:하지\s*않|안\s*해|않아도)/.test(t) ||
+    /(?:바로\s*)?가입을?\s*권하지\s*않/.test(t) ||
+    /새\s*상품을?\s*(?:보기\s*전에|보기\s*전|보다\s*전에)|새\s*상품보다/.test(t) ||
+    /가입보다\s*먼저|새\s*상품\s*전에/.test(t)
+  );
+}
+
+/** Meta "customer wants a recommendation / set criteria first" — not enroll push. */
+function isRecommendationMetaContext(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return (
+    /(?:보험\s*)?추천을?\s*(?:원하|바라|요청)/.test(t) ||
+    /추천을?\s*드리려면/.test(t) ||
+    /추천\s*기준을?\s*(?:잡|정|보)/.test(t) ||
+    /상품\s*추천보다/.test(t) ||
+    /추천\s*전에?\s*(?:방향|목적)/.test(t) ||
+    /추천\s*드리기\s*전에/.test(t)
+  );
+}
+
+function isHardSalesPush(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  // Hard sales always FAIL. Bare ENROLLMENT/CANCELLATION also FAIL unless only in negation/meta.
+  if (HARD_SALES_PUSH_RE.test(t)) return true;
+  if (ENROLLMENT_RE.test(t) || CANCELLATION_RE.test(t)) {
+    if (isNegatedEnrollOrAntiPushContext(t) || isRecommendationMetaContext(t)) return false;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True only for assertive enroll/product push.
+ * Negation ("가입 얘기 하지 않아도") and meta ("추천을 원하시는") alone are not push.
+ * Hard sales push always wins.
+ */
+function hasUnsupportedRecommendationPush(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  if (HARD_SALES_PUSH_RE.test(t)) return true;
+  if (isHardSalesPush(t)) return true;
+  if (!ENROLLMENT_RE.test(t) && !PRODUCT_PUSH_RE.test(t)) return false;
+  if (isNegatedEnrollOrAntiPushContext(t) || isRecommendationMetaContext(t)) return false;
+  return true;
+}
+
+function checkProductPushAsDirection(borrowed = {}) {
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  const parts = [borrowed.proposal_direction, borrowed.leadership_move, borrowed.key_purpose];
+  const blob = normalizeText(parts.filter(Boolean).join(" "));
+  if (!blob) return false;
+  if (isProposalNegation(blob)) return false;
+  if (/(?:추가\s*가입)/.test(blob) && !isNegatedEnrollOrAntiPushContext(blob)) return true;
+  return hasUnsupportedRecommendationPush(blob);
+}
+
+function checkExpertiseOverclaim(borrowed = {}, question = "") {
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  const blob = collectLeadershipText(borrowed);
+  if (!blob) return false;
+  if (/꼭\s*필요/.test(blob) && /꼭\s*필요/.test(normalizeText(question))) {
+    return /(?:꼭\s*필요(?:합니다|해요|한\s*거)|부족합니다|충분합니다)/.test(blob);
+  }
+  return (
+    /(?:부족합니다|충분합니다|문제\s*없(?:어|습니다)|완벽(?:해|합니다))/.test(blob) ||
+    /(?:확실히|틀림없).{0,12}(?:부족|충분|필요)/.test(blob)
+  );
+}
+
+function checkMissingNextDecision(borrowed = {}, question = "", directive = null) {
+  if (!requiresLeadershipFields(question, directive)) return false;
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  const choices = borrowed.next_decision_point ?? [];
+  return !Array.isArray(choices) || choices.filter((c) => String(c).trim()).length < 2;
+}
+
+/** Consult/burden path: proposal_direction must be a non-empty review direction (not product push). */
+function checkMissingProposalDirection(borrowed = {}, question = "", directive = null) {
+  if (!requiresLeadershipFields(question, directive)) return false;
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  return !String(borrowed.proposal_direction ?? "").trim();
+}
+
+function checkLeadershipCancelEnrollCertainty(borrowed = {}) {
+  if (!hasS7bLeadershipPayload(borrowed)) return false;
+  const blob = collectLeadershipText(borrowed);
+  if (!blob) return false;
+  if (isProposalNegation(blob)) return false;
+  return (
+    LEADERSHIP_CANCEL_CERTAINTY_RE.test(blob) ||
+    CANCELLATION_RE.test(blob) ||
+    ENROLLMENT_RE.test(blob)
+  );
+}
+
+function collectAssertiveBorrowedText(borrowed = {}) {
+  const parts = [
+    ...(Array.isArray(borrowed.understanding_hypotheses) ? borrowed.understanding_hypotheses : []),
+    borrowed.customer_intent,
+    borrowed.emotional_signal,
+    borrowed.hesitation_signal,
+    borrowed.context_carryover,
+    borrowed.visual_observation,
+    borrowed.answer_purpose,
+    borrowed.recommendation_basis,
+    borrowed.voice_raw_candidate,
+  ];
+  return normalizeText(parts.filter(Boolean).join(" "));
+}
+
+function collectBorrowedText(borrowed = {}) {
+  const parts = [
+    collectAssertiveBorrowedText(borrowed),
+    ...(Array.isArray(borrowed.must_not_assume) ? borrowed.must_not_assume : []),
+  ];
+  return normalizeText(parts.filter(Boolean).join(" "));
+}
+
+function buildAllowedNumberSet(directive = {}, visualBlocks = []) {
+  const allowed = new Set();
+  for (const n of directive?.allowed_numbers ?? []) {
+    if (n != null) allowed.add(String(n));
+  }
+  const tokens = directive?.allowed_fact_tokens ?? {};
+  for (const v of Object.values(tokens)) {
+    if (v == null) continue;
+    const text = String(v);
+    for (const n of extractNumbers(text)) allowed.add(n);
+    if (/만|천|원/.test(text)) {
+      for (const n of extractNumbers(text)) allowed.add(n);
+    }
+  }
+  for (const block of visualBlocks ?? []) {
+    const chunks = [
+      block?.title,
+      block?.subtitle,
+      ...(Array.isArray(block?.rows) ? block.rows.flatMap((row) => (Array.isArray(row) ? row : [row])) : []),
+    ];
+    for (const chunk of chunks) {
+      const text = String(chunk ?? "");
+      for (const n of extractNumbers(text)) allowed.add(n);
+    }
+  }
+  return allowed;
+}
+
+function isKoreanNumeralFragment(text = "", num = "") {
+  return new RegExp(`${num}(?:\\s*)?(?:만|천|백|억)`).test(String(text));
+}
+
+function isScopeClarifierNumber(text = "", num = "") {
+  if (num === "1") {
+    return /(?:1|한)\s*건|1건\s*기준|대표\s*(?:확인\s*)?계약\s*(?:1|한)\s*건|(?:1|한)\s*건\s*기준/.test(text);
+  }
+  // "나머지 21건" — 미확인 잔여 계약 수 설명 (합산 invent 아님)
+  if (new RegExp(`나머지\\s*${num}\\s*건`).test(text)) return true;
+  return new RegExp(`${num}\\s*건(?:\\s*기준)?`).test(text);
+}
+
+function checkPremiumScopeBlur(blob = "") {
+  if (!PREMIUM_SCOPE_BLUR_RE.test(blob)) return false;
+  if (
+    /대표\s*(?:확인\s*)?계약|(?:한|1)\s*건\s*기준|전체\s*합계\s*아님|합산\s*아님|정리\s*중|미확인|그\s*계약\s*한\s*건/.test(
+      blob,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isUiMetaNumber(text = "", num = "") {
+  const uiPatterns = [
+    new RegExp(`${num}\\s*개\\s*행`),
+    new RegExp(`${num}\\s*행`),
+    new RegExp(`${num}\\s*개\\s*열`),
+    new RegExp(`${num}\\s*열`),
+    new RegExp(`${num}\\s*개\\s*항목`),
+    new RegExp(`row_count[^\\d]*${num}`, "i"),
+  ];
+  return uiPatterns.some((re) => re.test(text));
+}
+
+function filterRogueNumbers(blob = "", allowed = new Set()) {
+  const nums = extractNumbers(blob);
+  return nums.filter((n) => {
+    if (!n || n === "0") return false;
+    if (allowed.has(n)) return false;
+    if (isUiMetaNumber(blob, n)) return false;
+    if (isScopeClarifierNumber(blob, n)) return false;
+    if (isKoreanNumeralFragment(blob, n)) return false;
+    if (/^\d$/.test(n) && /(?:만|천|백|원)/.test(blob)) return false;
+    return true;
+  });
+}
+
+function normalizeFactId(value = "") {
+  const t = String(value).trim();
+  const idx = t.indexOf(":");
+  const id = (idx > 0 ? t.slice(0, idx) : t).trim();
+  if (id === "monthly_premium_display" || id === "monthly_premium") {
+    return "monthly_premium_representative";
+  }
+  return id;
+}
+
+function claimsPriorMemory(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  const negationMeta =
+    /(?:없음|없습니다|없이|비어\s*있|참조\s*불가|null|없음\s*[—\-,.)]|없음으로|없음$|없음\s*확인|이력\s*없)/.test(t);
+  if (negationMeta) return false;
+  if (PRIOR_MEMORY_CLAIM_RE.test(t)) return true;
+  if (/(?:이전|지난)\s*(?:대화|말씀)/.test(t)) return true;
+  return false;
+}
+
+function historyBlob(history = []) {
+  return normalizeText(
+    (history ?? [])
+      .map((h) => `${h.role ?? ""}:${h.text ?? h.content ?? ""}`)
+      .join(" "),
+  );
+}
+
+function buildVisualScopeText(visualBlocks = []) {
+  const parts = [];
+  for (const block of visualBlocks ?? []) {
+    parts.push(block?.title, block?.subtitle, block?.type);
+    for (const row of block?.rows ?? []) {
+      if (Array.isArray(row)) parts.push(...row);
+      else parts.push(row);
+    }
+  }
+  return normalizeText(parts.filter(Boolean).join(" "));
+}
+
+function stripNecessityQuestionParaphrase(text = "") {
+  return String(text ?? "")
+    .replace(/꼭\s*필요한?\s*(?:거|건)(?:야|예|지)?/g, "")
+    .replace(/필요한가/g, "")
+    .replace(/필요한지/g, "")
+    .replace(/당연히\s*드는\s*생각/g, "");
+}
+
+function isEmpathyCertaintyMeta(text = "") {
+  return /당연히\s*드는\s*생각|당연한\s*(?:의문|생각|마음|궁금)/.test(String(text ?? ""));
+}
+
+function checkUnderstandingPollution(borrowed = {}, question = "") {
+  const blob = collectAssertiveBorrowedText(borrowed);
+  const q = normalizeText(question);
+  // 고객 질문 재표현("꼭 필요한 건지/필요한가/필요한지")·공감("당연히 드는 생각")은 단정으로 보지 않음
+  let verdictBlob = blob;
+  if (/꼭\s*필요|필요(?:한가|한지)/.test(q)) {
+    verdictBlob = stripNecessityQuestionParaphrase(verdictBlob);
+  }
+  if (DEFINITIVE_VERDICT_RE.test(verdictBlob)) return true;
+  const hypothesisBlob = stripNecessityQuestionParaphrase(blob);
+  if (HYPOTHESIS_AS_FACT_RE.test(hypothesisBlob)) return true;
+  const hypotheses = borrowed.understanding_hypotheses ?? [];
+  if (
+    hypotheses.some((h) => {
+      const text = String(h);
+      if (q && text.includes(q)) return false;
+      if (/꼭\s*필요한지|필요한가|필요한지/.test(text) && /꼭\s*필요|필요/.test(q)) return false;
+      if (isEmpathyCertaintyMeta(text)) return false;
+      // "확신"은 "확실" substring 오탐 — 확실한/확실히/확실하만 단정 신호
+      // bare "당연"은 공감 메타와 구분 — "당연히 필요/부족"은 HYPOTHESIS_AS_FACT_RE가 담당
+      return /(?:확실한|확실히|확실하|분명|틀림없)/.test(text);
+    })
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isRecommendationNegationBasis(text = "") {
+  const t = normalizeText(text);
+  if (!t) return false;
+  return /(?:추천\s*(?:불가|보류|없|안(?:\s*함)?|하지\s*않)|방향\s*설정\s*(?:선행|먼저)|방향\s*설정\s*없이.{0,24}추천|상품을\s*추천하는\s*것은\s*(?:실익이\s*)?없|(?:무작정|바로|아무거나)\s*추천하지\s*않|추천하려면\s*먼저\s*방향|추천\s*대신|추천\s*전\s*방향|방향\s*.*?선행)/.test(
+    t,
+  );
+}
+
+function collectRecommendationPushText(borrowed = {}) {
+  const parts = [
+    borrowed.answer_purpose,
+    borrowed.voice_raw_candidate,
+    borrowed.proposal_direction,
+    borrowed.leadership_move,
+  ];
+  const basis = borrowed.recommendation_basis ?? "";
+  if (basis && !isRecommendationNegationBasis(basis)) {
+    parts.push(basis);
+  }
+  return normalizeText(parts.filter(Boolean).join(" "));
+}
+
+function checkUnsupportedRecommendation(borrowed = {}) {
+  const blob = collectRecommendationPushText(borrowed);
+  return hasUnsupportedRecommendationPush(blob);
+}
+
+function checkClosingOrSignupPush(blob = "") {
+  return (
+    ENROLLMENT_RE.test(blob) ||
+    CANCELLATION_RE.test(blob) ||
+    TERMINATION_CLOSE_RE.test(blob)
+  );
+}
+
+function checkNumberScopeViolation(blob = "", directive = {}, visualBlocks = []) {
+  if (checkPremiumScopeBlur(blob)) return true;
+  // "나머지 21건" (잔여 계약 수) 허용 · "나머지 4만5천 원" / bare 나머지 숫자 금액 invent 차단
+  if (CALCULATED_PARTIAL_RE.test(blob)) return true;
+  if (POLICY_SUBSET_INVENT_RE.test(blob)) return true;
+  if (REMAINING_PREMIUM_INVENT_RE.test(blob)) return true;
+  if (REMAINING_BARE_NUMBER_RE.test(blob)) return true;
+  const allowed = buildAllowedNumberSet(directive, visualBlocks);
+  if (!allowed.size) return false;
+  return filterRogueNumbers(blob, allowed).length > 0;
+}
+
+function checkContextHallucination(borrowed = {}, history = [], question = "") {
+  const hist = historyBlob(history);
+  const asksPrior = /지난번|저번|이어서|앞서/.test(String(question ?? ""));
+  const carry = normalizeText(borrowed.context_carryover ?? "");
+  const claimsPrior = claimsPriorMemory(carry);
+
+  if (asksPrior && !hist && claimsPrior) return true;
+
+  if (carry && asksPrior && hist) {
+    const priorTopicTerms = [
+      { re: /암\s*보험|암보험/, histRe: /암/ },
+      { re: /실손/, histRe: /실손/ },
+      { re: /해지/, histRe: /해지/ },
+      { re: /추천/, histRe: /추천/ },
+      { re: /부족/, histRe: /부족/ },
+    ];
+    for (const { re, histRe } of priorTopicTerms) {
+      if (re.test(carry) && !histRe.test(hist)) return true;
+    }
+    if (claimsPriorMemory(carry) && !hist) return true;
+
+    const carryNumbers = extractNumbers(carry);
+    for (const n of carryNumbers) {
+      if (n.length >= 2 && !hist.includes(n) && !hist.replace(/,/g, "").includes(n)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function checkVisualScopeViolation(borrowed = {}, visualBlocks = [], directive = {}) {
+  const obs = normalizeText(borrowed.visual_observation ?? "");
+  if (!obs || !(visualBlocks ?? []).length) return false;
+
+  const scopeText = buildVisualScopeText(visualBlocks);
+  if (!scopeText) return false;
+
+  const allowed = buildAllowedNumberSet(directive, visualBlocks);
+  const rogueNums = filterRogueNumbers(obs, allowed);
+  if (rogueNums.length > 0) return true;
+
+  for (const name of KNOWN_INSURERS) {
+    if (obs.includes(name) && !scopeText.includes(name)) return true;
+  }
+
+  return false;
+}
+
+function isStructuredFactRef(value = "") {
+  const id = normalizeFactId(value);
+  return /^(policy_count|insurer|product|monthly_premium)/.test(id);
+}
+
+function checkFactsNotInAllowedSet(borrowed = {}, directive = {}) {
+  const blob = collectAssertiveBorrowedText(borrowed);
+  const allowedNames = [directive?.allowed_fact_tokens?.insurer, directive?.allowed_fact_tokens?.product].filter(
+    Boolean,
+  );
+  const rogueInsurers = KNOWN_INSURERS.filter(
+    (name) => blob.includes(name) && !allowedNames.some((a) => String(a).includes(name)),
+  );
+  if (rogueInsurers.length) return true;
+
+  const usedFacts = (borrowed.used_facts ?? []).map((id) => normalizeFactId(id));
+  const structuredFacts = (borrowed.used_facts ?? []).filter((id) => isStructuredFactRef(id));
+  const allowedFactIds = new Set(
+    (directive?.facts_to_speak ?? []).map((f) => f.fact_id).filter(Boolean),
+  );
+  for (const key of Object.keys(directive?.allowed_fact_tokens ?? {})) {
+    if (key === "monthly_premium_display") {
+      allowedFactIds.add("monthly_premium_representative");
+      allowedFactIds.add("monthly_premium_display");
+    } else {
+      allowedFactIds.add(key);
+    }
+  }
+  if (allowedFactIds.size === 0 || structuredFacts.length === 0) return false;
+  return structuredFacts.some((raw) => {
+    const id = normalizeFactId(raw);
+    return id && !allowedFactIds.has(id);
+  });
+}
+
+/**
+ * @param {object} params
+ * @param {object} params.borrowed — parsed S7-a output
+ * @param {object} [params.directive]
+ * @param {Array} [params.history]
+ * @param {string} [params.question]
+ * @param {Array} [params.visualBlocks]
+ */
+export function gateBorrowedSensesOutput({
+  borrowed = {},
+  directive = null,
+  history = [],
+  question = "",
+  visualBlocks = [],
+} = {}) {
+  const assertiveBlob = collectAssertiveBorrowedText(borrowed);
+  const understanding_pollution = checkUnderstandingPollution(borrowed, question);
+  const unsupported_recommendation = checkUnsupportedRecommendation(borrowed);
+  const closing_or_signup_push = checkClosingOrSignupPush(assertiveBlob);
+  const visual_scope_violation = checkVisualScopeViolation(borrowed, visualBlocks, directive);
+  const number_scope_violation =
+    checkNumberScopeViolation(assertiveBlob, directive, visualBlocks) || visual_scope_violation;
+  const context_hallucination = checkContextHallucination(borrowed, history, question);
+  const facts_not_in_allowed_set = checkFactsNotInAllowedSet(borrowed, directive);
+
+  const customer_facing_axis_term = checkCustomerFacingAxisTerm(borrowed);
+  const passive_leadership = checkPassiveLeadership(borrowed, question, directive);
+  const leadership_without_basis = checkLeadershipWithoutBasis(borrowed, directive, question);
+  const product_push_as_direction = checkProductPushAsDirection(borrowed);
+  const expertise_overclaim = checkExpertiseOverclaim(borrowed, question);
+  const missing_next_decision = checkMissingNextDecision(borrowed, question, directive);
+  const missing_proposal_direction = checkMissingProposalDirection(borrowed, question, directive);
+  const leadership_cancel_enroll_certainty = checkLeadershipCancelEnrollCertainty(borrowed);
+
+  const gates = {
+    understanding_pollution,
+    unsupported_recommendation,
+    closing_or_signup_push,
+    number_scope_violation,
+    context_hallucination,
+    facts_not_in_allowed_set,
+    customer_facing_axis_term,
+    passive_leadership,
+    leadership_without_basis,
+    product_push_as_direction,
+    expertise_overclaim,
+    missing_next_decision,
+    missing_proposal_direction,
+    leadership_cancel_enroll_certainty,
+  };
+
+  return {
+    ok: Object.values(gates).every((v) => v === false),
+    ...gates,
+    visual_scope_violation,
+    gate_blob_preview: collectBorrowedText(borrowed).slice(0, 240),
+    leadership_blob_preview: collectLeadershipText(borrowed).slice(0, 240),
+  };
+}
+
+export function inferRouteLabel(question = "", directive = null) {
+  const focus = directive?.question_focus ?? deriveKeyVoiceQuestionFocus(question);
+  if (focus === "greeting" || focus === "first_visit" || focus === "browse") {
+    return { route: "social_or_browse", fast_path_or_consult_path: "fast_path" };
+  }
+  if (directive?.answer_mode === "analysis_consulting") {
+    return { route: focus ?? "consult", fast_path_or_consult_path: "consult_path" };
+  }
+  return { route: focus ?? "general", fast_path_or_consult_path: "consult_path" };
+}

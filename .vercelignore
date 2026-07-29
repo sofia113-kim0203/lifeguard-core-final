@@ -1,0 +1,12 @@
+.env*
+.env.local*
+.env.local.backup*
+.tmp-*
+*.tmp
+*probe-output*
+node_modules
+.git
+fixtures/key-judgment-validation-v1/**
+scripts/.tmp-*
+archive/**
+temp-*.mjs
