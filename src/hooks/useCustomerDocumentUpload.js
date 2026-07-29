@@ -1,11 +1,18 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   grantDocumentAnalysisConsent,
   grantDocumentStorageConsent,
+  listDocuments,
   requeuePendingDocumentIngest,
   uploadDocument,
 } from "../lib/customerDocuments.js";
 import { runPostDocumentPipelineRefresh } from "../lib/customerDocumentPipeline.js";
+import {
+  DOCUMENT_STORAGE_CONSENT_STATUS,
+  documentStorageConsentFromListFlag,
+  isDocumentStorageConsentGranted,
+  resolveChatAttachConsentDecision,
+} from "../lib/documentStorageConsentStatus.js";
 import { DOCUMENT_UI_MESSAGES, toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 export function useCustomerDocumentUpload({
@@ -21,7 +28,9 @@ export function useCustomerDocumentUpload({
   defaultCategoryKey = "insurance_policy",
 } = {}) {
   const fileInputRef = useRef(null);
-  const [hasConsent, setHasConsent] = useState(false);
+  const [storageConsentStatus, setStorageConsentStatus] = useState(
+    DOCUMENT_STORAGE_CONSENT_STATUS.UNKNOWN,
+  );
   const [hasAnalysisConsent, setHasAnalysisConsent] = useState(false);
   const [categoryKey, setCategoryKey] = useState(defaultCategoryKey);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -30,10 +39,25 @@ export function useCustomerDocumentUpload({
   const [grantingAnalysisConsent, setGrantingAnalysisConsent] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const statusRef = useRef(storageConsentStatus);
+  statusRef.current = storageConsentStatus;
+  const hydrateInFlightRef = useRef(null);
+
+  const hasConsent = isDocumentStorageConsentGranted(storageConsentStatus);
+
+  useEffect(() => {
+    if (!user) {
+      setStorageConsentStatus(DOCUMENT_STORAGE_CONSENT_STATUS.UNKNOWN);
+      setHasAnalysisConsent(false);
+      hydrateInFlightRef.current = null;
+    }
+  }, [user]);
 
   const syncFromListResult = useCallback((result) => {
     if (!result) return;
-    setHasConsent(Boolean(result.hasDocumentStorageConsent));
+    setStorageConsentStatus(
+      documentStorageConsentFromListFlag(result.hasDocumentStorageConsent),
+    );
     setHasAnalysisConsent(Boolean(result.hasDocumentAnalysisConsent));
   }, []);
 
@@ -42,13 +66,81 @@ export function useCustomerDocumentUpload({
     setSuccess("");
   }, []);
 
+  /**
+   * Hydrate from DB via existing listDocuments. On lookup failure, keep unknown
+   * (never pretend not_granted). Concurrent callers share one in-flight lookup.
+   */
+  const hydrateStorageConsent = useCallback(async () => {
+    if (!user) {
+      return {
+        ok: false,
+        attempted: true,
+        status: DOCUMENT_STORAGE_CONSENT_STATUS.UNKNOWN,
+        reason: "no_user",
+      };
+    }
+    const current = statusRef.current;
+    if (
+      current === DOCUMENT_STORAGE_CONSENT_STATUS.GRANTED ||
+      current === DOCUMENT_STORAGE_CONSENT_STATUS.NOT_GRANTED
+    ) {
+      return { ok: true, attempted: false, status: current, reason: "already_known" };
+    }
+    if (hydrateInFlightRef.current) {
+      return hydrateInFlightRef.current;
+    }
+    const pending = (async () => {
+      try {
+        const result = await listDocuments(user, { categoryKey: "all" });
+        const next = documentStorageConsentFromListFlag(result.hasDocumentStorageConsent);
+        setStorageConsentStatus(next);
+        setHasAnalysisConsent(Boolean(result.hasDocumentAnalysisConsent));
+        return {
+          ok: true,
+          attempted: true,
+          status: next,
+          reason: "hydrated",
+          listResult: result,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          attempted: true,
+          status: DOCUMENT_STORAGE_CONSENT_STATUS.UNKNOWN,
+          reason: "lookup_failed",
+          error: toCustomerErrorMessage(err, "동의 상태를 확인하지 못했습니다."),
+        };
+      } finally {
+        hydrateInFlightRef.current = null;
+      }
+    })();
+    hydrateInFlightRef.current = pending;
+    return pending;
+  }, [user]);
+
+  /** Chat attach gate: granted / not_granted / unknown→hydrate. */
+  const ensureStorageConsentForChatAttach = useCallback(async () => {
+    const current = statusRef.current;
+    if (current === DOCUMENT_STORAGE_CONSENT_STATUS.GRANTED) {
+      return resolveChatAttachConsentDecision({ status: current });
+    }
+    if (current === DOCUMENT_STORAGE_CONSENT_STATUS.NOT_GRANTED) {
+      return resolveChatAttachConsentDecision({ status: current });
+    }
+    const hydrated = await hydrateStorageConsent();
+    return resolveChatAttachConsentDecision({
+      status: DOCUMENT_STORAGE_CONSENT_STATUS.UNKNOWN,
+      hydrate: hydrated,
+    });
+  }, [hydrateStorageConsent]);
+
   const handleGrantConsent = useCallback(async () => {
     if (!user) return;
     setGrantingConsent(true);
     clearMessages();
     try {
       await grantDocumentStorageConsent(user);
-      setHasConsent(true);
+      setStorageConsentStatus(DOCUMENT_STORAGE_CONSENT_STATUS.GRANTED);
       setSuccess("문서 보관 동의가 완료되었습니다.");
     } catch (err) {
       setError(toCustomerErrorMessage(err, "문서 보관 동의를 완료하지 못했습니다."));
@@ -100,9 +192,21 @@ export function useCustomerDocumentUpload({
 
   const handleUpload = useCallback(async () => {
     if (!user) return;
-    if (!hasConsent) {
-      setError("문서 보관 동의가 필요합니다.");
-      return;
+    if (!isDocumentStorageConsentGranted(statusRef.current)) {
+      if (statusRef.current === DOCUMENT_STORAGE_CONSENT_STATUS.UNKNOWN) {
+        const hydrated = await hydrateStorageConsent();
+        if (!hydrated.ok || hydrated.status !== DOCUMENT_STORAGE_CONSENT_STATUS.GRANTED) {
+          if (hydrated.ok === false) {
+            setError("동의 상태를 확인하지 못했습니다. 다시 시도해 주세요.");
+          } else {
+            setError("문서 보관 동의가 필요합니다.");
+          }
+          return;
+        }
+      } else {
+        setError("문서 보관 동의가 필요합니다.");
+        return;
+      }
     }
     if (!selectedFile) {
       setError(DOCUMENT_UI_MESSAGES.selectFile);
@@ -212,10 +316,10 @@ export function useCustomerDocumentUpload({
     }
   }, [
     user,
-    hasConsent,
     selectedFile,
     categoryKey,
     clearMessages,
+    hydrateStorageConsent,
     refreshSession,
     setActiveAnalysisJob,
     insurancePolicyCount,
@@ -233,6 +337,7 @@ export function useCustomerDocumentUpload({
   return {
     fileInputRef,
     hasConsent,
+    storageConsentStatus,
     hasAnalysisConsent,
     categoryKey,
     setCategoryKey,
@@ -244,6 +349,8 @@ export function useCustomerDocumentUpload({
     error,
     success,
     syncFromListResult,
+    hydrateStorageConsent,
+    ensureStorageConsentForChatAttach,
     handleGrantConsent,
     handleGrantAnalysisConsent,
     handleUpload,

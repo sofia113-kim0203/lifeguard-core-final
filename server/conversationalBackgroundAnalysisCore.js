@@ -1,9 +1,8 @@
-/**
- * Phase 26 Step 2A — Conversational Background Analysis orchestration.
+﻿/**
+ * Conversational Background Analysis — KEY Master speak only.
  */
 import { createClient } from "@supabase/supabase-js";
 import { ensureCustomerMemoryContext } from "./customerMemoryContextSync.js";
-import { buildConversationalAnswer, buildCasualChatResponse } from "./fastResponseLayer.js";
 import { loadCustomerAnalysisCachePayload } from "./customerAnalysisCacheStore.js";
 import {
   ANALYSIS_PIPELINE_STAGES,
@@ -22,84 +21,9 @@ import {
   hasRequiredResultsForResultClaude,
   resolvePipelineManifest,
 } from "./intentGateLayer.js";
-import {
-  buildAdvisorBrainAnswer,
-  shouldActivateAdvisorBrainForClassification,
-} from "./advisorBrain/advisorBrainResponder.js";
-import { isAdvisorConversationQuestion } from "./advisorBrain/advisorConversationResponder.js";
-import { isRecommendationReasonClassification } from "./advisorBrain/advisorRecommendationReasonResponder.js";
 import { stripLegacyClaudeFromJobResultJson } from "./stripLegacyClaudeFromJobResultJson.js";
-import { isOneKeyCoreS1Enabled, runOneKeyCoreTurn } from "./keyCore/oneKeyCoreTurn.js";
-import {
-  isCentralBrainActive,
-  mergeConversationMetadata,
-  runCentralBrainTurn,
-} from "./centralBrain/index.js";
-import {
-  finalizeOneBrainResponse,
-  ONE_BRAIN_SURFACES,
-} from "./oneBrainResponseLayer.js";
-import { buildFactBundleFromLegacyContext } from "./guidanceLayer/guidanceBuilder.js";
-import { applyTom2AGapVoiceIfEligible } from "./tomThinkingLoop.js";
-import {
-  runTomGapLightVoiceTurn,
-  shouldUseTomGapLightPath,
-} from "./tomGapLightPath.js";
-
-async function applyOneBrainFinalResponse(
-  fastResponse,
-  {
-    question,
-    intentClassification,
-    memoryContext,
-    cachePayload,
-    analysisContext,
-    history = [],
-    fetchImpl = fetch,
-    env = process.env,
-  },
-) {
-  const factBundle = buildFactBundleFromLegacyContext({
-    sourceContext: memoryContext?.sourceContext,
-    snapshot: memoryContext?.snapshot,
-    question,
-    cachePayload,
-    analysisContext,
-  });
-  const tomApply = await applyTom2AGapVoiceIfEligible({
-    question,
-    intentClassification,
-    surface: ONE_BRAIN_SURFACES.CONSULTATION,
-    factBundle,
-    history,
-    fetchImpl,
-    env,
-    handler: "handleConversationalQuestionRequest.applyOneBrainFinalResponse",
-  });
-  if (tomApply.ran) {
-    return {
-      text: finalizeOneBrainResponse({
-        text: tomApply.text,
-        question,
-        intent: intentClassification.intent,
-        surface: ONE_BRAIN_SURFACES.CONSULTATION,
-        factBundle,
-        tomGapVoiceHandled: true,
-      }),
-      tom_voice_trace: tomApply.trace,
-    };
-  }
-  return {
-    text: finalizeOneBrainResponse({
-      text: fastResponse,
-      question,
-      intent: intentClassification.intent,
-      surface: ONE_BRAIN_SURFACES.CONSULTATION,
-      factBundle,
-    }),
-    tom_voice_trace: tomApply.trace,
-  };
-}
+import { runOneKeyCoreTurn, resolveOneKeyCoreS1Env } from "./keyCore/oneKeyCoreTurn.js";
+import { buildKeyCustomerTextFailureEnvelope } from "./keyCore/keyCustomerMonopoly.js";
 
 function createUserSupabaseClient(authHeader, env = process.env) {
   const { url, anonKey } = resolveSupabaseConfig(env);
@@ -246,18 +170,7 @@ async function insertConversationMessage(adminSupabase, customerId, { role, mess
   return data;
 }
 
-function buildOneKeyCoreS1ConversationalMeta({ used = false, trace = null } = {}) {
-  if (!used) return {};
-  return {
-    one_key_core_s1: true,
-    advisor_fast_path_muted: true,
-    central_brain_fast_path_muted: true,
-    phase: "advisor-s1-one-key-core",
-    one_key_core_trace: trace ?? null,
-  };
-}
-
-async function resolveOneKeyCoreConversationalFastResponse({
+async function resolveKeyMasterConversationalSpeak({
   userSupabase,
   customerId,
   question,
@@ -266,36 +179,79 @@ async function resolveOneKeyCoreConversationalFastResponse({
   fetchImpl = fetch,
   startedAt = Date.now(),
 } = {}) {
-  if (!isOneKeyCoreS1Enabled(env) || !userSupabase) {
-    return { used: false, ok: false, fastResponse: null, trace: null };
-  }
-
+  const keyEnv = resolveOneKeyCoreS1Env(env);
   const coreResult = await runOneKeyCoreTurn({
     userSupabase,
     customerId,
     question,
     history,
-    env,
+    env: keyEnv,
     fetchImpl,
     startedAt,
   });
 
-  const customerText = String(coreResult.customerText ?? "").trim();
-  if (!coreResult.ok || !customerText) {
-    return {
-      used: true,
-      ok: false,
-      fastResponse: null,
-      trace: coreResult.oneKeyCoreTrace ?? null,
-      reason: coreResult.reason ?? "ONE_KEY_CORE_S1_FAILED",
-    };
+  const trace = coreResult.oneKeyCoreTrace ?? null;
+  if (coreResult.ok) {
+    const customerText = String(coreResult.keySpeakOriginal ?? coreResult.customerText ?? "").trim();
+    if (customerText) {
+      return {
+        ok: true,
+        customerText,
+        visualBlocks: coreResult.visualBlocks ?? [],
+        keySpeakOriginal: coreResult.keySpeakOriginal ?? customerText,
+        trace,
+        responseSource: coreResult.agentTurn?.responseSource ?? "one_key_core_s1",
+        key_monopoly_failure: false,
+      };
+    }
   }
 
+  const failure = buildKeyCustomerTextFailureEnvelope({
+    reason: coreResult.reason ?? "one_key_core_failed",
+    trace,
+  });
   return {
-    used: true,
     ok: true,
-    fastResponse: customerText,
-    trace: coreResult.oneKeyCoreTrace ?? null,
+    customerText: failure.keySpeakOriginal ?? failure.customerText,
+    keySpeakOriginal: failure.keySpeakOriginal,
+    trace: failure.oneKeyCoreTrace ?? trace,
+    responseSource: failure.agentTurn?.responseSource ?? "one_key_core_s1",
+    key_monopoly_failure: true,
+  };
+}
+
+function buildVisualBlocksMeta({ trace = null, visualBlocks = [] } = {}) {
+  const speakStep = trace?.steps?.find((row) => row.step === "speak");
+  const gate =
+    speakStep?.visual_blocks_gate ??
+    speakStep?.key_voice_trace?.visual_blocks_gate ??
+    null;
+  const blocks = visualBlocks.length ? visualBlocks : speakStep?.visual_blocks ?? [];
+  return {
+    visual_blocks: blocks,
+    visual_blocks_gate: gate
+      ? {
+          accepted_count: gate.accepted_count ?? blocks.length,
+          omitted_count: gate.omitted_count ?? 0,
+          omitted: gate.omitted ?? [],
+        }
+      : null,
+  };
+}
+
+function buildKeyMasterConversationalMeta({
+  trace = null,
+  keyMonopolyFailure = false,
+  visualBlocks = [],
+} = {}) {
+  return {
+    one_key_core_s1: true,
+    one_key_core_s1_used: true,
+    key_speak_master: true,
+    phase: "key_master_conversational",
+    one_key_core_trace: trace ?? null,
+    key_monopoly_failure: keyMonopolyFailure === true,
+    ...buildVisualBlocksMeta({ trace, visualBlocks }),
   };
 }
 
@@ -370,82 +326,6 @@ async function loadRecentConversationHistory(adminClient, customerId, limit = 10
   }
 }
 
-async function handleCasualChatQuestionRequest({
-  question,
-  customerId,
-  adminClient,
-  startedAt,
-  intentClassification,
-  history = [],
-  fetchImpl = fetch,
-  env = process.env,
-} = {}) {
-  const pipelineManifest = resolvePipelineManifest(intentClassification.intent);
-  const intentGate = buildIntentGatePayload(intentClassification, pipelineManifest);
-  const casualResult = await buildCasualChatResponse({ question, history, fetchImpl, env });
-  const finalizedText = finalizeOneBrainResponse({
-    text: casualResult.text,
-    question,
-    intent: "casual_chat",
-    surface: ONE_BRAIN_SURFACES.CONSULTATION,
-    factBundle: {
-      question,
-      active_policy_count: null,
-      active_policy_count_source: null,
-      active_policy_ids: [],
-      policy_count: null,
-      policies: [],
-    },
-  });
-
-  const userMessage = await insertConversationMessage(adminClient, customerId, {
-    role: "user",
-    message: question,
-    metadata: {
-      source: "customer_dashboard",
-      phase: "casual-chat",
-      intent: "casual_chat",
-    },
-  });
-
-  const initialResponseTimeMs = Date.now() - startedAt;
-
-  const assistantMessage = await insertConversationMessage(adminClient, customerId, {
-    role: "assistant",
-    message: finalizedText,
-    metadata: {
-      source: "casual_claude",
-      intent: "casual_chat",
-      phase: "casual-chat",
-      response_source: casualResult.response_source,
-      model: casualResult.model ?? null,
-      request_id: casualResult.request_id ?? null,
-      initial_response_time_ms: initialResponseTimeMs,
-    },
-  });
-
-  return {
-    ok: true,
-    customer_id: customerId,
-    question,
-    fast_response: finalizedText,
-    source: "casual_claude",
-    initial_response_time_ms: initialResponseTimeMs,
-    analysis_job_id: null,
-    analysis_job: null,
-    user_message_id: userMessage.id,
-    assistant_message_id: assistantMessage.id,
-    cache_status: null,
-    background_refresh_required: false,
-    background_refresh_types: [],
-    memory_version: 0,
-    memory_fact_count: 0,
-    intent_gate: intentGate,
-    memory_context: null,
-    processing: null,
-  };
-}
-
 export async function handleConversationalQuestionRequest({
   question,
   authHeader,
@@ -479,96 +359,28 @@ export async function handleConversationalQuestionRequest({
     return { ok: false, reason: "SERVICE_ROLE_NOT_CONFIGURED", error_message: "Service role client unavailable." };
   }
 
-  const conversationHistory = await loadRecentConversationHistory(
-    adminClient,
-    customerId,
-    10,
-  );
-
+  const keySupabase = userSupabase ?? adminClient;
+  const conversationHistory = await loadRecentConversationHistory(adminClient, customerId, 10);
   const intentClassification = classifyConsultationIntent(trimmedQuestion);
 
-  if (shouldUseTomGapLightPath(intentClassification, env)) {
-    const memoryContext = await ensureCustomerMemoryContext({
-      supabase: adminClient,
-      customerId,
-      supabaseUrl: String(env.SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? "").trim() || null,
-      serviceRoleKey: String(env.SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim() || null,
-    });
-    const policies = memoryContext.sourceContext?.policies ?? [];
-    const lightTurnStartedAt = Date.now();
-    const lightTurn = await runTomGapLightVoiceTurn({
-      question: trimmedQuestion,
-      intentClassification,
-      surface: ONE_BRAIN_SURFACES.CONSULTATION,
-      policies,
-      history: conversationHistory,
-      fetchImpl,
-      env,
-      handler: "handleConversationalQuestionRequest.tom_gap_light",
-      startedAt: lightTurnStartedAt,
-    });
-    const factBundle = lightTurn.factBundle;
-    const fastResponse = finalizeOneBrainResponse({
-      text: lightTurn.tomApply.text,
-      question: trimmedQuestion,
-      intent: intentClassification.intent,
-      surface: ONE_BRAIN_SURFACES.CONSULTATION,
-      factBundle,
-      tomGapVoiceHandled: true,
-    });
-    const initialResponseTimeMs = Date.now() - startedAt;
-    const userMessage = await insertConversationMessage(adminClient, customerId, {
-      role: "user",
-      message: trimmedQuestion,
-      metadata: { source: "customer_dashboard", phase: "p2a-tom-gap-light" },
-    });
-    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
-      role: "assistant",
-      message: fastResponse,
-      metadata: {
-        source: "conversational_background_analysis",
-        phase: "p2a-tom-gap-light",
-        analysis_job_skipped: true,
-        tom_gap_light_path: true,
-        tom_turn_ms: lightTurn.elapsed_ms,
-        initial_response_time_ms: initialResponseTimeMs,
-      },
-    });
-    return {
-      ok: true,
-      customer_id: customerId,
-      question: trimmedQuestion,
-      fast_response: fastResponse,
-      tom_voice_trace: lightTurn.tomApply.trace,
-      tom_gap_light_path: true,
-      tom_turn_ms: lightTurn.elapsed_ms,
-      initial_response_time_ms: initialResponseTimeMs,
-      skipped_stages: lightTurn.skipped_stages,
-      analysis_job_id: null,
-      analysis_job: null,
-      job_skipped: true,
-      user_message_id: userMessage.id,
-      assistant_message_id: assistantMessage.id,
-      memory_context: {
-        synced: memoryContext.memory_synced,
-        status: memoryContext.memory_sync_status ?? "ready",
-        data_available: memoryContext.data_available,
-      },
-    };
-  }
+  const keySpeak = await resolveKeyMasterConversationalSpeak({
+    userSupabase: keySupabase,
+    customerId,
+    question: trimmedQuestion,
+    history: conversationHistory,
+    env,
+    fetchImpl,
+    startedAt,
+  });
 
-  if (intentClassification.intent === "casual_chat") {
-    return handleCasualChatQuestionRequest({
-      question: trimmedQuestion,
-      customerId,
-      adminClient,
-      startedAt,
-      intentClassification,
-      history: conversationHistory,
-      fetchImpl,
-      env,
-    });
-  }
+  const customerText = keySpeak.customerText;
+  const visualBlocks = keySpeak.visualBlocks ?? [];
+  const visualBlocksMeta = buildVisualBlocksMeta({ trace: keySpeak.trace, visualBlocks });
+  const keyMeta = buildKeyMasterConversationalMeta({
+    trace: keySpeak.trace,
+    keyMonopolyFailure: keySpeak.key_monopoly_failure === true,
+    visualBlocks,
+  });
 
   const memoryContext = await ensureCustomerMemoryContext({
     supabase: adminClient,
@@ -596,273 +408,11 @@ export async function handleConversationalQuestionRequest({
       ? buildPolicyDetailAnswer(trimmedQuestion, workingContextInput)
       : null;
 
-  const recommendationReasonMode = isRecommendationReasonClassification(
-    intentClassification,
-    trimmedQuestion,
-  );
-  const advisorConversationMode = isAdvisorConversationQuestion(
-    intentClassification,
-    trimmedQuestion,
-  );
-  const advisorStoredOnlyMode = recommendationReasonMode || advisorConversationMode;
-
-  const oneKeyCoreS1Active = isOneKeyCoreS1Enabled(env);
-  let centralBrainResult = null;
-
-  // Direction1 Step2 — for analysis-type questions, run the live coverage/underwriting/
-  // recommendation engines (same ones the screen uses) and ground the chat answer in the
-  // computed results. Step4/5 and Central Brain activated turns skip live engine context.
-  let analysisContext = null;
-  if (!oneKeyCoreS1Active && isCentralBrainActive(env)) {
-    centralBrainResult = await runCentralBrainTurn({
-      question: trimmedQuestion,
-      supabase: adminClient,
-      customerId,
-      env,
-      fetchImpl,
-      memorySnapshot: snapshot,
-      cachePayload,
-      conversationHistory,
-      memoryVersion: snapshot.memory_version ?? 0,
-    });
-  }
-
-  if (!advisorStoredOnlyMode && !centralBrainResult?.activated) {
-    try {
-      const { loadRecommendationAnalysisContext } = await import("./customerRecommendationCore.js");
-      analysisContext = await loadRecommendationAnalysisContext(adminClient, customerId);
-    } catch {
-      analysisContext = null;
-    }
-  }
-
-  let fastResponse = null;
-  let oneKeyCoreS1Used = false;
-  let oneKeyCoreTrace = null;
-
-  if (oneKeyCoreS1Active && userSupabase) {
-    const oneKeyFast = await resolveOneKeyCoreConversationalFastResponse({
-      userSupabase,
-      customerId,
-      question: trimmedQuestion,
-      history: conversationHistory,
-      env,
-      fetchImpl,
-      startedAt,
-    });
-    if (oneKeyFast.used && oneKeyFast.ok && oneKeyFast.fastResponse) {
-      fastResponse = oneKeyFast.fastResponse;
-      oneKeyCoreS1Used = true;
-      oneKeyCoreTrace = oneKeyFast.trace ?? null;
-    }
-  }
-
-  if (!fastResponse && centralBrainResult?.activated && centralBrainResult?.ok && centralBrainResult?.message) {
-    fastResponse = centralBrainResult.message;
-  } else if (
-    !fastResponse &&
-    !oneKeyCoreS1Active &&
-    !isCentralBrainActive(env) &&
-    shouldActivateAdvisorBrainForClassification(intentClassification, env, trimmedQuestion)
-  ) {
-    try {
-      const advisorBrainResult = await buildAdvisorBrainAnswer({
-        supabase: adminClient,
-        customerId,
-        question: trimmedQuestion,
-        classification: intentClassification,
-        env,
-        fetchImpl,
-      });
-      if (advisorBrainResult?.ok && advisorBrainResult.message) {
-        fastResponse = advisorBrainResult.message;
-      }
-    } catch {
-      // Advisor Brain failure must fall back to the existing deterministic chat path.
-    }
-  }
-
-  if (!fastResponse) {
-    fastResponse = await buildConversationalAnswer({
-      question: trimmedQuestion,
-      memorySnapshot: snapshot,
-      cachePayload,
-      sourceContext: memoryContext.sourceContext,
-      sourceSummary: memoryContext.sourceSummary,
-      intentGate,
-      analysisContext,
-      history: conversationHistory,
-      fetchImpl,
-      env,
-    });
-  }
-
-  let tomVoiceTrace = null;
-  if (oneKeyCoreS1Used) {
-    // ONE KEY already finalized customer text — do not re-compose via OneBrain/Advisor layers.
-  } else {
-    const finalized = await applyOneBrainFinalResponse(fastResponse, {
-      question: trimmedQuestion,
-      intentClassification,
-      memoryContext,
-      cachePayload,
-      analysisContext,
-      history: conversationHistory,
-      fetchImpl,
-      env,
-    });
-    fastResponse = finalized.text;
-    tomVoiceTrace = finalized.tom_voice_trace ?? null;
-  }
-
-  const oneKeyMeta = buildOneKeyCoreS1ConversationalMeta({
-    used: oneKeyCoreS1Used,
-    trace: oneKeyCoreTrace,
-  });
-
-  if (advisorStoredOnlyMode || centralBrainResult?.skip_analysis_job) {
-    const initialResponseTimeMs = Date.now() - startedAt;
-    const userMessage = await insertConversationMessage(adminClient, customerId, {
-      role: "user",
-      message: trimmedQuestion,
-      metadata: { source: "customer_dashboard", phase: "phase26-2a" },
-    });
-    const assistantMetadata = mergeConversationMetadata(
-      {
-        source: "conversational_background_analysis",
-        phase: oneKeyCoreS1Used
-          ? "advisor-s1-one-key-core"
-          : centralBrainResult?.activated
-            ? "central-brain-p2"
-            : "phase26-2a-fast",
-        recommendation_reason_mode:
-          recommendationReasonMode || centralBrainResult?.recommendation_reason_mode === true,
-        advisor_conversation_mode:
-          advisorConversationMode || centralBrainResult?.advisor_conversation_mode === true,
-        analysis_job_skipped: true,
-        memory_version: snapshot.memory_version ?? 0,
-        memory_fact_count: snapshot.fact_count ?? 0,
-        memory_synced: memoryContext.memory_synced,
-        source_data_available: memoryContext.data_available,
-        cache_status: cachePayload.cache_status,
-        initial_response_time_ms: initialResponseTimeMs,
-        ...oneKeyMeta,
-      },
-      centralBrainResult?.metadata ?? {},
-    );
-    const assistantMessage = await insertConversationMessage(adminClient, customerId, {
-      role: "assistant",
-      message: fastResponse,
-      metadata: assistantMetadata,
-    });
-
-    return {
-      ok: true,
-      customer_id: customerId,
-      question: trimmedQuestion,
-      fast_response: fastResponse,
-      tom_voice_trace: tomVoiceTrace,
-      initial_response_time_ms: initialResponseTimeMs,
-      analysis_job_id: null,
-      analysis_job: null,
-      recommendation_reason_mode:
-        recommendationReasonMode || centralBrainResult?.recommendation_reason_mode === true,
-      advisor_conversation_mode:
-        advisorConversationMode || centralBrainResult?.advisor_conversation_mode === true,
-      central_brain_mode: centralBrainResult?.central_brain_mode ?? null,
-      central_brain_activated: centralBrainResult?.activated === true,
-      coverage_review_mode: centralBrainResult?.coverage_review_mode === true,
-      job_skipped: true,
-      one_key_core_s1_active: oneKeyCoreS1Active,
-      one_key_core_s1_used: oneKeyCoreS1Used,
-      user_message_id: userMessage.id,
-      assistant_message_id: assistantMessage.id,
-      cache_status: cachePayload.cache_status,
-      background_refresh_required: cachePayload.background_refresh_required,
-      background_refresh_types: cachePayload.background_refresh_types,
-      memory_version: snapshot.memory_version ?? 0,
-      memory_fact_count: snapshot.fact_count ?? 0,
-      memory_context: {
-        synced: memoryContext.memory_synced,
-        status: memoryContext.memory_sync_status ?? "ready",
-        error: memoryContext.memory_sync_error ?? null,
-        sync_assessment: memoryContext.sync_assessment,
-        rebuild_summary: memoryContext.rebuild_summary ?? null,
-        data_available: memoryContext.data_available,
-        source_summary: memoryContext.sourceSummary,
-      },
-      processing: null,
-    };
-  }
-
   const userMessage = await insertConversationMessage(adminClient, customerId, {
     role: "user",
     message: trimmedQuestion,
-    metadata: { source: "customer_dashboard", phase: "phase26-2a" },
+    metadata: { source: "customer_dashboard", phase: "key_master_conversational" },
   });
-
-  if (centralBrainResult?.reuse_analysis_job_id) {
-    const reusedJob = await loadAnalysisJob(adminClient, centralBrainResult.reuse_analysis_job_id);
-    if (reusedJob) {
-      const initialResponseTimeMs = Date.now() - startedAt;
-      const assistantMessage = await insertConversationMessage(adminClient, customerId, {
-        role: "assistant",
-        message: fastResponse,
-        metadata: mergeConversationMetadata(
-          {
-            source: "conversational_background_analysis",
-            phase: oneKeyCoreS1Used ? "advisor-s1-one-key-core" : "central-brain-p2",
-            analysis_job_id: reusedJob.id,
-            analysis_job_reused: true,
-            central_brain_mode: centralBrainResult.central_brain_mode ?? null,
-            coverage_review_mode: centralBrainResult.coverage_review_mode === true,
-            memory_version: snapshot.memory_version ?? 0,
-            memory_fact_count: snapshot.fact_count ?? 0,
-            memory_synced: memoryContext.memory_synced,
-            source_data_available: memoryContext.data_available,
-            cache_status: cachePayload.cache_status,
-            initial_response_time_ms: initialResponseTimeMs,
-            ...oneKeyMeta,
-          },
-          centralBrainResult.metadata ?? {},
-        ),
-      });
-
-      return {
-        ok: true,
-        customer_id: customerId,
-        question: trimmedQuestion,
-        fast_response: fastResponse,
-        tom_voice_trace: tomVoiceTrace,
-        initial_response_time_ms: initialResponseTimeMs,
-        analysis_job_id: reusedJob.id,
-        analysis_job: mapAnalysisJobForClient(reusedJob),
-        central_brain_mode: centralBrainResult.central_brain_mode ?? null,
-        central_brain_activated: true,
-        coverage_review_mode: centralBrainResult.coverage_review_mode === true,
-        job_reused: true,
-        one_key_core_s1_active: oneKeyCoreS1Active,
-        one_key_core_s1_used: oneKeyCoreS1Used,
-        user_message_id: userMessage.id,
-        assistant_message_id: assistantMessage.id,
-        cache_status: cachePayload.cache_status,
-        background_refresh_required: cachePayload.background_refresh_required,
-        background_refresh_types: cachePayload.background_refresh_types,
-        memory_version: snapshot.memory_version ?? 0,
-        memory_fact_count: snapshot.fact_count ?? 0,
-        memory_context: {
-          synced: memoryContext.memory_synced,
-          status: memoryContext.memory_sync_status ?? "ready",
-          error: memoryContext.memory_sync_error ?? null,
-          sync_assessment: memoryContext.sync_assessment,
-          rebuild_summary: memoryContext.rebuild_summary ?? null,
-          data_available: memoryContext.data_available,
-          source_summary: memoryContext.sourceSummary,
-        },
-        processing: null,
-      };
-    }
-  }
 
   const { data: jobRow, error: jobError } = await adminClient
     .from("analysis_jobs")
@@ -871,7 +421,7 @@ export async function handleConversationalQuestionRequest({
       conversation_message_id: userMessage.id,
       question: trimmedQuestion,
       status: "queued",
-      fast_response_text: fastResponse,
+      fast_response_text: customerText,
       source_memory_version: snapshot.memory_version ?? 0,
       timing_metrics: {},
       result_json: {
@@ -911,11 +461,14 @@ export async function handleConversationalQuestionRequest({
 
   const assistantMessage = await insertConversationMessage(adminClient, customerId, {
     role: "assistant",
-    message: fastResponse,
+    message: customerText,
     metadata: {
       source: "conversational_background_analysis",
-      phase: oneKeyCoreS1Used ? "advisor-s1-one-key-core" : "phase26-2a-fast",
+      phase: "key_master_conversational",
       analysis_job_id: jobRow.id,
+      response_source: keySpeak.responseSource,
+      key_speak_original: keySpeak.keySpeakOriginal,
+      key_text_equal: keySpeak.keySpeakOriginal === customerText,
       memory_version: snapshot.memory_version ?? 0,
       memory_fact_count: snapshot.fact_count ?? 0,
       memory_synced: memoryContext.memory_synced,
@@ -923,7 +476,7 @@ export async function handleConversationalQuestionRequest({
       cache_status: cachePayload.cache_status,
       background_refresh_types: cachePayload.background_refresh_types,
       initial_response_time_ms: initialResponseTimeMs,
-      ...oneKeyMeta,
+      ...keyMeta,
     },
   });
 
@@ -946,13 +499,18 @@ export async function handleConversationalQuestionRequest({
     ok: true,
     customer_id: customerId,
     question: trimmedQuestion,
-    fast_response: fastResponse,
-    tom_voice_trace: tomVoiceTrace,
+    fast_response: customerText,
+    visual_blocks: visualBlocksMeta.visual_blocks,
+    visual_blocks_gate: visualBlocksMeta.visual_blocks_gate,
+    key_speak_original: keySpeak.keySpeakOriginal,
+    key_text_equal: keySpeak.keySpeakOriginal === customerText,
+    response_source: keySpeak.responseSource,
     initial_response_time_ms: initialResponseTimeMs,
     analysis_job_id: jobRow.id,
     analysis_job: mapAnalysisJobForClient(latestJob),
-    one_key_core_s1_active: oneKeyCoreS1Active,
-    one_key_core_s1_used: oneKeyCoreS1Used,
+    one_key_core_s1_active: true,
+    one_key_core_s1_used: true,
+    key_speak_master: true,
     user_message_id: userMessage.id,
     assistant_message_id: assistantMessage.id,
     cache_status: cachePayload.cache_status,
@@ -970,6 +528,7 @@ export async function handleConversationalQuestionRequest({
       source_summary: memoryContext.sourceSummary,
     },
     processing: processingResult ?? null,
+    ...keyMeta,
   };
 }
 
@@ -1038,9 +597,9 @@ export async function handleAnalysisJobStatusRequest({
       env,
     });
 
-    const refreshedJob = processResult?.job ?? (await loadAnalysisJob(adminClient, trimmedJobId));
+    const refreshedJob = processResult?.job ?? (await loadAnalysisJob(processClient, trimmedJobId));
     if (refreshedJob?.status === "completed") {
-      await postResultMessageIfNeeded(adminClient, customerId, refreshedJob);
+      await postResultMessageIfNeeded(processClient, customerId, refreshedJob);
     }
   }
 

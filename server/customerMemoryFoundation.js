@@ -3,6 +3,10 @@ import {
   loadCustomerMemorySnapshot,
 } from "./customerMemorySnapshot.js";
 import {
+  scrubInsuranceMemoryAfterPolicyRetire,
+  scrubOrphanInsuranceMemoryAfterRebuild,
+} from "./customerMemoryInsuranceScrub.js";
+import {
   assessMemoryBuilderInvoke,
   collectBlockedSources,
   formatMemoryBuilderFailure,
@@ -95,6 +99,20 @@ export async function rebuildCustomerMemoryFoundation({
     });
   }
 
+  // I-5 belt: even if edge orphan cleanup is not yet deployed, Node scrub drops
+  // retired policy-keyed insurance facts + absent aggregates after rebuild.
+  const insuranceSkipped =
+    profileResult?.body?.extractors?.insurance?.skipped === true;
+  const insuranceCandidateKeys = Array.isArray(profileResult?.body?.fact_keys)
+    ? profileResult.body.fact_keys.filter((key) => String(key).startsWith("insurance."))
+    : [];
+  const insuranceOrphanScrub = await scrubOrphanInsuranceMemoryAfterRebuild({
+    supabase,
+    customerId,
+    insuranceCandidateFactKeys: insuranceCandidateKeys,
+    insuranceSkipped,
+  });
+
   const snapshot = await loadCustomerMemorySnapshot(supabase, customerId);
   const structured = buildStructuredMemoryProfile(snapshot);
 
@@ -103,9 +121,26 @@ export async function rebuildCustomerMemoryFoundation({
     ok: true,
     profile_health_policy: profileResult,
     customer_conversation: conversationResult,
+    insurance_orphan_scrub: insuranceOrphanScrub,
     snapshot,
     structured,
   };
+}
+
+/**
+ * Soft-delete Hand path — supersede retired policy insurance memory immediately
+ * and refresh aggregates from active policies (service_role client).
+ */
+export async function scrubInsuranceMemoryForRetiredPolicies({
+  supabase,
+  customerId,
+  retiredPolicyIds = [],
+} = {}) {
+  return scrubInsuranceMemoryAfterPolicyRetire({
+    supabase,
+    customerId,
+    retiredPolicyIds,
+  });
 }
 
 export async function loadCustomerMemoryOnLogin({

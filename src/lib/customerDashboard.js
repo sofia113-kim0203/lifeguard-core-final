@@ -1,6 +1,10 @@
 import { buildIntakeFormFromRecords } from "./intakeForm.js";
 import { computeIntakeCompleteness } from "./intakeCompleteness.js";
 import { bootstrapSignupRecords, extractSignupProfileFromMetadata } from "./signupBootstrap.js";
+import {
+  filterPoliciesToActiveSourceDocuments,
+  loadActiveSourceDocumentIds,
+} from "./policySourceDocumentFilter.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
@@ -159,9 +163,16 @@ export async function loadCustomerDashboardData(authUser, { unifiedState = null 
     throw new Error(toCustomerErrorMessage(consentsResult.error, "동의 정보를 불러오지 못했습니다."));
   }
 
-  const insurancePolicies = reuseUnifiedPolicies
+  const rawInsurancePolicies = reuseUnifiedPolicies
     ? mapUnifiedPoliciesToDashboard(unifiedState.policies)
     : (insuranceResult.data ?? []);
+  // prior_facts Hand: hide cards whose source_document_id is not an active document.
+  // (RLS hides soft-deleted docs — active-set membership is the reliable signal.)
+  const activeSourceIds = await loadActiveSourceDocumentIds(customerId, supabase);
+  const insurancePolicies = filterPoliciesToActiveSourceDocuments(
+    rawInsurancePolicies,
+    activeSourceIds,
+  );
 
   const dashboard = normalizeCustomerDashboardData({
     authUser,

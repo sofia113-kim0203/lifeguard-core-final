@@ -15,6 +15,10 @@ import {
   assessMemorySyncNeed,
   resolveMemoryDisplayStatus,
 } from "./memoryObservability.js";
+import {
+  filterPoliciesToActiveSourceDocuments,
+  loadActiveSourceDocumentIds,
+} from "../src/lib/policySourceDocumentFilter.js";
 import { resolvePolicyPremium } from "../src/lib/resolvePolicyPremium.js";
 
 export {
@@ -160,12 +164,18 @@ export async function loadSalesDirectorMinimalRawRecords(supabase, customerId) {
   if (!supabase) throw new Error("supabase_required");
   if (!customerId) throw new Error("customer_id_required");
 
-  const [profileResult, policiesResult] = await Promise.all([
+  // profile_health.details_json (incl. signup_onboarding) must reach KEY turn materials.
+  const [profileResult, healthResult, policiesResult] = await Promise.all([
     supabase
       .from("customer_profiles")
       .select(PROFILE_SELECT)
       .eq("id", customerId)
       .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("profile_health")
+      .select("customer_id, source, details_json, updated_at")
+      .eq("customer_id", customerId)
       .maybeSingle(),
     supabase
       .from("active_profile_insurance_policies")
@@ -177,17 +187,26 @@ export async function loadSalesDirectorMinimalRawRecords(supabase, customerId) {
   if (profileResult.error) {
     throw new Error(`profile_lookup_failed: ${profileResult.error.message}`);
   }
+  if (healthResult.error) {
+    throw new Error(`health_lookup_failed: ${healthResult.error.message}`);
+  }
   if (policiesResult.error) {
     throw new Error(`policy_lookup_failed: ${policiesResult.error.message}`);
   }
 
   const profile = profileResult.data ?? null;
-  const policies = policiesResult.data ?? [];
+  const health = healthResult.data ?? null;
+  const healthDetails = health?.details_json ?? {};
+  const activeSourceIds = await loadActiveSourceDocumentIds(customerId, supabase);
+  const policies = filterPoliciesToActiveSourceDocuments(
+    policiesResult.data ?? [],
+    activeSourceIds,
+  );
 
   return {
     profile,
-    health: null,
-    health_details: {},
+    health,
+    health_details: healthDetails,
     policies,
     documents: [],
     document_count: 0,
@@ -196,7 +215,14 @@ export async function loadSalesDirectorMinimalRawRecords(supabase, customerId) {
       has_profile: Boolean(
         profile?.display_name || profile?.birth_date || profile?.gender || profile?.job_category,
       ),
-      has_health: false,
+      has_health: Boolean(
+        health &&
+          (Object.keys(healthDetails).length > 0 ||
+            health.source ||
+            healthDetails.medication ||
+            healthDetails.smoking_status ||
+            healthDetails.signup_onboarding),
+      ),
       has_policies: policies.length > 0,
       has_documents: false,
     },
@@ -257,7 +283,12 @@ export async function loadRawCustomerRecords(supabase, customerId) {
 
   const profile = profileResult.data ?? null;
   const health = healthResult.data ?? null;
-  const policies = policiesResult.data ?? [];
+  // Full active id set (preview list is capped — do not use it for prior_facts filter).
+  const activeIdsForFilter = await loadActiveSourceDocumentIds(customerId, supabase);
+  const policies = filterPoliciesToActiveSourceDocuments(
+    policiesResult.data ?? [],
+    activeIdsForFilter,
+  );
   const documents = documentsResult.data ?? [];
   const documentCount = documentsCountResult.count ?? 0;
   const documentsPreviewCount = documents.length;
@@ -403,6 +434,11 @@ export function buildSourceSummaryFromUnifiedState(unifiedState) {
       surgery_history: health.surgery_history ?? health.surgery_5y ?? null,
       hospitalization_history: health.hospitalization_history ?? health.hospital_5y ?? null,
       family_history: health.family_history ?? null,
+      // Customer-reported signup inputs — not verified medical/policy facts.
+      signup_onboarding:
+        health.signup_onboarding && typeof health.signup_onboarding === "object"
+          ? health.signup_onboarding
+          : null,
     },
     insurance: policies.map((policy) => ({
       id: policy.id,

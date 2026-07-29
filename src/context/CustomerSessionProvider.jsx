@@ -9,7 +9,10 @@ import {
 } from "../lib/customerUnifiedState.js";
 import { deriveMemoryStatusFromUnified } from "../lib/memoryStatus.js";
 import { postCustomerSystemMessage } from "../lib/customerConversations.js";
-import { writeEmitterTrace } from "../lib/keyAnalysisCompleteSessionTransition.js";
+import {
+  appendHomeChatStreamTrace,
+  writeEmitterTrace,
+} from "../lib/keyAnalysisCompleteSessionTransition.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
 
 const CustomerSessionContext = createContext(null);
@@ -95,6 +98,7 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         setLoading(true);
       }
       setError("");
+      appendHomeChatStreamTrace("unified_state_request_start");
       try {
         const { dashboard, unified } = await withTimeout(
           loadCustomerSessionRecords(user, event),
@@ -105,6 +109,17 @@ export function CustomerSessionProvider({ user, authSession = null, authLoading 
         setUnifiedState(unified);
         setMemoryStatus(deriveMemoryStatusFromUnified(unified));
         if (event) setLastEvent(event);
+
+        // Triangle T2 — login bootstrap READY CARD warm (no Claude; fire-and-forget).
+        try {
+          const { warmKeyReadyCardFireAndForget } = await import("../lib/keyReadyCardWarm.js");
+          warmKeyReadyCardFireAndForget({
+            sessionId: null,
+            customerId: unified?.customer_id ?? dashboard?.customerId ?? null,
+          });
+        } catch {
+          // Warm must never block session UI.
+        }
 
         if (reloadJob) {
           try {

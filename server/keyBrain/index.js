@@ -24,6 +24,12 @@ export {
   KEY_BRAIN_SHADOW_SCHEMA_VERSION,
 } from "./shadowPlan.js";
 export {
+  buildKeyAnalysisCompleteIntakeShadowTrace,
+  appendAnalysisCompleteInitiativeSpeakTrace,
+  KEY_ANALYSIS_COMPLETE_INTAKE_SCHEMA_VERSION,
+} from "./analysisCompleteIntakeShadow.js";
+export { jobHasStoredRecommendation } from "./analysisCompleteFirstSpeak.js";
+export {
   buildKeyDocumentIntakeShadowTrace,
   appendLegacyPipelineContinuedTrace,
   buildKeyContextLoadedStep,
@@ -38,11 +44,11 @@ export {
 export {
   appendKeyFirstSpeakTrace,
   buildCustomerFirstSentence,
-  finalizeDocumentIntakeFirstSentence,
   validateKu2cSpeakOrder,
   DOCUMENT_INTAKE_PERSONA_OUTLET,
   KEY_FIRST_SPEAK_SCHEMA_VERSION,
 } from "./documentFirstSpeak.js";
+export { keySpeak, KEY_SPEAK_MASTER_ID, KEY_SPEAK_MASTER_PATH } from "./keySpeak.js";
 export {
   getKeyUploadEntryMode,
   isKeyUploadEntryShadowEnabled,

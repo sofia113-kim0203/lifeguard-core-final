@@ -1,4 +1,5 @@
 import { DOCUMENT_CATEGORIES } from "../lib/documentCategories.js";
+import { DOCUMENT_FILE_ACCEPT } from "../lib/customerDocuments.js";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 import { DOCUMENT_UI_MESSAGES, UI_LABELS } from "../lib/uiLocale.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
@@ -163,8 +164,7 @@ const CUSTOMER = {
   },
 };
 
-const FILE_ACCEPT =
-  ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,application/pdf,image/jpeg,image/png,image/heic,image/heif,image/webp";
+const FILE_ACCEPT = DOCUMENT_FILE_ACCEPT;
 
 function themeStyles(variant) {
   return variant === "backoffice" ? BACKOFFICE : CUSTOMER;

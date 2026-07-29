@@ -2,7 +2,7 @@
  * Personal KEY time continuity — LV-2 J6/J7 · LV-5.5 time memory wiring.
  * Mirrors corporateKeySpeech time axis for personal seat (non-entity).
  */
-import { KEY_GENERIC_FILLER_RE } from "./keyCompanionGuidance.js";
+const KEY_GENERIC_FILLER_RE = /확인된\s*범위\s*안에서만\s*조심스럽게/;
 
 const RC_CONTINUITY_COMPANION_CLUSTER_ID = "RC-CONTINUITY-COMPANION-v1";
 const RC_RECOGNITION_COMPANION_CLUSTER_ID = "RC-RECOGNITION-COMPANION-v1";

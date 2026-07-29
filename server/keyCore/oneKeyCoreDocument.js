@@ -1,5 +1,6 @@
 /**
  * ONE KEY Core S02-1 — document event (upload Prototype → Core 8-step).
+ * Claude-Full (Preview active): original PDF attached for Claude to read first — no KEY pre-summary.
  */
 import {
   buildKeyContextLoadedStep,
@@ -10,11 +11,8 @@ import {
   KEY_DOCUMENT_INTAKE_SCHEMA_VERSION,
 } from "../keyBrain/documentIntakeShadow.js";
 import { buildKeyFirstJudgment } from "../keyBrain/documentFirstJudgment.js";
-import {
-  appendKeyFirstSpeakTrace,
-  buildCustomerFirstSentence,
-  finalizeDocumentIntakeFirstSentence,
-} from "../keyBrain/documentFirstSpeak.js";
+import { appendKeyFirstSpeakTrace } from "../keyBrain/documentFirstSpeak.js";
+import { KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import {
   buildDu1InputBundle,
   resolveDu1InputGates,
@@ -245,9 +243,13 @@ export async function runOneKeyCoreDocumentTurn({
   uploadSource = "web",
   categoryKey = null,
   uploadEntryMode = KEY_UPLOAD_ENTRY_MODES.ACTIVE,
+  customerQuestion = "",
+  history = [],
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
+  // Test-only PDF injection (never logged as bytes)
+  injectedPdfBytes = null,
 } = {}) {
   const coreEnv = resolveOneKeyCoreDocumentEnv(env);
   const trace = {
@@ -395,40 +397,37 @@ export async function runOneKeyCoreDocumentTurn({
   });
   recordStep("evidence", evidenceBundle);
 
-  const staticDraft = buildCustomerFirstSentence(keyJudgment, {
-    document,
-    contextSnapshot,
-    loadedContext,
-  });
+  // No customer-facing intake/acknowledgment speak.
+  // HomeChat: Storage save only → customer question → Claude-first reads the original.
+  const documentDirectMeta = {
+    document_direct_compose: false,
+    customer_speak_suppressed: true,
+    reason: "deferred_to_claude_first_question_turn",
+  };
+
   recordStep("speak", {
-    compose_mode: "buildCustomerFirstSentence",
-    static_draft_preview: String(staticDraft ?? "").slice(0, 300),
-    du1: true,
+    compose_mode: "key_document_intake_silent",
+    static_draft_preview: "",
+    du1: false,
+    key_speak_master: true,
+    document_direct: documentDirectMeta,
   });
 
-  trace.customer_text_path.push(
-    "buildCustomerFirstSentence",
-    "finalizeDocumentIntakeFirstSentence(document_intake_preserve)",
-    "polishLifeguardCustomerText",
-  );
+  // Keep path marker for traces; do not emit document speaker text to the customer.
+  trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
 
-  let customerFirstSentence = null;
-  let personaMeta = null;
-  if (staticDraft) {
-    const finalized = finalizeDocumentIntakeFirstSentence(staticDraft, {
-      keyTurnResult: keyTurn.result,
-      document,
-    });
-    if (finalized?.text) {
-      customerFirstSentence = finalized.text;
-      personaMeta = finalized;
-    }
-  }
+  const customerFirstSentence = null;
+  const personaMeta = {
+    generation_mode: "suppressed_document_intake_speak",
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
+  };
 
   recordStep("persona", {
-    generation_mode: personaMeta?.generation_mode ?? null,
+    generation_mode: personaMeta.generation_mode,
     text_preview: String(customerFirstSentence ?? "").slice(0, 300),
-    persona_outlet: personaMeta?.persona_outlet ?? null,
+    persona_rewrite_blocked: true,
+    key_speak_master: true,
   });
 
   const stepNames = trace.steps.map((row) => row.step);

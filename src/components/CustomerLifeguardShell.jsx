@@ -4,6 +4,8 @@
 import { useEffect } from "react";
 import { CustomerSessionProvider } from "../context/CustomerSessionProvider.jsx";
 import {
+  APP_ROLES,
+  canAccessPath,
   getRedirectPathForRole,
   isBackofficePath,
   LIFEGUARD_PATH,
@@ -14,6 +16,12 @@ import AuthPanel from "./AuthPanel.jsx";
 import LifeguardHomeChat from "./LifeguardHomeChat.jsx";
 import { LG } from "../lib/lifeguardCustomerTheme.js";
 
+/** Registered non-customer routes (e.g. /agent) — App.jsx role gate owns redirects. */
+function isRegisteredNonCustomerPath(pathname = "/") {
+  const path = normalizeAppPath(pathname);
+  return isBackofficePath(path) && !canAccessPath(path, APP_ROLES.CUSTOMER);
+}
+
 export default function CustomerLifeguardShell({
   user,
   userRole = "customer",
@@ -22,10 +30,16 @@ export default function CustomerLifeguardShell({
   authMode = "login",
   onOpenAuth,
   onLoginSuccess,
+  audience = "customer",
 }) {
   useEffect(() => {
     if (!user) return;
     const path = normalizeAppPath(window.location.pathname);
+    // Never wipe /agent (or other registered non-customer paths) during the brief
+    // post-login mount before role resolves — App.jsx applies getRedirectPathForRole.
+    if (isRegisteredNonCustomerPath(path)) {
+      return;
+    }
     if (isBackofficePath(path)) {
       window.history.replaceState({}, "", LIFEGUARD_PATH);
     }
@@ -45,17 +59,19 @@ export default function CustomerLifeguardShell({
   if (!user) {
     return (
       <div
+        data-customer-auth-shell
         style={{
           minHeight: "100vh",
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-start",
           justifyContent: "center",
-          padding: "24px",
+          padding: "24px 16px 48px",
           background: LG.bg,
+          boxSizing: "border-box",
         }}
       >
         {authLoading ? (
-          <div style={{ color: LG.textMuted, fontFamily: LG.sans, fontSize: "15px" }}>잠시만요…</div>
+          <div style={{ color: LG.textMuted, fontFamily: LG.sans, fontSize: "15px", marginTop: 48 }}>잠시만요…</div>
         ) : (
           <AuthPanel key={authMode} initialMode={authMode} onLoginSuccess={onLoginSuccess} />
         )}
@@ -65,7 +81,7 @@ export default function CustomerLifeguardShell({
 
   return (
     <CustomerSessionProvider user={user} authSession={session} authLoading={authLoading}>
-      <LifeguardHomeChat layer1Only />
+      <LifeguardHomeChat layer1Only audience={audience} />
     </CustomerSessionProvider>
   );
 }

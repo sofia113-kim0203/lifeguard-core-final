@@ -67,7 +67,12 @@ export default async function handler(req, res) {
     }
 
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
-    const rebuild = body?.rebuild !== false;
+    const scrubInsuranceMemory = body?.scrub_insurance_memory === true;
+    const retiredPolicyIds = Array.isArray(body?.retired_policy_ids)
+      ? body.retired_policy_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
+      : [];
+    // Soft-delete Hand: scrub only (no full rebuild). Default login path still rebuilds.
+    const rebuild = scrubInsuranceMemory ? body?.rebuild === true : body?.rebuild !== false;
 
     const serviceRoleKey = process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
     const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? null;
@@ -75,6 +80,33 @@ export default async function handler(req, res) {
     const admin = serviceRoleKey && supabaseUrl
       ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
       : supabase;
+
+    if (scrubInsuranceMemory) {
+      if (!serviceRoleKey) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, reason: "SERVICE_ROLE_REQUIRED" }));
+        return;
+      }
+      const { scrubInsuranceMemoryForRetiredPolicies } = await import(
+        "../server/customerMemoryFoundation.js"
+      );
+      const scrub = await scrubInsuranceMemoryForRetiredPolicies({
+        supabase: admin,
+        customerId: profile.id,
+        retiredPolicyIds,
+      });
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          ok: true,
+          customer_id: profile.id,
+          scrub_insurance_memory: scrub,
+        }),
+      );
+      return;
+    }
 
     const { loadCustomerMemoryOnLogin } = await import("../server/customerMemoryFoundation.js");
     const result = await loadCustomerMemoryOnLogin({

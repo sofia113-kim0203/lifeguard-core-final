@@ -1,11 +1,9 @@
 /**
  * ONE KEY Core S02-5 — bridge event (continuity template · no CONN weave).
  */
-import {
-  buildKeyBridgeDraft,
-  finalizeBridgeSentence,
-  scanBridgeSentence,
-} from "../keyBrain/bridgeFirstSpeak.js";
+import { scanBridgeSentence } from "../keyBrain/bridgeFirstSpeak.js";
+import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { buildKeyBridgeIntakeShadowTrace } from "../keyBrain/bridgeIntakeShadow.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
@@ -69,7 +67,7 @@ function buildBridgeJudgment({ anchorJob = null, gapHours = null } = {}) {
     posture: "continuity_bridge",
     anchor_job_id: anchorJob?.id ?? null,
     gap_hours: gapHours,
-    speak_chain: "finalizeBridgeSentence (template only · no CONN weave)",
+    speak_chain: "keySpeak(key_master_bridge)",
   };
 }
 
@@ -252,30 +250,36 @@ export async function runOneKeyCoreBridgeTurn({
   };
   recordStep("evidence", buildBridgeEvidenceBundle({ factBundle, analysisJob: anchorJob }));
 
-  const staticDraft = buildKeyBridgeDraft();
-  const finalized = finalizeBridgeSentence(staticDraft, {
-    keyTurnResult: keyTurn.result,
-    gapHours,
-    anchorJobId: anchorJob?.id ?? null,
-  });
-
-  const scan = scanBridgeSentence(finalized?.text ?? "");
-  const bridgeSentence = finalized?.text && scan.ok ? finalized.text : null;
-  const personaMeta = bridgeSentence ? finalized : null;
-
+  const speakResult = await keySpeakAsync({ event: "bridge" });
   recordStep("speak", {
-    compose_mode: "finalizeBridgeSentence",
-    text_preview: String(bridgeSentence ?? "").slice(0, 300),
-    speech_guard_ok: scan.ok,
-    conn_weave: false,
+    compose_mode: speakResult.key_compose_trace?.compose_mode ?? "key_master_bridge",
+    key_speak_master: true,
+    text_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
+    ghost_path_reached: speakResult.key_compose_trace?.ghost_path_reached ?? [],
   });
 
-  trace.customer_text_path.push("buildKeyBridgeDraft", "finalizeBridgeSentence", "polishLifeguardCustomerText");
+  trace.customer_text_path.push(...KEY_SPEAK_MASTER_PATH);
+
+  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft, {
+    failureMode:
+      speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
+  });
+  const scan = scanBridgeSentence(outletResult.keySpeakOriginal ?? "");
+  const bridgeSentence = scan.ok ? outletResult.keySpeakOriginal : null;
+  const personaMeta = bridgeSentence
+    ? {
+        generation_mode: outletResult.generation_mode,
+        persona_rewrite_blocked: true,
+        key_speak_master: true,
+      }
+    : null;
 
   recordStep("persona", {
     generation_mode: personaMeta?.generation_mode ?? null,
     text_preview: String(bridgeSentence ?? "").slice(0, 300),
-    persona_outlet: personaMeta?.persona_outlet ?? null,
+    persona_rewrite_blocked: true,
+    key_speak_master: Boolean(bridgeSentence),
+    speech_guard_ok: scan.ok,
   });
 
   const stepNames = trace.steps.map((row) => row.step);

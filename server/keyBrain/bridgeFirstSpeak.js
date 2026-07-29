@@ -1,8 +1,6 @@
 /**
- * P5-B — KEY Bridge sentence (Persona outlet · no memory recite).
+ * P5-B — KEY Bridge sentence scan (speak via keySpeak only).
  */
-import { polishLifeguardCustomerText } from "../lifeguardOutputGuard.js";
-
 export const KEY_BRIDGE_DEFAULT_SENTENCE =
   "지난번 같이 보던 기준으로, 오늘은 이어서 살펴볼게요.";
 
@@ -39,39 +37,4 @@ export function scanBridgeSentence(text = "") {
     }
   }
   return { ok: true, reason: null };
-}
-
-export function buildKeyBridgeDraft() {
-  return KEY_BRIDGE_DEFAULT_SENTENCE;
-}
-
-export function finalizeBridgeSentence(draftText, { gapHours: _gapHours = null, anchorJobId: _anchorJobId = null } = {}) {
-  let candidate = String(draftText ?? buildKeyBridgeDraft()).trim();
-  let scan = scanBridgeSentence(candidate);
-  if (!scan.ok) {
-    candidate = KEY_BRIDGE_DEFAULT_SENTENCE;
-  }
-
-  scan = scanBridgeSentence(candidate);
-  if (!scan.ok) return null;
-
-  const polished = polishLifeguardCustomerText(candidate);
-  const finalScan = scanBridgeSentence(polished);
-  if (!finalScan.ok) {
-    return {
-      text: KEY_BRIDGE_DEFAULT_SENTENCE,
-      static_draft: candidate,
-      persona_outlet: "key_bridge_template_only",
-      generation_mode: "key_bridge_fallback_template",
-      forbidden_rejected: true,
-    };
-  }
-
-  return {
-    text: polished,
-    static_draft: candidate,
-    persona_outlet: "key_bridge_template_only",
-    generation_mode: "key_bridge_template_p5b",
-    key_compose_trace: null,
-  };
 }

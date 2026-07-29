@@ -4,12 +4,141 @@ import {
   getCustomerAccessToken,
   rethrowCustomerApiError,
 } from "./customerApiAuth.js";
-import { consumeHomeBrainFactSse } from "./homeBrainFactSse.js";
+import { parseHomeBrainFactSseBlock } from "./homeBrainFactSse.js";
+import { buildHomeBrainFactRequestBody } from "./homeBrainFactRequestBody.js";
+import { buildPersistableTurnTraceSummary } from "./lifeguardChatSessionCore.js";
+import { extractKeyStatusFromDonePayload } from "./keyPresentationStatusStrip.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
 const ROUTE_PATH = "/api/customer-home-brain-fact";
 
+export { buildHomeBrainFactRequestBody } from "./homeBrainFactRequestBody.js";
+
+function resolveVisualBlocksFromPayload(payload = {}) {
+  if (Array.isArray(payload.visual_blocks) && payload.visual_blocks.length > 0) {
+    return payload.visual_blocks;
+  }
+  if (Array.isArray(payload.visualBlocks) && payload.visualBlocks.length > 0) {
+    return payload.visualBlocks;
+  }
+
+  const speakStep = payload.one_key_core_trace?.steps?.find((row) => row.step === "speak");
+  const speakPayload = speakStep?.payload ?? {};
+  if (Array.isArray(speakPayload.visual_blocks) && speakPayload.visual_blocks.length > 0) {
+    return speakPayload.visual_blocks;
+  }
+
+  const composeTrace = speakPayload.key_compose_trace ?? {};
+  if (Array.isArray(composeTrace.visual_blocks) && composeTrace.visual_blocks.length > 0) {
+    return composeTrace.visual_blocks;
+  }
+
+  const voiceTrace = composeTrace.key_voice_trace ?? {};
+  if (Array.isArray(voiceTrace.visual_blocks) && voiceTrace.visual_blocks.length > 0) {
+    return voiceTrace.visual_blocks;
+  }
+
+  return [];
+}
+
+function resolveVisualBlocksGateFromPayload(payload = {}, visualBlocks = []) {
+  const gateRaw =
+    payload.visual_blocks_gate ??
+    payload.visualBlocksGate ??
+    payload.one_key_core_trace?.steps?.find((row) => row.step === "speak")?.payload
+      ?.key_compose_trace?.key_voice_trace?.visual_blocks_gate ??
+    null;
+
+  if (!gateRaw || typeof gateRaw !== "object") return null;
+
+  return {
+    ...gateRaw,
+    rendered_count:
+      typeof gateRaw.rendered_count === "number" ? gateRaw.rendered_count : visualBlocks.length,
+  };
+}
+
+function applyHomeBrainFactSseEvent(parsed, handlers, assignFinal) {
+  if (!parsed) return;
+
+  if (parsed.event === "ack") handlers.onAck?.(parsed.data?.text ?? "");
+  if (parsed.event === "delta") handlers.onDelta?.(parsed.data?.text ?? "");
+  if (parsed.event === "ttft") handlers.onTTFT?.(parsed.data?.ttft_ms ?? null);
+  if (parsed.event === "replace") handlers.onReplace?.(parsed.data?.text ?? "");
+  if (parsed.event === "error") {
+    const error = new Error(parsed.data?.error_message ?? parsed.data?.reason ?? "Streaming failed.");
+    error.reason = parsed.data?.reason ?? null;
+    throw error;
+  }
+  if (parsed.event === "done") {
+    assignFinal(parsed.data);
+    handlers.onDone?.(parsed.data);
+  }
+}
+
+function drainHomeBrainFactSseBuffer(buffer, handlers, assignFinal) {
+  let nextBuffer = buffer;
+  let splitAt = nextBuffer.indexOf("\n\n");
+  while (splitAt >= 0) {
+    const block = nextBuffer.slice(0, splitAt);
+    nextBuffer = nextBuffer.slice(splitAt + 2);
+    splitAt = nextBuffer.indexOf("\n\n");
+    applyHomeBrainFactSseEvent(parseHomeBrainFactSseBlock(block), handlers, assignFinal);
+  }
+  return nextBuffer;
+}
+
+/** Flush-safe SSE consumer — returns on first `done` (T4); drains remainder in background. */
+async function consumeHomeBrainFactSseForClient(response, handlers = {}) {
+  if (!response.body) {
+    throw new Error("Streaming response body unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalPayload = null;
+  let settleDone = null;
+  const doneGate = new Promise((resolve) => {
+    settleDone = resolve;
+  });
+  const assignFinal = (data) => {
+    if (finalPayload != null) return;
+    finalPayload = data;
+    settleDone?.(data);
+    settleDone = null;
+  };
+
+  const drainToClose = (async () => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
+          buffer = drainHomeBrainFactSseBuffer(buffer, handlers, assignFinal);
+        }
+        if (done) break;
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        drainHomeBrainFactSseBuffer(`${buffer}\n\n`, handlers, assignFinal);
+      }
+      return finalPayload;
+    } finally {
+      settleDone?.(finalPayload);
+      settleDone = null;
+    }
+  })();
+
+  // Customer UI must not wait for post-done persist/probe on an open SSE body.
+  const early = await Promise.race([doneGate, drainToClose]);
+  void drainToClose.catch(() => {});
+  return early ?? finalPayload;
+}
+
 export function mapHomeBrainFactPayload(payload) {
+  const visualBlocks = resolveVisualBlocksFromPayload(payload);
+  const turnTrace = buildPersistableTurnTraceSummary(payload);
   return {
     answerText: payload.answerText ?? "",
     intent: payload.intent ?? null,
@@ -32,8 +161,46 @@ export function mapHomeBrainFactPayload(payload) {
     factoryHypothesis: payload.factory_hypothesis ?? null,
     factoryPrimaryDisconnect: payload.factory_primary_disconnect ?? null,
     salesDirectorJudgmentAudit: payload.sales_director_judgment_audit ?? null,
-    responseLatencyMs: payload.response_latency_ms ?? null,
+    responseLatencyMs: turnTrace.response_latency_ms ?? payload.response_latency_ms ?? null,
     ttftMs: payload.sales_director_trace?.latency?.ttft_ms ?? null,
+    composeMode: turnTrace.compose_mode,
+    oneKeyCoreTraceSummary: turnTrace.one_key_core_trace_summary,
+    visualBlocks,
+    visualBlocksGate: resolveVisualBlocksGateFromPayload(payload, visualBlocks),
+    keyMonopolyFailure: payload.key_monopoly_failure === true,
+    failureReason: payload.failure_reason ?? null,
+    sessionGoal:
+      payload.session_goal && typeof payload.session_goal === "object"
+        ? {
+            goal: payload.session_goal.goal ?? null,
+            status: payload.session_goal.status ?? null,
+            updated_at: payload.session_goal.updated_at ?? null,
+          }
+        : null,
+    keyConsultationRecord:
+      (payload.key_consultation_record && typeof payload.key_consultation_record === "object"
+        ? payload.key_consultation_record
+        : null) ||
+      (payload.sales_director_trace?.key_consultation_record &&
+      typeof payload.sales_director_trace.key_consultation_record === "object"
+        ? payload.sales_director_trace.key_consultation_record
+        : null),
+    presenceQuiet:
+      payload.presence_quiet === true ||
+      payload.sales_director_trace?.key_compose_trace?.key_voice_trace?.presence_quiet ===
+        true,
+    pdfAttached:
+      payload.pdf_attached === true ||
+      payload.sales_director_trace?.key_compose_trace?.key_voice_trace?.pdf_attached ===
+        true,
+    originalAttachmentCount: Number(
+      payload.original_attachment_count ??
+        payload.sales_director_trace?.key_compose_trace?.key_voice_trace
+          ?.original_attachment_count ??
+        0,
+    ) || 0,
+    // Presentation strip — existing done fields only (no invent).
+    keyStatus: extractKeyStatusFromDonePayload(payload),
   };
 }
 
@@ -44,9 +211,10 @@ function mapServerError(payload, status) {
   return "질문에 답변하지 못했습니다.";
 }
 
-export async function fetchHomeBrainFactStream(question, history = [], handlers = {}) {
+export async function fetchHomeBrainFactStream(question, history = [], handlers = {}, options = {}) {
+  const presenceTurn = options.presence === true || options.presenceTurn === true;
   const trimmed = String(question ?? "").trim();
-  if (!trimmed) throw new Error("질문을 입력해 주세요.");
+  if (!presenceTurn && !trimmed) throw new Error("질문을 입력해 주세요.");
 
   const accessToken = await getCustomerAccessToken();
   const response = await fetch(ROUTE_PATH, {
@@ -57,10 +225,10 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      question: trimmed,
-      history: Array.isArray(history) ? history : [],
+      ...buildHomeBrainFactRequestBody(trimmed, history, options),
       stream: true,
     }),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 
   if (!response.ok && response.headers.get("content-type")?.includes("application/json")) {
@@ -85,7 +253,7 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
     throw new Error(mapServerError(null, response.status));
   }
 
-  const payload = await consumeHomeBrainFactSse(response, handlers);
+  const payload = await consumeHomeBrainFactSseForClient(response, handlers);
   if (!payload?.ok) {
     throw new Error(mapServerError(payload, response.status));
   }
@@ -93,15 +261,12 @@ export async function fetchHomeBrainFactStream(question, history = [], handlers 
   return mapHomeBrainFactPayload(payload);
 }
 
-export async function fetchHomeBrainFact(question, history = []) {
+export async function fetchHomeBrainFact(question, history = [], options = {}) {
   const trimmed = String(question ?? "").trim();
   if (!trimmed) throw new Error("질문을 입력해 주세요.");
 
   const { response, payload } = await fetchCustomerApi(ROUTE_PATH, {
-    body: {
-      question: trimmed,
-      history: Array.isArray(history) ? history : [],
-    },
+    body: buildHomeBrainFactRequestBody(trimmed, history, options),
   });
 
   try {

@@ -8,6 +8,7 @@ import {
   resolveCustomerId,
 } from "./customerConversations.js";
 import {
+  buildAssistantTurnMetadata,
   buildKeyPresenceMetadata,
   buildRecentSessionsFromRows,
   buildSessionMetadata,
@@ -17,16 +18,35 @@ import { toCustomerErrorMessage } from "./uiLocale.js";
 
 export {
   activeSessionStorageKey,
+  beginInflightHomeChatTurn,
+  buildAssistantTurnMetadata,
   buildKeyPresenceMetadata,
+  buildPersistableTurnTraceSummary,
   buildRecentSessionsFromRows,
+  chatSnapshotStorageKey,
+  clearedActiveAttachmentStorageKey,
+  clearLifeguardChatSnapshot,
   createLifeguardSessionId,
+  endInflightHomeChatTurn,
+  isInflightHomeChatTurnActive,
   isLifeguardHomeChatRow,
   LIFEGUARD_HOME_CHAT_PHASE,
   LIFEGUARD_HOME_CHAT_SOURCE,
   mapSessionRowsToChatMessages,
+  mergeRestoredSessionMessages,
+  patchInflightHomeChatTurn,
   readActiveSessionId,
+  readClearedActiveAttachmentIds,
+  readInflightHomeChatTurn,
+  readLifeguardChatSnapshot,
+  rejectClearedActiveAttachment,
+  rememberClearedActiveAttachmentId,
   resolveActiveLifeguardSessionId,
+  resolveActiveSessionGoalFromMessages,
+  sanitizeMessagesForChatSnapshot,
+  subscribeInflightHomeChatTurn,
   writeActiveSessionId,
+  writeLifeguardChatSnapshot,
 } from "./lifeguardChatSessionCore.js";
 
 const RECENT_SCAN_LIMIT = 400;
@@ -149,13 +169,77 @@ export async function persistKeyPresenceMessage(
   return { skipped: false, row };
 }
 
+/** T6 — assistant-only Presence turn (no fake customer question row). */
+export async function persistLifeguardPresenceTurn(
+  authUser,
+  {
+    sessionId,
+    customerId: knownCustomerId = null,
+    assistantMessage,
+    keyConsultationRecord = null,
+    responseLatencyMs = null,
+  },
+) {
+  if (!sessionId) throw new Error("session_id_required");
+  const trimmed = String(assistantMessage ?? "").trim();
+  if (!trimmed) return { skipped: true, reason: "empty_presence" };
+  const customerId = await resolveCustomerId(authUser, knownCustomerId);
+  const assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+    composeMode: "key_presence_listen_focus",
+    responseLatencyMs,
+    keyConsultationRecord,
+  });
+  const assistantRow = await insertLifeguardConversationMessage(customerId, {
+    role: "assistant",
+    message: trimmed,
+    metadata: assistantMetadata,
+  });
+  return { skipped: false, assistantRow };
+}
+
 export async function persistLifeguardChatTurn(
   authUser,
-  { sessionId, customerId: knownCustomerId = null, userMessage, assistantMessage },
+  {
+    sessionId,
+    customerId: knownCustomerId = null,
+    userMessage,
+    assistantMessage,
+    visualBlocks = null,
+    visualBlocksGate = null,
+    composeMode = null,
+    responseLatencyMs = null,
+    oneKeyCoreTraceSummary = null,
+    activeAttachment = null,
+    sessionGoal = null,
+    keyConsultationRecord = null,
+  },
 ) {
   if (!sessionId) throw new Error("session_id_required");
   const customerId = await resolveCustomerId(authUser, knownCustomerId);
-  const metadata = buildSessionMetadata(sessionId);
+  const metadata = buildSessionMetadata(sessionId, { activeAttachment });
+  let assistantMetadata;
+  try {
+    assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+      visualBlocks,
+      visualBlocksGate,
+      composeMode,
+      responseLatencyMs,
+      oneKeyCoreTraceSummary,
+      activeAttachment,
+      sessionGoal,
+      keyConsultationRecord,
+    });
+  } catch {
+    // Fail-soft: session_goal must never block customer answer persistence.
+    assistantMetadata = buildAssistantTurnMetadata(sessionId, {
+      visualBlocks,
+      visualBlocksGate,
+      composeMode,
+      responseLatencyMs,
+      oneKeyCoreTraceSummary,
+      activeAttachment,
+    });
+  }
   const userRow = await insertLifeguardConversationMessage(customerId, {
     role: "user",
     message: userMessage,
@@ -164,7 +248,7 @@ export async function persistLifeguardChatTurn(
   const assistantRow = await insertLifeguardConversationMessage(customerId, {
     role: "assistant",
     message: assistantMessage,
-    metadata,
+    metadata: assistantMetadata,
   });
   return { userRow, assistantRow };
 }
