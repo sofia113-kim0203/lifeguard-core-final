@@ -1,0 +1,308 @@
+{
+  "id": "key_customer_validation_v1",
+  "version": "1.0.0",
+  "frozen": true,
+  "source_evidence": "fixtures/key-customer-validation-v1/preview-validation-report.json",
+  "source_observed_at": "2026-07-03T17:37:20.958Z",
+  "questions": [
+    {
+      "id": "Q01",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "보험 몇 개야?"
+    },
+    {
+      "id": "Q02",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "보험사는 어디야?"
+    },
+    {
+      "id": "Q03",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "가입한 상품이 뭐야?"
+    },
+    {
+      "id": "Q04",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "언제 가입했어?"
+    },
+    {
+      "id": "Q05",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "어떤 보장이 있어?"
+    },
+    {
+      "id": "Q06",
+      "level": "L1",
+      "domain": "Policy",
+      "families": [
+        "Policy"
+      ],
+      "question": "보험료 얼마야?"
+    },
+    {
+      "id": "Q07",
+      "level": "L1",
+      "domain": "Claim",
+      "families": [
+        "Claim"
+      ],
+      "question": "보험금 받을 수 있어?"
+    },
+    {
+      "id": "Q08",
+      "level": "L1",
+      "domain": "Claim",
+      "families": [
+        "Claim"
+      ],
+      "question": "청구할 수 있어?"
+    },
+    {
+      "id": "Q09",
+      "level": "L1",
+      "domain": "Claim",
+      "families": [
+        "Claim"
+      ],
+      "question": "무슨 서류가 필요해?"
+    },
+    {
+      "id": "Q10",
+      "level": "L1",
+      "domain": "Memory",
+      "families": [
+        "Memory"
+      ],
+      "question": "지난번 이야기 기억해?"
+    },
+    {
+      "id": "Q11",
+      "level": "L1",
+      "domain": "Memory",
+      "families": [
+        "Memory"
+      ],
+      "question": "전에 말했던 거 기억해?"
+    },
+    {
+      "id": "Q12",
+      "level": "L1",
+      "domain": "Relationship",
+      "families": [
+        "Relationship"
+      ],
+      "question": "오랜만이에요."
+    },
+    {
+      "id": "Q13",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy"
+      ],
+      "question": "지난번 이야기 기억해? 보험 몇 개였지?"
+    },
+    {
+      "id": "Q14",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험료 부담돼. 어떻게 생각해?"
+    },
+    {
+      "id": "Q15",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Claim",
+        "Memory"
+      ],
+      "question": "보험금 받을 수 있을까? 지난번에도 비슷한 얘기 했잖아."
+    },
+    {
+      "id": "Q16",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Policy"
+      ],
+      "question": "고마웠어요. 보험 하나만 더 물어볼게."
+    },
+    {
+      "id": "Q17",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Policy"
+      ],
+      "question": "오랜만이에요. 보험료부터 볼까요?"
+    },
+    {
+      "id": "Q18",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy"
+      ],
+      "question": "보험사는 어디였지? 기억나?"
+    },
+    {
+      "id": "Q19",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Claim",
+        "Policy"
+      ],
+      "question": "보험금 청구하려면 뭐부터 하면 돼?"
+    },
+    {
+      "id": "Q20",
+      "level": "L2",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험료가 부담인데 유지하는 게 좋을까?"
+    },
+    {
+      "id": "Q21",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험료 부담된다고 했던 거 기억해? 하나 해지해도 될까?"
+    },
+    {
+      "id": "Q22",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy"
+      ],
+      "question": "지난번에 암보험 얘기했는데 지금도 부족해?"
+    },
+    {
+      "id": "Q23",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Claim",
+        "Policy"
+      ],
+      "question": "보험금 받을 수 있으면 청구까지 같이 봐줄래?"
+    },
+    {
+      "id": "Q24",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Memory",
+        "Policy"
+      ],
+      "question": "오랜만이에요. 지난번 이어서 보험 점검해줘."
+    },
+    {
+      "id": "Q25",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Memory",
+        "Policy",
+        "Relationship"
+      ],
+      "question": "보험이 너무 많은 것 같은데 기억하는 기준으로 같이 정리해줘."
+    },
+    {
+      "id": "Q26",
+      "level": "L3",
+      "domain": "Mixed",
+      "families": [
+        "Relationship",
+        "Claim"
+      ],
+      "question": "고마웠어요. 다음엔 청구도 같이 부탁해."
+    },
+    {
+      "id": "Q27",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "나도 잘 모르겠는데 그냥 알아서 봐줘."
+    },
+    {
+      "id": "Q28",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "뭐부터 해야 할지 모르겠어."
+    },
+    {
+      "id": "Q29",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "보험은 어려워. 쉽게 말해줘."
+    },
+    {
+      "id": "Q30",
+      "level": "L4",
+      "domain": "Mixed",
+      "families": [
+        "Policy",
+        "Claim",
+        "Memory",
+        "Relationship"
+      ],
+      "question": "그냥 나한테 제일 필요한 것부터 같이 보자."
+    }
+  ]
+}
