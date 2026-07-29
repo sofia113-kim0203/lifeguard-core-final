@@ -230,6 +230,7 @@
     "probe:key-persona-v1-preview-serverless-env": "node scripts/key-persona-v1-preview-serverless-env-probe.mjs",
     "verify:key-persona-v1-customer-journey-preview": "node scripts/key-persona-v1-customer-journey-preview-verify.mjs",
     "test:key-customer-validation-v1-bank": "node scripts/key-customer-validation-v1-bank-unit-test.mjs",
+    "test:key-persona-v1-journey-checks": "node scripts/key-persona-v1-journey-checks-unit-test.mjs",
     "verify:key-customer-validation-v1-preview": "node scripts/key-customer-validation-v1-preview-verify.mjs",
     "verify:key-customer-validation-v1-preview-slice": "node scripts/key-customer-validation-v1-preview-verify.mjs --only Q16,Q24,Q25,Q29,Q30",
     "regression:key-customer-validation-v1": "node scripts/key-customer-validation-v1-preview-verify.mjs",

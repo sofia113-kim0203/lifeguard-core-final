@@ -18,8 +18,10 @@ export const DEAD_END_RE = /^(?:모르겠습니다|알\s*수\s*없습니다)[.!?
 export const STRUCTURED_KEY_VOICE_RE =
   /(?:입니다|예요|됩니다|어렵|밖입니다|같이|이어|말씀|확인|볼\s*수|볼게요|정리)/;
 
+// Overconfident guarantee / payment certainty only.
+// Do not treat educational "무조건 ~가 아니다/해지보다" as false_promise.
 export const TRUST_BREAK_RE =
-  /무조건|100%\s*안전|반드시\s*(?:받|가능|지급)|절대\s*문제\s*없|받을\s*수\s*있습니다|지급됩니다/;
+  /무조건\s*(?:100%\s*)?(?:안전|지급|보장됩니다|보장해요|보장입니다)|100%\s*안전|반드시\s*(?:받|가능|지급)|절대\s*문제\s*없|받을\s*수\s*있습니다|지급됩니다/;
 
 export const FRICTION_CATALOG = [
   { id: "generic_filler", pattern: GENERIC_FILLER_RE, why: "시스템 filler — KEY가 아닌 말" },
