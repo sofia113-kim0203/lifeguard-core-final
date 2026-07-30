@@ -28,8 +28,11 @@ import {
   formatChatComposerAttachLabel,
   listChatComposerDocumentIds,
   removeChatComposerAttachment,
+  restoreChatComposerAttachmentsOnFailure,
   revokeChatComposerPreviewUrls,
+  snapshotChatComposerAttachments,
 } from "../lib/chatComposerAttachments.js";
+import AttachmentTray from "./AttachmentTray.jsx";
 import {
   clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
@@ -136,7 +139,6 @@ const ROOM_WIDE_BREAKPOINT = 1280;
 const COMPOSER_TEXTAREA_MIN_PX = 44;
 const COMPOSER_TEXTAREA_MAX_PX = 132;
 const COMPOSER_SHELL_MIN_PX = 64;
-const COMPOSER_ATTACH_LIST_MAX_PX = 168;
 /** Ignore 1–2px browser scrollTop jitter as user scroll-up. */
 const CHAT_SCROLL_UP_DEADZONE_PX = 2;
 
@@ -1736,13 +1738,14 @@ export default function LifeguardHomeChat({
       });
     }
 
-    const composerAttachments = Array.isArray(chatAttachments) ? chatAttachments : [];
-    const composerDocumentIds = listChatComposerDocumentIds(composerAttachments);
+    // Turn snapshot at send click — payload + user message use only this copy.
+    const attachmentsForTurn = snapshotChatComposerAttachments(chatAttachments);
+    const composerDocumentIds = listChatComposerDocumentIds(attachmentsForTurn);
     const composerDocumentId = composerDocumentIds[0] || null;
-    const composerAttachLabel = formatChatComposerAttachLabel(composerAttachments);
-    const composerPrimary = composerAttachments[0] || null;
+    const composerAttachLabel = formatChatComposerAttachLabel(attachmentsForTurn);
+    const composerPrimary = attachmentsForTurn[0] || null;
     const composerActiveSeed =
-      composerAttachments[composerAttachments.length - 1] || composerPrimary;
+      attachmentsForTurn[attachmentsForTurn.length - 1] || composerPrimary;
 
     let documentIdsForTurn = composerDocumentIds.slice();
     let documentIdForTurn = composerDocumentId;
@@ -1798,10 +1801,11 @@ export default function LifeguardHomeChat({
       : null;
     const userMessage = {
       role: "user",
-      content: composerDocumentIds.length
+      content: attachmentsForTurn.length
         ? `${trimmed}\n\n(첨부: ${composerAttachLabel || "파일"})`
         : trimmed,
       turnId,
+      ...(attachmentsForTurn.length ? { attachments: attachmentsForTurn } : {}),
     };
     const nextMessages = [...messages, userMessage];
     let liveMessages = [
@@ -1830,8 +1834,12 @@ export default function LifeguardHomeChat({
         });
       }
     };
+    // Fold composer tray immediately — streaming must not keep the attach strip open.
+    // Do not revoke blob URLs here; user-message tray still references the snapshot.
     setMessages(liveMessages);
     setInput("");
+    setChatAttachments([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     focusChatInput();
     setLoading(true);
     setStreaming(false);
@@ -2080,8 +2088,7 @@ export default function LifeguardHomeChat({
           phase: "committed",
         });
       }
-      // Composer only — conversation active attachment stays.
-      clearComposerAttach();
+      // Composer tray already cleared at send; conversation active attachment stays.
 
       if (authUser && customerId) {
         if (hasCustomerAnswer) {
@@ -2157,6 +2164,10 @@ export default function LifeguardHomeChat({
         }
         return copy;
       });
+      // Restore failed-turn tray first; keep any files added while the request was in flight.
+      setChatAttachments((prev) =>
+        restoreChatComposerAttachmentsOnFailure(attachmentsForTurn, prev),
+      );
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
@@ -3236,7 +3247,21 @@ export default function LifeguardHomeChat({
                         }}
                       >
                         {isUser ? (
-                          msg.content
+                          <>
+                            <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                            {Array.isArray(msg.attachments) && msg.attachments.length > 0 ? (
+                              <AttachmentTray
+                                attachments={msg.attachments}
+                                removable={false}
+                                mutedColor={FINAL_UI.muted}
+                                textColor={FINAL_UI.text}
+                                borderColor={FINAL_UI.line}
+                                surfaceColor={FINAL_UI.surface}
+                                fontFamily={FINAL_UI.sans}
+                                style={{ marginTop: "6px", marginBottom: 0, alignSelf: "flex-end" }}
+                              />
+                            ) : null}
+                          </>
                         ) : msg.thinking ? (
                           <>
                             <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
@@ -3379,92 +3404,20 @@ export default function LifeguardHomeChat({
               </div>
             ) : null}
             {chatAttachments.length > 0 && !chatAttachUploading ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                  marginBottom: "8px",
-                  fontSize: "13px",
-                  color: LG.text,
-                  maxHeight: `${COMPOSER_ATTACH_LIST_MAX_PX}px`,
-                  overflowY: chatAttachments.length > 2 ? "auto" : "visible",
+              <AttachmentTray
+                attachments={chatAttachments}
+                removable
+                deletingId={documentDeletingId}
+                deleteLabel={DOCUMENT_UI_MESSAGES.deleteAction}
+                onRemove={(did) => {
+                  void handleComposerRemove(did);
                 }}
-              >
-                {chatAttachments.map((row) => {
-                  const did = String(row?.documentId ?? "").trim();
-                  const filename = String(row?.filename ?? "파일").trim() || "파일";
-                  const previewUrl = String(row?.previewUrl ?? "").trim();
-                  const showImage = row?.isImage === true && Boolean(previewUrl);
-                  return (
-                    <div
-                      key={did || filename}
-                      style={{
-                        display: "flex",
-                        gap: "10px",
-                        alignItems: "flex-start",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "10px",
-                          alignItems: "flex-start",
-                          minWidth: 0,
-                          flex: 1,
-                        }}
-                      >
-                        {showImage ? (
-                          <img
-                            src={previewUrl}
-                            alt={`${filename} 미리보기`}
-                            style={{
-                              width: "72px",
-                              height: "72px",
-                              objectFit: "contain",
-                              borderRadius: "8px",
-                              background: FINAL_UI.surface,
-                              border: `1px solid ${LG.border}`,
-                              flexShrink: 0,
-                            }}
-                          />
-                        ) : null}
-                        <span
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            minWidth: 0,
-                          }}
-                        >
-                          첨부됨: {filename}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`${DOCUMENT_UI_MESSAGES.deleteAction}: ${filename}`}
-                        disabled={Boolean(documentDeletingId)}
-                        onClick={() => {
-                          void handleComposerRemove(did);
-                        }}
-                        style={{
-                          border: "none",
-                          background: "transparent",
-                          color: documentDeletingId ? LG.textSoft : "#B91C1C",
-                          cursor: documentDeletingId ? "default" : "pointer",
-                          fontSize: "13px",
-                          fontFamily: FINAL_UI.sans,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {documentDeletingId === did
-                          ? "삭제 중…"
-                          : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
+                mutedColor={FINAL_UI.muted}
+                textColor={FINAL_UI.text}
+                borderColor={FINAL_UI.line}
+                surfaceColor={FINAL_UI.surface}
+                fontFamily={FINAL_UI.sans}
+              />
             ) : null}
             {chatAttachments.length === 0 && !chatAttachUploading && activeAttachmentId ? (
               <div

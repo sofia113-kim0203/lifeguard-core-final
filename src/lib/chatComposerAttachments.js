@@ -56,3 +56,33 @@ export function revokeChatComposerPreviewUrls(attachments = []) {
     }
   }
 }
+
+/** Shallow-copy composer attach rows for a send-turn snapshot (order preserved). */
+export function snapshotChatComposerAttachments(attachments = []) {
+  return (Array.isArray(attachments) ? attachments : [])
+    .map((row) => {
+      const documentId = String(row?.documentId ?? "").trim();
+      if (!documentId) return null;
+      return {
+        documentId,
+        filename: String(row?.filename ?? "파일").trim() || "파일",
+        previewUrl: String(row?.previewUrl ?? "").trim(),
+        mime: row?.mime != null ? String(row.mime).trim() || null : null,
+        isImage: row?.isImage === true,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * On send failure: put failed-turn attaches first, then any composer rows added
+ * while the request was in flight. Does not dedupe identical picks.
+ */
+export function restoreChatComposerAttachmentsOnFailure(
+  failedTurnAttachments = [],
+  currentComposerAttachments = [],
+) {
+  const failed = snapshotChatComposerAttachments(failedTurnAttachments);
+  const current = snapshotChatComposerAttachments(currentComposerAttachments);
+  return [...failed, ...current];
+}

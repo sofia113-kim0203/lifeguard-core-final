@@ -141,6 +141,8 @@ console.log("key-multi-upload-all-files-unit-test");
   assert.match(chatSrc, /processSelectedUploadFiles/);
   assert.match(chatSrc, /appendChatComposerAttachment/);
   assert.match(chatSrc, /chatAttachments/);
+  assert.match(chatSrc, /AttachmentTray/);
+  assert.match(chatSrc, /snapshotChatComposerAttachments/);
   assert.match(
     readFileSync(join(ROOT, "src/hooks/useCustomerDocumentUpload.js"), "utf8"),
     /processSelectedUploadFiles/,
