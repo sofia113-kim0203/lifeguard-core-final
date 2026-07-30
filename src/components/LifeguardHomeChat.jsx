@@ -20,6 +20,10 @@ import {
 } from "../lib/customerDocuments.js";
 import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.js";
 import {
+  listSelectedUploadFiles,
+  processSelectedUploadFiles,
+} from "../lib/customerMultiFileUpload.js";
+import {
   clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
   isInsuranceDocumentRecallQuestion,
@@ -2331,15 +2335,11 @@ export default function LifeguardHomeChat({
     fileInputRef.current?.click();
   };
 
-  const handleChatAttachSelected = async (file) => {
-    if (!file) return;
+  const handleChatAttachSelected = async (filesInput) => {
+    const files = listSelectedUploadFiles(filesInput);
+    if (files.length === 0) return;
     if (!authUser) {
       setChatAttachError("로그인이 필요합니다.");
-      return;
-    }
-    if (!isChatAttachFile(file)) {
-      setChatAttachError("PDF, JPG, JPEG, PNG 파일만 첨부할 수 있습니다.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -2356,52 +2356,73 @@ export default function LifeguardHomeChat({
     setChatAttachUploading(true);
     setChatAttachError("");
     setAttachHint("");
-    const isImage = String(file.type || "").startsWith("image/");
-    setChatAttachIsImage(isImage);
-    setChatAttachPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return isImage ? URL.createObjectURL(file) : "";
-    });
+    const fileErrors = [];
+    let lastOk = null;
     try {
-      // Storage keeps the original bytes (no re-encode / no orientation rewrite).
-      // Server uploadDocument still re-checks DB consent (SSOT).
-      const uploadResult = await uploadDocument(authUser, {
-        file,
-        categoryKey: "insurance_policy",
-        // Store original only — Claude-first question turn reads first; factory after seal.
-        deferFactoryUntilClaude: true,
-        ...(viewMode === "corporate" && selectedEntityId
-          ? { entityId: selectedEntityId }
-          : {}),
+      await processSelectedUploadFiles(files, async (file) => {
+        try {
+          if (!isChatAttachFile(file)) {
+            fileErrors.push("PDF, JPG, JPEG, PNG 파일만 첨부할 수 있습니다.");
+            return { ok: false, reason: "invalid_file_type" };
+          }
+          const isImage = String(file.type || "").startsWith("image/");
+          // Storage keeps the original bytes (no re-encode / no orientation rewrite).
+          // Server uploadDocument still re-checks DB consent (SSOT).
+          const uploadResult = await uploadDocument(authUser, {
+            file,
+            categoryKey: "insurance_policy",
+            // Store original only — Claude-first question turn reads first; factory after seal.
+            deferFactoryUntilClaude: true,
+            ...(viewMode === "corporate" && selectedEntityId
+              ? { entityId: selectedEntityId }
+              : {}),
+          });
+          const doc = uploadResult?.document ?? null;
+          const documentId = String(doc?.id ?? "").trim();
+          if (!documentId) {
+            throw new Error("문서 업로드 후 식별자를 받지 못했습니다.");
+          }
+          const mime =
+            String(doc?.mime_type ?? file.type ?? "").trim() ||
+            (isImage ? "image/jpeg" : "application/pdf");
+          lastOk = { file, doc, documentId, mime, isImage };
+          setChatAttachIsImage(isImage);
+          setChatAttachPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return isImage ? URL.createObjectURL(file) : "";
+          });
+          setChatAttachDocumentId(documentId);
+          setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "파일").trim());
+          // Seed conversation active attach at upload — do not wait for a successful turn.
+          // Follow-ups ("방금 올린/내 문서") must resend document_id even if composer chip is cleared.
+          setActiveAttachmentId(documentId);
+          setActiveAttachmentMime(mime);
+          if (customerId) {
+            writeLifeguardChatSnapshot(customerId, {
+              sessionId,
+              messages,
+              activeAttachment: {
+                active_attachment_id: documentId,
+                active_attachment_mime: mime,
+                active_rotation_quarter_turns: 0,
+              },
+            });
+          }
+          return { ok: true, documentId };
+        } catch (err) {
+          fileErrors.push(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
+          return { ok: false, error: String(err?.message ?? err).slice(0, 200) };
+        }
       });
-      const doc = uploadResult?.document ?? null;
-      const documentId = String(doc?.id ?? "").trim();
-      if (!documentId) {
-        throw new Error("문서 업로드 후 식별자를 받지 못했습니다.");
-      }
-      const mime =
-        String(doc?.mime_type ?? file.type ?? "").trim() ||
-        (isImage ? "image/jpeg" : "application/pdf");
-      setChatAttachDocumentId(documentId);
-      setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "파일").trim());
-      // Seed conversation active attach at upload — do not wait for a successful turn.
-      // Follow-ups ("방금 올린/내 문서") must resend document_id even if composer chip is cleared.
-      setActiveAttachmentId(documentId);
-      setActiveAttachmentMime(mime);
-      if (customerId) {
-        writeLifeguardChatSnapshot(customerId, {
-          sessionId,
-          messages,
-          activeAttachment: {
-            active_attachment_id: documentId,
-            active_attachment_mime: mime,
-            active_rotation_quarter_turns: 0,
-          },
-        });
-      }
       await loadDocumentsRef.current?.();
+      if (!lastOk && fileErrors.length > 0) {
+        clearComposerAttach();
+        setChatAttachError(fileErrors[0]);
+      } else if (fileErrors.length > 0) {
+        setChatAttachError(fileErrors[0]);
+      }
     } catch (err) {
-      clearComposerAttach();
+      if (!lastOk) clearComposerAttach();
       setChatAttachError(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
     } finally {
       setChatAttachUploading(false);
@@ -3445,10 +3466,10 @@ export default function LifeguardHomeChat({
                 ref={fileInputRef}
                 type="file"
                 hidden
+                multiple
                 accept={CHAT_ATTACH_FILE_ACCEPT}
                 onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  void handleChatAttachSelected(file);
+                  void handleChatAttachSelected(e.target.files);
                 }}
               />
               <button

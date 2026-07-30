@@ -14,6 +14,10 @@ import {
   resolveChatAttachConsentDecision,
 } from "../lib/documentStorageConsentStatus.js";
 import { DOCUMENT_UI_MESSAGES, toCustomerErrorMessage } from "../lib/uiLocale.js";
+import {
+  listSelectedUploadFiles,
+  processSelectedUploadFiles,
+} from "../lib/customerMultiFileUpload.js";
 
 export function useCustomerDocumentUpload({
   user,
@@ -33,7 +37,8 @@ export function useCustomerDocumentUpload({
   );
   const [hasAnalysisConsent, setHasAnalysisConsent] = useState(false);
   const [categoryKey, setCategoryKey] = useState(defaultCategoryKey);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const selectedFile = selectedFiles[0] ?? null;
   const [uploading, setUploading] = useState(false);
   const [grantingConsent, setGrantingConsent] = useState(false);
   const [grantingAnalysisConsent, setGrantingAnalysisConsent] = useState(false);
@@ -208,7 +213,7 @@ export function useCustomerDocumentUpload({
         return;
       }
     }
-    if (!selectedFile) {
+    if (selectedFiles.length === 0) {
       setError(DOCUMENT_UI_MESSAGES.selectFile);
       return;
     }
@@ -216,98 +221,143 @@ export function useCustomerDocumentUpload({
     setUploading(true);
     clearMessages();
     try {
-      const uploadResult = await uploadDocument(user, { file: selectedFile, categoryKey });
-      setSelectedFile(null);
+      let lastKeyFirstSentence = null;
+      let lastKeyFollowUpSentence = null;
+      let lastPipeline = null;
+      let lastPolicyCount = insurancePolicyCount;
+      const uploadErrors = [];
+
+      await processSelectedUploadFiles(selectedFiles, async (file) => {
+        try {
+          const uploadResult = await uploadDocument(user, { file, categoryKey });
+          const ingest = uploadResult?.ingest;
+          const keyFirstSentence =
+            uploadResult?.keyIntake?.customer_first_sentence ??
+            uploadResult?.keyIntakeTrace?.customer_first_sentence ??
+            null;
+          const keyFollowUpSentence = ingest?.policyExtraction?.keyFollowUpSentence ?? null;
+          lastKeyFirstSentence = keyFirstSentence;
+          lastKeyFollowUpSentence = keyFollowUpSentence;
+
+          if (keyFirstSentence && keyFollowUpSentence) {
+            setSuccess(`${keyFirstSentence}\n\n${keyFollowUpSentence}`);
+          } else if (keyFirstSentence) {
+            setSuccess(keyFirstSentence);
+          } else if (keyFollowUpSentence) {
+            setSuccess(keyFollowUpSentence);
+          } else if (ingest?.blocked) {
+            setSuccess(
+              `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.analysisBlockedNotice}`,
+            );
+          } else if (ingest?.failed) {
+            setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+            setError(ingest.message ?? DOCUMENT_UI_MESSAGES.ingestFailedNotice);
+          } else if (ingest?.policyExtraction?.ok) {
+            setSuccess(
+              `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.policyExtractSuccessNotice}`,
+            );
+          } else if (
+            ingest?.workerResult?.ingest_status === "ready" &&
+            ingest?.policyExtraction &&
+            !ingest.policyExtraction.ok
+          ) {
+            setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+            setError(
+              ingest.policyExtraction.message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice,
+            );
+          } else if (ingest && !ingest.blocked) {
+            setSuccess(
+              `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.ingestQueuedNotice}`,
+            );
+          } else {
+            setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+          }
+
+          const documentId = uploadResult?.document?.id ?? ingest?.documentId ?? null;
+          const pipeline = await runPostDocumentPipelineRefresh({
+            documentId,
+            ingest,
+            policyExtraction: ingest?.policyExtraction,
+            workOrderId: uploadResult?.workOrderId ?? ingest?.workOrderId ?? null,
+            refreshSession,
+            setActiveAnalysisJob,
+            onTrackAnalysisJob: trackAnalysisJobFromUpload,
+          });
+          lastPipeline = pipeline;
+
+          let refreshed = null;
+          if (typeof refreshSession === "function") {
+            refreshed = await refreshSession({
+              event: "document_pipeline_complete",
+              reloadJob: true,
+            });
+          }
+          lastPolicyCount =
+            refreshed?.unified?.policy_count ??
+            refreshed?.dashboard?.insurancePolicyCount ??
+            insurancePolicyCount;
+
+          if (pipeline.ok) {
+            if (!keyFirstSentence && !keyFollowUpSentence) {
+              setSuccess(
+                `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`,
+              );
+            }
+            setError("");
+          } else if (pipeline.steps?.policy_extraction?.ok && !pipeline.steps?.analysis_job?.ok) {
+            if (!keyFirstSentence && !keyFollowUpSentence) {
+              setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+            }
+            setError(pipeline.message ?? DOCUMENT_UI_MESSAGES.pipelineAnalysisFailedNotice);
+          } else if (
+            !pipeline.steps?.policy_extraction?.ok &&
+            ingest?.workerResult?.ingest_status === "ready"
+          ) {
+            if (!keyFirstSentence && !keyFollowUpSentence) {
+              setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+            }
+            setError(
+              pipeline.steps?.policy_extraction?.error_message ??
+                DOCUMENT_UI_MESSAGES.policyExtractPartialNotice,
+            );
+          }
+
+          if (typeof onKeyChatPresence === "function" && (keyFirstSentence || keyFollowUpSentence)) {
+            onKeyChatPresence({ keyFirstSentence, keyFollowUpSentence });
+          }
+          return { ok: true, documentId };
+        } catch (err) {
+          uploadErrors.push(toCustomerErrorMessage(err, "문서 업로드에 실패했습니다."));
+          return { ok: false, error: String(err?.message ?? err).slice(0, 200) };
+        }
+      });
+
+      setSelectedFiles([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-      const ingest = uploadResult?.ingest;
-      const keyFirstSentence =
-        uploadResult?.keyIntake?.customer_first_sentence ??
-        uploadResult?.keyIntakeTrace?.customer_first_sentence ??
-        null;
-      const keyFollowUpSentence = ingest?.policyExtraction?.keyFollowUpSentence ?? null;
 
-      if (keyFirstSentence && keyFollowUpSentence) {
-        setSuccess(`${keyFirstSentence}\n\n${keyFollowUpSentence}`);
-      } else if (keyFirstSentence) {
-        setSuccess(keyFirstSentence);
-      } else if (keyFollowUpSentence) {
-        setSuccess(keyFollowUpSentence);
-      } else if (ingest?.blocked) {
-        setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.analysisBlockedNotice}`);
-      } else if (ingest?.failed) {
-        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-        setError(ingest.message ?? DOCUMENT_UI_MESSAGES.ingestFailedNotice);
-      } else if (ingest?.policyExtraction?.ok) {
-        setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.policyExtractSuccessNotice}`);
-      } else if (
-        ingest?.workerResult?.ingest_status === "ready" &&
-        ingest?.policyExtraction &&
-        !ingest.policyExtraction.ok
-      ) {
-        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-        setError(ingest.policyExtraction.message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice);
-      } else if (ingest && !ingest.blocked) {
-        setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.ingestQueuedNotice}`);
-      } else {
-        setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-      }
-
-      const documentId = uploadResult?.document?.id ?? ingest?.documentId ?? null;
-      const pipeline = await runPostDocumentPipelineRefresh({
-        documentId,
-        ingest,
-        policyExtraction: ingest?.policyExtraction,
-        workOrderId: uploadResult?.workOrderId ?? ingest?.workOrderId ?? null,
-        refreshSession,
-        setActiveAnalysisJob,
-        onTrackAnalysisJob: trackAnalysisJobFromUpload,
-      });
-
-      let refreshed = null;
-      if (typeof refreshSession === "function") {
-        refreshed = await refreshSession({ event: "document_pipeline_complete", reloadJob: true });
-      }
-      const policyCount =
-        refreshed?.unified?.policy_count ??
-        refreshed?.dashboard?.insurancePolicyCount ??
-        insurancePolicyCount;
-
-      if (pipeline.ok) {
-        if (!keyFirstSentence && !keyFollowUpSentence) {
-          setSuccess(`${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`);
-        }
-        setError("");
-      } else if (pipeline.steps?.policy_extraction?.ok && !pipeline.steps?.analysis_job?.ok) {
-        if (!keyFirstSentence && !keyFollowUpSentence) {
-          setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-        }
-        setError(pipeline.message ?? DOCUMENT_UI_MESSAGES.pipelineAnalysisFailedNotice);
-      } else if (!pipeline.steps?.policy_extraction?.ok && ingest?.workerResult?.ingest_status === "ready") {
-        if (!keyFirstSentence && !keyFollowUpSentence) {
-          setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-        }
-        setError(
-          pipeline.steps?.policy_extraction?.error_message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice,
-        );
-      }
-
-      if (enableSystemMessage && typeof notifySystemMessage === "function") {
+      if (enableSystemMessage && typeof notifySystemMessage === "function" && lastPipeline) {
         await notifySystemMessage(
-          pipeline.ok
-            ? `문서 분석과 보험 추천이 갱신되었습니다. 현재 등록된 가입 보험은 ${policyCount}건입니다.`
-            : `문서가 업로드되었습니다. 현재 등록된 가입 보험은 ${policyCount}건으로 확인됩니다.`,
-          { metadata: { category_key: categoryKey, pipeline_ok: pipeline.ok }, refresh: false },
+          lastPipeline.ok
+            ? `문서 분석과 보험 추천이 갱신되었습니다. 현재 등록된 가입 보험은 ${lastPolicyCount}건입니다.`
+            : `문서가 업로드되었습니다. 현재 등록된 가입 보험은 ${lastPolicyCount}건으로 확인됩니다.`,
+          {
+            metadata: { category_key: categoryKey, pipeline_ok: lastPipeline.ok },
+            refresh: false,
+          },
         );
-      }
-
-      if (typeof onKeyChatPresence === "function" && (keyFirstSentence || keyFollowUpSentence)) {
-        onKeyChatPresence({ keyFirstSentence, keyFollowUpSentence });
       }
 
       if (typeof onUploadComplete === "function") {
         await onUploadComplete();
+      }
+
+      if (uploadErrors.length > 0) {
+        setError(uploadErrors[0]);
+        if (!lastKeyFirstSentence && !lastKeyFollowUpSentence && !lastPipeline) {
+          setSuccess("");
+        }
       }
     } catch (err) {
       setError(toCustomerErrorMessage(err, "문서 업로드에 실패했습니다."));
@@ -316,7 +366,7 @@ export function useCustomerDocumentUpload({
     }
   }, [
     user,
-    selectedFile,
+    selectedFiles,
     categoryKey,
     clearMessages,
     hydrateStorageConsent,
@@ -330,8 +380,12 @@ export function useCustomerDocumentUpload({
     trackAnalysisJobFromUpload,
   ]);
 
-  const handleFileChange = useCallback((file) => {
-    setSelectedFile(file ?? null);
+  const handleFileChange = useCallback((filesInput) => {
+    setSelectedFiles(listSelectedUploadFiles(filesInput));
+  }, []);
+
+  const setSelectedFile = useCallback((file) => {
+    setSelectedFiles(file ? [file] : []);
   }, []);
 
   return {
@@ -342,7 +396,9 @@ export function useCustomerDocumentUpload({
     categoryKey,
     setCategoryKey,
     selectedFile,
+    selectedFiles,
     setSelectedFile,
+    setSelectedFiles,
     uploading,
     grantingConsent,
     grantingAnalysisConsent,

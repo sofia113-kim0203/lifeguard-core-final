@@ -259,19 +259,23 @@ export default function CustomerDocumentUploadFlow({
               ref={hook.fileInputRef}
               style={S.input}
               type="file"
+              multiple
               accept={FILE_ACCEPT}
               disabled={disabledUpload}
-              onChange={(e) => hook.handleFileChange(e.target.files?.[0] ?? null)}
+              onChange={(e) => hook.handleFileChange(e.target.files)}
             />
           </label>
           <button
             type="button"
             style={{
               ...S.btn,
-              ...((disabledUpload || !hook.selectedFile) && variant === "customer" ? S.btnDisabled : {}),
+              ...((disabledUpload || !(hook.selectedFiles?.length > 0)) &&
+              variant === "customer"
+                ? S.btnDisabled
+                : {}),
             }}
             onClick={hook.handleUpload}
-            disabled={disabledUpload || !hook.selectedFile}
+            disabled={disabledUpload || !(hook.selectedFiles?.length > 0)}
           >
             {hook.uploading ? "업로드 중…" : DOCUMENT_UI_MESSAGES.uploadAction}
           </button>
