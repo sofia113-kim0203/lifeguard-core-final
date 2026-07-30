@@ -40,6 +40,12 @@ const UNCERTAIN_RE =
   /확인이\s*필요|확인\s*필요|확인되지\s*않|미확인|정확히는|정확히\s*모르겠|모르겠|모르겠습니다|알\s*수\s*없|추정|가능성/;
 const PAST_RE = /과거\s*계약|예전에|이전\s*계약|해지된|만료된|예전에\s*가입/;
 const MARKET_RE = /일반적으로|시장에서|보통\s*보험사|시중\s*상품/;
+/** Grounded market / recommendation speech — never silently strip insurer names. */
+const RECOMMENDATION_OR_CANDIDATE_RE =
+  /추천|비교\s*후보|후보로|검토해\s*보|보시면\s*(?:돼요|됩니다|좋)|중심으로\s*비교|여러\s*보험사|보험사를\s*비교/;
+/** Assertive personal enrollment / owned-contract claim only. */
+const PERSONAL_ENROLLMENT_ASSERT_RE =
+  /(?:고객(?:님)?(?:은|이)|당신(?:은|이)|본인(?:은|이))?.{0,12}(?:가입(?:했|한|되어)|계약(?:이\s*)?(?:있|체결)|증권(?:번호)?(?:는|이|가)\s*[A-Z0-9])|(?:가입(?:했|한)\s*(?:보험|상품)|에\s*가입되어)/;
 /** Real doc-party vs login-customer distinction — not bare 증권상 alone. */
 const PROFILE_VS_DOC_RE =
   /(?:문서상|계약\s*서류상|증권상).{0,40}(?:로그인\s*고객|고객\s*프로필)|(?:로그인\s*고객|고객\s*프로필).{0,40}(?:문서상|계약\s*서류상|증권상|와\s*다|과\s*다)/;
@@ -446,17 +452,28 @@ export function neutralizeUnsupportedInsurerProductLiterals(
     const productOk = !productPart || productFormAllowed(productPart, allowedEntities);
     if (brandOk && productOk) return match;
 
-    const window = raw.slice(Math.max(0, offset - 24), offset + match.length + 24);
-    if (QUESTION_RE.test(window) && /\?|인가요|일까요|아닌가요|맞나요/.test(window)) {
+    const window = raw.slice(Math.max(0, offset - 40), offset + match.length + 40);
+    // Preserve recommendation / market / comparison / educational speech entirely.
+    if (
+      RECOMMENDATION_OR_CANDIDATE_RE.test(window) ||
+      ASSUME_RE.test(window) ||
+      MARKET_RE.test(window) ||
+      COMPARE_RE.test(window)
+    ) {
       return match;
     }
-    if (ASSUME_RE.test(window) || MARKET_RE.test(window) || COMPARE_RE.test(window)) {
+    if (QUESTION_RE.test(window) && /\?|인가요|일까요|아닌가요|맞나요/.test(window)) {
       return match;
     }
     if (NEGATION_RE.test(window) && window.indexOf(match) > window.search(NEGATION_RE)) {
       return match;
     }
     if (UNCERTAIN_RE.test(match)) return match;
+
+    // Only neutralize assertive personal enrollment / current-contract claims.
+    const personalAssert =
+      PERSONAL_ENROLLMENT_ASSERT_RE.test(window) || CURRENT_CONTRACT_DEIXIS.test(window);
+    if (!personalAssert) return match;
 
     stripped_count += 1;
     stripped_forms.push(String(brand));
