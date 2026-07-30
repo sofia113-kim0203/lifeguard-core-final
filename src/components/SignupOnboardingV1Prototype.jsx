@@ -666,6 +666,182 @@ const LAYOUT_CSS = `
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
+/* Mobile ≤768 — layout only; PC rules above unchanged. */
+@media (max-width: ${BREAKPOINT_PX}px) {
+  html:has([data-signup-onboarding-v1]),
+  body:has([data-signup-onboarding-v1]) {
+    overflow-x: hidden;
+  }
+  [data-signup-onboarding-v1] {
+    max-width: 100% !important;
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
+  [data-signup-onboarding-v1] .signup-form-box,
+  [data-signup-onboarding-v1] .signup-premium-main-surface,
+  [data-signup-onboarding-v1] [data-premium-surface="yes"] {
+    max-width: 100% !important;
+    width: 100%;
+    min-width: 0;
+    padding: 16px !important;
+  }
+  [data-signup-onboarding-v1] .signup-section-frame {
+    flex-direction: column;
+    align-items: stretch;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    gap: 12px;
+    padding: 16px;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-section-meta {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  [data-signup-onboarding-v1] .signup-section-content {
+    width: 100%;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-section-description {
+    max-height: none;
+    overflow: visible;
+    display: block;
+    -webkit-line-clamp: unset;
+  }
+  [data-signup-onboarding-v1] .signup-grid-2,
+  [data-signup-onboarding-v1] .signup-grid-2-fixed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-signup-onboarding-v1] .signup-stack,
+  [data-signup-onboarding-v1] .signup-section,
+  [data-signup-onboarding-v1] .signup-field-label,
+  [data-signup-onboarding-v1] .signup-helper-block,
+  [data-signup-onboarding-v1] .signup-health-q,
+  [data-signup-onboarding-v1] .signup-chip-row,
+  [data-signup-onboarding-v1] .signup-consent-group,
+  [data-signup-onboarding-v1] .signup-complete-grid,
+  [data-signup-onboarding-v1] .signup-insurer-grid,
+  [data-signup-onboarding-v1] .signup-footer-actions {
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-control,
+  [data-signup-onboarding-v1] input.signup-control,
+  [data-signup-onboarding-v1] select.signup-control,
+  [data-signup-onboarding-v1] textarea.signup-control {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-birth-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-birth-part,
+  [data-signup-onboarding-v1] .signup-birth-part:first-child {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    flex: unset;
+  }
+  [data-signup-onboarding-v1] .signup-birth-input {
+    width: 100%;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-gender-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] .signup-gender-row .signup-chip-premium {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  [data-signup-onboarding-v1] .signup-chip-row {
+    flex-wrap: wrap !important;
+  }
+  [data-signup-onboarding-v1] .signup-consent-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-flow: row;
+  }
+  [data-signup-onboarding-v1] .signup-consent-row {
+    grid-template-columns: ${CTRL.checkboxSize}px minmax(0, 1fr) auto auto;
+    height: auto;
+    min-height: ${CTRL.consentRowH}px;
+    max-height: none;
+    overflow: visible;
+  }
+  [data-signup-onboarding-v1] .signup-consent-row > span:nth-child(2) {
+    white-space: normal;
+  }
+  [data-signup-onboarding-v1] .signup-title-band {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  [data-signup-onboarding-v1] .signup-title-band > div {
+    max-width: 100% !important;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] [data-signup-step-rail] {
+    gap: 4px;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] [data-signup-step-rail] > div {
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] [data-premium-action-footer="yes"],
+  [data-signup-onboarding-v1] [data-signup-footer] {
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] [data-premium-action-footer="yes"] .signup-footer-progress {
+    min-width: 0 !important;
+    width: 100%;
+  }
+  [data-signup-onboarding-v1] [data-premium-action-footer="yes"] .signup-footer-progress-track {
+    width: 100% !important;
+  }
+  [data-signup-onboarding-v1] [data-premium-action-footer="yes"] > div:last-child {
+    display: flex;
+    width: 100%;
+    gap: 8px;
+    min-width: 0;
+  }
+  [data-signup-onboarding-v1] [data-premium-action-footer="yes"] > div:last-child > button {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  [data-signup-onboarding-v1] .signup-footer-actions {
+    max-width: 100%;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+  [data-signup-onboarding-v1] .signup-dup-btn {
+    min-width: 0;
+  }
+}
 `;
 
 function emptyForm() {
@@ -772,10 +948,18 @@ function FieldError({ children }) {
   return <p style={{ margin: "6px 0 0", fontSize: 12, color: "#B91C1C", lineHeight: 1.4 }}>{children}</p>;
 }
 
-function ChoiceRow({ options, value, onChange, multi = false, premium = false, wrap = true }) {
+function ChoiceRow({
+  options,
+  value,
+  onChange,
+  multi = false,
+  premium = false,
+  wrap = true,
+  className = "",
+}) {
   return (
     <div
-      className="signup-chip-row"
+      className={["signup-chip-row", className].filter(Boolean).join(" ")}
       style={{ flexWrap: wrap ? "wrap" : "nowrap" }}
     >
       {options.map((opt) => {
@@ -1026,7 +1210,7 @@ function PremiumActionFooter({
         borderTop: `1px solid ${LG.border}`,
       }}
     >
-      <div style={{ minWidth: GEO.footerProgressW }}>
+      <div className="signup-footer-progress" style={{ minWidth: GEO.footerProgressW }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: HEADER_GAP_PX, marginBottom: HEADER_GAP_PX }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: LG.navy }}>
             {step} / 5
@@ -1034,6 +1218,7 @@ function PremiumActionFooter({
           <span style={{ fontSize: TYPE.helperSize, color: LG.textMuted }}>{progressLabel}</span>
         </div>
         <div
+          className="signup-footer-progress-track"
           style={{
             width: GEO.footerProgressW,
             height: GEO.footerProgressH,
@@ -1519,6 +1704,7 @@ export default function SignupOnboardingV1Prototype({
               <div>
                 <SectionLabel required>성별</SectionLabel>
                 <ChoiceRow
+                  className="signup-gender-row"
                   premium
                   wrap={false}
                   options={["남성", "여성"]}
