@@ -172,6 +172,80 @@ export function shouldProvideOwnedInsuranceVaultOriginals({
 }
 
 /**
+ * Pull active insurance-document case id from persisted conversation metadata.
+ * Server SSOT — not browser local state. Does not invent latest document.
+ */
+export function extractActiveDocumentCaseIdFromMetadata(meta = null) {
+  if (!meta || typeof meta !== "object") return null;
+  const direct = String(meta.active_attachment_id ?? meta.document_id ?? "").trim();
+  if (direct) return direct;
+  const nested = String(meta.active_attachment?.active_attachment_id ?? "").trim();
+  if (nested) return nested;
+  const ids = meta.evidence_package?.attached_document_ids;
+  if (Array.isArray(ids)) {
+    for (const raw of ids) {
+      const id = String(raw ?? "").trim();
+      if (id) return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Pick active insurance document case from newest-first conversation rows.
+ * Priority: same session → prior attachment/analysis relation. No keyword gate.
+ */
+export function pickActiveInsuranceDocumentCaseFromConversationRows({
+  rows = [],
+  sessionId = null,
+} = {}) {
+  const sid = String(sessionId ?? "").trim();
+  const list = Array.isArray(rows) ? rows : [];
+
+  const scan = (sessionOnly) => {
+    for (const row of list) {
+      const meta =
+        row?.metadata_json && typeof row.metadata_json === "object"
+          ? row.metadata_json
+          : row?.metadata && typeof row.metadata === "object"
+            ? row.metadata
+            : {};
+      const rowSid = String(meta.session_id ?? "").trim();
+      if (sessionOnly) {
+        if (!sid || rowSid !== sid) continue;
+      } else if (sid && rowSid === sid) {
+        // Already considered in session pass.
+        continue;
+      }
+      const documentId = extractActiveDocumentCaseIdFromMetadata(meta);
+      if (!documentId) continue;
+      return {
+        documentId,
+        caseSource: sessionOnly
+          ? "session_active_insurance_case"
+          : "prior_attachment_analysis_relation",
+        reason: sessionOnly
+          ? "session_metadata_active_attachment"
+          : "customer_recent_active_attachment",
+      };
+    }
+    return null;
+  };
+
+  if (sid) {
+    const sessionHit = scan(true);
+    if (sessionHit) return sessionHit;
+  }
+  const priorHit = scan(false);
+  if (priorHit) return priorHit;
+  return {
+    documentId: null,
+    caseSource: null,
+    reason: "no_active_case",
+  };
+}
+
+/**
  * Vault recall gate — presence off; evidence flag already resolved by caller.
  * Active singular document_id must not block vault once evidence is true.
  */

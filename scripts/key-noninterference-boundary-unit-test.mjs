@@ -3,14 +3,17 @@
  */
 import assert from "node:assert/strict";
 import {
+  pickActiveInsuranceDocumentCaseFromConversationRows,
   shouldProvideOwnedInsuranceVaultOriginals,
   shouldRunOwnedVaultRecall,
   wantsOwnedInsuranceVaultEvidence,
 } from "../src/lib/chatActiveAttachment.js";
+import { resolveActiveInsuranceDocumentCase } from "../server/keyCore/keyActiveInsuranceDocumentCase.js";
 import { neutralizeUnsupportedInsurerProductLiterals } from "../server/keyCore/keyVerifiedLiteralConflict.js";
 import { buildTurnEvidencePackageMeta } from "../server/keyCore/keyPolicyTruthEvidence.js";
 import { shouldRunClaudeFirstHomeChatQuestion } from "../server/keyCore/oneKeyCoreFlags.js";
 import { decidePdfAttachMode } from "../server/keyCore/keyClaudePdfAttachPolicy.js";
+import { CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
 
 function ok(name) {
   console.log(`PASS ${name}`);
@@ -156,5 +159,179 @@ assert.equal(
   false,
 );
 ok("factory_isolation_homechat_claude_first_forced");
+
+// --- Server active insurance document case restore ---
+const sessionRows = [
+  {
+    role: "user",
+    metadata_json: {
+      session_id: "sess-a",
+      active_attachment_id: "doc-case-1",
+    },
+  },
+  {
+    role: "assistant",
+    metadata_json: {
+      session_id: "sess-a",
+      evidence_package: {
+        attached_count: 3,
+        attached_document_ids: ["doc-case-1", "doc-case-2"],
+      },
+    },
+  },
+];
+const pickedSession = pickActiveInsuranceDocumentCaseFromConversationRows({
+  rows: sessionRows,
+  sessionId: "sess-a",
+});
+assert.equal(pickedSession.documentId, "doc-case-1");
+assert.equal(pickedSession.caseSource, "session_active_insurance_case");
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "분석해줘 키",
+    attachedDocumentId: pickedSession.documentId,
+  }),
+  true,
+);
+ok("case_restore_session_without_request_document_id");
+
+const pickedNone = pickActiveInsuranceDocumentCaseFromConversationRows({
+  rows: [{ role: "user", metadata_json: { session_id: "sess-empty" } }],
+  sessionId: "sess-empty",
+});
+assert.equal(pickedNone.documentId, null);
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "분석해줘 키",
+    attachedDocumentId: pickedNone.documentId,
+  }),
+  false,
+);
+ok("case_absent_no_random_vault");
+
+const owned = new Set(["doc-owned-1", "doc-owned-2"]);
+const restored = await resolveActiveInsuranceDocumentCase({
+  supabase: {
+    from() {
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        is() {
+          return this;
+        },
+        order() {
+          return this;
+        },
+        limit() {
+          return Promise.resolve({
+            data: [
+              {
+                role: "user",
+                metadata_json: {
+                  session_id: "sess-b",
+                  active_attachment_id: "doc-owned-1",
+                },
+              },
+              {
+                role: "assistant",
+                metadata_json: {
+                  session_id: "sess-b",
+                  evidence_package: {
+                    attached_document_ids: ["doc-owned-1", "doc-owned-2"],
+                  },
+                },
+              },
+            ],
+            error: null,
+          });
+        },
+        maybeSingle() {
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+    },
+  },
+  customerId: "cust-1",
+  sessionId: "sess-b",
+  clientDocumentId: null,
+  verifyOwned: async ({ documentId }) => owned.has(String(documentId)),
+});
+assert.equal(restored.documentId, "doc-owned-1");
+assert.equal(restored.caseSource, "session_active_insurance_case");
+assert.equal(restored.restored, true);
+ok("case_restore_async_owned_session");
+
+const denied = await resolveActiveInsuranceDocumentCase({
+  supabase: {
+    from() {
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        is() {
+          return this;
+        },
+        order() {
+          return this;
+        },
+        limit() {
+          return Promise.resolve({
+            data: [
+              {
+                role: "user",
+                metadata_json: {
+                  session_id: "sess-c",
+                  active_attachment_id: "doc-other-customer",
+                },
+              },
+            ],
+            error: null,
+          });
+        },
+        maybeSingle() {
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+    },
+  },
+  customerId: "cust-1",
+  sessionId: "sess-c",
+  clientDocumentId: "doc-other-customer",
+  verifyOwned: async () => false,
+});
+assert.equal(denied.documentId, null);
+assert.equal(denied.reason, "no_active_case");
+ok("case_restore_blocks_foreign_document");
+
+assert.ok(CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH <= 6);
+ok("vault_cap_not_full_box");
+
+const metaCase = buildTurnEvidencePackageMeta({
+  evidence_scope: "owned_insurance_vault",
+  case_source: "session_active_insurance_case",
+  case_restored: true,
+  case_document_id: "doc-case-1",
+  vaultRecall: {
+    mode: "attach",
+    listing: [{ id: "a" }, { id: "b" }],
+    attachments: [
+      { document_id: "a", content_sha256: "s1" },
+      { document_id: "b", content_sha256: "s2" },
+    ],
+    failed: [],
+    excluded: [],
+  },
+});
+assert.equal(metaCase.case_source, "session_active_insurance_case");
+assert.equal(metaCase.case_restored, true);
+assert.equal(metaCase.attached_count, 2);
+ok("evidence_manifest_case_source");
 
 console.log("PASS key-noninterference-boundary-unit-test");

@@ -71,6 +71,7 @@ import {
   shouldRunOwnedVaultRecall,
   shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
+import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
@@ -5054,19 +5055,36 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Never invent latest document; allowLatestFallback stays false.
   // Presence must not mix PDF/document Claude work into the login opener.
   // Active insurance document case provides owned related originals without keyword gating.
-  let explicitDocumentId = isPresenceTurn
+  // Case SSOT: request document_id → same-session conversation case → prior attach/analysis.
+  // Browser local activeAttachment alone is not authority when the request omits document_id.
+  const clientExplicitDocumentId = isPresenceTurn
     ? ""
     : String(attachedDocumentId ?? "").trim();
-  const clientExplicitDocumentId = explicitDocumentId;
+  let activeDocumentCase = {
+    documentId: clientExplicitDocumentId || null,
+    caseSource: clientExplicitDocumentId ? "request_document_id" : null,
+    reason: clientExplicitDocumentId ? "client_request_unverified" : "none",
+    restored: false,
+  };
+  if (!isPresenceTurn && userSupabase && customerId) {
+    activeDocumentCase = await resolveActiveInsuranceDocumentCase({
+      supabase: userSupabase,
+      customerId,
+      sessionId,
+      clientDocumentId: clientExplicitDocumentId || null,
+    });
+  }
+  let explicitDocumentId = String(activeDocumentCase.documentId ?? "").trim();
+  const caseDocumentId = explicitDocumentId;
   let documentMentionResolve = null;
   let vaultRecall = null;
   let pdfAttachmentsForClaude = null;
   let pdfFetchMs = null;
-  const hasActiveInsuranceDocumentCase = Boolean(clientExplicitDocumentId);
+  const hasActiveInsuranceDocumentCase = Boolean(caseDocumentId);
   const wantsVaultEvidence = shouldProvideOwnedInsuranceVaultOriginals({
     question,
     isPresenceTurn,
-    attachedDocumentId: clientExplicitDocumentId,
+    attachedDocumentId: caseDocumentId,
   });
   const runVaultRecall = shouldRunOwnedVaultRecall({
     wantsVaultEvidence,
@@ -5074,6 +5092,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   // C-first: owned insurance-series vault recall (sha256 dedupe; no silent latest).
   // Vault multi-intent must run even when activeAttachmentId / singular document_id is set.
+  // Cap stays ≤6 / 22MB — never attach the full owned document box.
   if (runVaultRecall && userSupabase && customerId) {
     const fetchStarted = Date.now();
     vaultRecall = await resolveOwnedInsuranceVaultRecall({
@@ -5085,20 +5104,20 @@ export async function runClaudeFirstDirectQuestionTurn({
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
 
     let explicitAttachmentRow = null;
-    if (clientExplicitDocumentId) {
+    if (caseDocumentId) {
       const inVault = (vaultRecall.attachments || []).some(
-        (row) => String(row?.document_id ?? "").trim() === clientExplicitDocumentId,
+        (row) => String(row?.document_id ?? "").trim() === caseDocumentId,
       );
       if (!inVault) {
         const fetched = await verifyAndFetchCustomerPdfOriginal({
           supabase: userSupabase,
           customerId,
-          documentId: clientExplicitDocumentId,
+          documentId: caseDocumentId,
           env,
         });
         if (fetched?.ok && fetched.pdfBase64) {
           explicitAttachmentRow = {
-            document_id: clientExplicitDocumentId,
+            document_id: caseDocumentId,
             original_filename: fetched.document?.original_filename ?? null,
             pdfBase64: fetched.pdfBase64,
             mediaType: fetched.mediaType,
@@ -5112,7 +5131,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     const mergedAttach = mergeOwnedDocumentAttachRows({
       vaultAttachments: vaultRecall.attachments || [],
       explicitAttachment: explicitAttachmentRow,
-      explicitDocumentId: clientExplicitDocumentId || null,
+      explicitDocumentId: caseDocumentId || null,
       maxUnique: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
     });
 
@@ -5848,6 +5867,9 @@ export async function runClaudeFirstDirectQuestionTurn({
         candidate_document_count: Array.isArray(vaultRecall?.listing)
           ? vaultRecall.listing.length
           : null,
+        case_source: activeDocumentCase?.caseSource ?? null,
+        case_restored: activeDocumentCase?.restored === true,
+        case_document_id: caseDocumentId || null,
       });
   const policyTruthContextForClaude = isPresenceTurn
     ? null

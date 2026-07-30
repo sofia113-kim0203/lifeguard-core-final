@@ -199,6 +199,9 @@ export function buildTurnEvidencePackageMeta({
   vaultRecall = null,
   attachments = null,
   candidate_document_count = null,
+  case_source = null,
+  case_restored = false,
+  case_document_id = null,
 } = {}) {
   const attachRows = Array.isArray(attachments)
     ? attachments
@@ -257,6 +260,14 @@ export function buildTurnEvidencePackageMeta({
     cap_stop: stage?.cap_stop === true,
     budget_stop: stage?.budget_stop === true,
   };
+  const caseSource =
+    case_source != null && String(case_source).trim()
+      ? String(case_source).trim().slice(0, 64)
+      : null;
+  const caseDocumentId =
+    case_document_id != null && String(case_document_id).trim()
+      ? String(case_document_id).trim()
+      : null;
   return {
     evidence_scope: evidence_scope || "none",
     // Authority for "how many originals were read this turn" — not prior assistant prose.
@@ -274,6 +285,9 @@ export function buildTurnEvidencePackageMeta({
     image_or_document_block_count: attachedCount,
     vault_mode: vaultRecall?.mode ?? null,
     vault_reason: vaultRecall?.reason ? String(vaultRecall.reason).slice(0, 80) : null,
+    case_source: caseSource,
+    case_restored: case_restored === true,
+    case_document_id: caseDocumentId,
     partial_originals:
       attachedCount > 0 &&
       (failed_document_ids.length > 0 ||
