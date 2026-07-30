@@ -161,11 +161,14 @@ export function isStage3PromotionEnvAllowed(env = process.env) {
 }
 
 /**
- * HomeChat question routing — Claude-first only.
- * Does NOT use borrowed-senses probe / active_partial as an entry gate.
- * Explicit off: KEY_CLAUDE_FIRST_DIRECT=0|false|off. Absent → on (HomeChat default).
+ * HomeChat question routing — Claude-first only for official customer speech.
+ * Misconfigured KEY_CLAUDE_FIRST_DIRECT=off must NOT open intent/factory/S6 speech.
+ * Legacy alternate brain only when KEY_CLAUDE_FIRST_ALLOW_LEGACY_HOMECHAT=1 (test/dev).
  */
 export function shouldRunClaudeFirstHomeChatQuestion(env = process.env) {
+  const allowLegacy =
+    String(env.KEY_CLAUDE_FIRST_ALLOW_LEGACY_HOMECHAT ?? "").trim() === "1";
+  if (!allowLegacy) return true;
   const flag = String(env.KEY_CLAUDE_FIRST_DIRECT ?? "1").trim().toLowerCase();
   if (flag === "0" || flag === "false" || flag === "off") return false;
   return true;

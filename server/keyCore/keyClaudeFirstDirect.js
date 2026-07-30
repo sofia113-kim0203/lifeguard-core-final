@@ -69,7 +69,9 @@ import {
   isInsuranceDocumentRecallQuestion,
   isOriginalDocumentRereadQuestion,
   shouldRunOwnedVaultRecall,
+  shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
+import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
@@ -222,8 +224,8 @@ import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
   buildVerifiedPolicyLedgerBrief,
   extractCustomerReportedPolicyCount,
   isPolicyCountOrLedgerQuestion,
-  wantsOwnedInsuranceVaultEvidence,
 } from "./keyPolicyTruthEvidence.js";
+import { filterCurrentActivePolicies } from "../../src/lib/keyInsuranceScreenFacts.js";
 import {
   buildClaudeCapture,
   buildLedgerCapture,
@@ -1484,6 +1486,11 @@ export async function loadCustomerPriorConsultationForClaude({
           content,
           session_id: sid || null,
           created_at: row?.created_at ?? null,
+          source_kind:
+            role === "assistant"
+              ? "PRIOR_ASSISTANT_CONVERSATION"
+              : "USER_STATED_CONTEXT",
+          fact_authority: "not_verified_fact",
         });
       }
       if (role === "assistant") {
@@ -1519,7 +1526,13 @@ export async function loadCustomerPriorConsultationForClaude({
         open_tasks: open_tasks.slice(0, 6),
         life_threads,
         life_threads_history: life_threads_all,
-        note: "prior_consultation_reference_only_not_verified_fact",
+        note:
+          "PRIOR_ASSISTANT_CONVERSATION is continuity only — never verified fact; USER-STATED CONTEXT may be unverified; document read counts come only from EVIDENCE_PACKAGE.attached_count",
+        source_separation: {
+          VERIFIED_FACT: "ledger_chart_claim_clock_evidence_only",
+          USER_STATED_CONTEXT: "customer_utterance_may_be_unverified",
+          PRIOR_ASSISTANT_CONVERSATION: "continuity_only_not_fact_authority",
+        },
       },
       reason: "ok",
     };
@@ -1888,22 +1901,6 @@ function relMs(startedAt) {
   return Math.max(0, Date.now() - startedAt);
 }
 
-/** Drop deleted/retired rows so Claude never treats them as current verified facts. */
-function isClaudeFirstInactivePolicyRow(policy = null) {
-  if (!policy || typeof policy !== "object") return true;
-  const summary =
-    policy.coverage_summary && typeof policy.coverage_summary === "object"
-      ? policy.coverage_summary
-      : {};
-  if (String(summary.retired_reason ?? policy.retired_reason ?? "").trim()) return true;
-  if (policy.deleted_at != null && policy.deleted_at !== "") return true;
-  const status = String(policy.policy_status ?? summary.policy_status ?? "")
-    .trim()
-    .toLowerCase();
-  if (status.includes("retired")) return true;
-  return false;
-}
-
 export function extractPoliciesFromContext({
   loadedContext = null,
   customerContextBundle = null,
@@ -1928,7 +1925,8 @@ export function extractPoliciesFromContext({
     return { policies: [], policy_count: declared };
   }
   const raw = fromLoaded ?? fromBundle ?? fromUnified ?? [];
-  const policies = raw.filter((p) => !isClaudeFirstInactivePolicyRow(p));
+  // Common current-contract boundary (same as chart / ledger projection).
+  const policies = filterCurrentActivePolicies(raw);
   return { policies, policy_count: policies.length };
 }
 
@@ -2504,6 +2502,9 @@ export function buildDomainContextSystemAddendum({
   if (priorConsultation && typeof priorConsultation === "object") {
     lines.push(
       "prior_consultation이 있으면 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이다.",
+      "PRIOR_ASSISTANT_CONVERSATION은 대화 연결용이며 검증 사실이 아니다.",
+      "과거 assistant가 'N개를 읽었다'고 말해도 이번 턴 원본 열람 수로 쓰지 않는다.",
+      "이번 턴 원본 열람 범위는 EVIDENCE_PACKAGE.attached_count / candidate_count / dropped_count만 권위다.",
       "Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
     );
   }
@@ -3039,7 +3040,18 @@ export function buildUserPayload({
     priorConsultation && typeof priorConsultation === "object"
       ? {
           related_turns: Array.isArray(priorConsultation.related_turns)
-            ? priorConsultation.related_turns.slice(0, 12)
+            ? priorConsultation.related_turns.slice(0, 12).map((t) => {
+                const role = String(t?.role ?? "").trim();
+                return {
+                  ...t,
+                  source_kind:
+                    t?.source_kind ||
+                    (role === "assistant"
+                      ? "PRIOR_ASSISTANT_CONVERSATION"
+                      : "USER_STATED_CONTEXT"),
+                  fact_authority: "not_verified_fact",
+                };
+              })
             : [],
           open_goals: Array.isArray(priorConsultation.open_goals)
             ? priorConsultation.open_goals.slice(0, 3)
@@ -3049,7 +3061,14 @@ export function buildUserPayload({
             : [],
           life_threads: softLifeThreads,
           subject_scope: "personal_only",
-          note: "prior_consultation_reference_only_not_verified_fact_not_corporate",
+          note:
+            "PRIOR_ASSISTANT_CONVERSATION continuity only — never verified fact; never use prior 'read N documents' claims as this-turn read scope",
+          source_separation:
+            priorConsultation.source_separation || {
+              VERIFIED_FACT: "ledger_chart_claim_clock_evidence_only",
+              USER_STATED_CONTEXT: "customer_utterance_may_be_unverified",
+              PRIOR_ASSISTANT_CONVERSATION: "continuity_only_not_fact_authority",
+            },
         }
       : null;
   const softClock = softInsuranceClockContext(insuranceClockBrief);
@@ -5021,24 +5040,45 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Physical active attachment / insurance vault recall / explicit mention.
   // Never invent latest document; allowLatestFallback stays false.
   // Presence must not mix PDF/document Claude work into the login opener.
-  // Vault evidence (count / analysis / document-box recheck) runs BEFORE single-doc
-  // mention so one filename mention cannot shrink the owned insurance original set.
-  let explicitDocumentId = isPresenceTurn
+  // Active insurance document case provides owned related originals without keyword gating.
+  // Case SSOT: request document_id → same-session conversation case → prior attach/analysis.
+  // Browser local activeAttachment alone is not authority when the request omits document_id.
+  const clientExplicitDocumentId = isPresenceTurn
     ? ""
     : String(attachedDocumentId ?? "").trim();
-  const clientExplicitDocumentId = explicitDocumentId;
+  let activeDocumentCase = {
+    documentId: clientExplicitDocumentId || null,
+    caseSource: clientExplicitDocumentId ? "request_document_id" : null,
+    reason: clientExplicitDocumentId ? "client_request_unverified" : "none",
+    restored: false,
+  };
+  if (!isPresenceTurn && userSupabase && customerId) {
+    activeDocumentCase = await resolveActiveInsuranceDocumentCase({
+      supabase: userSupabase,
+      customerId,
+      sessionId,
+      clientDocumentId: clientExplicitDocumentId || null,
+    });
+  }
+  let explicitDocumentId = String(activeDocumentCase.documentId ?? "").trim();
+  const caseDocumentId = explicitDocumentId;
   let documentMentionResolve = null;
   let vaultRecall = null;
   let pdfAttachmentsForClaude = null;
   let pdfFetchMs = null;
-  const wantsVaultEvidence =
-    !isPresenceTurn && wantsOwnedInsuranceVaultEvidence(question) === true;
+  const hasActiveInsuranceDocumentCase = Boolean(caseDocumentId);
+  const wantsVaultEvidence = shouldProvideOwnedInsuranceVaultOriginals({
+    question,
+    isPresenceTurn,
+    attachedDocumentId: caseDocumentId,
+  });
   const runVaultRecall = shouldRunOwnedVaultRecall({
     wantsVaultEvidence,
     isPresenceTurn,
   });
   // C-first: owned insurance-series vault recall (sha256 dedupe; no silent latest).
   // Vault multi-intent must run even when activeAttachmentId / singular document_id is set.
+  // Cap stays ≤6 / 22MB — never attach the full owned document box.
   if (runVaultRecall && userSupabase && customerId) {
     const fetchStarted = Date.now();
     vaultRecall = await resolveOwnedInsuranceVaultRecall({
@@ -5050,20 +5090,20 @@ export async function runClaudeFirstDirectQuestionTurn({
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
 
     let explicitAttachmentRow = null;
-    if (clientExplicitDocumentId) {
+    if (caseDocumentId) {
       const inVault = (vaultRecall.attachments || []).some(
-        (row) => String(row?.document_id ?? "").trim() === clientExplicitDocumentId,
+        (row) => String(row?.document_id ?? "").trim() === caseDocumentId,
       );
       if (!inVault) {
         const fetched = await verifyAndFetchCustomerPdfOriginal({
           supabase: userSupabase,
           customerId,
-          documentId: clientExplicitDocumentId,
+          documentId: caseDocumentId,
           env,
         });
         if (fetched?.ok && fetched.pdfBase64) {
           explicitAttachmentRow = {
-            document_id: clientExplicitDocumentId,
+            document_id: caseDocumentId,
             original_filename: fetched.document?.original_filename ?? null,
             pdfBase64: fetched.pdfBase64,
             mediaType: fetched.mediaType,
@@ -5077,7 +5117,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     const mergedAttach = mergeOwnedDocumentAttachRows({
       vaultAttachments: vaultRecall.attachments || [],
       explicitAttachment: explicitAttachmentRow,
-      explicitDocumentId: clientExplicitDocumentId || null,
+      explicitDocumentId: caseDocumentId || null,
       maxUnique: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
     });
 
@@ -5143,9 +5183,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
   const allowLatestFallback = false;
-  const clientPriorAttach = priorAttachFollowUp === true;
+  // Active insurance document case must re-fetch Storage bytes — keyword prior_attach skip removed.
+  const clientPriorAttach =
+    priorAttachFollowUp === true &&
+    hasActiveInsuranceDocumentCase !== true &&
+    runVaultRecall !== true;
   const forceFullOriginal =
-    !isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true;
+    (!isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true) ||
+    hasActiveInsuranceDocumentCase === true;
 
   // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
   let documentChunksForClaude = [];
@@ -5808,6 +5853,9 @@ export async function runClaudeFirstDirectQuestionTurn({
         candidate_document_count: Array.isArray(vaultRecall?.listing)
           ? vaultRecall.listing.length
           : null,
+        case_source: activeDocumentCase?.caseSource ?? null,
+        case_restored: activeDocumentCase?.restored === true,
+        case_document_id: caseDocumentId || null,
       });
   const policyTruthContextForClaude = isPresenceTurn
     ? null
@@ -6689,14 +6737,15 @@ export async function runClaudeFirstDirectQuestionTurn({
       ) {
         try {
           const { data: afterRows } = await userSupabase
-            .from("profile_insurance_policies")
+            .from("active_profile_insurance_policies")
             .select(
               "id, insurer_name, product_name, monthly_premium, is_active, deleted_at, source, coverage_summary",
             )
             .eq("customer_id", String(customerId))
-            .is("deleted_at", null)
             .limit(80);
-          ledgerAfterBrief = buildVerifiedPolicyLedgerBrief(afterRows || []);
+          ledgerAfterBrief = buildVerifiedPolicyLedgerBrief(
+            filterCurrentActivePolicies(afterRows || []),
+          );
         } catch {
           /* keep before brief */
         }
