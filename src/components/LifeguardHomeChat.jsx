@@ -1846,11 +1846,9 @@ export default function LifeguardHomeChat({
           : {}),
       };
       // Reused active attachment — server re-verifies ownership (no latest-doc invent).
-      // Vault multi-intent ("나머지/전체/문서함") must not skip original bytes via prior_attach.
-      if (
-        reusedActiveAttachment &&
-        wantsOwnedInsuranceVaultEvidence(trimmed) !== true
-      ) {
+      // Active insurance document case must not skip Storage originals via prior_attach.
+      // Server vault/case gate is authoritative; do not keyword-gate byte delivery here.
+      if (reusedActiveAttachment && !documentIdForTurn) {
         attachOptions = { ...attachOptions, priorAttachFollowUp: true };
       }
       const markFirstSse = () => {

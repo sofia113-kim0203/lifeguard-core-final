@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   wantsOwnedInsuranceVaultEvidence,
   shouldRunOwnedVaultRecall,
+  shouldProvideOwnedInsuranceVaultOriginals,
   isMultiDocumentVaultRecallQuestion,
 } from "../src/lib/chatActiveAttachment.js";
 import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
@@ -34,6 +35,25 @@ assert.equal(
   false,
 );
 ok("singular_question_no_vault_multi");
+
+// 1b) Active insurance document case provides vault without keyword ("분석해줘 키").
+assert.equal(wantsOwnedInsuranceVaultEvidence("분석해줘 키"), false);
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "분석해줘 키",
+    attachedDocumentId: "doc-active",
+    isPresenceTurn: false,
+  }),
+  true,
+);
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "이 보험 전체적으로 어때?",
+    attachedDocumentId: "doc-active",
+  }),
+  true,
+);
+ok("active_case_vault_without_keyword");
 
 // 2) activeAttachmentId present + vault intent → still run vault recall.
 const vaultQs = [

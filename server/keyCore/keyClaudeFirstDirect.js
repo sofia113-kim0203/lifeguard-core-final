@@ -69,6 +69,7 @@ import {
   isInsuranceDocumentRecallQuestion,
   isOriginalDocumentRereadQuestion,
   shouldRunOwnedVaultRecall,
+  shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
   gateKeyVoiceAnswer,
@@ -222,7 +223,6 @@ import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
   buildVerifiedPolicyLedgerBrief,
   extractCustomerReportedPolicyCount,
   isPolicyCountOrLedgerQuestion,
-  wantsOwnedInsuranceVaultEvidence,
 } from "./keyPolicyTruthEvidence.js";
 import {
   buildClaudeCapture,
@@ -1484,6 +1484,11 @@ export async function loadCustomerPriorConsultationForClaude({
           content,
           session_id: sid || null,
           created_at: row?.created_at ?? null,
+          source_kind:
+            role === "assistant"
+              ? "PRIOR_ASSISTANT_CONVERSATION"
+              : "USER_STATED_CONTEXT",
+          fact_authority: "not_verified_fact",
         });
       }
       if (role === "assistant") {
@@ -1519,7 +1524,13 @@ export async function loadCustomerPriorConsultationForClaude({
         open_tasks: open_tasks.slice(0, 6),
         life_threads,
         life_threads_history: life_threads_all,
-        note: "prior_consultation_reference_only_not_verified_fact",
+        note:
+          "PRIOR_ASSISTANT_CONVERSATION is continuity only — never verified fact; USER-STATED CONTEXT may be unverified; document read counts come only from EVIDENCE_PACKAGE.attached_count",
+        source_separation: {
+          VERIFIED_FACT: "ledger_chart_claim_clock_evidence_only",
+          USER_STATED_CONTEXT: "customer_utterance_may_be_unverified",
+          PRIOR_ASSISTANT_CONVERSATION: "continuity_only_not_fact_authority",
+        },
       },
       reason: "ok",
     };
@@ -2504,6 +2515,9 @@ export function buildDomainContextSystemAddendum({
   if (priorConsultation && typeof priorConsultation === "object") {
     lines.push(
       "prior_consultation이 있으면 이전 상담·목표·미완료 과제 참고다. 현재 질문이 항상 우선이다.",
+      "PRIOR_ASSISTANT_CONVERSATION은 대화 연결용이며 검증 사실이 아니다.",
+      "과거 assistant가 'N개를 읽었다'고 말해도 이번 턴 원본 열람 수로 쓰지 않는다.",
+      "이번 턴 원본 열람 범위는 EVIDENCE_PACKAGE.attached_count / candidate_count / dropped_count만 권위다.",
       "Claude 상담 의견을 검증된 계약 사실처럼 말하지 않는다.",
     );
   }
@@ -3039,7 +3053,18 @@ export function buildUserPayload({
     priorConsultation && typeof priorConsultation === "object"
       ? {
           related_turns: Array.isArray(priorConsultation.related_turns)
-            ? priorConsultation.related_turns.slice(0, 12)
+            ? priorConsultation.related_turns.slice(0, 12).map((t) => {
+                const role = String(t?.role ?? "").trim();
+                return {
+                  ...t,
+                  source_kind:
+                    t?.source_kind ||
+                    (role === "assistant"
+                      ? "PRIOR_ASSISTANT_CONVERSATION"
+                      : "USER_STATED_CONTEXT"),
+                  fact_authority: "not_verified_fact",
+                };
+              })
             : [],
           open_goals: Array.isArray(priorConsultation.open_goals)
             ? priorConsultation.open_goals.slice(0, 3)
@@ -3049,7 +3074,14 @@ export function buildUserPayload({
             : [],
           life_threads: softLifeThreads,
           subject_scope: "personal_only",
-          note: "prior_consultation_reference_only_not_verified_fact_not_corporate",
+          note:
+            "PRIOR_ASSISTANT_CONVERSATION continuity only — never verified fact; never use prior 'read N documents' claims as this-turn read scope",
+          source_separation:
+            priorConsultation.source_separation || {
+              VERIFIED_FACT: "ledger_chart_claim_clock_evidence_only",
+              USER_STATED_CONTEXT: "customer_utterance_may_be_unverified",
+              PRIOR_ASSISTANT_CONVERSATION: "continuity_only_not_fact_authority",
+            },
         }
       : null;
   const softClock = softInsuranceClockContext(insuranceClockBrief);
@@ -5021,8 +5053,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Physical active attachment / insurance vault recall / explicit mention.
   // Never invent latest document; allowLatestFallback stays false.
   // Presence must not mix PDF/document Claude work into the login opener.
-  // Vault evidence (count / analysis / document-box recheck) runs BEFORE single-doc
-  // mention so one filename mention cannot shrink the owned insurance original set.
+  // Active insurance document case provides owned related originals without keyword gating.
   let explicitDocumentId = isPresenceTurn
     ? ""
     : String(attachedDocumentId ?? "").trim();
@@ -5031,8 +5062,12 @@ export async function runClaudeFirstDirectQuestionTurn({
   let vaultRecall = null;
   let pdfAttachmentsForClaude = null;
   let pdfFetchMs = null;
-  const wantsVaultEvidence =
-    !isPresenceTurn && wantsOwnedInsuranceVaultEvidence(question) === true;
+  const hasActiveInsuranceDocumentCase = Boolean(clientExplicitDocumentId);
+  const wantsVaultEvidence = shouldProvideOwnedInsuranceVaultOriginals({
+    question,
+    isPresenceTurn,
+    attachedDocumentId: clientExplicitDocumentId,
+  });
   const runVaultRecall = shouldRunOwnedVaultRecall({
     wantsVaultEvidence,
     isPresenceTurn,
@@ -5143,9 +5178,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
   const allowLatestFallback = false;
-  const clientPriorAttach = priorAttachFollowUp === true;
+  // Active insurance document case must re-fetch Storage bytes — keyword prior_attach skip removed.
+  const clientPriorAttach =
+    priorAttachFollowUp === true &&
+    hasActiveInsuranceDocumentCase !== true &&
+    runVaultRecall !== true;
   const forceFullOriginal =
-    !isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true;
+    (!isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true) ||
+    hasActiveInsuranceDocumentCase === true;
 
   // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
   let documentChunksForClaude = [];

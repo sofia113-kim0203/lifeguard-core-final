@@ -9,6 +9,7 @@ import {
   isMultiDocumentVaultRecallQuestion,
   wantsOwnedInsuranceVaultEvidence,
   shouldRunOwnedVaultRecall,
+  shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
   buildMyInsuranceStatus,
@@ -21,6 +22,7 @@ export {
   isMultiDocumentVaultRecallQuestion,
   wantsOwnedInsuranceVaultEvidence,
   shouldRunOwnedVaultRecall,
+  shouldProvideOwnedInsuranceVaultOriginals,
   projectCanonicalContracts,
 };
 
@@ -232,27 +234,54 @@ export function buildTurnEvidencePackageMeta({
     if (row?.reason) excluded_reasons.push(String(row.reason).slice(0, 64));
   }
   const excluded = Array.isArray(vaultRecall?.excluded) ? vaultRecall.excluded : [];
+  const stage = vaultRecall?.stage_counts && typeof vaultRecall.stage_counts === "object"
+    ? vaultRecall.stage_counts
+    : null;
+  const shaDupes = Number(stage?.sha_dupes_skipped) || 0;
+  const candidateCount =
+    candidate_document_count != null
+      ? Number(candidate_document_count) || 0
+      : listing.length || 0;
+  const attachedCount = attached_document_ids.length;
+  const droppedCount = Math.max(
+    0,
+    failed_document_ids.length + excluded.length + shaDupes,
+  );
+  const dropped_by_reason = {
+    fetch_failed: failed_document_ids.length,
+    excluded: excluded.length,
+    sha_dupes_skipped: shaDupes,
+    ...(stage?.failed_reason_counts && typeof stage.failed_reason_counts === "object"
+      ? { failed_reason_counts: stage.failed_reason_counts }
+      : {}),
+    cap_stop: stage?.cap_stop === true,
+    budget_stop: stage?.budget_stop === true,
+  };
   return {
     evidence_scope: evidence_scope || "none",
-    candidate_document_count:
-      candidate_document_count != null
-        ? Number(candidate_document_count) || 0
-        : listing.length || 0,
-    attached_document_count: attached_document_ids.length,
+    // Authority for "how many originals were read this turn" — not prior assistant prose.
+    candidate_count: candidateCount,
+    attached_count: attachedCount,
+    dropped_count: droppedCount,
+    dropped_by_reason,
+    candidate_document_count: candidateCount,
+    attached_document_count: attachedCount,
     attached_document_ids,
     attached_sha256,
     failed_document_ids,
     excluded_document_count: excluded.length,
     excluded_reasons: [...new Set(excluded_reasons)].slice(0, 16),
-    image_or_document_block_count: attached_document_ids.length,
+    image_or_document_block_count: attachedCount,
     vault_mode: vaultRecall?.mode ?? null,
     vault_reason: vaultRecall?.reason ? String(vaultRecall.reason).slice(0, 80) : null,
     partial_originals:
-      attached_document_ids.length > 0 &&
+      attachedCount > 0 &&
       (failed_document_ids.length > 0 ||
         vaultRecall?.mode === "partial_attach" ||
         vaultRecall?.mode === "choose" ||
-        (listing.length > 0 && attached_document_ids.length < listing.length)),
+        (listing.length > 0 && attachedCount < listing.length)),
+    read_scope_authority:
+      "EVIDENCE_PACKAGE.attached_count is the only authority for this turn's original-read count; prior assistant claims are not verified fact",
   };
 }
 

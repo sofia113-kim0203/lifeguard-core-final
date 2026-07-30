@@ -137,8 +137,8 @@ export function isMultiDocumentVaultRecallQuestion(question = "") {
 }
 
 /**
- * Turns that must attach owned insurance-series originals (sha-deduped), not chat memory.
- * Shared by server Claude-first path and customer rail refresh.
+ * Explicit owned-vault asks (box / count / multi / insurance recall phrasing).
+ * NOT the sole access permission — active insurance document case does not need these words.
  */
 export function wantsOwnedInsuranceVaultEvidence(question = "") {
   const q = String(question ?? "")
@@ -156,8 +156,24 @@ export function wantsOwnedInsuranceVaultEvidence(question = "") {
 }
 
 /**
- * Vault multi-recall intent must not be blocked by an active singular document_id.
- * Pure gate helper — presence turns never run vault recall.
+ * Document access permission for owned insurance originals.
+ * Active insurance document case → provide related originals without keyword gating.
+ * Without active case → only explicit owned-vault asks (box/count/multi/…).
+ * Presence never attaches vault originals.
+ */
+export function shouldProvideOwnedInsuranceVaultOriginals({
+  question = "",
+  isPresenceTurn = false,
+  attachedDocumentId = null,
+} = {}) {
+  if (isPresenceTurn === true) return false;
+  if (String(attachedDocumentId ?? "").trim()) return true;
+  return wantsOwnedInsuranceVaultEvidence(question) === true;
+}
+
+/**
+ * Vault recall gate — presence off; evidence flag already resolved by caller.
+ * Active singular document_id must not block vault once evidence is true.
  */
 export function shouldRunOwnedVaultRecall({
   wantsVaultEvidence = false,
