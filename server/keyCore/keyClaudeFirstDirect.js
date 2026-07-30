@@ -4466,6 +4466,9 @@ async function callClaudeFirstDirect({
         claim_case_updates: claimCaseUpdates,
         pdf_attached: false,
         pdf_attached_attempted: pdfAttached === true,
+        original_attachment_count:
+          multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
+        provider_messages_request_count: messagesRequestCount,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -5087,7 +5090,12 @@ export async function runClaudeFirstDirectQuestionTurn({
         content_sha256: row.content_sha256,
       }));
       // Runtime EXIF/orientation normalize for Claude only — Storage originals untouched.
-      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows);
+      // Vault multi: PDF-first upstream + Anthropic-safe JPEG; drop undecodable images
+      // (root cause of ANTHROPIC_HTTP_400 "Could not process image" monopoly stub).
+      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows, {
+        vaultSafeImage: true,
+        maxImageEdge: 2048,
+      });
       if (!explicitDocumentId) {
         explicitDocumentId = String(mergedAttach[0].document_id).trim();
       }
@@ -5213,6 +5221,8 @@ export async function runClaudeFirstDirectQuestionTurn({
         note: vaultRecall.reason,
         document_box_listing: vaultRecall.listing ?? [],
         vault_attach_count: pdfAttachmentsForClaude.length,
+        // Non-PII vault attach stage counts (ops / seat metrics only).
+        vault_stage_counts: vaultRecall?.stage_counts ?? null,
         attach_signals: buildAttachOpsSignals({
           attachment_requested: true,
           attachment_attached: true,
@@ -5242,6 +5252,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         document_box_listing: vaultRecall.listing ?? [],
         vault_recall_mode: vaultRecall.mode,
         vault_failed: Array.isArray(vaultRecall.failed) ? vaultRecall.failed : [],
+        vault_stage_counts: vaultRecall?.stage_counts ?? null,
         attach_signals: buildAttachOpsSignals({
           attachment_requested: true,
           attachment_attached: false,
@@ -6033,6 +6044,15 @@ export async function runClaudeFirstDirectQuestionTurn({
             web_search: claude.web_search_trace ?? null,
             pdf_attached: claude.pdf_attached === true,
             pdf_attached_attempted: claude.pdf_attached_attempted === true,
+            original_attachment_count: Array.isArray(pdfAttachmentsForClaude)
+              ? pdfAttachmentsForClaude.length
+              : pdf?.meta?.attached === true
+                ? 1
+                : 0,
+            vault_attach_count: Array.isArray(pdfAttachmentsForClaude)
+              ? pdfAttachmentsForClaude.length
+              : Number(pdf?.meta?.vault_attach_count ?? 0) || 0,
+            vault_stage_counts: vaultRecall?.stage_counts ?? null,
             recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
             recommendation_basis_count: Number(claude.recommendation_basis_count ?? 0) || 0,
             recommendation_basis_rejected_count:
@@ -6446,6 +6466,10 @@ export async function runClaudeFirstDirectQuestionTurn({
               pdf_attached: claude.pdf_attached === true,
               original_attachment_count:
                 Number(claude.original_attachment_count ?? 0) || 0,
+              vault_attach_count: Array.isArray(pdfAttachmentsForClaude)
+                ? pdfAttachmentsForClaude.length
+                : 0,
+              vault_stage_counts: vaultRecall?.stage_counts ?? null,
               evidence_package: turnEvidencePackage,
               verified_policy_ledger_count:
                 verifiedPolicyLedgerBrief?.active_distinct_count ?? null,

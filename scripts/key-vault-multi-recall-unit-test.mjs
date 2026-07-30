@@ -12,6 +12,7 @@ import { decidePdfAttachMode } from "../server/keyCore/keyClaudePdfAttachPolicy.
 import {
   mergeOwnedDocumentAttachRows,
   verifyAndFetchCustomerPdfOriginal,
+  orderDocumentsPdfFirstForVaultRecall,
   CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
 
@@ -180,5 +181,20 @@ assert.equal(
   false,
 );
 ok("presence_never_vault");
+
+// 8) Vault fetch order prefers PDFs before images (Anthropic image-process failures).
+{
+  const ordered = orderDocumentsPdfFirstForVaultRecall([
+    { id: "img-new", mime_type: "image/png" },
+    { id: "pdf-a", mime_type: "application/pdf" },
+    { id: "img-old", mime_type: "image/jpeg" },
+    { id: "pdf-b", mime_type: "application/pdf" },
+  ]);
+  assert.deepEqual(
+    ordered.map((d) => d.id),
+    ["pdf-a", "pdf-b", "img-new", "img-old"],
+  );
+}
+ok("vault_pdf_first_order");
 
 console.log("\nALL PASS key-vault-multi-recall-unit-test");
