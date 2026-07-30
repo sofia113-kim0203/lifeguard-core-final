@@ -6,7 +6,9 @@
 import {
   isPolicyCountOrLedgerQuestion,
   isInsuranceVaultDocumentBoxRecheckQuestion,
+  isMultiDocumentVaultRecallQuestion,
   wantsOwnedInsuranceVaultEvidence,
+  shouldRunOwnedVaultRecall,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
   buildMyInsuranceStatus,
@@ -16,7 +18,9 @@ import {
 export {
   isPolicyCountOrLedgerQuestion,
   isInsuranceVaultDocumentBoxRecheckQuestion,
+  isMultiDocumentVaultRecallQuestion,
   wantsOwnedInsuranceVaultEvidence,
+  shouldRunOwnedVaultRecall,
   projectCanonicalContracts,
 };
 

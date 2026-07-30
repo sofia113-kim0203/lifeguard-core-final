@@ -89,12 +89,51 @@ export function isInsuranceVaultDocumentBoxRecheckQuestion(question = "") {
     return false;
   }
   return (
-    /다시\s*(봐|확인|읽어|점검)/.test(q) ||
-    /문서함.*(봐|확인|읽어)/.test(q) ||
+    /다시\s*(봐|확인|읽어|점검|분석)/.test(q) ||
+    /문서함.*(봐|보|확인|읽어|분석)/.test(q) ||
     /지금\s*다시/.test(q) ||
     /원본.*(봐|확인)/.test(q) ||
-    /문서.*(전부|전체|다)\s*(봐|확인)/.test(q)
+    /문서.*(전부|전체|다)\s*(을\s*|를\s*)?(봐|보|확인|분석)/.test(q) ||
+    /자료\s*(전부|전체|다)\s*(을\s*|를\s*)?(봐|보|확인|분석)/.test(q)
   );
+}
+
+/**
+ * Multi-original vault recall: remaining / all docs in the box — not a single active attach.
+ * Does not invent document_ids; server ownership list + sha dedupe decide attach set.
+ */
+export function isMultiDocumentVaultRecallQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  if (
+    /나머지\s*(문서|파일|자료|것들)/.test(q) &&
+    /(분석|확인|봐|보|읽어|검토)/.test(q)
+  ) {
+    return true;
+  }
+  if (
+    /문서함/.test(q) &&
+    /(전체|전부|나머지|모두|다)\s*.*(분석|확인|봐|보|읽어|검토)/.test(q)
+  ) {
+    return true;
+  }
+  if (/문서함.*자료\s*(전체|전부)/.test(q) && /(봐|보|분석|확인|읽어)/.test(q)) {
+    return true;
+  }
+  if (
+    /(자료|문서|파일)\s*(전체|전부)\s*(을\s*|를\s*)?(봐|보|분석|확인|읽어)/.test(q)
+  ) {
+    return true;
+  }
+  if (
+    /함께\s*(분석|확인|봐|보)/.test(q) &&
+    /(문서|파일|자료|문서함|나머지)/.test(q)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -109,10 +148,22 @@ export function wantsOwnedInsuranceVaultEvidence(question = "") {
   if (isPolicyCountOrLedgerQuestion(q)) return true;
   if (isInsuranceDocumentRecallQuestion(q)) return true;
   if (isInsuranceVaultDocumentBoxRecheckQuestion(q)) return true;
+  if (isMultiDocumentVaultRecallQuestion(q)) return true;
   if (isOriginalDocumentRereadQuestion(q) && /보험|계약|갱신|담보|보험료|증권/.test(q)) {
     return true;
   }
   return false;
+}
+
+/**
+ * Vault multi-recall intent must not be blocked by an active singular document_id.
+ * Pure gate helper — presence turns never run vault recall.
+ */
+export function shouldRunOwnedVaultRecall({
+  wantsVaultEvidence = false,
+  isPresenceTurn = false,
+} = {}) {
+  return isPresenceTurn !== true && wantsVaultEvidence === true;
 }
 
 /**

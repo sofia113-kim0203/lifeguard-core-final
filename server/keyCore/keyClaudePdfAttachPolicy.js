@@ -29,6 +29,11 @@ export function decidePdfAttachMode({
   mediaType = null,
   /** When true, Storage original must be re-attached even on prior_attach_follow_up. */
   forceFullOriginal = false,
+  /**
+   * Vault multi-recall turn: newly recalled originals must ship bytes even when
+   * the client sent prior_attach_follow_up for an earlier singular active attach.
+   */
+  vaultMultiRecall = false,
 } = {}) {
   const docId = String(documentId ?? "").trim();
   if (!docId) {
@@ -52,6 +57,17 @@ export function decidePdfAttachMode({
       review_scope: "full_original_precision_review_this_turn",
       evidence_status: "document_source_confirmed",
       reason: "force_full_original_reread",
+    };
+  }
+
+  // Owned vault multi-recall — attach Storage originals this turn (same Claude call).
+  if (vaultMultiRecall === true) {
+    return {
+      mode: "full_original_once",
+      attach_full_base64: true,
+      review_scope: "owned_insurance_vault_multi_original",
+      evidence_status: "document_source_confirmed",
+      reason: "vault_multi_recall_force_original_bytes",
     };
   }
 

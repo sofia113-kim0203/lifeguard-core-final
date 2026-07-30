@@ -747,6 +747,49 @@ export async function resolveOwnedInsuranceVaultRecall({
   };
 }
 
+/**
+ * Merge explicit active-attach row + vault recall rows.
+ * Dedupes by document_id then content_sha256. Caps at maxUnique (default 6).
+ * Prefer explicitDocumentId as the first row when present (factory primary id).
+ * Never invent rows — caller must only pass ownership-verified attachments.
+ */
+export function mergeOwnedDocumentAttachRows({
+  vaultAttachments = [],
+  explicitAttachment = null,
+  explicitDocumentId = null,
+  maxUnique = CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
+} = {}) {
+  const cap = Math.min(Math.max(Number(maxUnique) || 6, 1), 8);
+  const preferId = String(explicitDocumentId ?? explicitAttachment?.document_id ?? "").trim();
+  const incoming = [];
+  if (explicitAttachment?.pdfBase64 || explicitAttachment?.base64) {
+    incoming.push(explicitAttachment);
+  }
+  for (const row of Array.isArray(vaultAttachments) ? vaultAttachments : []) {
+    if (row) incoming.push(row);
+  }
+
+  const byId = new Map();
+  const seenSha = new Set();
+  for (const row of incoming) {
+    const did = String(row?.document_id ?? "").trim();
+    if (!did) continue;
+    const sha = String(row?.content_sha256 ?? "").trim();
+    if (byId.has(did)) continue;
+    if (sha && seenSha.has(sha)) continue;
+    byId.set(did, row);
+    if (sha) seenSha.add(sha);
+  }
+
+  const merged = [...byId.values()];
+  if (preferId && byId.has(preferId)) {
+    const preferred = byId.get(preferId);
+    const rest = merged.filter((r) => String(r.document_id) !== preferId);
+    return [preferred, ...rest].slice(0, cap);
+  }
+  return merged.slice(0, cap);
+}
+
 function normalizeFilenameKey(name = "") {
   return String(name ?? "")
     .trim()
