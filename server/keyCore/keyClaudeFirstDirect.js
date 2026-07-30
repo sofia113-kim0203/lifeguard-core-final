@@ -225,6 +225,7 @@ import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
   extractCustomerReportedPolicyCount,
   isPolicyCountOrLedgerQuestion,
 } from "./keyPolicyTruthEvidence.js";
+import { filterCurrentActivePolicies } from "../../src/lib/keyInsuranceScreenFacts.js";
 import {
   buildClaudeCapture,
   buildLedgerCapture,
@@ -1900,22 +1901,6 @@ function relMs(startedAt) {
   return Math.max(0, Date.now() - startedAt);
 }
 
-/** Drop deleted/retired rows so Claude never treats them as current verified facts. */
-function isClaudeFirstInactivePolicyRow(policy = null) {
-  if (!policy || typeof policy !== "object") return true;
-  const summary =
-    policy.coverage_summary && typeof policy.coverage_summary === "object"
-      ? policy.coverage_summary
-      : {};
-  if (String(summary.retired_reason ?? policy.retired_reason ?? "").trim()) return true;
-  if (policy.deleted_at != null && policy.deleted_at !== "") return true;
-  const status = String(policy.policy_status ?? summary.policy_status ?? "")
-    .trim()
-    .toLowerCase();
-  if (status.includes("retired")) return true;
-  return false;
-}
-
 export function extractPoliciesFromContext({
   loadedContext = null,
   customerContextBundle = null,
@@ -1940,7 +1925,8 @@ export function extractPoliciesFromContext({
     return { policies: [], policy_count: declared };
   }
   const raw = fromLoaded ?? fromBundle ?? fromUnified ?? [];
-  const policies = raw.filter((p) => !isClaudeFirstInactivePolicyRow(p));
+  // Common current-contract boundary (same as chart / ledger projection).
+  const policies = filterCurrentActivePolicies(raw);
   return { policies, policy_count: policies.length };
 }
 
@@ -6751,14 +6737,15 @@ export async function runClaudeFirstDirectQuestionTurn({
       ) {
         try {
           const { data: afterRows } = await userSupabase
-            .from("profile_insurance_policies")
+            .from("active_profile_insurance_policies")
             .select(
               "id, insurer_name, product_name, monthly_premium, is_active, deleted_at, source, coverage_summary",
             )
             .eq("customer_id", String(customerId))
-            .is("deleted_at", null)
             .limit(80);
-          ledgerAfterBrief = buildVerifiedPolicyLedgerBrief(afterRows || []);
+          ledgerAfterBrief = buildVerifiedPolicyLedgerBrief(
+            filterCurrentActivePolicies(afterRows || []),
+          );
         } catch {
           /* keep before brief */
         }

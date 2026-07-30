@@ -1614,6 +1614,49 @@ export async function persistKeyActiveClaimCases({
 }
 
 /**
+ * Reject insurer/product values that are clearly OCR body / table / JSON / prose dumps,
+ * not contract identity fields. No allowlist, no rewrite, no Claude.
+ */
+export function isPollutedPolicyIdentityField(value = "") {
+  const s = String(value ?? "").trim();
+  if (!s) return false;
+  if (/[\r\n]/.test(s)) return true;
+  if (/```/.test(s)) return true;
+  if (/(?:\|[\t ]*[-:]+[\t ]*){2,}\|/.test(s)) return true;
+  if ((s.match(/\|/g) || []).length >= 3) return true;
+  if (/^\s*[{\[]/.test(s) && /[}\]]/.test(s) && /["']?\w+["']?\s*:/.test(s)) return true;
+
+  const labelHits = [
+    /계약번호/,
+    /피보험자/,
+    /계약자/,
+    /보험기간/,
+    /월보험료/,
+    /납입기간/,
+    /상품명/,
+    /policy\s*number/i,
+    /premium/i,
+  ].filter((re) => re.test(s)).length;
+  if (labelHits >= 2) return true;
+
+  // Long packed OCR dump (observed Hanwha polluted row ~240–250 chars, single line).
+  if (s.length >= 80) {
+    if (/\d{4}[-./]\d{1,2}[-./]\d{1,2}/.test(s)) return true;
+    if (/\d{1,3}(?:,\d{3}){2,}/.test(s)) return true;
+    if ((s.match(/[.!?。]/g) || []).length >= 2) return true;
+    if ((s.match(/\s+/g) || []).length >= 12) return true;
+  }
+  return false;
+}
+
+export function hasInvalidPolicyIdentityFields(fact = {}) {
+  return (
+    isPollutedPolicyIdentityField(fact?.insurer) ||
+    isPollutedPolicyIdentityField(fact?.product_name)
+  );
+}
+
+/**
  * Upsert document_read policy inventory into existing profile_insurance_policies SSOT.
  * No new table. Never deletes customer_reported / signup rows.
  * Match: policy_number exact → strong fingerprint (insurer+product+contract_date+premium+maturity).
@@ -1641,6 +1684,8 @@ export async function persistPolicyInventoryFactsToPolicies({
       updated_policy_ids: [],
       created_policy_ids: [],
       skipped_weak_merge: 0,
+      skipped_invalid_identity: 0,
+      skips: [],
     };
   }
 
@@ -1689,6 +1734,8 @@ export async function persistPolicyInventoryFactsToPolicies({
       updated_policy_ids: [],
       created_policy_ids: [],
       skipped_weak_merge: 0,
+      skipped_invalid_identity: 0,
+      skips: [],
       error: selectError.message,
     };
   }
@@ -1697,8 +1744,10 @@ export async function persistPolicyInventoryFactsToPolicies({
   const updated_policy_ids = [];
   const created_policy_ids = [];
   const errors = [];
+  const skips = [];
   let stored = 0;
   let skipped_weak_merge = 0;
+  let skipped_invalid_identity = 0;
   const seenFactKeys = new Set();
 
   for (const fact of normalized) {
@@ -1726,6 +1775,13 @@ export async function persistPolicyInventoryFactsToPolicies({
     // No existing row and no strong identity → never insert confirmed policy row.
     if (!match?.row && !contract_identity_key) {
       skipped_weak_merge += 1;
+      continue;
+    }
+
+    // Gate immediately before INSERT/UPDATE — do not store OCR-polluted identity fields.
+    if (hasInvalidPolicyIdentityFields(fact)) {
+      skipped_invalid_identity += 1;
+      skips.push({ reason: "invalid_policy_identity_fields" });
       continue;
     }
 
@@ -1820,6 +1876,8 @@ export async function persistPolicyInventoryFactsToPolicies({
     updated_policy_ids,
     created_policy_ids,
     skipped_weak_merge,
+    skipped_invalid_identity,
+    skips,
     errors,
   };
 }
@@ -1843,7 +1901,8 @@ function inventoryFactToPolicyShape(fact = {}) {
   };
 }
 
-function findExistingPolicyRowForInventoryFact(rows = [], fact = {}, keys = {}) {
+/** Exported for 6-stage inventory dedupe unit tests. */
+export function findExistingPolicyRowForInventoryFact(rows = [], fact = {}, keys = {}) {
   const sourceFactKey = String(keys.source_fact_key ?? "").trim();
   const contractIdentityKey = String(keys.contract_identity_key ?? "").trim();
 

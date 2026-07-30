@@ -54,6 +54,8 @@ const INSURANCE_TURN_RE =
 
 export function isRetiredPolicyRow(policy = null) {
   if (!policy || typeof policy !== "object") return true;
+  // Align with active_profile_insurance_policies: is_active IS DISTINCT FROM FALSE.
+  if (policy.is_active === false) return true;
   const summary =
     policy.coverage_summary && typeof policy.coverage_summary === "object"
       ? policy.coverage_summary
@@ -61,10 +63,21 @@ export function isRetiredPolicyRow(policy = null) {
   const retiredReason = String(summary.retired_reason ?? policy.retired_reason ?? "").trim();
   if (retiredReason) return true;
   if (policy.deleted_at != null && policy.deleted_at !== "") return true;
-  if (policy.is_active === false && String(policy.policy_status ?? "").includes("retired")) {
-    return true;
-  }
+  const status = String(policy.policy_status ?? summary.policy_status ?? "")
+    .trim()
+    .toLowerCase();
+  if (status.includes("retired")) return true;
   return false;
+}
+
+/**
+ * Current-contract read boundary — active only.
+ * Retired/deleted rows stay in DB for history; they never enter current list/count/chart.
+ */
+export function filterCurrentActivePolicies(policies = []) {
+  return (Array.isArray(policies) ? policies : []).filter(
+    (p) => p && !isRetiredPolicyRow(p),
+  );
 }
 
 /** Normalize identity tokens — whitespace / case / common separators only. */
@@ -169,12 +182,8 @@ export function isPersonalOwnershipOk(policy, opts = {}) {
 
 /** Active rows that may appear on personal customer UI / chart / Claude personal review. */
 export function filterPersonalCustomerPolicies(policies = [], opts = {}) {
-  return (Array.isArray(policies) ? policies : []).filter(
-    (p) =>
-      p &&
-      !isRetiredPolicyRow(p) &&
-      p.is_active !== false &&
-      isPersonalOwnershipOk(p, opts),
+  return filterCurrentActivePolicies(policies).filter((p) =>
+    isPersonalOwnershipOk(p, opts),
   );
 }
 
@@ -298,7 +307,7 @@ function toRailCard(policy, statusLabel) {
  */
 export function projectCanonicalContracts(policies = [], opts = {}) {
   const rows = Array.isArray(policies) ? policies : [];
-  const active = rows.filter((p) => p && !isRetiredPolicyRow(p) && p.is_active !== false);
+  const active = filterCurrentActivePolicies(rows);
   const confirmedByKey = new Map();
   const review_candidates = [];
   const personal_review_candidates = [];
