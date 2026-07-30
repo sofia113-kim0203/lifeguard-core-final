@@ -71,6 +71,7 @@ import {
   shouldRunOwnedVaultRecall,
   shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
+import { listAttachedDocumentIds } from "../../src/lib/homeBrainAttachDocumentIds.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
   gateKeyVoiceAnswer,
@@ -4749,6 +4750,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   authUserId = null,
   entityContext = null,
   attachedDocumentId = null,
+  attachedDocumentIds = null,
   priorAttachFollowUp = false,
   sessionId = null,
   readyCardHandoffToken = null,
@@ -5043,9 +5045,15 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Active insurance document case provides owned related originals without keyword gating.
   // Case SSOT: request document_id → same-session conversation case → prior attach/analysis.
   // Browser local activeAttachment alone is not authority when the request omits document_id.
-  const clientExplicitDocumentId = isPresenceTurn
-    ? ""
-    : String(attachedDocumentId ?? "").trim();
+  // Multi composer: document_ids (ordered) + document_id (primary/first) — never pick last-only.
+  const clientAttachedDocumentIds = isPresenceTurn
+    ? []
+    : listAttachedDocumentIds(
+        Array.isArray(attachedDocumentIds) && attachedDocumentIds.length
+          ? attachedDocumentIds
+          : attachedDocumentId,
+      );
+  const clientExplicitDocumentId = clientAttachedDocumentIds[0] || "";
   let activeDocumentCase = {
     documentId: clientExplicitDocumentId || null,
     caseSource: clientExplicitDocumentId ? "request_document_id" : null,
@@ -5089,37 +5097,63 @@ export async function runClaudeFirstDirectQuestionTurn({
     });
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
 
-    let explicitAttachmentRow = null;
-    if (caseDocumentId) {
+    const explicitRequestIds = clientAttachedDocumentIds.length
+      ? clientAttachedDocumentIds
+      : caseDocumentId
+        ? [caseDocumentId]
+        : [];
+    const explicitAttachmentRows = [];
+    for (const requestDocumentId of explicitRequestIds) {
       const inVault = (vaultRecall.attachments || []).some(
-        (row) => String(row?.document_id ?? "").trim() === caseDocumentId,
+        (row) => String(row?.document_id ?? "").trim() === requestDocumentId,
       );
-      if (!inVault) {
-        const fetched = await verifyAndFetchCustomerPdfOriginal({
-          supabase: userSupabase,
-          customerId,
-          documentId: caseDocumentId,
-          env,
+      if (inVault) continue;
+      const fetched = await verifyAndFetchCustomerPdfOriginal({
+        supabase: userSupabase,
+        customerId,
+        documentId: requestDocumentId,
+        env,
+      });
+      if (fetched?.ok && fetched.pdfBase64) {
+        explicitAttachmentRows.push({
+          document_id: requestDocumentId,
+          original_filename: fetched.document?.original_filename ?? null,
+          pdfBase64: fetched.pdfBase64,
+          mediaType: fetched.mediaType,
+          fileSizeBytes: fetched.fileSizeBytes ?? null,
+          content_sha256: fetched.content_sha256 ?? null,
         });
-        if (fetched?.ok && fetched.pdfBase64) {
-          explicitAttachmentRow = {
-            document_id: caseDocumentId,
-            original_filename: fetched.document?.original_filename ?? null,
-            pdfBase64: fetched.pdfBase64,
-            mediaType: fetched.mediaType,
-            fileSizeBytes: fetched.fileSizeBytes ?? null,
-            content_sha256: fetched.content_sha256 ?? null,
-          };
-        }
       }
     }
 
-    const mergedAttach = mergeOwnedDocumentAttachRows({
-      vaultAttachments: vaultRecall.attachments || [],
-      explicitAttachment: explicitAttachmentRow,
-      explicitDocumentId: caseDocumentId || null,
-      maxUnique: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
-    });
+    // Composer multi: keep request order (A→B). Single/vault: existing merge helper.
+    let mergedAttach;
+    if (clientAttachedDocumentIds.length > 1) {
+      const byId = new Map();
+      for (const row of [
+        ...explicitAttachmentRows,
+        ...(Array.isArray(vaultRecall.attachments) ? vaultRecall.attachments : []),
+      ]) {
+        const did = String(row?.document_id ?? "").trim();
+        if (!did || byId.has(did)) continue;
+        byId.set(did, row);
+      }
+      const ordered = [];
+      for (const id of clientAttachedDocumentIds) {
+        if (!byId.has(id)) continue;
+        ordered.push(byId.get(id));
+        byId.delete(id);
+      }
+      for (const row of byId.values()) ordered.push(row);
+      mergedAttach = ordered.slice(0, CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH);
+    } else {
+      mergedAttach = mergeOwnedDocumentAttachRows({
+        vaultAttachments: vaultRecall.attachments || [],
+        explicitAttachment: explicitAttachmentRows[0] || null,
+        explicitDocumentId: caseDocumentId || null,
+        maxUnique: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
+      });
+    }
 
     if (mergedAttach.length) {
       const rawRows = mergedAttach.map((row) => ({
@@ -5190,7 +5224,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     runVaultRecall !== true;
   const forceFullOriginal =
     (!isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true) ||
-    hasActiveInsuranceDocumentCase === true;
+    hasActiveInsuranceDocumentCase === true ||
+    clientAttachedDocumentIds.length > 1;
 
   // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
   let documentChunksForClaude = [];
@@ -5310,35 +5345,108 @@ export async function runClaudeFirstDirectQuestionTurn({
     };
   } else if (explicitDocumentId && attachModeDecision.attach_full_base64 === true) {
     const fetchStarted = Date.now();
-    pdf = await resolveOptionalPdfAttachment({
-      userSupabase,
-      customerId,
-      loadedContext,
-      unifiedState,
-      attachedDocumentId: explicitDocumentId || null,
-      env,
-      allowLatestFallback,
-    });
-    pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
-    // Single-doc vault attach: carry sha from fetch when present.
-    if (
-      vaultRecall?.mode === "attach" &&
-      vaultRecall.attachments?.[0]?.content_sha256 &&
-      pdf?.meta
-    ) {
-      pdf.meta.content_sha256 = vaultRecall.attachments[0].content_sha256;
+    if (clientAttachedDocumentIds.length > 1) {
+      // Same-turn composer multi: fetch every request document_id in order (no first/last-only).
+      const rawRows = [];
+      for (const documentId of clientAttachedDocumentIds) {
+        const fetched = await verifyAndFetchCustomerPdfOriginal({
+          supabase: userSupabase,
+          customerId,
+          documentId,
+          env,
+        });
+        if (fetched?.ok && fetched.pdfBase64) {
+          rawRows.push({
+            base64: fetched.pdfBase64,
+            mediaType: fetched.mediaType,
+            document_id: documentId,
+            original_filename: fetched.document?.original_filename ?? null,
+            content_sha256: fetched.content_sha256 ?? null,
+          });
+        }
+      }
+      pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+      if (rawRows.length) {
+        pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows, {
+          vaultSafeImage: true,
+          maxImageEdge: 2048,
+        });
+        const primary = rawRows[0];
+        pdf = {
+          pdfBase64: primary.base64,
+          mediaType: primary.mediaType,
+          meta: {
+            attached: true,
+            document_id: primary.document_id,
+            original_filename: primary.original_filename ?? null,
+            mime_type: primary.mediaType,
+            storage_mime_type: primary.mediaType,
+            content_sha256: primary.content_sha256 ?? null,
+            claude_image_source: "storage_original",
+            pdf_attach_mode: attachModeDecision.mode,
+            document_review_scope: attachModeDecision.review_scope,
+            document_evidence_status: attachModeDecision.evidence_status,
+            reuse_without_bytes: false,
+            attach_signals: buildAttachOpsSignals({
+              attachment_requested: true,
+              attachment_attached: true,
+              attachment_failed: false,
+              attachment_block_built: true,
+            }),
+          },
+        };
+      } else {
+        pdf = await resolveOptionalPdfAttachment({
+          userSupabase,
+          customerId,
+          loadedContext,
+          unifiedState,
+          attachedDocumentId: explicitDocumentId || null,
+          env,
+          allowLatestFallback,
+        });
+        pdf = {
+          ...pdf,
+          meta: {
+            ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
+            pdf_attach_mode: attachModeDecision.mode,
+            document_review_scope: attachModeDecision.review_scope,
+            document_evidence_status: attachModeDecision.evidence_status,
+            reuse_without_bytes: false,
+          },
+        };
+      }
+    } else {
+      pdf = await resolveOptionalPdfAttachment({
+        userSupabase,
+        customerId,
+        loadedContext,
+        unifiedState,
+        attachedDocumentId: explicitDocumentId || null,
+        env,
+        allowLatestFallback,
+      });
+      pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+      // Single-doc vault attach: carry sha from fetch when present.
+      if (
+        vaultRecall?.mode === "attach" &&
+        vaultRecall.attachments?.[0]?.content_sha256 &&
+        pdf?.meta
+      ) {
+        pdf.meta.content_sha256 = vaultRecall.attachments[0].content_sha256;
+      }
+      pdf = {
+        ...pdf,
+        meta: {
+          ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
+          pdf_attach_mode: attachModeDecision.mode,
+          document_review_scope: attachModeDecision.review_scope,
+          document_evidence_status: attachModeDecision.evidence_status,
+          reuse_without_bytes: false,
+          ...(vaultRecall?.listing ? { document_box_listing: vaultRecall.listing } : {}),
+        },
+      };
     }
-    pdf = {
-      ...pdf,
-      meta: {
-        ...(pdf?.meta && typeof pdf.meta === "object" ? pdf.meta : {}),
-        pdf_attach_mode: attachModeDecision.mode,
-        document_review_scope: attachModeDecision.review_scope,
-        document_evidence_status: attachModeDecision.evidence_status,
-        reuse_without_bytes: false,
-        ...(vaultRecall?.listing ? { document_box_listing: vaultRecall.listing } : {}),
-      },
-    };
   } else if (explicitDocumentId && attachModeDecision.attach_full_base64 === false) {
     // T1: skip Storage original rebroadcast; keep document identity + scope for Claude.
     pdf = {

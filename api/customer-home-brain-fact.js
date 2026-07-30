@@ -47,9 +47,18 @@ export default async function handler(req, res) {
     const presenceTurn = body?.presence === true || body?.presence_turn === true;
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
-    const attachedDocumentId = String(
-      body?.document_id ?? body?.documentId ?? body?.attached_document_id ?? "",
-    ).trim() || null;
+    const { listAttachedDocumentIds, resolveAttachDocumentIdContract } = await import(
+      "../src/lib/homeBrainAttachDocumentIds.js"
+    );
+    const attachContract = resolveAttachDocumentIdContract({
+      documentId: body?.document_id ?? body?.documentId ?? body?.attached_document_id,
+      documentIds: body?.document_ids ?? body?.documentIds,
+    });
+    const attachedDocumentId = attachContract.documentId;
+    const attachedDocumentIds =
+      attachContract.documentIds.length > 1
+        ? attachContract.documentIds
+        : listAttachedDocumentIds(attachedDocumentId);
     const { requestHasForbiddenClientImageBytes } = await import(
       "../server/keyCore/keyClaudeFullDocumentDirect.js"
     );
@@ -143,6 +152,7 @@ export default async function handler(req, res) {
         question: presenceTurn ? "" : question,
         history: presenceTurn ? [] : history,
         attachedDocumentId: presenceTurn ? null : attachedDocumentId,
+        attachedDocumentIds: presenceTurn ? [] : attachedDocumentIds,
         priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
         sessionId,
         readyCardHandoffToken,
@@ -190,6 +200,7 @@ export default async function handler(req, res) {
       question: presenceTurn ? "" : question,
       history: presenceTurn ? [] : history,
       attachedDocumentId: presenceTurn ? null : attachedDocumentId,
+      attachedDocumentIds: presenceTurn ? [] : attachedDocumentIds,
       priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
       sessionId,
       readyCardHandoffToken,

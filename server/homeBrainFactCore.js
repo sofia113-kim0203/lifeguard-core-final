@@ -32,6 +32,7 @@ import {
   resolveKeyWorkOrderTtlMs,
 } from "./keyBrain/workOrder.js";
 import { runDocumentPolicyExtraction } from "./documentPolicyExtractionPipeline.js";
+import { listAttachedDocumentIds } from "../src/lib/homeBrainAttachDocumentIds.js";
 
 /** Reuse Claude-first turn fields for factory post-processing (no second Claude call). */
 export function buildClaudeFactoryDirectionFromTurn({
@@ -449,6 +450,7 @@ export async function handleHomeBrainFactRequest({
   question,
   history = [],
   attachedDocumentId = null,
+  attachedDocumentIds = null,
   priorAttachFollowUp = false,
   sessionId = null,
   readyCardHandoffToken = null,
@@ -530,6 +532,7 @@ export async function handleHomeBrainFactRequest({
     question: trimmedQuestion,
     history: isPresenceTurn ? [] : history,
     attachedDocumentId: isPresenceTurn ? null : attachedDocumentId,
+    attachedDocumentIds: isPresenceTurn ? [] : attachedDocumentIds,
     priorAttachFollowUp: isPresenceTurn ? false : priorAttachFollowUp,
     sessionId,
     readyCardHandoffToken,
@@ -684,7 +687,12 @@ export async function handleHomeBrainFactRequest({
     },
   });
 
-  const attachedId = String(attachedDocumentId ?? "").trim() || null;
+  const attachedIds = listAttachedDocumentIds(
+    Array.isArray(attachedDocumentIds) && attachedDocumentIds.length
+      ? attachedDocumentIds
+      : attachedDocumentId,
+  );
+  const attachedId = attachedIds[0] || null;
   const claudeFactoryDirection = attachedId
     ? buildClaudeFactoryDirectionFromTurn({
         question: trimmedQuestion,
@@ -694,16 +702,23 @@ export async function handleHomeBrainFactRequest({
     : null;
 
   // Customer answer is already sealed/streamed — factory must not delay or rewrite it.
-  if (attachedId && claudeFactoryDirection) {
-    scheduleHomeChatFactoryAfterClaude({
-      userSupabase,
-      customerId,
-      documentId: attachedId,
-      claudeFactoryDirection,
-      accessToken,
-      env,
-      fetchImpl,
-    });
+  // Same-turn multi-attach: schedule factory once per uploaded document_id (order preserved).
+  if (attachedIds.length && claudeFactoryDirection) {
+    for (const documentId of attachedIds) {
+      scheduleHomeChatFactoryAfterClaude({
+        userSupabase,
+        customerId,
+        documentId,
+        claudeFactoryDirection: buildClaudeFactoryDirectionFromTurn({
+          question: trimmedQuestion,
+          documentId,
+          coreResult,
+        }),
+        accessToken,
+        env,
+        fetchImpl,
+      });
+    }
   }
 
   return buildDonePayload({

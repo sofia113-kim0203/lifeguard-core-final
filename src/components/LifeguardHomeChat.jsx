@@ -24,6 +24,13 @@ import {
   processSelectedUploadFiles,
 } from "../lib/customerMultiFileUpload.js";
 import {
+  appendChatComposerAttachment,
+  formatChatComposerAttachLabel,
+  listChatComposerDocumentIds,
+  removeChatComposerAttachment,
+  revokeChatComposerPreviewUrls,
+} from "../lib/chatComposerAttachments.js";
+import {
   clearActiveAttachmentIfDocumentDeleted,
   extractActiveAttachmentFromSessionMessages,
   isInsuranceDocumentRecallQuestion,
@@ -129,6 +136,7 @@ const ROOM_WIDE_BREAKPOINT = 1280;
 const COMPOSER_TEXTAREA_MIN_PX = 44;
 const COMPOSER_TEXTAREA_MAX_PX = 132;
 const COMPOSER_SHELL_MIN_PX = 64;
+const COMPOSER_ATTACH_LIST_MAX_PX = 168;
 /** Ignore 1–2px browser scrollTop jitter as user scroll-up. */
 const CHAT_SCROLL_UP_DEADZONE_PX = 2;
 
@@ -586,12 +594,10 @@ export default function LifeguardHomeChat({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [attachHint, setAttachHint] = useState("");
-  const [chatAttachDocumentId, setChatAttachDocumentId] = useState(null);
-  const [chatAttachFilename, setChatAttachFilename] = useState("");
+  // Composer attach chips — ordered array (never overwrite prior success with next file).
+  const [chatAttachments, setChatAttachments] = useState([]);
   const [chatAttachUploading, setChatAttachUploading] = useState(false);
   const [chatAttachError, setChatAttachError] = useState("");
-  const [chatAttachPreviewUrl, setChatAttachPreviewUrl] = useState("");
-  const [chatAttachIsImage, setChatAttachIsImage] = useState(false);
   // Conversation-scoped active attachment (survives composer clear).
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
@@ -1730,17 +1736,24 @@ export default function LifeguardHomeChat({
       });
     }
 
-    const composerDocumentId = chatAttachDocumentId;
-    const composerIsImage = chatAttachIsImage;
-    const composerFilename = chatAttachFilename;
+    const composerAttachments = Array.isArray(chatAttachments) ? chatAttachments : [];
+    const composerDocumentIds = listChatComposerDocumentIds(composerAttachments);
+    const composerDocumentId = composerDocumentIds[0] || null;
+    const composerAttachLabel = formatChatComposerAttachLabel(composerAttachments);
+    const composerPrimary = composerAttachments[0] || null;
+    const composerActiveSeed =
+      composerAttachments[composerAttachments.length - 1] || composerPrimary;
 
+    let documentIdsForTurn = composerDocumentIds.slice();
     let documentIdForTurn = composerDocumentId;
-    let attachIsImageForTurn = composerIsImage;
-    let attachMimeForTurn = composerIsImage
-      ? "image/jpeg"
-      : composerDocumentId
-        ? "application/pdf"
-        : null;
+    let attachIsImageForTurn = composerPrimary?.isImage === true;
+    let attachMimeForTurn =
+      composerActiveSeed?.mime ||
+      (composerPrimary?.isImage
+        ? "image/jpeg"
+        : composerDocumentId
+          ? "application/pdf"
+          : null);
     let reusedActiveAttachment = false;
 
     // Physical conversation active attachment — every turn until cleared (no keyword pre-route).
@@ -1748,6 +1761,7 @@ export default function LifeguardHomeChat({
     if (!documentIdForTurn && activeAttachmentId) {
       if (isReusableActiveAttachmentId(activeAttachmentId, documents)) {
         documentIdForTurn = activeAttachmentId;
+        documentIdsForTurn = [activeAttachmentId];
         attachMimeForTurn = activeAttachmentMime;
         attachIsImageForTurn =
           !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
@@ -1764,6 +1778,10 @@ export default function LifeguardHomeChat({
         }
       }
     }
+    const activeDocumentIdForTurn =
+      documentIdsForTurn.length > 0
+        ? documentIdsForTurn[documentIdsForTurn.length - 1]
+        : documentIdForTurn;
 
     setPanelView("chat");
     setSidebarOpen(false);
@@ -1780,8 +1798,8 @@ export default function LifeguardHomeChat({
       : null;
     const userMessage = {
       role: "user",
-      content: composerDocumentId
-        ? `${trimmed}\n\n(첨부: ${composerFilename || "파일"})`
+      content: composerDocumentIds.length
+        ? `${trimmed}\n\n(첨부: ${composerAttachLabel || "파일"})`
         : trimmed,
       turnId,
     };
@@ -1843,6 +1861,7 @@ export default function LifeguardHomeChat({
       let attachOptions = {
         sessionId,
         ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
+        ...(documentIdsForTurn.length > 1 ? { documentIds: documentIdsForTurn } : {}),
         ...(handoffToken ? { readyCardHandoffToken: handoffToken } : {}),
         viewMode,
         ...(viewMode !== "personal" && selectedEntityId
@@ -2027,13 +2046,13 @@ export default function LifeguardHomeChat({
         setActiveAttachmentId(null);
         setActiveAttachmentMime(null);
         nextActive = null;
-      } else if (documentIdForTurn) {
+      } else if (activeDocumentIdForTurn) {
         nextActive = {
-          active_attachment_id: documentIdForTurn,
+          active_attachment_id: activeDocumentIdForTurn,
           active_attachment_mime: attachMimeForTurn,
           active_rotation_quarter_turns: 0,
         };
-        setActiveAttachmentId(documentIdForTurn);
+        setActiveAttachmentId(activeDocumentIdForTurn);
         setActiveAttachmentMime(attachMimeForTurn);
       } else if (activeAttachmentId) {
         nextActive = {
@@ -2178,15 +2197,12 @@ export default function LifeguardHomeChat({
   };
 
   const clearComposerAttach = () => {
-    setChatAttachDocumentId(null);
-    setChatAttachFilename("");
+    setChatAttachments((prev) => {
+      revokeChatComposerPreviewUrls(prev);
+      return [];
+    });
     setChatAttachError("");
     setAttachHint("");
-    setChatAttachIsImage(false);
-    setChatAttachPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return "";
-    });
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -2206,8 +2222,12 @@ export default function LifeguardHomeChat({
     (deletedDocumentId) => {
       const deleted = String(deletedDocumentId ?? "").trim();
       if (!deleted) return;
-      if (chatAttachDocumentId === deleted) {
-        clearComposerAttach();
+      if (listChatComposerDocumentIds(chatAttachments).includes(deleted)) {
+        setChatAttachments((prev) => {
+          const removed = prev.filter((row) => String(row?.documentId ?? "").trim() === deleted);
+          revokeChatComposerPreviewUrls(removed);
+          return removeChatComposerAttachment(prev, deleted);
+        });
       }
       // Always tombstone + scrub message metadata — refresh reloads DB metadata otherwise.
       if (customerId) {
@@ -2238,7 +2258,7 @@ export default function LifeguardHomeChat({
       });
     },
     [
-      chatAttachDocumentId,
+      chatAttachments,
       activeAttachmentId,
       activeAttachmentMime,
       customerId,
@@ -2309,10 +2329,13 @@ export default function LifeguardHomeChat({
     [authUser, documentDeletingId, finishDocumentDeleteResult],
   );
 
-  const handleComposerRemove = async () => {
-    const did = chatAttachDocumentId;
+  const handleComposerRemove = async (documentId = null) => {
+    const did =
+      String(documentId ?? "").trim() ||
+      listChatComposerDocumentIds(chatAttachments)[0] ||
+      "";
     if (!did || !authUser) {
-      clearComposerAttach();
+      if (!did) clearComposerAttach();
       return;
     }
     if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteConfirm)) return;
@@ -2357,7 +2380,6 @@ export default function LifeguardHomeChat({
     setChatAttachError("");
     setAttachHint("");
     const fileErrors = [];
-    let lastOk = null;
     try {
       await processSelectedUploadFiles(files, async (file) => {
         try {
@@ -2385,14 +2407,18 @@ export default function LifeguardHomeChat({
           const mime =
             String(doc?.mime_type ?? file.type ?? "").trim() ||
             (isImage ? "image/jpeg" : "application/pdf");
-          lastOk = { file, doc, documentId, mime, isImage };
-          setChatAttachIsImage(isImage);
-          setChatAttachPreviewUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return isImage ? URL.createObjectURL(file) : "";
-          });
-          setChatAttachDocumentId(documentId);
-          setChatAttachFilename(String(doc?.original_filename ?? file.name ?? "파일").trim());
+          const filename = String(doc?.original_filename ?? file.name ?? "파일").trim();
+          const previewUrl = isImage ? URL.createObjectURL(file) : "";
+          // Append — never overwrite prior successful composer attaches.
+          setChatAttachments((prev) =>
+            appendChatComposerAttachment(prev, {
+              documentId,
+              filename,
+              previewUrl,
+              mime,
+              isImage,
+            }),
+          );
           // Seed conversation active attach at upload — do not wait for a successful turn.
           // Follow-ups ("방금 올린/내 문서") must resend document_id even if composer chip is cleared.
           setActiveAttachmentId(documentId);
@@ -2415,14 +2441,11 @@ export default function LifeguardHomeChat({
         }
       });
       await loadDocumentsRef.current?.();
-      if (!lastOk && fileErrors.length > 0) {
-        clearComposerAttach();
-        setChatAttachError(fileErrors[0]);
-      } else if (fileErrors.length > 0) {
+      // Keep any successful composer attaches (including prior ones). Failures are not appended.
+      if (fileErrors.length > 0) {
         setChatAttachError(fileErrors[0]);
       }
     } catch (err) {
-      if (!lastOk) clearComposerAttach();
       setChatAttachError(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
     } finally {
       setChatAttachUploading(false);
@@ -3355,7 +3378,7 @@ export default function LifeguardHomeChat({
                 파일 업로드 중…
               </div>
             ) : null}
-            {chatAttachDocumentId && !chatAttachUploading ? (
+            {chatAttachments.length > 0 && !chatAttachUploading ? (
               <div
                 style={{
                   display: "flex",
@@ -3364,58 +3387,86 @@ export default function LifeguardHomeChat({
                   marginBottom: "8px",
                   fontSize: "13px",
                   color: LG.text,
+                  maxHeight: `${COMPOSER_ATTACH_LIST_MAX_PX}px`,
+                  overflowY: chatAttachments.length > 2 ? "auto" : "visible",
                 }}
               >
-                {chatAttachIsImage && chatAttachPreviewUrl ? (
-                  <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                    <img
-                      src={chatAttachPreviewUrl}
-                      alt="첨부 미리보기"
+                {chatAttachments.map((row) => {
+                  const did = String(row?.documentId ?? "").trim();
+                  const filename = String(row?.filename ?? "파일").trim() || "파일";
+                  const previewUrl = String(row?.previewUrl ?? "").trim();
+                  const showImage = row?.isImage === true && Boolean(previewUrl);
+                  return (
+                    <div
+                      key={did || filename}
                       style={{
-                        width: "96px",
-                        height: "96px",
-                        objectFit: "contain",
-                        borderRadius: "8px",
-                        background: FINAL_UI.surface,
-                        border: `1px solid ${LG.border}`,
+                        display: "flex",
+                        gap: "10px",
+                        alignItems: "flex-start",
+                        justifyContent: "space-between",
                       }}
-                    />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                        첨부됨: {chatAttachFilename || "이미지"}
-                      </span>
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "10px",
+                          alignItems: "flex-start",
+                          minWidth: 0,
+                          flex: 1,
+                        }}
+                      >
+                        {showImage ? (
+                          <img
+                            src={previewUrl}
+                            alt={`${filename} 미리보기`}
+                            style={{
+                              width: "72px",
+                              height: "72px",
+                              objectFit: "contain",
+                              borderRadius: "8px",
+                              background: FINAL_UI.surface,
+                              border: `1px solid ${LG.border}`,
+                              flexShrink: 0,
+                            }}
+                          />
+                        ) : null}
+                        <span
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            minWidth: 0,
+                          }}
+                        >
+                          첨부됨: {filename}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`${DOCUMENT_UI_MESSAGES.deleteAction}: ${filename}`}
+                        disabled={Boolean(documentDeletingId)}
+                        onClick={() => {
+                          void handleComposerRemove(did);
+                        }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: documentDeletingId ? LG.textSoft : "#B91C1C",
+                          cursor: documentDeletingId ? "default" : "pointer",
+                          fontSize: "13px",
+                          fontFamily: FINAL_UI.sans,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {documentDeletingId === did
+                          ? "삭제 중…"
+                          : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
+                      </button>
                     </div>
-                  </div>
-                ) : (
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                    첨부됨: {chatAttachFilename || "파일"}
-                  </span>
-                )}
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    aria-label={DOCUMENT_UI_MESSAGES.deleteAction}
-                    disabled={Boolean(documentDeletingId)}
-                    onClick={() => {
-                      void handleComposerRemove();
-                    }}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      color: documentDeletingId ? LG.textSoft : "#B91C1C",
-                      cursor: documentDeletingId ? "default" : "pointer",
-                      fontSize: "13px",
-                      fontFamily: FINAL_UI.sans,
-                    }}
-                  >
-                    {documentDeletingId === chatAttachDocumentId
-                      ? "삭제 중…"
-                      : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
-                  </button>
-                </div>
+                  );
+                })}
               </div>
             ) : null}
-            {!chatAttachDocumentId && !chatAttachUploading && activeAttachmentId ? (
+            {chatAttachments.length === 0 && !chatAttachUploading && activeAttachmentId ? (
               <div
                 style={{
                   display: "flex",

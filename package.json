@@ -180,6 +180,7 @@
     "test:key-canonical-contract-ssot": "node scripts/key-canonical-contract-ssot-unit-test.mjs",
     "test:key-policy-ledger-active-only": "node scripts/key-policy-ledger-active-only-unit-test.mjs",
     "test:key-multi-upload-all-files": "node scripts/key-multi-upload-all-files-unit-test.mjs",
+    "test:key-multi-attach-composer": "node scripts/key-multi-attach-composer-unit-test.mjs",
     "test:key-verified-coverage-reinjection": "node scripts/key-verified-coverage-reinjection-unit-test.mjs",
     "test:key-claude-first-direct": "node scripts/key-claude-first-direct-unit-test.mjs",
     "test:key-qa-turn-recorder": "node scripts/key-qa-turn-recorder-unit-test.mjs",

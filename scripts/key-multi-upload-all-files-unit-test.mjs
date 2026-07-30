@@ -139,6 +139,8 @@ console.log("key-multi-upload-all-files-unit-test");
     "document upload flow must not keep first-file-only selection",
   );
   assert.match(chatSrc, /processSelectedUploadFiles/);
+  assert.match(chatSrc, /appendChatComposerAttachment/);
+  assert.match(chatSrc, /chatAttachments/);
   assert.match(
     readFileSync(join(ROOT, "src/hooks/useCustomerDocumentUpload.js"), "utf8"),
     /processSelectedUploadFiles/,
