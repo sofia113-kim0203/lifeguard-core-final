@@ -64,6 +64,9 @@ export async function normalizeImageOrientationForClaude({
   base64 = null,
   mediaType = null,
   sharpImpl = null,
+  /** Vault multi: force Anthropic-safe JPEG + drop undecodable images (no raw passthrough). */
+  vaultSafeImage = false,
+  maxImageEdge = 2048,
 } = {}) {
   const mime = String(mediaType ?? "").toLowerCase().trim();
   const rawB64 = String(base64 ?? "").trim();
@@ -82,7 +85,7 @@ export async function normalizeImageOrientationForClaude({
     buf = Buffer.from(rawB64, "base64");
   } catch {
     return {
-      base64: rawB64,
+      base64: vaultSafeImage ? null : rawB64,
       mediaType: mime,
       rotated: false,
       orientation_before: null,
@@ -105,7 +108,7 @@ export async function normalizeImageOrientationForClaude({
   }
   if (!sharpFn) {
     return {
-      base64: rawB64,
+      base64: vaultSafeImage ? null : rawB64,
       mediaType: mime,
       rotated: false,
       orientation_before,
@@ -115,7 +118,25 @@ export async function normalizeImageOrientationForClaude({
   }
 
   try {
-    const pipeline = sharpFn(buf).rotate(); // auto EXIF orient, then strip
+    const edge = Math.min(Math.max(Number(maxImageEdge) || 2048, 512), 8000);
+    let pipeline = sharpFn(buf).rotate(); // auto EXIF orient, then strip
+    if (vaultSafeImage === true) {
+      pipeline = pipeline.resize({
+        width: edge,
+        height: edge,
+        fit: "inside",
+        withoutEnlargement: true,
+      });
+      const outBuf = await pipeline.jpeg({ quality: 85, mozjpeg: true }).toBuffer();
+      return {
+        base64: outBuf.toString("base64"),
+        mediaType: "image/jpeg",
+        rotated: orientation_before != null && orientation_before !== 1,
+        orientation_before,
+        orientation_after: 1,
+        reason: "vault_safe_jpeg",
+      };
+    }
     const outMime = mime.includes("png")
       ? "image/png"
       : mime.includes("webp")
@@ -139,7 +160,7 @@ export async function normalizeImageOrientationForClaude({
     };
   } catch (err) {
     return {
-      base64: rawB64,
+      base64: vaultSafeImage ? null : rawB64,
       mediaType: mime,
       rotated: false,
       orientation_before,
@@ -152,13 +173,17 @@ export async function normalizeImageOrientationForClaude({
 export async function normalizeAttachmentRowsForClaude(rows = [], opts = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const out = [];
+  const vaultSafeImage = opts.vaultSafeImage === true;
   for (const row of list) {
     if (!row?.base64) continue;
     const normalized = await normalizeImageOrientationForClaude({
       base64: row.base64,
       mediaType: row.mediaType || row.mime_type || null,
       sharpImpl: opts.sharpImpl,
+      vaultSafeImage,
+      maxImageEdge: opts.maxImageEdge,
     });
+    if (!normalized.base64) continue; // drop unprocessable images (vault-safe)
     out.push({
       ...row,
       base64: normalized.base64,

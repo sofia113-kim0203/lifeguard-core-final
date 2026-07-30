@@ -55,7 +55,9 @@ import {
   verifyAndFetchCustomerPdfOriginal,
   resolveExplicitCustomerDocumentMention,
   resolveOwnedInsuranceVaultRecall,
+  mergeOwnedDocumentAttachRows,
   CLAUDE_FULL_PDF_MAX_BYTES,
+  CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
   isClaudeDirectImageMediaType,
   normalizeClaudeDirectAttachMediaType,
   buildAttachOpsSignals,
@@ -66,6 +68,7 @@ import {
   extractMentionedFilenamesFromChat,
   isInsuranceDocumentRecallQuestion,
   isOriginalDocumentRereadQuestion,
+  shouldRunOwnedVaultRecall,
 } from "../../src/lib/chatActiveAttachment.js";
 import {
   gateKeyVoiceAnswer,
@@ -211,7 +214,7 @@ import {
   normalizeImageOrientationForClaude,
 } from "./keyImageOrientation.js";
 import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
-import {
+  import {
   buildPolicyCountAuthorityAddendum,
   buildSourceSeparatedTruthContext,
   buildTurnEvidencePackageMeta,
@@ -4463,6 +4466,9 @@ async function callClaudeFirstDirect({
         claim_case_updates: claimCaseUpdates,
         pdf_attached: false,
         pdf_attached_attempted: pdfAttached === true,
+        original_attachment_count:
+          multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
+        provider_messages_request_count: messagesRequestCount,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -5020,37 +5026,93 @@ export async function runClaudeFirstDirectQuestionTurn({
   let explicitDocumentId = isPresenceTurn
     ? ""
     : String(attachedDocumentId ?? "").trim();
+  const clientExplicitDocumentId = explicitDocumentId;
   let documentMentionResolve = null;
   let vaultRecall = null;
   let pdfAttachmentsForClaude = null;
   let pdfFetchMs = null;
   const wantsVaultEvidence =
     !isPresenceTurn && wantsOwnedInsuranceVaultEvidence(question) === true;
+  const runVaultRecall = shouldRunOwnedVaultRecall({
+    wantsVaultEvidence,
+    isPresenceTurn,
+  });
   // C-first: owned insurance-series vault recall (sha256 dedupe; no silent latest).
-  if (
-    wantsVaultEvidence &&
-    !explicitDocumentId &&
-    userSupabase &&
-    customerId
-  ) {
+  // Vault multi-intent must run even when activeAttachmentId / singular document_id is set.
+  if (runVaultRecall && userSupabase && customerId) {
     const fetchStarted = Date.now();
     vaultRecall = await resolveOwnedInsuranceVaultRecall({
       supabase: userSupabase,
       customerId,
       env,
+      maxUniqueAttach: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
     });
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
-    if (vaultRecall.mode === "attach" && vaultRecall.attachments?.length) {
-      const rawRows = vaultRecall.attachments.map((row) => ({
-        base64: row.pdfBase64,
+
+    let explicitAttachmentRow = null;
+    if (clientExplicitDocumentId) {
+      const inVault = (vaultRecall.attachments || []).some(
+        (row) => String(row?.document_id ?? "").trim() === clientExplicitDocumentId,
+      );
+      if (!inVault) {
+        const fetched = await verifyAndFetchCustomerPdfOriginal({
+          supabase: userSupabase,
+          customerId,
+          documentId: clientExplicitDocumentId,
+          env,
+        });
+        if (fetched?.ok && fetched.pdfBase64) {
+          explicitAttachmentRow = {
+            document_id: clientExplicitDocumentId,
+            original_filename: fetched.document?.original_filename ?? null,
+            pdfBase64: fetched.pdfBase64,
+            mediaType: fetched.mediaType,
+            fileSizeBytes: fetched.fileSizeBytes ?? null,
+            content_sha256: fetched.content_sha256 ?? null,
+          };
+        }
+      }
+    }
+
+    const mergedAttach = mergeOwnedDocumentAttachRows({
+      vaultAttachments: vaultRecall.attachments || [],
+      explicitAttachment: explicitAttachmentRow,
+      explicitDocumentId: clientExplicitDocumentId || null,
+      maxUnique: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
+    });
+
+    if (mergedAttach.length) {
+      const rawRows = mergedAttach.map((row) => ({
+        base64: row.pdfBase64 ?? row.base64,
         mediaType: row.mediaType,
         document_id: row.document_id,
         original_filename: row.original_filename,
         content_sha256: row.content_sha256,
       }));
       // Runtime EXIF/orientation normalize for Claude only — Storage originals untouched.
-      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows);
-      explicitDocumentId = String(vaultRecall.attachments[0].document_id).trim();
+      // Vault multi: PDF-first upstream + Anthropic-safe JPEG; drop undecodable images
+      // (root cause of ANTHROPIC_HTTP_400 "Could not process image" monopoly stub).
+      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows, {
+        vaultSafeImage: true,
+        maxImageEdge: 2048,
+      });
+      if (!explicitDocumentId) {
+        explicitDocumentId = String(mergedAttach[0].document_id).trim();
+      }
+      if (vaultRecall.mode !== "attach") {
+        vaultRecall = {
+          ...vaultRecall,
+          mode: "attach",
+          reason: vaultRecall.reason || "owned_vault_merged_with_explicit",
+          attachments: mergedAttach,
+        };
+      } else {
+        vaultRecall = {
+          ...vaultRecall,
+          attachments: mergedAttach,
+          reason: "owned_insurance_vault_merged_deduped",
+        };
+      }
     }
   }
   // B: explicit 내 문서 / filename pointer — only when vault evidence was not requested
@@ -5104,6 +5166,10 @@ export async function runClaudeFirstDirectQuestionTurn({
     void chunkLoadStarted;
   }
 
+  const vaultMultiRecallActive =
+    runVaultRecall === true &&
+    Array.isArray(pdfAttachmentsForClaude) &&
+    pdfAttachmentsForClaude.length > 0;
   const attachModeDecision = decidePdfAttachMode({
     documentId: explicitDocumentId || null,
     priorAttachFollowUp: clientPriorAttach,
@@ -5111,6 +5177,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     chunkCount: documentChunksForClaude.length,
     mediaType: null,
     forceFullOriginal,
+    vaultMultiRecall: vaultMultiRecallActive,
   });
 
   let pdf = {
@@ -5154,6 +5221,8 @@ export async function runClaudeFirstDirectQuestionTurn({
         note: vaultRecall.reason,
         document_box_listing: vaultRecall.listing ?? [],
         vault_attach_count: pdfAttachmentsForClaude.length,
+        // Non-PII vault attach stage counts (ops / seat metrics only).
+        vault_stage_counts: vaultRecall?.stage_counts ?? null,
         attach_signals: buildAttachOpsSignals({
           attachment_requested: true,
           attachment_attached: true,
@@ -5183,6 +5252,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         document_box_listing: vaultRecall.listing ?? [],
         vault_recall_mode: vaultRecall.mode,
         vault_failed: Array.isArray(vaultRecall.failed) ? vaultRecall.failed : [],
+        vault_stage_counts: vaultRecall?.stage_counts ?? null,
         attach_signals: buildAttachOpsSignals({
           attachment_requested: true,
           attachment_attached: false,
@@ -5974,6 +6044,15 @@ export async function runClaudeFirstDirectQuestionTurn({
             web_search: claude.web_search_trace ?? null,
             pdf_attached: claude.pdf_attached === true,
             pdf_attached_attempted: claude.pdf_attached_attempted === true,
+            original_attachment_count: Array.isArray(pdfAttachmentsForClaude)
+              ? pdfAttachmentsForClaude.length
+              : pdf?.meta?.attached === true
+                ? 1
+                : 0,
+            vault_attach_count: Array.isArray(pdfAttachmentsForClaude)
+              ? pdfAttachmentsForClaude.length
+              : Number(pdf?.meta?.vault_attach_count ?? 0) || 0,
+            vault_stage_counts: vaultRecall?.stage_counts ?? null,
             recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
             recommendation_basis_count: Number(claude.recommendation_basis_count ?? 0) || 0,
             recommendation_basis_rejected_count:
@@ -6387,6 +6466,10 @@ export async function runClaudeFirstDirectQuestionTurn({
               pdf_attached: claude.pdf_attached === true,
               original_attachment_count:
                 Number(claude.original_attachment_count ?? 0) || 0,
+              vault_attach_count: Array.isArray(pdfAttachmentsForClaude)
+                ? pdfAttachmentsForClaude.length
+                : 0,
+              vault_stage_counts: vaultRecall?.stage_counts ?? null,
               evidence_package: turnEvidencePackage,
               verified_policy_ledger_count:
                 verifiedPolicyLedgerBrief?.active_distinct_count ?? null,
