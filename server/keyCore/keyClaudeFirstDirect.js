@@ -77,9 +77,13 @@ import {
   buildAttachAnalysisScopeAuthorityAddendum,
   buildDeterministicDocumentTotals,
   buildDeterministicTotalsAuthorityAddendum,
+  buildDocumentSourceScopeCatalogAddendum,
   buildIncompleteProcessingNotice,
+  buildUnsupportedEvaluationAuthorityAddendum,
   buildVaultDocumentSourceScopeAddendum,
+  contentSha256FromBase64,
   dedupeDocumentRowsForRuntimeSum,
+  dedupeRowsForOriginalDelivery,
   shouldPreferRequestDocumentScopeOnly,
   stripNonAttachEvidenceFromUserPayload,
 } from "./keyDocumentSumAccuracy.js";
@@ -4133,6 +4137,8 @@ async function callClaudeFirstDirect({
   attachAnalysisScopeOnly = false,
   /** Preview QA turn capture bag (Surgery 0) — mutate-only; never affects customer path. */
   qaTurnCapture = null,
+  /** Ordered request document_ids for Claude scope (may exceed post-fetch rows). */
+  requestedAttachDocumentIds = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -4297,9 +4303,16 @@ async function callClaudeFirstDirect({
       : [ANTHROPIC_WEB_SEARCH_TOOL];
   const documentRecordTools = [];
   const requestTools = [...publicWebSearchTools];
-  const attachDocumentIds = [
+  const requestedIds = [
     ...new Set(
       [
+        ...(Array.isArray(requestedAttachDocumentIds) ? requestedAttachDocumentIds : []),
+        ...(Array.isArray(pdfMeta?.attached_document_ids)
+          ? pdfMeta.attached_document_ids
+          : []),
+        ...(Array.isArray(pdfMeta?.requested_document_ids)
+          ? pdfMeta.requested_document_ids
+          : []),
         pdfMeta?.document_id,
         ...multiAttachments.map((row) => row?.document_id),
       ]
@@ -4307,6 +4320,19 @@ async function callClaudeFirstDirect({
         .filter(Boolean),
     ),
   ];
+  const attachDocumentIds =
+    requestedIds.length > 0
+      ? requestedIds
+      : [
+          ...new Set(
+            [
+              pdfMeta?.document_id,
+              ...multiAttachments.map((row) => row?.document_id),
+            ]
+              .map((id) => String(id ?? "").trim())
+              .filter(Boolean),
+          ),
+        ];
   let systemTextBase = composeClaudeFirstSystemText({
     presenceTurn: presenceTurn === true,
     audience,
@@ -4371,6 +4397,25 @@ async function callClaudeFirstDirect({
       systemTextBase = `${systemTextBase}\n\n${scopeAddendum}`;
     }
   }
+  if (presenceTurn !== true) {
+    const catalog =
+      Array.isArray(pdfMeta?.document_source_scopes) && pdfMeta.document_source_scopes.length
+        ? buildDocumentSourceScopeCatalogAddendum(pdfMeta.document_source_scopes)
+        : attachDocumentIds.length
+          ? buildDocumentSourceScopeCatalogAddendum(
+              attachDocumentIds.map((id) => ({
+                document_id: id,
+                source_scope:
+                  String(pdfMeta?.document_review_scope ?? "").includes("vault") ||
+                  pdfMeta?.vault_recall_mode ||
+                  Number(pdfMeta?.vault_attach_count) > 0
+                    ? "vault_document"
+                    : "current_turn_attachment",
+              })),
+            )
+          : null;
+    if (catalog) systemTextBase = `${systemTextBase}\n\n${catalog}`;
+  }
   if (
     presenceTurn !== true &&
     pdfMeta &&
@@ -4380,6 +4425,9 @@ async function callClaudeFirstDirect({
       Number(pdfMeta.vault_attach_count) > 0)
   ) {
     systemTextBase = `${systemTextBase}\n\n${buildVaultDocumentSourceScopeAddendum()}`;
+  }
+  if (presenceTurn !== true && pdfAttached) {
+    systemTextBase = `${systemTextBase}\n\n${buildUnsupportedEvaluationAuthorityAddendum()}`;
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -4435,7 +4483,7 @@ async function callClaudeFirstDirect({
     pdfBase64: primaryPdfBase64,
     mediaType: primaryPdfMediaType,
     attachments:
-      multiAttachments.length > 1
+      multiAttachments.length >= 1
         ? multiAttachments.map((row) => ({
             base64: row.base64,
             mediaType: row.mediaType,
@@ -5235,23 +5283,18 @@ export async function runClaudeFirstDirectQuestionTurn({
       }
     }
 
-    // Composer multi: keep request order (A→B), dedupe id then content sha (bytes if needed).
-    // Single/vault: existing merge helper. Request-scope-only skips vault mix-in upstream.
+    // Composer multi: keep request order. Delivery dedupe = id repeat OR identical bytes only.
+    // Never drop distinct request document_ids because of a shared stored content_sha256.
     let mergedAttach;
     if (clientAttachedDocumentIds.length > 1) {
       const byId = new Map();
-      const seenSha = new Set();
       for (const row of [
         ...explicitAttachmentRows,
         ...(Array.isArray(vaultRecall.attachments) ? vaultRecall.attachments : []),
       ]) {
         const did = String(row?.document_id ?? "").trim();
         if (!did || byId.has(did)) continue;
-        const sha = resolveAttachRowContentSha(row);
-        if (sha && seenSha.has(sha)) continue;
-        const normalized = sha && !row.content_sha256 ? { ...row, content_sha256: sha } : row;
-        byId.set(did, normalized);
-        if (sha) seenSha.add(sha);
+        byId.set(did, row);
       }
       const ordered = [];
       for (const id of clientAttachedDocumentIds) {
@@ -5259,8 +5302,12 @@ export async function runClaudeFirstDirectQuestionTurn({
         ordered.push(byId.get(id));
         byId.delete(id);
       }
-      for (const row of byId.values()) ordered.push(row);
-      mergedAttach = ordered.slice(0, CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH);
+      // Remaining vault rows (explicit vault ask): calc-safe sha dedupe via delivery helper.
+      const extras = dedupeRowsForOriginalDelivery([...byId.values()]);
+      mergedAttach = dedupeRowsForOriginalDelivery([...ordered, ...extras]).slice(
+        0,
+        CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
+      );
     } else {
       mergedAttach = mergeOwnedDocumentAttachRows({
         vaultAttachments: vaultRecall.attachments || [],
@@ -5396,14 +5443,29 @@ export async function runClaudeFirstDirectQuestionTurn({
   };
 
   if (pdfAttachmentsForClaude?.length && vaultRecall?.attachments?.length) {
-    // Vault originals already fetched + sha-deduped (single or multi).
+    // Vault originals already fetched + delivery-deduped (single or multi).
     const primary = vaultRecall.attachments[0];
+    const vaultAttachIds = pdfAttachmentsForClaude
+      .map((r) => String(r?.document_id ?? "").trim())
+      .filter(Boolean);
+    const requestIdSet = new Set(clientAttachedDocumentIds);
     pdf = {
       pdfBase64: primary.pdfBase64,
       mediaType: primary.mediaType,
       meta: {
         attached: true,
         document_id: primary.document_id,
+        attached_document_ids: vaultAttachIds,
+        requested_document_ids:
+          clientAttachedDocumentIds.length > 0
+            ? clientAttachedDocumentIds.slice()
+            : vaultAttachIds,
+        document_source_scopes: vaultAttachIds.map((id) => ({
+          document_id: id,
+          source_scope: requestIdSet.has(id)
+            ? "current_turn_attachment"
+            : "vault_document",
+        })),
         original_filename: primary.original_filename ?? null,
         mime_type: primary.mediaType,
         content_sha256: primary.content_sha256 ?? null,
@@ -5462,10 +5524,10 @@ export async function runClaudeFirstDirectQuestionTurn({
     const fetchStarted = Date.now();
     if (clientAttachedDocumentIds.length > 1) {
       // Same-turn composer multi: fetch every request document_id in order (no first/last-only).
-      // Dedupe repeated ids and identical bytes (other document_id) before Claude attach.
+      // Delivery dedupe: repeated id OR identical bytes SHA only (never stored sha alone).
       const rawRows = [];
       const seenIds = new Set();
-      const seenSha = new Set();
+      const seenBytesSha = new Set();
       for (const documentId of clientAttachedDocumentIds) {
         if (seenIds.has(documentId)) continue;
         seenIds.add(documentId);
@@ -5476,16 +5538,17 @@ export async function runClaudeFirstDirectQuestionTurn({
           env,
         });
         if (fetched?.ok && fetched.pdfBase64) {
-          let sha = String(fetched.content_sha256 ?? "").trim().toLowerCase();
-          if (!sha) sha = resolveAttachRowContentSha({ base64: fetched.pdfBase64 }) || "";
-          if (sha && seenSha.has(sha)) continue;
-          if (sha) seenSha.add(sha);
+          const bytesSha = contentSha256FromBase64(fetched.pdfBase64);
+          if (bytesSha && seenBytesSha.has(bytesSha)) continue;
+          if (bytesSha) seenBytesSha.add(bytesSha);
+          const storedSha = String(fetched.content_sha256 ?? "").trim().toLowerCase();
           rawRows.push({
             base64: fetched.pdfBase64,
             mediaType: fetched.mediaType,
             document_id: documentId,
             original_filename: fetched.document?.original_filename ?? null,
-            content_sha256: sha || null,
+            content_sha256: storedSha || bytesSha || null,
+            delivery_bytes_sha256: bytesSha || null,
           });
         }
       }
@@ -5496,19 +5559,26 @@ export async function runClaudeFirstDirectQuestionTurn({
           maxImageEdge: 2048,
         });
         const primary = rawRows[0];
+        const sourceScopes = clientAttachedDocumentIds.map((id) => ({
+          document_id: id,
+          source_scope: "current_turn_attachment",
+        }));
         pdf = {
           pdfBase64: primary.base64,
           mediaType: primary.mediaType,
           meta: {
             attached: true,
             document_id: primary.document_id,
+            attached_document_ids: clientAttachedDocumentIds.slice(),
+            requested_document_ids: clientAttachedDocumentIds.slice(),
+            document_source_scopes: sourceScopes,
             original_filename: primary.original_filename ?? null,
             mime_type: primary.mediaType,
             storage_mime_type: primary.mediaType,
             content_sha256: primary.content_sha256 ?? null,
             claude_image_source: "storage_original",
             pdf_attach_mode: attachModeDecision.mode,
-            document_review_scope: attachModeDecision.review_scope,
+            document_review_scope: "current_turn_attachments_multi_original",
             document_evidence_status: attachModeDecision.evidence_status,
             reuse_without_bytes: false,
             attach_signals: buildAttachOpsSignals({
@@ -6059,6 +6129,16 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? { document_box_listing: documentMentionResolve.listing }
       : {}),
     document_mention_resolve: documentMentionResolve?.reason ?? null,
+    ...(clientAttachedDocumentIds.length
+      ? {
+          attached_document_ids:
+            Array.isArray(pdf?.meta?.attached_document_ids) &&
+            pdf.meta.attached_document_ids.length
+              ? pdf.meta.attached_document_ids
+              : clientAttachedDocumentIds.slice(),
+          requested_document_ids: clientAttachedDocumentIds.slice(),
+        }
+      : {}),
   };
 
   // Policy truth evidence package — PII-safe meta; ledger is sole confirmed count authority.
@@ -6284,12 +6364,14 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
     pdfBase64: isPresenceTurn ? null : pdf.pdfBase64,
     pdfMediaType: isPresenceTurn ? null : pdf.mediaType,
+    // Pass every fetched original block (length >= 1). Do not gate on > 1.
     pdfAttachments: isPresenceTurn
       ? null
-      : Array.isArray(pdfAttachmentsForClaude) && pdfAttachmentsForClaude.length > 1
+      : Array.isArray(pdfAttachmentsForClaude) && pdfAttachmentsForClaude.length >= 1
         ? pdfAttachmentsForClaude
         : null,
     pdfMeta: isPresenceTurn ? null : pdfMetaForClaude,
+    requestedAttachDocumentIds: isPresenceTurn ? null : clientAttachedDocumentIds,
     corporateContexts: isPresenceTurn || requestScopeOnly ? null : corporateContexts,
     corporateGapEvidence:
       isPresenceTurn || requestScopeOnly ? null : corporateGapEvidence,

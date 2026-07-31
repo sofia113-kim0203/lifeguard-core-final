@@ -666,8 +666,11 @@ export default function LifeguardHomeChat({
       setLoading(Boolean(turn.loading));
       setStreaming(Boolean(turn.streaming));
       if (turn.activeAttachment?.active_attachment_id) {
-        setActiveAttachmentId(turn.activeAttachment.active_attachment_id);
-        setActiveAttachmentMime(turn.activeAttachment.active_attachment_mime ?? null);
+        setConversationActiveAttachment(
+          turn.activeAttachment.active_attachment_id,
+          turn.activeAttachment.active_attachment_mime ?? null,
+          turn.activeAttachment.active_attachment_ids,
+        );
       }
     });
     return () => {
@@ -1288,8 +1291,11 @@ export default function LifeguardHomeChat({
       setLoading(Boolean(inflight.loading));
       setStreaming(Boolean(inflight.streaming));
       if (inflight.activeAttachment?.active_attachment_id) {
-        setActiveAttachmentId(inflight.activeAttachment.active_attachment_id);
-        setActiveAttachmentMime(inflight.activeAttachment.active_attachment_mime ?? null);
+        setConversationActiveAttachment(
+          inflight.activeAttachment.active_attachment_id,
+          inflight.activeAttachment.active_attachment_mime ?? null,
+          inflight.activeAttachment.active_attachment_ids,
+        );
       }
       setPanelView("chat");
       setThreadRestoreReady(true);

@@ -10,11 +10,13 @@ import {
   isExplicitVaultScopeQuestion,
   shouldPreferRequestDocumentScopeOnly,
   dedupeDocumentRowsForRuntimeSum,
+  dedupeRowsForOriginalDelivery,
   sumMonthlyPremiumsDeterministic,
   buildIncompleteProcessingNotice,
   buildAttachAnalysisScopeAuthorityAddendum,
   buildDeterministicTotalsAuthorityAddendum,
   buildVaultDocumentSourceScopeAddendum,
+  buildUnsupportedEvaluationAuthorityAddendum,
   isAttachContextFollowUpQuestion,
   stripNonAttachEvidenceFromUserPayload,
   answerMentionsOutOfAttachHistoryScope,
@@ -174,7 +176,8 @@ ok("filename_size_not_dedupe");
   });
   assert.match(addendum, /monthly_premium_sum=413455/);
   assert.match(addendum, /included_document_ids=p1,p2,p3/);
-  assert.match(addendum, /Claude가 직접 작성/);
+  assert.match(addendum, /Claude가 원본과 함께 직접 작성/);
+  assert.match(addendum, /unique_contract_count=unknown/);
 }
 ok("deterministic_sum_413455");
 
@@ -316,21 +319,25 @@ ok("list_pagination_past_40");
     false,
   );
   const scopeHint = buildAttachAnalysisScopeAuthorityAddendum({
-    documentIds: ["doc-a", "doc-a"],
+    documentIds: ["doc-a", "doc-b", "doc-c"],
     totals: { premium_row_count: 0, no_computable_premiums_in_current_attach: true },
   });
   assert.match(scopeHint, /ATTACH_ANALYSIS_SCOPE_ONLY/);
-  assert.match(scopeHint, /계산할 숫자 없음/);
+  assert.match(scopeHint, /current_attach_document_count=3/);
+  assert.match(scopeHint, /다시 올리라고 요구하지 않는다/);
   assert.doesNotMatch(scopeHint, /한화/);
   const noPrem = buildDeterministicTotalsAuthorityAddendum({
-    unique_document_count: 1,
+    unique_document_count: 3,
     premium_row_count: 0,
     monthly_premium_sum: 0,
     premiums: [],
+    requested_document_ids: ["a", "b", "c"],
     no_computable_premiums_in_current_attach: true,
   });
-  assert.match(noPrem, /계산할 숫자 없음/);
-  assert.match(noPrem, /함께 쓰지 않는다/);
+  assert.match(noPrem, /computable_premiums=false/);
+  assert.match(noPrem, /unique_contract_count=unknown/);
+  assert.doesNotMatch(noPrem, /NO_PREMIUM/);
+  assert.doesNotMatch(noPrem, /다시 올리/);
 }
 ok("attach_scope_strips_chart_and_past_docs");
 
@@ -359,8 +366,39 @@ ok("attach_scope_strips_chart_and_past_docs");
   const sum = sumMonthlyPremiumsDeterministic(rows);
   assert.equal(sum.unique_document_count, 3);
   assert.equal(sum.unique_contract_count, 1);
+  assert.equal(sum.contract_count_status, "verified");
   assert.equal(sum.premium_row_count, 1);
   assert.equal(sum.monthly_premium_sum, 183231);
+  // Delivery layer keeps all three pages even if a stale stored sha were shared.
+  const delivery = dedupeRowsForOriginalDelivery([
+    { document_id: "p1", base64: Buffer.from("page-bytes-1").toString("base64") },
+    { document_id: "p2", base64: Buffer.from("page-bytes-2").toString("base64") },
+    { document_id: "p3", base64: Buffer.from("page-bytes-3").toString("base64") },
+  ]);
+  assert.equal(delivery.length, 3);
+  const staleStoredSameSha = dedupeRowsForOriginalDelivery([
+    {
+      document_id: "p1",
+      content_sha256: "stale-shared",
+      base64: Buffer.from("page-bytes-1").toString("base64"),
+    },
+    {
+      document_id: "p2",
+      content_sha256: "stale-shared",
+      base64: Buffer.from("page-bytes-2").toString("base64"),
+    },
+    {
+      document_id: "p3",
+      content_sha256: "stale-shared",
+      base64: Buffer.from("page-bytes-3").toString("base64"),
+    },
+  ]);
+  assert.equal(staleStoredSameSha.length, 3);
+  const exactBytesDup = dedupeRowsForOriginalDelivery([
+    { document_id: "a1", base64: Buffer.from("same-bytes").toString("base64") },
+    { document_id: "a2", base64: Buffer.from("same-bytes").toString("base64") },
+  ]);
+  assert.equal(exactBytesDup.length, 1);
 }
 ok("same_contract_three_pages_premium_once");
 
@@ -385,12 +423,21 @@ ok("same_contract_three_pages_premium_once");
   assert.equal(claudeFirst.includes("applyDeterministicPremiumSumGuard"), false);
   assert.match(claudeFirst, /buildDeterministicTotalsAuthorityAddendum/);
   assert.match(claudeFirst, /buildVaultDocumentSourceScopeAddendum/);
+  assert.match(claudeFirst, /pdfAttachmentsForClaude\.length >= 1/);
+  assert.match(claudeFirst, /contentSha256FromBase64/);
+  const evalAddendum = buildUnsupportedEvaluationAuthorityAddendum();
+  assert.match(evalAddendum, /EVALUATION_AUTHORITY/);
+  assert.match(evalAddendum, /근거가 없으면/);
 }
 ok("post_claude_customer_text_mutation_removed");
 
 // 13) Follow-up keeps multi-attach snapshot ids.
 {
   assert.equal(isAttachContextFollowUpQuestion("보험료 합산만 해줘"), true);
+  assert.equal(isAttachContextFollowUpQuestion("보장내역은?"), true);
+  assert.equal(isAttachContextFollowUpQuestion("합산금액이라고 했잖아"), true);
+  assert.equal(isAttachContextFollowUpQuestion("이것만 정리해줘"), true);
+  assert.equal(isAttachContextFollowUpQuestion("아까 서류 기준으로"), true);
   const meta = {
     active_attachment_id: "c",
     active_attachment_ids: ["a", "b", "c"],

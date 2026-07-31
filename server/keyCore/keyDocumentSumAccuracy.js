@@ -75,6 +75,50 @@ export function resolveRuntimeContentSha(row = null) {
 }
 
 /**
+ * Delivery-layer exact-duplicate hash — bytes/base64 only.
+ * Never use stored content_sha256 (stale shared hashes must not drop distinct pages).
+ */
+export function resolveDeliveryBytesSha(row = null) {
+  if (!row || typeof row !== "object") return null;
+  if (Buffer.isBuffer(row.bytes) || Buffer.isBuffer(row.original_bytes)) {
+    return contentSha256FromBytes(row.bytes || row.original_bytes);
+  }
+  const b64 = row.pdfBase64 ?? row.base64 ?? row.original_base64 ?? null;
+  if (b64) return contentSha256FromBase64(b64);
+  return null;
+}
+
+/**
+ * Original-delivery dedupe: repeated document_id OR identical bytes SHA only.
+ * Distinct document_ids with different bytes are all kept for Claude blocks.
+ */
+export function dedupeRowsForOriginalDelivery(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  const seenIds = new Set();
+  const seenBytesSha = new Set();
+  const out = [];
+  for (const row of list) {
+    if (!row || typeof row !== "object") continue;
+    const did = String(row.document_id ?? row.id ?? row.source_document_id ?? "").trim();
+    if (did) {
+      if (seenIds.has(did)) continue;
+      seenIds.add(did);
+    }
+    const bytesSha = resolveDeliveryBytesSha(row);
+    if (bytesSha) {
+      if (seenBytesSha.has(bytesSha)) continue;
+      seenBytesSha.add(bytesSha);
+    }
+    out.push({
+      ...row,
+      document_id: did || null,
+      delivery_bytes_sha256: bytesSha || null,
+    });
+  }
+  return out;
+}
+
+/**
  * Runtime dedupe for sum/count. Preserves first-seen order.
  * - repeated same document_id → keep first
  * - same content_sha256 (stored or from bytes) → keep first
@@ -149,31 +193,45 @@ export function contractPremiumDedupeKey(row = null) {
 }
 
 /**
- * Deterministic monthly-premium sum.
- * - Pages: keep all unique document_id / content sha for read count
- * - Premium: count once per contract (same contract's pages share one premium)
+ * Deterministic monthly-premium sum (calculation layer — not original delivery).
+ * - Pages: unique document_id / content sha for read count
+ * - Premium: once per verified contract identity; without identity do not invent contract_count
  */
 export function sumMonthlyPremiumsDeterministic(rows = []) {
   const uniquePages = dedupeDocumentRowsForRuntimeSum(rows);
-  const premiums = [];
-  const seenContracts = new Set();
+  const verifiedPremiums = [];
+  const unverifiedPremiums = [];
+  const seenVerifiedContracts = new Set();
+  const seenUnverifiedDocs = new Set();
   for (const row of uniquePages) {
     const prem = coerceMonthlyPremiumWon(
       row.monthly_premium ?? row.premium ?? row.premium_amount,
     );
     if (prem == null) continue;
-    const contractKey =
-      contractPremiumDedupeKey(row) ||
-      `doc:${String(row.document_id ?? row.source_document_id ?? "").trim() || premiums.length}`;
-    if (seenContracts.has(contractKey)) continue;
-    seenContracts.add(contractKey);
-    premiums.push(prem);
+    const verifiedKey = contractPremiumDedupeKey(row);
+    if (verifiedKey) {
+      if (seenVerifiedContracts.has(verifiedKey)) continue;
+      seenVerifiedContracts.add(verifiedKey);
+      verifiedPremiums.push(prem);
+      continue;
+    }
+    const docKey =
+      String(row.document_id ?? row.source_document_id ?? "").trim() ||
+      `anon:${unverifiedPremiums.length}`;
+    if (seenUnverifiedDocs.has(docKey)) continue;
+    seenUnverifiedDocs.add(docKey);
+    unverifiedPremiums.push(prem);
   }
+  const hasVerifiedIdentity = verifiedPremiums.length > 0;
+  // Verified identity → contract-level premiums. Else document-level premiums only;
+  // contract_count stays unknown (do not invent merges from filename/size/similarity).
+  const premiums = hasVerifiedIdentity ? verifiedPremiums : unverifiedPremiums;
   let sum = 0;
   for (const p of premiums) sum += p;
   return {
     unique_document_count: uniquePages.length,
-    unique_contract_count: seenContracts.size,
+    unique_contract_count: hasVerifiedIdentity ? seenVerifiedContracts.size : null,
+    contract_count_status: hasVerifiedIdentity ? "verified" : "unknown",
     premium_row_count: premiums.length,
     premiums,
     monthly_premium_sum: sum,
@@ -254,10 +312,14 @@ export function isAttachContextFollowUpQuestion(question = "") {
   if (!q) return false;
   return (
     /합산|합계/.test(q) ||
+    /합산\s*금액|보장\s*내역|이것만\s*정리|아까\s*서류|그\s*서류\s*기준/.test(q) ||
     /그\s*(서류|문서|첨부|파일)|이\s*(서류|문서|첨부)|방금|아까|이어서|그거|그것/.test(q)
   );
 }
 
+/**
+ * Fact-only deterministic totals for Claude input. Never writes customer prose / NO_PREMIUM_SPEAK.
+ */
 export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   if (!totals || typeof totals !== "object") return null;
   const sum = Number(totals.monthly_premium_sum);
@@ -269,8 +331,8 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   if (!Number.isFinite(sum) && !Number.isFinite(count) && !noPremiums) return null;
   const lines = [
     "[DETERMINISTIC_DOCUMENT_TOTALS]",
-    "보험료·건수 합계는 아래 결정론 코드 결과만 사용한다. 직접 더하거나 어림하지 않는다.",
-    "아래 값을 읽고 고객 문장을 Claude가 직접 작성한다. 시스템이 답변 뒤에서 문장·금액을 고치지 않는다.",
+    "아래는 KEY 결정론 계산 사실이다. 고객 문장은 Claude가 원본과 함께 직접 작성한다.",
+    "시스템이 고객 답변 문장·금액·재첨부 요청을 미리 쓰지 않는다.",
   ];
   if (Array.isArray(totals.requested_document_ids) && totals.requested_document_ids.length) {
     lines.push(
@@ -279,28 +341,29 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
         .filter(Boolean)
         .join(",")}`,
     );
+    lines.push(`included_document_count=${totals.requested_document_ids.length}`);
   }
   if (Number.isFinite(count)) {
     lines.push(`unique_document_count=${Math.round(count)}`);
   }
+  const contractStatus = String(totals.contract_count_status ?? "").trim();
   const contractCount = Number(totals.unique_contract_count);
-  if (Number.isFinite(contractCount) && contractCount > 0) {
+  if (contractStatus === "verified" && Number.isFinite(contractCount) && contractCount > 0) {
     lines.push(`unique_contract_count=${Math.round(contractCount)}`);
+    lines.push("contract_count_status=verified");
     lines.push(
-      "같은 계약의 여러 페이지는 모두 읽되, 월 보험료는 계약 단위로 1회만 센다.",
+      "calculation_note=same_verified_contract_pages_share_one_monthly_premium",
     );
+  } else {
+    lines.push("unique_contract_count=unknown");
+    lines.push("contract_count_status=unknown");
   }
   if (noPremiums) {
     lines.push("computable_premiums=false");
-    lines.push(
-      "원본을 모두 읽은 뒤에도 보험료 숫자가 없으면 그때만 \"계산할 숫자 없음\"으로 끝낸다.",
-    );
-    lines.push("과거 계약·장부·약관·보관 문서의 금액으로 합계를 채우지 않는다.");
-    lines.push('"계산할 숫자 없음"과 원화 금액을 같은 답변에 함께 쓰지 않는다.');
+    lines.push("unconfirmed=monthly_premium_not_extracted_pre_claude");
   } else if (Number.isFinite(sum)) {
     lines.push("computable_premiums=true");
     lines.push(`monthly_premium_sum=${Math.round(sum)}`);
-    lines.push('"계산할 숫자 없음"이라고 말하지 않는다.');
   }
   if (Array.isArray(totals.premiums) && totals.premiums.length) {
     lines.push(`premiums=[${totals.premiums.map((p) => Math.round(Number(p))).join(",")}]`);
@@ -310,7 +373,6 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
     lines.push(
       `processing_incomplete total=${totals.processing.total_count} processed=${totals.processing.processed_count} remaining=${totals.processing.remaining_count} reason=${totals.processing.stop_reason || "incomplete"}`,
     );
-    lines.push("완료·전부 확인했다고 말하지 않는다. 전체 수·처리 수·남은 수·중단 이유를 말한다.");
   }
   return lines.join("\n");
 }
@@ -331,23 +393,43 @@ export function buildAttachAnalysisScopeAuthorityAddendum({
     "[ATTACH_ANALYSIS_SCOPE_ONLY]",
     "이번 턴 답변 근거는 현재 요청에 첨부된 원본뿐이다.",
     "고객 차트, 확인 계약 요약, 장부, 과거 문서/약관 요약, 보관함 목록을 근거로 쓰지 않는다.",
-    '"지금까지 올라온 서류 전체", 과거 계약명, 약관명, 보관 문서를 언급하지 않는다.',
     `current_attach_document_ids=${ids.join(",")}`,
+    `current_attach_document_count=${ids.length}`,
+    "source_scope=current_turn_attachment (unless a row is marked vault_document)",
+    "첨부된 원본 개수만큼 모두 읽는다. 이미 첨부된 페이지를 다시 올리라고 요구하지 않는다.",
+    "같은 계약의 여러 페이지는 모두 읽고, 월 보험료 계산은 검증된 계약 identity 기준 1회다.",
   ];
-  lines.push(
-    "같은 계약의 여러 페이지는 모두 읽고, 월 보험료는 계약당 1회만 말한다.",
-  );
-  lines.push('"계산할 숫자 없음"과 원화 금액을 같은 답변에 함께 쓰지 않는다.');
-  const premiumCount = Number(totals?.premium_row_count);
-  if (
-    totals?.no_computable_premiums_in_current_attach === true ||
-    (Number.isFinite(premiumCount) && premiumCount <= 0)
-  ) {
-    lines.push(
-      "첨부 원본을 읽은 뒤에도 보험료가 없으면 그때만 \"계산할 숫자 없음\"으로 끝내고, 과거 자료로 채우지 않는다.",
-    );
-  }
+  void totals;
   return lines.join("\n");
+}
+
+/** Per-document source_scope catalog for Claude (KEY provides labels only). */
+export function buildDocumentSourceScopeCatalogAddendum(entries = []) {
+  const list = Array.isArray(entries) ? entries : [];
+  const lines = ["[DOCUMENT_SOURCE_SCOPE_CATALOG]"];
+  let n = 0;
+  for (const row of list) {
+    const id = String(row?.document_id ?? "").trim();
+    const scope = String(row?.source_scope ?? "").trim();
+    if (!id || !scope) continue;
+    lines.push(`document_id=${id};source_scope=${scope}`);
+    n += 1;
+  }
+  if (!n) return null;
+  lines.push("출처 표현은 Claude가 작성한다. KEY가 답변 뒤에서 고치지 않는다.");
+  return lines.join("\n");
+}
+
+/**
+ * Pre-Claude evaluation principle only — no post-answer rewrite Gate.
+ */
+export function buildUnsupportedEvaluationAuthorityAddendum() {
+  return [
+    "[EVALUATION_AUTHORITY]",
+    "보장 구조·금액·기간 등 원본 사실은 설명할 수 있다.",
+    "충분하다·두텁다·유리하다·좋은 설계 같은 평가는 시장 기준·고객의 검증된 필요·비교 근거가 있을 때만 한다.",
+    "근거가 없으면 사실 구조와 확인할 사항만 설명한다.",
+  ].join("\n");
 }
 
 /** True when prose cites vault/history contracts outside attach scope. */
