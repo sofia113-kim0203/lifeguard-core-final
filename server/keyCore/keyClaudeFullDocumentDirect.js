@@ -590,33 +590,70 @@ export async function verifyAndFetchCustomerPdfOriginal({
 /**
  * List owned active insurance-series originals (no silent latest invent).
  * deleted_at IS NULL · customer ownership · insurance_policy series only.
+ * Paginate past pageSize (default 40) until the last page — never silent-truncate the list.
  */
 export async function listOwnedInsuranceOriginalDocuments({
   supabase = null,
   customerId = null,
   limit = 40,
+  pageSize = 40,
+  maxPages = 50,
 } = {}) {
   const cid = String(customerId ?? "").trim();
   if (!supabase || !cid) {
-    return { ok: false, reason: "missing_auth", documents: [], listing: [] };
+    return {
+      ok: false,
+      reason: "missing_auth",
+      documents: [],
+      listing: [],
+      list_complete: false,
+      pages_fetched: 0,
+    };
   }
-  const cap = Math.min(Math.max(Number(limit) || 40, 1), 80);
-  const { data: rows, error } = await supabase
-    .from("customer_documents")
-    .select(
-      "id, customer_id, original_filename, created_at, deleted_at, mime_type, storage_path, doc_class, customer_hint_type, metadata_json",
-    )
-    .eq("customer_id", cid)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(cap);
+  const size = Math.min(Math.max(Number(pageSize) || Number(limit) || 40, 1), 80);
+  const pageCap = Math.min(Math.max(Number(maxPages) || 50, 1), 200);
+  const raw = [];
+  let pagesFetched = 0;
+  let listComplete = false;
+  let listError = null;
 
-  if (error) {
+  for (let page = 0; page < pageCap; page += 1) {
+    const from = page * size;
+    const to = from + size - 1;
+    const { data: rows, error } = await supabase
+      .from("customer_documents")
+      .select(
+        "id, customer_id, original_filename, created_at, deleted_at, mime_type, storage_path, doc_class, customer_hint_type, metadata_json",
+      )
+      .eq("customer_id", cid)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    pagesFetched += 1;
+    if (error) {
+      listError = error;
+      break;
+    }
+    const batch = Array.isArray(rows) ? rows : [];
+    raw.push(...batch);
+    if (batch.length < size) {
+      listComplete = true;
+      break;
+    }
+  }
+  if (!listComplete && !listError && pagesFetched >= pageCap) {
+    listComplete = false;
+  }
+
+  if (listError && raw.length === 0) {
     return {
       ok: false,
       reason: "document_list_failed",
       documents: [],
       listing: [],
+      list_complete: false,
+      pages_fetched: pagesFetched,
       stage_counts: {
         listed_owned_raw: 0,
         after_insurance_series: 0,
@@ -627,7 +664,6 @@ export async function listOwnedInsuranceOriginalDocuments({
     };
   }
 
-  const raw = Array.isArray(rows) ? rows : [];
   let afterSeries = 0;
   let afterMime = 0;
   let afterPath = 0;
@@ -653,9 +689,11 @@ export async function listOwnedInsuranceOriginalDocuments({
 
   return {
     ok: true,
-    reason: "ok",
+    reason: listComplete ? "ok" : "list_page_cap_partial",
     documents,
     listing,
+    list_complete: listComplete,
+    pages_fetched: pagesFetched,
     stage_counts: {
       listed_owned_raw: raw.length,
       after_insurance_series: afterSeries,
@@ -667,8 +705,9 @@ export async function listOwnedInsuranceOriginalDocuments({
 }
 
 /**
- * Vault recall for “내 보험 분석” — fetch owned originals, dedupe by content sha256.
- * Never silently picks latest-only. If unique set would exceed attach budget, returns choose.
+ * Vault recall — paginated list + batch fetch of owned originals, dedupe by content sha256.
+ * Never silently picks latest-only. Never silently stops at page 40 / first 5–6 without reporting.
+ * Claude attach may still be budget-capped; processing summary always reports remaining.
  */
 export async function resolveOwnedInsuranceVaultRecall({
   supabase = null,
@@ -677,8 +716,13 @@ export async function resolveOwnedInsuranceVaultRecall({
   maxUniqueAttach = CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
   byteBudget = CLAUDE_FIRST_VAULT_ATTACH_BYTE_BUDGET,
   verifyAndFetch = verifyAndFetchCustomerPdfOriginal,
+  fetchBatchSize = 5,
 } = {}) {
-  const listed = await listOwnedInsuranceOriginalDocuments({ supabase, customerId, limit: 40 });
+  const listed = await listOwnedInsuranceOriginalDocuments({
+    supabase,
+    customerId,
+    pageSize: 40,
+  });
   const listStages =
     listed?.stage_counts && typeof listed.stage_counts === "object"
       ? listed.stage_counts
@@ -691,10 +735,13 @@ export async function resolveOwnedInsuranceVaultRecall({
         };
   const baseStage = () => ({
     ...listStages,
+    list_complete: listed?.list_complete === true,
+    pages_fetched: Number(listed?.pages_fetched) || 0,
     fetch_attempted: 0,
     fetch_ok: 0,
     fetch_failed: 0,
     sha_dupes_skipped: 0,
+    id_dupes_skipped: 0,
     before_sha_unique: 0,
     after_sha_unique: 0,
     after_cap_budget: 0,
@@ -710,6 +757,13 @@ export async function resolveOwnedInsuranceVaultRecall({
       listing: [],
       failed: [],
       stage_counts: baseStage(),
+      processing: {
+        total_count: 0,
+        processed_count: 0,
+        remaining_count: 0,
+        complete: false,
+        stop_reason: listed.reason || "document_list_failed",
+      },
     };
   }
   if (!listed.documents.length) {
@@ -720,20 +774,31 @@ export async function resolveOwnedInsuranceVaultRecall({
       listing: [],
       failed: [],
       stage_counts: baseStage(),
+      processing: {
+        total_count: 0,
+        processed_count: 0,
+        remaining_count: 0,
+        complete: listed.list_complete === true,
+        stop_reason: listed.list_complete === true ? null : "list_page_cap_partial",
+      },
     };
   }
 
   // PDF-first order (created_at desc preserved within each mime group by list order).
   const orderedDocuments = orderDocumentsPdfFirstForVaultRecall(listed.documents);
+  const totalCandidates = orderedDocuments.length;
 
   const unique = [];
+  const seenIds = new Set();
   const seenSha = new Set();
   const failed = [];
+  const excluded = [];
   const failedReasonCounts = {};
   let fetchAttempted = 0;
   let fetchOk = 0;
   let fetchFailed = 0;
   let shaDupesSkipped = 0;
+  let idDupesSkipped = 0;
   let budgetStop = false;
   let capStop = false;
   let totalBytes = 0;
@@ -742,13 +807,17 @@ export async function resolveOwnedInsuranceVaultRecall({
     Math.max(Number(byteBudget) || CLAUDE_FIRST_VAULT_ATTACH_BYTE_BUDGET, 1),
     CLAUDE_FULL_REQUEST_MAX_BYTES,
   );
+  const batchSize = Math.min(Math.max(Number(fetchBatchSize) || 5, 1), 20);
 
   const packStage = () => ({
     ...listStages,
+    list_complete: listed?.list_complete === true,
+    pages_fetched: Number(listed?.pages_fetched) || 0,
     fetch_attempted: fetchAttempted,
     fetch_ok: fetchOk,
     fetch_failed: fetchFailed,
     sha_dupes_skipped: shaDupesSkipped,
+    id_dupes_skipped: idDupesSkipped,
     before_sha_unique: fetchOk,
     after_sha_unique: unique.length,
     after_cap_budget: unique.length,
@@ -758,87 +827,117 @@ export async function resolveOwnedInsuranceVaultRecall({
     pdf_first_order: true,
   });
 
-  for (let i = 0; i < orderedDocuments.length; i += 1) {
-    const doc = orderedDocuments[i];
-    const did = String(doc?.id ?? "").trim();
-    if (!did) continue;
+  // Batch through every listed candidate (past the old silent 5-cut). Cap/budget only
+  // limits Claude attach rows; remaining candidates are reported, never pretended complete.
+  for (let batchStart = 0; batchStart < orderedDocuments.length; batchStart += batchSize) {
+    const batch = orderedDocuments.slice(batchStart, batchStart + batchSize);
+    for (const doc of batch) {
+      const did = String(doc?.id ?? "").trim();
+      if (!did) continue;
+      if (seenIds.has(did)) {
+        idDupesSkipped += 1;
+        continue;
+      }
+      seenIds.add(did);
 
-    // Cap: keep best-effort maxUnique attaches; never wipe to [].
-    if (unique.length >= maxUnique) {
-      capStop = true;
-      const excluded = orderedDocuments.slice(i).map((d) => ({
-        document_id: String(d?.id ?? "").trim() || null,
-        original_filename: d?.original_filename ?? null,
-        reason: "beyond_attach_cap",
-      }));
-      return {
-        mode: "partial_attach",
-        reason: "unique_attach_cap_partial",
-        attachments: unique,
-        listing: listed.listing,
-        excluded,
-        failed,
-        stage_counts: packStage(),
-      };
-    }
+      if (unique.length >= maxUnique) {
+        capStop = true;
+        excluded.push({
+          document_id: did,
+          original_filename: doc?.original_filename ?? null,
+          reason: "beyond_attach_cap",
+        });
+        continue;
+      }
 
-    fetchAttempted += 1;
-    const fetched = await verifyAndFetch({
-      supabase,
-      customerId,
-      documentId: did,
-      env,
-    });
-    if (!fetched?.ok || !fetched.pdfBase64) {
-      fetchFailed += 1;
-      const reason = String(fetched?.reason ?? "pdf_download_failed").slice(0, 80);
-      failedReasonCounts[reason] = (failedReasonCounts[reason] || 0) + 1;
-      failed.push({
-        document_id: did,
-        original_filename: doc?.original_filename ?? null,
-        reason,
+      fetchAttempted += 1;
+      const fetched = await verifyAndFetch({
+        supabase,
+        customerId,
+        documentId: did,
+        env,
       });
-      continue;
-    }
-    fetchOk += 1;
+      if (!fetched?.ok || !fetched.pdfBase64) {
+        fetchFailed += 1;
+        const reason = String(fetched?.reason ?? "pdf_download_failed").slice(0, 80);
+        failedReasonCounts[reason] = (failedReasonCounts[reason] || 0) + 1;
+        failed.push({
+          document_id: did,
+          original_filename: doc?.original_filename ?? null,
+          reason,
+        });
+        continue;
+      }
+      fetchOk += 1;
 
-    const sha = String(fetched.content_sha256 ?? "").trim();
-    if (sha && seenSha.has(sha)) {
-      shaDupesSkipped += 1;
-      continue; // identical file bytes — one Claude attach only
-    }
+      let sha = String(fetched.content_sha256 ?? "").trim().toLowerCase();
+      if (!sha && fetched.pdfBase64) {
+        try {
+          sha = contentSha256Hex(Buffer.from(String(fetched.pdfBase64), "base64")) || "";
+        } catch {
+          sha = "";
+        }
+      }
+      if (sha && seenSha.has(sha)) {
+        shaDupesSkipped += 1;
+        continue; // identical file bytes — one Claude attach only
+      }
 
-    const size = Number(fetched.fileSizeBytes) || 0;
-    if (unique.length > 0 && totalBytes + size > budget) {
-      budgetStop = true;
-      const excluded = orderedDocuments.slice(i).map((d) => ({
-        document_id: String(d?.id ?? "").trim() || null,
-        original_filename: d?.original_filename ?? null,
-        reason: "beyond_byte_budget",
-      }));
-      return {
-        mode: "partial_attach",
-        reason: "attach_byte_budget_partial",
-        attachments: unique,
-        listing: listed.listing,
-        excluded,
-        failed,
-        stage_counts: packStage(),
-      };
-    }
+      const size = Number(fetched.fileSizeBytes) || 0;
+      if (unique.length > 0 && totalBytes + size > budget) {
+        budgetStop = true;
+        excluded.push({
+          document_id: did,
+          original_filename: doc?.original_filename ?? null,
+          reason: "beyond_byte_budget",
+        });
+        continue;
+      }
 
-    if (sha) seenSha.add(sha);
-    totalBytes += size;
-    unique.push({
-      document_id: did,
-      original_filename: fetched.document?.original_filename ?? doc?.original_filename ?? null,
-      pdfBase64: fetched.pdfBase64,
-      mediaType: fetched.mediaType,
-      fileSizeBytes: size,
-      content_sha256: sha || null,
-      created_at: doc?.created_at ?? null,
-    });
+      if (sha) seenSha.add(sha);
+      totalBytes += size;
+      unique.push({
+        document_id: did,
+        original_filename: fetched.document?.original_filename ?? doc?.original_filename ?? null,
+        pdfBase64: fetched.pdfBase64,
+        mediaType: fetched.mediaType,
+        fileSizeBytes: size,
+        content_sha256: sha || null,
+        created_at: doc?.created_at ?? null,
+      });
+    }
   }
+
+  const remaining =
+    excluded.length +
+    Math.max(0, totalCandidates - fetchAttempted - idDupesSkipped);
+  const complete =
+    listed.list_complete === true &&
+    !capStop &&
+    !budgetStop &&
+    remaining <= 0 &&
+    failed.length === 0;
+  const stopReason = !listed.list_complete
+    ? "list_page_cap_partial"
+    : capStop
+      ? "unique_attach_cap_partial"
+      : budgetStop
+        ? "attach_byte_budget_partial"
+        : failed.length && !unique.length
+          ? "all_originals_unavailable"
+          : failed.length
+            ? "partial_fetch_failures"
+            : null;
+
+  const processing = {
+    total_count: totalCandidates,
+    processed_count: fetchAttempted,
+    remaining_count: Math.max(0, totalCandidates - fetchAttempted),
+    attached_count: unique.length,
+    excluded_count: excluded.length,
+    complete,
+    stop_reason: stopReason,
+  };
 
   if (!unique.length) {
     return {
@@ -847,25 +946,51 @@ export async function resolveOwnedInsuranceVaultRecall({
       attachments: [],
       listing: listed.listing,
       failed,
+      excluded,
       stage_counts: packStage(),
+      processing,
     };
   }
 
   return {
-    mode: "attach",
-    reason: "owned_insurance_vault_deduped",
+    mode: complete ? "attach" : "partial_attach",
+    reason: complete
+      ? "owned_insurance_vault_deduped"
+      : stopReason || "owned_insurance_vault_partial",
     attachments: unique,
     listing: listed.listing,
     failed,
+    excluded,
     stage_counts: packStage(),
+    processing,
   };
 }
 
 /**
+ * Resolve content sha for merge: stored hash → SHA-256 of original bytes/base64.
+ * Never filename+size.
+ */
+export function resolveAttachRowContentSha(row = null) {
+  if (!row || typeof row !== "object") return "";
+  const stored = String(row.content_sha256 ?? row.source_content_sha256 ?? "")
+    .trim()
+    .toLowerCase();
+  if (stored) return stored;
+  const b64 = row.pdfBase64 ?? row.base64 ?? null;
+  if (!b64) return "";
+  try {
+    return contentSha256Hex(Buffer.from(String(b64), "base64")) || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Merge explicit active-attach row + vault recall rows.
- * Dedupes by document_id then content_sha256. Caps at maxUnique (default 6).
+ * Dedupes by document_id then content_sha256 (stored or from bytes). Caps at maxUnique (default 6).
  * Prefer explicitDocumentId as the first row when present (factory primary id).
  * Never invent rows — caller must only pass ownership-verified attachments.
+ * Never dedupe by filename+size alone.
  */
 export function mergeOwnedDocumentAttachRows({
   vaultAttachments = [],
@@ -888,10 +1013,11 @@ export function mergeOwnedDocumentAttachRows({
   for (const row of incoming) {
     const did = String(row?.document_id ?? "").trim();
     if (!did) continue;
-    const sha = String(row?.content_sha256 ?? "").trim();
     if (byId.has(did)) continue;
+    const sha = resolveAttachRowContentSha(row);
     if (sha && seenSha.has(sha)) continue;
-    byId.set(did, row);
+    const normalized = sha && !row.content_sha256 ? { ...row, content_sha256: sha } : row;
+    byId.set(did, normalized);
     if (sha) seenSha.add(sha);
   }
 

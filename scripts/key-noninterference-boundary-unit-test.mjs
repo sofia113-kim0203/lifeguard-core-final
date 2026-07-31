@@ -19,23 +19,22 @@ function ok(name) {
   console.log(`PASS ${name}`);
 }
 
-// --- Eye: active insurance document case — no keyword required ---
-const caseQs = [
+// --- Eye: attach/active case alone must NOT pull vault; explicit vault scope only ---
+const noVaultQs = [
   "분석해줘 키",
   "이 보험 전체적으로 어때?",
   "보장 내용을 봐줘",
   "아까 보험에서 부족한 게 뭐야?",
-  "문서함에 있는 나머지도 같이 봐줘",
 ];
-for (const q of caseQs) {
+for (const q of noVaultQs) {
   assert.equal(
     shouldProvideOwnedInsuranceVaultOriginals({
       question: q,
       attachedDocumentId: "doc-active-1",
       isPresenceTurn: false,
     }),
-    true,
-    `active_case:${q}`,
+    false,
+    `no_auto_vault:${q}`,
   );
   assert.equal(
     shouldRunOwnedVaultRecall({
@@ -45,21 +44,20 @@ for (const q of caseQs) {
       }),
       isPresenceTurn: false,
     }),
-    true,
-    `run_vault:${q}`,
+    false,
+    `no_run_vault:${q}`,
   );
 }
 assert.equal(
   shouldProvideOwnedInsuranceVaultOriginals({
-    question: "분석해줘 키",
-    attachedDocumentId: null,
-    isPresenceTurn: false,
+    question: "문서함에 있는 나머지도 같이 봐줘",
+    attachedDocumentId: "doc-active-1",
   }),
-  false,
+  true,
 );
 assert.equal(
   shouldProvideOwnedInsuranceVaultOriginals({
-    question: "문서함에 있는 나머지도 같이 봐줘",
+    question: "전체 보험 분석해줘",
     attachedDocumentId: null,
   }),
   true,
@@ -72,18 +70,19 @@ assert.equal(
   }),
   false,
 );
-ok("eye_active_case_no_keyword_gate");
+ok("eye_attach_scope_no_auto_vault");
 
-// Keyword alone must not be required when active case exists.
+// Explicit vault/history phrases still open vault without attach id.
 assert.equal(wantsOwnedInsuranceVaultEvidence("분석해줘 키"), false);
+assert.equal(wantsOwnedInsuranceVaultEvidence("보관 문서 확인해줘"), true);
 assert.equal(
   shouldProvideOwnedInsuranceVaultOriginals({
-    question: "분석해줘 키",
-    attachedDocumentId: "doc-1",
+    question: "과거 자료와 비교해줘",
+    attachedDocumentId: null,
   }),
   true,
 );
-ok("eye_keyword_not_sole_permission");
+ok("eye_explicit_vault_scope_only");
 
 // Active case forces full original even if client sent prior_attach.
 const mode = decidePdfAttachMode({
@@ -186,9 +185,17 @@ const pickedSession = pickActiveInsuranceDocumentCaseFromConversationRows({
 });
 assert.equal(pickedSession.documentId, "doc-case-1");
 assert.equal(pickedSession.caseSource, "session_active_insurance_case");
+// Restored case id re-fetches that original — it must not open the whole vault.
 assert.equal(
   shouldProvideOwnedInsuranceVaultOriginals({
     question: "분석해줘 키",
+    attachedDocumentId: pickedSession.documentId,
+  }),
+  false,
+);
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "전체 보험 다시 봐줘",
     attachedDocumentId: pickedSession.documentId,
   }),
   true,

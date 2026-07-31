@@ -56,6 +56,7 @@ import {
   resolveExplicitCustomerDocumentMention,
   resolveOwnedInsuranceVaultRecall,
   mergeOwnedDocumentAttachRows,
+  resolveAttachRowContentSha,
   CLAUDE_FULL_PDF_MAX_BYTES,
   CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
   isClaudeDirectImageMediaType,
@@ -72,6 +73,14 @@ import {
   shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
 import { listAttachedDocumentIds } from "../../src/lib/homeBrainAttachDocumentIds.js";
+import {
+  applyDeterministicPremiumSumGuard,
+  buildDeterministicDocumentTotals,
+  buildDeterministicTotalsAuthorityAddendum,
+  buildIncompleteProcessingNotice,
+  dedupeDocumentRowsForRuntimeSum,
+  shouldPreferRequestDocumentScopeOnly,
+} from "./keyDocumentSumAccuracy.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
   gateKeyVoiceAnswer,
@@ -3008,6 +3017,8 @@ export function buildUserPayload({
   documentSubjectIdentity = null,
   /** Source-separated policy truth (ledger / customer_reported / evidence meta). */
   policyTruthContext = null,
+  /** Deterministic premium/count totals — Claude reads, never re-adds. */
+  deterministicDocumentTotals = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
@@ -3165,6 +3176,9 @@ export function buildUserPayload({
       ...(ready_card ? { ready_card } : {}),
       ...(policyTruthContext && typeof policyTruthContext === "object"
         ? { policy_truth: policyTruthContext }
+        : {}),
+      ...(deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
+        ? { deterministic_document_totals: deterministicDocumentTotals }
         : {}),
     },
     available_verified_evidence: {
@@ -4108,6 +4122,8 @@ async function callClaudeFirstDirect({
   policyCountAuthorityAddendum = null,
   /** Already-ledgered verified coverages — no PDF re-attach required for those amounts. */
   verifiedCoverageAuthorityAddendum = null,
+  /** Deterministic premium/count totals — Claude reads only. */
+  deterministicDocumentTotals = null,
   /** Preview QA turn capture bag (Surgery 0) — mutate-only; never affects customer path. */
   qaTurnCapture = null,
 }) {
@@ -4193,6 +4209,12 @@ async function callClaudeFirstDirect({
         ? null
         : policyTruthContext && typeof policyTruthContext === "object"
           ? policyTruthContext
+          : null,
+    deterministicDocumentTotals:
+      presenceTurn === true
+        ? null
+        : deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
+          ? deterministicDocumentTotals
           : null,
   });
   const userPayloadBase =
@@ -4283,6 +4305,14 @@ async function callClaudeFirstDirect({
     verifiedCoverageAuthorityAddendum.trim()
   ) {
     systemTextBase = `${systemTextBase}\n\n[VERIFIED_COVERAGE_AUTHORITY]\n${verifiedCoverageAuthorityAddendum.trim()}`;
+  }
+  if (presenceTurn !== true) {
+    const totalsAddendum = buildDeterministicTotalsAuthorityAddendum(
+      deterministicDocumentTotals,
+    );
+    if (totalsAddendum) {
+      systemTextBase = `${systemTextBase}\n\n${totalsAddendum}`;
+    }
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -4620,9 +4650,42 @@ async function callClaudeFirstDirect({
     break;
   }
 
-  const customer_answer = String(
+  let customer_answer = String(
     lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
+  // Hand arithmetic only: when sidecar/precomputed premiums exist, correct wrong totals.
+  {
+    const inventoryRows = Array.isArray(policyInventoryFacts) ? policyInventoryFacts : [];
+    const preRows =
+      deterministicDocumentTotals && Array.isArray(deterministicDocumentTotals.premiums)
+        ? null
+        : null;
+    void preRows;
+    const sumRows =
+      inventoryRows.length > 0
+        ? inventoryRows.map((f) => ({
+            document_id: f?.source_document_id,
+            monthly_premium: f?.monthly_premium,
+            content_sha256: f?.source_content_sha256,
+          }))
+        : [];
+    const totalsFromInventory =
+      sumRows.length > 0 ? buildDeterministicDocumentTotals({ rows: sumRows }) : null;
+    const totalsForGuard =
+      totalsFromInventory?.premium_row_count > 0
+        ? totalsFromInventory
+        : deterministicDocumentTotals &&
+            Number.isFinite(Number(deterministicDocumentTotals.monthly_premium_sum))
+          ? deterministicDocumentTotals
+          : null;
+    if (totalsForGuard) {
+      const guarded = applyDeterministicPremiumSumGuard({
+        customerAnswer: customer_answer,
+        totals: totalsForGuard,
+      });
+      if (guarded.changed) customer_answer = guarded.answer;
+    }
+  }
   const progressOnly = isProgressOnlyCustomerAnswer(customer_answer);
 
   if (webSearchTrace.web_search_used) {
@@ -5126,17 +5189,23 @@ export async function runClaudeFirstDirectQuestionTurn({
       }
     }
 
-    // Composer multi: keep request order (A→B). Single/vault: existing merge helper.
+    // Composer multi: keep request order (A→B), dedupe id then content sha (bytes if needed).
+    // Single/vault: existing merge helper. Request-scope-only skips vault mix-in upstream.
     let mergedAttach;
     if (clientAttachedDocumentIds.length > 1) {
       const byId = new Map();
+      const seenSha = new Set();
       for (const row of [
         ...explicitAttachmentRows,
         ...(Array.isArray(vaultRecall.attachments) ? vaultRecall.attachments : []),
       ]) {
         const did = String(row?.document_id ?? "").trim();
         if (!did || byId.has(did)) continue;
-        byId.set(did, row);
+        const sha = resolveAttachRowContentSha(row);
+        if (sha && seenSha.has(sha)) continue;
+        const normalized = sha && !row.content_sha256 ? { ...row, content_sha256: sha } : row;
+        byId.set(did, normalized);
+        if (sha) seenSha.add(sha);
       }
       const ordered = [];
       for (const id of clientAttachedDocumentIds) {
@@ -5347,8 +5416,13 @@ export async function runClaudeFirstDirectQuestionTurn({
     const fetchStarted = Date.now();
     if (clientAttachedDocumentIds.length > 1) {
       // Same-turn composer multi: fetch every request document_id in order (no first/last-only).
+      // Dedupe repeated ids and identical bytes (other document_id) before Claude attach.
       const rawRows = [];
+      const seenIds = new Set();
+      const seenSha = new Set();
       for (const documentId of clientAttachedDocumentIds) {
+        if (seenIds.has(documentId)) continue;
+        seenIds.add(documentId);
         const fetched = await verifyAndFetchCustomerPdfOriginal({
           supabase: userSupabase,
           customerId,
@@ -5356,12 +5430,16 @@ export async function runClaudeFirstDirectQuestionTurn({
           env,
         });
         if (fetched?.ok && fetched.pdfBase64) {
+          let sha = String(fetched.content_sha256 ?? "").trim().toLowerCase();
+          if (!sha) sha = resolveAttachRowContentSha({ base64: fetched.pdfBase64 }) || "";
+          if (sha && seenSha.has(sha)) continue;
+          if (sha) seenSha.add(sha);
           rawRows.push({
             base64: fetched.pdfBase64,
             mediaType: fetched.mediaType,
             document_id: documentId,
             original_filename: fetched.document?.original_filename ?? null,
-            content_sha256: fetched.content_sha256 ?? null,
+            content_sha256: sha || null,
           });
         }
       }
@@ -6022,6 +6100,90 @@ export async function runClaudeFirstDirectQuestionTurn({
       /* non-blocking */
     }
   }
+
+  // Deterministic premium/count for scoped attach docs — Claude reads, does not re-add.
+  const requestScopeOnly = shouldPreferRequestDocumentScopeOnly({
+    documentIds: clientAttachedDocumentIds,
+    question,
+    wantsVaultEvidence,
+  });
+  const scopedDocumentIds = requestScopeOnly
+    ? clientAttachedDocumentIds
+    : [
+        ...new Set(
+          [
+            ...clientAttachedDocumentIds,
+            ...(Array.isArray(pdfAttachmentsForClaude)
+              ? pdfAttachmentsForClaude.map((r) => r?.document_id)
+              : []),
+            caseDocumentId,
+          ]
+            .map((id) => String(id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+  const premiumRowsForTotals = [];
+  const scopedIdSet = new Set(scopedDocumentIds);
+  for (const p of Array.isArray(policies) ? policies : []) {
+    const did = String(
+      p?.source_document_id ??
+        p?.coverage_summary?.source_document_id ??
+        p?.document_id ??
+        "",
+    ).trim();
+    if (!did || (scopedIdSet.size > 0 && !scopedIdSet.has(did))) continue;
+    premiumRowsForTotals.push({
+      document_id: did,
+      monthly_premium: p?.monthly_premium ?? p?.premium_amount ?? null,
+      content_sha256:
+        p?.source_content_sha256 ??
+        p?.coverage_summary?.source_content_sha256 ??
+        null,
+    });
+  }
+  for (const row of Array.isArray(pdfAttachmentsForClaude) ? pdfAttachmentsForClaude : []) {
+    const did = String(row?.document_id ?? "").trim();
+    if (!did) continue;
+    if (scopedIdSet.size > 0 && !scopedIdSet.has(did)) continue;
+    premiumRowsForTotals.push({
+      document_id: did,
+      monthly_premium: row?.monthly_premium ?? null,
+      content_sha256: row?.content_sha256 ?? null,
+      base64: row?.base64 ?? null,
+    });
+  }
+  const vaultProcessing =
+    vaultRecall?.processing && typeof vaultRecall.processing === "object"
+      ? vaultRecall.processing
+      : null;
+  const incompleteNotice = vaultProcessing
+    ? buildIncompleteProcessingNotice(vaultProcessing)
+    : null;
+  if (incompleteNotice && pdfMetaForClaude && typeof pdfMetaForClaude === "object") {
+    pdfMetaForClaude.document_processing = incompleteNotice;
+    if (Array.isArray(pdfMetaForClaude.document_box_listing)) {
+      // listing may be full via pagination; still surface incomplete attach processing
+      pdfMetaForClaude.vault_processing_incomplete = true;
+    }
+  }
+  const deterministicDocumentTotals = isPresenceTurn
+    ? null
+    : buildDeterministicDocumentTotals({
+        rows: premiumRowsForTotals,
+        processing: incompleteNotice,
+      });
+  // Ensure unique attach rows are sha-deduped for count authority when no premiums yet.
+  if (
+    deterministicDocumentTotals &&
+    deterministicDocumentTotals.unique_document_count === 0 &&
+    scopedDocumentIds.length
+  ) {
+    const deduped = dedupeDocumentRowsForRuntimeSum(
+      scopedDocumentIds.map((id) => ({ document_id: id })),
+    );
+    deterministicDocumentTotals.unique_document_count = deduped.length;
+  }
+
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
     history: isPresenceTurn ? [] : history,
@@ -6090,6 +6252,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     policyTruthContext: policyTruthContextForClaude,
     policyCountAuthorityAddendum,
     verifiedCoverageAuthorityAddendum,
+    deterministicDocumentTotals,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);

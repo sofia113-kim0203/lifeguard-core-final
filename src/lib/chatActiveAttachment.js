@@ -137,28 +137,47 @@ export function isMultiDocumentVaultRecallQuestion(question = "") {
 }
 
 /**
- * Explicit owned-vault asks (box / count / multi / insurance recall phrasing).
- * NOT the sole access permission — active insurance document case does not need these words.
+ * Tom-locked vault/history scope phrases (보관 문서 · 이전 계약 · 전체 보험 · 과거 자료와 비교).
+ * Spacing-tolerant. Used so request document_ids are not mixed with past vault docs.
+ */
+export function isExplicitVaultScopeQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  return (
+    /보관\s*문서/.test(q) ||
+    /이전\s*계약/.test(q) ||
+    /전체\s*보험/.test(q) ||
+    /과거\s*자료\s*(?:와|과)?\s*비교/.test(q)
+  );
+}
+
+/**
+ * Explicit owned-vault asks only.
+ * Request document_ids / active attach alone must NOT pull the rest of the vault.
  */
 export function wantsOwnedInsuranceVaultEvidence(question = "") {
   const q = String(question ?? "")
     .replace(/\s+/g, " ")
     .trim();
   if (!q) return false;
-  if (isPolicyCountOrLedgerQuestion(q)) return true;
-  if (isInsuranceDocumentRecallQuestion(q)) return true;
+  if (isExplicitVaultScopeQuestion(q)) return true;
   if (isInsuranceVaultDocumentBoxRecheckQuestion(q)) return true;
   if (isMultiDocumentVaultRecallQuestion(q)) return true;
-  if (isOriginalDocumentRereadQuestion(q) && /보험|계약|갱신|담보|보험료|증권/.test(q)) {
+  // Narrow insurance recall: only when the ask itself carries vault/history scope.
+  if (
+    isInsuranceDocumentRecallQuestion(q) &&
+    (/전체\s*보험|보관|이전\s*계약|과거\s*자료/.test(q) || /보관한\s*보험/.test(q))
+  ) {
     return true;
   }
   return false;
 }
 
 /**
- * Document access permission for owned insurance originals.
- * Active insurance document case → provide related originals without keyword gating.
- * Without active case → only explicit owned-vault asks (box/count/multi/…).
+ * Vault originals only on explicit vault/history scope.
+ * Active attach / request document_id alone → attach-scoped originals only (no vault mix-in).
  * Presence never attaches vault originals.
  */
 export function shouldProvideOwnedInsuranceVaultOriginals({
@@ -167,7 +186,7 @@ export function shouldProvideOwnedInsuranceVaultOriginals({
   attachedDocumentId = null,
 } = {}) {
   if (isPresenceTurn === true) return false;
-  if (String(attachedDocumentId ?? "").trim()) return true;
+  void attachedDocumentId; // attach id must not auto-open vault (Tom lock)
   return wantsOwnedInsuranceVaultEvidence(question) === true;
 }
 

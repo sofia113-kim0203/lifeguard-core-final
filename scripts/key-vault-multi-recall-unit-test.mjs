@@ -36,7 +36,7 @@ assert.equal(
 );
 ok("singular_question_no_vault_multi");
 
-// 1b) Active insurance document case provides vault without keyword ("분석해줘 키").
+// 1b) Active attach alone must NOT open vault (request-scope only).
 assert.equal(wantsOwnedInsuranceVaultEvidence("분석해줘 키"), false);
 assert.equal(
   shouldProvideOwnedInsuranceVaultOriginals({
@@ -44,16 +44,23 @@ assert.equal(
     attachedDocumentId: "doc-active",
     isPresenceTurn: false,
   }),
-  true,
+  false,
 );
 assert.equal(
   shouldProvideOwnedInsuranceVaultOriginals({
     question: "이 보험 전체적으로 어때?",
     attachedDocumentId: "doc-active",
   }),
+  false,
+);
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "전체 보험 분석해줘",
+    attachedDocumentId: "doc-active",
+  }),
   true,
 );
-ok("active_case_vault_without_keyword");
+ok("active_attach_no_auto_vault");
 
 // 2) activeAttachmentId present + vault intent → still run vault recall.
 const vaultQs = [
