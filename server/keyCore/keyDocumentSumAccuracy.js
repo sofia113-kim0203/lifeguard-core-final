@@ -232,114 +232,18 @@ export function buildIncompleteProcessingNotice({
 }
 
 /**
- * Narrow Hand: if customer prose states a wrong monthly total that conflicts with
- * deterministic sum from extracted/scoped premiums, replace the wrong integer only
- * in total-language clauses. Does not invent premiums — only corrects arithmetic.
+ * Pre-Claude vault source scope only — Claude writes the customer wording.
+ * Do not post-edit customer_answer after Claude.
  */
-export function applyDeterministicPremiumSumGuard({
-  customerAnswer = "",
-  totals = null,
-} = {}) {
-  const answer = String(customerAnswer ?? "");
-  const sum =
-    totals && Number.isFinite(Number(totals.monthly_premium_sum))
-      ? Math.round(Number(totals.monthly_premium_sum))
-      : null;
-  if (!answer || sum == null || sum < 0) {
-    return { answer, changed: false, monthly_premium_sum: sum };
-  }
-  if (!/(합계|총|모두|전부|합하면|합치면|더한|월\s*납|보험료)/.test(answer)) {
-    return { answer, changed: false, monthly_premium_sum: sum };
-  }
-  const sumLabel = sum.toLocaleString("en-US");
-  const sumPlain = String(sum);
-  const guarded = answer.replace(
-    /((?:합계|총|모두|전부|합하면|합치면|더한|월\s*납(?:입)?\s*보험료|보험료)[^.\n]{0,48}?)(\d{1,3}(?:,\d{3})+|\d{4,})(\s*원)/g,
-    (m, pre, num, unit) => {
-      const n = coerceMonthlyPremiumWon(num);
-      if (n == null || n === sum) return m;
-      const label = String(num).includes(",") ? sumLabel : sumPlain;
-      return `${pre}${label}${unit}`;
-    },
-  );
-  return {
-    answer: guarded,
-    changed: guarded !== answer,
-    monthly_premium_sum: sum,
-  };
-}
-
-const NO_PREMIUM_SPEAK = "현재 첨부 안에서 계산할 숫자 없음.";
-
-/**
- * Seal customer prose to one deterministic premium stance — no "숫자 없음" + amount coexistence.
- */
-export function sealCustomerAnswerWithDeterministicTotals({
-  customerAnswer = "",
-  totals = null,
-} = {}) {
-  const answer = String(customerAnswer ?? "").trim();
-  if (!answer || !totals || typeof totals !== "object") {
-    return { answer, changed: false, sealed: null };
-  }
-  const premiumCount = Number(totals.premium_row_count) || 0;
-  const sum = Number(totals.monthly_premium_sum);
-  const hasSum = premiumCount > 0 && Number.isFinite(sum) && sum >= 0;
-  const noPrem =
-    !hasSum &&
-    (totals.no_computable_premiums_in_current_attach === true || premiumCount <= 0);
-  const inventsAmount = /(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/.test(answer);
-  const saysMissing =
-    /계산할\s*숫자\s*없|보험료\s*숫자[가이]?\s*없|숫자가\s*없/.test(answer);
-
-  if (hasSum) {
-    let next = answer
-      .replace(/계산할\s*숫자\s*없[^.。\n!]*/g, "")
-      .replace(/보험료\s*숫자[가이]?\s*없[^.。\n!]*/g, "")
-      .replace(/숫자가\s*없[어어서]?[^.。\n!]*/g, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-    const guarded = applyDeterministicPremiumSumGuard({
-      customerAnswer: next,
-      totals: { monthly_premium_sum: Math.round(sum) },
-    });
-    next = guarded.answer;
-    return {
-      answer: next || answer,
-      changed: next !== answer,
-      sealed: "has_premium",
-      monthly_premium_sum: Math.round(sum),
-    };
-  }
-
-  if (noPrem && saysMissing && inventsAmount) {
-    return { answer: NO_PREMIUM_SPEAK, changed: true, sealed: "no_premium" };
-  }
-  if (noPrem && inventsAmount && totals.no_computable_premiums_in_current_attach === true) {
-    return { answer: NO_PREMIUM_SPEAK, changed: true, sealed: "no_premium" };
-  }
-  return { answer, changed: false, sealed: null };
-}
-
 export function buildVaultDocumentSourceScopeAddendum() {
   return [
     "[DOCUMENT_SOURCE_SCOPE]",
     "source_scope=vault_document",
-    '보관함에서 회수한 원본은 반드시 "보관 중이던 문서"로 말한다.',
+    "이번 회수 원본은 보관함(문서함)에 있던 문서이다. 현재 턴 신규 첨부·방금 올린 파일이 아니다.",
+    '고객에게는 "보관 중이던 문서"로 출처를 설명한다.',
     '"이번에 올린 문서", "올려주신 문서", "방금 첨부한 문서"라고 표현하지 않는다.',
+    "출처 문장은 Claude가 직접 작성한다. 시스템/Hand가 답변 뒤에서 고치지 않는다.",
   ].join("\n");
-}
-
-/** Hand: rewrite mistaken "이번에 올린" speak when source_scope is vault. */
-export function sealVaultDocumentSourceSpeak(customerAnswer = "") {
-  const answer = String(customerAnswer ?? "");
-  if (!answer.trim()) return { answer, changed: false };
-  let next = answer
-    .replace(/이번에\s*(?:올려\s*주신|올리신|올린)\s*문서/g, "보관 중이던 문서")
-    .replace(/방금\s*(?:올려\s*주신|올리신|올린|첨부한)\s*문서/g, "보관 중이던 문서")
-    .replace(/올려\s*주신\s*문서/g, "보관 중이던 문서")
-    .replace(/올리신\s*문서/g, "보관 중이던 문서");
-  return { answer: next, changed: next !== answer };
 }
 
 /** Soft follow-up that must keep prior multi-attach snapshot. */
@@ -366,7 +270,16 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   const lines = [
     "[DETERMINISTIC_DOCUMENT_TOTALS]",
     "보험료·건수 합계는 아래 결정론 코드 결과만 사용한다. 직접 더하거나 어림하지 않는다.",
+    "아래 값을 읽고 고객 문장을 Claude가 직접 작성한다. 시스템이 답변 뒤에서 문장·금액을 고치지 않는다.",
   ];
+  if (Array.isArray(totals.requested_document_ids) && totals.requested_document_ids.length) {
+    lines.push(
+      `included_document_ids=${totals.requested_document_ids
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean)
+        .join(",")}`,
+    );
+  }
   if (Number.isFinite(count)) {
     lines.push(`unique_document_count=${Math.round(count)}`);
   }
@@ -378,17 +291,20 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
     );
   }
   if (noPremiums) {
+    lines.push("computable_premiums=false");
     lines.push(
       "원본을 모두 읽은 뒤에도 보험료 숫자가 없으면 그때만 \"계산할 숫자 없음\"으로 끝낸다.",
     );
     lines.push("과거 계약·장부·약관·보관 문서의 금액으로 합계를 채우지 않는다.");
     lines.push('"계산할 숫자 없음"과 원화 금액을 같은 답변에 함께 쓰지 않는다.');
   } else if (Number.isFinite(sum)) {
+    lines.push("computable_premiums=true");
     lines.push(`monthly_premium_sum=${Math.round(sum)}`);
     lines.push('"계산할 숫자 없음"이라고 말하지 않는다.');
   }
   if (Array.isArray(totals.premiums) && totals.premiums.length) {
     lines.push(`premiums=[${totals.premiums.map((p) => Math.round(Number(p))).join(",")}]`);
+    lines.push("premium_source=deterministic_code_from_scoped_originals");
   }
   if (totals.processing && totals.processing.complete === false) {
     lines.push(

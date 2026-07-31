@@ -74,15 +74,12 @@ import {
 } from "../../src/lib/chatActiveAttachment.js";
 import { listAttachedDocumentIds } from "../../src/lib/homeBrainAttachDocumentIds.js";
 import {
-  applyDeterministicPremiumSumGuard,
   buildAttachAnalysisScopeAuthorityAddendum,
   buildDeterministicDocumentTotals,
   buildDeterministicTotalsAuthorityAddendum,
   buildIncompleteProcessingNotice,
   buildVaultDocumentSourceScopeAddendum,
   dedupeDocumentRowsForRuntimeSum,
-  sealCustomerAnswerWithDeterministicTotals,
-  sealVaultDocumentSourceSpeak,
   shouldPreferRequestDocumentScopeOnly,
   stripNonAttachEvidenceFromUserPayload,
 } from "./keyDocumentSumAccuracy.js";
@@ -4720,73 +4717,11 @@ async function callClaudeFirstDirect({
     break;
   }
 
+  // Claude final speech authority: do not replace/append/rewrite customer_answer after Claude.
+  // Deterministic totals + vault source_scope are pre-Claude addenda only.
   let customer_answer = String(
     lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
-  // Hand arithmetic + stance seal: inventory/precomputed premiums; no "숫자 없음"+amount.
-  {
-    const inventoryRows = Array.isArray(policyInventoryFacts) ? policyInventoryFacts : [];
-    const sumRows =
-      inventoryRows.length > 0
-        ? inventoryRows.map((f) => ({
-            document_id: f?.source_document_id,
-            monthly_premium: f?.monthly_premium,
-            content_sha256: f?.source_content_sha256,
-            policy_number: f?.policy_number ?? f?.contract_number ?? null,
-            insurer: f?.insurer ?? f?.insurer_name ?? null,
-            product_name: f?.product_name ?? f?.product ?? null,
-          }))
-        : [];
-    const totalsFromInventory =
-      sumRows.length > 0 ? buildDeterministicDocumentTotals({ rows: sumRows }) : null;
-    let totalsForSeal =
-      totalsFromInventory?.premium_row_count > 0
-        ? {
-            ...totalsFromInventory,
-            unique_document_count: Math.max(
-              Number(totalsFromInventory.unique_document_count) || 0,
-              Number(deterministicDocumentTotals?.unique_document_count) || 0,
-              attachDocumentIds.length,
-            ),
-          }
-        : deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
-          ? deterministicDocumentTotals
-          : null;
-    if (
-      totalsForSeal &&
-      Number(totalsForSeal.premium_row_count || 0) <= 0 &&
-      attachDocumentIds.length > 0
-    ) {
-      totalsForSeal = {
-        ...totalsForSeal,
-        no_computable_premiums_in_current_attach: true,
-      };
-    }
-    if (totalsForSeal) {
-      const sealed = sealCustomerAnswerWithDeterministicTotals({
-        customerAnswer: customer_answer,
-        totals: totalsForSeal,
-      });
-      if (sealed.changed) customer_answer = sealed.answer;
-      else {
-        const guarded = applyDeterministicPremiumSumGuard({
-          customerAnswer: customer_answer,
-          totals: totalsForSeal,
-        });
-        if (guarded.changed) customer_answer = guarded.answer;
-      }
-    }
-    const vaultSpeak =
-      pdfMeta &&
-      typeof pdfMeta === "object" &&
-      (String(pdfMeta.document_review_scope ?? "").includes("vault") ||
-        pdfMeta.vault_recall_mode ||
-        Number(pdfMeta.vault_attach_count) > 0);
-    if (vaultSpeak) {
-      const vaultSealed = sealVaultDocumentSourceSpeak(customer_answer);
-      if (vaultSealed.changed) customer_answer = vaultSealed.answer;
-    }
-  }
   const progressOnly = isProgressOnlyCustomerAnswer(customer_answer);
 
   if (webSearchTrace.web_search_used) {

@@ -3,23 +3,24 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import {
   isExplicitVaultScopeQuestion,
   shouldPreferRequestDocumentScopeOnly,
   dedupeDocumentRowsForRuntimeSum,
   sumMonthlyPremiumsDeterministic,
-  applyDeterministicPremiumSumGuard,
   buildIncompleteProcessingNotice,
   buildAttachAnalysisScopeAuthorityAddendum,
   buildDeterministicTotalsAuthorityAddendum,
   buildVaultDocumentSourceScopeAddendum,
-  sealCustomerAnswerWithDeterministicTotals,
-  sealVaultDocumentSourceSpeak,
   isAttachContextFollowUpQuestion,
   stripNonAttachEvidenceFromUserPayload,
   answerMentionsOutOfAttachHistoryScope,
   contentSha256FromBytes,
 } from "../server/keyCore/keyDocumentSumAccuracy.js";
+import * as keyDocumentSumAccuracy from "../server/keyCore/keyDocumentSumAccuracy.js";
 import {
   wantsOwnedInsuranceVaultEvidence,
   shouldProvideOwnedInsuranceVaultOriginals,
@@ -167,13 +168,13 @@ ok("filename_size_not_dedupe");
   const sum = sumMonthlyPremiumsDeterministic(rows);
   assert.equal(sum.monthly_premium_sum, 413455);
   assert.notEqual(sum.monthly_premium_sum, 413555);
-  const guarded = applyDeterministicPremiumSumGuard({
-    customerAnswer: "세 계약 월 납입 합계는 413,555원입니다.",
-    totals: sum,
+  const addendum = buildDeterministicTotalsAuthorityAddendum({
+    ...sum,
+    requested_document_ids: ["p1", "p2", "p3"],
   });
-  assert.equal(guarded.changed, true);
-  assert.match(guarded.answer, /413,455원/);
-  assert.doesNotMatch(guarded.answer, /413,555원/);
+  assert.match(addendum, /monthly_premium_sum=413455/);
+  assert.match(addendum, /included_document_ids=p1,p2,p3/);
+  assert.match(addendum, /Claude가 직접 작성/);
 }
 ok("deterministic_sum_413455");
 
@@ -363,36 +364,29 @@ ok("attach_scope_strips_chart_and_past_docs");
 }
 ok("same_contract_three_pages_premium_once");
 
-// 12) Seal: no "숫자 없음" + amount coexistence.
+// 12) Post-Claude customer_answer mutation helpers removed from customer path.
 {
-  const sealedMissing = sealCustomerAnswerWithDeterministicTotals({
-    customerAnswer:
-      "보험료 숫자가 없습니다. 월납 보험료는 183,231원입니다.",
-    totals: {
-      premium_row_count: 0,
-      monthly_premium_sum: 0,
-      no_computable_premiums_in_current_attach: true,
-    },
-  });
-  assert.equal(sealedMissing.changed, true);
-  assert.match(sealedMissing.answer, /계산할 숫자 없음/);
-  assert.doesNotMatch(sealedMissing.answer, /183/);
-
-  const sealedHas = sealCustomerAnswerWithDeterministicTotals({
-    customerAnswer:
-      "보험료 숫자가 없습니다. 월납 보험료는 183,231원입니다.",
-    totals: {
-      premium_row_count: 1,
-      monthly_premium_sum: 183231,
-      premiums: [183231],
-      unique_contract_count: 1,
-    },
-  });
-  assert.equal(sealedHas.changed, true);
-  assert.doesNotMatch(sealedHas.answer, /숫자\s*없/);
-  assert.match(sealedHas.answer, /183,231원/);
+  assert.equal(
+    typeof keyDocumentSumAccuracy.sealCustomerAnswerWithDeterministicTotals,
+    "undefined",
+  );
+  assert.equal(typeof keyDocumentSumAccuracy.sealVaultDocumentSourceSpeak, "undefined");
+  assert.equal(
+    typeof keyDocumentSumAccuracy.applyDeterministicPremiumSumGuard,
+    "undefined",
+  );
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const claudeFirst = readFileSync(
+    path.join(here, "../server/keyCore/keyClaudeFirstDirect.js"),
+    "utf8",
+  );
+  assert.equal(claudeFirst.includes("sealCustomerAnswerWithDeterministicTotals"), false);
+  assert.equal(claudeFirst.includes("sealVaultDocumentSourceSpeak"), false);
+  assert.equal(claudeFirst.includes("applyDeterministicPremiumSumGuard"), false);
+  assert.match(claudeFirst, /buildDeterministicTotalsAuthorityAddendum/);
+  assert.match(claudeFirst, /buildVaultDocumentSourceScopeAddendum/);
 }
-ok("seal_no_premium_amount_coexistence");
+ok("post_claude_customer_text_mutation_removed");
 
 // 13) Follow-up keeps multi-attach snapshot ids.
 {
@@ -463,19 +457,15 @@ ok("seal_no_premium_amount_coexistence");
 }
 ok("follow_up_expands_multi_attach_snapshot");
 
-// 14) Vault source_scope speak — never "이번에 올린 문서".
+// 14) Vault source_scope is pre-Claude addendum only (no post-answer rewrite helper).
 {
   const addendum = buildVaultDocumentSourceScopeAddendum();
   assert.match(addendum, /source_scope=vault_document/);
   assert.match(addendum, /보관 중이던 문서/);
-  const sealed = sealVaultDocumentSourceSpeak(
-    "이번에 올려주신 문서를 기준으로 보면 월 보험료는 10,000원입니다.",
-  );
-  assert.equal(sealed.changed, true);
-  assert.match(sealed.answer, /보관 중이던 문서/);
-  assert.doesNotMatch(sealed.answer, /이번에\s*올려/);
+  assert.match(addendum, /답변 뒤에서 고치지 않는다/);
+  assert.match(addendum, /Claude가 직접 작성/);
 }
-ok("vault_source_scope_speak");
+ok("vault_source_scope_pre_claude_addendum");
 
 // 15) Normalize failure must not drop a request document_id.
 {
