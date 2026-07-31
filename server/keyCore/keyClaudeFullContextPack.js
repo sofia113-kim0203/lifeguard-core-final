@@ -16,9 +16,12 @@ function turnText(turn = null) {
 }
 
 function mapTurn(turn = null) {
+  const ts = String(turn?.created_at ?? turn?.timestamp ?? turn?.at ?? "").trim();
   return {
     role: turn?.role === "assistant" ? "assistant" : "user",
     text: turnText(turn),
+    // Per-turn clock for Claude — lives in cache marker C (never system A).
+    ...(ts ? { created_at: ts } : {}),
   };
 }
 

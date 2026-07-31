@@ -2037,6 +2037,61 @@ export function splitUserPayloadForPromptCache(userPayload = null) {
 }
 
 /**
+ * Serialize Anthropic request slices for prompt-cache prefix audits (no network).
+ * Prefix = final system + user content from start through the cache_control block (inclusive).
+ * C = all user content blocks after that marker (question/context/priority/originals).
+ */
+export function serializeClaudeFirstCachePrefixForAudit({
+  systemText = "",
+  userPayload = null,
+  pdfBase64 = null,
+  mediaType = null,
+  attachments = null,
+  attachmentIdentityPlan = null,
+  cacheControl = ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
+} = {}) {
+  const parts = buildClaudeFirstCachedRequestParts({
+    systemText,
+    userPayload,
+    pdfBase64,
+    mediaType,
+    attachments,
+    attachmentIdentityPlan,
+    cacheControl,
+  });
+  const content = Array.isArray(parts?.messages?.[0]?.content)
+    ? parts.messages[0].content
+    : [];
+  const prefixContent = [];
+  let markerCount = 0;
+  let markerIndex = -1;
+  for (let i = 0; i < content.length; i += 1) {
+    const block = content[i];
+    prefixContent.push(block);
+    if (block && typeof block === "object" && block.cache_control) {
+      markerCount += 1;
+      markerIndex = i;
+      break;
+    }
+  }
+  const cContent = markerIndex >= 0 ? content.slice(markerIndex + 1) : content.slice();
+  const prefixObject = {
+    system: parts.system,
+    content: prefixContent,
+  };
+  const cObject = { content: cContent };
+  return {
+    prefix_json: JSON.stringify(prefixObject),
+    c_json: JSON.stringify(cObject),
+    cache_marker_count: markerCount,
+    cache_marker_index: markerIndex,
+    cache_strategy: parts.cache_strategy ?? null,
+    cache_breakpoints: parts.cache_breakpoints ?? null,
+    parts,
+  };
+}
+
+/**
  * Build Anthropic system + user content with explicit cache breakpoints.
  * A = system text (unchanged). B = evidence JSON. C = question/context (+ optional PDF).
  * Cache marker only on B end so prefix = A+B (A alone is typically under min tokens).
@@ -4501,14 +4556,9 @@ async function callClaudeFirstDirect({
     }
   }
   if (presenceTurn !== true) {
-    const contextContract = buildKeyClaudeContextContractAddendum({
-      now: requestNow,
-      timeZone: env?.TZ || env?.USER_TIMEZONE || null,
-      attachmentIdentities: Array.isArray(attachmentIdentityPlan?.attachment_identities)
-        ? attachmentIdentityPlan.attachment_identities
-        : [],
-      history: Array.isArray(history) ? history : [],
-    });
+    // Cache-prefix stable contract: no requestNow / history timestamps / attach IDs in A.
+    // Turn clocks live in current_context (C); attach identities live after the marker.
+    const contextContract = buildKeyClaudeContextContractAddendum();
     if (contextContract) {
       systemTextBase = `${systemTextBase}\n\n${contextContract}`;
     }

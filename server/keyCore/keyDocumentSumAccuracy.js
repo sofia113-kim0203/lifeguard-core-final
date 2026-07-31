@@ -601,6 +601,11 @@ export function buildAttachAnalysisScopeAuthorityAddendum({
 /**
  * KEY × Claude context contract — CURRENT / THREAD / CUSTOMER / TIME / SOURCE.
  * Fact labels only; Claude writes customer wording.
+ *
+ * Cache-prefix safe: no per-turn ISO time, thread timestamps, question text,
+ * or attachment identity values. Those live after the cache marker in
+ * current_context / identity blocks (see buildUserPayload + cached request parts).
+ * Optional args retained for call-site compatibility; ignored for prefix stability.
  */
 export function buildKeyClaudeContextContractAddendum({
   now = null,
@@ -608,56 +613,21 @@ export function buildKeyClaudeContextContractAddendum({
   attachmentIdentities = [],
   history = [],
 } = {}) {
-  const nowDate =
-    now instanceof Date && !Number.isNaN(now.getTime())
-      ? now
-      : now
-        ? new Date(now)
-        : new Date();
-  const iso = Number.isNaN(nowDate.getTime())
-    ? new Date().toISOString()
-    : nowDate.toISOString();
-  const tz =
-    String(timeZone ?? "").trim() ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    "Asia/Seoul";
-  const identities = Array.isArray(attachmentIdentities) ? attachmentIdentities : [];
-  const turns = Array.isArray(history) ? history : [];
-  const recent = turns.slice(-6).map((t, i) => {
-    const role = t?.role === "assistant" ? "assistant" : "user";
-    const ts = String(t?.created_at ?? t?.timestamp ?? t?.at ?? "").trim() || "unknown";
-    return `${i + 1}:${role}@${ts}`;
-  });
-  const lines = [
+  void now;
+  void timeZone;
+  void attachmentIdentities;
+  void history;
+  return [
     "[KEY_CLAUDE_CONTEXT_CONTRACT]",
     "CURRENT: 현재 고객 질문 + 현재 첨부 identity 전체 + 고유 원본 + 첨부 순서",
     "THREAD: 직전 관련 고객 질문·Claude 답변·첨부가 올라온 턴·메시지 순서를 유지한다",
     "CUSTOMER: 관련 verified facts / chart / memory / prior consultation을 첨부 질문이라는 이유만으로 비우지 않는다",
-    "TIME: 방금/아까/현재/이전/오늘을 구분할 때 아래 시각을 사용한다",
-    `reference_now_iso=${iso}`,
-    `user_timezone=${tz}`,
+    "TIME: 방금/아까/현재/이전/오늘을 구분할 때 current_context.current_datetime · current_date · timezone을 사용한다",
+    "THREAD_TIME: 최근 턴 시각은 current_context.conversation.recent_conversation_originals 항목의 created_at이 있을 때 그것을 사용한다",
+    "ATTACHMENT_IDENTITY: 현재 첨부 identity·순서는 cache marker 이후 identity 블록과 current_context를 따른다",
     "SOURCE: current_turn_attachment | previous_turn_attachment | vault_document | verified_customer_fact | conversation_context",
-  ];
-  if (identities.length) {
-    lines.push(`attachment_upload_order=${identities.map((r) => r.document_id).join(",")}`);
-    for (const row of identities) {
-      lines.push(
-        [
-          `upload_order=${row.original_index}`,
-          `document_id=${row.document_id}`,
-          `source_scope=${row.source_scope || "current_turn_attachment"}`,
-          `duplicate_of=${row.duplicate_of_document_id || "none"}`,
-        ].join(";"),
-      );
-    }
-  }
-  if (recent.length) {
-    lines.push(`recent_thread_timestamps=${recent.join("|")}`);
-  }
-  lines.push(
     "계약일·갱신일·만기일이 원본/검증 사실에 있으면 해당 날짜를 기준으로 설명한다.",
-  );
-  return lines.join("\n");
+  ].join("\n");
 }
 
 /**

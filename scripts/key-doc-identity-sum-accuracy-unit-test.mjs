@@ -28,7 +28,10 @@ import {
   answerMentionsOutOfAttachHistoryScope,
   contentSha256FromBytes,
 } from "../server/keyCore/keyDocumentSumAccuracy.js";
-import { filterHistoryExcludingInactiveDocumentAttachments } from "../server/keyCore/keyClaudeFullContextPack.js";
+import {
+  buildClaudeFullContextPack,
+  filterHistoryExcludingInactiveDocumentAttachments,
+} from "../server/keyCore/keyClaudeFullContextPack.js";
 import { buildSessionMetadata } from "../src/lib/lifeguardChatSessionCore.js";
 import * as keyDocumentSumAccuracy from "../server/keyCore/keyDocumentSumAccuracy.js";
 import {
@@ -55,8 +58,16 @@ import {
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
 import {
   buildClaudeFirstCachedRequestParts,
+  buildUserPayload,
   composeClaudeFirstSystemText,
+  serializeClaudeFirstCachePrefixForAudit,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  buildVerifiedPolicyLedgerBrief,
+  buildSourceSeparatedTruthContext,
+  buildVerifiedCoverageAuthorityAddendum,
+} from "../server/keyCore/keyPolicyTruthEvidence.js";
+import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import {
   isExplicitCurrentInsuranceProductRequest,
   buildCurrentInsuranceProductShowcaseAddendum,
@@ -751,8 +762,12 @@ ok("session_metadata_active_attachment_ids");
     history: [{ role: "user", text: "hi", created_at: "2026-07-31T04:59:00.000Z" }],
   });
   assert.match(contract, /KEY_CLAUDE_CONTEXT_CONTRACT/);
-  assert.match(contract, /user_timezone=Asia\/Seoul/);
-  assert.match(contract, /reference_now_iso=/);
+  assert.match(contract, /current_context\.current_datetime/);
+  assert.match(contract, /timezone/);
+  assert.equal(contract.includes("reference_now_iso="), false);
+  assert.equal(contract.includes("recent_thread_timestamps="), false);
+  assert.equal(contract.includes("2026-07-31T05:00:00.000Z"), false);
+  assert.equal(contract.includes("document_id=a"), false);
   const boundary = buildCustomerConfirmationBoundaryAddendum();
   assert.match(boundary, /CUSTOMER_CONFIRMATION_BOUNDARY/);
   assert.equal(isClaudeInferenceOrEvaluationLiteral("보장이 두텁습니다"), true);
@@ -1178,4 +1193,289 @@ ok("question_scope_and_grounded_product_recommendation");
 }
 ok("explicit_prior_attachment_reactivation_suite");
 
+// ─── Claude prompt cache prefix stability (TEST 1–6 + structure) ───
+{
+  const sha256 = (s) => createHash("sha256").update(String(s ?? ""), "utf8").digest("hex");
+
+  function synthPolicies(version = "A") {
+    // Version B changes a verified chart fact that survives chart projection.
+    return [
+      {
+        id: "pol_cache_1",
+        policy_id: "pol_cache_1",
+        insurer_name: "테스트보험",
+        product_name: version === "B" ? "테스트암보험_변경" : "테스트암보험",
+        policy_number: "PN-CACHE-1",
+        monthly_premium: version === "B" ? 190000 : 183231,
+        status: "active",
+        identity_strength: "strong",
+        coverages: [
+          {
+            coverage_name: "암진단비",
+            coverage_amount: 5_000_000,
+            status: "verified",
+            source_document_id: "doc_cache_1",
+          },
+        ],
+      },
+    ];
+  }
+
+  function buildOrdinaryNoAttachSystemText({ question, history = [], chart, ledger }) {
+    // Mirrors callClaudeFirstDirect no-attach ordinary path order (no fetch).
+    let systemText = composeClaudeFirstSystemText({ question, history });
+    const covAuth = buildVerifiedCoverageAuthorityAddendum({
+      ledgerBrief: ledger,
+      chart,
+    });
+    if (covAuth) {
+      systemText = `${systemText}\n\n[VERIFIED_COVERAGE_AUTHORITY]\n${covAuth}`;
+    }
+    systemText = `${systemText}\n\n${buildKeyClaudeContextContractAddendum()}`;
+    systemText = `${systemText}\n\n${buildCustomerConfirmationBoundaryAddendum()}`;
+    systemText = `${systemText}\n\n${buildQuestionScopedAnalysisAuthorityAddendum()}`;
+    return systemText;
+  }
+
+  function buildAuditSlices({
+    question,
+    history = [],
+    now,
+    policies,
+    chartVersion = "A",
+  }) {
+    const pols = policies || synthPolicies(chartVersion);
+    const chart = buildVerifiedCustomerChart({ policies: pols, policy_count: pols.length });
+    const ledger = buildVerifiedPolicyLedgerBrief(pols);
+    const policyTruth = buildSourceSeparatedTruthContext({
+      ledgerBrief: ledger,
+      evidenceMeta: { attached_document_count: 0 },
+      countQuestion: false,
+    });
+    const { pack } = buildClaudeFullContextPack({ history, question });
+    const systemText = buildOrdinaryNoAttachSystemText({
+      question,
+      history,
+      chart,
+      ledger,
+    });
+    const userPayload = buildUserPayload({
+      question,
+      chart,
+      contextPack: pack,
+      policyTruthContext: policyTruth,
+      now,
+    });
+    const slices = serializeClaudeFirstCachePrefixForAudit({
+      systemText,
+      userPayload,
+      attachments: null,
+      attachmentIdentityPlan: null,
+    });
+    return { ...slices, chart, pack, userPayload, systemText };
+  }
+
+  const t1 = "2026-08-01T01:20:00.111+09:00";
+  const t2 = "2026-08-01T01:21:37.987+09:00";
+  const qOrdinary1 = "암진단비는 뭐야?";
+  const qOrdinary2 = "실손보험은 어떻게 보장돼?";
+
+  // TEST 1 — PREFIX_HASH_STABLE_TIME
+  {
+    const hist = [
+      { role: "user", content: "안녕", created_at: "THREAD_TS_SENTINEL_222" },
+      { role: "assistant", content: "안녕하세요", created_at: "THREAD_TS_A" },
+    ];
+    const r1 = buildAuditSlices({
+      question: qOrdinary1,
+      history: hist,
+      now: new Date(t1),
+      chartVersion: "A",
+    });
+    const r2 = buildAuditSlices({
+      question: qOrdinary1,
+      history: hist,
+      now: new Date(t2),
+      chartVersion: "A",
+    });
+    const p1 = sha256(r1.prefix_json);
+    const p2 = sha256(r2.prefix_json);
+    const c1 = sha256(r1.c_json);
+    const c2 = sha256(r2.c_json);
+    assert.equal(p1, p2, "PREFIX_HASH_STABLE_TIME prefix");
+    assert.notEqual(c1, c2, "PREFIX_HASH_STABLE_TIME C differs");
+    assert.equal(r1.prefix_json.includes(t1), false);
+    assert.equal(r1.prefix_json.includes(t2), false);
+    assert.equal(r2.prefix_json.includes(t1), false);
+    assert.equal(r2.prefix_json.includes(t2), false);
+    assert.ok(r1.c_json.includes("2026-08-01") || r1.c_json.includes("current_datetime"));
+    assert.ok(r2.c_json.includes("2026-08-01") || r2.c_json.includes("current_datetime"));
+    assert.notEqual(r1.c_json, r2.c_json);
+    // expose for report
+    globalThis.__CACHE_PREFIX_HASH_1 = p1;
+    globalThis.__CACHE_PREFIX_HASH_2 = p2;
+    globalThis.__CACHE_C_HASH_1 = c1;
+    globalThis.__CACHE_C_HASH_2 = c2;
+  }
+  ok("PREFIX_HASH_STABLE_TIME");
+
+  // TEST 2 — PREFIX_HASH_STABLE_HISTORY_GROWTH
+  {
+    const hist2 = [
+      { role: "user", content: "Q1", created_at: "TS1" },
+      { role: "assistant", content: "A1", created_at: "TS2" },
+    ];
+    const hist4 = [
+      ...hist2,
+      { role: "user", content: "Q2_EXTRA_HISTORY", created_at: "TS3" },
+      { role: "assistant", content: "A2_EXTRA_HISTORY", created_at: "TS4" },
+    ];
+    const r1 = buildAuditSlices({
+      question: qOrdinary1,
+      history: hist2,
+      now: new Date(t1),
+    });
+    const r2 = buildAuditSlices({
+      question: qOrdinary1,
+      history: hist4,
+      now: new Date(t1),
+    });
+    assert.equal(sha256(r1.prefix_json), sha256(r2.prefix_json));
+    assert.notEqual(sha256(r1.c_json), sha256(r2.c_json));
+    assert.ok(r2.c_json.includes("Q2_EXTRA_HISTORY"));
+    assert.equal(r1.prefix_json.includes("Q2_EXTRA_HISTORY"), false);
+    assert.equal(r2.prefix_json.includes("Q2_EXTRA_HISTORY"), false);
+    assert.equal(r1.prefix_json.includes("TS3"), false);
+    assert.ok(r2.c_json.includes("TS3") || r2.c_json.includes("TS4"));
+  }
+  ok("PREFIX_HASH_STABLE_HISTORY_GROWTH");
+
+  // TEST 3 — PREFIX_HASH_STABLE_ORDINARY_QUESTION
+  {
+    const hist = [
+      { role: "user", content: "이전질문", created_at: "TSX" },
+      { role: "assistant", content: "이전달", created_at: "TSY" },
+    ];
+    const r1 = buildAuditSlices({
+      question: qOrdinary1,
+      history: hist,
+      now: new Date(t1),
+    });
+    const r2 = buildAuditSlices({
+      question: qOrdinary2,
+      history: hist,
+      now: new Date(t1),
+    });
+    assert.equal(
+      composeClaudeFirstSystemText({ question: qOrdinary1, history: hist }),
+      composeClaudeFirstSystemText({ question: qOrdinary2, history: hist }),
+      "ordinary questions must not diverge place/product addenda",
+    );
+    assert.equal(sha256(r1.prefix_json), sha256(r2.prefix_json));
+    assert.notEqual(sha256(r1.c_json), sha256(r2.c_json));
+    assert.ok(r1.c_json.includes(qOrdinary1));
+    assert.ok(r2.c_json.includes(qOrdinary2));
+    assert.equal(r1.prefix_json.includes(qOrdinary1), false);
+    assert.equal(r1.prefix_json.includes(qOrdinary2), false);
+    assert.equal(r2.prefix_json.includes(qOrdinary1), false);
+    assert.equal(r2.prefix_json.includes(qOrdinary2), false);
+  }
+  ok("PREFIX_HASH_STABLE_ORDINARY_QUESTION");
+
+  // TEST 4 — PREFIX_INVALIDATES_ON_VERIFIED_STATE_CHANGE
+  {
+    const r1 = buildAuditSlices({
+      question: qOrdinary1,
+      history: [],
+      now: new Date(t1),
+      chartVersion: "A",
+    });
+    const r2 = buildAuditSlices({
+      question: qOrdinary1,
+      history: [],
+      now: new Date(t1),
+      chartVersion: "B",
+    });
+    assert.notEqual(sha256(r1.prefix_json), sha256(r2.prefix_json));
+  }
+  ok("PREFIX_INVALIDATES_ON_VERIFIED_STATE_CHANGE");
+
+  // TEST 5 — DYNAMIC_SENTINEL_ABSENCE
+  {
+    const sentinels = {
+      now: "NOW_SENTINEL_111",
+      thread: "THREAD_TS_SENTINEL_222",
+      question: "QUESTION_SENTINEL_333",
+      turn: "TURN_SENTINEL_444",
+      session: "SESSION_SENTINEL_555",
+      request: "REQUEST_SENTINEL_666",
+    };
+    const hist = [
+      {
+        role: "user",
+        content: "일반 맥락",
+        created_at: sentinels.thread,
+      },
+      {
+        role: "assistant",
+        content: "응답",
+        created_at: "THREAD_OTHER",
+      },
+    ];
+    // Encode dynamic clock via Date that stringifies into a unique ISO we also inject as sentinel via payload fields
+    const r = buildAuditSlices({
+      question: sentinels.question,
+      history: hist,
+      now: new Date("2026-08-01T01:20:00.111+09:00"),
+    });
+    // Force extra per-turn fields into a cloned C-only check by rebuilding payload with session markers in question only
+    assert.equal(r.prefix_json.includes(sentinels.thread), false);
+    assert.equal(r.prefix_json.includes(sentinels.question), false);
+    assert.equal(r.prefix_json.includes("reference_now_iso="), false);
+    assert.equal(r.prefix_json.includes("recent_thread_timestamps="), false);
+    assert.ok(r.c_json.includes(sentinels.question));
+    assert.ok(r.c_json.includes(sentinels.thread));
+    // Turn/session/request sentinels are not placed into system A by builders.
+    assert.equal(r.prefix_json.includes(sentinels.turn), false);
+    assert.equal(r.prefix_json.includes(sentinels.session), false);
+    assert.equal(r.prefix_json.includes(sentinels.request), false);
+    assert.equal(r.prefix_json.includes(sentinels.now), false);
+  }
+  ok("DYNAMIC_SENTINEL_ABSENCE");
+
+  // TEST 6 — CACHE_STRUCTURE_INVARIANT
+  {
+    const r = buildAuditSlices({
+      question: qOrdinary1,
+      history: [],
+      now: new Date(t1),
+    });
+    assert.equal(r.cache_marker_count, 1);
+    assert.equal(r.cache_marker_index, 0);
+    assert.equal(r.cache_strategy, "A_plus_B_via_B_marker");
+    assert.equal(r.cache_breakpoints, 1);
+    const first = r.parts.messages[0].content[0];
+    assert.ok(first.cache_control);
+    assert.equal(first.cache_control.type, "ephemeral");
+    assert.match(String(first.text), /available_verified_evidence/);
+    assert.match(r.systemText, /lifeguard_key_system|너는 고객이 만나는 유일한 AI 보험 주치의 KEY/);
+    assert.ok(r.c_json.includes("current_question") || r.c_json.includes(qOrdinary1));
+    assert.match(r.c_json, /CURRENT_CUSTOMER_REQUEST/);
+  }
+  ok("CACHE_STRUCTURE_INVARIANT");
+}
+ok("claude_prompt_cache_prefix_stability_suite");
+
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
+if (globalThis.__CACHE_PREFIX_HASH_1) {
+  console.log(
+    "PREFIX_HASH_1",
+    String(globalThis.__CACHE_PREFIX_HASH_1).slice(0, 16),
+  );
+  console.log(
+    "PREFIX_HASH_2",
+    String(globalThis.__CACHE_PREFIX_HASH_2).slice(0, 16),
+  );
+  console.log("C_HASH_1", String(globalThis.__CACHE_C_HASH_1).slice(0, 16));
+  console.log("C_HASH_2", String(globalThis.__CACHE_C_HASH_2).slice(0, 16));
+}
