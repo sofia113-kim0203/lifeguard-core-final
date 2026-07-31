@@ -75,11 +75,13 @@ import {
 import { listAttachedDocumentIds } from "../../src/lib/homeBrainAttachDocumentIds.js";
 import {
   applyDeterministicPremiumSumGuard,
+  buildAttachAnalysisScopeAuthorityAddendum,
   buildDeterministicDocumentTotals,
   buildDeterministicTotalsAuthorityAddendum,
   buildIncompleteProcessingNotice,
   dedupeDocumentRowsForRuntimeSum,
   shouldPreferRequestDocumentScopeOnly,
+  stripNonAttachEvidenceFromUserPayload,
 } from "./keyDocumentSumAccuracy.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
@@ -4124,6 +4126,11 @@ async function callClaudeFirstDirect({
   verifiedCoverageAuthorityAddendum = null,
   /** Deterministic premium/count totals — Claude reads only. */
   deterministicDocumentTotals = null,
+  /**
+   * Current-turn attachment analysis: exclude chart/ledger/past-doc summaries
+   * (vault already gated). Explicit vault/history phrases keep full evidence.
+   */
+  attachAnalysisScopeOnly = false,
   /** Preview QA turn capture bag (Surgery 0) — mutate-only; never affects customer path. */
   qaTurnCapture = null,
 }) {
@@ -4137,10 +4144,20 @@ async function callClaudeFirstDirect({
   }
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
   const imageOriginalRead = isImageAttachMeta(pdfMeta) && Boolean(pdfBase64);
-  // GO: original + verified chart always together — never chart=null merely because image attached.
-  const chart = presenceTurn === true ? null : buildVerifiedCustomerChart(reality);
+  const scopeOnly = presenceTurn !== true && attachAnalysisScopeOnly === true;
+  // Attach-scope-only: do not feed customer chart / past contracts into Claude.
+  // Otherwise original + verified chart travel together (GO 1-1).
+  const realityForClaude = scopeOnly
+    ? { policies: [], policy_count: 0 }
+    : reality;
+  const chart =
+    presenceTurn === true || scopeOnly
+      ? null
+      : buildVerifiedCustomerChart(realityForClaude);
   // Allowlist stays KEY-internal for hard-only — never shown in Claude payload.
-  const allowlist = collectVerifiedSpeakAllowlistFromReality(reality);
+  const allowlist = collectVerifiedSpeakAllowlistFromReality(
+    scopeOnly ? realityForClaude : reality,
+  );
   // Soft-deleted source turns must not re-enter Claude conversation pack.
   // Loader miss (null) → [] fail-closed. This-turn explicit document_id stays active.
   // Deleted-doc recheck (no current attach bytes) forces full attach scrub.
@@ -4153,59 +4170,85 @@ async function callClaudeFirstDirect({
           original_filename: pdfMeta?.original_filename ?? null,
         }
       : null;
-  const activeDocsForPack = mergeCurrentTurnDocumentIntoActiveDocuments(
-    Array.isArray(activeDocuments) ? activeDocuments : [],
-    deletedDocRecheck ? null : currentTurnDocument,
-  );
+  const activeDocsForPack = scopeOnly
+    ? mergeCurrentTurnDocumentIntoActiveDocuments(
+        [],
+        deletedDocRecheck ? null : currentTurnDocument,
+      )
+    : mergeCurrentTurnDocumentIntoActiveDocuments(
+        Array.isArray(activeDocuments) ? activeDocuments : [],
+        deletedDocRecheck ? null : currentTurnDocument,
+      );
   const { pack: contextPack } = buildClaudeFullContextPack({
-    history,
+    history: scopeOnly ? [] : history,
     question,
     activeDocuments: activeDocsForPack,
     currentTurnDocument: deletedDocRecheck ? null : currentTurnDocument,
-    forceScrubAttachSegments: deletedDocRecheck,
-    scrubIdentityReadouts: deletedDocRecheck,
-    documentEvidence: Array.isArray(documentEvidence) ? documentEvidence : [],
+    forceScrubAttachSegments: deletedDocRecheck || scopeOnly,
+    scrubIdentityReadouts: deletedDocRecheck || scopeOnly,
+    documentEvidence: scopeOnly
+      ? []
+      : Array.isArray(documentEvidence)
+        ? documentEvidence
+        : [],
   });
   const requestNow = startedAt instanceof Date ? startedAt : new Date(startedAt);
   const softGoal =
     sessionGoalForContext && typeof sessionGoalForContext === "object"
       ? sessionGoalForContext
       : null;
+  const pdfMetaForScope =
+    presenceTurn === true
+      ? null
+      : scopeOnly && pdfMeta && typeof pdfMeta === "object"
+        ? {
+            ...pdfMeta,
+            document_box_listing: [],
+            vault_recall_mode: null,
+            vault_failed: [],
+            vault_stage_counts: null,
+            document_review_scope:
+              pdfMeta.document_review_scope || "current_turn_attachments_only",
+          }
+        : pdfMeta;
   const userPayloadBuilt = buildUserPayload({
     question: presenceTurn === true ? buildPresenceUserQuestionLine() : question,
-    chart: presenceTurn === true ? null : chart,
+    chart: presenceTurn === true || scopeOnly ? null : chart,
     contextPack,
-    pdfMeta: presenceTurn === true ? null : pdfMeta,
-    corporateContexts: presenceTurn === true ? null : corporateContexts,
-    corporateGapEvidence: presenceTurn === true ? null : corporateGapEvidence,
+    pdfMeta: pdfMetaForScope,
+    corporateContexts: presenceTurn === true || scopeOnly ? null : corporateContexts,
+    corporateGapEvidence: presenceTurn === true || scopeOnly ? null : corporateGapEvidence,
     corporateRecommendationCandidates:
-      presenceTurn === true ? null : corporateRecommendationCandidates,
-    corporateUnknowns: presenceTurn === true ? null : corporateUnknowns,
+      presenceTurn === true || scopeOnly ? null : corporateRecommendationCandidates,
+    corporateUnknowns: presenceTurn === true || scopeOnly ? null : corporateUnknowns,
     selectedCorporateEntityId:
-      presenceTurn === true ? null : selectedCorporateEntityId,
+      presenceTurn === true || scopeOnly ? null : selectedCorporateEntityId,
     publicEvidence: [],
-    activeClaimCases: presenceTurn === true ? null : activeClaimCases,
-    insuranceClockBrief: presenceTurn === true ? null : insuranceClockBrief,
-    claimEvidenceBrief: presenceTurn === true ? null : claimEvidenceBrief,
-    lifeLedgerBrief: presenceTurn === true ? null : lifeLedgerBrief,
-    paymentTruthBrief: presenceTurn === true ? null : paymentTruthBrief,
-    sessionGoal: presenceTurn === true ? null : softGoal,
+    activeClaimCases: presenceTurn === true || scopeOnly ? null : activeClaimCases,
+    insuranceClockBrief: presenceTurn === true || scopeOnly ? null : insuranceClockBrief,
+    claimEvidenceBrief: presenceTurn === true || scopeOnly ? null : claimEvidenceBrief,
+    lifeLedgerBrief: presenceTurn === true || scopeOnly ? null : lifeLedgerBrief,
+    paymentTruthBrief: presenceTurn === true || scopeOnly ? null : paymentTruthBrief,
+    sessionGoal: presenceTurn === true || scopeOnly ? null : softGoal,
     priorConsultation:
-      priorConsultationForContext && typeof priorConsultationForContext === "object"
-        ? priorConsultationForContext
-        : null,
+      presenceTurn === true || scopeOnly
+        ? null
+        : priorConsultationForContext && typeof priorConsultationForContext === "object"
+          ? priorConsultationForContext
+          : null,
     now: requestNow,
-    readyCardMeta: presenceTurn === true ? null : readyCardMeta,
+    readyCardMeta: presenceTurn === true || scopeOnly ? null : readyCardMeta,
     presenceContext:
       presenceTurn === true && presenceContext && typeof presenceContext === "object"
         ? presenceContext
         : null,
-    signupOnboardingBrief: presenceTurn === true ? null : signupOnboardingBrief,
+    signupOnboardingBrief:
+      presenceTurn === true || scopeOnly ? null : signupOnboardingBrief,
     authenticatedCustomerIdentity,
     documentSubjectIdentity:
-      presenceTurn === true ? null : documentSubjectIdentity,
+      presenceTurn === true || scopeOnly ? null : documentSubjectIdentity,
     policyTruthContext:
-      presenceTurn === true
+      presenceTurn === true || scopeOnly
         ? null
         : policyTruthContext && typeof policyTruthContext === "object"
           ? policyTruthContext
@@ -4217,10 +4260,13 @@ async function callClaudeFirstDirect({
           ? deterministicDocumentTotals
           : null,
   });
+  const scopedPayload = scopeOnly
+    ? stripNonAttachEvidenceFromUserPayload(userPayloadBuilt)
+    : userPayloadBuilt;
   const userPayloadBase =
     presenceTurn === true
-      ? userPayloadBuilt
-      : applyCustomerViewModeToUserPayload(userPayloadBuilt, customerViewModeForPayload);
+      ? scopedPayload
+      : applyCustomerViewModeToUserPayload(scopedPayload, customerViewModeForPayload);
   const multiAttachments =
     presenceTurn === true
       ? []
@@ -4312,6 +4358,15 @@ async function callClaudeFirstDirect({
     );
     if (totalsAddendum) {
       systemTextBase = `${systemTextBase}\n\n${totalsAddendum}`;
+    }
+  }
+  if (presenceTurn !== true && scopeOnly) {
+    const scopeAddendum = buildAttachAnalysisScopeAuthorityAddendum({
+      documentIds: attachDocumentIds,
+      totals: deterministicDocumentTotals,
+    });
+    if (scopeAddendum) {
+      systemTextBase = `${systemTextBase}\n\n${scopeAddendum}`;
     }
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
@@ -6124,22 +6179,25 @@ export async function runClaudeFirstDirectQuestionTurn({
       ];
   const premiumRowsForTotals = [];
   const scopedIdSet = new Set(scopedDocumentIds);
-  for (const p of Array.isArray(policies) ? policies : []) {
-    const did = String(
-      p?.source_document_id ??
-        p?.coverage_summary?.source_document_id ??
-        p?.document_id ??
-        "",
-    ).trim();
-    if (!did || (scopedIdSet.size > 0 && !scopedIdSet.has(did))) continue;
-    premiumRowsForTotals.push({
-      document_id: did,
-      monthly_premium: p?.monthly_premium ?? p?.premium_amount ?? null,
-      content_sha256:
-        p?.source_content_sha256 ??
-        p?.coverage_summary?.source_content_sha256 ??
-        null,
-    });
+  // Attach-scope-only: never lift premiums from customer chart/ledger policies.
+  if (!requestScopeOnly) {
+    for (const p of Array.isArray(policies) ? policies : []) {
+      const did = String(
+        p?.source_document_id ??
+          p?.coverage_summary?.source_document_id ??
+          p?.document_id ??
+          "",
+      ).trim();
+      if (!did || (scopedIdSet.size > 0 && !scopedIdSet.has(did))) continue;
+      premiumRowsForTotals.push({
+        document_id: did,
+        monthly_premium: p?.monthly_premium ?? p?.premium_amount ?? null,
+        content_sha256:
+          p?.source_content_sha256 ??
+          p?.coverage_summary?.source_content_sha256 ??
+          null,
+      });
+    }
   }
   for (const row of Array.isArray(pdfAttachmentsForClaude) ? pdfAttachmentsForClaude : []) {
     const did = String(row?.document_id ?? "").trim();
@@ -6179,15 +6237,32 @@ export async function runClaudeFirstDirectQuestionTurn({
     scopedDocumentIds.length
   ) {
     const deduped = dedupeDocumentRowsForRuntimeSum(
-      scopedDocumentIds.map((id) => ({ document_id: id })),
+      scopedDocumentIds.map((id) => {
+        const attach = (Array.isArray(pdfAttachmentsForClaude)
+          ? pdfAttachmentsForClaude
+          : []
+        ).find((r) => String(r?.document_id ?? "").trim() === id);
+        return {
+          document_id: id,
+          content_sha256: attach?.content_sha256 ?? null,
+          base64: attach?.base64 ?? null,
+        };
+      }),
     );
     deterministicDocumentTotals.unique_document_count = deduped.length;
+  }
+  if (
+    requestScopeOnly &&
+    deterministicDocumentTotals &&
+    Number(deterministicDocumentTotals.premium_row_count || 0) <= 0
+  ) {
+    deterministicDocumentTotals.no_computable_premiums_in_current_attach = true;
   }
 
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
-    history: isPresenceTurn ? [] : history,
-    reality,
+    history: isPresenceTurn || requestScopeOnly ? [] : history,
+    reality: requestScopeOnly ? { policies: [], policy_count: 0 } : reality,
     env,
     fetchImpl,
     startedAt,
@@ -6212,30 +6287,32 @@ export async function runClaudeFirstDirectQuestionTurn({
         ? pdfAttachmentsForClaude
         : null,
     pdfMeta: isPresenceTurn ? null : pdfMetaForClaude,
-    corporateContexts: isPresenceTurn ? null : corporateContexts,
-    corporateGapEvidence: isPresenceTurn ? null : corporateGapEvidence,
-    corporateRecommendationCandidates: isPresenceTurn
-      ? null
-      : corporateRecommendationCandidates,
-    corporateUnknowns: isPresenceTurn ? null : corporateUnknowns,
-    selectedCorporateEntityId: isPresenceTurn ? null : selectedCorporateEntityId,
-    activeClaimCases: isPresenceTurn ? null : activeClaimCases,
-    activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
-    insuranceClockBrief: isPresenceTurn ? null : insuranceClockBrief,
-    claimEvidenceBrief: isPresenceTurn ? null : claimEvidenceBrief,
-    lifeLedgerBrief: isPresenceTurn ? null : lifeLedgerBrief,
-    paymentTruthBrief: isPresenceTurn ? null : paymentTruthBrief,
-    sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
-    priorConsultationForContext,
-    documentEvidence: isPresenceTurn ? [] : documentChunksForClaude,
-    readyCardMeta: isPresenceTurn ? null : readyCardMeta,
+    corporateContexts: isPresenceTurn || requestScopeOnly ? null : corporateContexts,
+    corporateGapEvidence:
+      isPresenceTurn || requestScopeOnly ? null : corporateGapEvidence,
+    corporateRecommendationCandidates:
+      isPresenceTurn || requestScopeOnly ? null : corporateRecommendationCandidates,
+    corporateUnknowns: isPresenceTurn || requestScopeOnly ? null : corporateUnknowns,
+    selectedCorporateEntityId:
+      isPresenceTurn || requestScopeOnly ? null : selectedCorporateEntityId,
+    activeClaimCases: isPresenceTurn || requestScopeOnly ? null : activeClaimCases,
+    activeDocuments: isPresenceTurn || requestScopeOnly ? [] : activeDocumentsForHistory,
+    insuranceClockBrief: isPresenceTurn || requestScopeOnly ? null : insuranceClockBrief,
+    claimEvidenceBrief: isPresenceTurn || requestScopeOnly ? null : claimEvidenceBrief,
+    lifeLedgerBrief: isPresenceTurn || requestScopeOnly ? null : lifeLedgerBrief,
+    paymentTruthBrief: isPresenceTurn || requestScopeOnly ? null : paymentTruthBrief,
+    sessionGoalForContext:
+      isPresenceTurn || requestScopeOnly ? null : sessionGoalForContext,
+    priorConsultationForContext: requestScopeOnly ? null : priorConsultationForContext,
+    documentEvidence: isPresenceTurn || requestScopeOnly ? [] : documentChunksForClaude,
+    readyCardMeta: isPresenceTurn || requestScopeOnly ? null : readyCardMeta,
     presenceContext: isPresenceTurn ? presenceContextBuilt : null,
     presenceTurn: isPresenceTurn,
     // Customer question turns: keep soft signup even with empty history / empty verified chart.
     // Presence: no full signup force-inject. Image original: handled inside callClaudeFirstDirect.
-    signupOnboardingBrief: isPresenceTurn ? null : signupOnboardingBrief,
+    signupOnboardingBrief: isPresenceTurn || requestScopeOnly ? null : signupOnboardingBrief,
     authenticatedCustomerIdentity,
-    documentSubjectIdentity,
+    documentSubjectIdentity: requestScopeOnly ? null : documentSubjectIdentity,
     customerViewModeForPayload: isPresenceTurn
       ? null
       : {
@@ -6249,10 +6326,13 @@ export async function runClaudeFirstDirectQuestionTurn({
     audience,
     conversationMode,
     keyRoleContract,
-    policyTruthContext: policyTruthContextForClaude,
-    policyCountAuthorityAddendum,
-    verifiedCoverageAuthorityAddendum,
+    policyTruthContext: requestScopeOnly ? null : policyTruthContextForClaude,
+    policyCountAuthorityAddendum: requestScopeOnly ? null : policyCountAuthorityAddendum,
+    verifiedCoverageAuthorityAddendum: requestScopeOnly
+      ? null
+      : verifiedCoverageAuthorityAddendum,
     deterministicDocumentTotals,
+    attachAnalysisScopeOnly: requestScopeOnly === true,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);

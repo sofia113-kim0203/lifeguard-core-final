@@ -6,7 +6,7 @@
 
 import { createHash } from "crypto";
 
-/** Tom-locked vault recall phrases only (+ close spacing variants). */
+/** Tom-locked vault/history scope phrases only (+ close spacing variants). */
 export function isExplicitVaultScopeQuestion(question = "") {
   const q = String(question ?? "")
     .replace(/\s+/g, " ")
@@ -14,9 +14,9 @@ export function isExplicitVaultScopeQuestion(question = "") {
   if (!q) return false;
   return (
     /보관\s*문서/.test(q) ||
-    /이전\s*계약/.test(q) ||
+    /이전\s*계약(?:\s*비교)?/.test(q) ||
     /전체\s*보험/.test(q) ||
-    /과거\s*자료\s*(?:와|과)?\s*비교/.test(q)
+    /과거\s*자료/.test(q)
   );
 }
 
@@ -237,7 +237,11 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   if (!totals || typeof totals !== "object") return null;
   const sum = Number(totals.monthly_premium_sum);
   const count = Number(totals.unique_document_count);
-  if (!Number.isFinite(sum) && !Number.isFinite(count)) return null;
+  const premiumCount = Number(totals.premium_row_count);
+  const noPremiums =
+    totals.no_computable_premiums_in_current_attach === true ||
+    (Number.isFinite(premiumCount) && premiumCount <= 0);
+  if (!Number.isFinite(sum) && !Number.isFinite(count) && !noPremiums) return null;
   const lines = [
     "[DETERMINISTIC_DOCUMENT_TOTALS]",
     "보험료·건수 합계는 아래 결정론 코드 결과만 사용한다. 직접 더하거나 어림하지 않는다.",
@@ -245,7 +249,13 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   if (Number.isFinite(count)) {
     lines.push(`unique_document_count=${Math.round(count)}`);
   }
-  if (Number.isFinite(sum)) {
+  if (noPremiums) {
+    lines.push("no_computable_premiums_in_current_attach=true");
+    lines.push(
+      '현재 첨부 원본 안에 보험료 숫자가 없으면 현재 첨부 범위에서만 "계산할 숫자 없음"으로 끝내고 종료한다.',
+    );
+    lines.push("과거 계약·장부·약관·보관 문서의 금액으로 합계를 채우지 않는다.");
+  } else if (Number.isFinite(sum)) {
     lines.push(`monthly_premium_sum=${Math.round(sum)}`);
   }
   if (Array.isArray(totals.premiums) && totals.premiums.length) {
@@ -258,4 +268,92 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
     lines.push("완료·전부 확인했다고 말하지 않는다. 전체 수·처리 수·남은 수·중단 이유를 말한다.");
   }
   return lines.join("\n");
+}
+
+/**
+ * Current-turn attachment analysis — exclude vault + chart + ledger + past doc summaries
+ * unless customer explicitly asked vault/history scope.
+ */
+export function buildAttachAnalysisScopeAuthorityAddendum({
+  documentIds = [],
+  totals = null,
+} = {}) {
+  const ids = Array.isArray(documentIds)
+    ? documentIds.map((id) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+  if (!ids.length) return null;
+  const lines = [
+    "[ATTACH_ANALYSIS_SCOPE_ONLY]",
+    "이번 턴 답변 근거는 현재 요청에 첨부된 원본뿐이다.",
+    "고객 차트, 확인 계약 요약, 장부, 과거 문서/약관 요약, 보관함 목록을 근거로 쓰지 않는다.",
+    '"지금까지 올라온 서류 전체", 과거 계약명, 약관명, 보관 문서를 언급하지 않는다.',
+    `current_attach_document_ids=${ids.join(",")}`,
+  ];
+  const premiumCount = Number(totals?.premium_row_count);
+  if (
+    totals?.no_computable_premiums_in_current_attach === true ||
+    (Number.isFinite(premiumCount) && premiumCount <= 0)
+  ) {
+    lines.push(
+      '현재 첨부에 보험료 숫자가 없으면 "계산할 숫자 없음"으로 끝내고, 과거 자료로 채우지 않는다.',
+    );
+  }
+  return lines.join("\n");
+}
+
+/** True when prose cites vault/history contracts outside attach scope. */
+export function answerMentionsOutOfAttachHistoryScope(answer = "") {
+  const t = String(answer ?? "");
+  if (!t.trim()) return false;
+  return (
+    /지금까지\s*올라온\s*서류\s*전체/.test(t) ||
+    /한화\s*손보|세이프\s*단체\s*보험|단체보험\s*약관/.test(t) ||
+    /보관\s*문서|문서함(?:에\s*있는)?\s*(?:다른|과거|이전)/.test(t) ||
+    /이전\s*계약|과거\s*(?:자료|문서|약관)/.test(t)
+  );
+}
+
+/**
+ * Strip chart / ledger / past-doc summary evidence from a built user payload.
+ * Pure — for attach-scope-only turns and unit tests.
+ */
+export function stripNonAttachEvidenceFromUserPayload(payload = null) {
+  if (!payload || typeof payload !== "object") return payload;
+  const next = { ...payload };
+  const ctx =
+    next.current_context && typeof next.current_context === "object"
+      ? { ...next.current_context }
+      : {};
+  delete ctx.policy_truth;
+  delete ctx.ready_card;
+  delete ctx.prior_consultation;
+  delete ctx.life_threads;
+  delete ctx.insurance_clock;
+  if (ctx.conversation && typeof ctx.conversation === "object") {
+    ctx.conversation = {
+      ...ctx.conversation,
+      retained_past_originals: [],
+      older_conversation_summary: null,
+    };
+  }
+  next.current_context = ctx;
+  const evidence =
+    next.available_verified_evidence && typeof next.available_verified_evidence === "object"
+      ? { ...next.available_verified_evidence }
+      : {};
+  const personal =
+    evidence.personal && typeof evidence.personal === "object"
+      ? { ...evidence.personal }
+      : { subject_type: "individual" };
+  personal.chart = null;
+  personal.key_confirmed_source_facts = [];
+  personal.provenance = null;
+  personal.evidence_state = "unknown";
+  evidence.personal = personal;
+  // Keep only this-turn attached document rows (already filtered by caller when possible).
+  evidence.documents = Array.isArray(evidence.documents)
+    ? evidence.documents.filter((d) => d?.attached === true)
+    : [];
+  next.available_verified_evidence = evidence;
+  return next;
 }

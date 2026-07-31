@@ -10,6 +10,10 @@ import {
   sumMonthlyPremiumsDeterministic,
   applyDeterministicPremiumSumGuard,
   buildIncompleteProcessingNotice,
+  buildAttachAnalysisScopeAuthorityAddendum,
+  buildDeterministicTotalsAuthorityAddendum,
+  stripNonAttachEvidenceFromUserPayload,
+  answerMentionsOutOfAttachHistoryScope,
   contentSha256FromBytes,
 } from "../server/keyCore/keyDocumentSumAccuracy.js";
 import {
@@ -56,12 +60,32 @@ assert.equal(
 ok("attach_scope_no_vault_mixin");
 
 // 2) Vault only on locked phrases / explicit box multi.
-for (const q of ["보관 문서 봐줘", "이전 계약도 확인해줘", "전체 보험 분석해줘", "과거 자료와 비교해줘"]) {
+for (const q of [
+  "보관 문서 봐줘",
+  "이전 계약 비교해줘",
+  "전체 보험 분석해줘",
+  "과거 자료 확인해줘",
+  "과거 자료와 비교해줘",
+]) {
   assert.equal(isExplicitVaultScopeQuestion(q), true, q);
   assert.equal(wantsOwnedInsuranceVaultEvidence(q), true, q);
 }
 assert.equal(wantsOwnedInsuranceVaultEvidence("내 보험 분석해줘"), false);
 assert.equal(wantsOwnedInsuranceVaultEvidence("문서함에 있는 나머지 문서도 함께 분석해줘"), true);
+assert.equal(
+  shouldPreferRequestDocumentScopeOnly({
+    documentIds: ["doc-a", "doc-a"],
+    question: "이 두 서류의 보험료 합계 얼마야?",
+  }),
+  true,
+);
+assert.equal(
+  shouldProvideOwnedInsuranceVaultOriginals({
+    question: "방금 올린 이 파일만 분석해줘",
+    attachedDocumentId: "doc-b",
+  }),
+  false,
+);
 ok("vault_gate_locked_phrases");
 
 // 3) Same document_id once.
@@ -229,5 +253,76 @@ ok("incomplete_processing_notice");
   assert.ok(listed.pages_fetched >= 3);
 }
 ok("list_pagination_past_40");
+
+// 10) A+A premium-sum scope: strip chart/ledger/past docs; no history-contract prose.
+{
+  const dirty = {
+    current_question: "이 두 서류의 보험료 합계",
+    current_context: {
+      ready_card: { insurance_card: { policy_count: 3 } },
+      policy_truth: { ledger: { active_distinct_count: 3 } },
+      prior_consultation: { related_turns: [{ role: "assistant", text: "한화손보" }] },
+      conversation: {
+        recent_conversation_originals: [],
+        retained_past_originals: [{ text: "세이프단체보험 약관" }],
+        older_conversation_summary: "과거 약관 요약",
+      },
+    },
+    available_verified_evidence: {
+      personal: {
+        chart: {
+          contracts: [{ product_name: "한화손보 세이프단체보험" }],
+          key_confirmed_source_facts: [{ fact_type: "product_name" }],
+        },
+        key_confirmed_source_facts: [{ fact_type: "product_name" }],
+      },
+      documents: [
+        { document_id: "past", attached: false, original_filename: "약관.pdf" },
+        { document_id: "a", attached: true, original_filename: "A.png" },
+      ],
+    },
+  };
+  const clean = stripNonAttachEvidenceFromUserPayload(dirty);
+  assert.equal(clean.available_verified_evidence.personal.chart, null);
+  assert.deepEqual(
+    clean.available_verified_evidence.personal.key_confirmed_source_facts,
+    [],
+  );
+  assert.equal(clean.current_context.ready_card, undefined);
+  assert.equal(clean.current_context.policy_truth, undefined);
+  assert.equal(clean.current_context.prior_consultation, undefined);
+  assert.deepEqual(clean.current_context.conversation.retained_past_originals, []);
+  assert.equal(clean.current_context.conversation.older_conversation_summary, null);
+  assert.deepEqual(
+    clean.available_verified_evidence.documents.map((d) => d.document_id),
+    ["a"],
+  );
+  const badAnswer =
+    "지금까지 올라온 서류 전체와 한화손보 세이프단체보험 약관을 기준으로 합계를 보면";
+  assert.equal(answerMentionsOutOfAttachHistoryScope(badAnswer), true);
+  assert.equal(
+    answerMentionsOutOfAttachHistoryScope(
+      "현재 첨부 안에서 계산할 숫자 없음으로 끝낼게요.",
+    ),
+    false,
+  );
+  const scopeHint = buildAttachAnalysisScopeAuthorityAddendum({
+    documentIds: ["doc-a", "doc-a"],
+    totals: { premium_row_count: 0, no_computable_premiums_in_current_attach: true },
+  });
+  assert.match(scopeHint, /ATTACH_ANALYSIS_SCOPE_ONLY/);
+  assert.match(scopeHint, /계산할 숫자 없음/);
+  assert.doesNotMatch(scopeHint, /한화/);
+  const noPrem = buildDeterministicTotalsAuthorityAddendum({
+    unique_document_count: 1,
+    premium_row_count: 0,
+    monthly_premium_sum: 0,
+    premiums: [],
+    no_computable_premiums_in_current_attach: true,
+  });
+  assert.match(noPrem, /no_computable_premiums_in_current_attach=true/);
+  assert.match(noPrem, /계산할 숫자 없음/);
+}
+ok("attach_scope_strips_chart_and_past_docs");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");

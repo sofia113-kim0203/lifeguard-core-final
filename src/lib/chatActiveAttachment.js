@@ -147,9 +147,9 @@ export function isExplicitVaultScopeQuestion(question = "") {
   if (!q) return false;
   return (
     /보관\s*문서/.test(q) ||
-    /이전\s*계약/.test(q) ||
+    /이전\s*계약(?:\s*비교)?/.test(q) ||
     /전체\s*보험/.test(q) ||
-    /과거\s*자료\s*(?:와|과)?\s*비교/.test(q)
+    /과거\s*자료/.test(q)
   );
 }
 
