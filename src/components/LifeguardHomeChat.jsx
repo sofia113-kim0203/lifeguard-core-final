@@ -443,7 +443,7 @@ function SidebarNav({
               fontSize: "18px",
             }}
           >
-            ?
+            ✕
           </button>
         ) : null}
       </div>
@@ -2802,7 +2802,7 @@ export default function LifeguardHomeChat({
           >
             <button
               type="button"
-              aria-label="메뉴 닫기"
+              aria-label="메뉴 열기"
               aria-expanded={sidebarOpen}
               onClick={() => setSidebarOpen(true)}
               style={{
@@ -2819,7 +2819,7 @@ export default function LifeguardHomeChat({
                 flexShrink: 0,
               }}
             >
-              ?
+              ☰
             </button>
             <div
               role="group"
@@ -2843,21 +2843,21 @@ export default function LifeguardHomeChat({
                 onClick={selectPersonalScope}
                 style={scopeBtnStyle(viewMode === "personal")}
               >
-                ??
+                개인
               </button>
               <button
                 type="button"
                 onClick={selectCorporateScope}
                 style={scopeBtnStyle(viewMode === "corporate")}
               >
-                ??
+                법인
               </button>
               <button
                 type="button"
                 onClick={selectCombinedScope}
                 style={scopeBtnStyle(viewMode === "both")}
               >
-                ??+?? ??
+                개인+법인 함께
               </button>
               {isAgentAudience ? (
                 <span
@@ -2871,7 +2871,7 @@ export default function LifeguardHomeChat({
                     marginLeft: "4px",
                   }}
                 >
-                  ??? KEY
+                  설계사 KEY
                 </span>
               ) : null}
             </div>
@@ -2939,7 +2939,7 @@ export default function LifeguardHomeChat({
             </button>
             <button
               type="button"
-              aria-label="알림"
+              aria-label="설정"
               onClick={() => setPanelView("settings")}
               style={{
                 width: "32px",
@@ -3157,7 +3157,7 @@ export default function LifeguardHomeChat({
 
           {panelView === "settings" ? (
             <LayerPanel title="내 문서" onBack={goBackToChat}>
-              <p style={{ margin: 0 }}>{displayName}님?? ?? ????.</p>
+              <p style={{ margin: 0 }}>{displayName}님으로 사용 중이에요..</p>
             </LayerPanel>
           ) : null}
 
@@ -3183,7 +3183,7 @@ export default function LifeguardHomeChat({
                   letterSpacing: "-0.02em",
                 }}
               >
-                ??? ???????
+                무엇을 도와드릴까요?
               </p>
               <p
                 style={{
@@ -3194,7 +3194,7 @@ export default function LifeguardHomeChat({
                   maxWidth: "440px",
                 }}
               >
-                ??? ??? ??? ????? ?????.
+                대화가 쌓이면 여기에 문서형으로 이어집니다.
               </p>
             </div>
           ) : null}
@@ -3355,7 +3355,7 @@ export default function LifeguardHomeChat({
             <button
               type="button"
               onClick={jumpToLatestAnswer}
-              aria-label="상담 문맥"
+              aria-label="최신 답변으로"
               style={{
                 border: `1px solid ${FINAL_UI.line}`,
                 background: FINAL_UI.surface,
@@ -3368,7 +3368,7 @@ export default function LifeguardHomeChat({
                 fontFamily: FINAL_UI.sans,
               }}
             >
-              ?? ???? ?
+              최신 답변으로 ↓
             </button>
           </div>
         ) : null}
@@ -3411,7 +3411,7 @@ export default function LifeguardHomeChat({
                       fontFamily: FINAL_UI.sans,
                     }}
                   >
-                    ? ??
+                    내 현황
                   </button>
                 ) : null}
                 {!isWideRoom ? (
@@ -3430,7 +3430,7 @@ export default function LifeguardHomeChat({
                       fontFamily: FINAL_UI.sans,
                     }}
                   >
-                    ?????
+                    일정·흐름
                   </button>
                 ) : null}
               </div>
@@ -3444,7 +3444,7 @@ export default function LifeguardHomeChat({
             ) : null}
             {chatAttachUploading ? (
               <div style={{ color: LG.textMuted, fontSize: "13px", marginBottom: "8px" }}>
-                ?? ??? ??
+                파일 업로드 중…
               </div>
             ) : null}
             {chatAttachments.length > 0 && !chatAttachUploading ? (
@@ -3522,7 +3522,7 @@ export default function LifeguardHomeChat({
               />
               <button
                 type="button"
-                aria-label="알림"
+                aria-label="첨부"
                 onClick={handleAttachClick}
                 disabled={isDisabled || chatAttachUploading || loading || streaming}
                 style={{
@@ -3537,7 +3537,7 @@ export default function LifeguardHomeChat({
                   lineHeight: 1,
                 }}
               >
-                ??
+                📎
               </button>
               <textarea
                 ref={inputRef}
@@ -3545,7 +3545,7 @@ export default function LifeguardHomeChat({
                 value={input}
                 readOnly={false}
                 disabled={isDisabled || chatAttachUploading}
-                aria-label="알림"
+                aria-label="질문 입력"
                 placeholder="무엇이든 편하게 말씀해 주세요"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -3573,7 +3573,7 @@ export default function LifeguardHomeChat({
               />
               <button
                 type="button"
-                aria-label="설정"
+                aria-label="보내기"
                 disabled={
                   isDisabled ||
                   loading ||
@@ -3599,7 +3599,7 @@ export default function LifeguardHomeChat({
                   flexShrink: 0,
                 }}
               >
-                ?
+                ↑
               </button>
             </div>
           </div>
