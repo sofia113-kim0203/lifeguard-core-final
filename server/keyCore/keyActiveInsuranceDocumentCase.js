@@ -2,6 +2,11 @@
  * Server restore of the active insurance-document counseling case.
  * Client document_id is a hint only — conversation metadata + ownership win.
  * Never dumps the full vault; never invents a latest document without a prior case link.
+ *
+ * Prior-original scope (enforceAttachmentScope):
+ * - current-turn uploads may attach
+ * - prior originals attach only when attachment reference is enabled AND id ∈ active_attachment_ids
+ * - request_document_id alone / conversation handoff / session case must not reattach prior originals
  */
 import {
   extractActiveDocumentCaseIdFromMetadata,
@@ -13,6 +18,19 @@ export {
   extractActiveDocumentCaseIdFromMetadata,
   pickActiveInsuranceDocumentCaseFromConversationRows,
 } from "../../src/lib/chatActiveAttachment.js";
+
+function normalizeDocumentIds(documentIds = null, documentId = null) {
+  return [
+    ...new Set(
+      [
+        ...(Array.isArray(documentIds) ? documentIds : []),
+        documentId,
+      ]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+}
 
 async function verifyOwnedActiveDocument({
   supabase = null,
@@ -58,12 +76,8 @@ async function filterOwnedDocumentIds({
 }
 
 /**
- * Resolve active insurance document case for Claude-first vault gating.
- * Priority:
- * 1) verified request document_id(s)
- * 2) same session recent active attachment / analysis case (multi-id snapshot)
- * 3) verified prior attachment/analysis relation (same customer)
- * 4) none → document-less general question
+ * Resolve attachable insurance document ids for Claude original delivery.
+ * When enforceAttachmentScope is true, conversation/session restore cannot authorize originals.
  */
 export async function resolveActiveInsuranceDocumentCase({
   supabase = null,
@@ -71,21 +85,113 @@ export async function resolveActiveInsuranceDocumentCase({
   sessionId = null,
   clientDocumentId = null,
   clientDocumentIds = null,
+  attachmentReferenceEnabled = false,
+  activeAttachmentIds = null,
+  currentTurnDocumentIds = null,
+  enforceAttachmentScope = false,
   limit = 80,
   verifyOwned = verifyOwnedActiveDocument,
 } = {}) {
   const cid = String(customerId ?? "").trim();
-  const clientIds = [
-    ...new Set(
-      [
-        ...(Array.isArray(clientDocumentIds) ? clientDocumentIds : []),
-        clientDocumentId,
-      ]
-        .map((id) => String(id ?? "").trim())
-        .filter(Boolean),
-    ),
-  ];
+  const clientIds = normalizeDocumentIds(clientDocumentIds, clientDocumentId);
   const clientId = clientIds[0] || "";
+
+  if (enforceAttachmentScope === true) {
+    const currentTurnIds = normalizeDocumentIds(currentTurnDocumentIds);
+    const activeIds =
+      attachmentReferenceEnabled === true
+        ? normalizeDocumentIds(activeAttachmentIds)
+        : [];
+    const authorizedPool = normalizeDocumentIds([...currentTurnIds, ...activeIds]);
+
+    if (!authorizedPool.length) {
+      return {
+        documentId: null,
+        documentIds: [],
+        caseSource: null,
+        reason: "no_active_attachment_scope",
+        restored: false,
+      };
+    }
+
+    if (!supabase || !cid) {
+      const selected =
+        clientIds.length > 0
+          ? clientIds.filter((id) => authorizedPool.includes(id))
+          : authorizedPool.slice();
+      if (!selected.length) {
+        return {
+          documentId: null,
+          documentIds: [],
+          caseSource: null,
+          reason: "request_document_id_outside_active_scope",
+          restored: false,
+        };
+      }
+      return {
+        documentId: selected[0],
+        documentIds: selected,
+        caseSource: currentTurnIds.length
+          ? "current_turn_document_ids"
+          : "active_attachment_ids",
+        reason: "client_unverified_scoped_no_db",
+        restored: false,
+      };
+    }
+
+    const ownedPool = await filterOwnedDocumentIds({
+      supabase,
+      customerId: cid,
+      documentIds: authorizedPool,
+      verifyOwned,
+    });
+    if (!ownedPool.length) {
+      return {
+        documentId: null,
+        documentIds: [],
+        caseSource: null,
+        reason: "authorized_attachment_scope_unowned",
+        restored: false,
+      };
+    }
+
+    const ownedClient = await filterOwnedDocumentIds({
+      supabase,
+      customerId: cid,
+      documentIds: clientIds,
+      verifyOwned,
+    });
+    const selected =
+      ownedClient.length > 0
+        ? ownedClient.filter((id) => ownedPool.includes(id))
+        : ownedPool.slice();
+
+    if (!selected.length) {
+      return {
+        documentId: null,
+        documentIds: [],
+        caseSource: null,
+        reason: "request_document_id_outside_active_scope",
+        restored: false,
+      };
+    }
+
+    const ownedCurrent = ownedPool.filter((id) => currentTurnIds.includes(id));
+    return {
+      documentId: selected[0],
+      documentIds: selected,
+      caseSource: ownedCurrent.length
+        ? "current_turn_document_ids"
+        : attachmentReferenceEnabled === true
+          ? "active_attachment_ids"
+          : "request_document_id",
+      reason:
+        ownedClient.length > 0
+          ? "client_verified_in_active_scope"
+          : "authorized_attachment_scope",
+      restored: false,
+    };
+  }
 
   if (!supabase || !cid) {
     if (clientIds.length) {

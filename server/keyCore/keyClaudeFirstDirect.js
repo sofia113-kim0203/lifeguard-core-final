@@ -91,7 +91,6 @@ import {
   dedupeDocumentRowsForRuntimeSum,
   dedupeRowsForOriginalDelivery,
   formatAttachmentIdentityTextBlock,
-  isAttachContextFollowUpQuestion,
   isClaudeInferenceOrEvaluationLiteral,
   shouldPreferRequestDocumentScopeOnly,
   stripNonAttachEvidenceFromUserPayload,
@@ -5040,6 +5039,9 @@ export async function runClaudeFirstDirectQuestionTurn({
   attachedDocumentId = null,
   attachedDocumentIds = null,
   priorAttachFollowUp = false,
+  attachmentReferenceEnabled = false,
+  activeAttachmentIds = null,
+  currentTurnDocumentIds = null,
   sessionId = null,
   readyCardHandoffToken = null,
   presenceTurn = false,
@@ -5330,10 +5332,19 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Physical active attachment / insurance vault recall / explicit mention.
   // Never invent latest document; allowLatestFallback stays false.
   // Presence must not mix PDF/document Claude work into the login opener.
-  // Active insurance document case provides owned related originals without keyword gating.
-  // Case SSOT: request document_id → same-session conversation case → prior attach/analysis.
-  // Browser local activeAttachment alone is not authority when the request omits document_id.
+  // Prior originals require attachment_reference_enabled AND id ∈ active_attachment_ids.
+  // request_document_id alone / conversation case / handoff must not reattach prior originals.
+  // Current-turn uploads use current_turn_document_ids (separate from prior scope).
   // Multi composer: document_ids (ordered) + document_id (primary/first) — never pick last-only.
+  const scopedActiveAttachmentIds = isPresenceTurn
+    ? []
+    : listAttachedDocumentIds(activeAttachmentIds);
+  const scopedCurrentTurnDocumentIds = isPresenceTurn
+    ? []
+    : listAttachedDocumentIds(currentTurnDocumentIds);
+  const attachmentReferenceOn = isPresenceTurn
+    ? false
+    : attachmentReferenceEnabled === true;
   let clientAttachedDocumentIds = isPresenceTurn
     ? []
     : listAttachedDocumentIds(
@@ -5356,25 +5367,28 @@ export async function runClaudeFirstDirectQuestionTurn({
       sessionId,
       clientDocumentId: clientExplicitDocumentId || null,
       clientDocumentIds: clientAttachedDocumentIds,
+      attachmentReferenceEnabled: attachmentReferenceOn,
+      activeAttachmentIds: scopedActiveAttachmentIds,
+      currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+      enforceAttachmentScope: true,
+    });
+  } else if (!isPresenceTurn) {
+    activeDocumentCase = await resolveActiveInsuranceDocumentCase({
+      supabase: null,
+      customerId,
+      sessionId,
+      clientDocumentId: clientExplicitDocumentId || null,
+      clientDocumentIds: clientAttachedDocumentIds,
+      attachmentReferenceEnabled: attachmentReferenceOn,
+      activeAttachmentIds: scopedActiveAttachmentIds,
+      currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+      enforceAttachmentScope: true,
     });
   }
-  // Case may expand a singular follow-up id to the prior multi-attach snapshot.
-  // Soft attach-context follow-ups ("지금 올린 서류", "보장내역은?") restore full prior ids.
-  if (
-    !isPresenceTurn &&
-    Array.isArray(activeDocumentCase.documentIds) &&
-    activeDocumentCase.documentIds.length > clientAttachedDocumentIds.length
-  ) {
-    clientAttachedDocumentIds = listAttachedDocumentIds(activeDocumentCase.documentIds);
-  } else if (
-    !isPresenceTurn &&
-    clientAttachedDocumentIds.length <= 1 &&
-    isAttachContextFollowUpQuestion(question) &&
-    Array.isArray(activeDocumentCase.documentIds) &&
-    activeDocumentCase.documentIds.length > 1
-  ) {
-    clientAttachedDocumentIds = listAttachedDocumentIds(activeDocumentCase.documentIds);
-  }
+  // Scoped case is the only authority for original attach ids — no conversation widen.
+  clientAttachedDocumentIds = listAttachedDocumentIds(
+    Array.isArray(activeDocumentCase.documentIds) ? activeDocumentCase.documentIds : [],
+  );
   let explicitDocumentId = String(activeDocumentCase.documentId ?? "").trim();
   const caseDocumentId = explicitDocumentId;
   let documentMentionResolve = null;
@@ -5383,11 +5397,14 @@ export async function runClaudeFirstDirectQuestionTurn({
   let attachmentIdentityPlanForClaude = null;
   let pdfFetchMs = null;
   const hasActiveInsuranceDocumentCase = Boolean(caseDocumentId);
-  const wantsVaultEvidence = shouldProvideOwnedInsuranceVaultOriginals({
-    question,
-    isPresenceTurn,
-    attachedDocumentId: caseDocumentId,
-  });
+  // Vault auto-attach of prior owned originals is forbidden without active attachment scope.
+  const wantsVaultEvidence =
+    hasActiveInsuranceDocumentCase &&
+    shouldProvideOwnedInsuranceVaultOriginals({
+      question,
+      isPresenceTurn,
+      attachedDocumentId: caseDocumentId,
+    });
   const runVaultRecall = shouldRunOwnedVaultRecall({
     wantsVaultEvidence,
     isPresenceTurn,
@@ -5533,12 +5550,13 @@ export async function runClaudeFirstDirectQuestionTurn({
       }
     }
   }
-  // B: explicit 내 문서 / filename pointer — only when vault evidence was not requested
-  // (or vault did not set an attach id). Never invent latest.
+  // B: explicit 내 문서 / filename pointer — only inside authorized attachment scope.
+  // Mention / prior-answer text alone must not restore prior originals.
   if (
     !isPresenceTurn &&
     !explicitDocumentId &&
     !wantsVaultEvidence &&
+    hasActiveInsuranceDocumentCase &&
     userSupabase &&
     customerId
   ) {
@@ -5555,8 +5573,11 @@ export async function runClaudeFirstDirectQuestionTurn({
         history,
         mentionedFilenames,
       });
-      if (documentMentionResolve?.ok && documentMentionResolve.documentId) {
-        explicitDocumentId = String(documentMentionResolve.documentId).trim();
+      const mentionedId = documentMentionResolve?.ok
+        ? String(documentMentionResolve.documentId ?? "").trim()
+        : "";
+      if (mentionedId && clientAttachedDocumentIds.includes(mentionedId)) {
+        explicitDocumentId = mentionedId;
       }
     }
   }

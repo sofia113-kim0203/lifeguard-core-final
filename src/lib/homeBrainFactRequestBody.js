@@ -16,6 +16,15 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
   const priorAttachFollowUp = Boolean(
     options.priorAttachFollowUp ?? options.prior_attach_follow_up ?? false,
   );
+  const attachmentReferenceEnabled = Boolean(
+    options.attachmentReferenceEnabled ?? options.attachment_reference_enabled ?? false,
+  );
+  const activeAttachmentIds = resolveAttachDocumentIdContract({
+    documentIds: options.activeAttachmentIds ?? options.active_attachment_ids,
+  }).documentIds;
+  const currentTurnDocumentIds = resolveAttachDocumentIdContract({
+    documentIds: options.currentTurnDocumentIds ?? options.current_turn_document_ids,
+  }).documentIds;
   const sessionId = String(options.sessionId ?? options.session_id ?? "").trim() || null;
   const handoffToken = String(
     options.readyCardHandoffToken ?? options.ready_card_handoff_token ?? "",
@@ -36,6 +45,13 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
     ...(presenceTurn ? { presence: true } : {}),
     ...(documentId && !presenceTurn ? { document_id: documentId } : {}),
     ...(documentIds.length > 1 && !presenceTurn ? { document_ids: documentIds } : {}),
+    ...(!presenceTurn ? { attachment_reference_enabled: attachmentReferenceEnabled } : {}),
+    ...(activeAttachmentIds.length && !presenceTurn
+      ? { active_attachment_ids: activeAttachmentIds }
+      : {}),
+    ...(currentTurnDocumentIds.length && !presenceTurn
+      ? { current_turn_document_ids: currentTurnDocumentIds }
+      : {}),
     ...(priorAttachFollowUp && !presenceTurn ? { prior_attach_follow_up: true } : {}),
     // GO3: session_id only — server loads session_goal SSOT; never send prior_session_goal.
     ...(sessionId ? { session_id: sessionId } : {}),

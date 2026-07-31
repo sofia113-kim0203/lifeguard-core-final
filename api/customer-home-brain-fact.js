@@ -77,6 +77,15 @@ export default async function handler(req, res) {
     const priorAttachFollowUp = Boolean(
       body?.prior_attach_follow_up ?? body?.priorAttachFollowUp ?? false,
     );
+    const attachmentReferenceEnabled = Boolean(
+      body?.attachment_reference_enabled ?? body?.attachmentReferenceEnabled ?? false,
+    );
+    const activeAttachmentIds = listAttachedDocumentIds(
+      body?.active_attachment_ids ?? body?.activeAttachmentIds,
+    );
+    const currentTurnDocumentIds = listAttachedDocumentIds(
+      body?.current_turn_document_ids ?? body?.currentTurnDocumentIds,
+    );
     // GO3: session_id scopes server SSOT goal load. Ignore any client prior_session_goal.
     const sessionId = String(body?.session_id ?? body?.sessionId ?? "").trim() || null;
     // T2.1 — opaque handoff token only (never accept client plaintext card JSON).
@@ -154,6 +163,9 @@ export default async function handler(req, res) {
         attachedDocumentId: presenceTurn ? null : attachedDocumentId,
         attachedDocumentIds: presenceTurn ? [] : attachedDocumentIds,
         priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
+        attachmentReferenceEnabled: presenceTurn ? false : attachmentReferenceEnabled,
+        activeAttachmentIds: presenceTurn ? [] : activeAttachmentIds,
+        currentTurnDocumentIds: presenceTurn ? [] : currentTurnDocumentIds,
         sessionId,
         readyCardHandoffToken,
         presenceTurn,
@@ -202,6 +214,9 @@ export default async function handler(req, res) {
       attachedDocumentId: presenceTurn ? null : attachedDocumentId,
       attachedDocumentIds: presenceTurn ? [] : attachedDocumentIds,
       priorAttachFollowUp: presenceTurn ? false : priorAttachFollowUp,
+      attachmentReferenceEnabled: presenceTurn ? false : attachmentReferenceEnabled,
+      activeAttachmentIds: presenceTurn ? [] : activeAttachmentIds,
+      currentTurnDocumentIds: presenceTurn ? [] : currentTurnDocumentIds,
       sessionId,
       readyCardHandoffToken,
       presenceTurn,

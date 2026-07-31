@@ -1897,10 +1897,29 @@ export default function LifeguardHomeChat({
       let sawSseDone = false;
       // GO3: session_id only ? server SSOT loads session_goal; never send prior_session_goal.
       const handoffToken = getReadyCardHandoffToken({ customerId, sessionId });
+      const activeIdsForRequest = (
+        activeAttachmentIds.length > 0
+          ? activeAttachmentIds
+          : activeAttachmentId
+            ? [activeAttachmentId]
+            : []
+      )
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean);
+      // Banner "첨부 참조" state — cleared by "첨부 참조 해제". Current-turn uploads are separate.
+      const attachmentReferenceEnabled =
+        Boolean(activeAttachmentId) || reusedActiveAttachment === true;
       let attachOptions = {
         sessionId,
         ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
         ...(documentIdsForTurn.length > 1 ? { documentIds: documentIdsForTurn } : {}),
+        attachmentReferenceEnabled,
+        ...(activeIdsForRequest.length
+          ? { activeAttachmentIds: activeIdsForRequest }
+          : {}),
+        ...(composerDocumentIds.length
+          ? { currentTurnDocumentIds: composerDocumentIds.slice() }
+          : {}),
         ...(handoffToken ? { readyCardHandoffToken: handoffToken } : {}),
         viewMode,
         ...(viewMode !== "personal" && selectedEntityId

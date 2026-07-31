@@ -453,7 +453,7 @@ ok("same_contract_three_pages_premium_once");
 }
 ok("post_claude_customer_text_mutation_removed");
 
-// 13) Follow-up keeps multi-attach snapshot ids.
+// 13) Follow-up originals require active attachment scope (no conversation restore).
 {
   assert.equal(isAttachContextFollowUpQuestion("보험료 합산만 해줘"), true);
   assert.equal(isAttachContextFollowUpQuestion("보장내역은?"), true);
@@ -473,19 +473,38 @@ ok("post_claude_customer_text_mutation_removed");
   assert.deepEqual(norm.active_attachment_ids, ["a", "b", "c"]);
 
   const owned = new Set(["a", "b", "c"]);
-  const caseHit = await resolveActiveInsuranceDocumentCase({
+  const staleOnly = await resolveActiveInsuranceDocumentCase({
     supabase: {},
     customerId: "cust-1",
     sessionId: "sess-1",
     clientDocumentId: "c",
     clientDocumentIds: ["c"],
+    attachmentReferenceEnabled: false,
+    activeAttachmentIds: [],
+    currentTurnDocumentIds: [],
+    enforceAttachmentScope: true,
     verifyOwned: async ({ documentId }) => owned.has(documentId),
   });
-  // Without conversation rows, client singular stays singular.
-  assert.equal(caseHit.documentId, "c");
-  assert.deepEqual(caseHit.documentIds, ["c"]);
+  assert.equal(staleOnly.documentId, null);
+  assert.deepEqual(staleOnly.documentIds, []);
 
-  const withSnap = await resolveActiveInsuranceDocumentCase({
+  const scopedSelect = await resolveActiveInsuranceDocumentCase({
+    supabase: {},
+    customerId: "cust-1",
+    sessionId: "sess-1",
+    clientDocumentId: "c",
+    clientDocumentIds: ["c"],
+    attachmentReferenceEnabled: true,
+    activeAttachmentIds: ["a", "b", "c"],
+    currentTurnDocumentIds: [],
+    enforceAttachmentScope: true,
+    verifyOwned: async ({ documentId }) => owned.has(documentId),
+  });
+  // request_document_id selects inside active scope — no conversation widen.
+  assert.equal(scopedSelect.documentId, "c");
+  assert.deepEqual(scopedSelect.documentIds, ["c"]);
+
+  const scopedMulti = await resolveActiveInsuranceDocumentCase({
     supabase: {
       from() {
         return {
@@ -518,11 +537,59 @@ ok("post_claude_customer_text_mutation_removed");
     },
     customerId: "cust-1",
     sessionId: "sess-1",
-    clientDocumentId: "c",
-    clientDocumentIds: ["c"],
+    clientDocumentId: "a",
+    clientDocumentIds: ["a", "b", "c"],
+    attachmentReferenceEnabled: true,
+    activeAttachmentIds: ["a", "b", "c"],
+    currentTurnDocumentIds: [],
+    enforceAttachmentScope: true,
     verifyOwned: async ({ documentId }) => owned.has(documentId),
   });
-  assert.deepEqual(withSnap.documentIds, ["a", "b", "c"]);
+  assert.deepEqual(scopedMulti.documentIds, ["a", "b", "c"]);
+  assert.equal(scopedMulti.restored, false);
+
+  const conversationCannotAuthorize = await resolveActiveInsuranceDocumentCase({
+    supabase: {
+      from() {
+        return {
+          select() {
+            return this;
+          },
+          eq() {
+            return this;
+          },
+          order() {
+            return this;
+          },
+          limit() {
+            return Promise.resolve({
+              data: [
+                {
+                  role: "assistant",
+                  metadata_json: {
+                    session_id: "sess-1",
+                    active_attachment_ids: ["a", "b", "c"],
+                    evidence_package: { attached_document_ids: ["a", "b", "c"] },
+                  },
+                },
+              ],
+              error: null,
+            });
+          },
+        };
+      },
+    },
+    customerId: "cust-1",
+    sessionId: "sess-1",
+    clientDocumentId: null,
+    clientDocumentIds: [],
+    attachmentReferenceEnabled: false,
+    activeAttachmentIds: [],
+    currentTurnDocumentIds: [],
+    enforceAttachmentScope: true,
+    verifyOwned: async ({ documentId }) => owned.has(documentId),
+  });
+  assert.deepEqual(conversationCannotAuthorize.documentIds, []);
 }
 ok("follow_up_expands_multi_attach_snapshot");
 
