@@ -174,6 +174,8 @@ export async function normalizeAttachmentRowsForClaude(rows = [], opts = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const out = [];
   const vaultSafeImage = opts.vaultSafeImage === true;
+  // preserveAllRows: never silent-drop a request document_id when orientation fails.
+  const preserveAllRows = opts.preserveAllRows !== false;
   for (const row of list) {
     if (!row?.base64) continue;
     const normalized = await normalizeImageOrientationForClaude({
@@ -183,7 +185,21 @@ export async function normalizeAttachmentRowsForClaude(rows = [], opts = {}) {
       vaultSafeImage,
       maxImageEdge: opts.maxImageEdge,
     });
-    if (!normalized.base64) continue; // drop unprocessable images (vault-safe)
+    if (!normalized.base64) {
+      // Keep original bytes so multi-attach document_ids stay complete for Claude.
+      if (preserveAllRows) {
+        out.push({
+          ...row,
+          orientation: {
+            rotated: false,
+            before: null,
+            after: null,
+            reason: "normalize_failed_keep_original",
+          },
+        });
+      }
+      continue;
+    }
     out.push({
       ...row,
       base64: normalized.base64,

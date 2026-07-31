@@ -79,7 +79,10 @@ import {
   buildDeterministicDocumentTotals,
   buildDeterministicTotalsAuthorityAddendum,
   buildIncompleteProcessingNotice,
+  buildVaultDocumentSourceScopeAddendum,
   dedupeDocumentRowsForRuntimeSum,
+  sealCustomerAnswerWithDeterministicTotals,
+  sealVaultDocumentSourceSpeak,
   shouldPreferRequestDocumentScopeOnly,
   stripNonAttachEvidenceFromUserPayload,
 } from "./keyDocumentSumAccuracy.js";
@@ -4180,7 +4183,9 @@ async function callClaudeFirstDirect({
         deletedDocRecheck ? null : currentTurnDocument,
       );
   const { pack: contextPack } = buildClaudeFullContextPack({
-    history: scopeOnly ? [] : history,
+    // Keep dialogue history on attach-scope so follow-ups ("합산만 해줘") retain question context.
+    // Chart/ledger/past-doc evidence is stripped separately; do not wipe the conversation.
+    history: Array.isArray(history) ? history : [],
     question,
     activeDocuments: activeDocsForPack,
     currentTurnDocument: deletedDocRecheck ? null : currentTurnDocument,
@@ -4368,6 +4373,16 @@ async function callClaudeFirstDirect({
     if (scopeAddendum) {
       systemTextBase = `${systemTextBase}\n\n${scopeAddendum}`;
     }
+  }
+  if (
+    presenceTurn !== true &&
+    pdfMeta &&
+    typeof pdfMeta === "object" &&
+    (String(pdfMeta.document_review_scope ?? "").includes("vault") ||
+      pdfMeta.vault_recall_mode ||
+      Number(pdfMeta.vault_attach_count) > 0)
+  ) {
+    systemTextBase = `${systemTextBase}\n\n${buildVaultDocumentSourceScopeAddendum()}`;
   }
   const roleApplied = applyAgentKeyRoleToClaudeInputs({
     systemText: systemTextBase,
@@ -4708,37 +4723,68 @@ async function callClaudeFirstDirect({
   let customer_answer = String(
     lastPicked.customer_answer || streamedAnswer || "",
   ).trim();
-  // Hand arithmetic only: when sidecar/precomputed premiums exist, correct wrong totals.
+  // Hand arithmetic + stance seal: inventory/precomputed premiums; no "숫자 없음"+amount.
   {
     const inventoryRows = Array.isArray(policyInventoryFacts) ? policyInventoryFacts : [];
-    const preRows =
-      deterministicDocumentTotals && Array.isArray(deterministicDocumentTotals.premiums)
-        ? null
-        : null;
-    void preRows;
     const sumRows =
       inventoryRows.length > 0
         ? inventoryRows.map((f) => ({
             document_id: f?.source_document_id,
             monthly_premium: f?.monthly_premium,
             content_sha256: f?.source_content_sha256,
+            policy_number: f?.policy_number ?? f?.contract_number ?? null,
+            insurer: f?.insurer ?? f?.insurer_name ?? null,
+            product_name: f?.product_name ?? f?.product ?? null,
           }))
         : [];
     const totalsFromInventory =
       sumRows.length > 0 ? buildDeterministicDocumentTotals({ rows: sumRows }) : null;
-    const totalsForGuard =
+    let totalsForSeal =
       totalsFromInventory?.premium_row_count > 0
-        ? totalsFromInventory
-        : deterministicDocumentTotals &&
-            Number.isFinite(Number(deterministicDocumentTotals.monthly_premium_sum))
+        ? {
+            ...totalsFromInventory,
+            unique_document_count: Math.max(
+              Number(totalsFromInventory.unique_document_count) || 0,
+              Number(deterministicDocumentTotals?.unique_document_count) || 0,
+              attachDocumentIds.length,
+            ),
+          }
+        : deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
           ? deterministicDocumentTotals
           : null;
-    if (totalsForGuard) {
-      const guarded = applyDeterministicPremiumSumGuard({
+    if (
+      totalsForSeal &&
+      Number(totalsForSeal.premium_row_count || 0) <= 0 &&
+      attachDocumentIds.length > 0
+    ) {
+      totalsForSeal = {
+        ...totalsForSeal,
+        no_computable_premiums_in_current_attach: true,
+      };
+    }
+    if (totalsForSeal) {
+      const sealed = sealCustomerAnswerWithDeterministicTotals({
         customerAnswer: customer_answer,
-        totals: totalsForGuard,
+        totals: totalsForSeal,
       });
-      if (guarded.changed) customer_answer = guarded.answer;
+      if (sealed.changed) customer_answer = sealed.answer;
+      else {
+        const guarded = applyDeterministicPremiumSumGuard({
+          customerAnswer: customer_answer,
+          totals: totalsForSeal,
+        });
+        if (guarded.changed) customer_answer = guarded.answer;
+      }
+    }
+    const vaultSpeak =
+      pdfMeta &&
+      typeof pdfMeta === "object" &&
+      (String(pdfMeta.document_review_scope ?? "").includes("vault") ||
+        pdfMeta.vault_recall_mode ||
+        Number(pdfMeta.vault_attach_count) > 0);
+    if (vaultSpeak) {
+      const vaultSealed = sealVaultDocumentSourceSpeak(customer_answer);
+      if (vaultSealed.changed) customer_answer = vaultSealed.answer;
     }
   }
   const progressOnly = isProgressOnlyCustomerAnswer(customer_answer);
@@ -5164,7 +5210,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Case SSOT: request document_id → same-session conversation case → prior attach/analysis.
   // Browser local activeAttachment alone is not authority when the request omits document_id.
   // Multi composer: document_ids (ordered) + document_id (primary/first) — never pick last-only.
-  const clientAttachedDocumentIds = isPresenceTurn
+  let clientAttachedDocumentIds = isPresenceTurn
     ? []
     : listAttachedDocumentIds(
         Array.isArray(attachedDocumentIds) && attachedDocumentIds.length
@@ -5174,6 +5220,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   const clientExplicitDocumentId = clientAttachedDocumentIds[0] || "";
   let activeDocumentCase = {
     documentId: clientExplicitDocumentId || null,
+    documentIds: clientAttachedDocumentIds.slice(),
     caseSource: clientExplicitDocumentId ? "request_document_id" : null,
     reason: clientExplicitDocumentId ? "client_request_unverified" : "none",
     restored: false,
@@ -5184,7 +5231,16 @@ export async function runClaudeFirstDirectQuestionTurn({
       customerId,
       sessionId,
       clientDocumentId: clientExplicitDocumentId || null,
+      clientDocumentIds: clientAttachedDocumentIds,
     });
+  }
+  // Case may expand a singular follow-up id to the prior multi-attach snapshot.
+  if (
+    !isPresenceTurn &&
+    Array.isArray(activeDocumentCase.documentIds) &&
+    activeDocumentCase.documentIds.length > clientAttachedDocumentIds.length
+  ) {
+    clientAttachedDocumentIds = listAttachedDocumentIds(activeDocumentCase.documentIds);
   }
   let explicitDocumentId = String(activeDocumentCase.documentId ?? "").trim();
   const caseDocumentId = explicitDocumentId;
@@ -6251,17 +6307,29 @@ export async function runClaudeFirstDirectQuestionTurn({
     );
     deterministicDocumentTotals.unique_document_count = deduped.length;
   }
+  // Do not stamp no_computable before Claude reads originals — that forced
+  // "숫자 없음" while Claude still reported amounts from the same attach bytes.
   if (
     requestScopeOnly &&
     deterministicDocumentTotals &&
-    Number(deterministicDocumentTotals.premium_row_count || 0) <= 0
+    Number(deterministicDocumentTotals.premium_row_count || 0) <= 0 &&
+    !(Array.isArray(pdfAttachmentsForClaude) && pdfAttachmentsForClaude.length > 0) &&
+    !pdf?.pdfBase64
   ) {
     deterministicDocumentTotals.no_computable_premiums_in_current_attach = true;
+  }
+  if (deterministicDocumentTotals && scopedDocumentIds.length) {
+    deterministicDocumentTotals.requested_document_ids = scopedDocumentIds.slice();
+    deterministicDocumentTotals.unique_document_count = Math.max(
+      Number(deterministicDocumentTotals.unique_document_count) || 0,
+      scopedDocumentIds.length,
+      Array.isArray(pdfAttachmentsForClaude) ? pdfAttachmentsForClaude.length : 0,
+    );
   }
 
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
-    history: isPresenceTurn || requestScopeOnly ? [] : history,
+    history: isPresenceTurn ? [] : history,
     reality: requestScopeOnly ? { policies: [], policy_count: 0 } : reality,
     env,
     fetchImpl,

@@ -196,18 +196,32 @@ export function shouldProvideOwnedInsuranceVaultOriginals({
  */
 export function extractActiveDocumentCaseIdFromMetadata(meta = null) {
   if (!meta || typeof meta !== "object") return null;
-  const direct = String(meta.active_attachment_id ?? meta.document_id ?? "").trim();
-  if (direct) return direct;
-  const nested = String(meta.active_attachment?.active_attachment_id ?? "").trim();
-  if (nested) return nested;
-  const ids = meta.evidence_package?.attached_document_ids;
-  if (Array.isArray(ids)) {
-    for (const raw of ids) {
-      const id = String(raw ?? "").trim();
-      if (id) return id;
-    }
+  const ids = extractActiveAttachmentIdsFromMetadata(meta);
+  return ids[0] || null;
+}
+
+/** Ordered multi-attach snapshot from session/evidence metadata (never invents ids). */
+export function extractActiveAttachmentIdsFromMetadata(meta = null) {
+  if (!meta || typeof meta !== "object") return [];
+  const out = [];
+  const push = (raw) => {
+    const id = String(raw ?? "").trim();
+    if (id && !out.includes(id)) out.push(id);
+  };
+  if (Array.isArray(meta.active_attachment_ids)) {
+    for (const raw of meta.active_attachment_ids) push(raw);
   }
-  return null;
+  const nestedIds = meta.active_attachment?.active_attachment_ids;
+  if (Array.isArray(nestedIds)) {
+    for (const raw of nestedIds) push(raw);
+  }
+  const evidenceIds = meta.evidence_package?.attached_document_ids;
+  if (Array.isArray(evidenceIds)) {
+    for (const raw of evidenceIds) push(raw);
+  }
+  push(meta.active_attachment_id ?? meta.document_id);
+  push(meta.active_attachment?.active_attachment_id);
+  return out;
 }
 
 /**
@@ -236,10 +250,11 @@ export function pickActiveInsuranceDocumentCaseFromConversationRows({
         // Already considered in session pass.
         continue;
       }
-      const documentId = extractActiveDocumentCaseIdFromMetadata(meta);
-      if (!documentId) continue;
+      const documentIds = extractActiveAttachmentIdsFromMetadata(meta);
+      if (!documentIds.length) continue;
       return {
-        documentId,
+        documentId: documentIds[0],
+        documentIds,
         caseSource: sessionOnly
           ? "session_active_insurance_case"
           : "prior_attachment_analysis_relation",
@@ -259,6 +274,7 @@ export function pickActiveInsuranceDocumentCaseFromConversationRows({
   if (priorHit) return priorHit;
   return {
     documentId: null,
+    documentIds: [],
     caseSource: null,
     reason: "no_active_case",
   };
@@ -469,8 +485,13 @@ export function normalizeActiveAttachment(input = null) {
   } else if (typeof turnsRaw === "number" && Number.isInteger(turnsRaw) && turnsRaw >= 0 && turnsRaw <= 3) {
     turns = turnsRaw;
   }
+  const ids = extractActiveAttachmentIdsFromMetadata({
+    active_attachment_id: id,
+    active_attachment_ids: input.active_attachment_ids ?? input.document_ids,
+  });
   return {
     active_attachment_id: id,
+    active_attachment_ids: ids.length ? ids : [id],
     active_attachment_mime: mime,
     active_rotation_quarter_turns: turns,
   };

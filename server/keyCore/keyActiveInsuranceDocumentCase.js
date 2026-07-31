@@ -3,7 +3,11 @@
  * Client document_id is a hint only — conversation metadata + ownership win.
  * Never dumps the full vault; never invents a latest document without a prior case link.
  */
-import { extractActiveDocumentCaseIdFromMetadata } from "../../src/lib/chatActiveAttachment.js";
+import {
+  extractActiveDocumentCaseIdFromMetadata,
+  extractActiveAttachmentIdsFromMetadata,
+  pickActiveInsuranceDocumentCaseFromConversationRows,
+} from "../../src/lib/chatActiveAttachment.js";
 
 export {
   extractActiveDocumentCaseIdFromMetadata,
@@ -33,11 +37,31 @@ async function verifyOwnedActiveDocument({
   }
 }
 
+async function filterOwnedDocumentIds({
+  supabase = null,
+  customerId = null,
+  documentIds = [],
+  verifyOwned = verifyOwnedActiveDocument,
+} = {}) {
+  const out = [];
+  for (const raw of Array.isArray(documentIds) ? documentIds : []) {
+    const id = String(raw ?? "").trim();
+    if (!id || out.includes(id)) continue;
+    const owned = await verifyOwned({
+      supabase,
+      customerId,
+      documentId: id,
+    });
+    if (owned) out.push(id);
+  }
+  return out;
+}
+
 /**
  * Resolve active insurance document case for Claude-first vault gating.
  * Priority:
- * 1) verified request document_id
- * 2) same session recent active attachment / analysis case
+ * 1) verified request document_id(s)
+ * 2) same session recent active attachment / analysis case (multi-id snapshot)
  * 3) verified prior attachment/analysis relation (same customer)
  * 4) none → document-less general question
  */
@@ -46,32 +70,36 @@ export async function resolveActiveInsuranceDocumentCase({
   customerId = null,
   sessionId = null,
   clientDocumentId = null,
+  clientDocumentIds = null,
   limit = 80,
   verifyOwned = verifyOwnedActiveDocument,
 } = {}) {
   const cid = String(customerId ?? "").trim();
-  const clientId = String(clientDocumentId ?? "").trim();
+  const clientIds = [
+    ...new Set(
+      [
+        ...(Array.isArray(clientDocumentIds) ? clientDocumentIds : []),
+        clientDocumentId,
+      ]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const clientId = clientIds[0] || "";
 
-  if (clientId) {
-    const owned = await verifyOwned({
-      supabase,
-      customerId: cid,
-      documentId: clientId,
-    });
-    if (owned) {
+  if (!supabase || !cid) {
+    if (clientIds.length) {
       return {
-        documentId: clientId,
+        documentId: clientIds[0],
+        documentIds: clientIds.slice(),
         caseSource: "request_document_id",
-        reason: "client_verified",
+        reason: "client_unverified_no_db",
         restored: false,
       };
     }
-    // Foreign / deleted client hint — never honor; fall through to server records.
-  }
-
-  if (!supabase || !cid) {
     return {
       documentId: null,
+      documentIds: [],
       caseSource: null,
       reason: "missing_scope",
       restored: false,
@@ -87,39 +115,91 @@ export async function resolveActiveInsuranceDocumentCase({
       .order("created_at", { ascending: false })
       .limit(Math.max(1, Number(limit) || 80));
     if (error) {
-      return {
-        documentId: null,
-        caseSource: null,
-        reason: "query_failed",
-        restored: false,
-      };
+      rows = [];
+    } else {
+      rows = Array.isArray(data) ? data : [];
     }
-    rows = Array.isArray(data) ? data : [];
   } catch {
-    return {
-      documentId: null,
-      caseSource: null,
-      reason: "query_exception",
-      restored: false,
-    };
+    rows = [];
   }
 
   const sid = String(sessionId ?? "").trim();
-  const tried = new Set(clientId ? [clientId] : []);
+  const picked = pickActiveInsuranceDocumentCaseFromConversationRows({
+    rows,
+    sessionId: sid || null,
+  });
+  const snapshotIds = Array.isArray(picked?.documentIds)
+    ? picked.documentIds
+    : picked?.documentId
+      ? [picked.documentId]
+      : [];
 
-  const consider = async (sessionOnly) => {
-    for (const row of rows) {
-      const meta =
-        row?.metadata_json && typeof row.metadata_json === "object"
-          ? row.metadata_json
-          : {};
-      const rowSid = String(meta.session_id ?? "").trim();
-      if (sessionOnly) {
-        if (!sid || rowSid !== sid) continue;
-      } else if (sid && rowSid === sid) {
-        continue;
+  if (clientIds.length) {
+    const ownedClient = await filterOwnedDocumentIds({
+      supabase,
+      customerId: cid,
+      documentIds: clientIds,
+      verifyOwned,
+    });
+    if (ownedClient.length) {
+      // Singular follow-up id that belongs to prior multi-attach → restore full snapshot.
+      let merged = ownedClient.slice();
+      if (
+        ownedClient.length === 1 &&
+        snapshotIds.length > 1 &&
+        snapshotIds.includes(ownedClient[0])
+      ) {
+        const ownedSnap = await filterOwnedDocumentIds({
+          supabase,
+          customerId: cid,
+          documentIds: snapshotIds,
+          verifyOwned,
+        });
+        if (ownedSnap.length > 1) merged = ownedSnap;
+      } else if (clientIds.length > 1) {
+        merged = ownedClient;
       }
-      const documentId = extractActiveDocumentCaseIdFromMetadata(meta);
+      return {
+        documentId: merged[0],
+        documentIds: merged,
+        caseSource: "request_document_id",
+        reason:
+          merged.length > ownedClient.length
+            ? "client_verified_expanded_snapshot"
+            : "client_verified",
+        restored: merged.length > ownedClient.length,
+      };
+    }
+    // Foreign / deleted client hint — never honor; fall through to server records.
+  }
+
+  if (snapshotIds.length) {
+    const ownedIds = await filterOwnedDocumentIds({
+      supabase,
+      customerId: cid,
+      documentIds: snapshotIds,
+      verifyOwned,
+    });
+    if (ownedIds.length) {
+      return {
+        documentId: ownedIds[0],
+        documentIds: ownedIds,
+        caseSource: picked.caseSource,
+        reason: picked.reason,
+        restored: true,
+      };
+    }
+  }
+
+  // Fallback: walk newest rows and verify first owned id (legacy single-id path).
+  const tried = new Set();
+  for (const row of rows) {
+    const meta =
+      row?.metadata_json && typeof row.metadata_json === "object"
+        ? row.metadata_json
+        : {};
+    const ids = extractActiveAttachmentIdsFromMetadata(meta);
+    for (const documentId of ids) {
       if (!documentId || tried.has(documentId)) continue;
       tried.add(documentId);
       const owned = await verifyOwned({
@@ -130,27 +210,17 @@ export async function resolveActiveInsuranceDocumentCase({
       if (!owned) continue;
       return {
         documentId,
-        caseSource: sessionOnly
-          ? "session_active_insurance_case"
-          : "prior_attachment_analysis_relation",
-        reason: sessionOnly
-          ? "session_metadata_active_attachment"
-          : "customer_recent_active_attachment",
+        documentIds: [documentId],
+        caseSource: "prior_attachment_analysis_relation",
+        reason: "customer_recent_active_attachment",
         restored: true,
       };
     }
-    return null;
-  };
-
-  if (sid) {
-    const sessionHit = await consider(true);
-    if (sessionHit) return sessionHit;
   }
-  const priorHit = await consider(false);
-  if (priorHit) return priorHit;
 
   return {
     documentId: null,
+    documentIds: [],
     caseSource: null,
     reason: "no_active_case",
     restored: false,

@@ -12,6 +12,10 @@ import {
   buildIncompleteProcessingNotice,
   buildAttachAnalysisScopeAuthorityAddendum,
   buildDeterministicTotalsAuthorityAddendum,
+  buildVaultDocumentSourceScopeAddendum,
+  sealCustomerAnswerWithDeterministicTotals,
+  sealVaultDocumentSourceSpeak,
+  isAttachContextFollowUpQuestion,
   stripNonAttachEvidenceFromUserPayload,
   answerMentionsOutOfAttachHistoryScope,
   contentSha256FromBytes,
@@ -20,7 +24,11 @@ import {
   wantsOwnedInsuranceVaultEvidence,
   shouldProvideOwnedInsuranceVaultOriginals,
   shouldRunOwnedVaultRecall,
+  extractActiveAttachmentIdsFromMetadata,
+  normalizeActiveAttachment,
 } from "../src/lib/chatActiveAttachment.js";
+import { normalizeAttachmentRowsForClaude } from "../server/keyCore/keyImageOrientation.js";
+import { resolveActiveInsuranceDocumentCase } from "../server/keyCore/keyActiveInsuranceDocumentCase.js";
 import {
   mergeOwnedDocumentAttachRows,
   resolveAttachRowContentSha,
@@ -320,9 +328,199 @@ ok("list_pagination_past_40");
     premiums: [],
     no_computable_premiums_in_current_attach: true,
   });
-  assert.match(noPrem, /no_computable_premiums_in_current_attach=true/);
   assert.match(noPrem, /계산할 숫자 없음/);
+  assert.match(noPrem, /함께 쓰지 않는다/);
 }
 ok("attach_scope_strips_chart_and_past_docs");
+
+// 11) Same contract 3 pages → read count 3, premium once (183231).
+{
+  const rows = [
+    {
+      document_id: "p1",
+      monthly_premium: 183231,
+      policy_number: "POL-9",
+      content_sha256: "page-1",
+    },
+    {
+      document_id: "p2",
+      monthly_premium: 183231,
+      policy_number: "POL-9",
+      content_sha256: "page-2",
+    },
+    {
+      document_id: "p3",
+      monthly_premium: 183231,
+      policy_number: "POL-9",
+      content_sha256: "page-3",
+    },
+  ];
+  const sum = sumMonthlyPremiumsDeterministic(rows);
+  assert.equal(sum.unique_document_count, 3);
+  assert.equal(sum.unique_contract_count, 1);
+  assert.equal(sum.premium_row_count, 1);
+  assert.equal(sum.monthly_premium_sum, 183231);
+}
+ok("same_contract_three_pages_premium_once");
+
+// 12) Seal: no "숫자 없음" + amount coexistence.
+{
+  const sealedMissing = sealCustomerAnswerWithDeterministicTotals({
+    customerAnswer:
+      "보험료 숫자가 없습니다. 월납 보험료는 183,231원입니다.",
+    totals: {
+      premium_row_count: 0,
+      monthly_premium_sum: 0,
+      no_computable_premiums_in_current_attach: true,
+    },
+  });
+  assert.equal(sealedMissing.changed, true);
+  assert.match(sealedMissing.answer, /계산할 숫자 없음/);
+  assert.doesNotMatch(sealedMissing.answer, /183/);
+
+  const sealedHas = sealCustomerAnswerWithDeterministicTotals({
+    customerAnswer:
+      "보험료 숫자가 없습니다. 월납 보험료는 183,231원입니다.",
+    totals: {
+      premium_row_count: 1,
+      monthly_premium_sum: 183231,
+      premiums: [183231],
+      unique_contract_count: 1,
+    },
+  });
+  assert.equal(sealedHas.changed, true);
+  assert.doesNotMatch(sealedHas.answer, /숫자\s*없/);
+  assert.match(sealedHas.answer, /183,231원/);
+}
+ok("seal_no_premium_amount_coexistence");
+
+// 13) Follow-up keeps multi-attach snapshot ids.
+{
+  assert.equal(isAttachContextFollowUpQuestion("보험료 합산만 해줘"), true);
+  const meta = {
+    active_attachment_id: "c",
+    active_attachment_ids: ["a", "b", "c"],
+    evidence_package: { attached_document_ids: ["a", "b", "c"] },
+  };
+  assert.deepEqual(extractActiveAttachmentIdsFromMetadata(meta), ["a", "b", "c"]);
+  const norm = normalizeActiveAttachment({
+    active_attachment_id: "c",
+    active_attachment_ids: ["a", "b", "c"],
+  });
+  assert.deepEqual(norm.active_attachment_ids, ["a", "b", "c"]);
+
+  const owned = new Set(["a", "b", "c"]);
+  const caseHit = await resolveActiveInsuranceDocumentCase({
+    supabase: {},
+    customerId: "cust-1",
+    sessionId: "sess-1",
+    clientDocumentId: "c",
+    clientDocumentIds: ["c"],
+    verifyOwned: async ({ documentId }) => owned.has(documentId),
+  });
+  // Without conversation rows, client singular stays singular.
+  assert.equal(caseHit.documentId, "c");
+  assert.deepEqual(caseHit.documentIds, ["c"]);
+
+  const withSnap = await resolveActiveInsuranceDocumentCase({
+    supabase: {
+      from() {
+        return {
+          select() {
+            return this;
+          },
+          eq() {
+            return this;
+          },
+          order() {
+            return this;
+          },
+          limit() {
+            return Promise.resolve({
+              data: [
+                {
+                  role: "assistant",
+                  metadata_json: {
+                    session_id: "sess-1",
+                    active_attachment_ids: ["a", "b", "c"],
+                    evidence_package: { attached_document_ids: ["a", "b", "c"] },
+                  },
+                },
+              ],
+              error: null,
+            });
+          },
+        };
+      },
+    },
+    customerId: "cust-1",
+    sessionId: "sess-1",
+    clientDocumentId: "c",
+    clientDocumentIds: ["c"],
+    verifyOwned: async ({ documentId }) => owned.has(documentId),
+  });
+  assert.deepEqual(withSnap.documentIds, ["a", "b", "c"]);
+}
+ok("follow_up_expands_multi_attach_snapshot");
+
+// 14) Vault source_scope speak — never "이번에 올린 문서".
+{
+  const addendum = buildVaultDocumentSourceScopeAddendum();
+  assert.match(addendum, /source_scope=vault_document/);
+  assert.match(addendum, /보관 중이던 문서/);
+  const sealed = sealVaultDocumentSourceSpeak(
+    "이번에 올려주신 문서를 기준으로 보면 월 보험료는 10,000원입니다.",
+  );
+  assert.equal(sealed.changed, true);
+  assert.match(sealed.answer, /보관 중이던 문서/);
+  assert.doesNotMatch(sealed.answer, /이번에\s*올려/);
+}
+ok("vault_source_scope_speak");
+
+// 15) Normalize failure must not drop a request document_id.
+{
+  const kept = await normalizeAttachmentRowsForClaude(
+    [
+      {
+        document_id: "d1",
+        base64: Buffer.from("not-an-image").toString("base64"),
+        mediaType: "image/jpeg",
+      },
+      {
+        document_id: "d2",
+        base64: Buffer.from("%PDF-1.4 ok").toString("base64"),
+        mediaType: "application/pdf",
+      },
+      {
+        document_id: "d3",
+        base64: Buffer.from("also-not-image").toString("base64"),
+        mediaType: "image/png",
+      },
+    ],
+    {
+      vaultSafeImage: true,
+      sharpImpl: () => ({
+        rotate() {
+          return this;
+        },
+        resize() {
+          return this;
+        },
+        jpeg() {
+          return this;
+        },
+        async toBuffer() {
+          throw new Error("decode fail");
+        },
+      }),
+    },
+  );
+  assert.equal(kept.length, 3);
+  assert.deepEqual(
+    kept.map((r) => r.document_id),
+    ["d1", "d2", "d3"],
+  );
+}
+ok("normalize_keeps_all_document_ids");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");

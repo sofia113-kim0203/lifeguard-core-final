@@ -121,23 +121,59 @@ export function coerceMonthlyPremiumWon(value) {
 }
 
 /**
- * Deterministic monthly-premium sum after runtime dedupe.
- * Claude must read this result — never re-add in prose.
+ * Contract-level premium key — pages of the same contract share one premium.
+ * Prefer policy_number; else insurer+product+premium fingerprint.
+ */
+export function contractPremiumDedupeKey(row = null) {
+  if (!row || typeof row !== "object") return null;
+  const pn = String(row.policy_number ?? row.contract_number ?? "")
+    .trim()
+    .toLowerCase();
+  if (pn) return `pn:${pn}`;
+  const insurer = String(row.insurer ?? row.insurer_name ?? "")
+    .trim()
+    .toLowerCase();
+  const product = String(row.product_name ?? row.product ?? "")
+    .trim()
+    .toLowerCase();
+  const prem = coerceMonthlyPremiumWon(
+    row.monthly_premium ?? row.premium ?? row.premium_amount,
+  );
+  if (insurer && product && prem != null) {
+    return `fp:${insurer}|${product}|${prem}`;
+  }
+  if (prem != null && (insurer || product)) {
+    return `fp:${insurer}|${product}|${prem}`;
+  }
+  return null;
+}
+
+/**
+ * Deterministic monthly-premium sum.
+ * - Pages: keep all unique document_id / content sha for read count
+ * - Premium: count once per contract (same contract's pages share one premium)
  */
 export function sumMonthlyPremiumsDeterministic(rows = []) {
-  const unique = dedupeDocumentRowsForRuntimeSum(rows);
+  const uniquePages = dedupeDocumentRowsForRuntimeSum(rows);
   const premiums = [];
-  for (const row of unique) {
+  const seenContracts = new Set();
+  for (const row of uniquePages) {
     const prem = coerceMonthlyPremiumWon(
       row.monthly_premium ?? row.premium ?? row.premium_amount,
     );
     if (prem == null) continue;
+    const contractKey =
+      contractPremiumDedupeKey(row) ||
+      `doc:${String(row.document_id ?? row.source_document_id ?? "").trim() || premiums.length}`;
+    if (seenContracts.has(contractKey)) continue;
+    seenContracts.add(contractKey);
     premiums.push(prem);
   }
   let sum = 0;
   for (const p of premiums) sum += p;
   return {
-    unique_document_count: unique.length,
+    unique_document_count: uniquePages.length,
+    unique_contract_count: seenContracts.size,
     premium_row_count: premiums.length,
     premiums,
     monthly_premium_sum: sum,
@@ -212,13 +248,13 @@ export function applyDeterministicPremiumSumGuard({
   if (!answer || sum == null || sum < 0) {
     return { answer, changed: false, monthly_premium_sum: sum };
   }
-  if (!/(합계|총|모두|전부|합하면|합치면|더한)/.test(answer)) {
+  if (!/(합계|총|모두|전부|합하면|합치면|더한|월\s*납|보험료)/.test(answer)) {
     return { answer, changed: false, monthly_premium_sum: sum };
   }
   const sumLabel = sum.toLocaleString("en-US");
   const sumPlain = String(sum);
   const guarded = answer.replace(
-    /((?:합계|총|모두|전부|합하면|합치면|더한)[^.\n]{0,48}?)(\d{1,3}(?:,\d{3})+|\d{4,})(\s*원)/g,
+    /((?:합계|총|모두|전부|합하면|합치면|더한|월\s*납(?:입)?\s*보험료|보험료)[^.\n]{0,48}?)(\d{1,3}(?:,\d{3})+|\d{4,})(\s*원)/g,
     (m, pre, num, unit) => {
       const n = coerceMonthlyPremiumWon(num);
       if (n == null || n === sum) return m;
@@ -231,6 +267,91 @@ export function applyDeterministicPremiumSumGuard({
     changed: guarded !== answer,
     monthly_premium_sum: sum,
   };
+}
+
+const NO_PREMIUM_SPEAK = "현재 첨부 안에서 계산할 숫자 없음.";
+
+/**
+ * Seal customer prose to one deterministic premium stance — no "숫자 없음" + amount coexistence.
+ */
+export function sealCustomerAnswerWithDeterministicTotals({
+  customerAnswer = "",
+  totals = null,
+} = {}) {
+  const answer = String(customerAnswer ?? "").trim();
+  if (!answer || !totals || typeof totals !== "object") {
+    return { answer, changed: false, sealed: null };
+  }
+  const premiumCount = Number(totals.premium_row_count) || 0;
+  const sum = Number(totals.monthly_premium_sum);
+  const hasSum = premiumCount > 0 && Number.isFinite(sum) && sum >= 0;
+  const noPrem =
+    !hasSum &&
+    (totals.no_computable_premiums_in_current_attach === true || premiumCount <= 0);
+  const inventsAmount = /(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/.test(answer);
+  const saysMissing =
+    /계산할\s*숫자\s*없|보험료\s*숫자[가이]?\s*없|숫자가\s*없/.test(answer);
+
+  if (hasSum) {
+    let next = answer
+      .replace(/계산할\s*숫자\s*없[^.。\n!]*/g, "")
+      .replace(/보험료\s*숫자[가이]?\s*없[^.。\n!]*/g, "")
+      .replace(/숫자가\s*없[어어서]?[^.。\n!]*/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    const guarded = applyDeterministicPremiumSumGuard({
+      customerAnswer: next,
+      totals: { monthly_premium_sum: Math.round(sum) },
+    });
+    next = guarded.answer;
+    return {
+      answer: next || answer,
+      changed: next !== answer,
+      sealed: "has_premium",
+      monthly_premium_sum: Math.round(sum),
+    };
+  }
+
+  if (noPrem && saysMissing && inventsAmount) {
+    return { answer: NO_PREMIUM_SPEAK, changed: true, sealed: "no_premium" };
+  }
+  if (noPrem && inventsAmount && totals.no_computable_premiums_in_current_attach === true) {
+    return { answer: NO_PREMIUM_SPEAK, changed: true, sealed: "no_premium" };
+  }
+  return { answer, changed: false, sealed: null };
+}
+
+export function buildVaultDocumentSourceScopeAddendum() {
+  return [
+    "[DOCUMENT_SOURCE_SCOPE]",
+    "source_scope=vault_document",
+    '보관함에서 회수한 원본은 반드시 "보관 중이던 문서"로 말한다.',
+    '"이번에 올린 문서", "올려주신 문서", "방금 첨부한 문서"라고 표현하지 않는다.',
+  ].join("\n");
+}
+
+/** Hand: rewrite mistaken "이번에 올린" speak when source_scope is vault. */
+export function sealVaultDocumentSourceSpeak(customerAnswer = "") {
+  const answer = String(customerAnswer ?? "");
+  if (!answer.trim()) return { answer, changed: false };
+  let next = answer
+    .replace(/이번에\s*(?:올려\s*주신|올리신|올린)\s*문서/g, "보관 중이던 문서")
+    .replace(/방금\s*(?:올려\s*주신|올리신|올린|첨부한)\s*문서/g, "보관 중이던 문서")
+    .replace(/올려\s*주신\s*문서/g, "보관 중이던 문서")
+    .replace(/올리신\s*문서/g, "보관 중이던 문서");
+  return { answer: next, changed: next !== answer };
+}
+
+/** Soft follow-up that must keep prior multi-attach snapshot. */
+export function isAttachContextFollowUpQuestion(question = "") {
+  const q = String(question ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+  return (
+    /합산|합계/.test(q) ||
+    /그\s*(서류|문서|첨부|파일)|이\s*(서류|문서|첨부)|방금|아까|이어서|그거|그것/.test(q)
+  );
 }
 
 export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
@@ -249,14 +370,22 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   if (Number.isFinite(count)) {
     lines.push(`unique_document_count=${Math.round(count)}`);
   }
-  if (noPremiums) {
-    lines.push("no_computable_premiums_in_current_attach=true");
+  const contractCount = Number(totals.unique_contract_count);
+  if (Number.isFinite(contractCount) && contractCount > 0) {
+    lines.push(`unique_contract_count=${Math.round(contractCount)}`);
     lines.push(
-      '현재 첨부 원본 안에 보험료 숫자가 없으면 현재 첨부 범위에서만 "계산할 숫자 없음"으로 끝내고 종료한다.',
+      "같은 계약의 여러 페이지는 모두 읽되, 월 보험료는 계약 단위로 1회만 센다.",
+    );
+  }
+  if (noPremiums) {
+    lines.push(
+      "원본을 모두 읽은 뒤에도 보험료 숫자가 없으면 그때만 \"계산할 숫자 없음\"으로 끝낸다.",
     );
     lines.push("과거 계약·장부·약관·보관 문서의 금액으로 합계를 채우지 않는다.");
+    lines.push('"계산할 숫자 없음"과 원화 금액을 같은 답변에 함께 쓰지 않는다.');
   } else if (Number.isFinite(sum)) {
     lines.push(`monthly_premium_sum=${Math.round(sum)}`);
+    lines.push('"계산할 숫자 없음"이라고 말하지 않는다.');
   }
   if (Array.isArray(totals.premiums) && totals.premiums.length) {
     lines.push(`premiums=[${totals.premiums.map((p) => Math.round(Number(p))).join(",")}]`);
@@ -289,13 +418,17 @@ export function buildAttachAnalysisScopeAuthorityAddendum({
     '"지금까지 올라온 서류 전체", 과거 계약명, 약관명, 보관 문서를 언급하지 않는다.',
     `current_attach_document_ids=${ids.join(",")}`,
   ];
+  lines.push(
+    "같은 계약의 여러 페이지는 모두 읽고, 월 보험료는 계약당 1회만 말한다.",
+  );
+  lines.push('"계산할 숫자 없음"과 원화 금액을 같은 답변에 함께 쓰지 않는다.');
   const premiumCount = Number(totals?.premium_row_count);
   if (
     totals?.no_computable_premiums_in_current_attach === true ||
     (Number.isFinite(premiumCount) && premiumCount <= 0)
   ) {
     lines.push(
-      '현재 첨부에 보험료 숫자가 없으면 "계산할 숫자 없음"으로 끝내고, 과거 자료로 채우지 않는다.',
+      "첨부 원본을 읽은 뒤에도 보험료가 없으면 그때만 \"계산할 숫자 없음\"으로 끝내고, 과거 자료로 채우지 않는다.",
     );
   }
   return lines.join("\n");
