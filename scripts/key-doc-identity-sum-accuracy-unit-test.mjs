@@ -58,9 +58,11 @@ import {
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
 import {
   buildClaudeFirstCachedRequestParts,
+  buildClaudeVerifiedChartProjection,
   buildUserPayload,
   composeClaudeFirstSystemText,
   serializeClaudeFirstCachePrefixForAudit,
+  CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import {
   buildVerifiedPolicyLedgerBrief,
@@ -1458,6 +1460,9 @@ ok("explicit_prior_attachment_reactivation_suite");
     assert.ok(first.cache_control);
     assert.equal(first.cache_control.type, "ephemeral");
     assert.match(String(first.text), /available_verified_evidence/);
+    // Block B must be compact JSON (not pretty-printed).
+    const bParsed = JSON.parse(first.text);
+    assert.equal(first.text, JSON.stringify(bParsed), "block B compact");
     assert.match(r.systemText, /lifeguard_key_system|너는 고객이 만나는 유일한 AI 보험 주치의 KEY/);
     assert.ok(r.c_json.includes("current_question") || r.c_json.includes(qOrdinary1));
     assert.match(r.c_json, /CURRENT_CUSTOMER_REQUEST/);
@@ -1465,6 +1470,305 @@ ok("explicit_prior_attachment_reactivation_suite");
   ok("CACHE_STRUCTURE_INVARIANT");
 }
 ok("claude_prompt_cache_prefix_stability_suite");
+
+// --- KEY CHART BLOAT REPAIR 2A (Claude projection only) ---
+{
+  const longPeriod = `${"coverage_period_malformed_".repeat(40)}END`;
+  const longKeyA = `${"source_fact_key_body_A_".repeat(50)}TAIL_A`;
+  const longKeyB = `${"source_fact_key_body_B_".repeat(50)}TAIL_B`;
+  assert.ok(longPeriod.length > CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT);
+  assert.ok(longKeyA.length > CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT);
+
+  const shortKey = "sfk_short_ok";
+  const shortPeriod = "80세만기";
+  const coverageTemplate = {
+    coverage_name: "암진단비",
+    coverage_amount: 10000000,
+    premium: 1000,
+    status: "active",
+    coverage_period: shortPeriod,
+    source_fact_key: shortKey,
+  };
+  const longCoverage = {
+    ...coverageTemplate,
+    coverage_period: longPeriod,
+    source_fact_key: longKeyA,
+  };
+  const reviewRow = {
+    contract_id: "c-review-1",
+    product_name: "fixture-product",
+    coverages: [longCoverage],
+    source_fact_key: longKeyA,
+  };
+  const contractRow = {
+    contract_id: "c-1",
+    insurer: "fixture-insurer",
+    product: "fixture-product",
+    coverages: [longCoverage, { ...coverageTemplate, source_fact_key: longKeyB }],
+  };
+
+  // A — review alias exact duplicate
+  {
+    const diag = {};
+    const src = {
+      review_candidates: [reviewRow],
+      personal_review_candidates: [reviewRow],
+      review_candidate_count: 1,
+      personal_review_candidate_count: 1,
+      contracts: [contractRow],
+      confirmed_contracts: [contractRow],
+      personal_confirmed_contracts: [contractRow],
+      verified_document_coverages: [longCoverage],
+    };
+    const before = JSON.stringify(src);
+    const proj = buildClaudeVerifiedChartProjection(src, diag);
+    assert.equal(JSON.stringify(src), before, "non-mutation after review exact");
+    assert.ok(Array.isArray(proj.review_candidates));
+    assert.equal(proj.review_candidates.length, 1);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(proj, "personal_review_candidates"),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(proj, "personal_review_candidate_count"),
+      false,
+    );
+    assert.equal(proj.review_candidate_count, 1);
+    assert.equal(diag.review_alias, "EXACT_DUPLICATE_COLLAPSED");
+  }
+  ok("chart_bloat_2a_review_alias_exact");
+
+  // B — review alias divergence
+  {
+    const diag = {};
+    const src = {
+      review_candidates: [reviewRow],
+      personal_review_candidates: [{ ...reviewRow, contract_id: "c-review-2" }],
+      review_candidate_count: 1,
+      personal_review_candidate_count: 1,
+    };
+    const proj = buildClaudeVerifiedChartProjection(src, diag);
+    assert.ok(Array.isArray(proj.review_candidates));
+    assert.ok(Array.isArray(proj.personal_review_candidates));
+    assert.equal(proj.review_candidates.length, 1);
+    assert.equal(proj.personal_review_candidates.length, 1);
+    assert.notEqual(
+      JSON.stringify(proj.review_candidates),
+      JSON.stringify(proj.personal_review_candidates),
+    );
+    assert.equal(diag.review_alias, "REVIEW_ALIAS_DIVERGED");
+  }
+  ok("chart_bloat_2a_review_alias_diverged");
+
+  // C — contract aliases exact duplicate
+  {
+    const diag = {};
+    const src = {
+      contracts: [contractRow],
+      confirmed_contracts: [contractRow],
+      personal_confirmed_contracts: [contractRow],
+    };
+    const proj = buildClaudeVerifiedChartProjection(src, diag);
+    assert.ok(Array.isArray(proj.contracts));
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(proj, "confirmed_contracts"),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(proj, "personal_confirmed_contracts"),
+      false,
+    );
+    assert.equal(diag.contract_alias, "EXACT_DUPLICATE_COLLAPSED");
+  }
+  ok("chart_bloat_2a_contract_alias_exact");
+
+  // D — contract alias divergence
+  {
+    const diag = {};
+    const other = { ...contractRow, contract_id: "c-2" };
+    const src = {
+      contracts: [contractRow],
+      confirmed_contracts: [other],
+      personal_confirmed_contracts: [contractRow],
+    };
+    const proj = buildClaudeVerifiedChartProjection(src, diag);
+    assert.ok(Array.isArray(proj.contracts));
+    assert.ok(Array.isArray(proj.confirmed_contracts));
+    assert.ok(Array.isArray(proj.personal_confirmed_contracts));
+    assert.equal(diag.contract_alias, "CONTRACT_ALIAS_DIVERGED");
+  }
+  ok("chart_bloat_2a_contract_alias_diverged");
+
+  // E — source_fact_key short/long + stable ref
+  {
+    const shortCov = { ...coverageTemplate, source_fact_key: shortKey };
+    const longCov1 = { ...coverageTemplate, source_fact_key: longKeyA };
+    const longCov2 = { ...coverageTemplate, source_fact_key: longKeyA };
+    const longCovOther = { ...coverageTemplate, source_fact_key: longKeyB };
+    const proj = buildClaudeVerifiedChartProjection({
+      verified_document_coverages: [shortCov, longCov1, longCov2, longCovOther],
+    });
+    const [p0, p1, p2, p3] = proj.verified_document_coverages;
+    assert.equal(p0.source_fact_key, shortKey);
+    assert.equal(Object.prototype.hasOwnProperty.call(p0, "source_fact_ref"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(p1, "source_fact_key"), false);
+    assert.equal(p1.source_fact_key_state, "long_value_replaced_by_ref");
+    assert.match(String(p1.source_fact_ref), /^[0-9a-f]{16}$/);
+    assert.equal(p1.source_fact_ref, p2.source_fact_ref);
+    assert.notEqual(p1.source_fact_ref, p3.source_fact_ref);
+    assert.equal(JSON.stringify(proj).includes(longKeyA), false);
+    assert.equal(JSON.stringify(proj).includes(longKeyB), false);
+  }
+  ok("chart_bloat_2a_source_fact_key");
+
+  // F — coverage_period short/long
+  {
+    const proj = buildClaudeVerifiedChartProjection({
+      verified_document_coverages: [
+        { ...coverageTemplate, coverage_period: shortPeriod },
+        { ...coverageTemplate, coverage_period: longPeriod },
+      ],
+    });
+    assert.equal(proj.verified_document_coverages[0].coverage_period, shortPeriod);
+    assert.equal(proj.verified_document_coverages[1].coverage_period, null);
+    assert.equal(
+      proj.verified_document_coverages[1].coverage_period_state,
+      "unverified_malformed_long_value",
+    );
+    assert.match(
+      String(proj.verified_document_coverages[1].coverage_period_source_ref),
+      /^[0-9a-f]{16}$/,
+    );
+    assert.equal(JSON.stringify(proj).includes(longPeriod), false);
+    assert.equal(JSON.stringify(proj).includes(longPeriod.slice(0, 40)), false);
+  }
+  ok("chart_bloat_2a_coverage_period");
+
+  // G — non-mutation deep
+  {
+    const src = {
+      review_candidates: [reviewRow],
+      personal_review_candidates: [reviewRow],
+      contracts: [contractRow],
+      confirmed_contracts: [contractRow],
+      personal_confirmed_contracts: [contractRow],
+      verified_document_coverages: [longCoverage],
+    };
+    const snap = JSON.parse(JSON.stringify(src));
+    buildClaudeVerifiedChartProjection(src);
+    assert.deepEqual(src, snap);
+  }
+  ok("chart_bloat_2a_non_mutation");
+
+  // H + fixture volume (FIXTURE-EXACT) via buildUserPayload + cached parts
+  {
+    const bloated = {
+      schema: "verified_customer_chart_v1",
+      review_candidates: Array.from({ length: 3 }, () => reviewRow),
+      personal_review_candidates: Array.from({ length: 3 }, () => reviewRow),
+      review_candidate_count: 3,
+      personal_review_candidate_count: 3,
+      contracts: [contractRow, { ...contractRow, contract_id: "c-2" }],
+      confirmed_contracts: [contractRow, { ...contractRow, contract_id: "c-2" }],
+      personal_confirmed_contracts: [
+        contractRow,
+        { ...contractRow, contract_id: "c-2" },
+      ],
+      verified_document_coverages: [longCoverage, longCoverage, longCoverage],
+      key_confirmed_source_facts: [],
+    };
+    const beforeChartCompact = JSON.stringify(bloated).length;
+    const afterProj = buildClaudeVerifiedChartProjection(bloated);
+    const afterChartCompact = JSON.stringify(afterProj).length;
+    const aliasRemoved =
+      JSON.stringify(bloated.personal_review_candidates).length +
+      JSON.stringify(bloated.confirmed_contracts).length +
+      JSON.stringify(bloated.personal_confirmed_contracts).length;
+    // Count long source_fact_key / coverage_period occurrences in bloated fixture (chars of those string values only).
+    let sourceFactKeyCharsRemoved = 0;
+    let coveragePeriodCharsRemoved = 0;
+    const walkCount = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const x of node) walkCount(x);
+        return;
+      }
+      if (
+        typeof node.source_fact_key === "string" &&
+        node.source_fact_key.length > CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT
+      ) {
+        sourceFactKeyCharsRemoved += node.source_fact_key.length;
+      }
+      if (
+        typeof node.coverage_period === "string" &&
+        node.coverage_period.length > CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT
+      ) {
+        coveragePeriodCharsRemoved += node.coverage_period.length;
+      }
+      for (const v of Object.values(node)) walkCount(v);
+    };
+    walkCount(bloated);
+    const beforePrettyB = JSON.stringify(
+      { available_verified_evidence: { personal: { chart: bloated } } },
+      null,
+      2,
+    ).length;
+    const payload = buildUserPayload({
+      question: "암진단비는 뭐야?",
+      chart: bloated,
+      contextPack: {
+        recent_conversation_originals: [],
+        older_conversation_summary: null,
+        retained_past_originals: [],
+      },
+      now: new Date("2026-08-01T01:20:00.111+09:00"),
+    });
+    const chartInPayload = payload.available_verified_evidence.personal.chart;
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(chartInPayload, "personal_review_candidates"),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(chartInPayload, "confirmed_contracts"),
+      false,
+    );
+    const parts = buildClaudeFirstCachedRequestParts({
+      systemText: "sys",
+      userPayload: payload,
+    });
+    const bText = parts.messages[0].content[0].text;
+    assert.equal(bText, JSON.stringify(JSON.parse(bText)));
+    const afterCompactB = bText.length;
+    // C remains pretty (content[1] when no attachments)
+    const cBlock = parts.messages[0].content[1];
+    assert.ok(cBlock?.type === "text");
+    assert.equal(Object.prototype.hasOwnProperty.call(cBlock, "cache_control"), false);
+    assert.notEqual(cBlock.text, JSON.stringify(JSON.parse(cBlock.text)));
+    assert.equal(parts.messages[0].content[0].cache_control?.type, "ephemeral");
+    assert.equal(JSON.stringify(bloated).includes(longKeyA), true);
+    assert.equal(JSON.stringify(chartInPayload).includes(longKeyA), false);
+    assert.equal(JSON.stringify(chartInPayload).includes(longPeriod), false);
+
+    globalThis.__CHART_BLOAT_2A_FIXTURE = {
+      before_chart_compact_chars: beforeChartCompact,
+      after_chart_compact_chars: afterChartCompact,
+      exact_alias_chars_removed_estimate: aliasRemoved,
+      source_fact_key_chars_removed: sourceFactKeyCharsRemoved,
+      coverage_period_chars_removed: coveragePeriodCharsRemoved,
+      before_block_b_pretty_chars: beforePrettyB,
+      after_block_b_compact_chars: afterCompactB,
+      reduction_percent: Number(
+        (
+          ((beforePrettyB - afterCompactB) / beforePrettyB) *
+          100
+        ).toFixed(2),
+      ),
+      evidence_grade: "FIXTURE-EXACT",
+    };
+  }
+  ok("chart_bloat_2a_payload_and_block_b_compact");
+}
+ok("claude_chart_bloat_repair_2a_suite");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
 if (globalThis.__CACHE_PREFIX_HASH_1) {

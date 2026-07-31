@@ -1999,6 +1999,171 @@ export const ANTHROPIC_PROMPT_CACHE_CONTROL_5M = Object.freeze({
   type: "ephemeral",
 });
 
+/** Claude chart projection only — short identifier / structure fields beyond this are replaced. */
+export const CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT = 200;
+
+function claudeChartSha16Ref(value) {
+  return createHash("sha256")
+    .update(String(value ?? ""), "utf8")
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function claudeChartCompactEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Claude-facing fact object projection (non-mutating).
+ * - long source_fact_key → source_fact_ref + state (no truncation / no copy of body)
+ * - long coverage_period → null + state + source_ref (no period inference)
+ */
+function projectClaudeChartFactBearingObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const out = { ...value };
+
+  if (
+    typeof out.source_fact_key === "string" &&
+    out.source_fact_key.length > CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT
+  ) {
+    const ref = claudeChartSha16Ref(out.source_fact_key);
+    delete out.source_fact_key;
+    out.source_fact_ref = ref;
+    out.source_fact_key_state = "long_value_replaced_by_ref";
+  }
+
+  if (
+    typeof out.coverage_period === "string" &&
+    out.coverage_period.length > CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT
+  ) {
+    const ref = claudeChartSha16Ref(out.coverage_period);
+    out.coverage_period = null;
+    out.coverage_period_state = "unverified_malformed_long_value";
+    out.coverage_period_source_ref = ref;
+  }
+
+  if (Array.isArray(out.coverages)) {
+    out.coverages = out.coverages.map((row) => projectClaudeChartFactBearingObject(row));
+  }
+
+  return out;
+}
+
+function projectClaudeChartObjectList(list) {
+  if (!Array.isArray(list)) return list;
+  return list.map((row) => projectClaudeChartFactBearingObject(row));
+}
+
+/**
+ * Claude-only verified chart projection.
+ * Does not mutate the source chart. Exact duplicate alias arrays are omitted;
+ * divergent aliases are preserved (no silent authority pick).
+ *
+ * @param {object|null} chart
+ * @param {{ review_alias?: string, contract_alias?: string }|null} [diagnostics]
+ */
+export function buildClaudeVerifiedChartProjection(chart = null, diagnostics = null) {
+  const diag =
+    diagnostics && typeof diagnostics === "object" ? diagnostics : null;
+  if (!chart || typeof chart !== "object") {
+    if (diag) {
+      diag.review_alias = "N_A";
+      diag.contract_alias = "N_A";
+    }
+    return chart ?? null;
+  }
+
+  const out = { ...chart };
+
+  const review = Array.isArray(chart.review_candidates)
+    ? chart.review_candidates
+    : null;
+  const personalReview = Array.isArray(chart.personal_review_candidates)
+    ? chart.personal_review_candidates
+    : null;
+  const reviewAliasExact =
+    review != null &&
+    personalReview != null &&
+    claudeChartCompactEqual(review, personalReview);
+
+  if (review != null) {
+    out.review_candidates = projectClaudeChartObjectList(review);
+  }
+  if (personalReview != null) {
+    if (reviewAliasExact) {
+      delete out.personal_review_candidates;
+      if (
+        Object.prototype.hasOwnProperty.call(out, "personal_review_candidate_count") &&
+        Object.prototype.hasOwnProperty.call(chart, "review_candidate_count") &&
+        chart.personal_review_candidate_count === chart.review_candidate_count
+      ) {
+        delete out.personal_review_candidate_count;
+      }
+      if (diag) diag.review_alias = "EXACT_DUPLICATE_COLLAPSED";
+    } else {
+      out.personal_review_candidates = projectClaudeChartObjectList(personalReview);
+      if (diag) {
+        diag.review_alias =
+          review != null && personalReview != null
+            ? "REVIEW_ALIAS_DIVERGED"
+            : "PRESERVED";
+      }
+    }
+  } else if (diag) {
+    diag.review_alias = review != null ? "SINGLE_PRESENT" : "N_A";
+  }
+
+  const contracts = Array.isArray(chart.contracts) ? chart.contracts : null;
+  const confirmed = Array.isArray(chart.confirmed_contracts)
+    ? chart.confirmed_contracts
+    : null;
+  const personalConfirmed = Array.isArray(chart.personal_confirmed_contracts)
+    ? chart.personal_confirmed_contracts
+    : null;
+  const contractAliasExact =
+    contracts != null &&
+    confirmed != null &&
+    personalConfirmed != null &&
+    claudeChartCompactEqual(contracts, confirmed) &&
+    claudeChartCompactEqual(contracts, personalConfirmed);
+
+  if (contracts != null) {
+    out.contracts = projectClaudeChartObjectList(contracts);
+  }
+  if (contractAliasExact) {
+    delete out.confirmed_contracts;
+    delete out.personal_confirmed_contracts;
+    if (diag) diag.contract_alias = "EXACT_DUPLICATE_COLLAPSED";
+  } else {
+    if (confirmed != null) {
+      out.confirmed_contracts = projectClaudeChartObjectList(confirmed);
+    }
+    if (personalConfirmed != null) {
+      out.personal_confirmed_contracts =
+        projectClaudeChartObjectList(personalConfirmed);
+    }
+    if (diag) {
+      if (
+        contracts != null &&
+        confirmed != null &&
+        personalConfirmed != null
+      ) {
+        diag.contract_alias = "CONTRACT_ALIAS_DIVERGED";
+      } else {
+        diag.contract_alias = "PRESERVED";
+      }
+    }
+  }
+
+  if (Array.isArray(chart.verified_document_coverages)) {
+    out.verified_document_coverages = projectClaudeChartObjectList(
+      chart.verified_document_coverages,
+    );
+  }
+
+  return out;
+}
+
 /**
  * Phase 1 — split userPayload into stable evidence (B) vs turn-variable (C).
  * Field values unchanged; packaging only. No deletion/summary/rewrite.
@@ -2120,7 +2285,8 @@ export function buildClaudeFirstCachedRequestParts({
   const content = [
     {
       type: "text",
-      text: JSON.stringify(block_b, null, 2),
+      // Block B only — compact JSON (pretty overhead removed). Block C stays pretty below.
+      text: JSON.stringify(block_b),
       cache_control: cacheControl && typeof cacheControl === "object"
         ? { ...cacheControl }
         : { ...ANTHROPIC_PROMPT_CACHE_CONTROL_5M },
@@ -3239,13 +3405,15 @@ export function buildUserPayload({
     ? activeClaimCases
     : [];
 
-  // Compat mirrors for tests / older readers (same objects, no cross-copy of facts).
+  // Compat mirrors for tests / older readers.
+  // Claude projection collapses exact alias duplicates and replaces malformed long keys —
+  // source `chart` argument is never mutated.
   const personalChart = chart
-    ? {
+    ? buildClaudeVerifiedChartProjection({
         ...chart,
         subject: "personal",
         subject_type: "individual",
-      }
+      })
     : null;
 
   // Personal document listing only — corporate docs live under available_verified_evidence.corporate[].documents.
