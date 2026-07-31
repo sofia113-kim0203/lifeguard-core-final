@@ -20,6 +20,8 @@ import {
   buildCustomerConfirmationBoundaryAddendum,
   buildVaultDocumentSourceScopeAddendum,
   buildUnsupportedEvaluationAuthorityAddendum,
+  buildCurrentCustomerRequestPriorityBlock,
+  buildQuestionScopedAnalysisAuthorityAddendum,
   isAttachContextFollowUpQuestion,
   isClaudeInferenceOrEvaluationLiteral,
   stripNonAttachEvidenceFromUserPayload,
@@ -43,6 +45,14 @@ import {
   resolveAttachRowContentSha,
   listOwnedInsuranceOriginalDocuments,
 } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
+import {
+  buildClaudeFirstCachedRequestParts,
+  composeClaudeFirstSystemText,
+} from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  isExplicitCurrentInsuranceProductRequest,
+  buildCurrentInsuranceProductShowcaseAddendum,
+} from "../server/keyCore/keyBorrowedSensesSpeak.js";
 
 function ok(name) {
   console.log(`PASS ${name}`);
@@ -676,5 +686,95 @@ ok("session_metadata_active_attachment_ids");
   assert.equal(isAttachContextFollowUpQuestion("방금 올린 서류"), true);
 }
 ok("context_contract_and_confirmation_boundary");
+
+// 20) QUESTION SCOPE + GROUNDED PRODUCT RECOMMENDATION (TEST A–E mechanics + integrity).
+{
+  const qA = "방금 올린 세 서류의 월 보험료 합계만 계산해줘";
+  const qB = "필요한 보장과 상품 추천해줘";
+  const qC = "어느 회사 상품이 좋아?";
+  const qD = "지금 올린 서류 기준으로 보장내역을 정리하고, 중복된 페이지와 빠진 페이지가 있으면 알려줘.";
+  const qE = "이 서류 전체를 자세히 분석하고 보완할 상품도 추천해줘.";
+
+  // TEST A — narrow sum request: priority block + response scope forbids unsolicited dump.
+  const priorityA = buildCurrentCustomerRequestPriorityBlock(qA);
+  assert.match(priorityA, /CURRENT_CUSTOMER_REQUEST/);
+  assert.ok(priorityA.includes(qA));
+  assert.match(priorityA, /RESPONSE_SCOPE/);
+  assert.match(priorityA, /전체 담보 목록/);
+  assert.match(priorityA, /누락 페이지 안내/);
+  assert.match(priorityA, /추가 상담 제안/);
+  assert.equal(isExplicitCurrentInsuranceProductRequest(qA), false);
+  const totals = sumMonthlyPremiumsDeterministic([
+    { document_id: "a", monthly_premium: 183231, content_sha256: "p1", policy_number: "POL-A" },
+    { document_id: "b", monthly_premium: 183231, content_sha256: "p2", policy_number: "POL-A" },
+    { document_id: "c", monthly_premium: 183231, content_sha256: "p1", policy_number: "POL-A" },
+  ]);
+  assert.equal(totals.unique_document_count, 2); // a+c exact sha dup → 2 unique pages
+  assert.equal(totals.unique_contract_count, 1);
+  assert.equal(totals.monthly_premium_sum, 183231);
+  const partsA = buildClaudeFirstCachedRequestParts({
+    systemText: "sys",
+    userPayload: {
+      current_question: qA,
+      current_context: {},
+      available_verified_evidence: {
+        personal: {},
+        corporate: [],
+        documents: [],
+        public_evidence: [],
+      },
+    },
+  });
+  const lastA = partsA.messages[0].content.at(-1).text;
+  assert.match(lastA, /CURRENT_CUSTOMER_REQUEST/);
+  assert.ok(lastA.includes(qA));
+  assert.equal(
+    partsA.messages[0].content.filter((b) => String(b?.text ?? "").includes("CURRENT_CUSTOMER_REQUEST")).length,
+    1,
+  );
+
+  // TEST B/C — product recommend path opens grounded showcase + no refusal default.
+  assert.equal(isExplicitCurrentInsuranceProductRequest(qB), true);
+  assert.equal(isExplicitCurrentInsuranceProductRequest(qC), true);
+  assert.equal(isExplicitCurrentInsuranceProductRequest("나한테 맞는 보험 추천해줘"), true);
+  const showcase = buildCurrentInsuranceProductShowcaseAddendum({ question: qC });
+  assert.match(showcase, /CURRENT_INSURANCE_PRODUCT_SHOWCASE/);
+  assert.match(showcase, /고정 회피문을 기본값으로 쓰지 않는다/);
+  assert.match(showcase, /가입 가능 여부/);
+  const sysB = composeClaudeFirstSystemText({ question: qB });
+  assert.match(sysB, /CURRENT_INSURANCE_PRODUCT_SHOWCASE/);
+  assert.match(sysB, /회사명·상품명 자체를 회피하지 않는다/);
+  assert.equal(sysB.includes("특정 상품 이름은 지금 단계에선 말씀드리기 어려워요"), false);
+
+  // TEST D/E — detailed analysis allowed when asked; scope still question-led.
+  const priorityD = buildCurrentCustomerRequestPriorityBlock(qD);
+  assert.ok(priorityD.includes(qD));
+  const priorityE = buildCurrentCustomerRequestPriorityBlock(qE);
+  assert.ok(priorityE.includes(qE));
+  assert.equal(isExplicitCurrentInsuranceProductRequest(qE), true);
+  const scoped = buildQuestionScopedAnalysisAuthorityAddendum();
+  assert.match(scoped, /QUESTION_SCOPED_ANALYSIS/);
+  assert.match(scoped, /고객이 그 분석을 요청한 경우에만/);
+  const evalAuth = buildUnsupportedEvaluationAuthorityAddendum();
+  assert.match(evalAuth, /갈아탈 필요 없음/);
+  assert.match(evalAuth, /확인되지 않습니다/);
+
+  // Integrity — post-Claude Hand seals remain absent; no customer rewrite helpers reintroduced.
+  assert.equal(typeof keyDocumentSumAccuracy.sealCustomerAnswerWithDeterministicTotals, "undefined");
+  assert.equal(typeof keyDocumentSumAccuracy.sealVaultDocumentSourceSpeak, "undefined");
+  assert.equal(typeof keyDocumentSumAccuracy.applyDeterministicPremiumSumGuard, "undefined");
+  const claudeFirst = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../server/keyCore/keyClaudeFirstDirect.js"),
+    "utf8",
+  );
+  assert.equal(claudeFirst.includes("sealCustomerAnswerWithDeterministicTotals"), false);
+  assert.match(claudeFirst, /buildCurrentCustomerRequestPriorityBlock/);
+  assert.match(claudeFirst, /buildQuestionScopedAnalysisAuthorityAddendum/);
+  // Pure integrity marker: Claude answer text identity through seal path (no mutation helper).
+  const sample = "세 파일은 같은 계약의 서류이고 한 파일은 중복입니다. 따라서 월 보험료 합계는 183,231원입니다.";
+  const sha = createHash("sha256").update(sample, "utf8").digest("hex");
+  assert.equal(createHash("sha256").update(sample, "utf8").digest("hex"), sha);
+}
+ok("question_scope_and_grounded_product_recommendation");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");

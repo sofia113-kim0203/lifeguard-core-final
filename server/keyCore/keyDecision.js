@@ -410,7 +410,7 @@ export function buildDecision({
         { fact: "binding_product_name", reason: "hold_binding_recommendation" },
         { fact: "design_bundle", reason: "direction_not_fixed" },
       );
-      keyJudgment = "지금은 특정 상품보다 보험료와 보장 중 어디가 먼저인지가 중요합니다.";
+      keyJudgment = "보험료와 보장 중 어디가 먼저인지 잡은 뒤, 근거 있는 회사·상품 후보를 비교할 수 있습니다.";
       direction = {
         type: "offer_direction",
         move:

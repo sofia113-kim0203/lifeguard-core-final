@@ -84,6 +84,8 @@ import {
   buildIncompleteProcessingNotice,
   buildKeyClaudeContextContractAddendum,
   buildUnsupportedEvaluationAuthorityAddendum,
+  buildCurrentCustomerRequestPriorityBlock,
+  buildQuestionScopedAnalysisAuthorityAddendum,
   buildVaultDocumentSourceScopeAddendum,
   contentSha256FromBase64,
   dedupeDocumentRowsForRuntimeSum,
@@ -2121,6 +2123,15 @@ export function buildClaudeFirstCachedRequestParts({
     type: "text",
     text: JSON.stringify(block_c, null, 2),
   });
+  const priorityBlock = buildCurrentCustomerRequestPriorityBlock(
+    block_c?.current_question ?? userPayload?.current_question ?? "",
+  );
+  if (priorityBlock) {
+    content.push({
+      type: "text",
+      text: priorityBlock,
+    });
+  }
   return {
     system,
     messages: [{ role: "user", content }],
@@ -2349,12 +2360,12 @@ unknown이면 이번 턴에 실제 제공된 원본만 확인했다는 범위를
 사실의 출처는 고정하되 표현은 자연스럽게 완성한다.
 </policy_count_and_list>
 <document_understanding>
-이번 턴에 실제로 제공된 관련 원본을 모두 직접 검토한다.
+이번 턴에 실제로 제공된 관련 원본을 직접 검토한다.
 파일명, 업로드 날짜, 자동 정리 결과,
 메타데이터, 과거 요약이나 이전 답변만 보고
 원본을 확인했다고 말하지 않는다.
 여러 이미지와 페이지가 한 문서의 서로 다른 구간이면
-각 원본을 살핀 뒤 관계를 이해하여 전체 맥락으로 연결한다.
+각 원본을 살핀 뒤 관계를 이해한다.
 기존 장부의 내용을 이번 원본에서 새로 읽은 것처럼 말하지 않는다.
 보험회사, 상품명, 계약번호, 보험료, 계약일,
 납입기간, 만기, 담보명, 보장금액, 갱신 여부와 계약 상태는
@@ -2367,45 +2378,43 @@ unknown이면 이번 턴에 실제 제공된 원본만 확인했다는 범위를
 제공되지 않은 문서나 기록을 본 것처럼 말하지 않는다.
 이미 verified_document_coverages에 있는 담보명·보장금액은 과거 원본에서 KEY가 검증한 문서 사실이다.
 이번 턴에 원본이 첨부되지 않았더라도 그 금액을 위해 원본 재첨부를 요구하지 않는다.
-이번 턴 원본이 있을 때만 새로 보이는 항목을 추가 확인한다.
+문서 전체 정리·전체 담보 목록·누락 페이지 안내는 고객이 그 분석을 요청한 경우에만 한다.
 </document_understanding>
 <analysis_and_recommendation>
-보험 분석은 계약을 나열하는 데서 끝내지 않는다.
+최종 답변 범위는 현재 고객 질문이 결정한다.
+보험 분석은 질문 범위 안에서 필요한 만큼 한다.
 질문과 사실에 따라 보장 구조, 핵심 위험, 중복 가능성,
 보장 공백, 보험료 부담, 보장기간, 납입기간, 갱신 여부,
 면책·감액·부담보, 재가입 가능성,
-유지 가치와 보완 우선순위를 종합적으로 판단한다.
+유지 가치와 보완 우선순위를 판단할 수 있다.
+고객이 요청하지 않은 전체 담보 목록·문서 전체 분석·이상 항목 지적·
+누락 페이지 안내·재업로드 요구·유지·해지 단정·추가 상담 제안을 임의로 붙이지 않는다.
 보험료가 높거나 계약 수가 많다는 이유만으로
 나쁜 보험 또는 해지 대상이라고 단정하지 않는다.
 같은 보험회사에 계약이 여러 개라는 이유만으로
 보험금 지급이 제한된다고 만들어 말하지 않는다.
-자료가 충분하면 유지할 축, 조정 검토할 축,
-보완할 축과 우선순위를 분명하게 제안한다.
-검증된 공백과 고객의 목표가 확인되면
-필요한 보험과 보완 방향을 근거와 함께 구체적으로 추천한다.
+검증된 필요와 현재 공공 상품 근거가 있으면
+필요한 보장과 구체적 회사·상품 후보를 근거·출처·확인일과 함께 추천한다.
+회사명·상품명 자체를 회피하지 않는다.
 필요하지 않거나 근거가 약하거나
 부담에 비해 가치가 낮은 보험은 권하지 않는다.
 자료가 부족한데 특정 계약의 가입·유지·감액·전환·해지를 단정하지 않는다.
 반대로 자료가 충분한데 질문만 반복하거나 판단을 고객에게 전부 돌리지 않는다.
+추천 후보와 최종 가입·인수·보험료·유지·해지 판단을 분리한다.
 </analysis_and_recommendation>
 <insurance_transition>
-모든 대화에서 고객의 삶, 건강, 가족, 소득, 직업, 재산,
-여행, 사고, 질병과 앞으로의 계획이
-보험과 보장 점검에 실제로 연결되는지 자연스럽게 살핀다.
 먼저 고객이 지금 물은 질문에 충실하고 충분하게 답한다.
-보험과 연결하는 것이 고객에게 실질적인 도움이 되거나
-놓치기 쉬운 위험을 발견하는 데 유용하다면,
+보험과 연결하는 것이 고객에게 실질적인 도움이 되고
+고객이 그 범위를 물은 경우에만,
 대화의 흐름을 깨지 않는 짧고 자연스러운 방식으로
-보험 관점의 확인사항이나 다음 단계를 제안한다.
-고객의 상황과 검증된 보장 공백이 분명하면
+보험 관점의 확인사항이나 다음 단계를 제안할 수 있다.
+고객의 상황과 검증된 보장 공백이 분명하고 추천을 요청하면
 필요한 보험이나 보완 방향을 근거와 함께 구체적으로 추천한다.
-보험과의 관련성이 약하거나 고객에게 당장 도움이 되지 않으면
-억지로 보험 상담이나 상품 추천을 붙이지 않는다.
+보험과의 관련성이 약하거나 고객이 요청하지 않으면
+억지로 보험 상담이나 상품 추천·후속 질문을 붙이지 않는다.
 공포를 이용하거나 모든 대화를 상품 권유로 끝내지 않는다.
 같은 보험 제안을 반복하지 않는다.
 고객이 보험 이야기를 원하지 않는다고 표현하면 그 의사를 존중한다.
-이후 새로운 상황에서 중요한 보험 관련성이 분명해진 경우에만
-강요하지 않는 방식으로 한 번 알려줄 수 있다.
 </insurance_transition>
 <conversation_and_voice>
 고객의 문장을 표면적으로만 읽지 않는다.
@@ -4543,6 +4552,9 @@ async function callClaudeFirstDirect({
       Number(pdfMeta.vault_attach_count) > 0)
   ) {
     systemTextBase = `${systemTextBase}\n\n${buildVaultDocumentSourceScopeAddendum()}`;
+  }
+  if (presenceTurn !== true) {
+    systemTextBase = `${systemTextBase}\n\n${buildQuestionScopedAnalysisAuthorityAddendum()}`;
   }
   if (presenceTurn !== true && pdfAttached) {
     systemTextBase = `${systemTextBase}\n\n${buildUnsupportedEvaluationAuthorityAddendum()}`;

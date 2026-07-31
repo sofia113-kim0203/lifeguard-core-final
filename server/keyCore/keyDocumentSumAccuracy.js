@@ -591,6 +591,7 @@ export function buildAttachAnalysisScopeAuthorityAddendum({
     `current_attach_document_count=${ids.length}`,
     "source_scope=current_turn_attachment (unless a row is marked vault_document or previous_turn_attachment)",
     "첨부된 원본 개수만큼 모두 읽는다. 이미 첨부된 페이지를 다시 올리라고 요구하지 않는다.",
+    "읽은 사실 전부 나열하지 말고, 현재 고객 질문에 필요한 범위만 답한다.",
     "같은 계약의 여러 페이지는 모두 읽고, 월 보험료 계산은 검증된 계약 identity 기준 1회다.",
   ];
   void totals;
@@ -708,6 +709,52 @@ export function buildUnsupportedEvaluationAuthorityAddendum() {
     "보장 구조·금액·기간 등 원본 사실은 설명할 수 있다.",
     "충분하다·두텁다·유리하다·좋은 설계 같은 평가는 시장 기준·고객의 검증된 필요·비교 근거가 있을 때만 한다.",
     "근거가 없으면 사실 구조와 확인할 사항만 설명한다.",
+    "전체 증권·별도 실손·사망 보장·3/3 페이지가 확인되지 않은 상태에서 없음·가입 안 됨·충분함·갈아탈 필요 없음·유리함·보험료 적정을 확정하지 않는다.",
+    "확인되지 않은 담보는 '확인되지 않습니다'로 말하고 unknown/null로 유지한다.",
+    "모델 일반 지식만으로 자녀 실손 월 1~2만 원대, 4세대 실손 구조 동일, 체증형 담보가 어릴수록 유리하다 같은 확정을 만들지 않는다.",
+  ].join("\n");
+}
+
+/**
+ * Final Claude user-content block: customer question is the highest response priority.
+ * Verbatim question only — KEY must not summarize or rewrite meaning.
+ */
+export function buildCurrentCustomerRequestPriorityBlock(question = "") {
+  const q = String(question ?? "");
+  if (!q.trim()) return "";
+  return [
+    "[CURRENT_CUSTOMER_REQUEST — HIGHEST RESPONSE PRIORITY]",
+    q,
+    "[RESPONSE_SCOPE]",
+    "최종 답변의 범위는 현재 고객 요청이 결정한다.",
+    "원본 문서, 고객 차트, 대화 기록, 기억, 계산 결과, 공공 근거는 답변을 위한 근거이지 고객에게 전부 설명해야 할 작업 목록이 아니다.",
+    "고객이 요청한 내용만 답한다.",
+    "고객이 요청하지 않은 다음 내용을 임의로 추가하지 않는다.",
+    "- 전체 담보 목록",
+    "- 문서 전체 분석",
+    "- 누락 페이지 안내",
+    "- 이상 항목 지적",
+    "- 재업로드 요구",
+    "- 유지·해지 판단",
+    "- 추가 상담 제안",
+    "- 부모·가족 전체 보험 분석",
+    "단, 요청한 답을 만들 수 없는 필수 정보가 실제로 없거나 명백한 안전 위험이 있을 때만 필요한 제한을 설명한다.",
+    "현재 질문을 KEY가 요약하거나 다른 의미로 바꾸지 않는다. 고객 원문을 그대로 전달한다.",
+    "합계만/금액만/결론만/간단히/이것만/중복만/빠진 페이지만/필요한 보장만/상품만 추천해줘/전체 분석해줘/자세히 설명해줘 같은 표현은 Claude가 직접 이해하고 그 범위에 맞춰 답한다.",
+    "답변 후 표나 문장을 잘라내지 않는다. KEY는 답변을 뒤에서 삭제·교체·재작성하지 않는다.",
+  ].join("\n");
+}
+
+/**
+ * Soft system reminder: full-document dump is not the default job.
+ */
+export function buildQuestionScopedAnalysisAuthorityAddendum() {
+  return [
+    "[QUESTION_SCOPED_ANALYSIS]",
+    "첨부 원본·차트·대화·기억·계산·공공 근거는 충분히 제공된다. 그러나 전부 설명하는 것이 기본 작업이 아니다.",
+    "전체 담보 목록, 문서 전체 분석, 누락 페이지 안내, 이상 항목 지적, 재업로드 요구, 유지·해지 판단, 추가 상담 제안, 후속 질문은 고객이 그 분석을 요청한 경우에만 수행한다.",
+    "근거 있는 필요 보장·회사·상품 후보는 추천할 수 있다. 근거 없는 확정 추천·미확인 보험료·미확인 가입 가능 여부·판매 여부 미확인 상품을 꾸며내지 않는다.",
+    "추천 후보와 최종 가입·유지·해지 판단을 분리한다.",
   ].join("\n");
 }
 

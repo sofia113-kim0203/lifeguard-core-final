@@ -330,13 +330,13 @@ function buildInsuranceCommandLead(question = "", consultationIntent = null) {
   const q = normalizeQuestion(question);
 
   if (intent === "recommendation_request" || /추천/.test(q)) {
-    return "지금은 상품부터 꺼내기보다, 보장 구조부터 같이 보면 순서가 보입니다.";
+    return "현재 확인된 보장과 필요를 기준으로, 근거 있는 회사·상품 후보까지 같이 볼 수 있어요.";
   }
   if (/얼마/.test(q)) {
     return "등록된 계약이 있으면 납입 구조부터 짚어볼 수 있어요.";
   }
   if (intent === "design_request") {
-    return "설계 방향은 같이 잡을 수 있어요. 다만 지금 단정할 상품이나 금액은 말씀드리기 어렵고, 보장 구조부터 차례로 보면 됩니다.";
+    return "설계 방향은 같이 잡을 수 있어요. 확인된 보장과 현재 상품 근거가 있으면 회사·상품 후보를 말할 수 있고, 미확인 보험료·가입 여부는 단정하지 않습니다.";
   }
   return pickVariant(q, [
     "지금 걸리는 부분부터 같이 보면 됩니다.",
