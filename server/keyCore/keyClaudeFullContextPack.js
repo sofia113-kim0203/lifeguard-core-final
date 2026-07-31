@@ -141,21 +141,35 @@ export function filterHistoryExcludingInactiveDocumentAttachments(
     }
   }
 
-  let suppress = false;
+  // forceScrub (deleted-doc recheck): sticky suppress from inactive attach onward.
+  // Normal path: skip only the inactive attach-marker / foreign document_id turn —
+  // never chain-delete subsequent customer/Claude dialogue (scopeOnly continuity).
+  let stickySuppress = false;
   const kept = [];
   for (const turn of rows) {
     const text = turnText(turn);
     const names = extractAttachMarkerFilenamesFromTurnText(text);
+    let skipThisTurn = false;
     if (names.length > 0) {
       const inactive =
         forceScrub || names.some((n) => !activeKeys.has(normalizeFilenameKey(n)));
-      suppress = inactive;
+      if (forceScrub) {
+        stickySuppress = inactive;
+      } else {
+        skipThisTurn = inactive;
+        stickySuppress = false;
+      }
     }
     const turnDocId = String(turn?.document_id ?? turn?.source_document_id ?? "").trim();
     if (turnDocId) {
-      suppress = forceScrub || !activeIds.has(turnDocId);
+      const inactiveDoc = forceScrub || !activeIds.has(turnDocId);
+      if (forceScrub) {
+        stickySuppress = inactiveDoc;
+      } else if (inactiveDoc) {
+        skipThisTurn = true;
+      }
     }
-    if (suppress) continue;
+    if (stickySuppress || skipThisTurn) continue;
     if (scrubReadouts && turn?.role === "assistant" && isDocumentIdentityReadoutText(text)) {
       continue;
     }

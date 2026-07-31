@@ -311,10 +311,151 @@ export function isAttachContextFollowUpQuestion(question = "") {
     .trim();
   if (!q) return false;
   return (
+    /지금\s*올린\s*서류|방금\s*올린\s*서류|아까\s*서류/.test(q) ||
     /합산|합계/.test(q) ||
-    /합산\s*금액|보장\s*내역|이것만\s*정리|아까\s*서류|그\s*서류\s*기준/.test(q) ||
+    /합산\s*금액|보장\s*내역|이것만\s*정리|그\s*서류\s*기준/.test(q) ||
     /그\s*(서류|문서|첨부|파일)|이\s*(서류|문서|첨부)|방금|아까|이어서|그거|그것/.test(q)
   );
+}
+
+/**
+ * Split customer attachment identities from unique original bytes for Claude.
+ * Exact duplicate bytes → keep identity + duplicate_of; do not repeat image block.
+ */
+export function buildAttachmentIdentityDeliveryPlan({
+  identityRows = [],
+  defaultSourceScope = "current_turn_attachment",
+} = {}) {
+  const rows = Array.isArray(identityRows) ? identityRows : [];
+  const attachment_identities = [];
+  const unique_original_blocks = [];
+  const duplicate_map = [];
+  const shaToFirstDocumentId = new Map();
+  const seenIds = new Set();
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row || typeof row !== "object") continue;
+    const document_id = String(
+      row.document_id ?? row.id ?? row.source_document_id ?? "",
+    ).trim();
+    if (!document_id || seenIds.has(document_id)) continue;
+    seenIds.add(document_id);
+    const filename = String(
+      row.original_filename ?? row.filename ?? row.name ?? "",
+    ).trim();
+    const source_scope = String(row.source_scope ?? defaultSourceScope).trim() ||
+      defaultSourceScope;
+    const bytes_sha256 = resolveDeliveryBytesSha(row);
+    let duplicate_of_document_id = null;
+    let delivers_original_block = Boolean(row.base64 || row.pdfBase64 || row.bytes);
+    if (bytes_sha256 && shaToFirstDocumentId.has(bytes_sha256)) {
+      duplicate_of_document_id = shaToFirstDocumentId.get(bytes_sha256);
+      delivers_original_block = false;
+      duplicate_map.push({
+        document_id,
+        duplicate_of_document_id,
+      });
+    } else if (bytes_sha256) {
+      shaToFirstDocumentId.set(bytes_sha256, document_id);
+    }
+
+    const identity = {
+      original_index: attachment_identities.length + 1,
+      document_id,
+      filename: filename || null,
+      source_scope,
+      bytes_sha256: bytes_sha256 || null,
+      bytes_sha256_prefix: bytes_sha256 ? bytes_sha256.slice(0, 12) : null,
+      duplicate_of_document_id,
+      delivers_original_block,
+    };
+    attachment_identities.push(identity);
+
+    if (delivers_original_block) {
+      unique_original_blocks.push({
+        ...row,
+        document_id,
+        original_filename: filename || row.original_filename || null,
+        source_scope,
+        delivery_bytes_sha256: bytes_sha256 || null,
+        original_index: identity.original_index,
+        base64: row.base64 ?? row.pdfBase64 ?? null,
+        mediaType: row.mediaType ?? row.mime_type ?? null,
+      });
+    }
+  }
+
+  return {
+    attachment_identities,
+    unique_original_blocks,
+    duplicate_map,
+    attachment_identity_count: attachment_identities.length,
+    unique_original_block_count: unique_original_blocks.length,
+  };
+}
+
+/** Text block placed immediately before each original (or alone for duplicates). */
+export function formatAttachmentIdentityTextBlock(identity = null) {
+  if (!identity || typeof identity !== "object") return null;
+  const id = String(identity.document_id ?? "").trim();
+  if (!id) return null;
+  const lines = [
+    "[ATTACHMENT_IDENTITY]",
+    `original_index=${Number(identity.original_index) || 0}`,
+    `document_id=${id}`,
+    `filename=${String(identity.filename ?? "").trim() || "unknown"}`,
+    `source_scope=${String(identity.source_scope ?? "current_turn_attachment").trim()}`,
+    `bytes_sha256_prefix=${String(identity.bytes_sha256_prefix ?? "").trim() || "unknown"}`,
+    `duplicate_of_document_id=${
+      identity.duplicate_of_document_id
+        ? String(identity.duplicate_of_document_id).trim()
+        : "none"
+    }`,
+    `delivers_original_block=${identity.delivers_original_block === true}`,
+  ];
+  return lines.join("\n");
+}
+
+/** Catalog: attachment identities vs unique original blocks (fact table only). */
+export function buildAttachmentIdentityCatalogAddendum(plan = null) {
+  if (!plan || typeof plan !== "object") return null;
+  const identities = Array.isArray(plan.attachment_identities)
+    ? plan.attachment_identities
+    : [];
+  if (!identities.length) return null;
+  const lines = [
+    "[ATTACHMENT_IDENTITY_CATALOG]",
+    `attachment_identity_count=${identities.length}`,
+    `unique_original_block_count=${
+      Number(plan.unique_original_block_count) ||
+      (Array.isArray(plan.unique_original_blocks) ? plan.unique_original_blocks.length : 0)
+    }`,
+    "고객이 올린 파일 수(attachment identities)와 고유 원본 수(unique original blocks)를 구분한다.",
+    "exact duplicate는 원본 이미지를 반복 전송하지 않아도 되며, duplicate_of 관계로 인식한다.",
+    "이미 첨부된 파일을 다시 올리라고 요구하지 않는다.",
+  ];
+  for (const row of identities) {
+    lines.push(
+      [
+        `original_index=${row.original_index}`,
+        `document_id=${row.document_id}`,
+        `filename=${row.filename || "unknown"}`,
+        `source_scope=${row.source_scope || "current_turn_attachment"}`,
+        `bytes_sha256_prefix=${row.bytes_sha256_prefix || "unknown"}`,
+        `duplicate_of_document_id=${row.duplicate_of_document_id || "none"}`,
+        `delivers_original_block=${row.delivers_original_block === true}`,
+      ].join(";"),
+    );
+  }
+  if (Array.isArray(plan.duplicate_map) && plan.duplicate_map.length) {
+    for (const dup of plan.duplicate_map) {
+      lines.push(
+        `duplicate_map ${dup.document_id}->${dup.duplicate_of_document_id}`,
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -323,16 +464,50 @@ export function isAttachContextFollowUpQuestion(question = "") {
 export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
   if (!totals || typeof totals !== "object") return null;
   const sum = Number(totals.monthly_premium_sum);
-  const count = Number(totals.unique_document_count);
+  const identityCount = Number(
+    totals.attachment_identity_count ??
+      (Array.isArray(totals.requested_document_ids)
+        ? totals.requested_document_ids.length
+        : NaN),
+  );
+  const uniqueBlockCount = Number(
+    totals.unique_original_block_count ?? totals.unique_document_count,
+  );
   const premiumCount = Number(totals.premium_row_count);
-  const noPremiums =
-    totals.no_computable_premiums_in_current_attach === true ||
-    (Number.isFinite(premiumCount) && premiumCount <= 0);
-  if (!Number.isFinite(sum) && !Number.isFinite(count) && !noPremiums) return null;
+  const contractStatus = String(totals.contract_count_status ?? "").trim();
+  const contractCount = Number(totals.unique_contract_count);
+  const originalsAvailable =
+    totals.originals_available === true ||
+    (Number.isFinite(identityCount) && identityCount > 0) ||
+    (Number.isFinite(uniqueBlockCount) && uniqueBlockCount > 0) ||
+    (Array.isArray(totals.requested_document_ids) &&
+      totals.requested_document_ids.length > 0);
+  const verified =
+    contractStatus === "verified" &&
+    Number.isFinite(contractCount) &&
+    contractCount > 0 &&
+    Number.isFinite(premiumCount) &&
+    premiumCount > 0 &&
+    Number.isFinite(sum);
+  const partial =
+    !verified &&
+    Number.isFinite(premiumCount) &&
+    premiumCount > 0 &&
+    Number.isFinite(sum);
+
+  if (
+    !verified &&
+    !partial &&
+    !originalsAvailable &&
+    !Number.isFinite(identityCount)
+  ) {
+    return null;
+  }
+
   const lines = [
     "[DETERMINISTIC_DOCUMENT_TOTALS]",
-    "아래는 KEY 결정론 계산 사실이다. 고객 문장은 Claude가 원본과 함께 직접 작성한다.",
-    "시스템이 고객 답변 문장·금액·재첨부 요청을 미리 쓰지 않는다.",
+    "아래는 KEY 결정론 사실표이다. 고객 문장은 Claude가 원본과 함께 직접 작성한다.",
+    "시스템이 고객 답변 문장·금액·재첨부 요청·부족 단정을 미리 쓰지 않는다.",
   ];
   if (Array.isArray(totals.requested_document_ids) && totals.requested_document_ids.length) {
     lines.push(
@@ -341,34 +516,51 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
         .filter(Boolean)
         .join(",")}`,
     );
-    lines.push(`included_document_count=${totals.requested_document_ids.length}`);
   }
-  if (Number.isFinite(count)) {
-    lines.push(`unique_document_count=${Math.round(count)}`);
+  if (Number.isFinite(identityCount) && identityCount > 0) {
+    lines.push(`attachment_identity_count=${Math.round(identityCount)}`);
   }
-  const contractStatus = String(totals.contract_count_status ?? "").trim();
-  const contractCount = Number(totals.unique_contract_count);
-  if (contractStatus === "verified" && Number.isFinite(contractCount) && contractCount > 0) {
+  if (Number.isFinite(uniqueBlockCount) && uniqueBlockCount > 0) {
+    lines.push(`unique_original_block_count=${Math.round(uniqueBlockCount)}`);
+  }
+
+  if (verified) {
+    lines.push("deterministic_total_status=verified");
+    lines.push("deterministic_extraction_complete=true");
     lines.push(`unique_contract_count=${Math.round(contractCount)}`);
     lines.push("contract_count_status=verified");
+    lines.push(`monthly_premium_total=${Math.round(sum)}`);
     lines.push(
       "calculation_note=same_verified_contract_pages_share_one_monthly_premium",
     );
-  } else {
+    if (Array.isArray(totals.premiums) && totals.premiums.length) {
+      lines.push(`premiums=[${totals.premiums.map((p) => Math.round(Number(p))).join(",")}]`);
+      lines.push("premium_source=deterministic_code_from_scoped_originals");
+    }
+  } else if (partial) {
+    lines.push("deterministic_total_status=partial");
+    lines.push("deterministic_extraction_complete=true");
     lines.push("unique_contract_count=unknown");
     lines.push("contract_count_status=unknown");
+    lines.push(`monthly_premium_total=${Math.round(sum)}`);
+    if (Array.isArray(totals.premiums) && totals.premiums.length) {
+      lines.push(`premiums=[${totals.premiums.map((p) => Math.round(Number(p))).join(",")}]`);
+      lines.push("premium_source=deterministic_code_from_scoped_originals");
+    }
+  } else if (originalsAvailable) {
+    // Originals exist but extraction incomplete — never signal "no premium / cannot compute / need more files".
+    lines.push("deterministic_total_status=unknown");
+    lines.push("deterministic_extraction_complete=false");
+    lines.push("originals_available=true");
+    lines.push("inspect_originals_before_concluding=true");
+    lines.push("unique_contract_count=unknown");
+    lines.push("contract_count_status=unknown");
+  } else {
+    lines.push("deterministic_total_status=unknown");
+    lines.push("deterministic_extraction_complete=false");
+    lines.push("originals_available=false");
   }
-  if (noPremiums) {
-    lines.push("computable_premiums=false");
-    lines.push("unconfirmed=monthly_premium_not_extracted_pre_claude");
-  } else if (Number.isFinite(sum)) {
-    lines.push("computable_premiums=true");
-    lines.push(`monthly_premium_sum=${Math.round(sum)}`);
-  }
-  if (Array.isArray(totals.premiums) && totals.premiums.length) {
-    lines.push(`premiums=[${totals.premiums.map((p) => Math.round(Number(p))).join(",")}]`);
-    lines.push("premium_source=deterministic_code_from_scoped_originals");
-  }
+
   if (totals.processing && totals.processing.complete === false) {
     lines.push(
       `processing_incomplete total=${totals.processing.total_count} processed=${totals.processing.processed_count} remaining=${totals.processing.remaining_count} reason=${totals.processing.stop_reason || "incomplete"}`,
@@ -378,8 +570,8 @@ export function buildDeterministicTotalsAuthorityAddendum(totals = null) {
 }
 
 /**
- * Current-turn attachment analysis — exclude vault + chart + ledger + past doc summaries
- * unless customer explicitly asked vault/history scope.
+ * Attach-scope: block unrelated vault / unrelated past contracts from driving the answer.
+ * Related verified memory/chart and conversation thread stay available.
  */
 export function buildAttachAnalysisScopeAuthorityAddendum({
   documentIds = [],
@@ -391,16 +583,103 @@ export function buildAttachAnalysisScopeAuthorityAddendum({
   if (!ids.length) return null;
   const lines = [
     "[ATTACH_ANALYSIS_SCOPE_ONLY]",
-    "이번 턴 답변 근거는 현재 요청에 첨부된 원본뿐이다.",
-    "고객 차트, 확인 계약 요약, 장부, 과거 문서/약관 요약, 보관함 목록을 근거로 쓰지 않는다.",
+    "이번 턴의 첨부 분석 우선 근거는 현재/직전 관련 첨부 원본이다.",
+    "무관한 보관함(vault) 문서, 현재 질문과 관계없는 과거 계약, 삭제·비활성 문서를 자동으로 섞지 않는다.",
+    "관련 verified customer facts / chart / memory / prior consultation은 유지한다.",
+    "원본과 관련 기억이 충돌하면 현재 첨부 원본을 우선한다.",
     `current_attach_document_ids=${ids.join(",")}`,
     `current_attach_document_count=${ids.length}`,
-    "source_scope=current_turn_attachment (unless a row is marked vault_document)",
+    "source_scope=current_turn_attachment (unless a row is marked vault_document or previous_turn_attachment)",
     "첨부된 원본 개수만큼 모두 읽는다. 이미 첨부된 페이지를 다시 올리라고 요구하지 않는다.",
     "같은 계약의 여러 페이지는 모두 읽고, 월 보험료 계산은 검증된 계약 identity 기준 1회다.",
   ];
   void totals;
   return lines.join("\n");
+}
+
+/**
+ * KEY × Claude context contract — CURRENT / THREAD / CUSTOMER / TIME / SOURCE.
+ * Fact labels only; Claude writes customer wording.
+ */
+export function buildKeyClaudeContextContractAddendum({
+  now = null,
+  timeZone = null,
+  attachmentIdentities = [],
+  history = [],
+} = {}) {
+  const nowDate =
+    now instanceof Date && !Number.isNaN(now.getTime())
+      ? now
+      : now
+        ? new Date(now)
+        : new Date();
+  const iso = Number.isNaN(nowDate.getTime())
+    ? new Date().toISOString()
+    : nowDate.toISOString();
+  const tz =
+    String(timeZone ?? "").trim() ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    "Asia/Seoul";
+  const identities = Array.isArray(attachmentIdentities) ? attachmentIdentities : [];
+  const turns = Array.isArray(history) ? history : [];
+  const recent = turns.slice(-6).map((t, i) => {
+    const role = t?.role === "assistant" ? "assistant" : "user";
+    const ts = String(t?.created_at ?? t?.timestamp ?? t?.at ?? "").trim() || "unknown";
+    return `${i + 1}:${role}@${ts}`;
+  });
+  const lines = [
+    "[KEY_CLAUDE_CONTEXT_CONTRACT]",
+    "CURRENT: 현재 고객 질문 + 현재 첨부 identity 전체 + 고유 원본 + 첨부 순서",
+    "THREAD: 직전 관련 고객 질문·Claude 답변·첨부가 올라온 턴·메시지 순서를 유지한다",
+    "CUSTOMER: 관련 verified facts / chart / memory / prior consultation을 첨부 질문이라는 이유만으로 비우지 않는다",
+    "TIME: 방금/아까/현재/이전/오늘을 구분할 때 아래 시각을 사용한다",
+    `reference_now_iso=${iso}`,
+    `user_timezone=${tz}`,
+    "SOURCE: current_turn_attachment | previous_turn_attachment | vault_document | verified_customer_fact | conversation_context",
+  ];
+  if (identities.length) {
+    lines.push(`attachment_upload_order=${identities.map((r) => r.document_id).join(",")}`);
+    for (const row of identities) {
+      lines.push(
+        [
+          `upload_order=${row.original_index}`,
+          `document_id=${row.document_id}`,
+          `source_scope=${row.source_scope || "current_turn_attachment"}`,
+          `duplicate_of=${row.duplicate_of_document_id || "none"}`,
+        ].join(";"),
+      );
+    }
+  }
+  if (recent.length) {
+    lines.push(`recent_thread_timestamps=${recent.join("|")}`);
+  }
+  lines.push(
+    "계약일·갱신일·만기일이 원본/검증 사실에 있으면 해당 날짜를 기준으로 설명한다.",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Claude inference / evaluation must not auto-promote to confirmed KEY facts.
+ */
+export function buildCustomerConfirmationBoundaryAddendum() {
+  return [
+    "[CUSTOMER_CONFIRMATION_BOUNDARY]",
+    "원본에서 직접 확인된 사실과 KEY 결정론 계산만 confirmed fact 후보이다.",
+    "Claude의 계약 동일성 추론, 보장 충분성 평가, 두텁다/유리하다, 누락 문서 판단, 고객 의도 추정은 고객 확인 또는 별도 검증 없이 confirmed로 승격하지 않는다.",
+    "관계 판단·평가·추론은 답변에 쓸 수 있으나 KEY 사실 저장 대상이 아니다.",
+  ].join("\n");
+}
+
+/** Drop evaluation / inference literals from confirmed-fact persist candidates. */
+export function isClaudeInferenceOrEvaluationLiteral(value = "") {
+  const t = String(value ?? "").trim();
+  if (!t) return false;
+  return (
+    /두텁|유리하|충분하|부족한\s*문서|다시\s*올려|재첨부|의도상|추정|같은\s*계약으로\s*보|장기적으로\s*유리/.test(
+      t,
+    ) || /missing_page|duplicate_page|sufficiency|advantageous|thick_coverage/i.test(t)
+  );
 }
 
 /** Per-document source_scope catalog for Claude (KEY provides labels only). */
@@ -445,7 +724,8 @@ export function answerMentionsOutOfAttachHistoryScope(answer = "") {
 }
 
 /**
- * Strip chart / ledger / past-doc summary evidence from a built user payload.
+ * Strip unrelated vault / past-doc dump from a built user payload.
+ * Keeps related verified chart, confirmed facts, prior consultation, clock, memory.
  * Pure — for attach-scope-only turns and unit tests.
  */
 export function stripNonAttachEvidenceFromUserPayload(payload = null) {
@@ -455,16 +735,12 @@ export function stripNonAttachEvidenceFromUserPayload(payload = null) {
     next.current_context && typeof next.current_context === "object"
       ? { ...next.current_context }
       : {};
-  delete ctx.policy_truth;
-  delete ctx.ready_card;
-  delete ctx.prior_consultation;
-  delete ctx.life_threads;
-  delete ctx.insurance_clock;
+  // Keep prior_consultation / insurance_clock / life_threads / related chart facts.
+  // Drop only past-original dumps that pull unrelated vault/history prose into attach turns.
   if (ctx.conversation && typeof ctx.conversation === "object") {
     ctx.conversation = {
       ...ctx.conversation,
       retained_past_originals: [],
-      older_conversation_summary: null,
     };
   }
   next.current_context = ctx;
@@ -472,18 +748,12 @@ export function stripNonAttachEvidenceFromUserPayload(payload = null) {
     next.available_verified_evidence && typeof next.available_verified_evidence === "object"
       ? { ...next.available_verified_evidence }
       : {};
-  const personal =
-    evidence.personal && typeof evidence.personal === "object"
-      ? { ...evidence.personal }
-      : { subject_type: "individual" };
-  personal.chart = null;
-  personal.key_confirmed_source_facts = [];
-  personal.provenance = null;
-  personal.evidence_state = "unknown";
-  evidence.personal = personal;
-  // Keep only this-turn attached document rows (already filtered by caller when possible).
+  // Keep personal.chart + key_confirmed_source_facts (related CUSTOMER context).
+  // Prefer attached document rows; do not invent vault rows here.
   evidence.documents = Array.isArray(evidence.documents)
-    ? evidence.documents.filter((d) => d?.attached === true)
+    ? evidence.documents.filter(
+        (d) => d?.attached === true || d?.source_scope === "current_turn_attachment",
+      )
     : [];
   next.available_verified_evidence = evidence;
   return next;

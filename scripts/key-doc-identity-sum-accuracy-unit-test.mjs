@@ -14,14 +14,20 @@ import {
   sumMonthlyPremiumsDeterministic,
   buildIncompleteProcessingNotice,
   buildAttachAnalysisScopeAuthorityAddendum,
+  buildAttachmentIdentityDeliveryPlan,
   buildDeterministicTotalsAuthorityAddendum,
+  buildKeyClaudeContextContractAddendum,
+  buildCustomerConfirmationBoundaryAddendum,
   buildVaultDocumentSourceScopeAddendum,
   buildUnsupportedEvaluationAuthorityAddendum,
   isAttachContextFollowUpQuestion,
+  isClaudeInferenceOrEvaluationLiteral,
   stripNonAttachEvidenceFromUserPayload,
   answerMentionsOutOfAttachHistoryScope,
   contentSha256FromBytes,
 } from "../server/keyCore/keyDocumentSumAccuracy.js";
+import { filterHistoryExcludingInactiveDocumentAttachments } from "../server/keyCore/keyClaudeFullContextPack.js";
+import { buildSessionMetadata } from "../src/lib/lifeguardChatSessionCore.js";
 import * as keyDocumentSumAccuracy from "../server/keyCore/keyDocumentSumAccuracy.js";
 import {
   wantsOwnedInsuranceVaultEvidence,
@@ -173,8 +179,11 @@ ok("filename_size_not_dedupe");
   const addendum = buildDeterministicTotalsAuthorityAddendum({
     ...sum,
     requested_document_ids: ["p1", "p2", "p3"],
+    attachment_identity_count: 3,
+    unique_original_block_count: 3,
   });
-  assert.match(addendum, /monthly_premium_sum=413455/);
+  assert.match(addendum, /monthly_premium_total=413455/);
+  assert.match(addendum, /deterministic_total_status=partial/);
   assert.match(addendum, /included_document_ids=p1,p2,p3/);
   assert.match(addendum, /Claude가 원본과 함께 직접 작성/);
   assert.match(addendum, /unique_contract_count=unknown/);
@@ -295,16 +304,20 @@ ok("list_pagination_past_40");
     },
   };
   const clean = stripNonAttachEvidenceFromUserPayload(dirty);
-  assert.equal(clean.available_verified_evidence.personal.chart, null);
-  assert.deepEqual(
-    clean.available_verified_evidence.personal.key_confirmed_source_facts,
-    [],
+  // Related chart / prior consultation / ready_card stay; only unrelated past dumps drop.
+  assert.ok(clean.available_verified_evidence.personal.chart);
+  assert.equal(
+    clean.available_verified_evidence.personal.key_confirmed_source_facts.length,
+    1,
   );
-  assert.equal(clean.current_context.ready_card, undefined);
-  assert.equal(clean.current_context.policy_truth, undefined);
-  assert.equal(clean.current_context.prior_consultation, undefined);
+  assert.ok(clean.current_context.ready_card);
+  assert.ok(clean.current_context.policy_truth);
+  assert.ok(clean.current_context.prior_consultation);
   assert.deepEqual(clean.current_context.conversation.retained_past_originals, []);
-  assert.equal(clean.current_context.conversation.older_conversation_summary, null);
+  assert.equal(
+    clean.current_context.conversation.older_conversation_summary,
+    "과거 약관 요약",
+  );
   assert.deepEqual(
     clean.available_verified_evidence.documents.map((d) => d.document_id),
     ["a"],
@@ -312,34 +325,33 @@ ok("list_pagination_past_40");
   const badAnswer =
     "지금까지 올라온 서류 전체와 한화손보 세이프단체보험 약관을 기준으로 합계를 보면";
   assert.equal(answerMentionsOutOfAttachHistoryScope(badAnswer), true);
-  assert.equal(
-    answerMentionsOutOfAttachHistoryScope(
-      "현재 첨부 안에서 계산할 숫자 없음으로 끝낼게요.",
-    ),
-    false,
-  );
   const scopeHint = buildAttachAnalysisScopeAuthorityAddendum({
     documentIds: ["doc-a", "doc-b", "doc-c"],
     totals: { premium_row_count: 0, no_computable_premiums_in_current_attach: true },
   });
   assert.match(scopeHint, /ATTACH_ANALYSIS_SCOPE_ONLY/);
   assert.match(scopeHint, /current_attach_document_count=3/);
+  assert.match(scopeHint, /관련 verified customer facts/);
   assert.match(scopeHint, /다시 올리라고 요구하지 않는다/);
-  assert.doesNotMatch(scopeHint, /한화/);
   const noPrem = buildDeterministicTotalsAuthorityAddendum({
-    unique_document_count: 3,
+    unique_document_count: 2,
+    unique_original_block_count: 2,
+    attachment_identity_count: 3,
     premium_row_count: 0,
     monthly_premium_sum: 0,
     premiums: [],
     requested_document_ids: ["a", "b", "c"],
-    no_computable_premiums_in_current_attach: true,
+    originals_available: true,
   });
-  assert.match(noPrem, /computable_premiums=false/);
-  assert.match(noPrem, /unique_contract_count=unknown/);
+  assert.match(noPrem, /deterministic_total_status=unknown/);
+  assert.match(noPrem, /originals_available=true/);
+  assert.match(noPrem, /inspect_originals_before_concluding=true/);
+  assert.doesNotMatch(noPrem, /computable_premiums=false/);
   assert.doesNotMatch(noPrem, /NO_PREMIUM/);
   assert.doesNotMatch(noPrem, /다시 올리/);
+  assert.doesNotMatch(noPrem, /보험료가 없다|계산 불가|문서 부족/);
 }
-ok("attach_scope_strips_chart_and_past_docs");
+ok("attach_scope_keeps_related_memory_strips_unrelated_past");
 
 // 11) Same contract 3 pages → read count 3, premium once (183231).
 {
@@ -559,5 +571,110 @@ ok("vault_source_scope_pre_claude_addendum");
   );
 }
 ok("normalize_keeps_all_document_ids");
+
+// 16) Identities 3 / unique blocks 2 / C→A duplicate map.
+{
+  const bytesA = Buffer.from("page-1-of-3-bytes");
+  const bytesB = Buffer.from("page-2-of-3-bytes");
+  const plan = buildAttachmentIdentityDeliveryPlan({
+    identityRows: [
+      {
+        document_id: "a",
+        original_filename: "1-3.png",
+        base64: bytesA.toString("base64"),
+        source_scope: "current_turn_attachment",
+      },
+      {
+        document_id: "b",
+        original_filename: "2-3.png",
+        base64: bytesB.toString("base64"),
+        source_scope: "current_turn_attachment",
+      },
+      {
+        document_id: "c",
+        original_filename: "1-3-dup.png",
+        base64: bytesA.toString("base64"),
+        source_scope: "current_turn_attachment",
+      },
+    ],
+  });
+  assert.equal(plan.attachment_identity_count, 3);
+  assert.equal(plan.unique_original_block_count, 2);
+  assert.deepEqual(plan.duplicate_map, [
+    { document_id: "c", duplicate_of_document_id: "a" },
+  ]);
+  const distinct = buildAttachmentIdentityDeliveryPlan({
+    identityRows: [
+      { document_id: "a", base64: Buffer.from("p1").toString("base64") },
+      { document_id: "b", base64: Buffer.from("p2").toString("base64") },
+      { document_id: "c", base64: Buffer.from("p3").toString("base64") },
+    ],
+  });
+  assert.equal(distinct.attachment_identity_count, 3);
+  assert.equal(distinct.unique_original_block_count, 3);
+}
+ok("attachment_identities_vs_unique_blocks");
+
+// 17) scopeOnly must not forceScrub history; deleted recheck sticky scrub retained.
+{
+  const history = [
+    { role: "user", text: "(첨부: a.png)\n방금 올린 세 서류 합계" },
+    { role: "assistant", text: "월 보험료는 183,231원입니다." },
+    { role: "user", text: "지금 올린 서류 기준으로 보장내역을 정리해줘" },
+  ];
+  const kept = filterHistoryExcludingInactiveDocumentAttachments(history, [
+    { document_id: "a", original_filename: "a.png" },
+  ], { forceScrubAttachSegments: false });
+  assert.equal(kept.length, 3);
+  const scrubbed = filterHistoryExcludingInactiveDocumentAttachments(
+    history,
+    [],
+    { forceScrubAttachSegments: true },
+  );
+  assert.ok(scrubbed.length < 3);
+}
+ok("scopeOnly_history_keeps_prior_qa");
+
+// 18) Session metadata persists active_attachment_ids array.
+{
+  const meta = buildSessionMetadata("sess-1", {
+    activeAttachment: {
+      active_attachment_id: "c",
+      active_attachment_ids: ["a", "b", "c"],
+    },
+  });
+  assert.deepEqual(meta.active_attachment_ids, ["a", "b", "c"]);
+  assert.equal(meta.active_attachment_id, "c");
+  const legacy = normalizeActiveAttachment({ active_attachment_id: "only" });
+  assert.deepEqual(legacy.active_attachment_ids, ["only"]);
+}
+ok("session_metadata_active_attachment_ids");
+
+// 19) Context contract + confirmation boundary + inference filter.
+{
+  const contract = buildKeyClaudeContextContractAddendum({
+    now: new Date("2026-07-31T05:00:00.000Z"),
+    timeZone: "Asia/Seoul",
+    attachmentIdentities: [
+      {
+        original_index: 1,
+        document_id: "a",
+        source_scope: "current_turn_attachment",
+        duplicate_of_document_id: null,
+      },
+    ],
+    history: [{ role: "user", text: "hi", created_at: "2026-07-31T04:59:00.000Z" }],
+  });
+  assert.match(contract, /KEY_CLAUDE_CONTEXT_CONTRACT/);
+  assert.match(contract, /user_timezone=Asia\/Seoul/);
+  assert.match(contract, /reference_now_iso=/);
+  const boundary = buildCustomerConfirmationBoundaryAddendum();
+  assert.match(boundary, /CUSTOMER_CONFIRMATION_BOUNDARY/);
+  assert.equal(isClaudeInferenceOrEvaluationLiteral("보장이 두텁습니다"), true);
+  assert.equal(isClaudeInferenceOrEvaluationLiteral("183231"), false);
+  assert.equal(isAttachContextFollowUpQuestion("지금 올린 서류 기준으로"), true);
+  assert.equal(isAttachContextFollowUpQuestion("방금 올린 서류"), true);
+}
+ok("context_contract_and_confirmation_boundary");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");

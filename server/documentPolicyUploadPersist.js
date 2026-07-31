@@ -301,6 +301,14 @@ export function normalizeKeyConfirmedSourceFacts(rawFacts = [], defaults = {}) {
     if (row.literal_value == null || String(row.literal_value).trim() === "") continue;
     // Preserve original literal — never coerce (e.g. 9999세 stays 9999세).
     const literal_value = String(row.literal_value);
+    // Claude evaluation / inference prose must not auto-confirm (customer confirmation boundary).
+    if (
+      /두텁|유리하|충분하|부족한\s*문서|다시\s*올려|재첨부|의도상|추정|같은\s*계약으로\s*보|장기적으로\s*유리/.test(
+        literal_value,
+      )
+    ) {
+      continue;
+    }
     const source_document_id =
       row.source_document_id != null && String(row.source_document_id).trim()
         ? String(row.source_document_id).trim()

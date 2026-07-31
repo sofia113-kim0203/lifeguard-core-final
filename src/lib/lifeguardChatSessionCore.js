@@ -514,7 +514,13 @@ export function buildSessionMetadata(
   };
   const normalized = normalizeActiveAttachment(activeAttachment);
   if (normalized) {
+    // Legacy singular representative + official multi-id array for remount restore.
     metadata.active_attachment_id = normalized.active_attachment_id;
+    metadata.active_attachment_ids =
+      Array.isArray(normalized.active_attachment_ids) &&
+      normalized.active_attachment_ids.length
+        ? normalized.active_attachment_ids.slice()
+        : [normalized.active_attachment_id];
     if (normalized.active_attachment_mime) {
       metadata.active_attachment_mime = normalized.active_attachment_mime;
     }
@@ -814,6 +820,8 @@ export function mapSessionRowsToChatMessages(rows, sessionId) {
             ? message.metadata
             : {}),
           active_attachment_id: active.active_attachment_id,
+          // Prefer persisted multi-id array; legacy singular falls back inside normalize.
+          active_attachment_ids: active.active_attachment_ids,
           active_attachment_mime: active.active_attachment_mime,
           active_rotation_quarter_turns: active.active_rotation_quarter_turns,
         };

@@ -191,7 +191,7 @@ function HeaderIconGear() {
   );
 }
 
-const KEY_WAIT_STATUS = "KEY? ???? ???.";
+const KEY_WAIT_STATUS = "KEY가 확인하고 있어요.";
 const KEY_WAIT_ACK_FALLBACK = KEY_WAIT_STATUS;
 
 function useMediaQuery(query) {
@@ -251,7 +251,7 @@ function LayerPanel({ title, children, onBack }) {
   return (
     <div style={{ padding: "8px 0" }}>
       <button type="button" onClick={onBack} style={{ ...sidebarBtn(false), width: "auto", marginBottom: "20px" }}>
-        ? ??? ????
+        ← 대화로 돌아가기
       </button>
       <h3 style={{ margin: "0 0 12px", color: LG.text, fontSize: "18px", fontWeight: 600 }}>{title}</h3>
       <div style={{ color: LG.textMuted, fontSize: "15px", lineHeight: 1.7 }}>{children}</div>
@@ -267,7 +267,7 @@ function formatDocumentStatusLines(document) {
 
 function formatMonthlyPremium(value) {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return "?";
+  if (!Number.isFinite(numeric) || numeric <= 0) return "—";
   return `? ${Math.round(numeric).toLocaleString("ko-KR")}?`;
 }
 
@@ -282,13 +282,13 @@ function listCardStyle() {
 
 function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
   if (loading) {
-    return <p style={{ margin: 0, color: LG.textMuted }}>?? ??? ???? ??</p>;
+    return <p style={{ margin: 0, color: LG.textMuted }}>보험 정보를 불러오는 중…</p>;
   }
   if (!policies.length) {
     return (
       <p style={{ margin: 0, color: LG.textMuted }}>
         {emptyHint ||
-          "?? ??? ??? ???. ???? ???? ??? ??? ???."}
+          "아직 등록된 보험이 없어요. 필요하면 대화에서 편하게 말씀해 주세요."}
       </p>
     );
   }
@@ -298,7 +298,7 @@ function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
       {policies.map((policy) => (
         <div key={policy.id} style={listCardStyle()}>
           <div style={{ fontWeight: 600, color: LG.text, marginBottom: "6px" }}>
-            {policy.insurer_name ?? "?"}
+            {policy.insurer_name ?? "—"}
           </div>
           {policy.product_name ? (
             <div style={{ fontSize: "14px", color: LG.textMuted, marginBottom: "4px" }}>{policy.product_name}</div>
@@ -306,10 +306,10 @@ function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
             <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
               <div>{formatMonthlyPremium(policy.monthly_premium)}</div>
               <div>
-                ??:{" "}
+                상태:{" "}
                 {policy.insurer_name && (policy.product_name || policy.monthly_premium)
-                  ? "???"
-                  : "?? ??"}
+                  ? "확인됨"
+                  : "확인 필요"}
               </div>
             </div>
         </div>
@@ -326,13 +326,13 @@ function CustomerDocumentsList({
   onDeleteDocument = null,
 }) {
   if (loading) {
-    return <p style={{ margin: 0, color: LG.textMuted }}>??? ???? ??</p>;
+    return <p style={{ margin: 0, color: LG.textMuted }}>문서를 불러오는 중…</p>;
   }
   if (error) {
     return <p style={{ margin: 0, color: "#B91C1C" }}>{error}</p>;
   }
   if (documents.length === 0) {
-    return <p style={{ margin: 0, color: LG.textMuted }}>?? ???? ??? ???</p>;
+    return <p style={{ margin: 0, color: LG.textMuted }}>아직 업로드된 문서가 없어요</p>;
   }
 
   return (
@@ -351,7 +351,7 @@ function CustomerDocumentsList({
               }}
             >
               <div style={{ fontWeight: 600, color: LG.text, wordBreak: "break-all" }}>
-                {document.original_filename ?? "?"}
+                {document.original_filename ?? "—"}
               </div>
               {typeof onDeleteDocument === "function" ? (
                 <button
@@ -371,21 +371,21 @@ function CustomerDocumentsList({
                     flexShrink: 0,
                   }}
                 >
-                  {busy ? "?" : "??"}
+                  {busy ? "…" : "🗑"}
                 </button>
               ) : null}
             </div>
             <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
-              <div>?? ??: {formatDocClass(document.doc_class)}</div>
-              <div>????: {formatUploadDate(document.created_at)}</div>
+              <div>문서 유형: {formatDocClass(document.doc_class)}</div>
+              <div>업로드일: {formatUploadDate(document.created_at)}</div>
               {(() => {
                 const lines = formatDocumentStatusLines(document);
                 return (
                   <>
-                    {lines.storage ? <div>??: {lines.storage}</div> : null}
-                    {lines.factory ? <div>?? ??: {lines.factory}</div> : null}
+                    {lines.storage ? <div>원본: {lines.storage}</div> : null}
+                    {lines.factory ? <div>자동 정리: {lines.factory}</div> : null}
                     {!lines.storage && document.ingest_status === "failed" ? (
-                      <div style={{ color: "#B91C1C" }}>??? ??</div>
+                      <div style={{ color: "#B91C1C" }}>업로드 실패</div>
                     ) : null}
                   </>
                 );
@@ -429,7 +429,7 @@ function SidebarNav({
         {typeof onClose === "function" ? (
           <button
             type="button"
-            aria-label="?? ??"
+            aria-label="메뉴 닫기"
             onClick={onClose}
             style={{
               border: "none",
@@ -449,7 +449,7 @@ function SidebarNav({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
         <button type="button" onClick={onNewChat} style={{ ...sidebarBtn(false), flex: 1 }}>
-          ? ??
+          새 대화
         </button>
       </div>
       <div
@@ -462,10 +462,10 @@ function SidebarNav({
           letterSpacing: "0.08em",
         }}
       >
-        ?? ??
+        최근 대화
       </div>
       {threads.length === 0 ? (
-        <div style={{ fontSize: "13px", color: LG.textSoft, padding: "8px 12px" }}>?? ??? ???</div>
+        <div style={{ fontSize: "13px", color: LG.textSoft, padding: "8px 12px" }}>아직 대화가 없어요</div>
       ) : (
         threads.slice(0, 8).map((thread) => (
           <button
@@ -487,25 +487,25 @@ function SidebarNav({
             else onPanelChange("insurance");
           }}
         >
-          ? ?? ??
+          내 보험 점검
         </button>
         {typeof onOpenBaselinePanel === "function" ? (
           <button type="button" style={sidebarBtn(false)} onClick={() => onOpenBaselinePanel()}>
-            ???
+            기준선
           </button>
         ) : null}
         <button type="button" style={sidebarBtn(panelView === "documents")} onClick={() => onPanelChange("documents")}>
-          ? ??
+          내 문서
         </button>
         <button type="button" style={sidebarBtn(panelView === "settings")} onClick={() => onPanelChange("settings")}>
-          ??
+          설정
         </button>
         <button
           type="button"
           style={{ ...sidebarBtn(false), marginTop: "8px", color: LG.textMuted }}
           onClick={onSignOut}
         >
-          ????
+          로그아웃
         </button>
       </div>
     </aside>
@@ -524,11 +524,11 @@ const AGENT_HOME_SCOPE_GENERAL = AGENT_SCOPE_GENERAL;
 
 const AGENT_NOW_ACTION = Object.freeze({
   pending: true,
-  title: "?? ?? ?? ?? ??? ?????",
-  body: "???? ?? ??? ?? ?, KEY?? ?????? ?????.",
-  ctaLabel: "KEY?? ????",
-  ctaHint: "?? ??? ?? ?? ????? ?????",
-  submitText: "?? ??? ?????",
+  title: "일반 질문 또는 담당 고객을 선택하세요",
+  body: "왼쪽에서 질문 범위를 고른 뒤, KEY에게 상담·보장을 물어보세요.",
+  ctaLabel: "KEY에게 물어보기",
+  ctaHint: "고객 자료는 권한 허용 범위에서만 사용합니다",
+  submitText: "상담 준비를 도와주세요",
 });
 
 export default function LifeguardHomeChat({
@@ -566,10 +566,10 @@ export default function LifeguardHomeChat({
   const displayName =
     displayNameProp ??
     (isAgentAudience
-      ? "???"
+      ? "설계사"
       : session?.dashboardData?.displayName ??
         session?.unifiedState?.profile?.display_name ??
-        "??");
+        "고객");
   const policies = session?.unifiedState?.policies ?? [];
   // Agent mode never binds to a customer chat identity ? local thread only.
   const customerId = isAgentAudience
@@ -893,7 +893,7 @@ export default function LifeguardHomeChat({
       uploadFlow.syncFromListResult(result);
     } catch (err) {
       setDocuments([]);
-      setDocumentsError(toCustomerErrorMessage(err, "?? ??? ???? ?????."));
+      setDocumentsError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
     } finally {
       setDocumentsLoading(false);
     }
@@ -944,7 +944,7 @@ export default function LifeguardHomeChat({
       selectedEntityId,
     ],
   );
-  const nameInitial = String(displayName || "?").trim().slice(0, 1) || "?";
+  const nameInitial = String(displayName || "고").trim().slice(0, 1) || "고";
   // Agent mode must not wait on customer session hydrate / restore.
   const isDisabled = isAgentAudience
     ? disabled || !threadRestoreReady
@@ -985,20 +985,20 @@ export default function LifeguardHomeChat({
     try {
       const result = await createAgentKeyBriefingRequest({
         assignmentId: agentSelected.assignment_id,
-        purpose: "?? ??",
-        question: "? ?? ??? ?? ?? ??? ??? ??? ???.",
+        purpose:"상담 준비",
+        question: "이 고객 상담을 위해 지금 알아둘 핵심을 정리해 주세요.",
       });
       if (!result.ok) {
         setAgentBriefing(null);
         setAgentBriefingError(
-          result.error_message || "??? ??? ???? ?????. ?? ? ?? ??? ???.",
+          result.error_message || "브리핑 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         );
         return;
       }
       setAgentBriefing(result.briefing);
     } catch {
       setAgentBriefing(null);
-      setAgentBriefingError("??? ??? ???? ?????. ?? ? ?? ??? ???.");
+      setAgentBriefingError("브리핑 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setAgentBriefingLoading(false);
     }
@@ -1410,7 +1410,7 @@ export default function LifeguardHomeChat({
         warmKeyReadyCardFireAndForget({ sessionId: activeId, customerId });
       } catch (err) {
         if (!cancelled) {
-          setError(toCustomerErrorMessage(err, "?? ??? ???? ?????."));
+          setError(toCustomerErrorMessage(err, "대화 기록을 불러오지 못했습니다."));
           setThreadRestoreReady(true);
         }
       }
@@ -1615,7 +1615,7 @@ export default function LifeguardHomeChat({
         setMessages([]);
         clearConversationActiveAttachment();
         clearLifeguardChatSnapshot(customerId);
-        setError(toCustomerErrorMessage(err, "??? ???? ?????."));
+        setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
         setThreadRestoreReady(true);
         clearReadyCardHandoffToken();
@@ -1651,7 +1651,7 @@ export default function LifeguardHomeChat({
       setMessages((prev) => [
         ...prev,
         { role: "user", content: trimmed },
-        { role: "assistant", content: "KEY? ???? ???.", thinking: true },
+        { role: "assistant", content: "KEY가 확인하고 있어요.", thinking: true },
       ]);
       setInput("");
       focusChatInput();
@@ -1688,7 +1688,7 @@ export default function LifeguardHomeChat({
               prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
             );
           }
-          setError(result.error_message || "KEY ??? ???? ?????. ?? ? ?? ??? ???.");
+          setError(result.error_message || "KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
           return;
         }
         // After server done: append-only finalize ? displayed text wins over divergent seal.
@@ -1713,7 +1713,7 @@ export default function LifeguardHomeChat({
             prev.filter((m) => !(m.role === "assistant" && m.thinking === true)),
           );
         }
-        setError("KEY ??? ???? ?????. ?? ? ?? ??? ???.");
+        setError("KEY 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       } finally {
         setLoading(false);
         setStreaming(false);
@@ -1723,7 +1723,7 @@ export default function LifeguardHomeChat({
     }
 
     if (chatAttachUploading) {
-      setError("?? ???? ?? ? ?? ???.");
+      setError("파일 업로드가 끝난 뒤 보내 주세요.");
       return;
     }
 
@@ -1833,7 +1833,7 @@ export default function LifeguardHomeChat({
     const userMessage = {
       role: "user",
       content: attachmentsForTurn.length
-        ? `${trimmed}\n\n(??: ${composerAttachLabel || "??"})`
+        ? `${trimmed}\n\n(첨부: ${composerAttachLabel || "파일"})`
         : trimmed,
       turnId,
       ...(attachmentsForTurn.length ? { attachments: attachmentsForTurn } : {}),
@@ -2211,7 +2211,7 @@ export default function LifeguardHomeChat({
       );
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
-      setError(toCustomerErrorMessage(err, "??? ???? ?????."));
+      setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
     } finally {
       setLoading(false);
       setStreaming(false);
@@ -2352,7 +2352,7 @@ export default function LifeguardHomeChat({
         return;
       }
       setLocalError(
-        result?.error_message || toCustomerErrorMessage(null, "??? ???? ?????."),
+        result?.error_message || toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다."),
       );
     },
     [applyDocumentDeletedLocally, reloadDocuments, session],
@@ -2371,7 +2371,7 @@ export default function LifeguardHomeChat({
         const result = await softDeleteDocument(authUser, did);
         await finishDocumentDeleteResult(result, { setLocalError: setDocumentsError });
       } catch (err) {
-        setDocumentsError(toCustomerErrorMessage(err, "??? ???? ?????."));
+        setDocumentsError(toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다."));
       } finally {
         setDocumentDeletingId(null);
       }
@@ -2396,7 +2396,7 @@ export default function LifeguardHomeChat({
       const result = await softDeleteDocument(authUser, did);
       await finishDocumentDeleteResult(result, { setLocalError: setChatAttachError });
     } catch (err) {
-      setChatAttachError(toCustomerErrorMessage(err, "??? ???? ?????."));
+      setChatAttachError(toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다."));
     } finally {
       setDocumentDeletingId(null);
     }
@@ -2412,7 +2412,7 @@ export default function LifeguardHomeChat({
     const files = listSelectedUploadFiles(filesInput);
     if (files.length === 0) return;
     if (!authUser) {
-      setChatAttachError("???? ?????.");
+      setChatAttachError("로그인이 필요합니다.");
       return;
     }
 
@@ -2420,7 +2420,7 @@ export default function LifeguardHomeChat({
     if (!consentGate.allowUpload) {
       setChatAttachError(
         consentGate.message ||
-          "?? ?? ??? ?????. ?? ????? ??? ??? ???.",
+          "문서 보관 동의가 필요합니다. 「내 문서」에서 동의를 완료해 주세요.",
       );
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -2434,7 +2434,7 @@ export default function LifeguardHomeChat({
       await processSelectedUploadFiles(files, async (file) => {
         try {
           if (!isChatAttachFile(file)) {
-            fileErrors.push("PDF, JPG, JPEG, PNG ??? ??? ? ????.");
+            fileErrors.push("PDF, JPG, JPEG, PNG 파일만 첨부할 수 있습니다.");
             return { ok: false, reason: "invalid_file_type" };
           }
           const isImage = String(file.type || "").startsWith("image/");
@@ -2452,12 +2452,12 @@ export default function LifeguardHomeChat({
           const doc = uploadResult?.document ?? null;
           const documentId = String(doc?.id ?? "").trim();
           if (!documentId) {
-            throw new Error("?? ??? ? ???? ?? ?????.");
+            throw new Error("문서 업로드 후 식별자를 받지 못했습니다.");
           }
           const mime =
             String(doc?.mime_type ?? file.type ?? "").trim() ||
             (isImage ? "image/jpeg" : "application/pdf");
-          const filename = String(doc?.original_filename ?? file.name ?? "??").trim();
+          const filename = String(doc?.original_filename ?? file.name ?? "파일").trim();
           const previewUrl = isImage ? URL.createObjectURL(file) : "";
           // Append ? never overwrite prior successful composer attaches.
           setChatAttachments((prev) =>
@@ -2470,7 +2470,7 @@ export default function LifeguardHomeChat({
             }),
           );
           // Seed conversation active attach at upload ? do not wait for a successful turn.
-          // Follow-ups ("?? ??/? ??") must resend document_id even if composer chip is cleared.
+          // Follow-ups ("합산만/보장내역") must resend document_id even if composer chip is cleared.
           setChatAttachments((prevForSnap) => {
             const snapIds = listChatComposerDocumentIds(prevForSnap);
             const ids = snapIds.includes(documentId) ? snapIds : [...snapIds, documentId];
@@ -2491,7 +2491,7 @@ export default function LifeguardHomeChat({
           });
           return { ok: true, documentId };
         } catch (err) {
-          fileErrors.push(toCustomerErrorMessage(err, "?? ???? ??????."));
+          fileErrors.push(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
           return { ok: false, error: String(err?.message ?? err).slice(0, 200) };
         }
       });
@@ -2501,7 +2501,7 @@ export default function LifeguardHomeChat({
         setChatAttachError(fileErrors[0]);
       }
     } catch (err) {
-      setChatAttachError(toCustomerErrorMessage(err, "?? ???? ??????."));
+      setChatAttachError(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
     } finally {
       setChatAttachUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -2802,7 +2802,7 @@ export default function LifeguardHomeChat({
           >
             <button
               type="button"
-              aria-label="?? ??"
+              aria-label="메뉴 닫기"
               aria-expanded={sidebarOpen}
               onClick={() => setSidebarOpen(true)}
               style={{
@@ -2823,7 +2823,7 @@ export default function LifeguardHomeChat({
             </button>
             <div
               role="group"
-              aria-label="?? ??"
+              aria-label="메뉴 열기"
               className="lg-v31-scope lg-v31-header-scope"
               style={{
                 flex: 1,
@@ -2905,7 +2905,7 @@ export default function LifeguardHomeChat({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {isAgentAudience ? "?? ? ???" : "KEY? ?? ???? ?"}
+                  {isAgentAudience ? "권한 · 브리핑" : "KEY가 계속 관리하는 것"}
                 </div>
                 <div
                   style={{
@@ -2915,13 +2915,13 @@ export default function LifeguardHomeChat({
                     lineHeight: 1.2,
                   }}
                 >
-                  {isAgentAudience ? "?? ?? ?? ??" : "? ? ?? ? ?? ? ??"}
+                  {isAgentAudience ? "선택 고객 자료 범위" : "돈 · 일정 · 활동 · 결과"}
                 </div>
               </div>
             ) : null}
             <button
               type="button"
-              aria-label="??"
+              aria-label="알림"
               style={{
                 width: "32px",
                 height: "32px",
@@ -2939,7 +2939,7 @@ export default function LifeguardHomeChat({
             </button>
             <button
               type="button"
-              aria-label="??"
+              aria-label="알림"
               onClick={() => setPanelView("settings")}
               style={{
                 width: "32px",
@@ -2983,9 +2983,9 @@ export default function LifeguardHomeChat({
                 {nameInitial}
               </div>
               <span style={{ fontSize: "12px", fontWeight: 700, color: FINAL_UI.text }}>
-                {displayName}?
+                {displayName}님
               </span>
-              <span style={{ color: FINAL_UI.muted, fontSize: "10px" }}>?</span>
+              <span style={{ color: FINAL_UI.muted, fontSize: "10px" }}>▾</span>
             </div>
           </div>
         </header>
@@ -3069,12 +3069,12 @@ export default function LifeguardHomeChat({
               onCta={() => {
                 if (isAgentAudience) {
                   const text =
-                    String(AGENT_NOW_ACTION.submitText || "").trim() || "?? ??? ?????";
+                    String(AGENT_NOW_ACTION.submitText || "").trim() || "상담 준비를 도와주세요";
                   submitQuestion(text);
                   return;
                 }
                 const text =
-                  String(finalShell?.nowAction?.submitText || "").trim() || "??? ?? ????";
+                  String(finalShell?.nowAction?.submitText || "").trim() || "준비가 되면 알려주기";
                 submitQuestion(text);
               }}
             />
@@ -3108,13 +3108,13 @@ export default function LifeguardHomeChat({
             }}
           >
           {panelView === "insurance" ? (
-            <LayerPanel title="? ?? ??" onBack={goBackToChat}>
+            <LayerPanel title="내 보험 점검" onBack={goBackToChat}>
               <CustomerInsuranceList
                 policies={viewMode === "corporate" ? [] : policies}
                 loading={loadingSession}
                 emptyHint={
                   viewMode === "corporate"
-                    ? "? ??? ??? ?? ??? ?? ????. ??? ????? ?? ??? ??? ???."
+                    ? "이 법인에 연결된 보험 자료가 아직 없습니다. 문서를 추가하거나 보험 현황을 질문해 주세요."
                     : null
                 }
               />
@@ -3122,7 +3122,7 @@ export default function LifeguardHomeChat({
           ) : null}
 
           {panelView === "documents" ? (
-            <LayerPanel title="? ??" onBack={goBackToChat}>
+            <LayerPanel title="내 문서" onBack={goBackToChat}>
               <CustomerDocumentUploadFlow
                 variant="customer"
                 user={authUser}
@@ -3156,8 +3156,8 @@ export default function LifeguardHomeChat({
           ) : null}
 
           {panelView === "settings" ? (
-            <LayerPanel title="??" onBack={goBackToChat}>
-              <p style={{ margin: 0 }}>{displayName}??? ?? ????.</p>
+            <LayerPanel title="내 문서" onBack={goBackToChat}>
+              <p style={{ margin: 0 }}>{displayName}님?? ?? ????.</p>
             </LayerPanel>
           ) : null}
 
@@ -3224,7 +3224,7 @@ export default function LifeguardHomeChat({
                 month: "long",
                 day: "numeric",
                 weekday: "short",
-              }).replace(/\./g, "").replace(/\s+/g, " ? ")}
+              }).replace(/\./g, "").replace(/\s+/g, " · ")}
             </div>
             </div>
           ) : null}
@@ -3232,7 +3232,7 @@ export default function LifeguardHomeChat({
           {panelView === "chat"
             ? messages.map((msg, index) => {
                 const isUser = msg.role === "user";
-                const speaker = isUser ? displayName || "??" : "KEY";
+                const speaker = isUser ? displayName || "고객" : "KEY";
                 return (
                   <div
                     key={`${index}-${msg.role}`}
@@ -3355,7 +3355,7 @@ export default function LifeguardHomeChat({
             <button
               type="button"
               onClick={jumpToLatestAnswer}
-              aria-label="?? ????"
+              aria-label="상담 문맥"
               style={{
                 border: `1px solid ${FINAL_UI.line}`,
                 background: FINAL_UI.surface,
@@ -3475,7 +3475,7 @@ export default function LifeguardHomeChat({
                   color: LG.textMuted,
                 }}
               >
-                <span>? ??? ?? ?? ??? ??? ? ????.</span>
+                <span>이 대화의 이전 첨부 사진을 참조할 수 있습니다.</span>
                 <button
                   type="button"
                   onClick={clearActiveAttachment}
@@ -3488,7 +3488,7 @@ export default function LifeguardHomeChat({
                     fontFamily: FINAL_UI.sans,
                   }}
                 >
-                  ?? ?? ??
+                  첨부 참조 해제
                 </button>
               </div>
             ) : null}
@@ -3522,7 +3522,7 @@ export default function LifeguardHomeChat({
               />
               <button
                 type="button"
-                aria-label="??"
+                aria-label="알림"
                 onClick={handleAttachClick}
                 disabled={isDisabled || chatAttachUploading || loading || streaming}
                 style={{
@@ -3545,8 +3545,8 @@ export default function LifeguardHomeChat({
                 value={input}
                 readOnly={false}
                 disabled={isDisabled || chatAttachUploading}
-                aria-label="?? ??"
-                placeholder="???? ??? ??? ???"
+                aria-label="알림"
+                placeholder="무엇이든 편하게 말씀해 주세요"
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -3573,7 +3573,7 @@ export default function LifeguardHomeChat({
               />
               <button
                 type="button"
-                aria-label="???"
+                aria-label="설정"
                 disabled={
                   isDisabled ||
                   loading ||

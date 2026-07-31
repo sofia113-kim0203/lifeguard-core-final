@@ -75,15 +75,22 @@ import {
 import { listAttachedDocumentIds } from "../../src/lib/homeBrainAttachDocumentIds.js";
 import {
   buildAttachAnalysisScopeAuthorityAddendum,
+  buildAttachmentIdentityCatalogAddendum,
+  buildAttachmentIdentityDeliveryPlan,
+  buildCustomerConfirmationBoundaryAddendum,
   buildDeterministicDocumentTotals,
   buildDeterministicTotalsAuthorityAddendum,
   buildDocumentSourceScopeCatalogAddendum,
   buildIncompleteProcessingNotice,
+  buildKeyClaudeContextContractAddendum,
   buildUnsupportedEvaluationAuthorityAddendum,
   buildVaultDocumentSourceScopeAddendum,
   contentSha256FromBase64,
   dedupeDocumentRowsForRuntimeSum,
   dedupeRowsForOriginalDelivery,
+  formatAttachmentIdentityTextBlock,
+  isAttachContextFollowUpQuestion,
+  isClaudeInferenceOrEvaluationLiteral,
   shouldPreferRequestDocumentScopeOnly,
   stripNonAttachEvidenceFromUserPayload,
 } from "./keyDocumentSumAccuracy.js";
@@ -2038,8 +2045,13 @@ export function buildClaudeFirstCachedRequestParts({
   userPayload = null,
   pdfBase64 = null,
   mediaType = null,
-  /** Optional multi-original attach: [{ base64, mediaType }] — sha-deduped upstream. */
+  /** Unique original blocks: [{ base64, mediaType, document_id, ... }] — bytes-deduped upstream. */
   attachments = null,
+  /**
+   * Full attachment identity plan (may exceed unique blocks when exact duplicates exist).
+   * Identity text block is placed immediately before each unique original.
+   */
+  attachmentIdentityPlan = null,
   cacheControl = ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
 } = {}) {
   const { block_b, block_c } = splitUserPayloadForPromptCache(userPayload);
@@ -2058,6 +2070,7 @@ export function buildClaudeFirstCachedRequestParts({
         : { ...ANTHROPIC_PROMPT_CACHE_CONTROL_5M },
     },
   ];
+  const uniqueById = new Map();
   const attachList =
     Array.isArray(attachments) && attachments.length > 0
       ? attachments
@@ -2065,13 +2078,44 @@ export function buildClaudeFirstCachedRequestParts({
         ? [{ base64: pdfBase64, mediaType }]
         : [];
   for (const row of attachList) {
-    const attachBlock = row?.base64
-      ? buildAnthropicDirectAttachBlock({
-          base64: row.base64,
-          mediaType: row.mediaType ?? mediaType,
-        })
-      : null;
-    if (attachBlock) content.push(attachBlock);
+    const did = String(row?.document_id ?? "").trim();
+    if (did) uniqueById.set(did, row);
+  }
+  const identities = Array.isArray(attachmentIdentityPlan?.attachment_identities)
+    ? attachmentIdentityPlan.attachment_identities
+    : [];
+  if (identities.length > 0) {
+    for (const identity of identities) {
+      const identityText = formatAttachmentIdentityTextBlock(identity);
+      if (identityText) {
+        content.push({ type: "text", text: identityText });
+      }
+      if (identity?.delivers_original_block !== true) continue;
+      const row =
+        uniqueById.get(String(identity.document_id ?? "").trim()) ||
+        attachList.find(
+          (r) =>
+            String(r?.document_id ?? "").trim() ===
+            String(identity.document_id ?? "").trim(),
+        );
+      const attachBlock = row?.base64
+        ? buildAnthropicDirectAttachBlock({
+            base64: row.base64,
+            mediaType: row.mediaType ?? mediaType,
+          })
+        : null;
+      if (attachBlock) content.push(attachBlock);
+    }
+  } else {
+    for (const row of attachList) {
+      const attachBlock = row?.base64
+        ? buildAnthropicDirectAttachBlock({
+            base64: row.base64,
+            mediaType: row.mediaType ?? mediaType,
+          })
+        : null;
+      if (attachBlock) content.push(attachBlock);
+    }
   }
   content.push({
     type: "text",
@@ -4139,6 +4183,8 @@ async function callClaudeFirstDirect({
   qaTurnCapture = null,
   /** Ordered request document_ids for Claude scope (may exceed post-fetch rows). */
   requestedAttachDocumentIds = null,
+  /** Identity plan: attachment identities vs unique original blocks (+ duplicate map). */
+  attachmentIdentityPlan = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -4151,40 +4197,75 @@ async function callClaudeFirstDirect({
   const model = String(env.ANTHROPIC_MODEL ?? env.CLAUDE_MODEL ?? DEFAULT_MODEL).trim();
   const imageOriginalRead = isImageAttachMeta(pdfMeta) && Boolean(pdfBase64);
   const scopeOnly = presenceTurn !== true && attachAnalysisScopeOnly === true;
-  // Attach-scope-only: do not feed customer chart / past contracts into Claude.
-  // Otherwise original + verified chart travel together (GO 1-1).
-  const realityForClaude = scopeOnly
-    ? { policies: [], policy_count: 0 }
-    : reality;
+  // Attach-scope: block unrelated vault mix-in upstream; keep related chart/memory.
+  const realityForClaude = reality;
   const chart =
-    presenceTurn === true || scopeOnly
-      ? null
-      : buildVerifiedCustomerChart(realityForClaude);
+    presenceTurn === true ? null : buildVerifiedCustomerChart(realityForClaude);
   // Allowlist stays KEY-internal for hard-only — never shown in Claude payload.
-  const allowlist = collectVerifiedSpeakAllowlistFromReality(
-    scopeOnly ? realityForClaude : reality,
-  );
+  const allowlist = collectVerifiedSpeakAllowlistFromReality(reality);
   // Soft-deleted source turns must not re-enter Claude conversation pack.
   // Loader miss (null) → [] fail-closed. This-turn explicit document_id stays active.
   // Deleted-doc recheck (no current attach bytes) forces full attach scrub.
+  // scopeOnly alone must NOT forceScrub — that wiped prior Q/A continuity.
   const deletedDocRecheck =
     !pdfBase64 && isDeletedDocumentRecheckQuestion(question) === true;
-  const currentTurnDocument =
-    pdfMeta?.document_id || pdfMeta?.original_filename
-      ? {
-          document_id: pdfMeta?.document_id ?? null,
-          original_filename: pdfMeta?.original_filename ?? null,
-        }
-      : null;
-  const activeDocsForPack = scopeOnly
-    ? mergeCurrentTurnDocumentIntoActiveDocuments(
-        [],
-        deletedDocRecheck ? null : currentTurnDocument,
-      )
-    : mergeCurrentTurnDocumentIntoActiveDocuments(
-        Array.isArray(activeDocuments) ? activeDocuments : [],
-        deletedDocRecheck ? null : currentTurnDocument,
+  const requestedIdsForActive = [
+    ...new Set(
+      [
+        ...(Array.isArray(requestedAttachDocumentIds) ? requestedAttachDocumentIds : []),
+        ...(Array.isArray(pdfMeta?.attached_document_ids)
+          ? pdfMeta.attached_document_ids
+          : []),
+        ...(Array.isArray(pdfMeta?.requested_document_ids)
+          ? pdfMeta.requested_document_ids
+          : []),
+        ...(Array.isArray(attachmentIdentityPlan?.attachment_identities)
+          ? attachmentIdentityPlan.attachment_identities.map((r) => r?.document_id)
+          : []),
+        ...(Array.isArray(pdfAttachments)
+          ? pdfAttachments.map((r) => r?.document_id)
+          : []),
+        pdfMeta?.document_id,
+      ]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const filenameById = new Map();
+  for (const row of [
+    ...(Array.isArray(pdfAttachments) ? pdfAttachments : []),
+    ...(Array.isArray(attachmentIdentityPlan?.attachment_identities)
+      ? attachmentIdentityPlan.attachment_identities
+      : []),
+  ]) {
+    const did = String(row?.document_id ?? "").trim();
+    const name = String(row?.original_filename ?? row?.filename ?? "").trim();
+    if (did && name && !filenameById.has(did)) filenameById.set(did, name);
+  }
+  if (pdfMeta?.document_id && pdfMeta?.original_filename) {
+    filenameById.set(
+      String(pdfMeta.document_id).trim(),
+      String(pdfMeta.original_filename).trim(),
+    );
+  }
+  const currentTurnDocuments = requestedIdsForActive.map((id) => ({
+    document_id: id,
+    original_filename: filenameById.get(id) || null,
+  }));
+  const currentTurnDocument = currentTurnDocuments[0] || null;
+  let activeDocsForPack = scopeOnly
+    ? []
+    : Array.isArray(activeDocuments)
+      ? [...activeDocuments]
+      : [];
+  if (!deletedDocRecheck) {
+    for (const doc of currentTurnDocuments) {
+      activeDocsForPack = mergeCurrentTurnDocumentIntoActiveDocuments(
+        activeDocsForPack,
+        doc,
       );
+    }
+  }
   const { pack: contextPack } = buildClaudeFullContextPack({
     // Keep dialogue history on attach-scope so follow-ups ("합산만 해줘") retain question context.
     // Chart/ledger/past-doc evidence is stripped separately; do not wipe the conversation.
@@ -4192,8 +4273,8 @@ async function callClaudeFirstDirect({
     question,
     activeDocuments: activeDocsForPack,
     currentTurnDocument: deletedDocRecheck ? null : currentTurnDocument,
-    forceScrubAttachSegments: deletedDocRecheck || scopeOnly,
-    scrubIdentityReadouts: deletedDocRecheck || scopeOnly,
+    forceScrubAttachSegments: deletedDocRecheck === true,
+    scrubIdentityReadouts: deletedDocRecheck === true,
     documentEvidence: scopeOnly
       ? []
       : Array.isArray(documentEvidence)
@@ -4219,44 +4300,43 @@ async function callClaudeFirstDirect({
               pdfMeta.document_review_scope || "current_turn_attachments_only",
           }
         : pdfMeta;
+  // scopeOnly blocks unrelated vault mix-in — related chart/memory/prior consultation stay.
   const userPayloadBuilt = buildUserPayload({
     question: presenceTurn === true ? buildPresenceUserQuestionLine() : question,
-    chart: presenceTurn === true || scopeOnly ? null : chart,
+    chart: presenceTurn === true ? null : chart,
     contextPack,
     pdfMeta: pdfMetaForScope,
-    corporateContexts: presenceTurn === true || scopeOnly ? null : corporateContexts,
-    corporateGapEvidence: presenceTurn === true || scopeOnly ? null : corporateGapEvidence,
+    corporateContexts: presenceTurn === true ? null : corporateContexts,
+    corporateGapEvidence: presenceTurn === true ? null : corporateGapEvidence,
     corporateRecommendationCandidates:
-      presenceTurn === true || scopeOnly ? null : corporateRecommendationCandidates,
-    corporateUnknowns: presenceTurn === true || scopeOnly ? null : corporateUnknowns,
+      presenceTurn === true ? null : corporateRecommendationCandidates,
+    corporateUnknowns: presenceTurn === true ? null : corporateUnknowns,
     selectedCorporateEntityId:
-      presenceTurn === true || scopeOnly ? null : selectedCorporateEntityId,
+      presenceTurn === true ? null : selectedCorporateEntityId,
     publicEvidence: [],
-    activeClaimCases: presenceTurn === true || scopeOnly ? null : activeClaimCases,
-    insuranceClockBrief: presenceTurn === true || scopeOnly ? null : insuranceClockBrief,
-    claimEvidenceBrief: presenceTurn === true || scopeOnly ? null : claimEvidenceBrief,
-    lifeLedgerBrief: presenceTurn === true || scopeOnly ? null : lifeLedgerBrief,
-    paymentTruthBrief: presenceTurn === true || scopeOnly ? null : paymentTruthBrief,
-    sessionGoal: presenceTurn === true || scopeOnly ? null : softGoal,
+    activeClaimCases: presenceTurn === true ? null : activeClaimCases,
+    insuranceClockBrief: presenceTurn === true ? null : insuranceClockBrief,
+    claimEvidenceBrief: presenceTurn === true ? null : claimEvidenceBrief,
+    lifeLedgerBrief: presenceTurn === true ? null : lifeLedgerBrief,
+    paymentTruthBrief: presenceTurn === true ? null : paymentTruthBrief,
+    sessionGoal: presenceTurn === true ? null : softGoal,
     priorConsultation:
-      presenceTurn === true || scopeOnly
+      presenceTurn === true
         ? null
         : priorConsultationForContext && typeof priorConsultationForContext === "object"
           ? priorConsultationForContext
           : null,
     now: requestNow,
-    readyCardMeta: presenceTurn === true || scopeOnly ? null : readyCardMeta,
+    readyCardMeta: presenceTurn === true ? null : readyCardMeta,
     presenceContext:
       presenceTurn === true && presenceContext && typeof presenceContext === "object"
         ? presenceContext
         : null,
-    signupOnboardingBrief:
-      presenceTurn === true || scopeOnly ? null : signupOnboardingBrief,
+    signupOnboardingBrief: presenceTurn === true ? null : signupOnboardingBrief,
     authenticatedCustomerIdentity,
-    documentSubjectIdentity:
-      presenceTurn === true || scopeOnly ? null : documentSubjectIdentity,
+    documentSubjectIdentity: presenceTurn === true ? null : documentSubjectIdentity,
     policyTruthContext:
-      presenceTurn === true || scopeOnly
+      presenceTurn === true
         ? null
         : policyTruthContext && typeof policyTruthContext === "object"
           ? policyTruthContext
@@ -4381,12 +4461,50 @@ async function callClaudeFirstDirect({
     systemTextBase = `${systemTextBase}\n\n[VERIFIED_COVERAGE_AUTHORITY]\n${verifiedCoverageAuthorityAddendum.trim()}`;
   }
   if (presenceTurn !== true) {
-    const totalsAddendum = buildDeterministicTotalsAuthorityAddendum(
-      deterministicDocumentTotals,
-    );
+    const totalsForAddendum =
+      deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
+        ? {
+            ...deterministicDocumentTotals,
+            attachment_identity_count:
+              Number(deterministicDocumentTotals.attachment_identity_count) ||
+              (Array.isArray(attachmentIdentityPlan?.attachment_identities)
+                ? attachmentIdentityPlan.attachment_identities.length
+                : attachDocumentIds.length),
+            unique_original_block_count:
+              Number(deterministicDocumentTotals.unique_original_block_count) ||
+              (Array.isArray(attachmentIdentityPlan?.unique_original_blocks)
+                ? attachmentIdentityPlan.unique_original_blocks.length
+                : multiAttachments.length),
+            originals_available:
+              multiAttachments.length > 0 ||
+              Boolean(primaryPdfBase64) ||
+              attachDocumentIds.length > 0,
+          }
+        : null;
+    const totalsAddendum = buildDeterministicTotalsAuthorityAddendum(totalsForAddendum);
     if (totalsAddendum) {
       systemTextBase = `${systemTextBase}\n\n${totalsAddendum}`;
     }
+  }
+  if (presenceTurn !== true && attachmentIdentityPlan) {
+    const identityCatalog = buildAttachmentIdentityCatalogAddendum(attachmentIdentityPlan);
+    if (identityCatalog) {
+      systemTextBase = `${systemTextBase}\n\n${identityCatalog}`;
+    }
+  }
+  if (presenceTurn !== true) {
+    const contextContract = buildKeyClaudeContextContractAddendum({
+      now: requestNow,
+      timeZone: env?.TZ || env?.USER_TIMEZONE || null,
+      attachmentIdentities: Array.isArray(attachmentIdentityPlan?.attachment_identities)
+        ? attachmentIdentityPlan.attachment_identities
+        : [],
+      history: Array.isArray(history) ? history : [],
+    });
+    if (contextContract) {
+      systemTextBase = `${systemTextBase}\n\n${contextContract}`;
+    }
+    systemTextBase = `${systemTextBase}\n\n${buildCustomerConfirmationBoundaryAddendum()}`;
   }
   if (presenceTurn !== true && scopeOnly) {
     const scopeAddendum = buildAttachAnalysisScopeAuthorityAddendum({
@@ -4477,6 +4595,7 @@ async function callClaudeFirstDirect({
     }
   }
   // Phase 1 prompt cache: A (system) + B (evidence) cached via B breakpoint; C variable + PDF uncached.
+  // Identity text blocks precede unique originals; exact duplicates get identity-only (no repeat image).
   const cachedParts = buildClaudeFirstCachedRequestParts({
     systemText,
     userPayload,
@@ -4487,7 +4606,15 @@ async function callClaudeFirstDirect({
         ? multiAttachments.map((row) => ({
             base64: row.base64,
             mediaType: row.mediaType,
+            document_id: row.document_id ?? null,
+            original_filename: row.original_filename ?? null,
+            source_scope: row.source_scope ?? null,
+            delivery_bytes_sha256: row.delivery_bytes_sha256 ?? null,
           }))
+        : null,
+    attachmentIdentityPlan:
+      attachmentIdentityPlan && typeof attachmentIdentityPlan === "object"
+        ? attachmentIdentityPlan
         : null,
     cacheControl: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
   });
@@ -4697,10 +4824,12 @@ async function callClaudeFirstDirect({
           source_document_id: pdfMeta?.document_id ?? null,
           source_content_sha256: pdfMeta?.content_sha256 ?? null,
         },
-      );
+      ).filter((fact) => !isClaudeInferenceOrEvaluationLiteral(fact?.literal_value));
       // Also lift inventory rows into confirmed literal facts when typed.
       if (!confirmedSourceFacts.length && policyInventoryFacts.length) {
-        confirmedSourceFacts = liftInventoryToConfirmedSourceFacts(policyInventoryFacts);
+        confirmedSourceFacts = liftInventoryToConfirmedSourceFacts(
+          policyInventoryFacts,
+        ).filter((fact) => !isClaudeInferenceOrEvaluationLiteral(fact?.literal_value));
       }
       coverageBaselineFacts = normalizeKeyCoverageBaselineFacts(
         normalizedSidecar.coverage_baseline_facts,
@@ -5218,10 +5347,19 @@ export async function runClaudeFirstDirectQuestionTurn({
     });
   }
   // Case may expand a singular follow-up id to the prior multi-attach snapshot.
+  // Soft attach-context follow-ups ("지금 올린 서류", "보장내역은?") restore full prior ids.
   if (
     !isPresenceTurn &&
     Array.isArray(activeDocumentCase.documentIds) &&
     activeDocumentCase.documentIds.length > clientAttachedDocumentIds.length
+  ) {
+    clientAttachedDocumentIds = listAttachedDocumentIds(activeDocumentCase.documentIds);
+  } else if (
+    !isPresenceTurn &&
+    clientAttachedDocumentIds.length <= 1 &&
+    isAttachContextFollowUpQuestion(question) &&
+    Array.isArray(activeDocumentCase.documentIds) &&
+    activeDocumentCase.documentIds.length > 1
   ) {
     clientAttachedDocumentIds = listAttachedDocumentIds(activeDocumentCase.documentIds);
   }
@@ -5230,6 +5368,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   let documentMentionResolve = null;
   let vaultRecall = null;
   let pdfAttachmentsForClaude = null;
+  let attachmentIdentityPlanForClaude = null;
   let pdfFetchMs = null;
   const hasActiveInsuranceDocumentCase = Boolean(caseDocumentId);
   const wantsVaultEvidence = shouldProvideOwnedInsuranceVaultOriginals({
@@ -5283,9 +5422,10 @@ export async function runClaudeFirstDirectQuestionTurn({
       }
     }
 
-    // Composer multi: keep request order. Delivery dedupe = id repeat OR identical bytes only.
+    // Composer multi: keep request-order identities; unique blocks = id/bytes dedupe only.
     // Never drop distinct request document_ids because of a shared stored content_sha256.
     let mergedAttach;
+    let identityRowsForPlan = null;
     if (clientAttachedDocumentIds.length > 1) {
       const byId = new Map();
       for (const row of [
@@ -5302,9 +5442,24 @@ export async function runClaudeFirstDirectQuestionTurn({
         ordered.push(byId.get(id));
         byId.delete(id);
       }
-      // Remaining vault rows (explicit vault ask): calc-safe sha dedupe via delivery helper.
-      const extras = dedupeRowsForOriginalDelivery([...byId.values()]);
-      mergedAttach = dedupeRowsForOriginalDelivery([...ordered, ...extras]).slice(
+      // Remaining vault rows only when explicit vault ask (non-requestScope path).
+      const extras = [...byId.values()];
+      identityRowsForPlan = [...ordered, ...extras].map((row) => ({
+        base64: row.pdfBase64 ?? row.base64,
+        mediaType: row.mediaType,
+        document_id: row.document_id,
+        original_filename: row.original_filename,
+        content_sha256: row.content_sha256,
+        source_scope: clientAttachedDocumentIds.includes(String(row.document_id ?? "").trim())
+          ? "current_turn_attachment"
+          : "vault_document",
+      }));
+      const plan = buildAttachmentIdentityDeliveryPlan({
+        identityRows: identityRowsForPlan,
+        defaultSourceScope: "current_turn_attachment",
+      });
+      attachmentIdentityPlanForClaude = plan;
+      mergedAttach = plan.unique_original_blocks.slice(
         0,
         CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
       );
@@ -5324,6 +5479,8 @@ export async function runClaudeFirstDirectQuestionTurn({
         document_id: row.document_id,
         original_filename: row.original_filename,
         content_sha256: row.content_sha256,
+        source_scope: row.source_scope,
+        delivery_bytes_sha256: row.delivery_bytes_sha256,
       }));
       // Runtime EXIF/orientation normalize for Claude only — Storage originals untouched.
       // Vault multi: PDF-first upstream + Anthropic-safe JPEG; drop undecodable images
@@ -5332,6 +5489,19 @@ export async function runClaudeFirstDirectQuestionTurn({
         vaultSafeImage: true,
         maxImageEdge: 2048,
       });
+      if (!attachmentIdentityPlanForClaude && identityRowsForPlan) {
+        attachmentIdentityPlanForClaude = buildAttachmentIdentityDeliveryPlan({
+          identityRows: identityRowsForPlan,
+        });
+      } else if (!attachmentIdentityPlanForClaude) {
+        attachmentIdentityPlanForClaude = buildAttachmentIdentityDeliveryPlan({
+          identityRows: rawRows.map((row) => ({
+            ...row,
+            source_scope: "vault_document",
+          })),
+          defaultSourceScope: "vault_document",
+        });
+      }
       if (!explicitDocumentId) {
         explicitDocumentId = String(mergedAttach[0].document_id).trim();
       }
@@ -5524,10 +5694,9 @@ export async function runClaudeFirstDirectQuestionTurn({
     const fetchStarted = Date.now();
     if (clientAttachedDocumentIds.length > 1) {
       // Same-turn composer multi: fetch every request document_id in order (no first/last-only).
-      // Delivery dedupe: repeated id OR identical bytes SHA only (never stored sha alone).
-      const rawRows = [];
+      // Identities keep all files; unique original blocks drop exact-bytes duplicates only.
+      const identityRows = [];
       const seenIds = new Set();
-      const seenBytesSha = new Set();
       for (const documentId of clientAttachedDocumentIds) {
         if (seenIds.has(documentId)) continue;
         seenIds.add(documentId);
@@ -5539,29 +5708,36 @@ export async function runClaudeFirstDirectQuestionTurn({
         });
         if (fetched?.ok && fetched.pdfBase64) {
           const bytesSha = contentSha256FromBase64(fetched.pdfBase64);
-          if (bytesSha && seenBytesSha.has(bytesSha)) continue;
-          if (bytesSha) seenBytesSha.add(bytesSha);
           const storedSha = String(fetched.content_sha256 ?? "").trim().toLowerCase();
-          rawRows.push({
+          identityRows.push({
             base64: fetched.pdfBase64,
             mediaType: fetched.mediaType,
             document_id: documentId,
             original_filename: fetched.document?.original_filename ?? null,
             content_sha256: storedSha || bytesSha || null,
             delivery_bytes_sha256: bytesSha || null,
+            source_scope: "current_turn_attachment",
           });
         }
       }
       pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
-      if (rawRows.length) {
-        pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows, {
-          vaultSafeImage: true,
-          maxImageEdge: 2048,
+      if (identityRows.length) {
+        const plan = buildAttachmentIdentityDeliveryPlan({
+          identityRows,
+          defaultSourceScope: "current_turn_attachment",
         });
-        const primary = rawRows[0];
-        const sourceScopes = clientAttachedDocumentIds.map((id) => ({
-          document_id: id,
-          source_scope: "current_turn_attachment",
+        attachmentIdentityPlanForClaude = plan;
+        pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(
+          plan.unique_original_blocks,
+          {
+            vaultSafeImage: true,
+            maxImageEdge: 2048,
+          },
+        );
+        const primary = plan.unique_original_blocks[0] || identityRows[0];
+        const sourceScopes = plan.attachment_identities.map((row) => ({
+          document_id: row.document_id,
+          source_scope: row.source_scope || "current_turn_attachment",
         }));
         pdf = {
           pdfBase64: primary.base64,
@@ -5569,9 +5745,12 @@ export async function runClaudeFirstDirectQuestionTurn({
           meta: {
             attached: true,
             document_id: primary.document_id,
-            attached_document_ids: clientAttachedDocumentIds.slice(),
+            attached_document_ids: plan.attachment_identities.map((r) => r.document_id),
             requested_document_ids: clientAttachedDocumentIds.slice(),
             document_source_scopes: sourceScopes,
+            attachment_identities: plan.attachment_identities,
+            unique_original_block_count: plan.unique_original_block_count,
+            duplicate_map: plan.duplicate_map,
             original_filename: primary.original_filename ?? null,
             mime_type: primary.mediaType,
             storage_mime_type: primary.mediaType,
@@ -6322,8 +6501,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     );
     deterministicDocumentTotals.unique_document_count = deduped.length;
   }
-  // Do not stamp no_computable before Claude reads originals — that forced
-  // "숫자 없음" while Claude still reported amounts from the same attach bytes.
+  // Do not stamp no_computable when originals exist — that forced contradictory
+  // "숫자 없음" while Claude still read amounts from the same attach bytes.
   if (
     requestScopeOnly &&
     deterministicDocumentTotals &&
@@ -6333,19 +6512,51 @@ export async function runClaudeFirstDirectQuestionTurn({
   ) {
     deterministicDocumentTotals.no_computable_premiums_in_current_attach = true;
   }
+  if (
+    !attachmentIdentityPlanForClaude &&
+    Array.isArray(pdfAttachmentsForClaude) &&
+    pdfAttachmentsForClaude.length > 0
+  ) {
+    attachmentIdentityPlanForClaude = buildAttachmentIdentityDeliveryPlan({
+      identityRows: pdfAttachmentsForClaude.map((row) => ({
+        ...row,
+        source_scope:
+          row?.source_scope ||
+          (requestScopeOnly ? "current_turn_attachment" : "vault_document"),
+      })),
+      defaultSourceScope: requestScopeOnly
+        ? "current_turn_attachment"
+        : "vault_document",
+    });
+  }
   if (deterministicDocumentTotals && scopedDocumentIds.length) {
     deterministicDocumentTotals.requested_document_ids = scopedDocumentIds.slice();
-    deterministicDocumentTotals.unique_document_count = Math.max(
-      Number(deterministicDocumentTotals.unique_document_count) || 0,
+    deterministicDocumentTotals.attachment_identity_count = Math.max(
+      Number(attachmentIdentityPlanForClaude?.attachment_identity_count) || 0,
       scopedDocumentIds.length,
+    );
+    deterministicDocumentTotals.unique_original_block_count = Math.max(
+      Number(attachmentIdentityPlanForClaude?.unique_original_block_count) || 0,
       Array.isArray(pdfAttachmentsForClaude) ? pdfAttachmentsForClaude.length : 0,
     );
+    // unique_document_count tracks unique pages/blocks for calc — not attachment identity count.
+    if (
+      !Number.isFinite(Number(deterministicDocumentTotals.unique_document_count)) ||
+      Number(deterministicDocumentTotals.unique_document_count) <= 0
+    ) {
+      deterministicDocumentTotals.unique_document_count =
+        deterministicDocumentTotals.unique_original_block_count;
+    }
+    deterministicDocumentTotals.originals_available =
+      deterministicDocumentTotals.unique_original_block_count > 0 ||
+      Boolean(pdf?.pdfBase64);
   }
 
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
     history: isPresenceTurn ? [] : history,
-    reality: requestScopeOnly ? { policies: [], policy_count: 0 } : reality,
+    // Keep related verified policies/chart; vault originals still gated upstream.
+    reality: isPresenceTurn ? { policies: [], policy_count: 0 } : reality,
     env,
     fetchImpl,
     startedAt,
@@ -6364,7 +6575,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     },
     pdfBase64: isPresenceTurn ? null : pdf.pdfBase64,
     pdfMediaType: isPresenceTurn ? null : pdf.mediaType,
-    // Pass every fetched original block (length >= 1). Do not gate on > 1.
+    // Pass every unique original block (length >= 1). Identities may exceed blocks.
     pdfAttachments: isPresenceTurn
       ? null
       : Array.isArray(pdfAttachmentsForClaude) && pdfAttachmentsForClaude.length >= 1
@@ -6372,32 +6583,34 @@ export async function runClaudeFirstDirectQuestionTurn({
         : null,
     pdfMeta: isPresenceTurn ? null : pdfMetaForClaude,
     requestedAttachDocumentIds: isPresenceTurn ? null : clientAttachedDocumentIds,
-    corporateContexts: isPresenceTurn || requestScopeOnly ? null : corporateContexts,
-    corporateGapEvidence:
-      isPresenceTurn || requestScopeOnly ? null : corporateGapEvidence,
-    corporateRecommendationCandidates:
-      isPresenceTurn || requestScopeOnly ? null : corporateRecommendationCandidates,
-    corporateUnknowns: isPresenceTurn || requestScopeOnly ? null : corporateUnknowns,
-    selectedCorporateEntityId:
-      isPresenceTurn || requestScopeOnly ? null : selectedCorporateEntityId,
-    activeClaimCases: isPresenceTurn || requestScopeOnly ? null : activeClaimCases,
-    activeDocuments: isPresenceTurn || requestScopeOnly ? [] : activeDocumentsForHistory,
-    insuranceClockBrief: isPresenceTurn || requestScopeOnly ? null : insuranceClockBrief,
-    claimEvidenceBrief: isPresenceTurn || requestScopeOnly ? null : claimEvidenceBrief,
-    lifeLedgerBrief: isPresenceTurn || requestScopeOnly ? null : lifeLedgerBrief,
-    paymentTruthBrief: isPresenceTurn || requestScopeOnly ? null : paymentTruthBrief,
-    sessionGoalForContext:
-      isPresenceTurn || requestScopeOnly ? null : sessionGoalForContext,
-    priorConsultationForContext: requestScopeOnly ? null : priorConsultationForContext,
-    documentEvidence: isPresenceTurn || requestScopeOnly ? [] : documentChunksForClaude,
-    readyCardMeta: isPresenceTurn || requestScopeOnly ? null : readyCardMeta,
+    attachmentIdentityPlan: isPresenceTurn ? null : attachmentIdentityPlanForClaude,
+    corporateContexts: isPresenceTurn ? null : corporateContexts,
+    corporateGapEvidence: isPresenceTurn ? null : corporateGapEvidence,
+    corporateRecommendationCandidates: isPresenceTurn
+      ? null
+      : corporateRecommendationCandidates,
+    corporateUnknowns: isPresenceTurn ? null : corporateUnknowns,
+    selectedCorporateEntityId: isPresenceTurn ? null : selectedCorporateEntityId,
+    activeClaimCases: isPresenceTurn ? null : activeClaimCases,
+    activeDocuments: isPresenceTurn ? [] : activeDocumentsForHistory,
+    insuranceClockBrief: isPresenceTurn ? null : insuranceClockBrief,
+    claimEvidenceBrief: isPresenceTurn ? null : claimEvidenceBrief,
+    lifeLedgerBrief: isPresenceTurn ? null : lifeLedgerBrief,
+    paymentTruthBrief: isPresenceTurn ? null : paymentTruthBrief,
+    sessionGoalForContext: isPresenceTurn ? null : sessionGoalForContext,
+    priorConsultationForContext: isPresenceTurn ? null : priorConsultationForContext,
+    // Non-scoped OCR dumps of other docs stay out on attach-scope; current attach uses originals.
+    documentEvidence: isPresenceTurn
+      ? []
+      : requestScopeOnly
+        ? []
+        : documentChunksForClaude,
+    readyCardMeta: isPresenceTurn ? null : readyCardMeta,
     presenceContext: isPresenceTurn ? presenceContextBuilt : null,
     presenceTurn: isPresenceTurn,
-    // Customer question turns: keep soft signup even with empty history / empty verified chart.
-    // Presence: no full signup force-inject. Image original: handled inside callClaudeFirstDirect.
-    signupOnboardingBrief: isPresenceTurn || requestScopeOnly ? null : signupOnboardingBrief,
+    signupOnboardingBrief: isPresenceTurn ? null : signupOnboardingBrief,
     authenticatedCustomerIdentity,
-    documentSubjectIdentity: requestScopeOnly ? null : documentSubjectIdentity,
+    documentSubjectIdentity: isPresenceTurn ? null : documentSubjectIdentity,
     customerViewModeForPayload: isPresenceTurn
       ? null
       : {
@@ -6411,9 +6624,9 @@ export async function runClaudeFirstDirectQuestionTurn({
     audience,
     conversationMode,
     keyRoleContract,
-    policyTruthContext: requestScopeOnly ? null : policyTruthContextForClaude,
-    policyCountAuthorityAddendum: requestScopeOnly ? null : policyCountAuthorityAddendum,
-    verifiedCoverageAuthorityAddendum: requestScopeOnly
+    policyTruthContext: isPresenceTurn ? null : policyTruthContextForClaude,
+    policyCountAuthorityAddendum: isPresenceTurn ? null : policyCountAuthorityAddendum,
+    verifiedCoverageAuthorityAddendum: isPresenceTurn
       ? null
       : verifiedCoverageAuthorityAddendum,
     deterministicDocumentTotals,
