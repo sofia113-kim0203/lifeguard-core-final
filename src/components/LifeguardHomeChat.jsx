@@ -38,7 +38,10 @@ import {
   extractActiveAttachmentFromSessionMessages,
   isInsuranceDocumentRecallQuestion,
   isReusableActiveAttachmentId,
+  isRestorableAttachmentCandidateInScope,
   normalizeActiveAttachment,
+  normalizeRestorableAttachmentCandidate,
+  pickRestorableAttachmentCandidate,
   scrubDeletedDocumentFromMessageActiveAttachments,
   shouldClearActiveAttachmentAfterTurn,
   wantsOwnedInsuranceVaultEvidence,
@@ -601,18 +604,26 @@ export default function LifeguardHomeChat({
   const [chatAttachUploading, setChatAttachUploading] = useState(false);
   const [chatAttachError, setChatAttachError] = useState("");
   // Conversation-scoped active attachment (survives composer clear).
+  // Explicit upload / reactivation only — hydrate must not fill these.
   // activeAttachmentIds keeps the full multi-attach snapshot for follow-up turns.
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentIds, setActiveAttachmentIds] = useState([]);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
+  // Past attach bundle for explicit reactivation UI only — never request authority.
+  const [restorableAttachmentCandidate, setRestorableAttachmentCandidate] = useState(null);
+  const userAttachActionEpochRef = useRef(0);
+  const prevCustomerIdRef = useRef(customerId);
+  const markUserAttachAction = () => {
+    userAttachActionEpochRef.current += 1;
+  };
   const setConversationActiveAttachment = (id, mime = null, ids = null) => {
     const primary = String(id ?? "").trim() || null;
     const list = Array.isArray(ids)
-      ? ids.map((x) => String(x ?? "").trim()).filter(Boolean)
+      ? [...new Set(ids.map((x) => String(x ?? "").trim()).filter(Boolean))]
       : primary
         ? [primary]
         : [];
-    setActiveAttachmentId(primary);
+    setActiveAttachmentId(primary || (list.length ? list[list.length - 1] : null));
     setActiveAttachmentIds(list);
     setActiveAttachmentMime(mime != null ? String(mime).trim() || null : null);
   };
@@ -682,6 +693,21 @@ export default function LifeguardHomeChat({
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  const rememberRestorableCandidateFromBundle = useCallback((bundle, scope = {}) => {
+    const candidate = normalizeRestorableAttachmentCandidate(bundle, {
+      customerId: scope.customerId ?? customerIdRef.current,
+      sessionId: scope.sessionId ?? sessionIdRef.current,
+    });
+    if (candidate) setRestorableAttachmentCandidate(candidate);
+  }, []);
+
+  useEffect(() => {
+    if (prevCustomerIdRef.current === customerId) return;
+    prevCustomerIdRef.current = customerId;
+    clearConversationActiveAttachment();
+    setRestorableAttachmentCandidate(null);
+  }, [customerId]);
 
   useEffect(() => {
     authUserRef.current = authUser;
@@ -1323,6 +1349,8 @@ export default function LifeguardHomeChat({
     }
 
     (async () => {
+      const userEpochAtStart = userAttachActionEpochRef.current;
+      const sessionIdAtStart = String(sessionIdRef.current ?? "");
       try {
         const snapshot = readLifeguardChatSnapshot(customerId);
         const recent = await listLifeguardRecentSessions(authUser, { customerId });
@@ -1336,6 +1364,15 @@ export default function LifeguardHomeChat({
           snapshotSessionId: snapshot?.sessionId ?? null,
         });
         setSessionId(activeId);
+        if (
+          sessionIdAtStart &&
+          String(activeId) !== sessionIdAtStart &&
+          userAttachActionEpochRef.current === userEpochAtStart
+        ) {
+          clearConversationActiveAttachment();
+          setRestorableAttachmentCandidate(null);
+        }
+        sessionIdRef.current = activeId;
         writeActiveSessionId(customerId, activeId);
 
         const seed =
@@ -1375,35 +1412,42 @@ export default function LifeguardHomeChat({
             // B: merge keeps streamed customer_answer; restored may only refresh older rows.
             return mergeRestoredSessionMessages(base, restored);
           });
-          const fromRestored = extractActiveAttachmentFromSessionMessages(restored);
-          const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
-          const candidate =
-            fromRestored ||
-            (String(snapshot?.sessionId) === String(activeId) ? fromSnap : null);
-          // Soft-deleted document_ids stay cleared across refresh (message metadata may still name them).
-          const active = rejectClearedActiveAttachment(candidate, customerId);
-          if (active) {
-            setConversationActiveAttachment(active.active_attachment_id, active.active_attachment_mime, active.active_attachment_ids);
-          } else if (!keepVisibleThread) {
-            clearConversationActiveAttachment();
+          // Past attach → restorable candidate only. Never auto-activate originals.
+          if (
+            !cancelled &&
+            userAttachActionEpochRef.current === userEpochAtStart &&
+            String(customerIdRef.current) === String(customerId) &&
+            String(sessionIdRef.current) === String(activeId)
+          ) {
+            const candidate = pickRestorableAttachmentCandidate({
+              messages: restored,
+              snapshot,
+              customerId,
+              sessionId: activeId,
+              rejectCleared: rejectClearedActiveAttachment,
+            });
+            setRestorableAttachmentCandidate(candidate);
           }
           setPanelView("chat");
         } else if (seed.length > 0) {
-          // Remount before DB indexed the just-completed turn ? keep local snapshot.
+          // Remount before DB indexed the just-completed turn — keep local snapshot.
           setMessages((prev) => mergeRestoredSessionMessages(seed.length > 0 ? seed : prev, []));
-          const fromSnap = normalizeActiveAttachment(snapshot?.activeAttachment ?? null);
-          const active =
-            fromSnap && String(snapshot?.sessionId) === String(activeId)
-              ? rejectClearedActiveAttachment(fromSnap, customerId)
-              : null;
-          if (active) {
-            setConversationActiveAttachment(active.active_attachment_id, active.active_attachment_mime, active.active_attachment_ids);
-          } else {
-            clearConversationActiveAttachment();
+          if (
+            !cancelled &&
+            userAttachActionEpochRef.current === userEpochAtStart &&
+            String(customerIdRef.current) === String(customerId) &&
+            String(sessionIdRef.current) === String(activeId)
+          ) {
+            const candidate = pickRestorableAttachmentCandidate({
+              messages: seed,
+              snapshot,
+              customerId,
+              sessionId: activeId,
+              rejectCleared: rejectClearedActiveAttachment,
+            });
+            setRestorableAttachmentCandidate(candidate);
           }
           setPanelView("chat");
-        } else if (!keepVisibleThread) {
-          clearConversationActiveAttachment();
         }
 
         setThreadRestoreReady(true);
@@ -1588,32 +1632,37 @@ export default function LifeguardHomeChat({
       }
 
       setSessionId(targetSessionId);
+      sessionIdRef.current = targetSessionId;
       setError("");
       writeActiveSessionId(customerId, targetSessionId);
       setThreadRestoreReady(false);
       restoreForceScrollRef.current = true;
       stickToBottomRef.current = true;
+      clearConversationActiveAttachment();
+      setRestorableAttachmentCandidate(null);
 
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
         setMessages(restored);
-        const active = rejectClearedActiveAttachment(
-          extractActiveAttachmentFromSessionMessages(restored),
+        const candidate = pickRestorableAttachmentCandidate({
+          messages: restored,
+          snapshot: null,
           customerId,
-        );
-        if (active) {
-          setConversationActiveAttachment(active.active_attachment_id, active.active_attachment_mime, active.active_attachment_ids);
-        } else {
-          clearConversationActiveAttachment();
+          sessionId: targetSessionId,
+          rejectCleared: rejectClearedActiveAttachment,
+        });
+        if (String(sessionIdRef.current) === String(targetSessionId)) {
+          setRestorableAttachmentCandidate(candidate);
         }
         writeLifeguardChatSnapshot(customerId, {
           sessionId: targetSessionId,
           messages: restored,
-          activeAttachment: active,
+          activeAttachment: null,
         });
       } catch (err) {
         setMessages([]);
         clearConversationActiveAttachment();
+        setRestorableAttachmentCandidate(null);
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
@@ -1906,9 +1955,11 @@ export default function LifeguardHomeChat({
       )
         .map((id) => String(id ?? "").trim())
         .filter(Boolean);
-      // Banner "첨부 참조" state — cleared by "첨부 참조 해제". Current-turn uploads are separate.
+      // Explicit active only — candidate alone never enables reference.
       const attachmentReferenceEnabled =
-        Boolean(activeAttachmentId) || reusedActiveAttachment === true;
+        Boolean(activeAttachmentId) ||
+        activeAttachmentIds.length > 0 ||
+        reusedActiveAttachment === true;
       let attachOptions = {
         sessionId,
         ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
@@ -2118,6 +2169,7 @@ export default function LifeguardHomeChat({
           attachMimeForTurn,
           snapIds,
         );
+        rememberRestorableCandidateFromBundle(nextActive, { customerId, sessionId });
       } else if (activeAttachmentId) {
         nextActive = {
           active_attachment_id: activeAttachmentId,
@@ -2243,12 +2295,13 @@ export default function LifeguardHomeChat({
     endInflightHomeChatTurn(inflightTurnIdRef.current);
     inflightTurnIdRef.current = null;
     setSessionId(newSessionId);
+    sessionIdRef.current = newSessionId;
     setMessages([]);
     setTurnMirror(null);
     setInput("");
     setError("");
-    setActiveAttachmentId(null);
-    setActiveAttachmentMime(null);
+    clearConversationActiveAttachment();
+    setRestorableAttachmentCandidate(null);
     clearComposerAttach();
     setPanelView("chat");
     setSidebarOpen(false);
@@ -2278,12 +2331,58 @@ export default function LifeguardHomeChat({
   };
 
   const clearActiveAttachment = () => {
+    if (activeAttachmentId) {
+      rememberRestorableCandidateFromBundle(
+        {
+          active_attachment_id: activeAttachmentId,
+          active_attachment_ids: activeAttachmentIds,
+          active_attachment_mime: activeAttachmentMime,
+        },
+        { customerId, sessionId },
+      );
+    }
     clearConversationActiveAttachment();
     if (customerId) {
       writeLifeguardChatSnapshot(customerId, {
         sessionId,
         messages,
         activeAttachment: null,
+      });
+    }
+  };
+
+  const reactivateRestorableAttachmentCandidate = () => {
+    if (loading || streaming || chatAttachUploading) return;
+    if (activeAttachmentId || activeAttachmentIds.length > 0) return;
+    if (
+      !isRestorableAttachmentCandidateInScope(restorableAttachmentCandidate, {
+        customerId,
+        sessionId,
+      })
+    ) {
+      return;
+    }
+    const rejected = rejectClearedActiveAttachment(
+      restorableAttachmentCandidate,
+      customerId,
+    );
+    if (!rejected) return;
+    markUserAttachAction();
+    setConversationActiveAttachment(
+      rejected.active_attachment_id,
+      rejected.active_attachment_mime ?? null,
+      rejected.active_attachment_ids,
+    );
+    if (customerId) {
+      writeLifeguardChatSnapshot(customerId, {
+        sessionId,
+        messages,
+        activeAttachment: {
+          active_attachment_id: rejected.active_attachment_id,
+          active_attachment_ids: rejected.active_attachment_ids,
+          active_attachment_mime: rejected.active_attachment_mime ?? null,
+          active_rotation_quarter_turns: 0,
+        },
       });
     }
   };
@@ -2488,12 +2587,21 @@ export default function LifeguardHomeChat({
               isImage,
             }),
           );
-          // Seed conversation active attach at upload ? do not wait for a successful turn.
+          // Seed conversation active attach at upload — do not wait for a successful turn.
           // Follow-ups ("합산만/보장내역") must resend document_id even if composer chip is cleared.
           setChatAttachments((prevForSnap) => {
             const snapIds = listChatComposerDocumentIds(prevForSnap);
             const ids = snapIds.includes(documentId) ? snapIds : [...snapIds, documentId];
+            markUserAttachAction();
             setConversationActiveAttachment(documentId, mime, ids);
+            rememberRestorableCandidateFromBundle(
+              {
+                active_attachment_id: documentId,
+                active_attachment_ids: ids,
+                active_attachment_mime: mime,
+              },
+              { customerId, sessionId },
+            );
             if (customerId) {
               writeLifeguardChatSnapshot(customerId, {
                 sessionId,
@@ -3508,6 +3616,58 @@ export default function LifeguardHomeChat({
                   }}
                 >
                   첨부 참조 해제
+                </button>
+              </div>
+            ) : null}
+            {chatAttachments.length === 0 &&
+            !chatAttachUploading &&
+            !activeAttachmentId &&
+            activeAttachmentIds.length === 0 &&
+            !loading &&
+            !streaming &&
+            isRestorableAttachmentCandidateInScope(restorableAttachmentCandidate, {
+              customerId,
+              sessionId,
+            }) ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  marginBottom: "8px",
+                  fontSize: "12px",
+                  color: LG.textMuted,
+                }}
+              >
+                <span>
+                  {"이전 첨부 " +
+                    String(
+                      Array.isArray(restorableAttachmentCandidate.active_attachment_ids)
+                        ? restorableAttachmentCandidate.active_attachment_ids.length
+                        : 1,
+                    ) +
+                    "개를 다시 참조할 수 있습니다."}
+                </span>
+                <button
+                  type="button"
+                  onClick={reactivateRestorableAttachmentCandidate}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: LG.textMuted,
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    fontFamily: FINAL_UI.sans,
+                  }}
+                >
+                  {"이전 첨부 " +
+                    String(
+                      Array.isArray(restorableAttachmentCandidate.active_attachment_ids)
+                        ? restorableAttachmentCandidate.active_attachment_ids.length
+                        : 1,
+                    ) +
+                    "개 참조하기"}
                 </button>
               </div>
             ) : null}

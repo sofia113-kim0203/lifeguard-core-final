@@ -544,3 +544,82 @@ export function extractActiveAttachmentFromSessionMessages(messages = []) {
   }
   return null;
 }
+
+/**
+ * Past attach bundle for explicit reactivation UI only — never original-send authority.
+ * Does not grant attachment_reference_enabled / active_attachment_ids by itself.
+ */
+export function normalizeRestorableAttachmentCandidate(input = null, scope = {}) {
+  const normalized = normalizeActiveAttachment(input);
+  if (!normalized) return null;
+  const customerId = String(scope.customerId ?? input?.customer_id ?? "").trim() || null;
+  const sessionId = String(scope.sessionId ?? input?.session_id ?? "").trim() || null;
+  const ids = [
+    ...new Set(
+      (Array.isArray(normalized.active_attachment_ids)
+        ? normalized.active_attachment_ids
+        : [normalized.active_attachment_id]
+      )
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!ids.length) return null;
+  return {
+    active_attachment_id: ids[ids.length - 1] || ids[0],
+    active_attachment_ids: ids,
+    active_attachment_mime: normalized.active_attachment_mime ?? null,
+    customer_id: customerId,
+    session_id: sessionId,
+  };
+}
+
+/**
+ * Pick one same-session restorable candidate from messages and/or snapshot.
+ * Never merges different sessions. Never auto-activates.
+ */
+export function pickRestorableAttachmentCandidate({
+  messages = null,
+  snapshot = null,
+  customerId = null,
+  sessionId = null,
+  rejectCleared = null,
+} = {}) {
+  const sid = String(sessionId ?? "").trim();
+  const cid = String(customerId ?? "").trim();
+  if (!sid) return null;
+
+  const fromMessages = extractActiveAttachmentFromSessionMessages(messages);
+  const snapSid = String(snapshot?.sessionId ?? "").trim();
+  const fromSnap =
+    snapSid && snapSid === sid
+      ? normalizeActiveAttachment(snapshot?.activeAttachment ?? null)
+      : null;
+  // Prefer message metadata (DB), then same-session snapshot — one latest bundle only.
+  let picked = fromMessages || fromSnap;
+  if (typeof rejectCleared === "function" && picked) {
+    picked = rejectCleared(picked, cid || null);
+  }
+  if (!picked) return null;
+  return normalizeRestorableAttachmentCandidate(picked, {
+    customerId: cid || null,
+    sessionId: sid,
+  });
+}
+
+/** True when candidate belongs to the current customer + session scope. */
+export function isRestorableAttachmentCandidateInScope(candidate = null, scope = {}) {
+  if (!candidate || typeof candidate !== "object") return false;
+  const ids = Array.isArray(candidate.active_attachment_ids)
+    ? candidate.active_attachment_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+  if (!ids.length) return false;
+  const cid = String(scope.customerId ?? "").trim();
+  const sid = String(scope.sessionId ?? "").trim();
+  const candCid = String(candidate.customer_id ?? "").trim();
+  const candSid = String(candidate.session_id ?? "").trim();
+  if (cid && candCid && cid !== candCid) return false;
+  if (sid && candSid && sid !== candSid) return false;
+  if (sid && !candSid) return false;
+  return true;
+}

@@ -36,8 +36,16 @@ import {
   shouldProvideOwnedInsuranceVaultOriginals,
   shouldRunOwnedVaultRecall,
   extractActiveAttachmentIdsFromMetadata,
+  extractActiveAttachmentFromSessionMessages,
   normalizeActiveAttachment,
+  normalizeRestorableAttachmentCandidate,
+  pickRestorableAttachmentCandidate,
+  isRestorableAttachmentCandidateInScope,
 } from "../src/lib/chatActiveAttachment.js";
+import {
+  buildHomeBrainFactRequestBody,
+  resolveAttachmentRequestScope,
+} from "../src/lib/homeBrainFactRequestBody.js";
 import { normalizeAttachmentRowsForClaude } from "../server/keyCore/keyImageOrientation.js";
 import { resolveActiveInsuranceDocumentCase } from "../server/keyCore/keyActiveInsuranceDocumentCase.js";
 import {
@@ -843,5 +851,331 @@ ok("context_contract_and_confirmation_boundary");
   assert.equal(createHash("sha256").update(sample, "utf8").digest("hex"), sha);
 }
 ok("question_scope_and_grounded_product_recommendation");
+
+// ─── Explicit prior-attachment reactivation (TEST 1–10) ───
+{
+  const homeChatPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../src/components/LifeguardHomeChat.jsx",
+  );
+  const homeChatSrc = readFileSync(homeChatPath, "utf8");
+
+  // TEST 1 — past message metadata hydrate → candidate only, request scope empty
+  {
+    const messages = [
+      {
+        role: "user",
+        content: "업로드",
+        metadata: {
+          active_attachment_id: "B",
+          active_attachment_ids: ["A", "B"],
+          active_attachment_mime: "application/pdf",
+        },
+      },
+    ];
+    const fromMessages = extractActiveAttachmentFromSessionMessages(messages);
+    assert.deepEqual(fromMessages.active_attachment_ids, ["A", "B"]);
+    const candidate = pickRestorableAttachmentCandidate({
+      messages,
+      snapshot: null,
+      customerId: "cust-1",
+      sessionId: "sess-1",
+    });
+    assert.deepEqual(candidate.active_attachment_ids, ["A", "B"]);
+    assert.equal(candidate.session_id, "sess-1");
+    assert.equal(candidate.customer_id, "cust-1");
+    const active = [];
+    assert.deepEqual(active, []);
+    const scope = resolveAttachmentRequestScope({
+      attachmentReferenceEnabled: false,
+      activeAttachmentIds: active,
+      currentTurnDocumentIds: [],
+      documentId: candidate.active_attachment_id,
+      documentIds: candidate.active_attachment_ids,
+    });
+    assert.equal(scope.attachmentReferenceEnabled, false);
+    assert.deepEqual(scope.activeAttachmentIds, []);
+    assert.deepEqual(scope.currentTurnDocumentIds, []);
+    assert.equal(scope.documentId, null);
+    const body = buildHomeBrainFactRequestBody("암주요치료비는 뭐야?", [], {
+      attachmentReferenceEnabled: false,
+      activeAttachmentIds: [],
+      currentTurnDocumentIds: [],
+      documentId: candidate.active_attachment_id,
+      documentIds: candidate.active_attachment_ids,
+      sessionId: "sess-1",
+    });
+    assert.equal(body.attachment_reference_enabled, false);
+    assert.equal(body.active_attachment_ids, undefined);
+    assert.equal(body.current_turn_document_ids, undefined);
+    assert.equal(body.document_id, undefined);
+    assert.equal(JSON.stringify(body).includes("\"A\""), false);
+    assert.equal(JSON.stringify(body).includes("\"B\""), false);
+  }
+  ok("explicit_reactivation_test1_message_metadata_hydrate");
+
+  // TEST 2 — snapshot hydrate → candidate only
+  {
+    const snapshot = {
+      sessionId: "sess-2",
+      activeAttachment: {
+        active_attachment_id: "B",
+        active_attachment_ids: ["A", "B"],
+        active_attachment_mime: "image/jpeg",
+      },
+    };
+    const candidate = pickRestorableAttachmentCandidate({
+      messages: [],
+      snapshot,
+      customerId: "cust-1",
+      sessionId: "sess-2",
+    });
+    assert.deepEqual(candidate.active_attachment_ids, ["A", "B"]);
+    const scope = resolveAttachmentRequestScope({
+      attachmentReferenceEnabled: false,
+      activeAttachmentIds: [],
+      currentTurnDocumentIds: [],
+      documentIds: candidate.active_attachment_ids,
+    });
+    assert.equal(scope.attachmentReferenceEnabled, false);
+    assert.deepEqual(scope.activeAttachmentIds, []);
+  }
+  ok("explicit_reactivation_test2_snapshot_hydrate");
+
+  // TEST 3 — explicit reactivation click → active=[A,B], no current-turn, no API
+  {
+    const candidate = normalizeRestorableAttachmentCandidate(
+      {
+        active_attachment_id: "B",
+        active_attachment_ids: ["A", "B"],
+      },
+      { customerId: "cust-1", sessionId: "sess-1" },
+    );
+    const activeBefore = [];
+    assert.deepEqual(activeBefore, []);
+    assert.equal(
+      isRestorableAttachmentCandidateInScope(candidate, {
+        customerId: "cust-1",
+        sessionId: "sess-1",
+      }),
+      true,
+    );
+    const activeAfter = candidate.active_attachment_ids.slice();
+    assert.deepEqual(activeAfter, ["A", "B"]);
+    const body = buildHomeBrainFactRequestBody("이 서류 보장 정리해줘", [], {
+      attachmentReferenceEnabled: true,
+      activeAttachmentIds: activeAfter,
+      currentTurnDocumentIds: [],
+      sessionId: "sess-1",
+    });
+    assert.equal(body.attachment_reference_enabled, true);
+    assert.deepEqual(body.active_attachment_ids, ["A", "B"]);
+    assert.equal(body.current_turn_document_ids, undefined);
+    assert.equal(homeChatSrc.includes("reactivateRestorableAttachmentCandidate"), true);
+    assert.match(homeChatSrc, /onClick=\{reactivateRestorableAttachmentCandidate\}/);
+    assert.equal(homeChatSrc.includes("fetch(") && /reactivateRestorableAttachmentCandidate[\s\S]{0,400}fetch\(/.test(homeChatSrc), false);
+  }
+  ok("explicit_reactivation_test3_click_activates_only");
+
+  // TEST 4 — current 3-file upload path (identity / dedupe / sum) + request shape
+  {
+    const ids = ["a", "b", "c"];
+    const body = buildHomeBrainFactRequestBody("세 서류 월 보험료 합계", [], {
+      attachmentReferenceEnabled: true,
+      activeAttachmentIds: ids,
+      currentTurnDocumentIds: ids,
+      documentIds: ids,
+      sessionId: "sess-up",
+    });
+    assert.equal(body.attachment_reference_enabled, true);
+    assert.deepEqual(body.active_attachment_ids, ["a", "b", "c"]);
+    assert.deepEqual(body.current_turn_document_ids, ["a", "b", "c"]);
+    const bytesA = Buffer.from("page-1-reactivation-test4");
+    const bytesB = Buffer.from("page-2-reactivation-test4");
+    const plan = buildAttachmentIdentityDeliveryPlan({
+      identityRows: [
+        {
+          document_id: "a",
+          original_filename: "1-3.png",
+          base64: bytesA.toString("base64"),
+          source_scope: "current_turn_attachment",
+        },
+        {
+          document_id: "b",
+          original_filename: "2-3.png",
+          base64: bytesB.toString("base64"),
+          source_scope: "current_turn_attachment",
+        },
+        {
+          document_id: "c",
+          original_filename: "1-3-dup.png",
+          base64: bytesA.toString("base64"),
+          source_scope: "current_turn_attachment",
+        },
+      ],
+    });
+    assert.equal(plan.attachment_identity_count, 3);
+    assert.equal(plan.unique_original_block_count, 2);
+    assert.deepEqual(plan.duplicate_map, [
+      { document_id: "c", duplicate_of_document_id: "a" },
+    ]);
+    const totals = sumMonthlyPremiumsDeterministic([
+      { document_id: "a", monthly_premium: 183231, content_sha256: "sha-a", policy_number: "POL-A" },
+      { document_id: "b", monthly_premium: 183231, content_sha256: "sha-b", policy_number: "POL-A" },
+      { document_id: "c", monthly_premium: 183231, content_sha256: "sha-a", policy_number: "POL-A" },
+    ]);
+    assert.equal(totals.monthly_premium_sum, 183231);
+  }
+  ok("explicit_reactivation_test4_current_upload_multi");
+
+  // TEST 5 — same-screen follow-up: active kept, current-turn cleared
+  {
+    const body = buildHomeBrainFactRequestBody("합산만", [], {
+      attachmentReferenceEnabled: true,
+      activeAttachmentIds: ["a", "b", "c"],
+      currentTurnDocumentIds: [],
+      sessionId: "sess-up",
+    });
+    assert.equal(body.attachment_reference_enabled, true);
+    assert.deepEqual(body.active_attachment_ids, ["a", "b", "c"]);
+    assert.equal(body.current_turn_document_ids, undefined);
+  }
+  ok("explicit_reactivation_test5_same_screen_followup");
+
+  // TEST 6 — clear → general question isolates candidate
+  {
+    const candidate = normalizeRestorableAttachmentCandidate(
+      { active_attachment_id: "B", active_attachment_ids: ["A", "B"] },
+      { customerId: "cust-1", sessionId: "sess-1" },
+    );
+    const body = buildHomeBrainFactRequestBody("일반 질문", [], {
+      attachmentReferenceEnabled: false,
+      activeAttachmentIds: [],
+      currentTurnDocumentIds: [],
+      documentIds: candidate.active_attachment_ids,
+      sessionId: "sess-1",
+    });
+    assert.equal(body.attachment_reference_enabled, false);
+    assert.equal(body.active_attachment_ids, undefined);
+    assert.equal(body.current_turn_document_ids, undefined);
+    assert.equal(body.document_id, undefined);
+    assert.ok(candidate);
+  }
+  ok("explicit_reactivation_test6_clear_general_question");
+
+  // TEST 7 — clear then reactivate: only candidate IDs, no auto-expand
+  {
+    const candidate = normalizeRestorableAttachmentCandidate(
+      { active_attachment_id: "B", active_attachment_ids: ["A", "B"] },
+      { customerId: "cust-1", sessionId: "sess-1" },
+    );
+    const active = candidate.active_attachment_ids.slice();
+    assert.deepEqual(active, ["A", "B"]);
+    assert.equal(active.includes("Z"), false);
+    const body = buildHomeBrainFactRequestBody("다시 참조", [], {
+      attachmentReferenceEnabled: true,
+      activeAttachmentIds: active,
+      currentTurnDocumentIds: [],
+    });
+    assert.deepEqual(body.active_attachment_ids, ["A", "B"]);
+    assert.equal(body.current_turn_document_ids, undefined);
+  }
+  ok("explicit_reactivation_test7_clear_then_reactivate");
+
+  // TEST 8 — late hydrate race: hydrate never writes active; epoch guard present
+  {
+    assert.match(homeChatSrc, /userAttachActionEpochRef/);
+    assert.match(homeChatSrc, /userEpochAtStart/);
+    assert.match(
+      homeChatSrc,
+      /userAttachActionEpochRef\.current === userEpochAtStart/,
+    );
+    assert.match(homeChatSrc, /setRestorableAttachmentCandidate\(candidate\)/);
+    // Hydrate restore block must not call setConversationActiveAttachment
+    const hydrateIdx = homeChatSrc.indexOf("Past attach → restorable candidate only");
+    assert.ok(hydrateIdx > 0);
+    const hydrateSlice = homeChatSrc.slice(hydrateIdx, hydrateIdx + 1200);
+    assert.equal(hydrateSlice.includes("setConversationActiveAttachment"), false);
+    assert.equal(hydrateSlice.includes("setRestorableAttachmentCandidate"), true);
+  }
+  ok("explicit_reactivation_test8_late_hydrate_guard");
+
+  // TEST 9 — session/customer isolation
+  {
+    const candidate = normalizeRestorableAttachmentCandidate(
+      { active_attachment_id: "A", active_attachment_ids: ["A"] },
+      { customerId: "cust-A", sessionId: "sess-1" },
+    );
+    assert.equal(
+      isRestorableAttachmentCandidateInScope(candidate, {
+        customerId: "cust-B",
+        sessionId: "sess-1",
+      }),
+      false,
+    );
+    assert.equal(
+      isRestorableAttachmentCandidateInScope(candidate, {
+        customerId: "cust-A",
+        sessionId: "sess-2",
+      }),
+      false,
+    );
+    const snapOther = {
+      sessionId: "sess-other",
+      activeAttachment: {
+        active_attachment_id: "X",
+        active_attachment_ids: ["X", "Y"],
+      },
+    };
+    const picked = pickRestorableAttachmentCandidate({
+      messages: [
+        {
+          metadata: {
+            active_attachment_id: "A",
+            active_attachment_ids: ["A", "B"],
+          },
+        },
+      ],
+      snapshot: snapOther,
+      customerId: "cust-A",
+      sessionId: "sess-1",
+    });
+    assert.deepEqual(picked.active_attachment_ids, ["A", "B"]);
+    assert.equal(picked.active_attachment_ids.includes("X"), false);
+    assert.match(homeChatSrc, /prevCustomerIdRef/);
+    assert.match(homeChatSrc, /setRestorableAttachmentCandidate\(null\)/);
+  }
+  ok("explicit_reactivation_test9_session_customer_isolation");
+
+  // TEST 10 — candidate request isolation (CASE A)
+  {
+    const body = buildHomeBrainFactRequestBody("암주요치료비는 뭐야?", [], {
+      attachmentReferenceEnabled: false,
+      activeAttachmentIds: [],
+      currentTurnDocumentIds: [],
+      // attacker/leak attempt: candidate ids must not serialize
+      documentId: "A",
+      documentIds: ["A", "B"],
+      sessionId: "sess-1",
+    });
+    assert.equal(body.attachment_reference_enabled, false);
+    assert.equal(body.active_attachment_ids, undefined);
+    assert.equal(body.current_turn_document_ids, undefined);
+    assert.equal(body.document_id, undefined);
+    assert.equal(body.document_ids, undefined);
+    const raw = JSON.stringify(body);
+    assert.equal(raw.includes("\"A\""), false);
+    assert.equal(raw.includes("\"B\""), false);
+  }
+  ok("explicit_reactivation_test10_candidate_request_isolation");
+
+  // Static UI invariants
+  assert.match(homeChatSrc, /첨부 참조 해제/);
+  assert.match(homeChatSrc, /개 참조하기/);
+  assert.match(homeChatSrc, /type="button"/);
+  assert.match(homeChatSrc, /KEY가 확인하고 있어요\./);
+  assert.equal(homeChatSrc.includes("restorableAttachmentCandidate"), true);
+}
+ok("explicit_prior_attachment_reactivation_suite");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
