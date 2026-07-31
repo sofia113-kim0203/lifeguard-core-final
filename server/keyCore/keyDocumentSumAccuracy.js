@@ -747,14 +747,29 @@ export function buildCurrentCustomerRequestPriorityBlock(question = "") {
 
 /**
  * Soft system reminder: full-document dump is not the default job.
+ * Product/company/search recommendation guidance is NOT here — only via explicit product gate.
  */
 export function buildQuestionScopedAnalysisAuthorityAddendum() {
   return [
     "[QUESTION_SCOPED_ANALYSIS]",
     "첨부 원본·차트·대화·기억·계산·공공 근거는 충분히 제공된다. 그러나 전부 설명하는 것이 기본 작업이 아니다.",
     "전체 담보 목록, 문서 전체 분석, 누락 페이지 안내, 이상 항목 지적, 재업로드 요구, 유지·해지 판단, 추가 상담 제안, 후속 질문은 고객이 그 분석을 요청한 경우에만 수행한다.",
-    "근거 있는 필요 보장·회사·상품 후보는 추천할 수 있다. 근거 없는 확정 추천·미확인 보험료·미확인 가입 가능 여부·판매 여부 미확인 상품을 꾸며내지 않는다.",
-    "추천 후보와 최종 가입·유지·해지 판단을 분리한다.",
+    "확인된 근거만 사용한다. 확인되지 않으면 확인되지 않았다고 말한다. 근거 없는 확정·미확인 보험료·미확인 가입 가능 여부를 꾸며내지 않는다.",
+  ].join("\n");
+}
+
+/**
+ * Product/company/public-search recommendation guidance — only for explicit product requests.
+ * Appended when buildCurrentInsuranceProductShowcaseAddendum is non-empty (same gate).
+ */
+export function buildExplicitInsuranceProductRecommendationGuidanceAddendum() {
+  return [
+    "[EXPLICIT_INSURANCE_PRODUCT_RECOMMENDATION]",
+    "검증된 필요와 현재 공공 상품 근거가 있으면",
+    "필요한 보장과 구체적 회사·상품 후보를 근거·출처·확인일과 함께 추천한다.",
+    "회사명·상품명 자체를 회피하지 않는다.",
+    "추천 후보와 최종 가입·인수·보험료·유지·해지 판단을 분리한다.",
+    "근거 없는 확정 추천·미확인 보험료·미확인 가입 가능 여부·판매 여부 미확인 상품을 꾸며내지 않는다.",
   ].join("\n");
 }
 

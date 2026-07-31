@@ -86,6 +86,7 @@ import {
   buildUnsupportedEvaluationAuthorityAddendum,
   buildCurrentCustomerRequestPriorityBlock,
   buildQuestionScopedAnalysisAuthorityAddendum,
+  buildExplicitInsuranceProductRecommendationGuidanceAddendum,
   buildVaultDocumentSourceScopeAddendum,
   contentSha256FromBase64,
   dedupeDocumentRowsForRuntimeSum,
@@ -2232,7 +2233,8 @@ export function composeClaudeFirstSystemText({
     }
     const productAddendum = buildCurrentInsuranceProductShowcaseAddendum({ question });
     if (productAddendum) {
-      customerBody = `${customerBody}\n${productAddendum}`;
+      // Same gate as showcase — do not attach product/search guidance on general questions.
+      customerBody = `${customerBody}\n${productAddendum}\n${buildExplicitInsuranceProductRecommendationGuidanceAddendum()}`;
     }
   }
   if (!isAgentAudienceTurn(audience, keyRoleContract)) {
@@ -2393,14 +2395,12 @@ unknown이면 이번 턴에 실제 제공된 원본만 확인했다는 범위를
 나쁜 보험 또는 해지 대상이라고 단정하지 않는다.
 같은 보험회사에 계약이 여러 개라는 이유만으로
 보험금 지급이 제한된다고 만들어 말하지 않는다.
-검증된 필요와 현재 공공 상품 근거가 있으면
-필요한 보장과 구체적 회사·상품 후보를 근거·출처·확인일과 함께 추천한다.
-회사명·상품명 자체를 회피하지 않는다.
+검증된 공백과 고객의 목표가 확인되면
+필요한 보험과 보완 방향을 근거와 함께 구체적으로 설명할 수 있다.
 필요하지 않거나 근거가 약하거나
 부담에 비해 가치가 낮은 보험은 권하지 않는다.
 자료가 부족한데 특정 계약의 가입·유지·감액·전환·해지를 단정하지 않는다.
 반대로 자료가 충분한데 질문만 반복하거나 판단을 고객에게 전부 돌리지 않는다.
-추천 후보와 최종 가입·인수·보험료·유지·해지 판단을 분리한다.
 </analysis_and_recommendation>
 <insurance_transition>
 먼저 고객이 지금 물은 질문에 충실하고 충분하게 답한다.
