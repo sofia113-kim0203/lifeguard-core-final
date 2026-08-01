@@ -68,11 +68,14 @@ import {
   isExplicitDocumentBoxMentionQuestion,
   extractMentionedFilenamesFromChat,
   isInsuranceDocumentRecallQuestion,
-  isOriginalDocumentRereadQuestion,
   shouldRunOwnedVaultRecall,
   shouldProvideOwnedInsuranceVaultOriginals,
 } from "../../src/lib/chatActiveAttachment.js";
 import { listAttachedDocumentIds } from "../../src/lib/homeBrainAttachDocumentIds.js";
+import {
+  decideForceFullOriginalForOneShot,
+  resolveOriginalByteDeliveryAuthority,
+} from "../../src/lib/originalAttachmentOneShot.js";
 import {
   buildAttachAnalysisScopeAuthorityAddendum,
   buildAttachmentIdentityCatalogAddendum,
@@ -5564,6 +5567,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   attachmentReferenceEnabled = false,
   activeAttachmentIds = null,
   currentTurnDocumentIds = null,
+  explicitReopenDocumentIds = null,
   sessionId = null,
   readyCardHandoffToken = null,
   presenceTurn = false,
@@ -5864,16 +5868,21 @@ export async function runClaudeFirstDirectQuestionTurn({
   const scopedCurrentTurnDocumentIds = isPresenceTurn
     ? []
     : listAttachedDocumentIds(currentTurnDocumentIds);
-  const attachmentReferenceOn = isPresenceTurn
-    ? false
-    : attachmentReferenceEnabled === true;
-  let clientAttachedDocumentIds = isPresenceTurn
+  const scopedExplicitReopenDocumentIds = isPresenceTurn
     ? []
-    : listAttachedDocumentIds(
-        Array.isArray(attachedDocumentIds) && attachedDocumentIds.length
-          ? attachedDocumentIds
-          : attachedDocumentId,
-      );
+    : listAttachedDocumentIds(explicitReopenDocumentIds);
+  const originalByteDelivery = resolveOriginalByteDeliveryAuthority({
+    currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+    explicitReopenDocumentIds: scopedExplicitReopenDocumentIds,
+  });
+  const originalDeliveryIds = originalByteDelivery.deliveryIds;
+  // Past active / stale document_ids alone must not authorize original bytes.
+  void attachmentReferenceEnabled;
+  void attachedDocumentId;
+  void attachedDocumentIds;
+  void scopedActiveAttachmentIds;
+  const attachmentReferenceOn = originalDeliveryIds.length > 0;
+  let clientAttachedDocumentIds = isPresenceTurn ? [] : originalDeliveryIds.slice();
   const clientExplicitDocumentId = clientAttachedDocumentIds[0] || "";
   let activeDocumentCase = {
     documentId: clientExplicitDocumentId || null,
@@ -5890,8 +5899,8 @@ export async function runClaudeFirstDirectQuestionTurn({
       clientDocumentId: clientExplicitDocumentId || null,
       clientDocumentIds: clientAttachedDocumentIds,
       attachmentReferenceEnabled: attachmentReferenceOn,
-      activeAttachmentIds: scopedActiveAttachmentIds,
-      currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+      activeAttachmentIds: originalDeliveryIds,
+      currentTurnDocumentIds: originalDeliveryIds,
       enforceAttachmentScope: true,
     });
   } else if (!isPresenceTurn) {
@@ -5902,8 +5911,8 @@ export async function runClaudeFirstDirectQuestionTurn({
       clientDocumentId: clientExplicitDocumentId || null,
       clientDocumentIds: clientAttachedDocumentIds,
       attachmentReferenceEnabled: attachmentReferenceOn,
-      activeAttachmentIds: scopedActiveAttachmentIds,
-      currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+      activeAttachmentIds: originalDeliveryIds,
+      currentTurnDocumentIds: originalDeliveryIds,
       enforceAttachmentScope: true,
     });
   }
@@ -6104,15 +6113,15 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
   const allowLatestFallback = false;
-  // Active insurance document case must re-fetch Storage bytes — keyword prior_attach skip removed.
+  // One-shot: only current_upload / explicit_reopen force full bytes (vault uses vaultMultiRecall).
   const clientPriorAttach =
     priorAttachFollowUp === true &&
-    hasActiveInsuranceDocumentCase !== true &&
+    originalDeliveryIds.length === 0 &&
     runVaultRecall !== true;
-  const forceFullOriginal =
-    (!isPresenceTurn && isOriginalDocumentRereadQuestion(question) === true) ||
-    hasActiveInsuranceDocumentCase === true ||
-    clientAttachedDocumentIds.length > 1;
+  const forceFullOriginal = decideForceFullOriginalForOneShot({
+    currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+    explicitReopenDocumentIds: scopedExplicitReopenDocumentIds,
+  });
 
   // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
   let documentChunksForClaude = [];
@@ -6137,7 +6146,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     runVaultRecall === true &&
     Array.isArray(pdfAttachmentsForClaude) &&
     pdfAttachmentsForClaude.length > 0;
-  const attachModeDecision = decidePdfAttachMode({
+  let attachModeDecision = decidePdfAttachMode({
     documentId: explicitDocumentId || null,
     priorAttachFollowUp: clientPriorAttach,
     question,
@@ -6146,6 +6155,22 @@ export async function runClaudeFirstDirectQuestionTurn({
     forceFullOriginal,
     vaultMultiRecall: vaultMultiRecallActive,
   });
+  // Defense: past document_ids / active case / multi-count never ship bytes without one-shot authority.
+  if (
+    attachModeDecision.attach_full_base64 === true &&
+    forceFullOriginal !== true &&
+    vaultMultiRecallActive !== true
+  ) {
+    attachModeDecision = {
+      mode: "reuse_no_repeat",
+      attach_full_base64: false,
+      review_scope:
+        "no_original_delivery_authority_this_turn; upload_or_explicit_reopen_required",
+      evidence_status:
+        documentChunksForClaude.length > 0 ? "document_extracted_unverified" : "unknown",
+      reason: "original_delivery_requires_upload_or_explicit_reopen",
+    };
+  }
 
   let pdf = {
     pdfBase64: null,

@@ -3,51 +3,41 @@
  */
 
 import { resolveAttachDocumentIdContract } from "./homeBrainAttachDocumentIds.js";
+import { resolveOneShotAttachmentRequestScope } from "./originalAttachmentOneShot.js";
 
 /**
  * Isolate attach-authority fields for the request body.
- * restorable candidates must never appear here — only explicit active + current-turn uploads.
+ * Original bytes: current-turn uploads or explicit chip reopen only.
+ * Restorable candidates / past active ids must never appear as delivery authority.
  */
 export function resolveAttachmentRequestScope({
   attachmentReferenceEnabled = false,
   activeAttachmentIds = null,
   currentTurnDocumentIds = null,
+  explicitReopenDocumentIds = null,
   documentId = null,
   documentIds = null,
 } = {}) {
-  const enabled = attachmentReferenceEnabled === true;
-  const currentTurnIds = resolveAttachDocumentIdContract({
-    documentIds: currentTurnDocumentIds,
-  }).documentIds;
-  const activeIds = enabled
-    ? resolveAttachDocumentIdContract({ documentIds: activeAttachmentIds }).documentIds
-    : [];
-  const authorized = new Set([...currentTurnIds, ...activeIds]);
-  if (!enabled && currentTurnIds.length === 0) {
-    return {
-      attachmentReferenceEnabled: false,
-      activeAttachmentIds: [],
-      currentTurnDocumentIds: [],
-      documentId: null,
-      documentIds: [],
-    };
-  }
-  const requested = resolveAttachDocumentIdContract({ documentId, documentIds });
-  const requestedIds =
-    requested.documentIds.length > 0
-      ? requested.documentIds
-      : requested.documentId
-        ? [requested.documentId]
-        : [];
-  const filtered = requestedIds.filter((id) => authorized.has(id));
-  const finalIds = filtered.length > 0 ? filtered : [...authorized];
-  const contract = resolveAttachDocumentIdContract({ documentIds: finalIds });
+  void attachmentReferenceEnabled;
+  void activeAttachmentIds;
+  void documentId;
+  void documentIds;
+  const oneShot = resolveOneShotAttachmentRequestScope({
+    currentTurnDocumentIds,
+    explicitReopenDocumentIds,
+  });
+  // Wire contract: single id → documentIds empty for compat; multi → full list.
+  const contract = resolveAttachDocumentIdContract({
+    documentIds: oneShot.documentIds,
+  });
   return {
-    attachmentReferenceEnabled: enabled,
-    activeAttachmentIds: activeIds,
-    currentTurnDocumentIds: currentTurnIds,
+    attachmentReferenceEnabled: false,
+    activeAttachmentIds: [],
+    currentTurnDocumentIds: oneShot.currentTurnDocumentIds,
+    explicitReopenDocumentIds: oneShot.explicitReopenDocumentIds,
     documentId: contract.documentId,
     documentIds: contract.documentIds,
+    deliveryReason: oneShot.deliveryReason,
   };
 }
 
@@ -59,6 +49,7 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
         attachmentReferenceEnabled: false,
         activeAttachmentIds: [],
         currentTurnDocumentIds: [],
+        explicitReopenDocumentIds: [],
         documentId: null,
         documentIds: [],
       }
@@ -67,6 +58,8 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
           options.attachmentReferenceEnabled ?? options.attachment_reference_enabled ?? false,
         activeAttachmentIds: options.activeAttachmentIds ?? options.active_attachment_ids,
         currentTurnDocumentIds: options.currentTurnDocumentIds ?? options.current_turn_document_ids,
+        explicitReopenDocumentIds:
+          options.explicitReopenDocumentIds ?? options.explicit_reopen_document_ids,
         documentId: options.documentId ?? options.document_id,
         documentIds: options.documentIds ?? options.document_ids,
       });
@@ -75,9 +68,8 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
   const priorAttachFollowUp = Boolean(
     options.priorAttachFollowUp ?? options.prior_attach_follow_up ?? false,
   );
-  const attachmentReferenceEnabled = scope.attachmentReferenceEnabled;
-  const activeAttachmentIds = scope.activeAttachmentIds;
   const currentTurnDocumentIds = scope.currentTurnDocumentIds;
+  const explicitReopenDocumentIds = scope.explicitReopenDocumentIds || [];
   const sessionId = String(options.sessionId ?? options.session_id ?? "").trim() || null;
   const handoffToken = String(
     options.readyCardHandoffToken ?? options.ready_card_handoff_token ?? "",
@@ -98,12 +90,12 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
     ...(presenceTurn ? { presence: true } : {}),
     ...(documentId && !presenceTurn ? { document_id: documentId } : {}),
     ...(documentIds.length > 1 && !presenceTurn ? { document_ids: documentIds } : {}),
-    ...(!presenceTurn ? { attachment_reference_enabled: attachmentReferenceEnabled } : {}),
-    ...(activeAttachmentIds.length && !presenceTurn
-      ? { active_attachment_ids: activeAttachmentIds }
-      : {}),
+    ...(!presenceTurn ? { attachment_reference_enabled: false } : {}),
     ...(currentTurnDocumentIds.length && !presenceTurn
       ? { current_turn_document_ids: currentTurnDocumentIds }
+      : {}),
+    ...(explicitReopenDocumentIds.length && !presenceTurn
+      ? { explicit_reopen_document_ids: explicitReopenDocumentIds }
       : {}),
     ...(priorAttachFollowUp && !presenceTurn ? { prior_attach_follow_up: true } : {}),
     // GO3: session_id only — server loads session_goal SSOT; never send prior_session_goal.

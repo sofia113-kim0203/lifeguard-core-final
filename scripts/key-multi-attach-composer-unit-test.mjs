@@ -24,20 +24,26 @@ const ROOT = join(__dirname, "..");
 
 console.log("key-multi-attach-composer-unit-test");
 
-// 1 file → same single document_id wire shape
+// 1 file → same single document_id wire shape (current_upload)
 {
-  const body = buildHomeBrainFactRequestBody("안녕", [], { documentId: "doc-a" });
+  const body = buildHomeBrainFactRequestBody("안녕", [], {
+    currentTurnDocumentIds: ["doc-a"],
+    documentIds: ["doc-a"],
+  });
   assert.equal(body.document_id, "doc-a");
   assert.equal(Object.prototype.hasOwnProperty.call(body, "document_ids"), false);
+  assert.deepEqual(body.current_turn_document_ids, ["doc-a"]);
 }
 
 // A·B → ordered document_ids + primary document_id = first (not last-only)
 {
   const body = buildHomeBrainFactRequestBody("이 두 장 봐줘", [], {
+    currentTurnDocumentIds: ["doc-a", "doc-b"],
     documentIds: ["doc-a", "doc-b"],
   });
   assert.equal(body.document_id, "doc-a");
   assert.deepEqual(body.document_ids, ["doc-a", "doc-b"]);
+  assert.deepEqual(body.current_turn_document_ids, ["doc-a", "doc-b"]);
 }
 
 // Contract helper: single keeps documentIds empty for wire compat

@@ -86,6 +86,9 @@ export default async function handler(req, res) {
     const currentTurnDocumentIds = listAttachedDocumentIds(
       body?.current_turn_document_ids ?? body?.currentTurnDocumentIds,
     );
+    const explicitReopenDocumentIds = listAttachedDocumentIds(
+      body?.explicit_reopen_document_ids ?? body?.explicitReopenDocumentIds,
+    );
     // GO3: session_id scopes server SSOT goal load. Ignore any client prior_session_goal.
     const sessionId = String(body?.session_id ?? body?.sessionId ?? "").trim() || null;
     // T2.1 — opaque handoff token only (never accept client plaintext card JSON).
@@ -166,6 +169,7 @@ export default async function handler(req, res) {
         attachmentReferenceEnabled: presenceTurn ? false : attachmentReferenceEnabled,
         activeAttachmentIds: presenceTurn ? [] : activeAttachmentIds,
         currentTurnDocumentIds: presenceTurn ? [] : currentTurnDocumentIds,
+        explicitReopenDocumentIds: presenceTurn ? [] : explicitReopenDocumentIds,
         sessionId,
         readyCardHandoffToken,
         presenceTurn,
@@ -217,6 +221,7 @@ export default async function handler(req, res) {
       attachmentReferenceEnabled: presenceTurn ? false : attachmentReferenceEnabled,
       activeAttachmentIds: presenceTurn ? [] : activeAttachmentIds,
       currentTurnDocumentIds: presenceTurn ? [] : currentTurnDocumentIds,
+      explicitReopenDocumentIds: presenceTurn ? [] : explicitReopenDocumentIds,
       sessionId,
       readyCardHandoffToken,
       presenceTurn,

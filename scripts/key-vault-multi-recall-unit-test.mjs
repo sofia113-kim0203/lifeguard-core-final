@@ -193,9 +193,15 @@ ok("followup_vault_multi_attaches_originals");
   const body = buildHomeBrainFactRequestBody(
     "문서함에 있는 자료 전체를 봐줘",
     [],
-    { documentId: "doc-a", priorAttachFollowUp: false, sessionId: "sess-1" },
+    {
+      currentTurnDocumentIds: ["doc-a"],
+      documentIds: ["doc-a"],
+      priorAttachFollowUp: false,
+      sessionId: "sess-1",
+    },
   );
   assert.equal(body.document_id, "doc-a");
+  assert.deepEqual(body.current_turn_document_ids, ["doc-a"]);
   assert.equal(body.prior_attach_follow_up, undefined);
   assert.equal(Object.prototype.hasOwnProperty.call(body, "document_ids"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(body, "second_claude"), false);

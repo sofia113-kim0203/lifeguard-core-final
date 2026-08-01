@@ -961,7 +961,7 @@ ok("question_scope_and_grounded_product_recommendation");
   }
   ok("explicit_reactivation_test2_snapshot_hydrate");
 
-  // TEST 3 — explicit reactivation click → active=[A,B], no current-turn, no API
+  // TEST 3 — explicit chip click → one-shot reopen ids (not persistent active)
   {
     const candidate = normalizeRestorableAttachmentCandidate(
       {
@@ -970,8 +970,6 @@ ok("question_scope_and_grounded_product_recommendation");
       },
       { customerId: "cust-1", sessionId: "sess-1" },
     );
-    const activeBefore = [];
-    assert.deepEqual(activeBefore, []);
     assert.equal(
       isRestorableAttachmentCandidateInScope(candidate, {
         customerId: "cust-1",
@@ -979,19 +977,21 @@ ok("question_scope_and_grounded_product_recommendation");
       }),
       true,
     );
-    const activeAfter = candidate.active_attachment_ids.slice();
-    assert.deepEqual(activeAfter, ["A", "B"]);
+    const reopenIds = candidate.active_attachment_ids.slice();
+    assert.deepEqual(reopenIds, ["A", "B"]);
     const body = buildHomeBrainFactRequestBody("이 서류 보장 정리해줘", [], {
-      attachmentReferenceEnabled: true,
-      activeAttachmentIds: activeAfter,
+      explicitReopenDocumentIds: reopenIds,
       currentTurnDocumentIds: [],
       sessionId: "sess-1",
     });
-    assert.equal(body.attachment_reference_enabled, true);
-    assert.deepEqual(body.active_attachment_ids, ["A", "B"]);
+    assert.equal(body.attachment_reference_enabled, false);
+    assert.equal(body.active_attachment_ids, undefined);
+    assert.deepEqual(body.explicit_reopen_document_ids, ["A", "B"]);
+    assert.deepEqual(body.document_ids, ["A", "B"]);
     assert.equal(body.current_turn_document_ids, undefined);
     assert.equal(homeChatSrc.includes("reactivateRestorableAttachmentCandidate"), true);
     assert.match(homeChatSrc, /onClick=\{reactivateRestorableAttachmentCandidate\}/);
+    assert.match(homeChatSrc, /setExplicitReopenDocumentIds/);
     assert.equal(homeChatSrc.includes("fetch(") && /reactivateRestorableAttachmentCandidate[\s\S]{0,400}fetch\(/.test(homeChatSrc), false);
   }
   ok("explicit_reactivation_test3_click_activates_only");
@@ -1000,15 +1000,14 @@ ok("question_scope_and_grounded_product_recommendation");
   {
     const ids = ["a", "b", "c"];
     const body = buildHomeBrainFactRequestBody("세 서류 월 보험료 합계", [], {
-      attachmentReferenceEnabled: true,
-      activeAttachmentIds: ids,
       currentTurnDocumentIds: ids,
       documentIds: ids,
       sessionId: "sess-up",
     });
-    assert.equal(body.attachment_reference_enabled, true);
-    assert.deepEqual(body.active_attachment_ids, ["a", "b", "c"]);
+    assert.equal(body.attachment_reference_enabled, false);
+    assert.equal(body.active_attachment_ids, undefined);
     assert.deepEqual(body.current_turn_document_ids, ["a", "b", "c"]);
+    assert.deepEqual(body.document_ids, ["a", "b", "c"]);
     const bytesA = Buffer.from("page-1-reactivation-test4");
     const bytesB = Buffer.from("page-2-reactivation-test4");
     const plan = buildAttachmentIdentityDeliveryPlan({
@@ -1047,17 +1046,20 @@ ok("question_scope_and_grounded_product_recommendation");
   }
   ok("explicit_reactivation_test4_current_upload_multi");
 
-  // TEST 5 — same-screen follow-up: active kept, current-turn cleared
+  // TEST 5 — same-screen follow-up: no original-delivery wire (candidate only)
   {
     const body = buildHomeBrainFactRequestBody("합산만", [], {
       attachmentReferenceEnabled: true,
       activeAttachmentIds: ["a", "b", "c"],
       currentTurnDocumentIds: [],
+      explicitReopenDocumentIds: [],
       sessionId: "sess-up",
     });
-    assert.equal(body.attachment_reference_enabled, true);
-    assert.deepEqual(body.active_attachment_ids, ["a", "b", "c"]);
+    assert.equal(body.attachment_reference_enabled, false);
+    assert.equal(body.active_attachment_ids, undefined);
+    assert.equal(body.document_id, undefined);
     assert.equal(body.current_turn_document_ids, undefined);
+    assert.equal(body.explicit_reopen_document_ids, undefined);
   }
   ok("explicit_reactivation_test5_same_screen_followup");
 
@@ -1082,21 +1084,22 @@ ok("question_scope_and_grounded_product_recommendation");
   }
   ok("explicit_reactivation_test6_clear_general_question");
 
-  // TEST 7 — clear then reactivate: only candidate IDs, no auto-expand
+  // TEST 7 — clear then chip reopen: one-shot reopen ids only, no auto-expand
   {
     const candidate = normalizeRestorableAttachmentCandidate(
       { active_attachment_id: "B", active_attachment_ids: ["A", "B"] },
       { customerId: "cust-1", sessionId: "sess-1" },
     );
-    const active = candidate.active_attachment_ids.slice();
-    assert.deepEqual(active, ["A", "B"]);
-    assert.equal(active.includes("Z"), false);
+    const reopen = candidate.active_attachment_ids.slice();
+    assert.deepEqual(reopen, ["A", "B"]);
+    assert.equal(reopen.includes("Z"), false);
     const body = buildHomeBrainFactRequestBody("다시 참조", [], {
-      attachmentReferenceEnabled: true,
-      activeAttachmentIds: active,
+      explicitReopenDocumentIds: reopen,
       currentTurnDocumentIds: [],
     });
-    assert.deepEqual(body.active_attachment_ids, ["A", "B"]);
+    assert.deepEqual(body.explicit_reopen_document_ids, ["A", "B"]);
+    assert.deepEqual(body.document_ids, ["A", "B"]);
+    assert.equal(body.active_attachment_ids, undefined);
     assert.equal(body.current_turn_document_ids, undefined);
   }
   ok("explicit_reactivation_test7_clear_then_reactivate");

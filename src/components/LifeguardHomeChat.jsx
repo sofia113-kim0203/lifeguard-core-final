@@ -32,6 +32,10 @@ import {
   revokeChatComposerPreviewUrls,
   snapshotChatComposerAttachments,
 } from "../lib/chatComposerAttachments.js";
+import {
+  consumeExplicitReopenDocumentIds,
+  shouldBlockSendForIncompleteUpload,
+} from "../lib/originalAttachmentOneShot.js";
 import AttachmentTray from "./AttachmentTray.jsx";
 import {
   clearActiveAttachmentIfDocumentDeleted,
@@ -609,6 +613,8 @@ export default function LifeguardHomeChat({
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentIds, setActiveAttachmentIds] = useState([]);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
+  // Chip reopen → next request one-shot only; never hydrate / never survive past body build.
+  const [explicitReopenDocumentIds, setExplicitReopenDocumentIds] = useState([]);
   // Past attach bundle for explicit reactivation UI only — never request authority.
   const [restorableAttachmentCandidate, setRestorableAttachmentCandidate] = useState(null);
   const userAttachActionEpochRef = useRef(0);
@@ -706,6 +712,7 @@ export default function LifeguardHomeChat({
     if (prevCustomerIdRef.current === customerId) return;
     prevCustomerIdRef.current = customerId;
     clearConversationActiveAttachment();
+    setExplicitReopenDocumentIds([]);
     setRestorableAttachmentCandidate(null);
   }, [customerId]);
 
@@ -1370,6 +1377,7 @@ export default function LifeguardHomeChat({
           userAttachActionEpochRef.current === userEpochAtStart
         ) {
           clearConversationActiveAttachment();
+          setExplicitReopenDocumentIds([]);
           setRestorableAttachmentCandidate(null);
         }
         sessionIdRef.current = activeId;
@@ -1639,6 +1647,7 @@ export default function LifeguardHomeChat({
       restoreForceScrollRef.current = true;
       stickToBottomRef.current = true;
       clearConversationActiveAttachment();
+      setExplicitReopenDocumentIds([]);
       setRestorableAttachmentCandidate(null);
 
       try {
@@ -1662,6 +1671,7 @@ export default function LifeguardHomeChat({
       } catch (err) {
         setMessages([]);
         clearConversationActiveAttachment();
+        setExplicitReopenDocumentIds([]);
         setRestorableAttachmentCandidate(null);
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
@@ -1771,8 +1781,16 @@ export default function LifeguardHomeChat({
       return;
     }
 
-    if (chatAttachUploading) {
-      setError("파일 업로드가 끝난 뒤 보내 주세요.");
+    const uploadSendGate = shouldBlockSendForIncompleteUpload({
+      uploading: chatAttachUploading,
+      composerAttachments: chatAttachments,
+    });
+    if (uploadSendGate.block) {
+      setError(
+        uploadSendGate.reason === "upload_ids_not_ready"
+          ? "파일 업로드가 끝난 뒤 보내 주세요."
+          : "파일 업로드가 끝난 뒤 보내 주세요.",
+      );
       return;
     }
 
@@ -1812,8 +1830,18 @@ export default function LifeguardHomeChat({
     const composerActiveSeed =
       attachmentsForTurn[attachmentsForTurn.length - 1] || composerPrimary;
 
-    let documentIdsForTurn = composerDocumentIds.slice();
-    let documentIdForTurn = composerDocumentId;
+    // One-shot reopen: consume at request-build time (not response completion).
+    const { reopenIds: reopenIdsForTurn } = consumeExplicitReopenDocumentIds(
+      explicitReopenDocumentIds,
+    );
+    setExplicitReopenDocumentIds([]);
+
+    // Originals only from this-send uploads or chip reopen — never past activeAttachmentIds.
+    const documentIdsForTurn =
+      composerDocumentIds.length > 0
+        ? composerDocumentIds.slice()
+        : reopenIdsForTurn.slice();
+    const documentIdForTurn = documentIdsForTurn[0] || null;
     let attachIsImageForTurn = composerPrimary?.isImage === true;
     let attachMimeForTurn =
       composerActiveSeed?.mime ||
@@ -1822,33 +1850,11 @@ export default function LifeguardHomeChat({
         : composerDocumentId
           ? "application/pdf"
           : null);
-    let reusedActiveAttachment = false;
-
-    // Physical conversation active attachment ? every turn until cleared (no keyword pre-route).
-    // Skip deleted / missing ids so insurance questions are not blocked by stale attach state.
-    if (!documentIdForTurn && activeAttachmentId) {
-      if (isReusableActiveAttachmentId(activeAttachmentId, documents)) {
-        const snapIds = (
-          activeAttachmentIds.length > 0 ? activeAttachmentIds : [activeAttachmentId]
-        )
-          .map((id) => String(id ?? "").trim())
-          .filter((id) => id && isReusableActiveAttachmentId(id, documents));
-        documentIdsForTurn = snapIds.length > 0 ? snapIds : [activeAttachmentId];
-        documentIdForTurn = documentIdsForTurn[0];
-        attachMimeForTurn = activeAttachmentMime;
-        attachIsImageForTurn =
-          !activeAttachmentMime || String(activeAttachmentMime).startsWith("image/");
-        reusedActiveAttachment = true;
-      } else {
-        clearConversationActiveAttachment();
-        if (customerId) {
-          writeLifeguardChatSnapshot(customerId, {
-            sessionId,
-            messages,
-            activeAttachment: null,
-          });
-        }
-      }
+    if (!composerDocumentIds.length && reopenIdsForTurn.length) {
+      attachMimeForTurn =
+        restorableAttachmentCandidate?.active_attachment_mime || attachMimeForTurn;
+      attachIsImageForTurn =
+        !attachMimeForTurn || String(attachMimeForTurn).startsWith("image/");
     }
     const activeDocumentIdForTurn =
       documentIdsForTurn.length > 0
@@ -1861,24 +1867,26 @@ export default function LifeguardHomeChat({
     const turnId = createLifeguardSessionId();
     inflightTurnIdRef.current = turnId;
     appendHomeChatStreamTrace("chat_submit");
-    const activeAttachmentForTurn =
-      documentIdsForTurn.length > 0 || activeAttachmentId
-        ? {
-            active_attachment_id:
-              documentIdsForTurn[documentIdsForTurn.length - 1] ||
-              activeAttachmentId,
-            active_attachment_ids:
-              documentIdsForTurn.length > 0
-                ? documentIdsForTurn.slice()
-                : activeAttachmentIds.length > 0
-                  ? activeAttachmentIds.slice()
-                  : activeAttachmentId
-                    ? [activeAttachmentId]
-                    : [],
-            active_attachment_mime: attachMimeForTurn || activeAttachmentMime,
-            active_rotation_quarter_turns: 0,
-          }
-        : null;
+    // Snapshot for candidate chip only — do not keep active original-delivery authority.
+    const activeAttachmentForTurn = null;
+    if (documentIdsForTurn.length > 0) {
+      rememberRestorableCandidateFromBundle(
+        {
+          active_attachment_id: activeDocumentIdForTurn,
+          active_attachment_ids: documentIdsForTurn.slice(),
+          active_attachment_mime: attachMimeForTurn,
+        },
+        { customerId, sessionId },
+      );
+      clearConversationActiveAttachment();
+      if (customerId) {
+        writeLifeguardChatSnapshot(customerId, {
+          sessionId,
+          messages,
+          activeAttachment: null,
+        });
+      }
+    }
     const userMessage = {
       role: "user",
       content: attachmentsForTurn.length
@@ -1946,30 +1954,17 @@ export default function LifeguardHomeChat({
       let sawSseDone = false;
       // GO3: session_id only ? server SSOT loads session_goal; never send prior_session_goal.
       const handoffToken = getReadyCardHandoffToken({ customerId, sessionId });
-      const activeIdsForRequest = (
-        activeAttachmentIds.length > 0
-          ? activeAttachmentIds
-          : activeAttachmentId
-            ? [activeAttachmentId]
-            : []
-      )
-        .map((id) => String(id ?? "").trim())
-        .filter(Boolean);
-      // Explicit active only — candidate alone never enables reference.
-      const attachmentReferenceEnabled =
-        Boolean(activeAttachmentId) ||
-        activeAttachmentIds.length > 0 ||
-        reusedActiveAttachment === true;
-      let attachOptions = {
+      // One-shot delivery: current_upload and/or explicit_reopen only.
+      const attachOptions = {
         sessionId,
         ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
         ...(documentIdsForTurn.length > 1 ? { documentIds: documentIdsForTurn } : {}),
-        attachmentReferenceEnabled,
-        ...(activeIdsForRequest.length
-          ? { activeAttachmentIds: activeIdsForRequest }
-          : {}),
+        attachmentReferenceEnabled: false,
         ...(composerDocumentIds.length
           ? { currentTurnDocumentIds: composerDocumentIds.slice() }
+          : {}),
+        ...(reopenIdsForTurn.length && !composerDocumentIds.length
+          ? { explicitReopenDocumentIds: reopenIdsForTurn.slice() }
           : {}),
         ...(handoffToken ? { readyCardHandoffToken: handoffToken } : {}),
         viewMode,
@@ -1977,12 +1972,6 @@ export default function LifeguardHomeChat({
           ? { entityId: selectedEntityId, entityType: "corporate" }
           : {}),
       };
-      // Reused active attachment ? server re-verifies ownership (no latest-doc invent).
-      // Active insurance document case must not skip Storage originals via prior_attach.
-      // Server vault/case gate is authoritative; do not keyword-gate byte delivery here.
-      if (reusedActiveAttachment && !documentIdForTurn) {
-        attachOptions = { ...attachOptions, priorAttachFollowUp: true };
-      }
       const markFirstSse = () => {
         if (sawFirstSseEvent) return;
         sawFirstSseEvent = true;
@@ -2146,40 +2135,25 @@ export default function LifeguardHomeChat({
           }),
         );
       }
+      // Original-delivery authority never persists after the request — candidate chip only.
       let nextActive = null;
-      const clearFailedAttach = shouldClearActiveAttachmentAfterTurn(result);
-      if (clearFailedAttach) {
-        // Attach fail-closed / prior-attach miss ? drop conversation active id so
-        // the next normal question does not resend the failed document_id.
-        clearConversationActiveAttachment();
-        nextActive = null;
-      } else if (documentIdsForTurn.length > 0 || activeDocumentIdForTurn) {
+      clearConversationActiveAttachment();
+      if (shouldClearActiveAttachmentAfterTurn(result) && documentIdsForTurn.length) {
+        // Fail-closed attach: keep candidate for manual reopen, never auto-resend bytes.
+      }
+      if (documentIdsForTurn.length > 0 || activeDocumentIdForTurn) {
         const snapIds =
           documentIdsForTurn.length > 0
             ? documentIdsForTurn.slice()
             : [activeDocumentIdForTurn];
-        nextActive = {
-          active_attachment_id: snapIds[snapIds.length - 1] || activeDocumentIdForTurn,
-          active_attachment_ids: snapIds,
-          active_attachment_mime: attachMimeForTurn,
-          active_rotation_quarter_turns: 0,
-        };
-        setConversationActiveAttachment(
-          nextActive.active_attachment_id,
-          attachMimeForTurn,
-          snapIds,
+        rememberRestorableCandidateFromBundle(
+          {
+            active_attachment_id: snapIds[snapIds.length - 1] || activeDocumentIdForTurn,
+            active_attachment_ids: snapIds,
+            active_attachment_mime: attachMimeForTurn,
+          },
+          { customerId, sessionId },
         );
-        rememberRestorableCandidateFromBundle(nextActive, { customerId, sessionId });
-      } else if (activeAttachmentId) {
-        nextActive = {
-          active_attachment_id: activeAttachmentId,
-          active_attachment_ids:
-            activeAttachmentIds.length > 0
-              ? activeAttachmentIds.slice()
-              : [activeAttachmentId],
-          active_attachment_mime: activeAttachmentMime,
-          active_rotation_quarter_turns: 0,
-        };
       }
 
       if (customerId) {
@@ -2301,6 +2275,7 @@ export default function LifeguardHomeChat({
     setInput("");
     setError("");
     clearConversationActiveAttachment();
+    setExplicitReopenDocumentIds([]);
     setRestorableAttachmentCandidate(null);
     clearComposerAttach();
     setPanelView("chat");
@@ -2353,7 +2328,6 @@ export default function LifeguardHomeChat({
 
   const reactivateRestorableAttachmentCandidate = () => {
     if (loading || streaming || chatAttachUploading) return;
-    if (activeAttachmentId || activeAttachmentIds.length > 0) return;
     if (
       !isRestorableAttachmentCandidateInScope(restorableAttachmentCandidate, {
         customerId,
@@ -2368,21 +2342,23 @@ export default function LifeguardHomeChat({
     );
     if (!rejected) return;
     markUserAttachAction();
-    setConversationActiveAttachment(
-      rejected.active_attachment_id,
-      rejected.active_attachment_mime ?? null,
-      rejected.active_attachment_ids,
-    );
+    // Explicit chip reopen: arm one-shot ids only — do not restore active delivery authority.
+    const reopenIds = (
+      Array.isArray(rejected.active_attachment_ids) && rejected.active_attachment_ids.length
+        ? rejected.active_attachment_ids
+        : rejected.active_attachment_id
+          ? [rejected.active_attachment_id]
+          : []
+    )
+      .map((id) => String(id ?? "").trim())
+      .filter(Boolean);
+    setExplicitReopenDocumentIds(reopenIds);
+    clearConversationActiveAttachment();
     if (customerId) {
       writeLifeguardChatSnapshot(customerId, {
         sessionId,
         messages,
-        activeAttachment: {
-          active_attachment_id: rejected.active_attachment_id,
-          active_attachment_ids: rejected.active_attachment_ids,
-          active_attachment_mime: rejected.active_attachment_mime ?? null,
-          active_rotation_quarter_turns: 0,
-        },
+        activeAttachment: null,
       });
     }
   };
@@ -2587,13 +2563,12 @@ export default function LifeguardHomeChat({
               isImage,
             }),
           );
-          // Seed conversation active attach at upload — do not wait for a successful turn.
-          // Follow-ups ("합산만/보장내역") must resend document_id even if composer chip is cleared.
+          // Candidate chip only — originals ship once with this composer send (current_upload).
           setChatAttachments((prevForSnap) => {
             const snapIds = listChatComposerDocumentIds(prevForSnap);
             const ids = snapIds.includes(documentId) ? snapIds : [...snapIds, documentId];
             markUserAttachAction();
-            setConversationActiveAttachment(documentId, mime, ids);
+            clearConversationActiveAttachment();
             rememberRestorableCandidateFromBundle(
               {
                 active_attachment_id: documentId,
@@ -2606,12 +2581,7 @@ export default function LifeguardHomeChat({
               writeLifeguardChatSnapshot(customerId, {
                 sessionId,
                 messages,
-                activeAttachment: {
-                  active_attachment_id: documentId,
-                  active_attachment_ids: ids,
-                  active_attachment_mime: mime,
-                  active_rotation_quarter_turns: 0,
-                },
+                activeAttachment: null,
               });
             }
             return prevForSnap;
