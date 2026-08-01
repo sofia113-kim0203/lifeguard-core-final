@@ -60,6 +60,7 @@ import {
   buildClaudeFirstCachedRequestParts,
   buildClaudeVerifiedChartProjection,
   buildUserPayload,
+  collapseVerifiedDocumentCoveragesSourceIdEnrichment,
   composeClaudeFirstSystemText,
   serializeClaudeFirstCachePrefixForAudit,
   CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT,
@@ -1769,6 +1770,173 @@ ok("claude_prompt_cache_prefix_stability_suite");
   ok("chart_bloat_2a_payload_and_block_b_compact");
 }
 ok("claude_chart_bloat_repair_2a_suite");
+
+// --- 2H source_document_id enrichment collapse (Claude projection only) ---
+{
+  const baseFact = {
+    contract_id: "c-enrich-1",
+    coverage_name: "fixture-coverage",
+    coverage_amount: 1000000,
+    insurer: "fixture-insurer-a",
+    insurer_name: "fixture-insurer-name-a",
+    product_name: "fixture-product",
+    status: "active",
+  };
+  const nonemptyId = "doc-nonempty-fixture-001";
+  const withId = { ...baseFact, source_document_id: nonemptyId };
+  const nullId = { ...baseFact, source_document_id: null };
+  const undefId = { ...baseFact, source_document_id: undefined };
+  const emptyStrId = { ...baseFact, source_document_id: "" };
+  const absentId = { ...baseFact };
+  delete absentId.source_document_id;
+  const whitespaceId = { ...baseFact, source_document_id: "   " };
+  const otherNonempty = {
+    ...baseFact,
+    source_document_id: "doc-nonempty-fixture-002",
+  };
+  const withIdAmountNum = { ...withId, coverage_amount: 1000000 };
+  const nullIdAmountStr = { ...nullId, coverage_amount: "1000000" };
+  const divergedStatus = { ...withId, status: "lapsed" };
+
+  function assertCollapsePair(a, b, expectCollapse, selected = withId) {
+    const input = [a, b];
+    const aKeysBefore = Object.keys(a).sort().join("|");
+    const bKeysBefore = Object.keys(b).sort().join("|");
+    const out = collapseVerifiedDocumentCoveragesSourceIdEnrichment(input);
+    assert.equal(input[0], a);
+    assert.equal(input[1], b);
+    assert.equal(Object.keys(a).sort().join("|"), aKeysBefore);
+    assert.equal(Object.keys(b).sort().join("|"), bKeysBefore);
+    if (expectCollapse) {
+      assert.equal(out.coverages.length, 1);
+      assert.equal(out.occurrence_records.length, 1);
+      assert.equal(out.occurrence_records[0].occurrence_count, 2);
+      assert.equal(
+        out.occurrence_records[0].duplicate_class,
+        "source_document_id_enrichment",
+      );
+      assert.equal(
+        out.occurrence_records[0].source_document_id_presence_count,
+        1,
+      );
+      assert.equal(out.coverages[0].source_document_id, nonemptyId);
+      assert.equal(out.coverages[0], selected);
+    } else {
+      assert.equal(out.coverages.length, 2);
+      assert.equal(out.occurrence_records.length, 0);
+    }
+  }
+
+  assertCollapsePair(nullId, withId, true);
+  ok("chart_bloat_2h_null_nonempty_collapse");
+  assertCollapsePair(absentId, withId, true);
+  ok("chart_bloat_2h_absent_nonempty_collapse");
+  assertCollapsePair(undefId, withId, true);
+  ok("chart_bloat_2h_undefined_nonempty_collapse");
+  assertCollapsePair(emptyStrId, withId, true);
+  ok("chart_bloat_2h_empty_string_nonempty_collapse");
+
+  assertCollapsePair(whitespaceId, nullId, false);
+  ok("chart_bloat_2h_whitespace_hold");
+  assertCollapsePair(withId, otherNonempty, false);
+  ok("chart_bloat_2h_both_nonempty_hold");
+  assertCollapsePair(nullId, emptyStrId, false);
+  ok("chart_bloat_2h_both_empty_like_hold");
+  assertCollapsePair(divergedStatus, nullId, false);
+  ok("chart_bloat_2h_non_source_diverge_hold");
+  assertCollapsePair(withIdAmountNum, nullIdAmountStr, false);
+  ok("chart_bloat_2h_number_vs_numeric_string_hold");
+
+  {
+    const three = [withId, nullId, { ...withId }];
+    const out = collapseVerifiedDocumentCoveragesSourceIdEnrichment(three);
+    assert.equal(out.coverages.length, 3);
+    assert.equal(out.occurrence_records.length, 0);
+  }
+  ok("chart_bloat_2h_group_size_not_two_hold");
+
+  {
+    const missingIdentity = [
+      { coverage_name: "x", source_document_id: nonemptyId },
+      { coverage_name: "x", source_document_id: null },
+    ];
+    const out =
+      collapseVerifiedDocumentCoveragesSourceIdEnrichment(missingIdentity);
+    assert.equal(out.coverages.length, 2);
+    assert.equal(out.occurrence_records.length, 0);
+  }
+  ok("chart_bloat_2h_identity_missing_hold");
+
+  {
+    const forward = collapseVerifiedDocumentCoveragesSourceIdEnrichment([
+      nullId,
+      withId,
+      { ...baseFact, contract_id: "c-other", coverage_name: "other", source_document_id: null },
+    ]);
+    const reverse = collapseVerifiedDocumentCoveragesSourceIdEnrichment([
+      { ...baseFact, contract_id: "c-other", coverage_name: "other", source_document_id: null },
+      withId,
+      nullId,
+    ]);
+    assert.equal(forward.coverages.length, reverse.coverages.length);
+    assert.equal(
+      forward.occurrence_records.length,
+      reverse.occurrence_records.length,
+    );
+    assert.equal(forward.coverages.filter((r) => r === withId).length, 1);
+    assert.equal(reverse.coverages.filter((r) => r === withId).length, 1);
+    assert.deepEqual(
+      forward.occurrence_records.map((r) => r.contract_id).sort(),
+      reverse.occurrence_records.map((r) => r.contract_id).sort(),
+    );
+  }
+  ok("chart_bloat_2h_input_order_stable");
+
+  {
+    const singleton = {
+      ...baseFact,
+      contract_id: "c-single",
+      coverage_name: "solo",
+      source_document_id: nonemptyId,
+    };
+    const src = {
+      review_candidates: [{ contract_id: "c-review" }],
+      personal_review_candidates: [{ contract_id: "c-review" }],
+      contracts: [{ contract_id: "c-1" }],
+      confirmed_contracts: [{ contract_id: "c-1" }],
+      personal_confirmed_contracts: [{ contract_id: "c-1" }],
+      verified_document_coverages: [nullId, withId, singleton],
+      key_confirmed_source_facts: [{ fact: "keep" }],
+    };
+    const before = JSON.parse(JSON.stringify(src));
+    const diag = {};
+    const proj = buildClaudeVerifiedChartProjection(src, diag);
+    assert.deepEqual(src, before);
+    assert.equal(src.verified_document_coverages.length, 3);
+    assert.equal(proj.verified_document_coverages.length, 2);
+    assert.equal(diag.source_document_id_enrichment_collapsed_groups, 1);
+    assert.ok(Array.isArray(proj.verified_document_coverage_occurrence_records));
+    assert.equal(proj.verified_document_coverage_occurrence_records.length, 1);
+    assert.equal(
+      proj.verified_document_coverage_occurrence_records[0].occurrence_count,
+      2,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        proj.verified_document_coverage_occurrence_records[0],
+        "source_document_id",
+      ),
+      false,
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(proj, "personal_review_candidates"),
+      false,
+    );
+    assert.deepEqual(proj.key_confirmed_source_facts, [{ fact: "keep" }]);
+  }
+  ok("chart_bloat_2h_projection_wiring_and_non_mutation");
+}
+ok("claude_chart_bloat_repair_2h_suite");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
 if (globalThis.__CACHE_PREFIX_HASH_1) {

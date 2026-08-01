@@ -2054,6 +2054,280 @@ function projectClaudeChartObjectList(list) {
   return list.map((row) => projectClaudeChartFactBearingObject(row));
 }
 
+/** Undefined-safe hash input (2H). Do not use bare JSON.stringify for hashing. */
+function serializeClaudeChartHashInput(v) {
+  if (v === undefined) return "u:";
+  const json = JSON.stringify(v);
+  return json === undefined ? "u:" : "j:" + json;
+}
+
+function canonicalizeClaudeChartValueSorted(v) {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return v;
+  if (Array.isArray(v)) {
+    const items = v.map((x) => canonicalizeClaudeChartValueSorted(x));
+    return items
+      .slice()
+      .sort((a, b) =>
+        serializeClaudeChartHashInput(a).localeCompare(
+          serializeClaudeChartHashInput(b),
+        ),
+      );
+  }
+  if (typeof v === "object") {
+    const out = {};
+    for (const k of Object.keys(v).sort()) {
+      const nv = canonicalizeClaudeChartValueSorted(v[k]);
+      if (nv === undefined && v[k] === undefined) continue;
+      out[k] = nv;
+    }
+    return out;
+  }
+  return v;
+}
+
+function claudeChartValueHashExact(v) {
+  return createHash("sha256")
+    .update(serializeClaudeChartHashInput(v), "utf8")
+    .digest("hex");
+}
+
+function claudeChartValueHashCanonical(v) {
+  return createHash("sha256")
+    .update(
+      serializeClaudeChartHashInput(canonicalizeClaudeChartValueSorted(v)),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+function claudeChartIsIdentityNonempty(v) {
+  if (v === null || v === undefined) return false;
+  if (typeof v === "string") return v.length > 0;
+  if (typeof v === "number" || typeof v === "boolean") return true;
+  return false;
+}
+
+function classifyClaudeChartSourceDocumentId(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    return { state: "absent", whitespace_only: false };
+  }
+  if (!Object.prototype.hasOwnProperty.call(obj, "source_document_id")) {
+    return { state: "absent", whitespace_only: false };
+  }
+  const v = obj.source_document_id;
+  if (v === undefined) return { state: "undefined", whitespace_only: false };
+  if (v === null) return { state: "null", whitespace_only: false };
+  if (typeof v === "string") {
+    if (v.length === 0) return { state: "empty_string", whitespace_only: false };
+    return {
+      state: "nonempty_string",
+      whitespace_only: /^[\s]+$/.test(v),
+    };
+  }
+  return { state: "other_type", whitespace_only: false };
+}
+
+function isClaudeChartSourceDocumentIdEmptyLike(state) {
+  return (
+    state === "absent" ||
+    state === "undefined" ||
+    state === "null" ||
+    state === "empty_string"
+  );
+}
+
+function collectClaudeChartComparePaths(value, basePath = "$") {
+  const paths = new Map();
+  function walk(v, path) {
+    if (Array.isArray(v)) {
+      paths.set(path, {
+        role: "array_container",
+        type: "array",
+        structuralEmpty: v.length === 0,
+      });
+      const bag = new Map();
+      for (const el of v) {
+        const h = claudeChartValueHashCanonical(el);
+        bag.set(h, (bag.get(h) || 0) + 1);
+      }
+      const bagEntries = [...bag.entries()].sort((a, b) =>
+        a[0].localeCompare(b[0]),
+      );
+      paths.set(path + "#multiset", {
+        role: "array_multiset",
+        type: "array_multiset",
+        canonHash: claudeChartValueHashCanonical(bagEntries),
+      });
+      return;
+    }
+    if (v !== null && typeof v === "object") {
+      const keys = Object.keys(v).sort();
+      paths.set(path, {
+        role: "object_container",
+        type: "object",
+        structuralEmpty: keys.length === 0,
+      });
+      for (const k of keys) {
+        walk(v[k], path === "$" ? "$." + k : path + "." + k);
+      }
+      return;
+    }
+    paths.set(path, {
+      role: "leaf",
+      type: v === null ? "null" : typeof v,
+      canonHash: claudeChartValueHashCanonical(v),
+    });
+  }
+  walk(value, basePath);
+  return paths;
+}
+
+function claudeChartPathsExactEqualExcludingSourceDocumentId(aObj, bObj) {
+  const excludePath = "$.source_document_id";
+  const aPaths = collectClaudeChartComparePaths(aObj);
+  const bPaths = collectClaudeChartComparePaths(bObj);
+  const allPaths = new Set([...aPaths.keys(), ...bPaths.keys()]);
+
+  function isExcluded(p) {
+    return (
+      p === excludePath ||
+      p.startsWith(excludePath + ".") ||
+      p.startsWith(excludePath + "#")
+    );
+  }
+
+  for (const p of allPaths) {
+    if (isExcluded(p)) continue;
+    const ap = aPaths.get(p);
+    const bp = bPaths.get(p);
+    if (!ap || !bp) return false;
+    if (ap.role !== bp.role) return false;
+    if (ap.role === "object_container" || ap.role === "array_container") {
+      if (
+        ap.type !== bp.type ||
+        ap.structuralEmpty !== bp.structuralEmpty
+      ) {
+        return false;
+      }
+      continue;
+    }
+    if (ap.role === "array_multiset" || ap.role === "leaf") {
+      if (ap.type !== bp.type || ap.canonHash !== bp.canonHash) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Claude projection only: collapse verified_document_coverages pairs that are
+ * exact-equal except empty-like vs nonempty source_document_id (2H SAFE model).
+ * Does not mutate input rows. Does not invent/copy IDs onto empty rows.
+ *
+ * @param {unknown[]} rows
+ * @returns {{
+ *   coverages: object[],
+ *   occurrence_records: Array<{
+ *     contract_id: unknown,
+ *     coverage_name: unknown,
+ *     occurrence_count: 2,
+ *     duplicate_class: "source_document_id_enrichment",
+ *     source_document_id_presence_count: 1
+ *   }>
+ * }}
+ */
+export function collapseVerifiedDocumentCoveragesSourceIdEnrichment(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const n = list.length;
+  const groups = new Map(); // identityKey -> indices[]
+  const noIdentity = [];
+
+  for (let i = 0; i < n; i += 1) {
+    const row = list[i];
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      noIdentity.push(i);
+      continue;
+    }
+    if (
+      !claudeChartIsIdentityNonempty(row.contract_id) ||
+      !claudeChartIsIdentityNonempty(row.coverage_name)
+    ) {
+      noIdentity.push(i);
+      continue;
+    }
+    const key = serializeClaudeChartHashInput({
+      contract_id: row.contract_id,
+      coverage_name: row.coverage_name,
+    });
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  }
+
+  const skip = new Set();
+  const selectAt = new Map(); // firstIndex -> selected original row
+  const occurrence_records = [];
+
+  for (const indices of groups.values()) {
+    if (indices.length !== 2) continue;
+    const [i0, i1] = indices;
+    const a = list[i0];
+    const b = list[i1];
+    if (!a || !b || typeof a !== "object" || typeof b !== "object") continue;
+
+    const ca = classifyClaudeChartSourceDocumentId(a);
+    const cb = classifyClaudeChartSourceDocumentId(b);
+    const aEmpty = isClaudeChartSourceDocumentIdEmptyLike(ca.state);
+    const bEmpty = isClaudeChartSourceDocumentIdEmptyLike(cb.state);
+    const aNon =
+      ca.state === "nonempty_string" && ca.whitespace_only !== true;
+    const bNon =
+      cb.state === "nonempty_string" && cb.whitespace_only !== true;
+
+    if (ca.state === "other_type" || cb.state === "other_type") continue;
+    if (ca.whitespace_only || cb.whitespace_only) continue;
+    if (!(aEmpty && bNon) && !(bEmpty && aNon)) continue;
+    if (!claudeChartPathsExactEqualExcludingSourceDocumentId(a, b)) continue;
+
+    const selected = aNon ? a : b;
+    const first = Math.min(i0, i1);
+    const second = Math.max(i0, i1);
+    selectAt.set(first, selected);
+    skip.add(second);
+    occurrence_records.push({
+      contract_id: selected.contract_id,
+      coverage_name: selected.coverage_name,
+      occurrence_count: 2,
+      duplicate_class: "source_document_id_enrichment",
+      source_document_id_presence_count: 1,
+    });
+  }
+
+  occurrence_records.sort((x, y) => {
+    const cx = serializeClaudeChartHashInput(x.contract_id);
+    const cy = serializeClaudeChartHashInput(y.contract_id);
+    if (cx !== cy) return cx < cy ? -1 : 1;
+    const nx = serializeClaudeChartHashInput(x.coverage_name);
+    const ny = serializeClaudeChartHashInput(y.coverage_name);
+    return nx < ny ? -1 : nx > ny ? 1 : 0;
+  });
+
+  const coverages = [];
+  for (let i = 0; i < n; i += 1) {
+    if (skip.has(i)) continue;
+    if (selectAt.has(i)) {
+      coverages.push(selectAt.get(i));
+      continue;
+    }
+    coverages.push(list[i]);
+  }
+
+  return { coverages, occurrence_records };
+}
+
 /**
  * Claude-only verified chart projection.
  * Does not mutate the source chart. Exact duplicate alias arrays are omitted;
@@ -2156,9 +2430,23 @@ export function buildClaudeVerifiedChartProjection(chart = null, diagnostics = n
   }
 
   if (Array.isArray(chart.verified_document_coverages)) {
-    out.verified_document_coverages = projectClaudeChartObjectList(
+    const collapsed = collapseVerifiedDocumentCoveragesSourceIdEnrichment(
       chart.verified_document_coverages,
     );
+    out.verified_document_coverages = projectClaudeChartObjectList(
+      collapsed.coverages,
+    );
+    if (
+      Array.isArray(collapsed.occurrence_records) &&
+      collapsed.occurrence_records.length > 0
+    ) {
+      out.verified_document_coverage_occurrence_records =
+        collapsed.occurrence_records;
+    }
+    if (diag) {
+      diag.source_document_id_enrichment_collapsed_groups =
+        collapsed.occurrence_records.length;
+    }
   }
 
   return out;
