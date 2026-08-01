@@ -2283,7 +2283,10 @@ await (async () => {
     /모든 약관 항목을 매번 장황하게 나열하지 말고/.test(prompt),
     false,
   );
-  assert.equal(/\$\{/.test(prompt.match(/<confirmed_speech_boundary>[\s\S]*?<\/confirmed_speech_boundary>/)?.[0] ?? ""), false);
+  const boundary2d1 =
+    prompt.match(/<confirmed_speech_boundary>[\s\S]*?<\/confirmed_speech_boundary>/)?.[0] ??
+    "";
+  assert.equal(/\$\{/.test(boundary2d1), false);
   // No post-stream customer rewrite helpers introduced for this slice.
   const src = readFileSync(
     path.join(
@@ -2641,6 +2644,126 @@ await (async () => {
   }
 })();
 ok("confirmed_speech_search_telemetry_2d1_suite");
+
+// ─── 2D-2: evidence ladder + claim completeness (prompt boundary only) ───
+{
+  const prompt = String(LIFEGUARD_KEY_SYSTEM_PROMPT ?? "");
+  const boundary =
+    prompt.match(/<confirmed_speech_boundary>[\s\S]*?<\/confirmed_speech_boundary>/)?.[0] ??
+    "";
+  assert.ok(boundary.length > 0);
+
+  // A) judgment authority — confident when evidence holds; blank-fill only when core evidence missing
+  assert.ok(
+    boundary.includes(
+      "직접 연결된 검증 사실·적용 약관·공식 청구 근거로 결론이 성립하면 KEY는 분명하게 판단한다.",
+    ),
+  );
+  assert.ok(
+    boundary.includes(
+      "결론에 필요한 핵심 근거가 없을 때만 담보명·일반지식·과거 KEY 답변으로 빈칸을 채우지 않는다.",
+    ),
+  );
+  assert.equal(/항상\s*확인이\s*필요/.test(boundary), false);
+  assert.equal(/무조건\s*유보/.test(boundary), false);
+  assert.equal(/확인이\s*필요합니다만\s*반복/.test(boundary), false);
+  ok("evidence_ladder_judgment_authority_2d2");
+
+  // B) 체증 arithmetic — stale broad bans removed; unsupported path blocked; verified calc allowed
+  const boundaryLines = boundary.split(/\r?\n/).map((l) => l.trimEnd());
+  assert.equal(
+    boundaryLines.includes("- 체증 시작 시점과 체증 방식"),
+    false,
+  );
+  assert.equal(
+    boundaryLines.includes("- 특정 연령의 실제 지급금액"),
+    false,
+  );
+  assert.equal(
+    boundaryLines.includes(
+      "- 담보명·검증 필드에 명시되지 않은 체증 시작 시점·중간 증액 경로·특정 연령 지급금액",
+    ),
+    true,
+  );
+  assert.equal(
+    boundaryLines.includes(
+      "담보명이나 구조화된 검증 필드에 기준연령·배수·기준금액이 명시되고 계산관계가 완결되면,",
+    ),
+    true,
+  );
+  assert.equal(
+    boundaryLines.includes(
+      "그 표시 범위의 단순 산술 결과는 담보명 기준 보장 구조로 말할 수 있다.",
+    ),
+    true,
+  );
+  assert.equal(
+    boundaryLines.includes(
+      "다만 명시되지 않은 체증 경로·적용 시점·실제 청구 지급 결과를 만들어내지 않는다.",
+    ),
+    true,
+  );
+  // Customer-facing fixed example answers must not be planted in the prompt.
+  assert.equal(/5,000만\s*원\s*×\s*2/.test(boundary), false);
+  assert.equal(/\(체증형,\s*60세\s*2배\)/.test(boundary), false);
+  ok("evidence_ladder_growth_arithmetic_2d2");
+
+  // C) claim completeness — auto-pay omission blocked; official evidence exception kept
+  assert.ok(
+    boundary.includes(
+      "보험금 지급을 설명할 때 진단 또는 사고 사실만으로 자동 지급되는 것처럼 말하지 않는다.",
+    ),
+  );
+  assert.ok(
+    boundary.includes(
+      "약관상 지급요건과 제출자료에 대한 보험사의 확인·심사가 따른다는 사실을 생략하지 않는다.",
+    ),
+  );
+  assert.ok(
+    boundary.includes(
+      "직접 연결된 적용 약관 또는 공식 청구 안내가 그 범위를 명시한 경우에만 말한다.",
+    ),
+  );
+  ok("claim_review_completeness_2d2");
+
+  // D) prior KEY answer — context ok, evidence promotion blocked
+  assert.ok(
+    boundary.includes("과거 KEY 답변은 대화 맥락으로 사용할 수 있지만"),
+  );
+  assert.ok(
+    boundary.includes(
+      "원본·검증 차트·적용 약관을 대신하는 사실 근거로 승격하지 않는다.",
+    ),
+  );
+  ok("prior_key_context_not_evidence_2d2");
+
+  // E) constitution / structure — no fixed customer answer, no rewrite, telemetry & static boundary intact
+  assert.ok(boundary.includes("고정 고객 문장·템플릿 답변을 삽입하지 않는다."));
+  assert.equal(/\$\{/.test(boundary), false);
+  const src2d2 = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../server/keyCore/keyClaudeFirstDirect.js",
+    ),
+    "utf8",
+  );
+  assert.equal(/sealCustomerAnswerWithDeterministicTotals/.test(src2d2), false);
+  assert.ok(
+    /Claude final speech authority: do not replace\/append\/rewrite customer_answer after Claude/.test(
+      src2d2,
+    ),
+  );
+  assert.ok(/export function summarizeClaudeFirstWebSearchBlocks/.test(src2d2));
+  assert.ok(/export function buildClaudeFirstModelTelemetry/.test(src2d2));
+  assert.ok(
+    /export function attachClaudeFirstTelemetryToLatencyMarks/.test(src2d2),
+  );
+  assert.ok(
+    /messagesRequestCount \+= 1;\s*\n\s*res = await fetchImpl\(/.test(src2d2),
+  );
+  ok("evidence_ladder_constitution_structure_2d2");
+}
+ok("evidence_ladder_claim_completeness_2d2_suite");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
 if (globalThis.__CACHE_PREFIX_HASH_1) {
