@@ -263,6 +263,14 @@ import {
   shouldActivateQaTurnRecorder,
 } from "./keyQaTurnRecorder.js";
 import {
+  assembleVaultObservabilityTrace,
+  buildClaudeMediaManifestObserve,
+  buildVaultObservabilityBrowserMarks,
+  buildVaultObservabilityGateSnapshot,
+  buildVaultObservabilityInputSnapshot,
+  buildVaultObservabilityResolveSnapshot,
+} from "./keyVaultObservabilityTrace.js";
+import {
   canSupportCorporateClaims,
   loadHolderAuthorityGrants,
 } from "../entity/entityAuthorityConsent.js";
@@ -5918,15 +5926,22 @@ export async function runClaudeFirstDirectQuestionTurn({
   let pdfAttachmentsForClaude = null;
   let attachmentIdentityPlanForClaude = null;
   let pdfFetchMs = null;
+  let vaultResolveCalled = false;
+  let vaultObservabilityTrace = null;
+  const vaultObsCorrelationKey =
+    qaTurnCapture?.turn_trace_id || createTurnTraceId();
   const hasActiveInsuranceDocumentCase = Boolean(caseDocumentId);
   // Vault auto-attach of prior owned originals is forbidden without active attachment scope.
-  const wantsVaultEvidence =
-    hasActiveInsuranceDocumentCase &&
+  // O2: capture runtime shouldProvide boolean before AND (observe-only; gate logic unchanged).
+  const shouldProvideOwnedVaultOriginalsRuntime =
     shouldProvideOwnedInsuranceVaultOriginals({
       question,
       isPresenceTurn,
       attachedDocumentId: caseDocumentId,
     });
+  const wantsVaultEvidence =
+    hasActiveInsuranceDocumentCase &&
+    shouldProvideOwnedVaultOriginalsRuntime === true;
   const runVaultRecall = shouldRunOwnedVaultRecall({
     wantsVaultEvidence,
     isPresenceTurn,
@@ -5935,6 +5950,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   // Vault multi-intent must run even when activeAttachmentId / singular document_id is set.
   // Cap stays ≤6 / 22MB — never attach the full owned document box.
   if (runVaultRecall && userSupabase && customerId) {
+    vaultResolveCalled = true;
     const fetchStarted = Date.now();
     vaultRecall = await resolveOwnedInsuranceVaultRecall({
       supabase: userSupabase,
@@ -6903,6 +6919,49 @@ export async function runClaudeFirstDirectQuestionTurn({
         case_restored: activeDocumentCase?.restored === true,
         case_document_id: caseDocumentId || null,
       });
+  // O2 observe-only correlator — internal trace/marks only; never enters Claude body.
+  if (isPresenceTurn !== true) {
+    const vaultObsInput = buildVaultObservabilityInputSnapshot({
+      correlationKey: vaultObsCorrelationKey,
+      question,
+      attachmentReferenceEnabled: attachmentReferenceOn,
+      activeAttachmentIds: scopedActiveAttachmentIds,
+      currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+      requestDocumentId: attachedDocumentId,
+      requestDocumentIds: attachedDocumentIds,
+      isPresenceTurn,
+    });
+    const vaultObsGate = buildVaultObservabilityGateSnapshot({
+      caseSource: activeDocumentCase?.caseSource ?? null,
+      caseDocumentId,
+      hasActiveInsuranceDocumentCase,
+      shouldProvideOwnedInsuranceVaultOriginals:
+        shouldProvideOwnedVaultOriginalsRuntime === true,
+      wantsVaultEvidence,
+      runVaultRecall,
+    });
+    const vaultObsResolve = buildVaultObservabilityResolveSnapshot({
+      vaultResolveCalled,
+      vaultRecall,
+    });
+    const vaultObsMedia = buildClaudeMediaManifestObserve({
+      attachments: pdfAttachmentsForClaude,
+      identityPlan: attachmentIdentityPlanForClaude,
+      pdfMeta: pdf?.meta ?? null,
+      currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+      activeAttachmentIds: scopedActiveAttachmentIds,
+    });
+    vaultObservabilityTrace = assembleVaultObservabilityTrace({
+      input: vaultObsInput,
+      gate: vaultObsGate,
+      resolve: vaultObsResolve,
+      media: vaultObsMedia,
+      evidencePackage: turnEvidencePackage,
+    });
+    if (qaTurnCapture) {
+      qaTurnCapture.vault_observability = vaultObservabilityTrace;
+    }
+  }
   const policyTruthContextForClaude = isPresenceTurn
     ? null
     : buildSourceSeparatedTruthContext({
@@ -7305,6 +7364,8 @@ export async function runClaudeFirstDirectQuestionTurn({
               ? pdfAttachmentsForClaude.length
               : Number(pdf?.meta?.vault_attach_count ?? 0) || 0,
             vault_stage_counts: vaultRecall?.stage_counts ?? null,
+            // Browser marks only — full vault_observability stays on qaTurnCapture.
+            ...buildVaultObservabilityBrowserMarks(vaultObservabilityTrace),
             recommendation_basis_tool_seen: claude.recommendation_basis_tool_seen === true,
             recommendation_basis_count: Number(claude.recommendation_basis_count ?? 0) || 0,
             recommendation_basis_rejected_count:
@@ -7723,6 +7784,8 @@ export async function runClaudeFirstDirectQuestionTurn({
                 : 0,
               vault_stage_counts: vaultRecall?.stage_counts ?? null,
               evidence_package: turnEvidencePackage,
+              // Browser marks only — full vault_observability stays on qaTurnCapture.
+              ...buildVaultObservabilityBrowserMarks(vaultObservabilityTrace),
               verified_policy_ledger_count:
                 verifiedPolicyLedgerBrief?.active_distinct_count ?? null,
               life_threads_injected_count: earlyLifeThreadsBrief.length,
@@ -7987,6 +8050,8 @@ export async function runClaudeFirstDirectQuestionTurn({
           refreshSessionSignal: qaTurnCapture.refresh_session_signal,
           env,
         }),
+        // O2 durable: pass already-assembled observe-only object (no recompute).
+        vaultObservability: qaTurnCapture?.vault_observability ?? null,
         waitUntilImpl,
       });
       qaTurnCapture.record = qaTurnRecordMeta;
@@ -8690,6 +8755,8 @@ export async function runClaudeFirstDirectQuestionTurn({
           original_attachment_count:
             Number(claude.original_attachment_count ?? 0) || 0,
           evidence_package: turnEvidencePackage,
+          // Browser marks only — full vault_observability stays on qaTurnCapture.
+          ...buildVaultObservabilityBrowserMarks(vaultObservabilityTrace),
           verified_policy_ledger: verifiedPolicyLedgerBrief
             ? {
                 active_distinct_count:

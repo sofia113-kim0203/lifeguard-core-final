@@ -561,6 +561,7 @@ export function assembleQaTurnTracePayload({
   originalsManifest = null,
   claudeCapture = null,
   ledgerCapture = null,
+  vaultObservability = null,
   recordMeta = null,
   requestTimestamp = null,
 } = {}) {
@@ -568,6 +569,10 @@ export function assembleQaTurnTracePayload({
   const expiresAt = new Date(
     Date.now() + resolveQaTurnTtlHours(env) * 3600 * 1000,
   ).toISOString();
+  const scrubbedVaultObservability =
+    vaultObservability && typeof vaultObservability === "object"
+      ? vaultObservability
+      : null;
   const payload = {
     schema_version: QA_TURN_TRACE_SCHEMA_VERSION,
     turn_trace_id: turnTraceId,
@@ -602,6 +607,9 @@ export function assembleQaTurnTracePayload({
       turn_trace_id: turnTraceId,
       compose_mode: "key_claude_first_direct",
     },
+    ...(scrubbedVaultObservability
+      ? { vault_observability: scrubbedVaultObservability }
+      : {}),
     record_meta: {
       write_ok: null,
       write_ms: null,
@@ -715,6 +723,7 @@ export async function recordQaTurnTrace({
   originalsManifest = null,
   claudeCapture = null,
   ledgerCapture = null,
+  vaultObservability = null,
   turnTraceId = null,
   insertImpl = null,
   waitUntilImpl = null,
@@ -755,6 +764,7 @@ export async function recordQaTurnTrace({
       originalsManifest,
       claudeCapture,
       ledgerCapture,
+      vaultObservability,
     });
 
     const writePromise = (async () => {
