@@ -69,6 +69,7 @@ import {
   buildVerifiedPolicyLedgerBrief,
   buildSourceSeparatedTruthContext,
   buildVerifiedCoverageAuthorityAddendum,
+  projectClaudeVerifiedPolicyLedgerBrief,
 } from "../server/keyCore/keyPolicyTruthEvidence.js";
 import { buildVerifiedCustomerChart } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 import {
@@ -1915,16 +1916,13 @@ ok("claude_chart_bloat_repair_2a_suite");
     assert.equal(src.verified_document_coverages.length, 3);
     assert.equal(proj.verified_document_coverages.length, 2);
     assert.equal(diag.source_document_id_enrichment_collapsed_groups, 1);
-    assert.ok(Array.isArray(proj.verified_document_coverage_occurrence_records));
-    assert.equal(proj.verified_document_coverage_occurrence_records.length, 1);
-    assert.equal(
-      proj.verified_document_coverage_occurrence_records[0].occurrence_count,
-      2,
-    );
+    assert.equal(diag.source_document_id_enrichment_original_occurrences, 3);
+    assert.equal(diag.source_document_id_enrichment_projected_rows, 2);
+    assert.equal(diag.source_document_id_presence_count, 1);
     assert.equal(
       Object.prototype.hasOwnProperty.call(
-        proj.verified_document_coverage_occurrence_records[0],
-        "source_document_id",
+        proj,
+        "verified_document_coverage_occurrence_records",
       ),
       false,
     );
@@ -1937,6 +1935,326 @@ ok("claude_chart_bloat_repair_2a_suite");
   ok("chart_bloat_2h_projection_wiring_and_non_mutation");
 }
 ok("claude_chart_bloat_repair_2h_suite");
+
+// ─── 2C: C ledger contract authority / B coverage detail split ───
+{
+  function idsOf(rows) {
+    return (Array.isArray(rows) ? rows : [])
+      .map((r) => String(r?.contract_id ?? "").trim())
+      .filter(Boolean)
+      .sort();
+  }
+
+  const policies = [
+    {
+      id: "pol-c1",
+      policy_id: "pol-c1",
+      insurer_name: "한화생명",
+      product_name: "암보험A",
+      policy_number: "PN-C1",
+      monthly_premium: 50000,
+      status: "active",
+      identity_strength: "strong",
+      coverage_summary: {
+        verification_status: "verified",
+        key_coverage_baseline_facts: [
+          {
+            coverage_name: "암진단비",
+            coverage_amount: 10_000_000,
+            status: "verified",
+            source_document_id: "doc-c1",
+          },
+        ],
+      },
+    },
+    {
+      id: "pol-c2",
+      policy_id: "pol-c2",
+      insurer_name: "삼성생명",
+      product_name: "종신B",
+      policy_number: "PN-C2",
+      monthly_premium: 80000,
+      status: "active",
+      identity_strength: "strong",
+      coverage_summary: {
+        verification_status: "verified",
+        key_coverage_baseline_facts: [],
+      },
+    },
+  ];
+
+  const fullLedger = buildVerifiedPolicyLedgerBrief(policies);
+  const fullBefore = JSON.parse(JSON.stringify(fullLedger));
+  const projectedLedger = projectClaudeVerifiedPolicyLedgerBrief(fullLedger);
+  assert.deepEqual(fullLedger, fullBefore, "original ledger mutation false");
+
+  // 1–3) contract count / id set / skeleton fields preserved
+  assert.equal(projectedLedger.active_distinct_count, fullLedger.active_distinct_count);
+  assert.equal(
+    projectedLedger.confirmed_contracts.length,
+    fullLedger.confirmed_contracts.length,
+  );
+  assert.deepEqual(
+    idsOf(projectedLedger.confirmed_contracts),
+    idsOf(fullLedger.confirmed_contracts),
+  );
+  assert.equal(projectedLedger.confirmed_contracts[0].insurer, "한화생명");
+  assert.equal(projectedLedger.confirmed_contracts[0].product_name, "암보험A");
+  assert.equal(
+    projectedLedger.confirmed_contracts[0].verification_status,
+    fullLedger.confirmed_contracts[0].verification_status,
+  );
+
+  // 4) coverage bodies removed; review/alias arrays dropped from C projection
+  for (const row of projectedLedger.confirmed_contracts || []) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(row, "coverages"),
+      false,
+      "C confirmed row must not carry coverages",
+    );
+  }
+  for (const dropped of [
+    "verified_document_coverages",
+    "review_candidates",
+    "personal_review_candidates",
+    "personal_confirmed_contracts",
+    "contracts",
+  ]) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(projectedLedger, dropped),
+      false,
+      `C projection must drop ${dropped}`,
+    );
+  }
+  // hard-slot counts preserved
+  assert.equal(
+    projectedLedger.review_candidate_count,
+    fullLedger.review_candidate_count,
+  );
+  assert.equal(
+    projectedLedger.personal_review_candidate_count,
+    fullLedger.personal_review_candidate_count,
+  );
+  // full ledger still has coverage bodies + review arrays (KEY internal)
+  assert.ok(Array.isArray(fullLedger.confirmed_contracts[0].coverages));
+  assert.ok(fullLedger.confirmed_contracts[0].coverages.length >= 1);
+  assert.ok(Array.isArray(fullLedger.review_candidates));
+
+  const chart = buildVerifiedCustomerChart({
+    policies,
+    policy_count: policies.length,
+  });
+  const chartBefore = JSON.parse(JSON.stringify(chart));
+  const diag = {};
+  const projChart = buildClaudeVerifiedChartProjection(chart, diag);
+  assert.deepEqual(chart, chartBefore, "original chart mutation false");
+
+  // 5–6) B rows: C-backed vs review/flat-backed; orphan 0 (no B⊆C requirement)
+  function surfacePresence(originalChart, contractId) {
+    let inContracts = false;
+    let inReview = false;
+    let inFlat = false;
+    for (const c of originalChart.contracts || []) {
+      if (String(c?.contract_id ?? "").trim() !== contractId) continue;
+      if (Array.isArray(c?.coverages) && c.coverages.length > 0) inContracts = true;
+    }
+    for (const r of originalChart.review_candidates || []) {
+      if (String(r?.contract_id ?? "").trim() !== contractId) continue;
+      if (Array.isArray(r?.coverages) && r.coverages.length > 0) inReview = true;
+    }
+    for (const cov of originalChart.verified_document_coverages || []) {
+      if (String(cov?.contract_id ?? "").trim() === contractId) inFlat = true;
+    }
+    return { inContracts, inReview, inFlat };
+  }
+  const bRows = projChart.verified_document_coverages || [];
+  assert.ok(bRows.length >= 1);
+  const cIdSet = new Set(idsOf(projectedLedger.confirmed_contracts));
+  let missingCid = 0;
+  let directC = 0;
+  let reviewFlatBacked = 0;
+  let orphan = 0;
+  for (const row of bRows) {
+    const cid = String(row?.contract_id ?? "").trim();
+    if (!cid) {
+      missingCid += 1;
+      orphan += 1;
+      continue;
+    }
+    if (cIdSet.has(cid)) {
+      directC += 1;
+      continue;
+    }
+    const p = surfacePresence(chart, cid);
+    if (p.inReview && p.inFlat) reviewFlatBacked += 1;
+    else orphan += 1;
+  }
+  assert.equal(missingCid, 0, "B missing contract_id");
+  assert.equal(orphan, 0, "orphan B rows must be 0");
+  assert.equal(directC + reviewFlatBacked, bRows.length);
+
+  // 7–8) C-only contract (no B coverage) allowed; detail unknown
+  assert.ok(cIdSet.has("pol-c2"));
+  const bIds = new Set(
+    bRows.map((r) => String(r?.contract_id ?? "").trim()).filter(Boolean),
+  );
+  assert.equal(bIds.has("pol-c2"), false);
+  // no restoration of coverages onto C
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      projectedLedger.confirmed_contracts.find((r) => r.contract_id === "pol-c2"),
+      "coverages",
+    ),
+    false,
+  );
+
+  // 9–10) count authority is C hard slot; no coverage invent on C
+  assert.equal(projectedLedger.active_distinct_count, 2);
+  assert.notEqual(projectedLedger.active_distinct_count, bRows.length);
+  assert.notEqual(projectedLedger.active_distinct_count, bIds.size);
+
+  // 14) occurrence metadata absent; C has no review/alias arrays
+  const policyTruth = buildSourceSeparatedTruthContext({
+    ledgerBrief: fullLedger,
+    evidenceMeta: { attached_document_count: 0 },
+    countQuestion: true,
+  });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      policyTruth.VERIFIED_POLICY_LEDGER,
+      "verified_document_coverages",
+    ),
+    false,
+  );
+  for (const dropped of [
+    "review_candidates",
+    "personal_review_candidates",
+    "personal_confirmed_contracts",
+    "contracts",
+  ]) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        policyTruth.VERIFIED_POLICY_LEDGER,
+        dropped,
+      ),
+      false,
+    );
+  }
+  const userPayload = buildUserPayload({
+    question: "내 계약 몇 건이야?",
+    chart,
+    contextPack: { recent_turns: [] },
+    policyTruthContext: policyTruth,
+    now: new Date("2026-08-01T01:20:00.111+09:00"),
+  });
+  const { block_b, block_c } = (() => {
+    const parts = buildClaudeFirstCachedRequestParts({
+      systemText: "sys",
+      userPayload,
+    });
+    const content = parts.messages[0].content;
+    const bText = content.find((x) => x.cache_control)?.text;
+    const cText = content.find(
+      (x, i) => i > 0 && x.type === "text" && !x.cache_control,
+    )?.text;
+    return {
+      block_b: JSON.parse(bText),
+      block_c: JSON.parse(cText),
+    };
+  })();
+  const bChart = block_b?.available_verified_evidence?.personal?.chart;
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      bChart || {},
+      "verified_document_coverage_occurrence_records",
+    ),
+    false,
+  );
+  const cLedger = block_c?.current_context?.policy_truth?.VERIFIED_POLICY_LEDGER;
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      cLedger || {},
+      "verified_document_coverages",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      cLedger || {},
+      "verified_document_coverage_occurrence_records",
+    ),
+    false,
+  );
+  for (const dropped of [
+    "review_candidates",
+    "personal_review_candidates",
+    "personal_confirmed_contracts",
+    "contracts",
+  ]) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(cLedger || {}, dropped),
+      false,
+    );
+  }
+  assert.equal(cLedger?.active_distinct_count, 2);
+  assert.equal(cLedger?.confirmed_contracts?.length, 2);
+  assert.deepEqual(
+    idsOf(cLedger.confirmed_contracts),
+    idsOf(fullLedger.confirmed_contracts),
+  );
+
+  // coverage authority addendum reads B only (not C ledger coverages)
+  const covAuth = buildVerifiedCoverageAuthorityAddendum({
+    ledgerBrief: fullLedger,
+    chart,
+  });
+  assert.ok(covAuth);
+  assert.equal(/VERIFIED_POLICY_LEDGER\.verified_document_coverages/.test(covAuth), false);
+  assert.ok(/Block B/.test(covAuth));
+
+  // 15) diagnostics retain enrichment counts on projection diag path
+  {
+    const nullId = {
+      contract_id: "c-enrich-1",
+      coverage_name: "암진단비",
+      coverage_amount: 10000000,
+      status: "verified",
+      source_document_id: null,
+    };
+    const withId = {
+      ...nullId,
+      source_document_id: "doc-enrich-1",
+    };
+    const d2 = {};
+    const p2 = buildClaudeVerifiedChartProjection(
+      {
+        verified_document_coverages: [nullId, withId],
+        contracts: [{ contract_id: "c-enrich-1" }],
+        confirmed_contracts: [{ contract_id: "c-enrich-1" }],
+        personal_confirmed_contracts: [{ contract_id: "c-enrich-1" }],
+      },
+      d2,
+    );
+    assert.equal(d2.source_document_id_enrichment_collapsed_groups, 1);
+    assert.equal(d2.source_document_id_enrichment_original_occurrences, 2);
+    assert.equal(d2.source_document_id_enrichment_projected_rows, 1);
+    assert.equal(d2.source_document_id_presence_count, 1);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        p2,
+        "verified_document_coverage_occurrence_records",
+      ),
+      false,
+    );
+  }
+
+  // policy rows mutation false (input policies untouched)
+  assert.equal(policies[0].id, "pol-c1");
+  assert.ok(policies[0].coverage_summary.key_coverage_baseline_facts.length >= 1);
+
+  ok("ledger_coverage_authority_split_2c_invariants");
+}
+ok("ledger_coverage_authority_split_2c_suite");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
 if (globalThis.__CACHE_PREFIX_HASH_1) {

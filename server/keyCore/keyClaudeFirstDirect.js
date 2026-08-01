@@ -240,7 +240,7 @@ import {
   normalizeImageOrientationForClaude,
 } from "./keyImageOrientation.js";
 import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
-  import {
+import {
   buildPolicyCountAuthorityAddendum,
   buildSourceSeparatedTruthContext,
   buildTurnEvidencePackageMeta,
@@ -2436,16 +2436,24 @@ export function buildClaudeVerifiedChartProjection(chart = null, diagnostics = n
     out.verified_document_coverages = projectClaudeChartObjectList(
       collapsed.coverages,
     );
-    if (
-      Array.isArray(collapsed.occurrence_records) &&
-      collapsed.occurrence_records.length > 0
-    ) {
-      out.verified_document_coverage_occurrence_records =
-        collapsed.occurrence_records;
+    // Occurrence metadata is KEY-internal diagnostics only — never Claude B/C payload.
+    if (Object.prototype.hasOwnProperty.call(out, "verified_document_coverage_occurrence_records")) {
+      delete out.verified_document_coverage_occurrence_records;
     }
     if (diag) {
+      const presence = Array.isArray(collapsed.occurrence_records)
+        ? collapsed.occurrence_records.reduce(
+            (n, r) => n + (Number(r?.source_document_id_presence_count) || 0),
+            0,
+          )
+        : 0;
       diag.source_document_id_enrichment_collapsed_groups =
         collapsed.occurrence_records.length;
+      diag.source_document_id_enrichment_original_occurrences =
+        chart.verified_document_coverages.length;
+      diag.source_document_id_enrichment_projected_rows =
+        collapsed.coverages.length;
+      diag.source_document_id_presence_count = presence;
     }
   }
 
@@ -2833,14 +2841,19 @@ export const LIFEGUARD_KEY_SYSTEM_PROMPT = `<lifeguard_key_system>
 <truth_authority>
 사실의 권위는 질문의 종류에 따라 결정한다.
 - 원본에 무엇이 적혀 있는가 → 이번 턴에 실제 제공된 원본
-- 이미 KEY가 원본에서 검증해 verified_document_coverages 또는 VERIFIED_POLICY_LEDGER에 올린 담보명·보장금액 → 문서 사실 (이번 턴 원본 재첨부 불필요)
-- 현재 확정 가입 건수·활성 계약 목록·계약 상태 → VERIFIED_POLICY_LEDGER
+- 이미 KEY가 원본에서 검증해 verified_customer_chart(Block B)에 올린 담보명·보장금액·담보기간 → 문서 사실 (이번 턴 원본 재첨부 불필요)
+- 현재 확정 가입 건수·활성 확정 계약 목록·계약 상태 → VERIFIED_POLICY_LEDGER(C)의 confirmed_contracts와 active_distinct_count만 (담보 본문·검토 후보 배열 없음)
+- 검토 후보 계약/담보 상세 → Block B chart의 review_candidates / verified_document_coverages만
 - 고객의 목표·선호·예산·고민·경험 → 고객이 직접 말한 내용
 - 고객이 말한 계약 수·보험료·상품·보장금액 → 중요한 고객 진술이지만 검증 전에는 확정 계약 사실이 아님
 - 청구 접수·심사·지급·거절·기한 → 해당 턴에 제공된 검증 기록
 - 현재 제도·상품·시장 정보 → 제공된 최신 공개 근거 또는 검색 결과
 - 대화 이력 → 관계·감정·목표·미해결 질문을 이해하는 맥락
 - 분석·설계·추천 → 위 사실을 종합하여 네가 책임 있게 판단
+장부는 확정 계약의 권위이고, 차트는 담보·검토 후보 상세의 권위다.
+확정 계약 담보는 contract_id로 C confirmed_contracts와 연결할 수 있다.
+C에 없는 B 담보는 검토 후보 표면(B)으로 말하며, C에서 검토 후보를 복사·추정·복원하지 않는다.
+C에 계약이 있으나 B 담보가 없으면 계약 존재·상태는 유지하고 담보 상세는 unknown이며 없다고 확정하지 않는다.
 원본 사실, 장부 사실, 고객 진술, 공개 정보,
 과거 KEY 답변, 해석·추론과 확인 불가를 같은 확정 사실처럼 섞지 않는다.
 과거 KEY 답변 자체는 현재 계약 사실의 증거가 아니다.
@@ -2850,12 +2863,15 @@ review_candidate(weak identity)여도 verified_document_coverages에 있는 담�
 고객이 가입 건수, 계약 수 또는 보험 목록을 물으면
 확정 건수와 확정 목록은 이번 턴의 VERIFIED_POLICY_LEDGER만 기준으로 한다.
 active_distinct_count가 제공됐다면 그 숫자가 현재 확정 계약 수다.
+verified_document_coverages 행 수나 B contract_id distinct count로 계약 수를 만들지 않는다.
+담보가 없는 계약도 계약 건수에서 빼지 않는다.
 다음 숫자를 확정 가입 건수로 사용하지 않는다.
 - 과거 KEY 답변의 숫자
 - 고객이 말한 숫자
 - 대화 이력에 반복된 숫자
 - 이번 원본 일부에서만 센 숫자
 - 페이지·행 번호를 추정하여 만든 숫자
+- B 담보 행 개수·B contract_id 개수
 원본에서 장부에 없는 계약이 명확히 보이면
 현재 장부의 확정 계약과 원본에서 새로 확인된 내용을 구분한다.
 새로 보인 내용을 확정 장부 건수에 임의로 더하지 않는다.

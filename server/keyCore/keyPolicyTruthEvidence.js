@@ -98,8 +98,14 @@ function mapContractRow(p, index) {
       ? p.coverage_summary
       : {};
   const coverages = mapVerifiedDocumentCoverages(p);
+  const contractIdRaw = p?.id ?? p?.policy_id ?? p?.contract_id ?? null;
+  const contract_id =
+    contractIdRaw != null && String(contractIdRaw).trim()
+      ? String(contractIdRaw).trim()
+      : null;
   return {
     index: index + 1,
+    contract_id,
     insurer: String(p.insurer_name ?? "").trim() || null,
     product_name: String(p.product_name ?? "").trim() || null,
     monthly_premium:
@@ -130,9 +136,45 @@ function mapContractRow(p, index) {
         : p.policy_number != null
           ? String(p.policy_number)
           : null,
-    // Already-ledgered verified coverages — speakable even when identity is still review-only.
+    // Internal/full ledger may carry coverages; Claude C projection strips them.
     coverages,
   };
+}
+
+/**
+ * Claude C projection only — confirmed contract skeleton authority.
+ * Keeps one confirmed_contracts list (coverage bodies stripped).
+ * Drops review/alias contract arrays — those details live on Block B chart.
+ * Does not mutate the source ledger brief.
+ */
+export function projectClaudeVerifiedPolicyLedgerBrief(ledgerBrief = null) {
+  if (!ledgerBrief || typeof ledgerBrief !== "object") {
+    return ledgerBrief ?? null;
+  }
+  const stripRow = (row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+    const out = { ...row };
+    delete out.coverages;
+    return out;
+  };
+  const out = { ...ledgerBrief };
+  if (Array.isArray(ledgerBrief.confirmed_contracts)) {
+    out.confirmed_contracts = ledgerBrief.confirmed_contracts.map(stripRow);
+  }
+  for (const key of [
+    "personal_confirmed_contracts",
+    "contracts",
+    "review_candidates",
+    "personal_review_candidates",
+    "verified_document_coverages",
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(out, key)) {
+      delete out[key];
+    }
+  }
+  out.note =
+    "Confirmed contracts use strong identity only. active_distinct_count / confirmed_count are the only confirmed contract-count hard slots. review_candidate_count and personal_review_candidate_count are counts only — never customer confirmed totals. Review-candidate contract/coverage detail authority is Block B chart (review_candidates + verified_document_coverages), not this ledger. Do not invent, restore, copy, or summarize review rows here. Coverage bodies are omitted from confirmed_contracts.";
+  return out;
 }
 
 /**
@@ -306,14 +348,10 @@ export function buildVerifiedCoverageAuthorityAddendum({
   ledgerBrief = null,
   chart = null,
 } = {}) {
-  const rows = [
-    ...(Array.isArray(chart?.verified_document_coverages)
-      ? chart.verified_document_coverages
-      : []),
-    ...(Array.isArray(ledgerBrief?.verified_document_coverages)
-      ? ledgerBrief.verified_document_coverages
-      : []),
-  ];
+  void ledgerBrief; // ledger is contract authority only — coverage body lives on Block B chart
+  const rows = Array.isArray(chart?.verified_document_coverages)
+    ? chart.verified_document_coverages
+    : [];
   if (rows.length === 0) return null;
   const unique = [];
   const seen = new Set();
@@ -326,10 +364,15 @@ export function buildVerifiedCoverageAuthorityAddendum({
   if (unique.length === 0) return null;
   return [
     "VERIFIED_DOCUMENT_COVERAGES_AUTHORITY",
-    "verified_customer_chart.verified_document_coverages와 VERIFIED_POLICY_LEDGER.verified_document_coverages는 과거 원본에서 KEY가 검증한 문서 사실이다.",
+    "담보 상세 권위는 verified_customer_chart(Block B)다.",
+    "확정 계약 담보는 verified_document_coverages와 confirmed chart surfaces를 사용한다.",
+    "검토 후보 담보는 B의 review_candidates / verified_document_coverages만 사용한다.",
+    "VERIFIED_POLICY_LEDGER(C)는 confirmed_contracts 골격과 건수 하드슬롯만 제공한다.",
+    "C에서 검토 후보 배열·담보 본문을 읽거나 복원하지 않는다.",
     "그 담보명·보장금액은 문서 사실로 말한다.",
     "이미 있는 금액을 위해 원본 재첨부·재업로드를 요구하지 않는다.",
     "review_candidate / weak identity여도 이미 검증된 담보금액은 유지한다.",
+    "C에 계약이 있으나 B 담보가 없으면 담보 상세는 unknown이며 없다고 확정하지 않는다.",
     `present_count=${unique.length}`,
   ].join("\n");
 }
@@ -378,18 +421,9 @@ export function buildPolicyCountAuthorityAddendum({
     );
   }
   if (n === 0 && (reviewN > 0 || (rawN != null && rawN > 0))) {
-    const verifiedCovN = Array.isArray(ledgerBrief?.verified_document_coverages)
-      ? ledgerBrief.verified_document_coverages.length
-      : 0;
-    if (verifiedCovN > 0) {
-      lines.push(
-        "확정 identity가 부족해도 VERIFIED_POLICY_LEDGER.verified_document_coverages에 이미 검증된 담보 금액이 있으면 문서 사실로 말하고, 그 금액을 위해 원본 재첨부를 요구하지 않는다. 확정 계약 수 자체만 확인 필요로 분리한다.",
-      );
-    } else {
-      lines.push(
-        "확정 identity가 부족하면 그룹 수나 원행 수를 확정 계약 수로 말하지 말고, 확인 필요·원본 확인을 안내한다.",
-      );
-    }
+    lines.push(
+      "확정 identity가 부족하면 그룹 수나 원행 수를 확정 계약 수로 말하지 말고, 확인 필요·원본 확인을 안내한다. 담보 상세는 verified_customer_chart.verified_document_coverages(Block B)만 사용하며 C 장부에서 담보를 추정·복원하지 않는다.",
+    );
   }
   if (partial || (attached > 0 && evidenceMeta?.failed_document_ids?.length)) {
     lines.push(
@@ -414,7 +448,8 @@ export function buildSourceSeparatedTruthContext({
   countQuestion = false,
 } = {}) {
   return {
-    VERIFIED_POLICY_LEDGER: ledgerBrief,
+    // Claude C: contract skeleton only (coverage bodies stripped at projection boundary).
+    VERIFIED_POLICY_LEDGER: projectClaudeVerifiedPolicyLedgerBrief(ledgerBrief),
     CUSTOMER_REPORTED_FACTS:
       customerReportedCount != null
         ? {
@@ -427,7 +462,7 @@ export function buildSourceSeparatedTruthContext({
     COUNT_QUESTION: countQuestion === true,
     HISTORY_COUNTS_NOT_AUTHORITY: true,
     SOURCE_SEPARATION_RULE:
-      "Do not mix CURRENT_ORIGINALS, VERIFIED_POLICY_LEDGER, CUSTOMER_REPORTED_FACTS, prior KEY answers, inference, and unknown. confirmed_contracts only for confirmed counts; review_candidates are not confirmed. verified_document_coverages on the ledger/chart are already-verified document facts — speak them without re-attach requests.",
+      "Do not mix CURRENT_ORIGINALS, VERIFIED_POLICY_LEDGER, CUSTOMER_REPORTED_FACTS, prior KEY answers, inference, and unknown. Confirmed contract count/list/status: VERIFIED_POLICY_LEDGER.confirmed_contracts + active_distinct_count only. Review-candidate detail and all coverage detail: Block B chart only (review_candidates / verified_document_coverages). Do not read review arrays or coverage bodies from the ledger; do not invent, restore, copy, or summarize them into C; contracts without B coverages keep contract facts with coverage detail unknown.",
   };
 }
 
