@@ -1,12 +1,24 @@
 /**
  * KEY original-byte delivery authority — upload this turn or explicit chip reopen only.
  * Past active ids / chart / keywords do not authorize Storage originals.
+ *
+ * Explicit reopen lifecycle:
+ *   armed → in_flight (request start) → consumed (SSE ack)
+ *   in_flight + pre-ack failure → armed (retry allowed)
+ *   ack after → consumed (no re-arm even if stream fails)
  */
 
 import {
   listAttachedDocumentIds,
   resolveAttachDocumentIdContract,
 } from "./homeBrainAttachDocumentIds.js";
+
+export const EXPLICIT_REOPEN_STATUS = Object.freeze({
+  IDLE: "idle",
+  ARMED: "armed",
+  IN_FLIGHT: "in_flight",
+  CONSUMED: "consumed",
+});
 
 /**
  * Ordered unique delivery ids for this turn.
@@ -32,10 +44,12 @@ export function decideForceFullOriginalForOneShot({
   currentTurnDocumentIds = null,
   explicitReopenDocumentIds = null,
 } = {}) {
-  return resolveOriginalByteDeliveryAuthority({
-    currentTurnDocumentIds,
-    explicitReopenDocumentIds,
-  }).deliveryIds.length > 0;
+  return (
+    resolveOriginalByteDeliveryAuthority({
+      currentTurnDocumentIds,
+      explicitReopenDocumentIds,
+    }).deliveryIds.length > 0
+  );
 }
 
 /**
@@ -62,9 +76,114 @@ export function shouldBlockSendForIncompleteUpload({
   return { block: false, reason: null };
 }
 
+/** @returns {{ status: string, documentIds: string[], ackReceived: boolean }} */
+export function createExplicitReopenOneShot({ documentIds = [] } = {}) {
+  const ids = listAttachedDocumentIds(documentIds);
+  return {
+    status: ids.length ? EXPLICIT_REOPEN_STATUS.ARMED : EXPLICIT_REOPEN_STATUS.IDLE,
+    documentIds: ids,
+    ackReceived: false,
+  };
+}
+
+export function armExplicitReopenOneShot(documentIds = []) {
+  return createExplicitReopenOneShot({ documentIds });
+}
+
 /**
- * Consume reopen ids at request-build time (one-shot). Caller must clear state after.
- * @returns {{ reopenIds: string[], nextReopenIds: [] }}
+ * Request-start transition. Snapshot ids for the wire; do not permanently delete until ACK.
+ * Second concurrent begin while in_flight is rejected (no duplicate wire ids).
+ */
+export function beginExplicitReopenFlight(state = null) {
+  const prev =
+    state && typeof state === "object"
+      ? state
+      : createExplicitReopenOneShot();
+  if (prev.status === EXPLICIT_REOPEN_STATUS.IN_FLIGHT) {
+    return {
+      ok: false,
+      reason: "already_in_flight",
+      nextState: prev,
+      requestSnapshotIds: [],
+    };
+  }
+  const ids = listAttachedDocumentIds(prev.documentIds);
+  if (prev.status !== EXPLICIT_REOPEN_STATUS.ARMED || ids.length === 0) {
+    return {
+      ok: true,
+      reason: "no_reopen",
+      nextState: {
+        status:
+          prev.status === EXPLICIT_REOPEN_STATUS.CONSUMED
+            ? EXPLICIT_REOPEN_STATUS.CONSUMED
+            : EXPLICIT_REOPEN_STATUS.IDLE,
+        documentIds: [],
+        ackReceived: prev.ackReceived === true,
+      },
+      requestSnapshotIds: [],
+    };
+  }
+  return {
+    ok: true,
+    reason: "started",
+    nextState: {
+      status: EXPLICIT_REOPEN_STATUS.IN_FLIGHT,
+      documentIds: ids.slice(),
+      ackReceived: false,
+    },
+    requestSnapshotIds: ids.slice(),
+  };
+}
+
+/** SSE event: ack — permanently consume (no re-arm on later stream failure). */
+export function markExplicitReopenAck(state = null) {
+  const prev =
+    state && typeof state === "object"
+      ? state
+      : createExplicitReopenOneShot();
+  if (prev.status !== EXPLICIT_REOPEN_STATUS.IN_FLIGHT) {
+    return prev;
+  }
+  return {
+    status: EXPLICIT_REOPEN_STATUS.CONSUMED,
+    documentIds: [],
+    ackReceived: true,
+  };
+}
+
+/**
+ * Failure after request start.
+ * Pre-ack → re-arm same ids. Post-ack → stay consumed.
+ */
+export function resolveExplicitReopenFlightFailure(state = null) {
+  const prev =
+    state && typeof state === "object"
+      ? state
+      : createExplicitReopenOneShot();
+  if (
+    prev.status === EXPLICIT_REOPEN_STATUS.IN_FLIGHT &&
+    prev.ackReceived !== true
+  ) {
+    const ids = listAttachedDocumentIds(prev.documentIds);
+    return {
+      status: ids.length ? EXPLICIT_REOPEN_STATUS.ARMED : EXPLICIT_REOPEN_STATUS.IDLE,
+      documentIds: ids,
+      ackReceived: false,
+    };
+  }
+  if (prev.ackReceived === true || prev.status === EXPLICIT_REOPEN_STATUS.CONSUMED) {
+    return {
+      status: EXPLICIT_REOPEN_STATUS.CONSUMED,
+      documentIds: [],
+      ackReceived: true,
+    };
+  }
+  return prev;
+}
+
+/**
+ * Request-body snapshot helper (does not mutate lifecycle).
+ * Prefer beginExplicitReopenFlight for send-path authority.
  */
 export function consumeExplicitReopenDocumentIds(explicitReopenDocumentIds = null) {
   const reopenIds = listAttachedDocumentIds(explicitReopenDocumentIds);

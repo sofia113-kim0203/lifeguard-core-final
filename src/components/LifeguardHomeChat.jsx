@@ -33,7 +33,12 @@ import {
   snapshotChatComposerAttachments,
 } from "../lib/chatComposerAttachments.js";
 import {
-  consumeExplicitReopenDocumentIds,
+  armExplicitReopenOneShot,
+  beginExplicitReopenFlight,
+  createExplicitReopenOneShot,
+  EXPLICIT_REOPEN_STATUS,
+  markExplicitReopenAck,
+  resolveExplicitReopenFlightFailure,
   shouldBlockSendForIncompleteUpload,
 } from "../lib/originalAttachmentOneShot.js";
 import AttachmentTray from "./AttachmentTray.jsx";
@@ -613,8 +618,26 @@ export default function LifeguardHomeChat({
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentIds, setActiveAttachmentIds] = useState([]);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
-  // Chip reopen → next request one-shot only; never hydrate / never survive past body build.
+  // Chip reopen one-shot: armed → in_flight → ack/consumed (pre-ack fail → re-arm).
   const [explicitReopenDocumentIds, setExplicitReopenDocumentIds] = useState([]);
+  const explicitReopenFlightRef = useRef(createExplicitReopenOneShot());
+  const syncExplicitReopenFlight = (nextState) => {
+    const state =
+      nextState && typeof nextState === "object"
+        ? nextState
+        : createExplicitReopenOneShot();
+    explicitReopenFlightRef.current = state;
+    if (state.status === EXPLICIT_REOPEN_STATUS.ARMED) {
+      setExplicitReopenDocumentIds(
+        Array.isArray(state.documentIds) ? state.documentIds.slice() : [],
+      );
+    } else {
+      setExplicitReopenDocumentIds([]);
+    }
+  };
+  const clearExplicitReopenFlight = () => {
+    syncExplicitReopenFlight(createExplicitReopenOneShot());
+  };
   // Past attach bundle for explicit reactivation UI only — never request authority.
   const [restorableAttachmentCandidate, setRestorableAttachmentCandidate] = useState(null);
   const userAttachActionEpochRef = useRef(0);
@@ -712,7 +735,7 @@ export default function LifeguardHomeChat({
     if (prevCustomerIdRef.current === customerId) return;
     prevCustomerIdRef.current = customerId;
     clearConversationActiveAttachment();
-    setExplicitReopenDocumentIds([]);
+    clearExplicitReopenFlight();
     setRestorableAttachmentCandidate(null);
   }, [customerId]);
 
@@ -1377,7 +1400,7 @@ export default function LifeguardHomeChat({
           userAttachActionEpochRef.current === userEpochAtStart
         ) {
           clearConversationActiveAttachment();
-          setExplicitReopenDocumentIds([]);
+          clearExplicitReopenFlight();
           setRestorableAttachmentCandidate(null);
         }
         sessionIdRef.current = activeId;
@@ -1647,7 +1670,7 @@ export default function LifeguardHomeChat({
       restoreForceScrollRef.current = true;
       stickToBottomRef.current = true;
       clearConversationActiveAttachment();
-      setExplicitReopenDocumentIds([]);
+      clearExplicitReopenFlight();
       setRestorableAttachmentCandidate(null);
 
       try {
@@ -1671,7 +1694,7 @@ export default function LifeguardHomeChat({
       } catch (err) {
         setMessages([]);
         clearConversationActiveAttachment();
-        setExplicitReopenDocumentIds([]);
+        clearExplicitReopenFlight();
         setRestorableAttachmentCandidate(null);
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
@@ -1830,11 +1853,23 @@ export default function LifeguardHomeChat({
     const composerActiveSeed =
       attachmentsForTurn[attachmentsForTurn.length - 1] || composerPrimary;
 
-    // One-shot reopen: consume at request-build time (not response completion).
-    const { reopenIds: reopenIdsForTurn } = consumeExplicitReopenDocumentIds(
-      explicitReopenDocumentIds,
-    );
-    setExplicitReopenDocumentIds([]);
+    // One-shot reopen: snapshot for wire on flight start; permanent consume only on SSE ack.
+    if (
+      explicitReopenFlightRef.current?.status === EXPLICIT_REOPEN_STATUS.IN_FLIGHT
+    ) {
+      setError("이전 문서 다시보기 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    const reopenFlightBegin = beginExplicitReopenFlight(explicitReopenFlightRef.current);
+    if (reopenFlightBegin.ok === false && reopenFlightBegin.reason === "already_in_flight") {
+      setError("이전 문서 다시보기 요청이 처리 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    syncExplicitReopenFlight(reopenFlightBegin.nextState);
+    const reopenIdsForTurn = Array.isArray(reopenFlightBegin.requestSnapshotIds)
+      ? reopenFlightBegin.requestSnapshotIds.slice()
+      : [];
+    let reopenAckSeen = false;
 
     // Originals only from this-send uploads or chip reopen — never past activeAttachmentIds.
     const documentIdsForTurn =
@@ -2010,6 +2045,13 @@ export default function LifeguardHomeChat({
         {
           onAck: (ackText) => {
             markFirstSse();
+            // ACK = server accepted request; reopen one-shot is permanently consumed.
+            if (reopenIdsForTurn.length && !reopenAckSeen) {
+              reopenAckSeen = true;
+              syncExplicitReopenFlight(
+                markExplicitReopenAck(explicitReopenFlightRef.current),
+              );
+            }
             // Short customer status only ? do not list internal search/doc stage names.
             const pdfWait = resolvePdfWaitStatusText({
               hasDocumentAttach: Boolean(documentIdForTurn),
@@ -2234,6 +2276,17 @@ export default function LifeguardHomeChat({
           /* next session load refreshes; do not block customer answer */
         }
       }
+      // Successful return without ack event still consumes (server may have accepted).
+      if (reopenIdsForTurn.length && !reopenAckSeen) {
+        reopenAckSeen = true;
+        syncExplicitReopenFlight(
+          markExplicitReopenAck({
+            status: EXPLICIT_REOPEN_STATUS.IN_FLIGHT,
+            documentIds: reopenIdsForTurn.slice(),
+            ackReceived: false,
+          }),
+        );
+      }
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
     } catch (err) {
@@ -2241,6 +2294,20 @@ export default function LifeguardHomeChat({
         paint?.cancel();
       } catch {
         /* ignore */
+      }
+      // Pre-ack failure re-arms reopen; post-ack stays consumed (no second original delivery).
+      if (reopenIdsForTurn.length) {
+        if (reopenAckSeen) {
+          syncExplicitReopenFlight({
+            status: EXPLICIT_REOPEN_STATUS.CONSUMED,
+            documentIds: [],
+            ackReceived: true,
+          });
+        } else {
+          syncExplicitReopenFlight(
+            resolveExplicitReopenFlightFailure(explicitReopenFlightRef.current),
+          );
+        }
       }
       setMessages((prev) => {
         const copy = [...prev];
@@ -2275,7 +2342,7 @@ export default function LifeguardHomeChat({
     setInput("");
     setError("");
     clearConversationActiveAttachment();
-    setExplicitReopenDocumentIds([]);
+    clearExplicitReopenFlight();
     setRestorableAttachmentCandidate(null);
     clearComposerAttach();
     setPanelView("chat");
@@ -2352,7 +2419,10 @@ export default function LifeguardHomeChat({
     )
       .map((id) => String(id ?? "").trim())
       .filter(Boolean);
-    setExplicitReopenDocumentIds(reopenIds);
+    if (explicitReopenFlightRef.current?.status === EXPLICIT_REOPEN_STATUS.IN_FLIGHT) {
+      return;
+    }
+    syncExplicitReopenFlight(armExplicitReopenOneShot(reopenIds));
     clearConversationActiveAttachment();
     if (customerId) {
       writeLifeguardChatSnapshot(customerId, {

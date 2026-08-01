@@ -1,5 +1,5 @@
 /**
- * KEY original one-shot delivery — CASE 1–8 (no network / Claude / secrets).
+ * KEY original one-shot delivery — CASE 1–11 (no network / Claude / secrets).
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -7,8 +7,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
 import {
-  consumeExplicitReopenDocumentIds,
+  armExplicitReopenOneShot,
+  beginExplicitReopenFlight,
   decideForceFullOriginalForOneShot,
+  EXPLICIT_REOPEN_STATUS,
+  markExplicitReopenAck,
+  resolveExplicitReopenFlightFailure,
   resolveOriginalByteDeliveryAuthority,
   shouldBlockSendForIncompleteUpload,
 } from "../src/lib/originalAttachmentOneShot.js";
@@ -124,13 +128,17 @@ ok("CASE3_ordinary_followup_zero_originals");
 }
 ok("CASE4_chip_one_shot_reopen");
 
-// CASE 5 — reopen consumed; next ordinary turn zero
+// CASE 5 — reopen consumed after ACK; next ordinary turn zero
 {
-  const consumed = consumeExplicitReopenDocumentIds(["a", "b", "c", "d", "e"]);
-  assert.deepEqual(consumed.reopenIds, ["a", "b", "c", "d", "e"]);
-  assert.deepEqual(consumed.nextReopenIds, []);
+  let flight = armExplicitReopenOneShot(["a", "b", "c", "d", "e"]);
+  const begun = beginExplicitReopenFlight(flight);
+  assert.equal(begun.ok, true);
+  assert.deepEqual(begun.requestSnapshotIds, ["a", "b", "c", "d", "e"]);
+  flight = markExplicitReopenAck(begun.nextState);
+  assert.equal(flight.status, EXPLICIT_REOPEN_STATUS.CONSUMED);
+  assert.deepEqual(flight.documentIds, []);
   const body = buildHomeBrainFactRequestBody("다음 질문", [], {
-    explicitReopenDocumentIds: consumed.nextReopenIds,
+    explicitReopenDocumentIds: flight.documentIds,
     currentTurnDocumentIds: [],
   });
   assert.equal(body.explicit_reopen_document_ids, undefined);
@@ -219,6 +227,73 @@ ok("CASE7_active_case_no_force");
 }
 ok("CASE8_multi_count_no_force");
 
+// CASE 9 — ACK 전 실패 후 재시도
+{
+  let flight = armExplicitReopenOneShot(["a", "b", "c", "d", "e"]);
+  assert.equal(flight.status, EXPLICIT_REOPEN_STATUS.ARMED);
+  const begun = beginExplicitReopenFlight(flight);
+  assert.equal(begun.nextState.status, EXPLICIT_REOPEN_STATUS.IN_FLIGHT);
+  assert.deepEqual(begun.requestSnapshotIds, ["a", "b", "c", "d", "e"]);
+  // Network failure before ack → re-arm
+  flight = resolveExplicitReopenFlightFailure(begun.nextState);
+  assert.equal(flight.status, EXPLICIT_REOPEN_STATUS.ARMED);
+  assert.deepEqual(flight.documentIds, ["a", "b", "c", "d", "e"]);
+  const retry = beginExplicitReopenFlight(flight);
+  assert.equal(retry.ok, true);
+  assert.deepEqual(retry.requestSnapshotIds, ["a", "b", "c", "d", "e"]);
+  const body = buildHomeBrainFactRequestBody("재시도", [], {
+    explicitReopenDocumentIds: retry.requestSnapshotIds,
+  });
+  assert.deepEqual(body.explicit_reopen_document_ids, ["a", "b", "c", "d", "e"]);
+  assert.equal(
+    decideForceFullOriginalForOneShot({
+      explicitReopenDocumentIds: retry.requestSnapshotIds,
+    }),
+    true,
+  );
+}
+ok("CASE9_pre_ack_failure_rearms");
+
+// CASE 10 — ACK 후 스트림 실패 → consumed 유지
+{
+  let flight = armExplicitReopenOneShot(["a", "b", "c", "d", "e"]);
+  const begun = beginExplicitReopenFlight(flight);
+  flight = markExplicitReopenAck(begun.nextState);
+  assert.equal(flight.status, EXPLICIT_REOPEN_STATUS.CONSUMED);
+  assert.equal(flight.ackReceived, true);
+  // Stream mid-failure after ack must not re-arm
+  flight = resolveExplicitReopenFlightFailure({
+    ...flight,
+    status: EXPLICIT_REOPEN_STATUS.CONSUMED,
+    ackReceived: true,
+  });
+  assert.equal(flight.status, EXPLICIT_REOPEN_STATUS.CONSUMED);
+  assert.deepEqual(flight.documentIds, []);
+  const body = buildHomeBrainFactRequestBody("다음 질문", [], {
+    explicitReopenDocumentIds: flight.documentIds,
+  });
+  assert.equal(body.explicit_reopen_document_ids, undefined);
+  assert.equal(body.document_id, undefined);
+}
+ok("CASE10_post_ack_failure_stays_consumed");
+
+// CASE 11 — 동시 전송 방어
+{
+  let flight = armExplicitReopenOneShot(["x", "y"]);
+  const first = beginExplicitReopenFlight(flight);
+  assert.equal(first.ok, true);
+  assert.deepEqual(first.requestSnapshotIds, ["x", "y"]);
+  const second = beginExplicitReopenFlight(first.nextState);
+  assert.equal(second.ok, false);
+  assert.equal(second.reason, "already_in_flight");
+  assert.deepEqual(second.requestSnapshotIds, []);
+  const body = buildHomeBrainFactRequestBody("중복", [], {
+    explicitReopenDocumentIds: second.requestSnapshotIds,
+  });
+  assert.equal(body.explicit_reopen_document_ids, undefined);
+}
+ok("CASE11_concurrent_flight_blocked");
+
 // Source locks
 {
   const firstDirect = readFileSync(
@@ -237,9 +312,15 @@ ok("CASE8_multi_count_no_force");
   assert.match(firstDirect, /original_delivery_requires_upload_or_explicit_reopen/);
   const homeChat = readFileSync(join(ROOT, "src/components/LifeguardHomeChat.jsx"), "utf8");
   assert.match(homeChat, /explicitReopenDocumentIds/);
-  assert.match(homeChat, /consumeExplicitReopenDocumentIds/);
+  assert.match(homeChat, /beginExplicitReopenFlight/);
+  assert.match(homeChat, /markExplicitReopenAck/);
+  assert.match(homeChat, /resolveExplicitReopenFlightFailure/);
   assert.match(homeChat, /shouldBlockSendForIncompleteUpload/);
   assert.match(homeChat, /reactivateRestorableAttachmentCandidate/);
+  assert.doesNotMatch(
+    homeChat,
+    /One-shot reopen: consume at request-build time/,
+  );
 }
 ok("source_locks_one_shot");
 
