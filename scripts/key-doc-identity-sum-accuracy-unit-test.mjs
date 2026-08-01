@@ -64,7 +64,13 @@ import {
   composeClaudeFirstSystemText,
   serializeClaudeFirstCachePrefixForAudit,
   CLAUDE_VERIFIED_CHART_LONG_STRING_LIMIT,
+  LIFEGUARD_KEY_SYSTEM_PROMPT,
+  summarizeClaudeFirstWebSearchBlocks,
+  buildClaudeFirstModelTelemetry,
+  attachClaudeFirstTelemetryToLatencyMarks,
+  callClaudeFirstDirect,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
+import { buildPersistableLatencyMarks } from "../server/keyCore/keyLatencyMarks.js";
 import {
   buildVerifiedPolicyLedgerBrief,
   buildSourceSeparatedTruthContext,
@@ -2255,6 +2261,386 @@ ok("claude_chart_bloat_repair_2h_suite");
   ok("ledger_coverage_authority_split_2c_invariants");
 }
 ok("ledger_coverage_authority_split_2c_suite");
+
+// ─── 2D-1: confirmed speech boundary + search/model telemetry ───
+await (async () => {
+  const prompt = String(LIFEGUARD_KEY_SYSTEM_PROMPT ?? "");
+  assert.ok(prompt.includes("<confirmed_speech_boundary>"));
+  assert.ok(/암종|일반암|소액암|유사암|특정암/.test(prompt));
+  assert.ok(/면책기간|감액기간|체증/.test(prompt));
+  assert.ok(/바로 지급|즉시/.test(prompt));
+  assert.ok(/공개 검색 결과만으로 고객 계약/.test(prompt));
+  assert.ok(/보험증권 원본에서 확인/.test(prompt));
+  assert.ok(/현재 고객 차트에 확인된 내용/.test(prompt));
+  assert.ok(/공개 자료 기준의 일반정보/.test(prompt));
+  assert.ok(/고정 고객 문장|템플릿 답변/.test(prompt));
+  assert.ok(
+    prompt.includes(
+      "질문과 직접 관련 없는 미확인 약관 항목을 답변에 나열하지 않는다.",
+    ),
+  );
+  assert.equal(
+    /모든 약관 항목을 매번 장황하게 나열하지 말고/.test(prompt),
+    false,
+  );
+  assert.equal(/\$\{/.test(prompt.match(/<confirmed_speech_boundary>[\s\S]*?<\/confirmed_speech_boundary>/)?.[0] ?? ""), false);
+  // No post-stream customer rewrite helpers introduced for this slice.
+  const src = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../server/keyCore/keyClaudeFirstDirect.js",
+    ),
+    "utf8",
+  );
+  assert.equal(
+    /sealCustomerAnswerWithDeterministicTotals/.test(src),
+    false,
+  );
+  assert.ok(
+    /Claude final speech authority: do not replace\/append\/rewrite customer_answer after Claude/.test(
+      src,
+    ),
+  );
+  // provider_turn_count: increment immediately before each fetchImpl attempt.
+  assert.ok(
+    /messagesRequestCount \+= 1;\s*\n\s*res = await fetchImpl\(/.test(src),
+  );
+  // No post-success duplicate increment after fetch returns.
+  assert.equal(
+    /await fetchImpl\([\s\S]{0,400}?messagesRequestCount \+= 1;/.test(src),
+    false,
+  );
+  ok("confirmed_speech_boundary_2d1_prompt");
+
+  // B) search unused mock — tool offered must not inflate use_count
+  const unused = summarizeClaudeFirstWebSearchBlocks([
+    { type: "text", text: "차트에 확인된 암진단비는 1억입니다." },
+  ]);
+  assert.equal(unused.web_search_use_count, 0);
+  assert.equal(unused.web_search_result_count, 0);
+  assert.equal(unused.web_search_citation_count, 0);
+  const unusedMarks = attachClaudeFirstTelemetryToLatencyMarks(
+    buildPersistableLatencyMarks({
+      ttft_ms: 10,
+      triangle_t0: { input_tokens: 1, output_tokens: 1 },
+    }),
+    {
+      web_search_tool_offered: true,
+      web_search_use_count: unused.web_search_use_count,
+      web_search_result_count: unused.web_search_result_count,
+      web_search_citation_count: unused.web_search_citation_count,
+      provider_turn_count: 1,
+      configured_model: "claude-sonnet-4-6",
+      response_model: "claude-sonnet-4-6",
+      model_match: true,
+    },
+  );
+  assert.equal(unusedMarks.web_search_tool_offered, true);
+  assert.equal(unusedMarks.web_search_use_count, 0);
+  assert.equal(unusedMarks.provider_turn_count, 1);
+  assert.equal(unusedMarks.triangle_t0.web_search_use_count, 0);
+  assert.equal(unusedMarks.triangle_t0.provider_turn_count, 1);
+  ok("search_telemetry_unused_2d1");
+
+  // C) search used once + one result block + one citation
+  const used = summarizeClaudeFirstWebSearchBlocks([
+    { type: "server_tool_use", name: "web_search", id: "toolu_1" },
+    {
+      type: "web_search_tool_result",
+      tool_use_id: "toolu_1",
+      content: [{ type: "web_search_result", title: "t", url: "https://example.com" }],
+    },
+    {
+      type: "text",
+      text: "일반정보입니다.",
+      citations: [{ url: "https://example.com", title: "t" }],
+    },
+  ]);
+  assert.equal(used.web_search_use_count, 1);
+  assert.equal(used.web_search_result_count, 1);
+  assert.equal(used.web_search_citation_count, 1);
+  // Continuation: two provider turns, one search use across both (second turn text only)
+  const turn2 = summarizeClaudeFirstWebSearchBlocks([
+    { type: "text", text: "이어서 설명합니다." },
+  ]);
+  const provider_turn_count = 2;
+  const web_search_use_count =
+    used.web_search_use_count + turn2.web_search_use_count;
+  assert.equal(web_search_use_count, 1);
+  assert.equal(provider_turn_count, 2);
+  ok("search_telemetry_one_use_2d1");
+
+  // D) model telemetry
+  const match = buildClaudeFirstModelTelemetry({
+    configured_model: "claude-sonnet-4-6",
+    response_model: "claude-sonnet-4-6",
+  });
+  assert.equal(match.configured_model, "claude-sonnet-4-6");
+  assert.equal(match.response_model, "claude-sonnet-4-6");
+  assert.equal(match.model_match, true);
+  const missing = buildClaudeFirstModelTelemetry({
+    configured_model: "claude-sonnet-4-6",
+    response_model: null,
+  });
+  assert.equal(missing.response_model, null);
+  assert.equal(missing.model_match, null);
+  const mismatch = buildClaudeFirstModelTelemetry({
+    configured_model: "claude-sonnet-4-6",
+    response_model: "claude-opus-4-0",
+  });
+  assert.equal(mismatch.model_match, false);
+  ok("model_telemetry_2d1");
+
+  // E) telemetry attach does not mutate customer answer text
+  const streamed = "고객에게 보이는 최종 문장";
+  const sealed = streamed;
+  const marksBeforeAnswer = { customer_answer: streamed };
+  attachClaudeFirstTelemetryToLatencyMarks(
+    { ttft_ms: 1, triangle_t0: {} },
+    { provider_turn_count: 1 },
+  );
+  assert.equal(marksBeforeAnswer.customer_answer, sealed);
+  assert.equal(streamed, sealed);
+  ok("customer_answer_unmutated_by_telemetry_2d1");
+
+  // F) latency_marks full field preservation via production attach helper
+  {
+    const telemetry = {
+      web_search_tool_offered: true,
+      web_search_use_count: 7,
+      web_search_result_count: 8,
+      web_search_citation_count: 9,
+      provider_turn_count: 3,
+      configured_model: "claude-sonnet-4-6",
+      response_model: "claude-sonnet-4-6",
+      model_match: true,
+    };
+    const inputMarks = {
+      ttft_ms: 111001,
+      git_commit_sha: "sha-sentinel-aaa111",
+      deployment_id: "dpl-sentinel-bbb222",
+      streamed_equals_sealed: true,
+      // Existing safe top-level field preserved by attach spread.
+      provider_speed: { ttft_ms: 111002, attempt_count: 4 },
+      triangle_t0: {
+        customer_question_received_ms: 200001,
+        anthropic_first_byte_ms: 200002,
+        first_delta_sent_ms: 200003,
+        claude_complete_ms: 200004,
+        customer_done_ms: 200005,
+        persist_start_ms: 200006,
+        persist_complete_ms: 200007,
+        input_tokens: 200008,
+        output_tokens: 200009,
+        cache_creation_input_tokens: 200010,
+        cache_read_input_tokens: 200011,
+        cache_creation_ephemeral_5m_input_tokens: 200012,
+        request_body_chars: 200013,
+        streamed_equals_sealed: false,
+        ready_card_source: "sentinel-ready-source",
+        ready_card_hit: true,
+      },
+    };
+    const inputSnapshot = JSON.parse(JSON.stringify(inputMarks));
+    const customerAnswer = "보존 검증용 고객 답변";
+    const answerBefore = customerAnswer;
+    const attached = attachClaudeFirstTelemetryToLatencyMarks(inputMarks, telemetry);
+    assert.equal(customerAnswer, answerBefore);
+    assert.deepEqual(inputMarks, inputSnapshot);
+    assert.ok(attached && typeof attached === "object");
+    assert.ok(attached.triangle_t0 && typeof attached.triangle_t0 === "object");
+    assert.equal(attached.ttft_ms, 111001);
+    assert.equal(attached.git_commit_sha, "sha-sentinel-aaa111");
+    assert.equal(attached.deployment_id, "dpl-sentinel-bbb222");
+    assert.equal(attached.streamed_equals_sealed, true);
+    assert.deepEqual(attached.provider_speed, {
+      ttft_ms: 111002,
+      attempt_count: 4,
+    });
+    assert.equal(attached.triangle_t0.customer_question_received_ms, 200001);
+    assert.equal(attached.triangle_t0.anthropic_first_byte_ms, 200002);
+    assert.equal(attached.triangle_t0.first_delta_sent_ms, 200003);
+    assert.equal(attached.triangle_t0.claude_complete_ms, 200004);
+    assert.equal(attached.triangle_t0.customer_done_ms, 200005);
+    assert.equal(attached.triangle_t0.persist_start_ms, 200006);
+    assert.equal(attached.triangle_t0.persist_complete_ms, 200007);
+    assert.equal(attached.triangle_t0.input_tokens, 200008);
+    assert.equal(attached.triangle_t0.output_tokens, 200009);
+    assert.equal(attached.triangle_t0.cache_creation_input_tokens, 200010);
+    assert.equal(attached.triangle_t0.cache_read_input_tokens, 200011);
+    assert.equal(
+      attached.triangle_t0.cache_creation_ephemeral_5m_input_tokens,
+      200012,
+    );
+    assert.equal(attached.triangle_t0.request_body_chars, 200013);
+    assert.equal(attached.triangle_t0.streamed_equals_sealed, false);
+    assert.equal(attached.triangle_t0.ready_card_source, "sentinel-ready-source");
+    assert.equal(attached.triangle_t0.ready_card_hit, true);
+    assert.equal(attached.web_search_tool_offered, true);
+    assert.equal(attached.web_search_use_count, 7);
+    assert.equal(attached.web_search_result_count, 8);
+    assert.equal(attached.web_search_citation_count, 9);
+    assert.equal(attached.provider_turn_count, 3);
+    assert.equal(attached.configured_model, "claude-sonnet-4-6");
+    assert.equal(attached.response_model, "claude-sonnet-4-6");
+    assert.equal(attached.model_match, true);
+    assert.equal(attached.triangle_t0.provider_turn_count, 3);
+    assert.equal(attached.triangle_t0.web_search_use_count, 7);
+
+    assert.equal(
+      attachClaudeFirstTelemetryToLatencyMarks(null, telemetry),
+      null,
+    );
+    const noT0 = attachClaudeFirstTelemetryToLatencyMarks(
+      { ttft_ms: 55 },
+      { provider_turn_count: 2, configured_model: "claude-sonnet-4-6" },
+    );
+    assert.equal(noT0.ttft_ms, 55);
+    assert.ok(noT0.triangle_t0 && typeof noT0.triangle_t0 === "object");
+    assert.equal(noT0.triangle_t0.provider_turn_count, 2);
+    assert.equal(noT0.provider_turn_count, 2);
+    ok("latency_marks_full_field_preservation_2d1b");
+  }
+
+  // G) provider_turn_count via production callClaudeFirstDirect mock fetch loop
+  {
+    const baseEnv = {
+      ANTHROPIC_API_KEY: "test-key-not-real",
+      ANTHROPIC_MODEL: "claude-sonnet-4-6",
+    };
+    const emptyReality = { policies: [], policy_count: 0 };
+
+    const mockJsonResponse = (payload) => ({
+      ok: true,
+      status: 200,
+      // No body.getReader → JSON path in readAnthropicSseWithAnswerStream
+      json: async () => payload,
+    });
+
+    // A) first fetch network throw
+    {
+      let calls = 0;
+      const out = await callClaudeFirstDirect({
+        question: "암 진단비 확인해줘",
+        history: [],
+        reality: emptyReality,
+        env: baseEnv,
+        fetchImpl: async () => {
+          calls += 1;
+          throw new Error("ECONNRESET");
+        },
+      });
+      assert.equal(calls, 1);
+      assert.equal(out.ok, false);
+      assert.equal(out.error, "ANTHROPIC_FETCH_FAILED");
+      assert.equal(out.provider_turn_count, 1);
+      assert.equal(out.web_search_trace?.provider_turn_count, 1);
+      assert.equal(out.web_search_trace?.web_search_tool_offered, true);
+      assert.equal(out.web_search_trace?.web_search_use_count, 0);
+      assert.equal(out.web_search_trace?.web_search_result_count, 0);
+      assert.equal(out.web_search_trace?.web_search_citation_count, 0);
+      assert.equal(out.configured_model, "claude-sonnet-4-6");
+      assert.equal(out.response_model, null);
+      assert.equal(out.model_match, null);
+      ok("provider_turn_count_network_throw_2d1b");
+    }
+
+    // B) first fetch AbortError
+    {
+      let calls = 0;
+      const out = await callClaudeFirstDirect({
+        question: "암 진단비 확인해줘",
+        history: [],
+        reality: emptyReality,
+        env: baseEnv,
+        fetchImpl: async () => {
+          calls += 1;
+          const err = new Error("The operation was aborted");
+          err.name = "AbortError";
+          throw err;
+        },
+      });
+      assert.equal(calls, 1);
+      assert.equal(out.ok, false);
+      assert.equal(out.error, "ANTHROPIC_TIMEOUT");
+      assert.equal(out.provider_turn_count, 1);
+      assert.equal(out.web_search_trace?.provider_turn_count, 1);
+      assert.equal(out.response_model, null);
+      assert.equal(out.model_match, null);
+      ok("provider_turn_count_abort_2d1b");
+    }
+
+    // C) normal 1-turn success
+    {
+      let calls = 0;
+      const out = await callClaudeFirstDirect({
+        question: "암 진단비 확인해줘",
+        history: [],
+        reality: emptyReality,
+        env: baseEnv,
+        fetchImpl: async () => {
+          calls += 1;
+          return mockJsonResponse({
+            model: "claude-sonnet-4-6",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: "차트에 확인된 내용입니다." }],
+          });
+        },
+      });
+      assert.equal(calls, 1);
+      assert.equal(out.provider_turn_count, 1);
+      assert.equal(out.web_search_trace?.provider_turn_count, 1);
+      assert.equal(out.web_search_trace?.web_search_use_count, 0);
+      ok("provider_turn_count_one_turn_2d1b");
+    }
+
+    // D) search continuation 2 turns
+    {
+      let calls = 0;
+      const out = await callClaudeFirstDirect({
+        question: "일반암 면책기간 일반정보",
+        history: [],
+        reality: emptyReality,
+        env: baseEnv,
+        fetchImpl: async () => {
+          calls += 1;
+          if (calls === 1) {
+            return mockJsonResponse({
+              model: "claude-sonnet-4-6",
+              stop_reason: "pause_turn",
+              content: [
+                { type: "server_tool_use", name: "web_search", id: "toolu_1" },
+                {
+                  type: "web_search_tool_result",
+                  tool_use_id: "toolu_1",
+                  content: [
+                    {
+                      type: "web_search_result",
+                      title: "t",
+                      url: "https://example.com",
+                    },
+                  ],
+                },
+              ],
+            });
+          }
+          return mockJsonResponse({
+            model: "claude-sonnet-4-6",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: "공개 자료 기준의 일반정보입니다." }],
+          });
+        },
+      });
+      assert.equal(calls, 2);
+      assert.equal(out.provider_turn_count, 2);
+      assert.equal(out.web_search_trace?.provider_turn_count, 2);
+      assert.equal(out.web_search_trace?.web_search_use_count, 1);
+      assert.equal(out.web_search_trace?.web_search_tool_offered, true);
+      ok("provider_turn_count_search_continuation_2d1b");
+    }
+  }
+})();
+ok("confirmed_speech_search_telemetry_2d1_suite");
 
 console.log("\nALL PASS key-doc-identity-sum-accuracy-unit-test");
 if (globalThis.__CACHE_PREFIX_HASH_1) {

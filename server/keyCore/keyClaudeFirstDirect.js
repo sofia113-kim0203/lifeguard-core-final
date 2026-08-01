@@ -2859,6 +2859,42 @@ C에 계약이 있으나 B 담보가 없으면 계약 존재·상태는 유지�
 과거 KEY 답변 자체는 현재 계약 사실의 증거가 아니다.
 review_candidate(weak identity)여도 verified_document_coverages에 있는 담보금액은 지워지지 않는다.
 </truth_authority>
+<confirmed_speech_boundary>
+확인된 고객 계약 사실과, 그 필드를 해석해 만든 지급·약관 조건은 서로 다르다.
+Block B에서 검증된 담보명·보장금액·담보기간 등 실제 필드는 문서 사실로 말할 수 있다.
+담보명이나 금액만 보고 약관 내용을 채우지 않는다.
+
+고객 계약에 직접 연결되는 원본 또는 적용 약관 근거가 없으면
+아래를 개인 계약 사실로 확정하지 않는다.
+- 보장되는 암종과 제외되는 암종
+- 일반암·소액암·유사암·특정암 분류
+- 면책기간
+- 감액기간과 감액률
+- 체증 시작 시점과 체증 방식
+- 특정 연령의 실제 지급금액
+- 지급 후 담보 종료·소멸·잔존 여부
+- 청구 필요서류의 완결 목록
+- 특정 서류 하나만 제출하면 지급된다는 표현
+- 심사 없이 즉시 또는 바로 지급된다는 표현
+
+공개 검색 결과는 일반 제도·일반 상품 구조·공개 안내의 근거다.
+공개 검색 결과만으로 고객 계약의 적용 약관 사실을 만들지 않는다.
+고객 계약에 적용하려면 계약에 직접 연결되는 원본·약관 버전 또는
+동일성을 입증하는 상품명·판매시기·약관 버전 근거가 필요하다.
+동일성이 입증되지 않으면 일반정보와 개인 계약 확인 필요를 구분한다.
+검색 결과와 고객 차트의 담보명이 비슷하다는 이유만으로 합치지 않는다.
+
+출처 표현을 분리한다.
+- 이번 턴에 실제 첨부 원본을 읽은 내용 → 이번 턴 첨부 원본 근거
+- 이번 턴 원본이 없고 Block B 검증 차트에서 읽은 내용 → 현재 고객 차트에 확인된 내용
+- 웹검색에서 확인한 내용 → 공개 자료 기준의 일반정보
+- 근거가 부족한 해석 → 현재 자료만으로 확정 불가
+원본 첨부가 없는 턴에서 “보험증권 원본에서 확인됐다”, “지금 증권을 보면”처럼
+이번 턴 원본을 실제로 읽은 것처럼 말하지 않는다.
+
+고정 고객 문장·템플릿 답변을 삽입하지 않는다.
+질문과 직접 관련 없는 미확인 약관 항목을 답변에 나열하지 않는다.
+</confirmed_speech_boundary>
 <policy_count_and_list>
 고객이 가입 건수, 계약 수 또는 보험 목록을 물으면
 확정 건수와 확정 목록은 이번 턴의 VERIFIED_POLICY_LEDGER만 기준으로 한다.
@@ -4190,6 +4226,12 @@ function emptyWebSearchTrace() {
     web_search_count: 0,
     search_result_count: 0,
     search_citation_count: 0,
+    // Strict telemetry (block counts only — tool offered does not increment use).
+    web_search_tool_offered: false,
+    web_search_use_count: 0,
+    web_search_result_count: 0,
+    web_search_citation_count: 0,
+    provider_turn_count: 0,
     search_latency_ms: null,
     claude_messages_request_count: 0,
     phase_b_call_count: 0,
@@ -4198,33 +4240,113 @@ function emptyWebSearchTrace() {
   };
 }
 
-/** Count web_search blocks without storing query text (PII-safe). */
-function accumulateWebSearchTrace(trace, content = [], dataRaw = null) {
+/**
+ * Count web_search server_tool_use / result / citation blocks only (PII-safe numbers).
+ * Does not use usage.web_search_requests — offered tools must not inflate use_count.
+ */
+export function summarizeClaudeFirstWebSearchBlocks(content = []) {
   const blocks = Array.isArray(content) ? content : [];
-  let searches = 0;
-  let results = 0;
-  let citations = 0;
+  let web_search_use_count = 0;
+  let web_search_result_count = 0;
+  let web_search_citation_count = 0;
+  let resultItems = 0;
   for (const block of blocks) {
-    if (block?.type === "server_tool_use" && block?.name === "web_search") searches += 1;
+    if (block?.type === "server_tool_use" && block?.name === "web_search") {
+      web_search_use_count += 1;
+    }
     if (block?.type === "web_search_tool_result") {
+      web_search_result_count += 1;
       const items = Array.isArray(block.content) ? block.content : [];
       for (const item of items) {
         if (item?.type === "web_search_tool_result_error") continue;
-        if (item?.url || item?.title || item?.type === "web_search_result") results += 1;
+        if (item?.url || item?.title || item?.type === "web_search_result") resultItems += 1;
       }
     }
     if (block?.type === "text" && Array.isArray(block.citations)) {
-      citations += block.citations.length;
+      web_search_citation_count += block.citations.length;
     }
   }
+  return {
+    web_search_use_count,
+    web_search_result_count,
+    web_search_citation_count,
+    search_result_item_count: resultItems,
+  };
+}
+
+export function buildClaudeFirstModelTelemetry({
+  configured_model = null,
+  response_model = null,
+} = {}) {
+  const configured =
+    typeof configured_model === "string" && configured_model.trim()
+      ? configured_model.trim().slice(0, 80)
+      : null;
+  const response =
+    typeof response_model === "string" && response_model.trim()
+      ? response_model.trim().slice(0, 80)
+      : null;
+  return {
+    configured_model: configured,
+    response_model: response,
+    model_match:
+      configured == null || response == null ? null : configured === response,
+  };
+}
+
+/** Re-attach telemetry fields after allowlisted persistable marks strip. */
+export function attachClaudeFirstTelemetryToLatencyMarks(marks = null, telemetry = null) {
+  try {
+    if (!marks || typeof marks !== "object") return marks;
+    if (!telemetry || typeof telemetry !== "object") return marks;
+    const pick = {};
+    for (const key of [
+      "configured_model",
+      "response_model",
+      "model_match",
+      "web_search_tool_offered",
+      "web_search_use_count",
+      "web_search_result_count",
+      "web_search_citation_count",
+      "provider_turn_count",
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(telemetry, key)) {
+        pick[key] = telemetry[key];
+      }
+    }
+    const t0 =
+      marks.triangle_t0 && typeof marks.triangle_t0 === "object"
+        ? { ...marks.triangle_t0, ...pick }
+        : { ...pick };
+    return { ...marks, ...pick, triangle_t0: t0 };
+  } catch {
+    return marks;
+  }
+}
+
+/** Count web_search blocks without storing query text (PII-safe). */
+function accumulateWebSearchTrace(trace, content = [], dataRaw = null) {
+  const blocks = Array.isArray(content) ? content : [];
+  const strict = summarizeClaudeFirstWebSearchBlocks(blocks);
+  let results = strict.search_result_item_count;
+  let citations = strict.web_search_citation_count;
+  let searches = strict.web_search_use_count;
   const usageSearches = Number(dataRaw?.usage?.server_tool_use?.web_search_requests ?? 0);
+  // Legacy web_search_count may still consider usage; strict use_count is block-only.
   const nextCount = Math.max(trace.web_search_count, searches, usageSearches);
   return {
     ...trace,
-    web_search_used: nextCount > 0 || results > 0,
+    web_search_used: nextCount > 0 || results > 0 || strict.web_search_result_count > 0,
     web_search_count: nextCount,
-    search_result_count: trace.search_result_count + results,
-    search_citation_count: trace.search_citation_count + citations,
+    search_result_count: (Number(trace.search_result_count) || 0) + results,
+    search_citation_count: (Number(trace.search_citation_count) || 0) + citations,
+    web_search_use_count:
+      (Number(trace.web_search_use_count) || 0) + strict.web_search_use_count,
+    web_search_result_count:
+      (Number(trace.web_search_result_count) || 0) + strict.web_search_result_count,
+    web_search_citation_count:
+      (Number(trace.web_search_citation_count) || 0) +
+      strict.web_search_citation_count,
     query_redacted: true,
   };
 }
@@ -4653,7 +4775,7 @@ export function hardOnlySafetyCheck(
   };
 }
 
-async function callClaudeFirstDirect({
+export async function callClaudeFirstDirect({
   question,
   history,
   reality,
@@ -5177,6 +5299,7 @@ async function callClaudeFirstDirect({
   };
   let lastProviderDataRaw = null;
   let lastProviderRawTextJoined = "";
+  let responseModelFromProvider = null;
   const claimCaseUpdates = [];
   const sessionGoalRecord = null;
   const sessionGoalToolSeen = false;
@@ -5186,6 +5309,7 @@ async function callClaudeFirstDirect({
   let messagesRequestCount = 0;
   const searchWallStarted = Date.now();
   const PROVIDER_TURN_TIMEOUT_MS = 180_000;
+  const webSearchToolOffered = publicWebSearchTools.length > 0;
 
   // Answer path: server web_search may pause; no client record_* / no Continue for facts.
   let emptyAnswerDiag = {
@@ -5226,6 +5350,8 @@ async function callClaudeFirstDirect({
     const timeoutId = setTimeout(() => abortController.abort(), PROVIDER_TURN_TIMEOUT_MS);
     let res;
     try {
+      // Count every real Anthropic /v1/messages attempt (including Abort/network throw).
+      messagesRequestCount += 1;
       res = await fetchImpl(ANTHROPIC_URL, {
         method: "POST",
         headers: {
@@ -5239,11 +5365,20 @@ async function callClaudeFirstDirect({
     } catch (err) {
       clearTimeout(timeoutId);
       const aborted = err?.name === "AbortError" || /aborted/i.test(String(err?.message ?? err));
+      const modelTelemetry = buildClaudeFirstModelTelemetry({
+        configured_model: model,
+        response_model: null,
+      });
       return {
         ok: false,
         error: aborted ? "ANTHROPIC_TIMEOUT" : "ANTHROPIC_FETCH_FAILED",
         empty_answer_diag: emptyAnswerDiag,
         model,
+        configured_model: modelTelemetry.configured_model,
+        response_model: modelTelemetry.response_model,
+        model_match: modelTelemetry.model_match,
+        provider_messages_request_count: messagesRequestCount,
+        provider_turn_count: messagesRequestCount,
         confirmed_source_facts: [],
         coverage_baseline_facts: [],
         policy_inventory_facts: [],
@@ -5253,12 +5388,21 @@ async function callClaudeFirstDirect({
         pdf_attached_attempted: pdfAttached === true,
         web_search_trace: {
           ...webSearchTrace,
+          web_search_available: webSearchToolOffered,
+          web_search_tool_offered: webSearchToolOffered,
+          web_search_use_count: Number(webSearchTrace.web_search_use_count) || 0,
+          web_search_result_count: Number(webSearchTrace.web_search_result_count) || 0,
+          web_search_citation_count:
+            Number(webSearchTrace.web_search_citation_count) || 0,
+          provider_turn_count: messagesRequestCount,
           claude_messages_request_count: messagesRequestCount,
           phase_b_call_count: 0,
+          configured_model: modelTelemetry.configured_model,
+          response_model: modelTelemetry.response_model,
+          model_match: modelTelemetry.model_match,
         },
       };
     }
-    messagesRequestCount += 1;
     if (!res.ok) {
       clearTimeout(timeoutId);
       const errText = await res.text().catch(() => "");
@@ -5279,12 +5423,19 @@ async function callClaudeFirstDirect({
         dataRaw: null,
         picked: { customer_answer: "" },
       });
+      const modelTelemetry = buildClaudeFirstModelTelemetry({
+        configured_model: model,
+        response_model: null,
+      });
       return {
         ok: false,
         error: `ANTHROPIC_HTTP_${res.status}`,
         anthropic_upstream_diag,
         empty_answer_diag: emptyAnswerDiag,
         model,
+        configured_model: modelTelemetry.configured_model,
+        response_model: modelTelemetry.response_model,
+        model_match: modelTelemetry.model_match,
         confirmed_source_facts: confirmedSourceFacts,
         coverage_baseline_facts: coverageBaselineFacts,
         policy_inventory_facts: policyInventoryFacts,
@@ -5294,10 +5445,21 @@ async function callClaudeFirstDirect({
         original_attachment_count:
           multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
         provider_messages_request_count: messagesRequestCount,
+        provider_turn_count: messagesRequestCount,
         web_search_trace: {
           ...webSearchTrace,
+          web_search_available: webSearchToolOffered,
+          web_search_tool_offered: webSearchToolOffered,
+          web_search_use_count: Number(webSearchTrace.web_search_use_count) || 0,
+          web_search_result_count: Number(webSearchTrace.web_search_result_count) || 0,
+          web_search_citation_count:
+            Number(webSearchTrace.web_search_citation_count) || 0,
+          provider_turn_count: messagesRequestCount,
           claude_messages_request_count: messagesRequestCount,
           phase_b_call_count: 0,
+          configured_model: modelTelemetry.configured_model,
+          response_model: modelTelemetry.response_model,
+          model_match: modelTelemetry.model_match,
         },
       };
     }
@@ -5319,6 +5481,11 @@ async function callClaudeFirstDirect({
     }
     if (streamed.stop_reason != null) lastStopReason = String(streamed.stop_reason);
     providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
+    const streamedModel =
+      typeof streamed.dataRaw?.model === "string" && streamed.dataRaw.model.trim()
+        ? streamed.dataRaw.model.trim().slice(0, 80)
+        : null;
+    if (streamedModel) responseModelFromProvider = streamedModel;
 
     const picked = pickCustomerAnswer(streamed.dataRaw);
     emptyAnswerDiag.response = buildEmptyAnswerResponseDiag({
@@ -5440,8 +5607,15 @@ async function callClaudeFirstDirect({
       search_latency_ms: Math.max(0, Date.now() - searchWallStarted),
     };
   }
+  const modelTelemetry = buildClaudeFirstModelTelemetry({
+    configured_model: model,
+    response_model: responseModelFromProvider,
+  });
   webSearchTrace = {
     ...webSearchTrace,
+    web_search_available: webSearchToolOffered,
+    web_search_tool_offered: webSearchToolOffered,
+    provider_turn_count: messagesRequestCount,
     claude_messages_request_count: messagesRequestCount,
     phase_b_call_count: 0,
   };
@@ -5471,6 +5645,9 @@ async function callClaudeFirstDirect({
           toolNames.push(String(block.name ?? block.type));
         }
       }
+      qaTurnCapture.model = modelTelemetry.configured_model;
+      qaTurnCapture.response_model = modelTelemetry.response_model;
+      qaTurnCapture.model_match = modelTelemetry.model_match;
       qaTurnCapture.claude_partial = {
         provider_raw_customer_text: rawJoined,
         stop_reason: lastStopReason,
@@ -5482,6 +5659,15 @@ async function callClaudeFirstDirect({
           ? policyInventoryFacts.length
           : 0,
         provider_messages_request_count: messagesRequestCount,
+        provider_turn_count: messagesRequestCount,
+        web_search_tool_offered: webSearchToolOffered,
+        web_search_use_count: Number(webSearchTrace.web_search_use_count) || 0,
+        web_search_result_count: Number(webSearchTrace.web_search_result_count) || 0,
+        web_search_citation_count:
+          Number(webSearchTrace.web_search_citation_count) || 0,
+        configured_model: modelTelemetry.configured_model,
+        response_model: modelTelemetry.response_model,
+        model_match: modelTelemetry.model_match,
       };
     } catch {
       /* non-blocking */
@@ -5531,6 +5717,11 @@ async function callClaudeFirstDirect({
     stop_reason: lastStopReason,
     document_record_tools_sent: 0,
     provider_messages_request_count: messagesRequestCount,
+    provider_turn_count: messagesRequestCount,
+    model,
+    configured_model: modelTelemetry.configured_model,
+    response_model: modelTelemetry.response_model,
+    model_match: modelTelemetry.model_match,
     prompt_cache: {
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,
@@ -7226,6 +7417,24 @@ export async function runClaudeFirstDirectQuestionTurn({
     cache_read_input_tokens: claude?.provider_usage?.cache_read_input_tokens ?? null,
     cache_creation_ephemeral_5m_input_tokens:
       claude?.provider_usage?.cache_creation_ephemeral_5m_input_tokens ?? null,
+    configured_model: claude?.configured_model ?? claude?.model ?? null,
+    response_model: claude?.response_model ?? null,
+    model_match:
+      typeof claude?.model_match === "boolean" ? claude.model_match : null,
+    web_search_tool_offered:
+      claude?.web_search_trace?.web_search_tool_offered === true,
+    web_search_use_count:
+      Number(claude?.web_search_trace?.web_search_use_count) || 0,
+    web_search_result_count:
+      Number(claude?.web_search_trace?.web_search_result_count) || 0,
+    web_search_citation_count:
+      Number(claude?.web_search_trace?.web_search_citation_count) || 0,
+    provider_turn_count:
+      Number(
+        claude?.provider_turn_count ??
+          claude?.provider_messages_request_count ??
+          claude?.web_search_trace?.provider_turn_count,
+      ) || 0,
   };
   // Drop held incomplete trailing words — never EOF-flush mid-word fragments into the customer stream.
   commitStream.flush();
@@ -8767,12 +8976,24 @@ export async function runClaudeFirstDirectQuestionTurn({
             catch_up_appended: commitStream.didCatchUpAppend?.() === true,
             catch_up_reason: sentenceCatchUp?.reason ?? null,
           },
-          latency_marks: buildPersistableLatencyMarks({
-            claude_full_emit: emitMark,
-            ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
-            triangle_t0: triangleT0,
-            ...resolveDeployIdentity(env),
-          }),
+          latency_marks: attachClaudeFirstTelemetryToLatencyMarks(
+            buildPersistableLatencyMarks({
+              claude_full_emit: emitMark,
+              ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+              triangle_t0: triangleT0,
+              ...resolveDeployIdentity(env),
+            }),
+            {
+              configured_model: triangleT0.configured_model,
+              response_model: triangleT0.response_model,
+              model_match: triangleT0.model_match,
+              web_search_tool_offered: triangleT0.web_search_tool_offered,
+              web_search_use_count: triangleT0.web_search_use_count,
+              web_search_result_count: triangleT0.web_search_result_count,
+              web_search_citation_count: triangleT0.web_search_citation_count,
+              provider_turn_count: triangleT0.provider_turn_count,
+            },
+          ),
           pdf_attach_mode: triangleT0.pdf_attach_mode,
           document_review_scope: pdfMetaForClaude?.document_review_scope ?? null,
         },
@@ -8814,6 +9035,10 @@ export async function runClaudeFirstDirectQuestionTurn({
             pdf_attached: claude.pdf_attached === true,
             attach_signals: pdf?.meta?.attach_signals ?? null,
             web_search: claude.web_search_trace ?? emptyWebSearchTrace(),
+            configured_model: triangleT0.configured_model,
+            response_model: triangleT0.response_model,
+            model_match: triangleT0.model_match,
+            provider_turn_count: triangleT0.provider_turn_count,
             confirmed_source_facts_count: factsToPersist.length,
             claim_case_updates_count: claimCasesToPersist.length,
             answer_preview: String(claude.customer_answer).slice(0, 300),
