@@ -17,6 +17,7 @@ import {
   buildContractIdentityKey,
   buildSourceFactKey,
 } from "../src/lib/keyInsuranceScreenFacts.js";
+import { classifyPolicyNumberQuality as classifyPolicyNumberQualityForPersist } from "./keyCore/keyDocumentMemoryCommit.js";
 
 export {
   normalizeKeyCoverageBaselineFacts,
@@ -118,6 +119,7 @@ export function buildPolicyRowFromCandidate(customerId, documentId, candidate, e
   const fields = candidate.fields ?? {};
   const coverageSummary = buildCoverageSummaryFromCandidate(documentId, candidate, existingCoverageSummary);
   const shape = {
+    customer_id: customerId,
     insurer_name: fields.insurer_name,
     product_name: fields.product_name,
     monthly_premium: fields.monthly_premium,
@@ -126,7 +128,10 @@ export function buildPolicyRowFromCandidate(customerId, documentId, candidate, e
     source_content_sha256: coverageSummary.source_content_sha256 ?? null,
   };
   const source_fact_key = buildSourceFactKey(shape);
-  const contract_identity_key = buildContractIdentityKey(shape);
+  const contract_identity_key = buildContractIdentityKey(shape, {
+    customerId,
+    requireCustomerId: true,
+  });
   if (source_fact_key) coverageSummary.source_fact_key = source_fact_key;
   if (contract_identity_key) coverageSummary.contract_identity_key = contract_identity_key;
 
@@ -692,6 +697,8 @@ export function buildPolicyFieldsFromKeyConfirmedFacts(documentId, docFacts = []
     (existingSummary?.monthly_premium != null ? Number(existingSummary.monthly_premium) : null);
   const policyholder = literalFactValue(mergedFacts, "policyholder");
   const insured = literalFactValue(mergedFacts, "insured");
+  const policyNumberLiteral = literalFactValue(mergedFacts, "policy_number");
+  const policyNumberQuality = classifyPolicyNumberQualityForPersist(policyNumberLiteral);
   const existingParties =
     existingSummary?.parties && typeof existingSummary.parties === "object"
       ? existingSummary.parties
@@ -701,6 +708,18 @@ export function buildPolicyFieldsFromKeyConfirmedFacts(documentId, docFacts = []
     ...(existingSummary && typeof existingSummary === "object" ? existingSummary : {}),
     source_document_id: documentId,
     key_confirmed_source_facts: mergedFacts,
+    // Promote exact policy_number into coverage_summary; weak qualities stay review-only.
+    ...(policyNumberQuality === "exact_unmasked" && policyNumberLiteral
+      ? {
+          policy_number: policyNumberLiteral,
+          policy_number_quality: policyNumberQuality,
+        }
+      : policyNumberLiteral
+        ? {
+            policy_number_quality: policyNumberQuality,
+            policy_number_review_candidate: policyNumberLiteral,
+          }
+        : {}),
     // Document contract parties — not logged-in customer profile fields.
     policyholder: policyholder ?? existingSummary?.policyholder ?? null,
     insured: insured ?? existingSummary?.insured ?? null,
@@ -1767,9 +1786,15 @@ export async function persistPolicyInventoryFactsToPolicies({
     if (seenFactKeys.has(factKey)) continue;
     seenFactKeys.add(factKey);
 
-    const shape = inventoryFactToPolicyShape(fact);
+    const shape = {
+      ...inventoryFactToPolicyShape(fact),
+      customer_id: customerId,
+    };
     const source_fact_key = buildSourceFactKey(shape);
-    const contract_identity_key = buildContractIdentityKey(shape);
+    const contract_identity_key = buildContractIdentityKey(shape, {
+      customerId,
+      requireCustomerId: true,
+    });
 
     const match = findExistingPolicyRowForInventoryFact(activeRows, fact, {
       source_fact_key,

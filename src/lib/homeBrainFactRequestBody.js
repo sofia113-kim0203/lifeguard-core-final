@@ -83,6 +83,8 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
     viewModeRaw === "personal" || viewModeRaw === "corporate" || viewModeRaw === "both"
       ? viewModeRaw
       : null;
+  const clientTurnId =
+    String(options.clientTurnId ?? options.client_turn_id ?? "").trim() || null;
 
   return {
     question: trimmed,
@@ -106,5 +108,6 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
     ...(entityId && !presenceTurn ? { entity_id: entityId } : {}),
     ...(entityType && !presenceTurn ? { entity_type: entityType } : {}),
     ...(viewMode && !presenceTurn ? { view_mode: viewMode } : {}),
+    ...(clientTurnId ? { client_turn_id: clientTurnId } : {}),
   };
 }

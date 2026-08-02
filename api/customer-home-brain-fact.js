@@ -42,6 +42,7 @@ export default async function handler(req, res) {
     return;
   }
 
+  let memoryFailedSent = false;
   try {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const presenceTurn = body?.presence === true || body?.presence_turn === true;
@@ -108,6 +109,8 @@ export default async function handler(req, res) {
       body?.shadow_visual_blocks ?? body?.shadowVisualBlocksOverride ?? null,
       process.env,
     );
+    const clientTurnId =
+      String(body?.client_turn_id ?? body?.clientTurnId ?? "").trim() || null;
     const stream = wantsStream(body, req);
 
     const authHeader = readCustomerAuthHeader(req);
@@ -154,6 +157,11 @@ export default async function handler(req, res) {
           streamHandlers._earlyCustomerDone = true;
           writeHomeBrainFactSseEvent(res, "done", payload);
         },
+        onDocumentMemoryPersistFailed(payload) {
+          if (memoryFailedSent || !payload) return;
+          memoryFailedSent = true;
+          writeHomeBrainFactSseEvent(res, "error", payload);
+        },
       };
 
       const result = await handleHomeBrainFactRequest({
@@ -175,12 +183,18 @@ export default async function handler(req, res) {
         presenceTurn,
         shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
         accessToken: authHeader,
+        clientTurnId,
         streamHandlers,
         requestStartedAt,
       });
 
       if (!result.ok) {
-        if (!earlyDoneSent) writeHomeBrainFactSseError(res, result);
+        if (!earlyDoneSent && !memoryFailedSent) writeHomeBrainFactSseError(res, result);
+        res.end();
+        return;
+      }
+
+      if (memoryFailedSent) {
         res.end();
         return;
       }
@@ -227,6 +241,7 @@ export default async function handler(req, res) {
       presenceTurn,
       shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
       accessToken: authHeader,
+      clientTurnId,
     });
 
     if (!result.ok) {
@@ -241,11 +256,14 @@ export default async function handler(req, res) {
     res.end(JSON.stringify(result));
   } catch (error) {
     if (res.getHeader("Content-Type") === "text/event-stream; charset=utf-8") {
-      writeHomeBrainFactSseError(res, {
-        ok: false,
-        reason: "SERVER_ERROR",
-        error_message: error instanceof Error ? error.message : "Home brain fact lookup failed.",
-      });
+      if (!memoryFailedSent) {
+        writeHomeBrainFactSseError(res, {
+          ok: false,
+          reason: "SERVER_ERROR",
+          error_message: error instanceof Error ? error.message : "Home brain fact lookup failed.",
+        });
+      }
+      res.end();
       return;
     }
     res.statusCode = 500;

@@ -66,6 +66,24 @@ function applyHomeBrainFactSseEvent(parsed, handlers, assignFinal) {
   if (parsed.event === "ttft") handlers.onTTFT?.(parsed.data?.ttft_ms ?? null);
   if (parsed.event === "replace") handlers.onReplace?.(parsed.data?.text ?? "");
   if (parsed.event === "error") {
+    const data = parsed.data ?? {};
+    if (
+      data.reason === "KEY_DOCUMENT_MEMORY_PERSIST_FAILED" &&
+      data.answer_sealed === true
+    ) {
+      handlers.onDocumentMemoryPersistFailed?.(data);
+      assignFinal({
+        ok: true,
+        document_memory_persist_failed: true,
+        answer_sealed: true,
+        answerText: null,
+        reason: "KEY_DOCUMENT_MEMORY_PERSIST_FAILED",
+        memory_commit_id: data.memory_commit_id,
+        commit_status: "failed",
+        error_message: data.error_message,
+      });
+      return;
+    }
     const error = new Error(parsed.data?.error_message ?? parsed.data?.reason ?? "Streaming failed.");
     error.reason = parsed.data?.reason ?? null;
     throw error;
@@ -201,6 +219,10 @@ export function mapHomeBrainFactPayload(payload) {
     ) || 0,
     // Presentation strip — existing done fields only (no invent).
     keyStatus: extractKeyStatusFromDonePayload(payload),
+    documentMemoryPersistFailed: payload.document_memory_persist_failed === true,
+    memoryCommitId: payload.memory_commit_id ?? null,
+    answerSealed: payload.answer_sealed === true,
+    memoryPersistErrorMessage: payload.error_message ?? null,
   };
 }
 

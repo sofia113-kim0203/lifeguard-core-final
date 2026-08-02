@@ -237,47 +237,58 @@ export function buildSourceFactKey(policy = {}) {
   return null;
 }
 
+function classifyPolicyNumberQualityLocal(raw = "") {
+  const s = String(raw ?? "").trim();
+  if (!s) return "absent";
+  if (/[xX*]{2,}|\*{2,}|\u25CF{2,}|\u2022{2,}/.test(s)) return "masked";
+  if (/\.{2,}|…|\?\?+|_{2,}/.test(s)) return "partial";
+  const compact = s.replace(/\s+/g, "");
+  if (compact.length < 3) return "partial";
+  if (!/^[A-Za-z0-9][A-Za-z0-9\-/]{2,}$/.test(compact)) return "uncertain";
+  return "exact_unmasked";
+}
+
 /**
- * Strong contract identity only:
- * 1) verified policy_number
- * 2) stored contract_identity_key / verified contract id
- * 3) SHA + locator + fact fingerprint
- * Never insurer+product(+premium) alone.
+ * Strong contract identity:
+ * - merge/update: customer_id + normalized_insurer + exact_unmasked policy_number
+ * - never policy_number alone; never masked/partial/uncertain
+ * - never insurer+product similarity alone
  */
 export function buildContractIdentityKey(policy = {}, opts = {}) {
   const existing = String(
     policy.contract_identity_key ?? summaryOf(policy).contract_identity_key ?? "",
   ).trim();
-  if (existing) {
-    return isPersonalOwnershipOk(policy, opts) ? existing : null;
+  // Keep prior strong keys (customer-scoped or insurer+exact-pn). Reject weak pn-only.
+  if (
+    existing &&
+    isPersonalOwnershipOk(policy, opts) &&
+    ((existing.startsWith("cid:") && existing.includes("|ins:") && existing.includes("|pn:")) ||
+      (existing.startsWith("ins:") && existing.includes("|pn:") && !existing.startsWith("pn:")))
+  ) {
+    return existing;
   }
   if (!isPersonalOwnershipOk(policy, opts)) return null;
 
-  const pn = pickPolicyNumber(policy);
-  // Keep hyphenated numbers usable: normalize only for the key; length uses de-spaced raw.
-  const pnCompact = String(pn ?? "").replace(/\s+/g, "");
-  const pnNorm = normalizeIdentityToken(pn ?? "");
-  if (pn && pnCompact.length >= 3 && pnNorm.length >= 3) {
-    return `pn:${pnNorm}`;
-  }
-
-  const verifiedId = String(
-    summaryOf(policy).verified_contract_id ?? policy.verified_contract_id ?? "",
+  const customerId = String(
+    opts.customerId ?? opts.customer_id ?? policy.customer_id ?? summaryOf(policy).customer_id ?? "",
   ).trim();
-  if (verifiedId) return `vcid:${normalizeIdentityToken(verifiedId)}`;
-
-  const sha = pickSourceSha(policy);
-  const locator = pickLocator(policy);
-  const fp = buildContractFactFingerprint(policy);
-  if (sha && locator && fp) {
-    return `sha:${sha}:loc:${normalizeIdentityToken(locator)}:fp:${fp}`;
+  const insurer = normalizeIdentityToken(
+    policy.insurer_name ?? summaryOf(policy).insurer_name ?? summaryOf(policy).insurer ?? "",
+  );
+  const pn = pickPolicyNumber(policy);
+  const quality =
+    String(summaryOf(policy).policy_number_quality ?? policy.policy_number_quality ?? "").trim() ||
+    classifyPolicyNumberQualityLocal(pn);
+  if (quality !== "exact_unmasked" || !pn || !insurer) {
+    return null;
   }
-  // Same SHA + fingerprint without locator still strong enough when policy_number absent
-  // only if fingerprint includes policy_number or dates — require locator OR policy_number part in fp
-  if (sha && fp && (fp.includes("|") && pn)) {
-    return `sha:${sha}:fp:${fp}`;
+  // Persist merge must pass customerId — prevents cross-customer / pn-only merge.
+  if (opts.requireCustomerId === true && !customerId) return null;
+  if (customerId) {
+    return `cid:${customerId}|ins:${insurer}|pn:${normalizeIdentityToken(pn)}`;
   }
-  return null;
+  // Projection without customer scope: insurer + exact pn (still never pn-only).
+  return `ins:${insurer}|pn:${normalizeIdentityToken(pn)}`;
 }
 
 function toRailCard(policy, statusLabel) {

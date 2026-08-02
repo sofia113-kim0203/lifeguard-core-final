@@ -33,6 +33,11 @@ import {
   canLoadCorporateProfileHand,
   loadHolderAuthorityGrants,
 } from "../entity/entityAuthorityConsent.js";
+import {
+  buildKeyLatestDocumentContext,
+  loadLatestCommittedKeyDocumentMemory,
+  loadLatestCommittedMemoryVersion,
+} from "./keyDocumentMemoryCommit.js";
 
 export const READY_CARD_VERSION = "triangle-ready-card-v2.2";
 
@@ -636,7 +641,33 @@ export async function buildKeyReadyCard({
     customer_id: cid,
     session_id: sid,
     build_ms: Math.max(0, Date.now() - buildStarted),
+    built_from_memory_version: 0,
+    recent_document_memory: null,
   };
+
+  try {
+    const latestDocMem = await loadLatestCommittedKeyDocumentMemory({
+      supabase: userSupabase,
+      customerId: cid,
+    });
+    if (latestDocMem.ok && latestDocMem.row) {
+      const ctx = buildKeyLatestDocumentContext(latestDocMem.row);
+      card.built_from_memory_version = Number(latestDocMem.row.memory_version) || 0;
+      // New session / re-login: reference only — never force prior session active focus.
+      card.recent_document_memory = ctx
+        ? {
+            memory_commit_id: ctx.memory_commit_id,
+            memory_version: ctx.memory_version,
+            primary_document_id: ctx.primary_document_id,
+            read_status: ctx.read_status,
+            recorded_at: ctx.recorded_at,
+            note: "reference_slot_not_auto_active_focus",
+          }
+        : null;
+    }
+  } catch {
+    /* non-blocking */
+  }
   return card;
 }
 
@@ -745,29 +776,52 @@ export async function resolveReadyCardForQuestionTurn({
       env,
     });
     if (opened.ok) {
-      return finalize({
-        card: {
-          ...opened.card,
-          freshness: {
-            ...(opened.card.freshness || {}),
-            age_ms: 0,
-            reason: "login_handoff",
+      let handoffMemoryStale = false;
+      try {
+        const latestVer = await loadLatestCommittedMemoryVersion({
+          supabase: userSupabase,
+          customerId,
+        });
+        const tokenVer =
+          opened.card?.built_from_memory_version == null
+            ? 0
+            : Number(opened.card.built_from_memory_version) || 0;
+        const dbVer = latestVer.ok ? Number(latestVer.memory_version) || 0 : 0;
+        if (dbVer > 0 && tokenVer < dbVer) {
+          handoffMemoryStale = true;
+          handoffRejectReason = "handoff_memory_stale";
+          tokenValidationMs = opened.validation_ms ?? null;
+        }
+      } catch {
+        /* fall through to reuse when version lookup fails closed-safe */
+      }
+      if (!handoffMemoryStale) {
+        return finalize({
+          card: {
+            ...opened.card,
+            freshness: {
+              ...(opened.card.freshness || {}),
+              age_ms: 0,
+              reason: "login_handoff",
+            },
+            build_ms: 0,
           },
-          build_ms: 0,
-        },
-        ready_card_status: "hit",
-        ready_card_ms: Math.max(0, Date.now() - resolveStarted),
-        ready_card_build_ms: 0,
-        ready_card_source: "login_handoff",
-        ready_card_hit: true,
-        token_validation_ms: opened.validation_ms,
-        token_reject_reason: null,
-        reused: true,
-      });
+          ready_card_status: "hit",
+          ready_card_ms: Math.max(0, Date.now() - resolveStarted),
+          ready_card_build_ms: 0,
+          ready_card_source: "login_handoff",
+          ready_card_hit: true,
+          token_validation_ms: opened.validation_ms,
+          token_reject_reason: null,
+          reused: true,
+        });
+      }
+      // Stale vs KEY document memory version — rebuild from DB; reject token contents.
+    } else {
+      // Fall through to memory / parallel rebuild — do not trust token contents.
+      handoffRejectReason = opened.reason ?? "handoff_rejected";
+      tokenValidationMs = opened.validation_ms ?? null;
     }
-    // Fall through to memory / parallel rebuild — do not trust token contents.
-    handoffRejectReason = opened.reason ?? "handoff_rejected";
-    tokenValidationMs = opened.validation_ms ?? null;
   }
 
   const cached = readReadyCardCache(customerId, sessionId);

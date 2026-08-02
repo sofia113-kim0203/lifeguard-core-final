@@ -1992,6 +1992,7 @@ export default function LifeguardHomeChat({
       // One-shot delivery: current_upload and/or explicit_reopen only.
       const attachOptions = {
         sessionId,
+        clientTurnId: turnId,
         ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
         ...(documentIdsForTurn.length > 1 ? { documentIds: documentIdsForTurn } : {}),
         attachmentReferenceEnabled: false,
@@ -2096,6 +2097,36 @@ export default function LifeguardHomeChat({
         },
         attachOptions,
       );
+      if (result.documentMemoryPersistFailed) {
+        const paintedNow = String(paint.getPainted() || streamedText || "");
+        const memoryFailMessage =
+          result.memoryPersistErrorMessage ||
+          "답변은 준비됐지만 KEY 공식 기억 저장이 완료되지 않았습니다. 기억 저장을 다시 시도해 주세요.";
+        if (paintedNow.trim()) {
+          syncLiveMessages(
+            patchLastAssistantMessage(liveMessages, {
+              content: paintedNow,
+              thinking: false,
+              turnId,
+              document_memory_persist_failed: true,
+              memory_commit_id: result.memoryCommitId ?? null,
+              memory_save_retry_needed: true,
+            }),
+            {
+              phase: "memory_failed",
+              loading: false,
+              streaming: false,
+              streamedCommitted: true,
+            },
+          );
+        }
+        setLoading(false);
+        setStreaming(false);
+        setError(memoryFailMessage);
+        endInflightHomeChatTurn(turnId);
+        inflightTurnIdRef.current = null;
+        return;
+      }
       if (!sawFirstSseEvent) {
         appendHomeChatStreamTrace("sse_first_event");
       }
@@ -2290,6 +2321,64 @@ export default function LifeguardHomeChat({
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
     } catch (err) {
+      const memoryFailSealed =
+        err?.reason === "KEY_DOCUMENT_MEMORY_PERSIST_FAILED" && err?.answer_sealed === true;
+      const paintedNow = String(paint?.getPainted?.() || "").trim();
+      const lastAssistant = liveMessages[liveMessages.length - 1];
+      const hasPaintedAnswer =
+        Boolean(paintedNow) ||
+        (lastAssistant?.role === "assistant" &&
+          lastAssistant?.thinking !== true &&
+          Boolean(String(lastAssistant?.content ?? "").trim()));
+
+      if (memoryFailSealed && hasPaintedAnswer) {
+        try {
+          paint?.cancel();
+        } catch {
+          /* ignore */
+        }
+        if (reopenIdsForTurn.length) {
+          if (reopenAckSeen) {
+            syncExplicitReopenFlight({
+              status: EXPLICIT_REOPEN_STATUS.CONSUMED,
+              documentIds: [],
+              ackReceived: true,
+            });
+          } else {
+            syncExplicitReopenFlight(
+              resolveExplicitReopenFlightFailure(explicitReopenFlightRef.current),
+            );
+          }
+        }
+        const displayText =
+          paintedNow || String(lastAssistant?.content ?? "").trim();
+        syncLiveMessages(
+          patchLastAssistantMessage(liveMessages, {
+            content: displayText,
+            thinking: false,
+            turnId,
+            document_memory_persist_failed: true,
+            memory_commit_id: err?.memory_commit_id ?? null,
+            memory_save_retry_needed: true,
+          }),
+          {
+            phase: "memory_failed",
+            loading: false,
+            streaming: false,
+            streamedCommitted: true,
+          },
+        );
+        endInflightHomeChatTurn(turnId);
+        inflightTurnIdRef.current = null;
+        setLoading(false);
+        setStreaming(false);
+        setError(
+          err?.error_message ||
+            "답변은 준비됐지만 KEY 공식 기억 저장이 완료되지 않았습니다. 기억 저장을 다시 시도해 주세요.",
+        );
+        return;
+      }
+
       try {
         paint?.cancel();
       } catch {

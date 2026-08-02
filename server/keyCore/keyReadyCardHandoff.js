@@ -98,7 +98,19 @@ export function buildHandoffCardPayload(card = null, { authUserId = null } = {})
       customer_id: cid,
       session_id: card.session_id ?? null,
       build_ms: typeof card.build_ms === "number" ? card.build_ms : null,
+      built_from_memory_version:
+        card.built_from_memory_version == null
+          ? 0
+          : Number(card.built_from_memory_version) || 0,
+      recent_document_memory:
+        card.recent_document_memory && typeof card.recent_document_memory === "object"
+          ? card.recent_document_memory
+          : null,
     },
+    built_from_memory_version:
+      card.built_from_memory_version == null
+        ? 0
+        : Number(card.built_from_memory_version) || 0,
   };
 }
 
@@ -232,6 +244,11 @@ export function openReadyCardHandoff(token, {
     return { ok: false, reason: "handoff_session_mismatch", validation_ms: validation_ms() };
   }
 
+  const builtFromMemoryVersion =
+    payload.built_from_memory_version == null && card.built_from_memory_version == null
+      ? 0
+      : Number(payload.built_from_memory_version ?? card.built_from_memory_version) || 0;
+
   return {
     ok: true,
     card: {
@@ -241,6 +258,7 @@ export function openReadyCardHandoff(token, {
       materials_connected: true,
       prepared_at: payload.prepared_at,
       build_ms: 0,
+      built_from_memory_version: builtFromMemoryVersion,
     },
     meta: {
       source: "login_handoff",
@@ -248,6 +266,7 @@ export function openReadyCardHandoff(token, {
       expires_at: payload.expires_at,
       status,
       card_version: payload.card_version,
+      built_from_memory_version: builtFromMemoryVersion,
     },
     validation_ms: validation_ms(),
   };

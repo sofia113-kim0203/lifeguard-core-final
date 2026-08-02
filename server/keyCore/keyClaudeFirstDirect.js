@@ -229,6 +229,15 @@ import {
   filterKeyActiveClaimCasesByScope,
   isKeyClaimOpenStatus,
 } from "../documentPolicyUploadPersist.js";
+import {
+  buildDocumentMemoryPersistFailedPayload,
+  buildKeyLatestDocumentContext,
+  KEY_DOCUMENT_MEMORY_PERSIST_FAILED,
+  loadActiveKeyDocumentMemoryCommit,
+  loadLatestCommittedKeyDocumentMemory,
+  loadLatestCommittedMemoryVersion,
+  persistOfficialDocumentMemoryWithRetry,
+} from "./keyDocumentMemoryCommit.js";
   import {
   buildKeyRecordSidecarHint,
   isProgressOnlyCustomerAnswer,
@@ -1781,6 +1790,7 @@ export function buildKeyConsultationRecord({
   lifeThreads = undefined,
   now = null,
   presenceTurn = null,
+  latestDocumentContextRef = null,
 } = {}) {
   const rawQ = String(question ?? "").trim();
   const isPresence =
@@ -1830,6 +1840,19 @@ export function buildKeyConsultationRecord({
           sourceLink,
           now: now ?? new Date(),
         });
+  const latestRef =
+    latestDocumentContextRef && typeof latestDocumentContextRef === "object"
+      ? {
+          memory_commit_id: String(latestDocumentContextRef.memory_commit_id ?? "").trim() || null,
+          memory_version:
+            latestDocumentContextRef.memory_version == null
+              ? null
+              : Number(latestDocumentContextRef.memory_version),
+          primary_document_id:
+            String(latestDocumentContextRef.primary_document_id ?? "").trim() || null,
+          recorded_at: latestDocumentContextRef.recorded_at ?? null,
+        }
+      : null;
   return {
     schema: "key_consultation_record_v1",
     customer_utterance: q || null,
@@ -1846,6 +1869,9 @@ export function buildKeyConsultationRecord({
     outcomes: resolvedOutcomes,
     life_threads: resolvedLifeThreads,
     session_goal: goal,
+    ...(latestRef?.memory_commit_id
+      ? { latest_document_context_ref: latestRef }
+      : {}),
     ...(sourceLink && typeof sourceLink === "object" ? { source_link: sourceLink } : {}),
     ...(isPresence && presenceTurn && typeof presenceTurn === "object"
       ? { presence_turn: presenceTurn }
@@ -3605,6 +3631,8 @@ export function buildUserPayload({
   policyTruthContext = null,
   /** Deterministic premium/count totals — Claude reads, never re-adds. */
   deterministicDocumentTotals = null,
+  /** Same-session KEY official document memory (committed active only). */
+  keyLatestDocumentContext = null,
 } = {}) {
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
@@ -3767,6 +3795,9 @@ export function buildUserPayload({
         : {}),
       ...(deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
         ? { deterministic_document_totals: deterministicDocumentTotals }
+        : {}),
+      ...(keyLatestDocumentContext && typeof keyLatestDocumentContext === "object"
+        ? { key_latest_document_context: keyLatestDocumentContext }
         : {}),
     },
     available_verified_evidence: {
@@ -4723,6 +4754,8 @@ async function callClaudeFirstDirect({
   requestedAttachDocumentIds = null,
   /** Identity plan: attachment identities vs unique original blocks (+ duplicate map). */
   attachmentIdentityPlan = null,
+  /** Same-session KEY official document memory (committed+active only). */
+  keyLatestDocumentContext = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -4884,6 +4917,12 @@ async function callClaudeFirstDirect({
         ? null
         : deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
           ? deterministicDocumentTotals
+          : null,
+    keyLatestDocumentContext:
+      presenceTurn === true
+        ? null
+        : keyLatestDocumentContext && typeof keyLatestDocumentContext === "object"
+          ? keyLatestDocumentContext
           : null,
   });
   const scopedPayload = scopeOnly
@@ -5574,6 +5613,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   audience = null,
   conversationMode = null,
   keyRoleContract = null,
+  clientTurnId = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -7132,6 +7172,55 @@ export async function runClaudeFirstDirectQuestionTurn({
       Boolean(pdf?.pdfBase64);
   }
 
+  // T1 same-session: inject committed+active official document memory (no original re-attach).
+  let keyLatestDocumentContextForClaude = null;
+  if (
+    !isPresenceTurn &&
+    userSupabase &&
+    customerId &&
+    sessionId &&
+    originalDeliveryIds.length === 0
+  ) {
+    try {
+      const activeMem = await loadActiveKeyDocumentMemoryCommit({
+        supabase: userSupabase,
+        customerId,
+        sessionId,
+      });
+      if (activeMem.ok && activeMem.row) {
+        keyLatestDocumentContextForClaude = buildKeyLatestDocumentContext(activeMem.row);
+        if (
+          keyLatestDocumentContextForClaude &&
+          keyLatestDocumentContextForClaude.read_status !== "confirmed_facts"
+        ) {
+          const lastConfirmed = await loadLatestCommittedKeyDocumentMemory({
+            supabase: userSupabase,
+            customerId,
+          });
+          if (
+            lastConfirmed.ok &&
+            lastConfirmed.row &&
+            String(lastConfirmed.row.read_status ?? "") === "confirmed_facts" &&
+            String(lastConfirmed.row.session_id ?? "") === String(sessionId)
+          ) {
+            keyLatestDocumentContextForClaude = {
+              ...keyLatestDocumentContextForClaude,
+              current_read_attempt: {
+                read_status: keyLatestDocumentContextForClaude.read_status,
+                memory_commit_id: keyLatestDocumentContextForClaude.memory_commit_id,
+                memory_version: keyLatestDocumentContextForClaude.memory_version,
+                document_ids: keyLatestDocumentContextForClaude.document_ids,
+              },
+              last_confirmed_document_facts: buildKeyLatestDocumentContext(lastConfirmed.row),
+            };
+          }
+        }
+      }
+    } catch {
+      keyLatestDocumentContextForClaude = null;
+    }
+  }
+
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
     history: isPresenceTurn ? [] : history,
@@ -7211,6 +7300,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       : verifiedCoverageAuthorityAddendum,
     deterministicDocumentTotals,
     attachAnalysisScopeOnly: requestScopeOnly === true,
+    keyLatestDocumentContext: keyLatestDocumentContextForClaude,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -7567,8 +7657,9 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   // KEY LIFE LEDGER — before early done so client can persist session_goal / life_threads.
   // Source + goal + LIFE THREAD from customer utterance only (never Claude answer).
+  const resolvedClientTurnId = String(clientTurnId ?? "").trim() || null;
   const sourceLink = resolveConsultationSourceLink({
-    sourceTurnId: null,
+    sourceTurnId: resolvedClientTurnId,
     messageId: null,
     sessionId,
     turnOrd: Array.isArray(history) ? history.length + 1 : 1,
@@ -7648,6 +7739,180 @@ export async function runClaudeFirstDirectQuestionTurn({
     lifeThreadsForRecord = [...extracted, ...dns];
   }
 
+  // Document-turn official memory: Gate → commit → version before customer done.
+  // Authority: current upload / explicit reopen originals (no keyword classifier).
+  const isOfficialDocumentMemoryTurn =
+    !isPresenceTurn &&
+    !usedFailure &&
+    originalDeliveryIds.length > 0 &&
+    Boolean(userSupabase) &&
+    Boolean(customerId) &&
+    Boolean(sessionId);
+
+  let documentMemoryPersistResult = null;
+  let latestDocumentContextRef = null;
+  let preDoneAcceptedFacts = null;
+  let preDoneFactGate = null;
+
+  if (isOfficialDocumentMemoryTurn && !resolvedClientTurnId) {
+    documentMemoryPersistResult = {
+      ok: false,
+      memory_commit_id: null,
+      reason: "missing_client_turn_id",
+      error: "document turn requires client_turn_id",
+    };
+  } else if (isOfficialDocumentMemoryTurn) {
+    const ownedIdsForMemory = [
+      ...new Set(
+        [
+          pdf?.meta?.document_id,
+          ...originalDeliveryIds,
+          ...(Array.isArray(pdfAttachmentsForClaude)
+            ? pdfAttachmentsForClaude.map((row) => row?.document_id)
+            : []),
+        ]
+          .map((id) => String(id ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    const rawFactsForMemory = Array.isArray(claude.confirmed_source_facts)
+      ? claude.confirmed_source_facts
+      : [];
+    const activeDocumentIdForMemory =
+      String(pdf?.meta?.document_id ?? ownedIdsForMemory[0] ?? "").trim() || null;
+    try {
+      const resolvedForMemory =
+        ownedIdsForMemory.length > 1
+          ? await resolveKeyConfirmableFactsForOwnedDocuments({
+              supabase: userSupabase,
+              customerId,
+              activeDocumentIds: ownedIdsForMemory,
+              facts: rawFactsForMemory,
+            })
+          : await resolveKeyConfirmableFactsForPersist({
+              supabase: userSupabase,
+              customerId,
+              activeDocumentId: activeDocumentIdForMemory,
+              facts: rawFactsForMemory,
+            });
+      preDoneFactGate = resolvedForMemory.gate;
+      preDoneAcceptedFacts = resolvedForMemory.accepted;
+      const rejectedCount =
+        Number(resolvedForMemory.gate?.rejected_count) ||
+        Math.max(
+          0,
+          rawFactsForMemory.length - (Array.isArray(preDoneAcceptedFacts) ? preDoneAcceptedFacts.length : 0),
+        );
+      documentMemoryPersistResult = await persistOfficialDocumentMemoryWithRetry({
+        supabase: userSupabase,
+        customerId,
+        sessionId,
+        sourceTurnId: resolvedClientTurnId,
+        sourceMessageId: null,
+        sourceTurnOrd: Array.isArray(history) ? history.length + 1 : 1,
+        documentIds: ownedIdsForMemory,
+        acceptedFacts: Array.isArray(preDoneAcceptedFacts) ? preDoneAcceptedFacts : [],
+        rejectedFactCount: rejectedCount,
+        originalsFailed: false,
+        extractionFailed: false,
+      });
+      if (documentMemoryPersistResult?.ok === true) {
+        latestDocumentContextRef = {
+          memory_commit_id: documentMemoryPersistResult.memory_commit_id,
+          memory_version: documentMemoryPersistResult.memory_version,
+          primary_document_id: ownedIdsForMemory[0] || null,
+          recorded_at: documentMemoryPersistResult.context?.recorded_at ?? nowStamp.toISOString?.() ?? new Date().toISOString(),
+        };
+        try {
+          invalidateReadyCardCacheForCustomer(customerId);
+        } catch {
+          /* non-blocking */
+        }
+      }
+    } catch (err) {
+      documentMemoryPersistResult = {
+        ok: false,
+        memory_commit_id: documentMemoryPersistResult?.memory_commit_id ?? null,
+        reason: "persist_exception",
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+    }
+
+  }
+
+  if (
+    isOfficialDocumentMemoryTurn &&
+    (!documentMemoryPersistResult || documentMemoryPersistResult.ok !== true)
+  ) {
+      const failPayload = buildDocumentMemoryPersistFailedPayload({
+        memoryCommitId: documentMemoryPersistResult?.memory_commit_id ?? null,
+        errorMessage: documentMemoryPersistResult?.error ?? documentMemoryPersistResult?.reason,
+      });
+      try {
+        streamHandlers?.onDocumentMemoryPersistFailed?.(failPayload);
+      } catch {
+        /* non-blocking */
+      }
+      return {
+        ok: true,
+        document_memory_persist_failed: true,
+        answerText: sealed.key_speak_original,
+        key_speak_original: sealed.key_speak_original,
+        customerText: sealed.key_speak_original,
+        keySpeakOriginal: sealed.key_speak_original,
+        visualBlocks: [],
+        response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+        compose_mode: "key_claude_first_direct",
+        key_monopoly_failure: false,
+        failure_reason: KEY_DOCUMENT_MEMORY_PERSIST_FAILED,
+        memory_commit_id: failPayload.memory_commit_id,
+        commit_status: "failed",
+        answer_sealed: true,
+        customer_done_ms: customerDoneMs,
+        streamed_equals_sealed: streamedEqualsSealed,
+        session_goal: persistableSessionGoal,
+        agentTurn: {
+          text: sealed.key_speak_original,
+          responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+          consultationIntent: { intent: "claude_first_direct" },
+          factBundle: { policies, policy_count, one_key_core: true },
+        },
+        modeDecision: null,
+        loadedContext,
+        contextSnapshot,
+        unifiedState,
+        customerContextBundle,
+        salesDirectorTrace: {
+          one_key_core: true,
+          compose_mode: "key_claude_first_direct",
+          session_goal: persistableSessionGoal,
+          key_compose_trace: {
+            compose_mode: "key_claude_first_direct",
+            key_voice_trace: {
+              provider: "claude_first_direct",
+              document_memory_persist_failed: true,
+              memory_commit_id: failPayload.memory_commit_id,
+              provider_calls: 1,
+              s6_speak_calls: 0,
+              original_attachment_count:
+                Number(claude.original_attachment_count ?? 0) || 0,
+            },
+          },
+        },
+        oneKeyCoreTrace: {
+          schema_version: "one-key-core-trace-claude-first-v1",
+          steps: [
+            {
+              step: "document_memory_persist_failed",
+              at_ms: customerDoneMs,
+              payload: failPayload,
+            },
+          ],
+          legacy_paths_blocked: ["interpret", "decision", "planner", "s3_s6_compose"],
+        },
+      };
+  }
+
   const keyConsultationRecord = usedFailure
     ? null
     : buildKeyConsultationRecord({
@@ -7662,6 +7927,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         now: nowStamp,
         lifeThreads: lifeThreadsForRecord,
         presenceTurn: presenceTurnMeta,
+        latestDocumentContextRef,
       });
 
   // T5.1 / T6 — LIFE THREAD write/status/surface change invalidates stale READY CARD.
@@ -7818,28 +8084,34 @@ export async function runClaudeFirstDirectQuestionTurn({
     ),
   ];
   if (!usedFailure && userSupabase && customerId) {
-    const rawFacts = Array.isArray(claude.confirmed_source_facts)
-      ? claude.confirmed_source_facts
-      : [];
-    const activeDocumentId =
-      String(pdf?.meta?.document_id ?? "").trim() || null;
-    const resolved =
-      ownedAttachDocumentIds.length > 1
-        ? await resolveKeyConfirmableFactsForOwnedDocuments({
-            supabase: userSupabase,
-            customerId,
-            activeDocumentIds: ownedAttachDocumentIds,
-            facts: rawFacts,
-          })
-        : await resolveKeyConfirmableFactsForPersist({
-            supabase: userSupabase,
-            customerId,
-            activeDocumentId,
-            facts: rawFacts,
-          });
-    keyConfirmedFactGate = resolved.gate;
-    factsToPersist = resolved.accepted;
+    if (Array.isArray(preDoneAcceptedFacts) || preDoneFactGate) {
+      keyConfirmedFactGate = preDoneFactGate || keyConfirmedFactGate;
+      factsToPersist = Array.isArray(preDoneAcceptedFacts) ? preDoneAcceptedFacts : [];
+    } else {
+      const rawFacts = Array.isArray(claude.confirmed_source_facts)
+        ? claude.confirmed_source_facts
+        : [];
+      const activeDocumentId =
+        String(pdf?.meta?.document_id ?? "").trim() || null;
+      const resolved =
+        ownedAttachDocumentIds.length > 1
+          ? await resolveKeyConfirmableFactsForOwnedDocuments({
+              supabase: userSupabase,
+              customerId,
+              activeDocumentIds: ownedAttachDocumentIds,
+              facts: rawFacts,
+            })
+          : await resolveKeyConfirmableFactsForPersist({
+              supabase: userSupabase,
+              customerId,
+              activeDocumentId,
+              facts: rawFacts,
+            });
+      keyConfirmedFactGate = resolved.gate;
+      factsToPersist = resolved.accepted;
+    }
 
+    // Ledger derived persist only after official memory commit (document turns).
     if (factsToPersist.length > 0) {
       try {
         keyConfirmedPersist = await persistKeyConfirmedSourceFactsToPolicies({

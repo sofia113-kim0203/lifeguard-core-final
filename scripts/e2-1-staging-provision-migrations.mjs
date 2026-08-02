@@ -60,6 +60,7 @@ const MIGRATION_FILES = [
   "031_analysis_jobs_autopilot.sql",
   "032_profile_insurance_policies_extended_columns.sql",
   "033_refresh_active_policy_view_after_extended_columns.sql",
+  "034_key_document_memory_commits.sql",
 ];
 
 const CORE_TABLES = [

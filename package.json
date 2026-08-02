@@ -183,6 +183,7 @@
     "test:key-multi-upload-all-files": "node scripts/key-multi-upload-all-files-unit-test.mjs",
     "test:key-multi-attach-composer": "node scripts/key-multi-attach-composer-unit-test.mjs",
     "test:key-attachment-one-shot-delivery": "node scripts/key-attachment-one-shot-delivery-unit-test.mjs",
+    "test:key-document-memory-commit": "node scripts/key-document-memory-commit-unit-test.mjs",
     "test:key-verified-coverage-reinjection": "node scripts/key-verified-coverage-reinjection-unit-test.mjs",
     "test:key-claude-first-direct": "node scripts/key-claude-first-direct-unit-test.mjs",
     "test:key-qa-turn-recorder": "node scripts/key-qa-turn-recorder-unit-test.mjs",
