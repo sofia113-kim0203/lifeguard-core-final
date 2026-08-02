@@ -706,9 +706,29 @@ export async function warmAndStoreKeyReadyCard(args = {}) {
 }
 
 /**
- * Question-turn resolve: hit/stale reuse; miss → parallel rebuild now.
- * Stale schedules background refresh (non-blocking).
+ * Handoff reuse gate for KEY document-memory version.
+ * - lookup !ok → reject (never treat as fresh version 0)
+ * - ok+miss (version 0) → allow reuse when token not stale
+ * - ok+hit && tokenVer < dbVer → stale reject
  */
+export function evaluateReadyCardHandoffMemoryGate(latestVer, tokenVer = 0) {
+  if (!latestVer || latestVer.ok !== true) {
+    return {
+      reuse_handoff: false,
+      reject_reason: "handoff_memory_lookup_failed",
+    };
+  }
+  const dbVer = Number(latestVer.memory_version) || 0;
+  const tv = Number(tokenVer) || 0;
+  if (dbVer > 0 && tv < dbVer) {
+    return {
+      reuse_handoff: false,
+      reject_reason: "handoff_memory_stale",
+    };
+  }
+  return { reuse_handoff: true, reject_reason: null };
+}
+
 export async function resolveReadyCardForQuestionTurn({
   userSupabase = null,
   customerId = null,
@@ -777,25 +797,41 @@ export async function resolveReadyCardForQuestionTurn({
     });
     if (opened.ok) {
       let handoffMemoryStale = false;
+      let handoffMemoryLookupFailed = false;
       try {
         const latestVer = await loadLatestCommittedMemoryVersion({
           supabase: userSupabase,
           customerId,
         });
+        tokenValidationMs = opened.validation_ms ?? null;
         const tokenVer =
           opened.card?.built_from_memory_version == null
             ? 0
             : Number(opened.card.built_from_memory_version) || 0;
-        const dbVer = latestVer.ok ? Number(latestVer.memory_version) || 0 : 0;
-        if (dbVer > 0 && tokenVer < dbVer) {
+        const gate = evaluateReadyCardHandoffMemoryGate(latestVer, tokenVer);
+        if (gate.reject_reason === "handoff_memory_lookup_failed") {
+          handoffMemoryLookupFailed = true;
+          handoffRejectReason = "handoff_memory_lookup_failed";
+          console.error("[key_document_memory_version_lookup]", {
+            reason: latestVer.reason ?? "query_failed",
+            error: latestVer.error ?? null,
+            customer_id: customerId ? String(customerId).slice(0, 8) : null,
+          });
+        } else if (gate.reject_reason === "handoff_memory_stale") {
           handoffMemoryStale = true;
           handoffRejectReason = "handoff_memory_stale";
-          tokenValidationMs = opened.validation_ms ?? null;
         }
-      } catch {
-        /* fall through to reuse when version lookup fails closed-safe */
+      } catch (err) {
+        handoffMemoryLookupFailed = true;
+        handoffRejectReason = "handoff_memory_lookup_failed";
+        tokenValidationMs = opened.validation_ms ?? null;
+        console.error("[key_document_memory_version_lookup]", {
+          reason: "exception",
+          error: String(err?.message ?? err).slice(0, 200),
+          customer_id: customerId ? String(customerId).slice(0, 8) : null,
+        });
       }
-      if (!handoffMemoryStale) {
+      if (!handoffMemoryStale && !handoffMemoryLookupFailed) {
         return finalize({
           card: {
             ...opened.card,
@@ -816,7 +852,7 @@ export async function resolveReadyCardForQuestionTurn({
           reused: true,
         });
       }
-      // Stale vs KEY document memory version — rebuild from DB; reject token contents.
+      // lookup failed or stale vs KEY document memory version — rebuild; reject token.
     } else {
       // Fall through to memory / parallel rebuild — do not trust token contents.
       handoffRejectReason = opened.reason ?? "handoff_rejected";

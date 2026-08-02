@@ -7174,6 +7174,14 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   // T1 same-session: inject committed+active official document memory (no original re-attach).
   let keyLatestDocumentContextForClaude = null;
+  /** hit | miss | query_failed | skipped — never hide query_failed as silent null */
+  let keyLatestDocumentMemoryLoad = {
+    status: "skipped",
+    reason: null,
+    error: null,
+    memory_commit_id: null,
+    memory_version: null,
+  };
   if (
     !isPresenceTurn &&
     userSupabase &&
@@ -7187,8 +7195,32 @@ export async function runClaudeFirstDirectQuestionTurn({
         customerId,
         sessionId,
       });
-      if (activeMem.ok && activeMem.row) {
+      if (!activeMem.ok) {
+        keyLatestDocumentMemoryLoad = {
+          status: "query_failed",
+          reason: activeMem.reason ?? "query_failed",
+          error: activeMem.error ? String(activeMem.error).slice(0, 200) : null,
+          memory_commit_id: null,
+          memory_version: null,
+        };
+        console.error("[key_document_memory_active_load]", keyLatestDocumentMemoryLoad);
+      } else if (!activeMem.row) {
+        keyLatestDocumentMemoryLoad = {
+          status: "miss",
+          reason: "miss",
+          error: null,
+          memory_commit_id: null,
+          memory_version: null,
+        };
+      } else {
         keyLatestDocumentContextForClaude = buildKeyLatestDocumentContext(activeMem.row);
+        keyLatestDocumentMemoryLoad = {
+          status: "hit",
+          reason: "hit",
+          error: null,
+          memory_commit_id: keyLatestDocumentContextForClaude?.memory_commit_id ?? null,
+          memory_version: keyLatestDocumentContextForClaude?.memory_version ?? null,
+        };
         if (
           keyLatestDocumentContextForClaude &&
           keyLatestDocumentContextForClaude.read_status !== "confirmed_facts"
@@ -7197,8 +7229,19 @@ export async function runClaudeFirstDirectQuestionTurn({
             supabase: userSupabase,
             customerId,
           });
-          if (
-            lastConfirmed.ok &&
+          if (!lastConfirmed.ok) {
+            keyLatestDocumentMemoryLoad.last_confirmed_load = {
+              status: "query_failed",
+              reason: lastConfirmed.reason ?? "query_failed",
+              error: lastConfirmed.error
+                ? String(lastConfirmed.error).slice(0, 200)
+                : null,
+            };
+            console.error(
+              "[key_document_memory_last_confirmed_load]",
+              keyLatestDocumentMemoryLoad.last_confirmed_load,
+            );
+          } else if (
             lastConfirmed.row &&
             String(lastConfirmed.row.read_status ?? "") === "confirmed_facts" &&
             String(lastConfirmed.row.session_id ?? "") === String(sessionId)
@@ -7213,11 +7256,25 @@ export async function runClaudeFirstDirectQuestionTurn({
               },
               last_confirmed_document_facts: buildKeyLatestDocumentContext(lastConfirmed.row),
             };
+            keyLatestDocumentMemoryLoad.last_confirmed_load = { status: "hit", reason: "hit" };
+          } else {
+            keyLatestDocumentMemoryLoad.last_confirmed_load = {
+              status: "miss",
+              reason: "miss",
+            };
           }
         }
       }
-    } catch {
+    } catch (err) {
       keyLatestDocumentContextForClaude = null;
+      keyLatestDocumentMemoryLoad = {
+        status: "query_failed",
+        reason: "exception",
+        error: String(err?.message ?? err).slice(0, 200),
+        memory_commit_id: null,
+        memory_version: null,
+      };
+      console.error("[key_document_memory_active_load]", keyLatestDocumentMemoryLoad);
     }
   }
 
@@ -8021,6 +8078,10 @@ export async function runClaudeFirstDirectQuestionTurn({
               life_threads_attach_reason:
                 readyResolved?.life_threads_attach_reason ?? null,
               ready_card_source: readyCardSource,
+              token_reject_reason: tokenRejectReason,
+              key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+              key_latest_document_context_injected:
+                keyLatestDocumentContextForClaude != null,
               qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
               qa_turn_record: null,
               latency_marks: {
@@ -8035,6 +8096,8 @@ export async function runClaudeFirstDirectQuestionTurn({
                   persist_complete_ms: null,
                   streamed_equals_sealed: streamedEqualsSealed,
                   ready_card_source: readyCardSource,
+                  token_reject_reason: tokenRejectReason,
+                  key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
                   ready_card_hit: readyCardHit,
                   life_threads_injected_count: earlyLifeThreadsBrief.length,
                 },
@@ -8957,6 +9020,10 @@ export async function runClaudeFirstDirectQuestionTurn({
           ),
           life_threads_attach_reason: readyResolved?.life_threads_attach_reason ?? null,
           ready_card_source: readyCardSource,
+          token_reject_reason: tokenRejectReason,
+          key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+          key_latest_document_context_injected:
+            keyLatestDocumentContextForClaude != null,
           source_link: sourceLink,
           session_goal_writer: customerUtteranceGoal
             ? "customer_utterance"
@@ -9091,6 +9158,9 @@ export async function runClaudeFirstDirectQuestionTurn({
             ready_card_hit: readyCardHit,
             token_validation_ms: tokenValidationMs,
             token_reject_reason: tokenRejectReason,
+            key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+            key_latest_document_context_injected:
+              keyLatestDocumentContextForClaude != null,
             ready_card_materials_connected: readyCard?.materials_connected === true,
             corporate_hand: corporateHandSeatAudit,
             corporate_claim_hand: corporateClaimHandSeatAudit,

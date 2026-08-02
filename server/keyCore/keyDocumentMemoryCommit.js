@@ -444,17 +444,39 @@ export async function loadLatestCommittedKeyDocumentMemory({
   return { ok: true, row: data ?? null, reason: data ? "hit" : "miss" };
 }
 
+/**
+ * Distinguish:
+ * - ok+hit: committed row present (memory_version >= 1)
+ * - ok+miss: query succeeded, zero rows (memory_version = 0)
+ * - !ok: missing_scope / query_failed — caller must NOT treat as fresh empty
+ */
 export async function loadLatestCommittedMemoryVersion({
   supabase = null,
   customerId = null,
 } = {}) {
   const loaded = await loadLatestCommittedKeyDocumentMemory({ supabase, customerId });
-  if (!loaded.ok) return { ok: false, memory_version: 0, reason: loaded.reason };
-  const v = loaded.row?.memory_version;
+  if (!loaded.ok) {
+    return {
+      ok: false,
+      memory_version: null,
+      reason: loaded.reason ?? "query_failed",
+      error: loaded.error ?? null,
+    };
+  }
+  if (!loaded.row) {
+    return {
+      ok: true,
+      memory_version: 0,
+      reason: "miss",
+      error: null,
+    };
+  }
+  const v = loaded.row.memory_version;
   return {
     ok: true,
     memory_version: v == null ? 0 : Number(v) || 0,
-    reason: loaded.reason,
+    reason: "hit",
+    error: null,
   };
 }
 

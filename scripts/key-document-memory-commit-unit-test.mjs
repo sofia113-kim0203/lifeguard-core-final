@@ -13,6 +13,7 @@ import {
   commitKeyDocumentMemory,
   failKeyDocumentMemoryCommit,
   loadActiveKeyDocumentMemoryCommit,
+  loadLatestCommittedMemoryVersion,
   persistOfficialDocumentMemoryWithRetry,
 } from "../server/keyCore/keyDocumentMemoryCommit.js";
 import { buildPolicyFieldsFromKeyConfirmedFacts } from "../server/documentPolicyUploadPersist.js";
@@ -22,6 +23,7 @@ import {
   openReadyCardHandoff,
   sealReadyCardHandoff,
 } from "../server/keyCore/keyReadyCardHandoff.js";
+import { evaluateReadyCardHandoffMemoryGate } from "../server/keyCore/keyReadyCardBuild.js";
 import { buildHomeBrainFactRequestBody } from "../src/lib/homeBrainFactRequestBody.js";
 
 /** Mirror customerHomeBrainFact.js — not imported (pulls browser supabase at load). */
@@ -671,6 +673,120 @@ ok("E_timing_orchestration_order");
   assert.equal(sseFinal?.reason, KEY_DOCUMENT_MEMORY_PERSIST_FAILED);
 }
 ok("F_memory_fail_not_generic_wipe");
+
+// G — QUERY_ERROR_SWALLOWED fix: hit / miss / query_failed distinct; lookup fail rejects handoff
+{
+  const cid = "11111111-1111-1111-1111-111111111111";
+  const sid = "sess-lookup";
+  const sb = createMemoryCommitStore();
+
+  // empty → ok+miss, version 0 (legitimate)
+  const empty = await loadLatestCommittedMemoryVersion({
+    supabase: sb,
+    customerId: cid,
+  });
+  assert.equal(empty.ok, true);
+  assert.equal(empty.reason, "miss");
+  assert.equal(empty.memory_version, 0);
+
+  // insert committed active row
+  sb._rows.push({
+    id: "row-1",
+    customer_id: cid,
+    session_id: sid,
+    source_turn_id: "t1",
+    memory_commit_id: "22222222-2222-2222-2222-222222222222",
+    idempotency_key: "idem-1",
+    commit_status: "committed",
+    memory_version: 1,
+    document_ids: ["33333333-3333-3333-3333-333333333333"],
+    primary_document_id: "33333333-3333-3333-3333-333333333333",
+    read_status: "confirmed_facts",
+    focus_status: "active",
+    contracts: [],
+    rejected_fact_count: 0,
+    recorded_at: new Date().toISOString(),
+    committed_at: new Date().toISOString(),
+  });
+  const hit = await loadLatestCommittedMemoryVersion({
+    supabase: sb,
+    customerId: cid,
+  });
+  assert.equal(hit.ok, true);
+  assert.equal(hit.reason, "hit");
+  assert.equal(hit.memory_version, 1);
+
+  const activeHit = await loadActiveKeyDocumentMemoryCommit({
+    supabase: sb,
+    customerId: cid,
+    sessionId: sid,
+  });
+  assert.equal(activeHit.ok, true);
+  assert.equal(activeHit.reason, "hit");
+  assert.ok(activeHit.row);
+
+  // query_failed must not look like miss/version 0
+  const failingSb = {
+    from() {
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        order() {
+          return this;
+        },
+        limit() {
+          return this;
+        },
+        maybeSingle: async () => ({
+          data: null,
+          error: { message: "simulated_query_failed" },
+        }),
+      };
+    },
+  };
+  const failed = await loadLatestCommittedMemoryVersion({
+    supabase: failingSb,
+    customerId: cid,
+  });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, "query_failed");
+  assert.equal(failed.memory_version, null);
+  assert.match(String(failed.error ?? ""), /simulated_query_failed/);
+
+  const activeFailed = await loadActiveKeyDocumentMemoryCommit({
+    supabase: failingSb,
+    customerId: cid,
+    sessionId: sid,
+  });
+  assert.equal(activeFailed.ok, false);
+  assert.equal(activeFailed.reason, "query_failed");
+  assert.equal(activeFailed.row, null);
+
+  // handoff gate: lookup fail → reject (never reuse as fresh)
+  const gateFail = evaluateReadyCardHandoffMemoryGate(failed, 0);
+  assert.equal(gateFail.reuse_handoff, false);
+  assert.equal(gateFail.reject_reason, "handoff_memory_lookup_failed");
+
+  // handoff gate: miss (empty) → may reuse
+  const gateMiss = evaluateReadyCardHandoffMemoryGate(empty, 0);
+  assert.equal(gateMiss.reuse_handoff, true);
+  assert.equal(gateMiss.reject_reason, null);
+
+  // handoff gate: stale token
+  const gateStale = evaluateReadyCardHandoffMemoryGate(hit, 0);
+  assert.equal(gateStale.reuse_handoff, false);
+  assert.equal(gateStale.reject_reason, "handoff_memory_stale");
+
+  // handoff gate: fresh token matching db
+  const gateFresh = evaluateReadyCardHandoffMemoryGate(hit, 1);
+  assert.equal(gateFresh.reuse_handoff, true);
+  assert.equal(gateFresh.reject_reason, null);
+}
+ok("G_lookup_hit_miss_query_failed_handoff_gate");
 
 assert.equal(PROVIDER_CALLS, 0, "PROVIDER_CALLS must stay 0");
 console.log(`PROVIDER_CALLS=${PROVIDER_CALLS}`);
