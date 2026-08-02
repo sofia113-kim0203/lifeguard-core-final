@@ -201,6 +201,20 @@ function createMemoryCommitStore(initialRows = []) {
         }
         return { data: matched[0] ? { ...matched[0] } : null, error: null };
       },
+      then(resolve, reject) {
+        const matched = queryRows(
+          state.table,
+          state.filters,
+          state.neqFilters,
+          state.orderCol,
+          state.orderAsc,
+          state.limitN,
+        );
+        return Promise.resolve({
+          data: matched.map((row) => ({ ...row })),
+          error: null,
+        }).then(resolve, reject);
+      },
     };
 
     return chain;

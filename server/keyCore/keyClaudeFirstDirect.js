@@ -233,12 +233,16 @@ import {
   buildDocumentMemoryPersistFailedPayload,
   buildKeyLatestDocumentContext,
   KEY_DOCUMENT_MEMORY_PERSIST_FAILED,
-  loadActiveKeyDocumentMemoryCommit,
   loadLatestCommittedKeyDocumentMemory,
   loadLatestCommittedMemoryVersion,
   persistOfficialDocumentMemoryWithRetry,
+  resolveOfficialDocumentMemoryForTurn,
 } from "./keyDocumentMemoryCommit.js";
-  import {
+import {
+  buildKeyRelevantMemoryPacket,
+  shouldHardStopOnMemoryQueryFailed,
+} from "./keyRelevantMemoryPacket.js";
+import {
   buildKeyRecordSidecarHint,
   isProgressOnlyCustomerAnswer,
   KEY_RECORD_SIDECAR_END,
@@ -2977,15 +2981,25 @@ unknown이면 이번 턴에 실제 제공된 원본만 확인했다는 범위를
 과거 KEY 답변의 계약 숫자와 목록을 현재 사실로 재사용하지 않는다.
 따뜻하고 자연스러운 존댓말로 말한다.
 딱딱한 감사 보고서, 내부 판정문이나 기계적인 상담원처럼 말하지 않는다.
-단순한 질문은 명확하게 답하고,
-분석·설계·판단이 필요한 질문은
-고객이 결정할 수 있을 만큼 충분한 깊이로 답한다.
+단순한 한 가지 확인은 결론부터 간결하게 답한다.
+이유·비교·보장 분석·청구 판단이 필요하면 근거와 주의점을 충분히 설명한다.
+고객이 자세히 요청하면 상세히 설명한다.
+손해나 오해 가능성이 크면 필요한 설명을 생략하지 않는다.
+표는 실제 비교가 더 명확할 때만 사용한다.
+모든 답변을 표로 만들지 말고, 같은 내용을 문장과 표로 중복하지 않는다.
+답변을 중간에 끊거나 미완성 문장으로 끝내지 않는다.
 사실만 길게 나열하지 말고 핵심 판단과 이유를 함께 제공한다.
 확인된 사실은 자신 있게 말한다.
 불확실성은 결론의 범위를 표시하는 데만 사용한다.
 보험과 무관한 질문에도 먼저 그 질문 자체에 충실하게 답한다.
 전문 용어는 쉽게 풀어 설명한다.
 </conversation_and_voice>
+<key_relevant_memory>
+key_relevant_memory_packet이 있으면 이번 질문의 공식 KEY 기억 묶음이다.
+전체 장부·전체 차트·전체 Ready 본문·이전 원본을 가정하지 말고,
+이 묶음과 이번 턴에 실제로 제공된 원본·검증 증거만 사용한다.
+대상 계약이 후보 목록만 있으면 한 번의 답변 안에서 자연스럽게 확인한다.
+</key_relevant_memory>
 <completion_and_boundaries>
 네가 작성한 답변이 고객이 듣는 최종 KEY 답변이다.
 “확인해볼게요”, “찾아볼게요”, “분석해드릴게요” 같은
@@ -3633,7 +3647,15 @@ export function buildUserPayload({
   deterministicDocumentTotals = null,
   /** Same-session KEY official document memory (committed active only). */
   keyLatestDocumentContext = null,
+  /** STAGE 5A — focused KEY durable memory packet (preferred over full chart dump). */
+  keyRelevantMemoryPacket = null,
 } = {}) {
+  const focusedPacket =
+    keyRelevantMemoryPacket &&
+    typeof keyRelevantMemoryPacket === "object" &&
+    keyRelevantMemoryPacket.use_focused_delivery === true
+      ? keyRelevantMemoryPacket
+      : null;
   const clock = buildRequestClock(now ?? new Date(), REQUEST_TIMEZONE);
   const documents = buildDocumentsEvidence(pdfMeta);
   const public_evidence = Array.isArray(publicEvidence) ? publicEvidence : [];
@@ -3656,14 +3678,33 @@ export function buildUserPayload({
           subject_scope: "personal_or_unscoped",
         }
       : null;
-  const softLifeThreads = formatLifeThreadsForReadyCard(
-    Array.isArray(priorConsultation?.life_threads)
-      ? priorConsultation.life_threads
-      : [],
-    { limit: 6 },
-  );
-  const softPrior =
-    priorConsultation && typeof priorConsultation === "object"
+  const softLifeThreads = focusedPacket
+    ? []
+    : formatLifeThreadsForReadyCard(
+        Array.isArray(priorConsultation?.life_threads)
+          ? priorConsultation.life_threads
+          : [],
+        { limit: 6 },
+      );
+  const softPrior = focusedPacket
+    ? {
+        related_turns: Array.isArray(focusedPacket.packet?.recent_dialogue)
+          ? focusedPacket.packet.recent_dialogue.map((t) => ({
+              ...t,
+              source_kind:
+                t?.role === "assistant"
+                  ? "PRIOR_ASSISTANT_CONVERSATION"
+                  : "USER_STATED_CONTEXT",
+              fact_authority: "not_verified_fact",
+            }))
+          : [],
+        open_goals: [],
+        open_tasks: [],
+        life_threads: [],
+        subject_scope: "personal_only",
+        note: "Minimal recent dialogue from KEY memory packet only",
+      }
+    : priorConsultation && typeof priorConsultation === "object"
       ? {
           related_turns: Array.isArray(priorConsultation.related_turns)
             ? priorConsultation.related_turns.slice(0, 12).map((t) => {
@@ -3697,10 +3738,14 @@ export function buildUserPayload({
             },
         }
       : null;
-  const softClock = softInsuranceClockContext(insuranceClockBrief);
-  const softClaimEvidence = softClaimEvidenceContext(claimEvidenceBrief);
-  const softLifeLedger = softLifeLedgerContext(lifeLedgerBrief);
-  const softPaymentTruth = softPaymentTruthContext(paymentTruthBrief);
+  const softClock = focusedPacket ? null : softInsuranceClockContext(insuranceClockBrief);
+  const softClaimEvidence = focusedPacket
+    ? null
+    : softClaimEvidenceContext(claimEvidenceBrief);
+  const softLifeLedger = focusedPacket ? null : softLifeLedgerContext(lifeLedgerBrief);
+  const softPaymentTruth = focusedPacket
+    ? null
+    : softPaymentTruthContext(paymentTruthBrief);
 
   // Image original + verified chart/KEY materials travel together.
   // Do not null chart merely because an image is attached (GO 1-1).
@@ -3733,23 +3778,32 @@ export function buildUserPayload({
       note: "no_corporate_scoped_session_goal",
     },
   };
-  const keyConfirmed = Array.isArray(chart?.key_confirmed_source_facts)
-    ? chart.key_confirmed_source_facts
-    : [];
-  const active_claim_cases = Array.isArray(activeClaimCases)
-    ? activeClaimCases
-    : [];
+  const keyConfirmed = focusedPacket
+    ? Array.isArray(focusedPacket.packet?.confirmed_facts)
+      ? focusedPacket.packet.confirmed_facts
+      : []
+    : Array.isArray(chart?.key_confirmed_source_facts)
+      ? chart.key_confirmed_source_facts
+      : [];
+  const active_claim_cases = focusedPacket
+    ? []
+    : Array.isArray(activeClaimCases)
+      ? activeClaimCases
+      : [];
 
   // Compat mirrors for tests / older readers.
   // Claude projection collapses exact alias duplicates and replaces malformed long keys —
   // source `chart` argument is never mutated.
-  const personalChart = chart
-    ? buildClaudeVerifiedChartProjection({
-        ...chart,
-        subject: "personal",
-        subject_type: "individual",
-      })
-    : null;
+  // STAGE 5A focused delivery: never dump full review/ledger/chart — packet chart only.
+  const personalChart = focusedPacket
+    ? focusedPacket.focused_chart || focusedPacket.packet?.focused_chart || null
+    : chart
+      ? buildClaudeVerifiedChartProjection({
+          ...chart,
+          subject: "personal",
+          subject_type: "individual",
+        })
+      : null;
 
   // Personal document listing only — corporate docs live under available_verified_evidence.corporate[].documents.
   const personalDocuments = (Array.isArray(documents) ? documents : []).filter(
@@ -3790,15 +3844,24 @@ export function buildUserPayload({
       ...(softDocSubject ? softDocSubject : {}),
       ...(softSignupOnboarding ? softSignupOnboarding : {}),
       ...(ready_card ? { ready_card } : {}),
-      ...(policyTruthContext && typeof policyTruthContext === "object"
-        ? { policy_truth: policyTruthContext }
-        : {}),
-      ...(deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
-        ? { deterministic_document_totals: deterministicDocumentTotals }
-        : {}),
-      ...(keyLatestDocumentContext && typeof keyLatestDocumentContext === "object"
-        ? { key_latest_document_context: keyLatestDocumentContext }
-        : {}),
+      ...(focusedPacket
+        ? {}
+        : policyTruthContext && typeof policyTruthContext === "object"
+          ? { policy_truth: policyTruthContext }
+          : {}),
+      ...(focusedPacket
+        ? {}
+        : deterministicDocumentTotals && typeof deterministicDocumentTotals === "object"
+          ? { deterministic_document_totals: deterministicDocumentTotals }
+          : {}),
+      ...(focusedPacket
+        ? {
+            key_relevant_memory_packet: focusedPacket.packet,
+            key_relevant_memory_packet_trace: focusedPacket.trace,
+          }
+        : keyLatestDocumentContext && typeof keyLatestDocumentContext === "object"
+          ? { key_latest_document_context: keyLatestDocumentContext }
+          : {}),
     },
     available_verified_evidence: {
       personal: {
@@ -3810,17 +3873,22 @@ export function buildUserPayload({
         active_claim_cases,
         provenance: personalChart
           ? {
-              source: "factory",
+              source: focusedPacket ? "key_relevant_memory_packet" : "factory",
               schema: personalChart.schema ?? "verified_customer_chart_v1",
               key_confirmed_count: keyConfirmed.length,
               active_claim_case_count: active_claim_cases.length,
             }
           : null,
-        evidence_state: chartEvidenceState(personalChart),
+        evidence_state: focusedPacket
+          ? {
+              status: "focused_packet",
+              note: "Full ledger/chart excluded; KEY selected memory only",
+            }
+          : chartEvidenceState(personalChart),
       },
-      corporate,
-      documents: personalDocuments,
-      public_evidence,
+      corporate: focusedPacket ? [] : corporate,
+      documents: focusedPacket ? personalDocuments : personalDocuments,
+      public_evidence: focusedPacket ? [] : public_evidence,
     },
   };
 }
@@ -4756,6 +4824,8 @@ async function callClaudeFirstDirect({
   attachmentIdentityPlan = null,
   /** Same-session KEY official document memory (committed+active only). */
   keyLatestDocumentContext = null,
+  /** STAGE 5A focused KEY memory packet. */
+  keyRelevantMemoryPacket = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -4923,6 +4993,12 @@ async function callClaudeFirstDirect({
         ? null
         : keyLatestDocumentContext && typeof keyLatestDocumentContext === "object"
           ? keyLatestDocumentContext
+          : null,
+    keyRelevantMemoryPacket:
+      presenceTurn === true
+        ? null
+        : keyRelevantMemoryPacket && typeof keyRelevantMemoryPacket === "object"
+          ? keyRelevantMemoryPacket
           : null,
   });
   const scopedPayload = scopeOnly
@@ -7172,8 +7248,9 @@ export async function runClaudeFirstDirectQuestionTurn({
       Boolean(pdf?.pdfBase64);
   }
 
-  // T1 same-session: inject committed+active official document memory (no original re-attach).
+  // STAGE 5A — official document memory recall + focused KEY→Claude packet (no original re-attach).
   let keyLatestDocumentContextForClaude = null;
+  let keyRelevantMemoryPacketForClaude = null;
   /** hit | miss | query_failed | skipped — never hide query_failed as silent null */
   let keyLatestDocumentMemoryLoad = {
     status: "skipped",
@@ -7181,45 +7258,52 @@ export async function runClaudeFirstDirectQuestionTurn({
     error: null,
     memory_commit_id: null,
     memory_version: null,
+    cross_session_recall: false,
   };
+  let memoryRowForPacket = null;
+  let memoryCrossSession = false;
   if (
     !isPresenceTurn &&
     userSupabase &&
     customerId &&
-    sessionId &&
     originalDeliveryIds.length === 0
   ) {
     try {
-      const activeMem = await loadActiveKeyDocumentMemoryCommit({
+      const resolvedMem = await resolveOfficialDocumentMemoryForTurn({
         supabase: userSupabase,
         customerId,
         sessionId,
       });
-      if (!activeMem.ok) {
+      if (!resolvedMem.ok) {
         keyLatestDocumentMemoryLoad = {
           status: "query_failed",
-          reason: activeMem.reason ?? "query_failed",
-          error: activeMem.error ? String(activeMem.error).slice(0, 200) : null,
+          reason: resolvedMem.reason ?? "query_failed",
+          error: resolvedMem.error ? String(resolvedMem.error).slice(0, 200) : null,
           memory_commit_id: null,
           memory_version: null,
+          cross_session_recall: resolvedMem.cross_session_recall === true,
         };
         console.error("[key_document_memory_active_load]", keyLatestDocumentMemoryLoad);
-      } else if (!activeMem.row) {
+      } else if (!resolvedMem.row) {
         keyLatestDocumentMemoryLoad = {
-          status: "miss",
-          reason: "miss",
+          status: resolvedMem.reason === "ownership_mismatch" ? "miss" : "miss",
+          reason: resolvedMem.reason ?? "miss",
           error: null,
           memory_commit_id: null,
           memory_version: null,
+          cross_session_recall: false,
         };
       } else {
-        keyLatestDocumentContextForClaude = buildKeyLatestDocumentContext(activeMem.row);
+        memoryRowForPacket = resolvedMem.row;
+        memoryCrossSession = resolvedMem.cross_session_recall === true;
+        keyLatestDocumentContextForClaude = buildKeyLatestDocumentContext(resolvedMem.row);
         keyLatestDocumentMemoryLoad = {
           status: "hit",
           reason: "hit",
           error: null,
           memory_commit_id: keyLatestDocumentContextForClaude?.memory_commit_id ?? null,
           memory_version: keyLatestDocumentContextForClaude?.memory_version ?? null,
+          cross_session_recall: memoryCrossSession,
         };
         if (
           keyLatestDocumentContextForClaude &&
@@ -7241,10 +7325,27 @@ export async function runClaudeFirstDirectQuestionTurn({
               "[key_document_memory_last_confirmed_load]",
               keyLatestDocumentMemoryLoad.last_confirmed_load,
             );
+            if (
+              shouldHardStopOnMemoryQueryFailed({
+                originalAttachmentCount: originalDeliveryIds.length,
+                memoryLoad: { status: "query_failed" },
+                readyCardMeta,
+                chart: buildVerifiedCustomerChart(reality),
+              })
+            ) {
+              keyLatestDocumentMemoryLoad.status = "query_failed";
+              keyLatestDocumentMemoryLoad.reason =
+                lastConfirmed.reason ?? "query_failed";
+              keyLatestDocumentMemoryLoad.error =
+                lastConfirmed.error
+                  ? String(lastConfirmed.error).slice(0, 200)
+                  : null;
+            }
           } else if (
             lastConfirmed.row &&
             String(lastConfirmed.row.read_status ?? "") === "confirmed_facts" &&
-            String(lastConfirmed.row.session_id ?? "") === String(sessionId)
+            (String(lastConfirmed.row.session_id ?? "") === String(sessionId) ||
+              memoryCrossSession)
           ) {
             keyLatestDocumentContextForClaude = {
               ...keyLatestDocumentContextForClaude,
@@ -7254,9 +7355,14 @@ export async function runClaudeFirstDirectQuestionTurn({
                 memory_version: keyLatestDocumentContextForClaude.memory_version,
                 document_ids: keyLatestDocumentContextForClaude.document_ids,
               },
-              last_confirmed_document_facts: buildKeyLatestDocumentContext(lastConfirmed.row),
+              last_confirmed_document_facts: buildKeyLatestDocumentContext(
+                lastConfirmed.row,
+              ),
             };
-            keyLatestDocumentMemoryLoad.last_confirmed_load = { status: "hit", reason: "hit" };
+            keyLatestDocumentMemoryLoad.last_confirmed_load = {
+              status: "hit",
+              reason: "hit",
+            };
           } else {
             keyLatestDocumentMemoryLoad.last_confirmed_load = {
               status: "miss",
@@ -7267,21 +7373,120 @@ export async function runClaudeFirstDirectQuestionTurn({
       }
     } catch (err) {
       keyLatestDocumentContextForClaude = null;
+      memoryRowForPacket = null;
       keyLatestDocumentMemoryLoad = {
         status: "query_failed",
         reason: "exception",
         error: String(err?.message ?? err).slice(0, 200),
         memory_commit_id: null,
         memory_version: null,
+        cross_session_recall: false,
       };
       console.error("[key_document_memory_active_load]", keyLatestDocumentMemoryLoad);
+    }
+  }
+
+  const chartForMemoryGate = isPresenceTurn
+    ? null
+    : buildVerifiedCustomerChart(reality);
+  if (
+    shouldHardStopOnMemoryQueryFailed({
+      originalAttachmentCount: originalDeliveryIds.length,
+      memoryLoad: keyLatestDocumentMemoryLoad,
+      readyCardMeta,
+      chart: chartForMemoryGate,
+    })
+  ) {
+    console.error("[key_document_memory_query_failed_hard_stop]", {
+      reason: keyLatestDocumentMemoryLoad.reason,
+      error: keyLatestDocumentMemoryLoad.error,
+      customer_id: customerId ? String(customerId).slice(0, 8) : null,
+    });
+    return {
+      ok: false,
+      answerText: null,
+      customerText: null,
+      keySpeakOriginal: null,
+      visualBlocks: [],
+      key_monopoly_failure: false,
+      failure_reason: "key_document_memory_query_failed",
+      memory_query_failed: true,
+      key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+      provider_calls: 0,
+      response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
+      compose_mode: "key_claude_first_direct",
+      agentTurn: null,
+      modeDecision: null,
+      loadedContext,
+      contextSnapshot,
+      unifiedState,
+      customerContextBundle,
+      salesDirectorTrace: {
+        one_key_core: true,
+        compose_mode: "key_claude_first_direct",
+        key_compose_trace: {
+          compose_mode: "key_claude_first_direct",
+          key_voice_trace: {
+            provider: "claude_first_direct",
+            memory_query_failed: true,
+            key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+            provider_calls: 0,
+            original_attachment_count: 0,
+          },
+        },
+      },
+      oneKeyCoreTrace: {
+        schema_version: "one-key-core-trace-claude-first-v1",
+        steps: [
+          {
+            step: "key_document_memory_query_failed",
+            at_ms: relMs(startedAt),
+            payload: {
+              reason: keyLatestDocumentMemoryLoad.reason,
+              error: keyLatestDocumentMemoryLoad.error,
+              provider_calls: 0,
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  // Focused packet for document follow-ups (memory hit, or miss with document signals).
+  if (
+    !isPresenceTurn &&
+    originalDeliveryIds.length === 0 &&
+    (keyLatestDocumentMemoryLoad.status === "hit" ||
+      (keyLatestDocumentMemoryLoad.status === "miss" &&
+        (Number(readyCardMeta?.document_status?.active_count) > 0 ||
+          readyCardMeta?.materials_connected === true ||
+          (Array.isArray(chartForMemoryGate?.confirmed_contracts) &&
+            chartForMemoryGate.confirmed_contracts.length > 0) ||
+          (Array.isArray(chartForMemoryGate?.verified_document_coverages) &&
+            chartForMemoryGate.verified_document_coverages.length > 0))))
+  ) {
+    keyRelevantMemoryPacketForClaude = buildKeyRelevantMemoryPacket({
+      question,
+      history,
+      memoryRow: memoryRowForPacket,
+      memoryLoad: keyLatestDocumentMemoryLoad,
+      chart: chartForMemoryGate,
+      keyConfirmedSourceFacts: chartForMemoryGate?.key_confirmed_source_facts ?? null,
+      originalAttachmentCount: 0,
+      crossSessionRecall: memoryCrossSession,
+    });
+    if (keyRelevantMemoryPacketForClaude?.trace) {
+      console.info(
+        "[key_relevant_memory_packet]",
+        JSON.stringify(keyRelevantMemoryPacketForClaude.trace),
+      );
     }
   }
 
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
     history: isPresenceTurn ? [] : history,
-    // Keep related verified policies/chart; vault originals still gated upstream.
+    // Focused packet path still passes reality for server-side chart build; payload strips bulk.
     reality: isPresenceTurn ? { policies: [], policy_count: 0 } : reality,
     env,
     fetchImpl,
@@ -7357,7 +7562,10 @@ export async function runClaudeFirstDirectQuestionTurn({
       : verifiedCoverageAuthorityAddendum,
     deterministicDocumentTotals,
     attachAnalysisScopeOnly: requestScopeOnly === true,
-    keyLatestDocumentContext: keyLatestDocumentContextForClaude,
+    keyLatestDocumentContext: keyRelevantMemoryPacketForClaude
+      ? null
+      : keyLatestDocumentContextForClaude,
+    keyRelevantMemoryPacket: keyRelevantMemoryPacketForClaude,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -8080,6 +8288,8 @@ export async function runClaudeFirstDirectQuestionTurn({
               ready_card_source: readyCardSource,
               token_reject_reason: tokenRejectReason,
               key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+              key_relevant_memory_packet:
+                keyRelevantMemoryPacketForClaude?.trace ?? null,
               key_latest_document_context_injected:
                 keyLatestDocumentContextForClaude != null,
               qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
@@ -9022,6 +9232,8 @@ export async function runClaudeFirstDirectQuestionTurn({
           ready_card_source: readyCardSource,
           token_reject_reason: tokenRejectReason,
           key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+          key_relevant_memory_packet:
+            keyRelevantMemoryPacketForClaude?.trace ?? null,
           key_latest_document_context_injected:
             keyLatestDocumentContextForClaude != null,
           source_link: sourceLink,
@@ -9159,6 +9371,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             token_validation_ms: tokenValidationMs,
             token_reject_reason: tokenRejectReason,
             key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
+            key_relevant_memory_packet:
+              keyRelevantMemoryPacketForClaude?.trace ?? null,
             key_latest_document_context_injected:
               keyLatestDocumentContextForClaude != null,
             ready_card_materials_connected: readyCard?.materials_connected === true,

@@ -422,6 +422,139 @@ export async function loadActiveKeyDocumentMemoryCommit({
   return { ok: true, row: data ?? null, reason: data ? "hit" : "miss" };
 }
 
+/**
+ * Customer-wide committed+active rows (excludes superseded/closed/failed).
+ * Ownership: customer_id filter only — caller must pass the authenticated customer id.
+ */
+export async function loadActiveKeyDocumentMemoryCommitsForCustomer({
+  supabase = null,
+  customerId = null,
+  limit = 12,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  if (!supabase || !cid) {
+    return { ok: false, rows: [], reason: "missing_scope" };
+  }
+  const { data, error } = await supabase
+    .from("key_document_memory_commits")
+    .select("*")
+    .eq("customer_id", cid)
+    .eq("commit_status", "committed")
+    .eq("focus_status", "active")
+    .order("memory_version", { ascending: false })
+    .limit(Math.max(1, Number(limit) || 12));
+  if (error) {
+    return {
+      ok: false,
+      rows: [],
+      reason: "query_failed",
+      error: error.message,
+    };
+  }
+  const rows = Array.isArray(data) ? data : [];
+  return { ok: true, rows, reason: rows.length ? "hit" : "miss" };
+}
+
+/**
+ * Official memory recall order:
+ * 1) current session committed+active
+ * 2) else same customer's latest committed+active (cross-session)
+ * Never returns superseded/closed/failed. Ownership mismatch → unused.
+ */
+export async function resolveOfficialDocumentMemoryForTurn({
+  supabase = null,
+  customerId = null,
+  sessionId = null,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  const sid = String(sessionId ?? "").trim();
+  if (!supabase || !cid) {
+    return {
+      ok: false,
+      row: null,
+      reason: "missing_scope",
+      cross_session_recall: false,
+      error: null,
+    };
+  }
+
+  if (sid) {
+    const sessionLoad = await loadActiveKeyDocumentMemoryCommit({
+      supabase,
+      customerId: cid,
+      sessionId: sid,
+    });
+    if (!sessionLoad.ok) {
+      return {
+        ok: false,
+        row: null,
+        reason: sessionLoad.reason ?? "query_failed",
+        cross_session_recall: false,
+        error: sessionLoad.error ?? null,
+      };
+    }
+    if (sessionLoad.row) {
+      if (String(sessionLoad.row.customer_id ?? "") !== cid) {
+        return {
+          ok: true,
+          row: null,
+          reason: "ownership_mismatch",
+          cross_session_recall: false,
+          error: null,
+        };
+      }
+      return {
+        ok: true,
+        row: sessionLoad.row,
+        reason: "hit",
+        cross_session_recall: false,
+        error: null,
+      };
+    }
+  }
+
+  const customerLoad = await loadActiveKeyDocumentMemoryCommitsForCustomer({
+    supabase,
+    customerId: cid,
+    limit: 12,
+  });
+  if (!customerLoad.ok) {
+    return {
+      ok: false,
+      row: null,
+      reason: customerLoad.reason ?? "query_failed",
+      cross_session_recall: true,
+      error: customerLoad.error ?? null,
+    };
+  }
+  const owned = (customerLoad.rows || []).filter(
+    (row) => String(row?.customer_id ?? "") === cid,
+  );
+  if (!owned.length) {
+    return {
+      ok: true,
+      row: null,
+      reason: "miss",
+      cross_session_recall: false,
+      error: null,
+    };
+  }
+  // Prefer row whose session matches when present; else highest version among owned actives.
+  // Contract focus selection happens later in buildKeyRelevantMemoryPacket — not version-alone
+  // picking of a different contract. Here we only choose which memory commit row to load.
+  const sameSession = sid
+    ? owned.find((row) => String(row.session_id ?? "") === sid)
+    : null;
+  const row = sameSession || owned[0];
+  return {
+    ok: true,
+    row,
+    reason: "hit",
+    cross_session_recall: !sameSession && String(row.session_id ?? "") !== sid,
+    error: null,
+  };
+}
+
 export async function loadLatestCommittedKeyDocumentMemory({
   supabase = null,
   customerId = null,
