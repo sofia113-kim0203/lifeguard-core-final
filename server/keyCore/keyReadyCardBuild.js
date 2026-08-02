@@ -287,11 +287,30 @@ function collectUnknowns({
   goalReason,
   priorReason,
   corporateUnknowns,
+  loaderFailures = null,
 } = {}) {
   const unknowns = [];
+  const fails =
+    loaderFailures && typeof loaderFailures === "object" ? loaderFailures : {};
   if (!profileBrief?.has_profile) unknowns.push("profile_not_linked");
   if (!(Number(policyCount) > 0)) unknowns.push("no_verified_policies");
-  if (!(Number(documentCount) > 0)) unknowns.push("no_active_documents");
+  // ROOT_06: query failure ≠ empty success.
+  if (fails.active_documents === true) {
+    unknowns.push("active_documents_lookup_unavailable");
+  } else if (!(Number(documentCount) > 0)) {
+    unknowns.push("no_active_documents");
+  }
+  if (fails.claim_cases === true) unknowns.push("claim_cases_lookup_unavailable");
+  if (fails.claim_evidence === true) {
+    unknowns.push("claim_evidence_lookup_unavailable");
+  }
+  if (fails.insurance_clock === true) {
+    unknowns.push("insurance_clock_lookup_unavailable");
+  }
+  if (fails.policy_date_facts === true) {
+    unknowns.push("policy_date_facts_lookup_unavailable");
+  }
+  if (fails.life_ledger === true) unknowns.push("life_ledger_lookup_unavailable");
   if (goalReason === "missing_scope" || goalReason === "query_failed") {
     unknowns.push("goal_lookup_unavailable");
   }
@@ -306,6 +325,33 @@ function collectUnknowns({
     if (label) unknowns.push(String(label).slice(0, 120));
   }
   return [...new Set(unknowns)].slice(0, 24);
+}
+
+/** Array loader result that preserves query_failed vs empty success (ROOT_06). */
+function catchArrayLoader(label) {
+  return (err) => ({
+    __ready_loader_failed: true,
+    label,
+    items: [],
+    error: String(err?.message ?? err).slice(0, 160),
+  });
+}
+
+function unwrapArrayLoader(result) {
+  if (result && typeof result === "object" && result.__ready_loader_failed === true) {
+    return {
+      items: [],
+      query_failed: true,
+      label: result.label ?? null,
+      error: result.error ?? null,
+    };
+  }
+  return {
+    items: Array.isArray(result) ? result : [],
+    query_failed: false,
+    label: null,
+    error: null,
+  };
 }
 
 /**
@@ -457,24 +503,57 @@ export async function buildKeyReadyCard({
           authorization_denied: false,
         }),
     typeof loadKeyActiveClaimCases === "function"
-      ? loadKeyActiveClaimCases({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      ? loadKeyActiveClaimCases({ supabase: userSupabase, customerId: cid }).catch(
+          catchArrayLoader("claim_cases"),
+        )
       : Promise.resolve([]),
     typeof loadActiveCustomerDocuments === "function"
-      ? loadActiveCustomerDocuments({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      ? loadActiveCustomerDocuments({ supabase: userSupabase, customerId: cid }).catch(
+          catchArrayLoader("active_documents"),
+        )
       : Promise.resolve([]),
     typeof loadInsuranceClockItemsImpl === "function"
-      ? loadInsuranceClockItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      ? loadInsuranceClockItemsImpl({ supabase: userSupabase, customerId: cid }).catch(
+          catchArrayLoader("insurance_clock"),
+        )
       : Promise.resolve([]),
     typeof loadPolicyDateFactsImpl === "function"
-      ? loadPolicyDateFactsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      ? loadPolicyDateFactsImpl({ supabase: userSupabase, customerId: cid }).catch(
+          catchArrayLoader("policy_date_facts"),
+        )
       : Promise.resolve([]),
     typeof loadClaimEvidenceItemsImpl === "function"
-      ? loadClaimEvidenceItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      ? loadClaimEvidenceItemsImpl({ supabase: userSupabase, customerId: cid }).catch(
+          catchArrayLoader("claim_evidence"),
+        )
       : Promise.resolve([]),
     typeof loadLifeLedgerItemsImpl === "function"
-      ? loadLifeLedgerItemsImpl({ supabase: userSupabase, customerId: cid }).catch(() => [])
+      ? loadLifeLedgerItemsImpl({ supabase: userSupabase, customerId: cid }).catch(
+          catchArrayLoader("life_ledger"),
+        )
       : Promise.resolve([]),
   ]);
+
+  const claimCasesU = unwrapArrayLoader(claimCases);
+  const activeDocumentsU = unwrapArrayLoader(activeDocuments);
+  const storedClocksU = unwrapArrayLoader(storedClocks);
+  const policyDateFactsU = unwrapArrayLoader(policyDateFacts);
+  const claimEvidenceItemsU = unwrapArrayLoader(claimEvidenceItems);
+  const lifeLedgerItemsU = unwrapArrayLoader(lifeLedgerItems);
+  const claimCasesRows = claimCasesU.items;
+  const activeDocumentsRows = activeDocumentsU.items;
+  const storedClocksRows = storedClocksU.items;
+  const policyDateFactsRows = policyDateFactsU.items;
+  const claimEvidenceItemsRows = claimEvidenceItemsU.items;
+  const lifeLedgerItemsRows = lifeLedgerItemsU.items;
+  const loaderFailures = {
+    claim_cases: claimCasesU.query_failed === true,
+    active_documents: activeDocumentsU.query_failed === true,
+    insurance_clock: storedClocksU.query_failed === true,
+    policy_date_facts: policyDateFactsU.query_failed === true,
+    claim_evidence: claimEvidenceItemsU.query_failed === true,
+    life_ledger: lifeLedgerItemsU.query_failed === true,
+  };
 
   let goal = sessionGoalLoaded?.goal ?? null;
   let goalReason = sessionGoalLoaded?.reason ?? "none";
@@ -497,8 +576,8 @@ export async function buildKeyReadyCard({
   });
   const policies = briefPolicies(policyExtract.policies);
   const policy_count = Number(policyExtract.policy_count) || policies.length;
-  const docs = briefDocuments(activeDocuments);
-  const claims_brief = briefClaims(claimCases);
+  const docs = briefDocuments(activeDocumentsRows);
+  const claims_brief = briefClaims(claimCasesRows);
   const prior = priorLoaded?.prior && typeof priorLoaded.prior === "object" ? priorLoaded.prior : null;
   const corporate_contexts = Array.isArray(corporateLoaded?.corporate_contexts)
     ? corporateLoaded.corporate_contexts
@@ -514,14 +593,15 @@ export async function buildKeyReadyCard({
     goalReason,
     priorReason: priorLoaded?.reason,
     corporateUnknowns: corporate_unknowns,
+    loaderFailures,
   });
 
   // Insurance Clock Slice 1 — KEY-owned deadlines (stored + projected consent/policy dates).
   const clockItems = assembleInsuranceClockItemsForHand({
-    storedClocks,
+    storedClocks: storedClocksRows,
     corporateContexts: corporate_contexts,
     policies,
-    policyDateFacts,
+    policyDateFacts: policyDateFactsRows,
     customerId: cid,
     entityId: corporateLoaded?.selected_entity_id ?? selectedEntityId ?? null,
     mode: "both",
@@ -529,17 +609,24 @@ export async function buildKeyReadyCard({
   const insurance_clock = {
     ...buildInsuranceClockHandBrief(clockItems),
     _items: clockItems,
+    ...(loaderFailures.insurance_clock
+      ? { lookup_status: "query_failed" }
+      : {}),
   };
   const claim_evidence = {
     ...buildClaimEvidenceHandBrief({
-      cases: claimCases,
-      evidenceItems: claimEvidenceItems,
+      cases: claimCasesRows,
+      evidenceItems: claimEvidenceItemsRows,
     }),
-    _items: Array.isArray(claimEvidenceItems) ? claimEvidenceItems : [],
+    _items: claimEvidenceItemsRows,
+    ...(loaderFailures.claim_evidence
+      ? { lookup_status: "query_failed" }
+      : {}),
   };
   const life_ledger = {
-    ...buildLifeLedgerHandBrief(lifeLedgerItems),
-    _items: Array.isArray(lifeLedgerItems) ? lifeLedgerItems : [],
+    ...buildLifeLedgerHandBrief(lifeLedgerItemsRows),
+    _items: lifeLedgerItemsRows,
+    ...(loaderFailures.life_ledger ? { lookup_status: "query_failed" } : {}),
   };
 
   // Connected when any verified/soft SSOT material is present for this customer.
@@ -577,7 +664,10 @@ export async function buildKeyReadyCard({
       policies,
       claims_brief,
       // Full claim rows kept server-side for Claude-first reuse (not a client dump).
-      _active_claim_cases: Array.isArray(claimCases) ? claimCases : [],
+      _active_claim_cases: claimCasesRows,
+      ...(loaderFailures.claim_cases
+        ? { claims_lookup_status: "query_failed" }
+        : {}),
     },
     active_goal: {
       goal: goal?.goal ?? null,
@@ -609,8 +699,12 @@ export async function buildKeyReadyCard({
     document_status: {
       active_count: docs.length,
       documents: docs,
-      _active_documents: Array.isArray(activeDocuments) ? activeDocuments : [],
+      _active_documents: activeDocumentsRows,
+      ...(loaderFailures.active_documents
+        ? { lookup_status: "query_failed" }
+        : {}),
     },
+    loader_failures: loaderFailures,
     insurance_clock,
     claim_evidence,
     life_ledger,
@@ -743,6 +837,8 @@ export async function resolveReadyCardForQuestionTurn({
   backgroundRefresh = true,
   handoffToken = null,
   env = process.env,
+  /** Test/provider-free inject — defaults to live loader. */
+  loadLatestCommittedMemoryVersionImpl = loadLatestCommittedMemoryVersion,
 } = {}) {
   const resolveStarted = Date.now();
   const warmArgs = {
@@ -799,7 +895,7 @@ export async function resolveReadyCardForQuestionTurn({
       let handoffMemoryStale = false;
       let handoffMemoryLookupFailed = false;
       try {
-        const latestVer = await loadLatestCommittedMemoryVersion({
+        const latestVer = await loadLatestCommittedMemoryVersionImpl({
           supabase: userSupabase,
           customerId,
         });
@@ -862,8 +958,15 @@ export async function resolveReadyCardForQuestionTurn({
 
   const cached = readReadyCardCache(customerId, sessionId);
 
+  // Stale / lookup-failed login_handoff must force rebuild — never reuse in-process cache
+  // that may predate the new official document memory version (ROOT_02 / RACE_05).
+  const handoffMustRebuild =
+    handoffRejectReason === "handoff_memory_stale" ||
+    handoffRejectReason === "handoff_memory_lookup_failed";
+
   // Never reuse an unconnected card as hit/stale — rebuild so Claude gets real SSOT.
   const cachedReusable =
+    !handoffMustRebuild &&
     cached.card &&
     cached.card.materials_connected === true &&
     String(cached.card.customer_id ?? "").trim() === String(customerId ?? "").trim();
@@ -1047,6 +1150,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       insurer_source,
     };
   }
+  const unknowns = Array.isArray(card.unknowns) ? card.unknowns.slice(0, 12) : [];
   if (status === "stale") {
     return {
       status: "stale",
@@ -1057,6 +1161,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
       note: "READY CARD is stale. Treat verified evidence as of prepared_at / as_of. Background refresh is in progress — do not invent newer facts.",
       document_status,
       insurer_source,
+      ...(unknowns.length ? { unknowns } : {}),
     };
   }
   return {
@@ -1067,6 +1172,7 @@ export function buildReadyCardClaudeMeta(card = null, readyCardStatus = null) {
     note: "READY CARD prepared from KEY SSOT before this question.",
     document_status,
     insurer_source,
+    ...(unknowns.length ? { unknowns } : {}),
   };
 }
 
