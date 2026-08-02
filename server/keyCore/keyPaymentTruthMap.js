@@ -345,17 +345,69 @@ export function mergePaymentTruthItems(existing = [], incoming = [], { now = new
   return [...map.values()];
 }
 
+/**
+ * Load persisted Payment Truth rows for KEY recall.
+ * Distinguishes query_failed from empty miss (ROOT_05 / ROOT_06).
+ * @returns {{ ok: boolean, status: 'hit'|'miss'|'query_failed'|'missing_scope', items: object[], error?: string|null }}
+ */
 export async function loadPaymentTruthItems({ supabase = null, customerId = null } = {}) {
-  if (!supabase || !customerId) return [];
-  const { data, error } = await supabase
-    .from("profile_health")
-    .select("details_json")
-    .eq("customer_id", customerId)
-    .maybeSingle();
-  if (error || !data) return [];
-  const details =
-    data.details_json && typeof data.details_json === "object" ? data.details_json : {};
-  return normalizePaymentTruthItems(details[KEY_PAYMENT_TRUTH_FACT_PATH]);
+  if (!supabase || !customerId) {
+    return { ok: false, status: "missing_scope", items: [], error: null };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("profile_health")
+      .select("details_json")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error) {
+      return {
+        ok: false,
+        status: "query_failed",
+        items: [],
+        error: String(error.message ?? error).slice(0, 200),
+      };
+    }
+    const details =
+      data?.details_json && typeof data.details_json === "object" ? data.details_json : {};
+    const items = normalizePaymentTruthItems(details[KEY_PAYMENT_TRUTH_FACT_PATH]);
+    return {
+      ok: true,
+      status: items.length > 0 ? "hit" : "miss",
+      items,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: "query_failed",
+      items: [],
+      error: String(err?.message ?? err).slice(0, 200),
+    };
+  }
+}
+
+/** Scope a Payment Truth brief to active claim cases (structural — no keyword classifier). */
+export function scopePaymentTruthBriefToActiveClaims(brief = null, claimCases = []) {
+  if (!brief || typeof brief !== "object") return null;
+  const rows = Array.isArray(brief.rows) ? brief.rows : [];
+  if (!rows.length) return null;
+  const ids = new Set(
+    (Array.isArray(claimCases) ? claimCases : [])
+      .map((c) => String(c?.id ?? c?.claim_case_id ?? "").trim())
+      .filter(Boolean),
+  );
+  if (!ids.size) return null;
+  const scoped = rows.filter((r) => ids.has(String(r?.claim_case_id ?? "").trim()));
+  if (!scoped.length) return null;
+  return {
+    ...brief,
+    rows: scoped.slice(0, 12),
+    item_count: scoped.length,
+    note:
+      brief.note ||
+      "key_owns_payment_truth_map; soft_reference_only; scoped_to_active_claims",
+  };
 }
 
 export async function persistPaymentTruthItems({

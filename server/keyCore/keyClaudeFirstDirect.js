@@ -175,7 +175,10 @@ import {
   assemblePaymentTruthMap,
   buildPaymentTruthHandBrief,
   filterPaymentTruthByScope,
+  loadPaymentTruthItems,
+  mergePaymentTruthItems,
   persistPaymentTruthItems,
+  scopePaymentTruthBriefToActiveClaims,
   softPaymentTruthContext,
 } from "./keyPaymentTruthMap.js";
 import {
@@ -3916,8 +3919,14 @@ export function buildUserPayload({
     ? null
     : softClaimEvidenceContext(claimEvidenceBrief);
   const softLifeLedger = focusedPacket ? null : softLifeLedgerContext(lifeLedgerBrief);
+  // Focused packet: inject Payment Truth only when scoped to active claims (ROOT_05).
   const softPaymentTruth = focusedPacket
-    ? null
+    ? softPaymentTruthContext(
+        scopePaymentTruthBriefToActiveClaims(
+          paymentTruthBrief,
+          Array.isArray(activeClaimCases) ? activeClaimCases : [],
+        ),
+      )
     : softPaymentTruthContext(paymentTruthBrief);
 
   // Image original + verified chart/KEY materials travel together.
@@ -7167,12 +7176,35 @@ export async function runClaudeFirstDirectQuestionTurn({
     omitForPersonalTurn: personalClaimTurn,
   });
 
-  // Payment Truth Map Slice 1 — assemble existing claim+evidence only (no new judgment).
-  const paymentTruthItemsAssembled = assemblePaymentTruthMap({
-    cases: activeClaimCases,
-    evidenceItems: claimEvidenceItemsScoped,
-    customerId,
-  });
+  // Payment Truth — recall persisted rows + assemble current claim/evidence (ROOT_05).
+  let paymentTruthLoad = {
+    ok: false,
+    status: "missing_scope",
+    items: [],
+  };
+  if (!isPresenceTurn && userSupabase && customerId) {
+    try {
+      paymentTruthLoad = await loadPaymentTruthItems({
+        supabase: userSupabase,
+        customerId,
+      });
+    } catch (err) {
+      paymentTruthLoad = {
+        ok: false,
+        status: "query_failed",
+        items: [],
+        error: String(err?.message ?? err).slice(0, 200),
+      };
+    }
+  }
+  const paymentTruthItemsAssembled = mergePaymentTruthItems(
+    Array.isArray(paymentTruthLoad?.items) ? paymentTruthLoad.items : [],
+    assemblePaymentTruthMap({
+      cases: activeClaimCases,
+      evidenceItems: claimEvidenceItemsScoped,
+      customerId,
+    }),
+  );
   const paymentTruthBrief = buildPaymentTruthHandBrief(paymentTruthItemsAssembled);
 
   const pdfMetaForClaude = {
