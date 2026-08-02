@@ -143,7 +143,7 @@ assert.equal(meta.dropped_count, 3); // failed + excluded + sha dupe
 assert.match(String(meta.read_scope_authority), /attached_count/);
 ok("memory_evidence_manifest_counts");
 
-// --- Second brain isolation ---
+// --- Second brain isolation (ROOT_07: legacy escape hatch locked) ---
 assert.equal(shouldRunClaudeFirstHomeChatQuestion({}), true);
 assert.equal(
   shouldRunClaudeFirstHomeChatQuestion({ KEY_CLAUDE_FIRST_DIRECT: "0" }),
@@ -155,7 +155,15 @@ assert.equal(
     KEY_CLAUDE_FIRST_DIRECT: "0",
     KEY_CLAUDE_FIRST_ALLOW_LEGACY_HOMECHAT: "1",
   }),
-  false,
+  true,
+  "ALLOW_LEGACY must not reopen SalesDirector/keySpeak customer outlet",
+);
+assert.equal(
+  shouldRunClaudeFirstHomeChatQuestion({
+    KEY_CLAUDE_FIRST_DIRECT: "off",
+    KEY_CLAUDE_FIRST_ALLOW_LEGACY_HOMECHAT: "1",
+  }),
+  true,
 );
 ok("factory_isolation_homechat_claude_first_forced");
 
