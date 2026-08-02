@@ -1389,7 +1389,7 @@ ok("explicit_prior_attachment_reactivation_suite");
   }
   ok("PREFIX_HASH_STABLE_ORDINARY_QUESTION");
 
-  // TEST 4 — PREFIX_INVALIDATES_ON_VERIFIED_STATE_CHANGE
+  // TEST 4 — PREFIX_STABLE_ON_VERIFIED_STATE_CHANGE (STAGE 5D: chart is post-marker)
   {
     const r1 = buildAuditSlices({
       question: qOrdinary1,
@@ -1403,9 +1403,10 @@ ok("explicit_prior_attachment_reactivation_suite");
       now: new Date(t1),
       chartVersion: "B",
     });
-    assert.notEqual(sha256(r1.prefix_json), sha256(r2.prefix_json));
+    assert.equal(sha256(r1.prefix_json), sha256(r2.prefix_json));
+    assert.notEqual(sha256(r1.c_json), sha256(r2.c_json));
   }
-  ok("PREFIX_INVALIDATES_ON_VERIFIED_STATE_CHANGE");
+  ok("PREFIX_STABLE_ON_VERIFIED_STATE_CHANGE");
 
   // TEST 5 — DYNAMIC_SENTINEL_ABSENCE
   {
@@ -1450,7 +1451,7 @@ ok("explicit_prior_attachment_reactivation_suite");
   }
   ok("DYNAMIC_SENTINEL_ABSENCE");
 
-  // TEST 6 — CACHE_STRUCTURE_INVARIANT
+  // TEST 6 — CACHE_STRUCTURE_INVARIANT (STAGE 5D: static system marker)
   {
     const r = buildAuditSlices({
       question: qOrdinary1,
@@ -1458,12 +1459,16 @@ ok("explicit_prior_attachment_reactivation_suite");
       now: new Date(t1),
     });
     assert.equal(r.cache_marker_count, 1);
-    assert.equal(r.cache_marker_index, 0);
-    assert.equal(r.cache_strategy, "A_plus_B_via_B_marker");
+    assert.equal(r.cache_marker_index, -1);
+    assert.equal(r.cache_marker_location, "system");
+    assert.equal(r.cache_strategy, "A_static_system_marker");
     assert.equal(r.cache_breakpoints, 1);
+    const sys0 = r.parts.system[0];
+    assert.ok(sys0.cache_control);
+    assert.equal(sys0.cache_control.type, "ephemeral");
+    assert.match(String(sys0.text), /lifeguard_key_system|너는 고객이 만나는 유일한 AI 보험 주치의 KEY/);
     const first = r.parts.messages[0].content[0];
-    assert.ok(first.cache_control);
-    assert.equal(first.cache_control.type, "ephemeral");
+    assert.equal(Object.prototype.hasOwnProperty.call(first, "cache_control"), false);
     assert.match(String(first.text), /available_verified_evidence/);
     // Block B must be compact JSON (not pretty-printed).
     const bParsed = JSON.parse(first.text);
@@ -1471,6 +1476,7 @@ ok("explicit_prior_attachment_reactivation_suite");
     assert.match(r.systemText, /lifeguard_key_system|너는 고객이 만나는 유일한 AI 보험 주치의 KEY/);
     assert.ok(r.c_json.includes("current_question") || r.c_json.includes(qOrdinary1));
     assert.match(r.c_json, /CURRENT_CUSTOMER_REQUEST/);
+    assert.equal(r.prefix_json.includes("available_verified_evidence"), false);
   }
   ok("CACHE_STRUCTURE_INVARIANT");
 }
@@ -1749,7 +1755,12 @@ ok("claude_prompt_cache_prefix_stability_suite");
     assert.ok(cBlock?.type === "text");
     assert.equal(Object.prototype.hasOwnProperty.call(cBlock, "cache_control"), false);
     assert.notEqual(cBlock.text, JSON.stringify(JSON.parse(cBlock.text)));
-    assert.equal(parts.messages[0].content[0].cache_control?.type, "ephemeral");
+    // STAGE 5D: cache_control lives on static system, not Block B.
+    assert.equal(parts.system[0].cache_control?.type, "ephemeral");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(parts.messages[0].content[0], "cache_control"),
+      false,
+    );
     assert.equal(JSON.stringify(bloated).includes(longKeyA), true);
     assert.equal(JSON.stringify(chartInPayload).includes(longKeyA), false);
     assert.equal(JSON.stringify(chartInPayload).includes(longPeriod), false);
@@ -2156,9 +2167,12 @@ ok("claude_chart_bloat_repair_2h_suite");
       userPayload,
     });
     const content = parts.messages[0].content;
-    const bText = content.find((x) => x.cache_control)?.text;
+    // STAGE 5D: Block B is first user text (no cache_control); C follows.
+    const bText = content.find(
+      (x) => x?.type === "text" && String(x.text || "").includes("available_verified_evidence"),
+    )?.text;
     const cText = content.find(
-      (x, i) => i > 0 && x.type === "text" && !x.cache_control,
+      (x) => x?.type === "text" && String(x.text || "").includes("current_question"),
     )?.text;
     return {
       block_b: JSON.parse(bText),

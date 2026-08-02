@@ -2531,9 +2531,29 @@ export function splitUserPayloadForPromptCache(userPayload = null) {
 }
 
 /**
+ * STAGE 5D — split composed system into static cacheable KEY base vs dynamic tails.
+ * Customer/question/domain/sidecar addenda never enter the cached prefix.
+ */
+export function splitSystemTextForPromptCache(systemText = "") {
+  const full = String(systemText ?? "");
+  const staticBase = String(LIFEGUARD_KEY_SYSTEM_PROMPT ?? "").trim();
+  if (!full) {
+    return { cached_system_text: staticBase, dynamic_system_text: "" };
+  }
+  const idx = full.indexOf(staticBase);
+  if (idx >= 0 && staticBase) {
+    const before = full.slice(0, idx).trim();
+    const after = full.slice(idx + staticBase.length).trim();
+    const dynamic = [before, after].filter(Boolean).join("\n\n");
+    return { cached_system_text: staticBase, dynamic_system_text: dynamic };
+  }
+  // Synthetic / test system strings: treat the provided text as the static block.
+  return { cached_system_text: full, dynamic_system_text: "" };
+}
+
+/**
  * Serialize Anthropic request slices for prompt-cache prefix audits (no network).
- * Prefix = final system + user content from start through the cache_control block (inclusive).
- * C = all user content blocks after that marker (question/context/priority/originals).
+ * Prefix = system blocks through cache_control (inclusive). Customer Block B/C stay post-marker.
  */
 export function serializeClaudeFirstCachePrefixForAudit({
   systemText = "",
@@ -2553,32 +2573,62 @@ export function serializeClaudeFirstCachePrefixForAudit({
     attachmentIdentityPlan,
     cacheControl,
   });
+  const systemBlocks = Array.isArray(parts?.system) ? parts.system : [];
   const content = Array.isArray(parts?.messages?.[0]?.content)
     ? parts.messages[0].content
     : [];
+  const prefixSystem = [];
+  const dynamicSystem = [];
   const prefixContent = [];
   let markerCount = 0;
   let markerIndex = -1;
-  for (let i = 0; i < content.length; i += 1) {
-    const block = content[i];
-    prefixContent.push(block);
-    if (block && typeof block === "object" && block.cache_control) {
-      markerCount += 1;
-      markerIndex = i;
-      break;
+  let markerLocation = null;
+  let seenMarker = false;
+  for (let i = 0; i < systemBlocks.length; i += 1) {
+    const block = systemBlocks[i];
+    if (!seenMarker) {
+      prefixSystem.push(block);
+      if (block && typeof block === "object" && block.cache_control) {
+        markerCount += 1;
+        markerIndex = -1;
+        markerLocation = "system";
+        seenMarker = true;
+      }
+    } else {
+      dynamicSystem.push(block);
     }
   }
-  const cContent = markerIndex >= 0 ? content.slice(markerIndex + 1) : content.slice();
+  if (!seenMarker) {
+    for (let i = 0; i < content.length; i += 1) {
+      const block = content[i];
+      prefixContent.push(block);
+      if (block && typeof block === "object" && block.cache_control) {
+        markerCount += 1;
+        markerIndex = i;
+        markerLocation = "user_content";
+        seenMarker = true;
+        break;
+      }
+    }
+  }
+  const cContent =
+    markerLocation === "user_content" && markerIndex >= 0
+      ? content.slice(markerIndex + 1)
+      : content.slice();
   const prefixObject = {
-    system: parts.system,
+    system: prefixSystem,
     content: prefixContent,
   };
-  const cObject = { content: cContent };
+  const cObject = {
+    ...(dynamicSystem.length ? { system_dynamic: dynamicSystem } : {}),
+    content: cContent,
+  };
   return {
     prefix_json: JSON.stringify(prefixObject),
     c_json: JSON.stringify(cObject),
     cache_marker_count: markerCount,
     cache_marker_index: markerIndex,
+    cache_marker_location: markerLocation,
     cache_strategy: parts.cache_strategy ?? null,
     cache_breakpoints: parts.cache_breakpoints ?? null,
     parts,
@@ -2587,8 +2637,8 @@ export function serializeClaudeFirstCachePrefixForAudit({
 
 /**
  * Build Anthropic system + user content with explicit cache breakpoints.
- * A = system text (unchanged). B = evidence JSON. C = question/context (+ optional PDF).
- * Cache marker only on B end so prefix = A+B (A alone is typically under min tokens).
+ * STAGE 5D: cache marker on static KEY system only. Block B (evidence) + C (question)
+ * are always post-marker so customer chart drift cannot rewrite the cache prefix.
  */
 export function buildClaudeFirstCachedRequestParts({
   systemText = "",
@@ -2605,20 +2655,30 @@ export function buildClaudeFirstCachedRequestParts({
   cacheControl = ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
 } = {}) {
   const { block_b, block_c } = splitUserPayloadForPromptCache(userPayload);
+  const { cached_system_text, dynamic_system_text } =
+    splitSystemTextForPromptCache(systemText);
+  const control =
+    cacheControl && typeof cacheControl === "object"
+      ? { ...cacheControl }
+      : { ...ANTHROPIC_PROMPT_CACHE_CONTROL_5M };
   const system = [
     {
       type: "text",
-      text: String(systemText ?? ""),
+      text: cached_system_text,
+      cache_control: control,
     },
   ];
+  if (dynamic_system_text) {
+    system.push({
+      type: "text",
+      text: dynamic_system_text,
+    });
+  }
+  // Block B — compact JSON, never cache_control (customer-specific).
   const content = [
     {
       type: "text",
-      // Block B only — compact JSON (pretty overhead removed). Block C stays pretty below.
       text: JSON.stringify(block_b),
-      cache_control: cacheControl && typeof cacheControl === "object"
-        ? { ...cacheControl }
-        : { ...ANTHROPIC_PROMPT_CACHE_CONTROL_5M },
     },
   ];
   const uniqueById = new Map();
@@ -2685,7 +2745,120 @@ export function buildClaudeFirstCachedRequestParts({
     system,
     messages: [{ role: "user", content }],
     cache_breakpoints: 1,
-    cache_strategy: "A_plus_B_via_B_marker",
+    cache_strategy: "A_static_system_marker",
+  };
+}
+
+/**
+ * Provider-free prompt-cache layout trace (block names / sizes / hash only — no PII bodies).
+ */
+export function buildPromptCacheLayoutTrace({
+  parts = null,
+  userPayload = null,
+} = {}) {
+  const system = Array.isArray(parts?.system) ? parts.system : [];
+  const content = Array.isArray(parts?.messages?.[0]?.content)
+    ? parts.messages[0].content
+    : [];
+  const cached_block_names = [];
+  const dynamic_block_names = [];
+  let cached_prefix_chars = 0;
+  let seenMarker = false;
+  for (const block of system) {
+    const chars = String(block?.text ?? "").length;
+    if (!seenMarker) {
+      cached_block_names.push("system_static_key");
+      cached_prefix_chars += chars;
+      if (block && typeof block === "object" && block.cache_control) {
+        seenMarker = true;
+      }
+    } else {
+      dynamic_block_names.push("system_dynamic_addenda");
+    }
+  }
+  for (const block of content) {
+    const text = String(block?.text ?? "");
+    if (block?.type === "document" || block?.type === "image") {
+      dynamic_block_names.push("original_attachment");
+      continue;
+    }
+    if (text.includes("available_verified_evidence")) {
+      dynamic_block_names.push("available_verified_evidence");
+    } else if (text.includes("key_relevant_memory_packet")) {
+      dynamic_block_names.push("key_relevant_memory_packet");
+    } else if (text.includes("CURRENT_CUSTOMER_REQUEST")) {
+      dynamic_block_names.push("priority_block");
+    } else if (text.includes("current_question") || text.includes("current_context")) {
+      dynamic_block_names.push("current_question_and_context");
+    } else if (text.includes("ATTACHMENT_IDENTITY") || text.includes("attachment_identity")) {
+      dynamic_block_names.push("attachment_identity");
+    } else {
+      dynamic_block_names.push("user_text");
+    }
+  }
+  const markerAt = system.findIndex((b) => b?.cache_control);
+  const cachedPrefixText = system
+    .slice(0, markerAt >= 0 ? markerAt + 1 : system.length)
+    .map((b) => String(b?.text ?? ""))
+    .join("\n");
+  const cached_prefix_hash = createHash("sha256")
+    .update(cachedPrefixText)
+    .digest("hex")
+    .slice(0, 16);
+  const packet = userPayload?.current_context?.key_relevant_memory_packet;
+  const evidenceState =
+    userPayload?.available_verified_evidence?.personal?.evidence_state;
+  const chart = userPayload?.available_verified_evidence?.personal?.chart;
+  const focused_contract_count = Array.isArray(packet?.focused_contracts)
+    ? packet.focused_contracts.length
+    : Array.isArray(chart?.confirmed_contracts)
+      ? chart.confirmed_contracts.length
+      : 0;
+  const full_chart_injected =
+    evidenceState?.status !== "focused_packet" &&
+    chart != null &&
+    String(chart.schema ?? "") !== "focused_verified_chart_v1";
+  let total_request_body_chars = 0;
+  try {
+    total_request_body_chars = JSON.stringify({
+      system: parts?.system ?? [],
+      messages: parts?.messages ?? [],
+    }).length;
+  } catch {
+    total_request_body_chars = cached_prefix_chars;
+  }
+  // Schema field names in the locked KEY system prose are OK.
+  // Fail only when actual customer payload JSON / question / ids sit before the marker.
+  const customer_specific_data_before_marker = (() => {
+    if (/"available_verified_evidence"\s*:\s*\{/.test(cachedPrefixText)) return true;
+    if (/"key_relevant_memory_packet"\s*:\s*\{/.test(cachedPrefixText)) return true;
+    if (/"confirmed_contracts"\s*:\s*\[/.test(cachedPrefixText)) return true;
+    if (/"current_question"\s*:\s*"/.test(cachedPrefixText)) return true;
+    const q = String(userPayload?.current_question ?? "").trim();
+    if (q.length >= 6 && cachedPrefixText.includes(q)) return true;
+    const ctx =
+      userPayload?.current_context && typeof userPayload.current_context === "object"
+        ? userPayload.current_context
+        : {};
+    for (const key of ["customer_id", "session_id", "request_id"]) {
+      const v = String(ctx?.[key] ?? ctx?.authenticated_customer_identity?.[key] ?? "").trim();
+      if (v.length >= 6 && cachedPrefixText.includes(v)) return true;
+    }
+    return false;
+  })();
+  return {
+    strategy: parts?.cache_strategy ?? null,
+    cached_block_names,
+    dynamic_block_names,
+    cached_prefix_chars,
+    estimated_cached_prefix_tokens: Math.ceil(cached_prefix_chars / 4),
+    cached_prefix_hash,
+    customer_specific_data_before_marker,
+    full_chart_injected,
+    relevant_memory_packet_injected: Boolean(packet),
+    focused_contract_count,
+    total_request_body_chars,
+    estimated_total_input_tokens: Math.ceil(total_request_body_chars / 4),
   };
 }
 
@@ -5653,6 +5826,10 @@ async function callClaudeFirstDirect({
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,
       control: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
+      layout: buildPromptCacheLayoutTrace({
+        parts: cachedParts,
+        userPayload,
+      }),
     },
     error: progressOnly
       ? "progress_only_answer"
@@ -7474,6 +7651,8 @@ export async function runClaudeFirstDirectQuestionTurn({
       keyConfirmedSourceFacts: chartForMemoryGate?.key_confirmed_source_facts ?? null,
       originalAttachmentCount: 0,
       crossSessionRecall: memoryCrossSession,
+      // Structural multi-contract expansion from official memory (no keyword classifier).
+      allowMultiContracts: true,
     });
     if (keyRelevantMemoryPacketForClaude?.trace) {
       console.info(

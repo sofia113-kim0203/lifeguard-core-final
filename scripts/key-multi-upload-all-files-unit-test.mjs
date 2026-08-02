@@ -139,7 +139,9 @@ console.log("key-multi-upload-all-files-unit-test");
     "document upload flow must not keep first-file-only selection",
   );
   assert.match(chatSrc, /processSelectedUploadFiles/);
-  assert.match(chatSrc, /appendChatComposerAttachment/);
+  // STAGE 5C: vault store → transit cleanup / one-shot pending delivery (no composer File keep).
+  assert.match(chatSrc, /planUploadTransitCleanupAfterDocumentStore/);
+  assert.match(chatSrc, /discardComposerUploadTransit/);
   assert.match(chatSrc, /chatAttachments/);
   assert.match(chatSrc, /AttachmentTray/);
   assert.match(chatSrc, /snapshotChatComposerAttachments/);
