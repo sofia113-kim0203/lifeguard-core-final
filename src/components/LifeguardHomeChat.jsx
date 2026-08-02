@@ -24,11 +24,9 @@ import {
   processSelectedUploadFiles,
 } from "../lib/customerMultiFileUpload.js";
 import {
-  appendChatComposerAttachment,
   formatChatComposerAttachLabel,
   listChatComposerDocumentIds,
   removeChatComposerAttachment,
-  restoreChatComposerAttachmentsOnFailure,
   revokeChatComposerPreviewUrls,
   snapshotChatComposerAttachments,
 } from "../lib/chatComposerAttachments.js";
@@ -41,6 +39,13 @@ import {
   resolveExplicitReopenFlightFailure,
   shouldBlockSendForIncompleteUpload,
 } from "../lib/originalAttachmentOneShot.js";
+import {
+  consumePendingDocumentDelivery,
+  createEmptyPendingDocumentDelivery,
+  discardComposerUploadTransit,
+  planUploadTransitCleanupAfterDocumentStore,
+  planUploadTransitOnMemoryCommitFailure,
+} from "../lib/uploadTransitCleanup.js";
 import AttachmentTray from "./AttachmentTray.jsx";
 import {
   clearActiveAttachmentIfDocumentDeleted,
@@ -608,13 +613,16 @@ export default function LifeguardHomeChat({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [attachHint, setAttachHint] = useState("");
-  // Composer attach chips ? ordered array (never overwrite prior success with next file).
+  // Composer attach chips — cleared immediately after vault store (upload transit only).
   const [chatAttachments, setChatAttachments] = useState([]);
+  /** Pending vault document_ids for one chat send; never File/preview authority. */
+  const [pendingDocumentDelivery, setPendingDocumentDelivery] = useState(() =>
+    createEmptyPendingDocumentDelivery(),
+  );
+  const pendingDocumentDeliveryRef = useRef(pendingDocumentDelivery);
   const [chatAttachUploading, setChatAttachUploading] = useState(false);
   const [chatAttachError, setChatAttachError] = useState("");
-  // Conversation-scoped active attachment (survives composer clear).
-  // Explicit upload / reactivation only — hydrate must not fill these.
-  // activeAttachmentIds keeps the full multi-attach snapshot for follow-up turns.
+  // Must not authorize follow-up original delivery (one-shot). Cleared after vault store.
   const [activeAttachmentId, setActiveAttachmentId] = useState(null);
   const [activeAttachmentIds, setActiveAttachmentIds] = useState([]);
   const [activeAttachmentMime, setActiveAttachmentMime] = useState(null);
@@ -691,6 +699,10 @@ export default function LifeguardHomeChat({
   }, [messages]);
 
   useEffect(() => {
+    pendingDocumentDeliveryRef.current = pendingDocumentDelivery;
+  }, [pendingDocumentDelivery]);
+
+  useEffect(() => {
     threadRestoreReadyRef.current = threadRestoreReady;
   }, [threadRestoreReady]);
 
@@ -737,6 +749,9 @@ export default function LifeguardHomeChat({
     clearConversationActiveAttachment();
     clearExplicitReopenFlight();
     setRestorableAttachmentCandidate(null);
+    setPendingDocumentDelivery(createEmptyPendingDocumentDelivery());
+    pendingDocumentDeliveryRef.current = createEmptyPendingDocumentDelivery();
+    setChatAttachments((prev) => discardComposerUploadTransit(prev));
   }, [customerId]);
 
   useEffect(() => {
@@ -1844,14 +1859,32 @@ export default function LifeguardHomeChat({
       });
     }
 
-    // Turn snapshot at send click ? payload + user message use only this copy.
-    const attachmentsForTurn = snapshotChatComposerAttachments(chatAttachments);
+    // Pending vault ids (post-store transit) or leftover composer rows — then consume to empty.
+    const pendingConsumed = consumePendingDocumentDelivery(
+      pendingDocumentDeliveryRef.current,
+    );
+    const attachmentsForTurn = snapshotChatComposerAttachments(chatAttachments).map(
+      (row) => ({
+        ...row,
+        previewUrl: "",
+      }),
+    );
     const composerDocumentIds = listChatComposerDocumentIds(attachmentsForTurn);
-    const composerDocumentId = composerDocumentIds[0] || null;
-    const composerAttachLabel = formatChatComposerAttachLabel(attachmentsForTurn);
-    const composerPrimary = attachmentsForTurn[0] || null;
-    const composerActiveSeed =
-      attachmentsForTurn[attachmentsForTurn.length - 1] || composerPrimary;
+    const pendingIds = pendingConsumed.deliveryIds;
+    const composerDocumentId = composerDocumentIds[0] || pendingIds[0] || null;
+    const composerAttachLabel =
+      pendingConsumed.label ||
+      formatChatComposerAttachLabel(attachmentsForTurn);
+    const deliveryMetaForMessage =
+      pendingIds.length > 0
+        ? pendingIds.map((id, i) => ({
+            documentId: id,
+            filename: pendingConsumed.filenames[i] || "파일",
+            previewUrl: "",
+            mime: pendingConsumed.mimes[i] || null,
+            isImage: String(pendingConsumed.mimes[i] || "").startsWith("image/"),
+          }))
+        : attachmentsForTurn;
 
     // One-shot reopen: snapshot for wire on flight start; permanent consume only on SSE ack.
     if (
@@ -1871,30 +1904,25 @@ export default function LifeguardHomeChat({
       : [];
     let reopenAckSeen = false;
 
-    // Originals only from this-send uploads or chip reopen — never past activeAttachmentIds.
+    // Originals only from pending store delivery or chip reopen — never past activeAttachmentIds.
     const documentIdsForTurn =
-      composerDocumentIds.length > 0
-        ? composerDocumentIds.slice()
-        : reopenIdsForTurn.slice();
+      pendingIds.length > 0
+        ? pendingIds.slice()
+        : composerDocumentIds.length > 0
+          ? composerDocumentIds.slice()
+          : reopenIdsForTurn.slice();
     const documentIdForTurn = documentIdsForTurn[0] || null;
-    let attachIsImageForTurn = composerPrimary?.isImage === true;
     let attachMimeForTurn =
-      composerActiveSeed?.mime ||
-      (composerPrimary?.isImage
-        ? "image/jpeg"
-        : composerDocumentId
-          ? "application/pdf"
-          : null);
-    if (!composerDocumentIds.length && reopenIdsForTurn.length) {
+      (pendingIds.length && pendingConsumed.mimes[pendingConsumed.mimes.length - 1]) ||
+      deliveryMetaForMessage[deliveryMetaForMessage.length - 1]?.mime ||
+      (composerDocumentId ? "application/pdf" : null);
+    let attachIsImageForTurn = String(attachMimeForTurn || "").startsWith("image/");
+    if (!pendingIds.length && !composerDocumentIds.length && reopenIdsForTurn.length) {
       attachMimeForTurn =
         restorableAttachmentCandidate?.active_attachment_mime || attachMimeForTurn;
       attachIsImageForTurn =
         !attachMimeForTurn || String(attachMimeForTurn).startsWith("image/");
     }
-    const activeDocumentIdForTurn =
-      documentIdsForTurn.length > 0
-        ? documentIdsForTurn[documentIdsForTurn.length - 1]
-        : documentIdForTurn;
 
     setPanelView("chat");
     setSidebarOpen(false);
@@ -1902,33 +1930,28 @@ export default function LifeguardHomeChat({
     const turnId = createLifeguardSessionId();
     inflightTurnIdRef.current = turnId;
     appendHomeChatStreamTrace("chat_submit");
-    // Snapshot for candidate chip only — do not keep active original-delivery authority.
+    // Never keep upload transit / restorable authority after delivery is consumed.
     const activeAttachmentForTurn = null;
-    if (documentIdsForTurn.length > 0) {
-      rememberRestorableCandidateFromBundle(
-        {
-          active_attachment_id: activeDocumentIdForTurn,
-          active_attachment_ids: documentIdsForTurn.slice(),
-          active_attachment_mime: attachMimeForTurn,
-        },
-        { customerId, sessionId },
-      );
-      clearConversationActiveAttachment();
-      if (customerId) {
-        writeLifeguardChatSnapshot(customerId, {
-          sessionId,
-          messages,
-          activeAttachment: null,
-        });
-      }
+    setPendingDocumentDelivery(pendingConsumed.nextPending);
+    pendingDocumentDeliveryRef.current = pendingConsumed.nextPending;
+    clearConversationActiveAttachment();
+    setRestorableAttachmentCandidate(null);
+    if (customerId) {
+      writeLifeguardChatSnapshot(customerId, {
+        sessionId,
+        messages,
+        activeAttachment: null,
+      });
     }
     const userMessage = {
       role: "user",
-      content: attachmentsForTurn.length
+      content: deliveryMetaForMessage.length
         ? `${trimmed}\n\n(첨부: ${composerAttachLabel || "파일"})`
         : trimmed,
       turnId,
-      ...(attachmentsForTurn.length ? { attachments: attachmentsForTurn } : {}),
+      ...(deliveryMetaForMessage.length
+        ? { attachments: deliveryMetaForMessage }
+        : {}),
     };
     const nextMessages = [...messages, userMessage];
     let liveMessages = [
@@ -1957,11 +1980,11 @@ export default function LifeguardHomeChat({
         });
       }
     };
-    // Fold composer tray immediately ? streaming must not keep the attach strip open.
-    // Do not revoke blob URLs here; user-message tray still references the snapshot.
+    // Fold composer tray immediately — revoke any leftover previews (message has no blob URLs).
     setMessages(liveMessages);
     setInput("");
-    setChatAttachments([]);
+    setChatAttachments((prev) => discardComposerUploadTransit(prev));
+    setAttachHint("");
     if (fileInputRef.current) fileInputRef.current.value = "";
     focusChatInput();
     setLoading(true);
@@ -2102,6 +2125,12 @@ export default function LifeguardHomeChat({
         const memoryFailMessage =
           result.memoryPersistErrorMessage ||
           "답변은 준비됐지만 KEY 공식 기억 저장이 완료되지 않았습니다. 기억 저장을 다시 시도해 주세요.";
+        // Vault store already done — never revive upload File/preview/composer authority.
+        void planUploadTransitOnMemoryCommitFailure();
+        setChatAttachments((prev) => discardComposerUploadTransit(prev));
+        setPendingDocumentDelivery(createEmptyPendingDocumentDelivery());
+        pendingDocumentDeliveryRef.current = createEmptyPendingDocumentDelivery();
+        setRestorableAttachmentCandidate(null);
         if (paintedNow.trim()) {
           syncLiveMessages(
             patchLastAssistantMessage(liveMessages, {
@@ -2406,10 +2435,12 @@ export default function LifeguardHomeChat({
         }
         return copy;
       });
-      // Restore failed-turn tray first; keep any files added while the request was in flight.
-      setChatAttachments((prev) =>
-        restoreChatComposerAttachmentsOnFailure(attachmentsForTurn, prev),
-      );
+      // Vault store already succeeded — never revive File/preview/composer upload authority.
+      void planUploadTransitOnMemoryCommitFailure();
+      setChatAttachments((prev) => discardComposerUploadTransit(prev));
+      setPendingDocumentDelivery(createEmptyPendingDocumentDelivery());
+      pendingDocumentDeliveryRef.current = createEmptyPendingDocumentDelivery();
+      setRestorableAttachmentCandidate(null);
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
       setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
@@ -2452,12 +2483,13 @@ export default function LifeguardHomeChat({
   };
 
   const clearComposerAttach = () => {
-    setChatAttachments((prev) => {
-      revokeChatComposerPreviewUrls(prev);
-      return [];
-    });
+    setChatAttachments((prev) => discardComposerUploadTransit(prev));
+    setPendingDocumentDelivery(createEmptyPendingDocumentDelivery());
+    pendingDocumentDeliveryRef.current = createEmptyPendingDocumentDelivery();
     setChatAttachError("");
     setAttachHint("");
+    setRestorableAttachmentCandidate(null);
+    clearConversationActiveAttachment();
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -2683,6 +2715,8 @@ export default function LifeguardHomeChat({
     setChatAttachError("");
     setAttachHint("");
     const fileErrors = [];
+    const storedRows = [];
+    const rawFileCountBefore = files.length;
     try {
       await processSelectedUploadFiles(files, async (file) => {
         try {
@@ -2696,7 +2730,7 @@ export default function LifeguardHomeChat({
           const uploadResult = await uploadDocument(authUser, {
             file,
             categoryKey: "insurance_policy",
-            // Store original only ? Claude-first question turn reads first; factory after seal.
+            // Store original only — Claude-first question turn reads first; factory after seal.
             deferFactoryUntilClaude: true,
             ...(viewMode === "corporate" && selectedEntityId
               ? { entityId: selectedEntityId }
@@ -2711,40 +2745,9 @@ export default function LifeguardHomeChat({
             String(doc?.mime_type ?? file.type ?? "").trim() ||
             (isImage ? "image/jpeg" : "application/pdf");
           const filename = String(doc?.original_filename ?? file.name ?? "파일").trim();
-          const previewUrl = isImage ? URL.createObjectURL(file) : "";
-          // Append ? never overwrite prior successful composer attaches.
-          setChatAttachments((prev) =>
-            appendChatComposerAttachment(prev, {
-              documentId,
-              filename,
-              previewUrl,
-              mime,
-              isImage,
-            }),
-          );
-          // Candidate chip only — originals ship once with this composer send (current_upload).
-          setChatAttachments((prevForSnap) => {
-            const snapIds = listChatComposerDocumentIds(prevForSnap);
-            const ids = snapIds.includes(documentId) ? snapIds : [...snapIds, documentId];
-            markUserAttachAction();
-            clearConversationActiveAttachment();
-            rememberRestorableCandidateFromBundle(
-              {
-                active_attachment_id: documentId,
-                active_attachment_ids: ids,
-                active_attachment_mime: mime,
-              },
-              { customerId, sessionId },
-            );
-            if (customerId) {
-              writeLifeguardChatSnapshot(customerId, {
-                sessionId,
-                messages,
-                activeAttachment: null,
-              });
-            }
-            return prevForSnap;
-          });
+          // Transit only: arm document_id for next chat send — never keep File/preview/chip.
+          storedRows.push({ documentId, filename, mime });
+          markUserAttachAction();
           return { ok: true, documentId };
         } catch (err) {
           fileErrors.push(toCustomerErrorMessage(err, "파일 업로드에 실패했습니다."));
@@ -2752,7 +2755,39 @@ export default function LifeguardHomeChat({
         }
       });
       await loadDocumentsRef.current?.();
-      // Keep any successful composer attaches (including prior ones). Failures are not appended.
+      if (storedRows.length > 0) {
+        const planned = planUploadTransitCleanupAfterDocumentStore({
+          composerAttachments: chatAttachments,
+          storedRows,
+          priorPending: pendingDocumentDeliveryRef.current,
+          keepPendingDeliveryForNextSend: true,
+        });
+        setChatAttachments(planned.composerAttachments);
+        setPendingDocumentDelivery(planned.pendingDelivery);
+        pendingDocumentDeliveryRef.current = planned.pendingDelivery;
+        setRestorableAttachmentCandidate(null);
+        clearConversationActiveAttachment();
+        setAttachHint("");
+        if (customerId) {
+          writeLifeguardChatSnapshot(customerId, {
+            sessionId,
+            messages,
+            activeAttachment: null,
+          });
+        }
+        try {
+          console.info(
+            "[upload_transit_cleanup]",
+            JSON.stringify({
+              ...planned.trace,
+              raw_file_count_before: rawFileCountBefore,
+            }),
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+      // Failures never mix into pending delivery; do not revive UI for stored files.
       if (fileErrors.length > 0) {
         setChatAttachError(fileErrors[0]);
       }
