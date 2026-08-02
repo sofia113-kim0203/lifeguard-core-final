@@ -294,6 +294,35 @@ ok("CASE10_post_ack_failure_stays_consumed");
 }
 ok("CASE11_concurrent_flight_blocked");
 
+// CASE 12 — D wiring: pending/composer snapshot IDs → currentTurnDocumentIds → wire
+// (composer tray may already be empty after STAGE 5C cleanup)
+{
+  const pendingFive = ["p1", "p2", "p3", "p4", "p5"];
+  const body0 = buildHomeBrainFactRequestBody("T0", [], {
+    currentTurnDocumentIds: pendingFive,
+  });
+  assert.deepEqual(body0.current_turn_document_ids, pendingFive);
+  assert.equal(body0.prior_attach_follow_up, undefined);
+  // document_ids on wire is derived from current-turn scope, not a separate legacy authority.
+  assert.deepEqual(body0.document_ids, pendingFive);
+
+  const body1 = buildHomeBrainFactRequestBody("T1", [], {
+    currentTurnDocumentIds: [],
+  });
+  assert.equal(body1.current_turn_document_ids, undefined);
+  assert.equal(body1.document_ids, undefined);
+  assert.equal(body1.prior_attach_follow_up, undefined);
+
+  const pendingOne = ["solo"];
+  const bodySolo = buildHomeBrainFactRequestBody("T0 one", [], {
+    currentTurnDocumentIds: pendingOne,
+  });
+  assert.deepEqual(bodySolo.current_turn_document_ids, pendingOne);
+  assert.equal(bodySolo.document_id, "solo");
+  assert.equal(bodySolo.document_ids, undefined);
+}
+ok("CASE12_pending_ids_wire_current_turn");
+
 // Source locks
 {
   const firstDirect = readFileSync(
@@ -320,6 +349,20 @@ ok("CASE11_concurrent_flight_blocked");
   assert.doesNotMatch(
     homeChat,
     /One-shot reopen: consume at request-build time/,
+  );
+  // D lock: wire currentTurnDocumentIds from documentIdsForTurn (pending snapshot), not composer-only.
+  assert.match(
+    homeChat,
+    /currentTurnDocumentIds:\s*documentIdsForTurn\.slice\(\)/,
+  );
+  assert.doesNotMatch(
+    homeChat,
+    /currentTurnDocumentIds:\s*composerDocumentIds\.slice\(\)/,
+  );
+  // Must not reintroduce legacy documentIds as original-byte authority on attachOptions.
+  assert.doesNotMatch(
+    homeChat,
+    /documentIdsForTurn\.length\s*>\s*1\s*\?\s*\{\s*documentIds:\s*documentIdsForTurn/,
   );
 }
 ok("source_locks_one_shot");

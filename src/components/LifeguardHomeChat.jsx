@@ -2012,17 +2012,16 @@ export default function LifeguardHomeChat({
       let sawSseDone = false;
       // GO3: session_id only ? server SSOT loads session_goal; never send prior_session_goal.
       const handoffToken = getReadyCardHandoffToken({ customerId, sessionId });
-      // One-shot delivery: current_upload and/or explicit_reopen only.
+      // One-shot delivery: pending/composer/reopen snapshot → currentTurnDocumentIds only.
+      // Do not pass legacy documentIds as original-byte authority (request body ignores them).
       const attachOptions = {
         sessionId,
         clientTurnId: turnId,
-        ...(documentIdForTurn ? { documentId: documentIdForTurn } : {}),
-        ...(documentIdsForTurn.length > 1 ? { documentIds: documentIdsForTurn } : {}),
         attachmentReferenceEnabled: false,
-        ...(composerDocumentIds.length
-          ? { currentTurnDocumentIds: composerDocumentIds.slice() }
+        ...(documentIdsForTurn.length
+          ? { currentTurnDocumentIds: documentIdsForTurn.slice() }
           : {}),
-        ...(reopenIdsForTurn.length && !composerDocumentIds.length
+        ...(reopenIdsForTurn.length && !documentIdsForTurn.length
           ? { explicitReopenDocumentIds: reopenIdsForTurn.slice() }
           : {}),
         ...(handoffToken ? { readyCardHandoffToken: handoffToken } : {}),
