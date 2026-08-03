@@ -798,6 +798,7 @@ export function buildProviderFetchObservation({
     provider_fetch_index: Number(providerFetchIndex) || 0,
     body_chars: metrics.total_chars,
     body_bytes: metrics.total_bytes,
+    system_chars: metrics.system_chars,
     system_block_count: metrics.system_block_count,
     message_count: metrics.message_count,
     image_block_count: metrics.image_count,

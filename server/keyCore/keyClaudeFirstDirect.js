@@ -110,7 +110,52 @@ import {
   compareLiveS1S2Bodies,
   comparePreS3AndS3Live,
 } from "./keyClaudeFirstOneShotSelectiveShadow.js";
+import { buildKeyClaudePreviewRuntimeTrace } from "./keyClaudePreviewRuntimeTrace.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
+
+/** Preview-only metadata for key_voice_trace — never mutates customer text / Provider body. */
+function buildPreviewRuntimeTraceFromClaude(claude, latency = {}, env = process.env) {
+  const liveMode =
+    claude?.live_request_mode === "ONE_SHOT_SELECTIVE"
+      ? "ONE_SHOT_SELECTIVE"
+      : "FULL_CURRENT";
+  const s3 = claude?.token_bomb_s3_live ?? null;
+  const metrics = s3?.metrics && typeof s3.metrics === "object" ? s3.metrics : null;
+  const inventory =
+    s3?.inventory && typeof s3.inventory === "object" ? s3.inventory : null;
+  return buildKeyClaudePreviewRuntimeTrace({
+    env,
+    liveRequestMode: liveMode,
+    actualProviderFetchCount: claude?.actual_provider_fetch_count ?? 0,
+    providerFetchObservations: Array.isArray(claude?.provider_fetch_observations)
+      ? claude.provider_fetch_observations
+      : [],
+    selectionPlan: s3?.selection_plan ?? null,
+    selectionAvailable: liveMode === "ONE_SHOT_SELECTIVE",
+    contextFlags:
+      liveMode === "ONE_SHOT_SELECTIVE"
+        ? {
+            full_chart_present: metrics?.full_chart_present === true,
+            full_ledger_present: metrics?.full_ledger_present === true,
+            full_memory_present: inventory?.full_memory_present === true,
+            full_conversation_present: inventory?.full_conversation_present === true,
+            prior_original_present: metrics?.prior_original_present === true,
+          }
+        : null,
+    turnEnrich: {
+      usage: claude?.provider_usage ?? null,
+      stop_reason: claude?.stop_reason ?? latency.stop_reason ?? null,
+      ttft_ms: latency.ttft_ms ?? claude?.ttft_ms ?? null,
+      first_customer_delta_ms:
+        latency.first_customer_delta_ms ?? latency.ttft_ms ?? claude?.ttft_ms ?? null,
+      provider_complete_ms: latency.provider_complete_ms ?? null,
+      customer_complete_ms: latency.customer_complete_ms ?? null,
+      provider_start_ms: latency.provider_start_ms ?? null,
+      tool_use_count: latency.tool_use_count ?? null,
+    },
+  });
+}
+
 import {
   gateKeyVoiceAnswer,
   jailbreakAudit,
@@ -5515,6 +5560,7 @@ async function callClaudeFirstDirect({
       meta: selectiveLiveRequest.meta,
       selection_plan: selectiveLiveRequest.selection_plan,
       metrics: selectiveLiveRequest.metrics,
+      inventory: selectiveLiveRequest.inventory,
     };
   } catch {
     tokenBombS3LiveTrace = {
@@ -5842,6 +5888,41 @@ async function callClaudeFirstDirect({
     }
     if (streamed.stop_reason != null) lastStopReason = String(streamed.stop_reason);
     providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
+    // Enrich last provider_fetch_observation with usage/stop (no body/text retained).
+    {
+      const lastObs =
+        providerFetchObservations[providerFetchObservations.length - 1] ?? null;
+      if (lastObs && typeof lastObs === "object") {
+        lastObs.stop_reason =
+          streamed.stop_reason != null ? String(streamed.stop_reason) : lastObs.stop_reason;
+        if (providerUsage && typeof providerUsage === "object") {
+          const hasAny =
+            providerUsage.input_tokens != null ||
+            providerUsage.output_tokens != null ||
+            providerUsage.cache_creation_input_tokens != null ||
+            providerUsage.cache_read_input_tokens != null;
+          if (hasAny) {
+            lastObs.usage = {
+              input_tokens: providerUsage.input_tokens,
+              output_tokens: providerUsage.output_tokens,
+              cache_creation_input_tokens:
+                providerUsage.cache_creation_input_tokens,
+              cache_read_input_tokens: providerUsage.cache_read_input_tokens,
+            };
+          }
+        }
+        const toolUseN = Array.isArray(streamed.dataRaw?.content)
+          ? streamed.dataRaw.content.filter(
+              (b) => b?.type === "tool_use" || b?.type === "server_tool_use",
+            ).length
+          : 0;
+        lastObs.server_tool_use_count = toolUseN;
+        if (streamed.ttft_ms != null) {
+          lastObs.first_customer_delta_ms = streamed.ttft_ms;
+          lastObs.ttft_ms = streamed.ttft_ms;
+        }
+      }
+    }
 
     const picked = pickCustomerAnswer(streamed.dataRaw);
     emptyAnswerDiag.response = buildEmptyAnswerResponseDiag({
@@ -8736,6 +8817,18 @@ export async function runClaudeFirstDirectQuestionTurn({
                 keyLatestDocumentContextForClaude != null,
               qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
               qa_turn_record: null,
+              preview_runtime_trace: buildPreviewRuntimeTraceFromClaude(
+                claude,
+                {
+                  ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+                  first_customer_delta_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+                  provider_complete_ms: claudeCompleteMs,
+                  customer_complete_ms: customerDoneMs,
+                  provider_start_ms: null,
+                  stop_reason: claudeStopReason,
+                },
+                env,
+              ),
               latency_marks: {
                 ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
                 triangle_t0: {
@@ -9776,6 +9869,18 @@ export async function runClaudeFirstDirectQuestionTurn({
             String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? ""),
           qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
           qa_turn_record: qaTurnRecordMeta,
+          preview_runtime_trace: buildPreviewRuntimeTraceFromClaude(
+            claude,
+            {
+              ttft_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+              first_customer_delta_ms: firstTokenMs ?? claude.ttft_ms ?? null,
+              provider_complete_ms: claudeCompleteMs,
+              customer_complete_ms: customerDoneMs,
+              provider_start_ms: null,
+              stop_reason: claudeStopReason,
+            },
+            env,
+          ),
           sentence_commit: {
             mode: "immediate_delta_t4",
             aborted: sentenceStreamAborted,
