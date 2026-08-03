@@ -104,8 +104,11 @@ import {
   compareLiveAndShadowBodies,
 } from "./keyClaudeFirstOnDemandShadow.js";
 import {
+  bodyHasHeavyFullContext,
+  buildClaudeFirstOneShotSelectiveRequest,
   buildClaudeFirstOneShotSelectiveShadowBodies,
   compareLiveS1S2Bodies,
+  comparePreS3AndS3Live,
 } from "./keyClaudeFirstOneShotSelectiveShadow.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
@@ -5460,10 +5463,92 @@ async function callClaudeFirstDirect({
         : null,
     cacheControl: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
   });
-  const system = cachedParts.system;
-  let messages = cachedParts.messages;
+  // PRE-S3 full assembly kept for compare-only (never fetchImpl after S3 cutover).
+  const preS3System = cachedParts.system;
+  const preS3Messages = cachedParts.messages;
+  const preS3LiveBody = {
+    model,
+    system: preS3System,
+    messages: preS3Messages,
+    tools: requestTools,
+  };
 
-  // TOKEN BOMB S1 — Shadow on-demand bodies (compare only; never passed to fetchImpl).
+  const pointedIds = Array.isArray(requestedAttachDocumentIds)
+    ? requestedAttachDocumentIds.map(String)
+    : [];
+  const selectiveExplicit = {
+    presence_turn: presenceTurn === true,
+    audience,
+    pdf_attached: pdfAttached === true,
+    current_attachment_ids: multiAttachments
+      .map((r) => String(r?.document_id ?? "").trim())
+      .filter(Boolean),
+    pointed_attachment_ids: pointedIds,
+    current_attachment_question:
+      attachAnalysisScopeOnly === true || pointedIds.length > 0,
+  };
+
+  // TOKEN BOMB S3 — Live ONE_SHOT_SELECTIVE cutover (fetchImpl body).
+  let tokenBombS3LiveTrace = null;
+  let selectiveLiveRequest = null;
+  try {
+    selectiveLiveRequest = buildClaudeFirstOneShotSelectiveRequest({
+      question: presenceTurn === true ? "" : question,
+      explicit: selectiveExplicit,
+      liveSources: {
+        chart,
+        policyTruthContext,
+        multiAttachments,
+        history: presenceTurn === true ? [] : history,
+        activeClaimCases,
+        insuranceClockBrief,
+        priorConsultation: priorConsultationForContext,
+        readyCardMeta: presenceTurn === true ? null : readyCardMeta,
+        keyRelevantMemoryPacket,
+      },
+      liveTools: requestTools,
+    });
+    tokenBombS3LiveTrace = {
+      live_request_mode: "ONE_SHOT_SELECTIVE",
+      live_body_changed: true,
+      shadow_provider_call: 0,
+      meta: selectiveLiveRequest.meta,
+      selection_plan: selectiveLiveRequest.selection_plan,
+      metrics: selectiveLiveRequest.metrics,
+    };
+  } catch {
+    tokenBombS3LiveTrace = {
+      live_request_mode: "ONE_SHOT_SELECTIVE",
+      live_body_changed: true,
+      error: "s3_live_selective_build_failed",
+    };
+  }
+
+  // Fetch uses selective live request only — never pre-S3 full B/C.
+  let system = selectiveLiveRequest?.system ?? [
+    {
+      type: "text",
+      text: [
+        "[KEY_ONE_SHOT_SELECTIVE]",
+        "DEFAULT_PROVIDER_CALL_TARGET=1",
+        "이번 요청 조립에 실패했다. 확인되지 않은 전체 고객 자료를 추정해 답하지 않는다.",
+        "고객 질문에 가능한 범위와 한계만 짧게 설명하라.",
+      ].join("\n"),
+    },
+  ];
+  let messages = selectiveLiveRequest?.messages ?? [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: String(presenceTurn === true ? "" : question ?? ""),
+        },
+      ],
+    },
+  ];
+
+  // TOKEN BOMB S1/S2 — Shadow compare only (never passed to fetchImpl).
   let tokenBombS1ShadowTrace = null;
   try {
     const shadowBodies = buildClaudeFirstOnDemandShadowBodies({
@@ -5485,14 +5570,8 @@ async function callClaudeFirstDirect({
         Boolean(userPayload?.current_context?.conversation?.retained_past_originals?.length),
       liveTools: requestTools,
     });
-    const liveBodyForCompare = {
-      model,
-      system,
-      messages,
-      tools: requestTools,
-    };
     const compare = compareLiveAndShadowBodies({
-      liveBody: liveBodyForCompare,
+      liveBody: preS3LiveBody,
       liveUserPayload: userPayload,
       liveTools: requestTools,
       shadow: shadowBodies,
@@ -5506,25 +5585,10 @@ async function callClaudeFirstDirect({
       content_first_metrics: shadowBodies.content_first?.metrics ?? null,
       manifest_first_metrics: shadowBodies.manifest_first?.metrics ?? null,
     };
-    // TOKEN BOMB S2 — ONE_SHOT_SELECTIVE shadow (compare only; never fetchImpl).
-    let tokenBombS2ShadowTrace = null;
     try {
-      const pointedIds = Array.isArray(requestedAttachDocumentIds)
-        ? requestedAttachDocumentIds.map(String)
-        : [];
       const s2Bodies = buildClaudeFirstOneShotSelectiveShadowBodies({
         question: presenceTurn === true ? "" : question,
-        explicit: {
-          presence_turn: presenceTurn === true,
-          audience,
-          pdf_attached: pdfAttached === true,
-          current_attachment_ids: multiAttachments
-            .map((r) => String(r?.document_id ?? "").trim())
-            .filter(Boolean),
-          pointed_attachment_ids: pointedIds,
-          current_attachment_question:
-            attachAnalysisScopeOnly === true || pointedIds.length > 0,
-        },
+        explicit: selectiveExplicit,
         fixture: {
           full_chart_available: Boolean(chart),
           full_ledger_available: Boolean(policyTruthContext),
@@ -5546,13 +5610,20 @@ async function callClaudeFirstDirect({
         liveTools: requestTools,
       });
       const s1s2Compare = compareLiveS1S2Bodies({
-        liveBody: liveBodyForCompare,
+        liveBody: preS3LiveBody,
         liveUserPayload: userPayload,
         liveTools: requestTools,
         s1Shadow: shadowBodies,
         s2Shadow: s2Bodies,
       });
-      tokenBombS2ShadowTrace = {
+      const s3Compare = comparePreS3AndS3Live({
+        preS3LiveBody,
+        s3LiveRequest: selectiveLiveRequest,
+        s1Shadow: shadowBodies,
+        s2Shadow: s2Bodies,
+        liveTools: requestTools,
+      });
+      tokenBombS1ShadowTrace.s2 = {
         shadow_builder: "buildClaudeFirstOneShotSelectiveShadowBodies",
         live_body_changed: false,
         shadow_provider_call: 0,
@@ -5564,25 +5635,27 @@ async function callClaudeFirstDirect({
           s2Bodies.selective_manifest_first?.metrics ?? null,
         selection_plan: s2Bodies.selective_content_first?.selection_plan ?? null,
       };
-      tokenBombS1ShadowTrace.s2 = tokenBombS2ShadowTrace;
+      tokenBombS1ShadowTrace.s3 = {
+        ...tokenBombS3LiveTrace,
+        compare: s3Compare,
+      };
     } catch {
       tokenBombS1ShadowTrace.s2 = {
         shadow_builder: "buildClaudeFirstOneShotSelectiveShadowBodies",
-        live_body_changed: false,
-        shadow_provider_call: 0,
         error: "s2_shadow_build_failed",
       };
+      tokenBombS1ShadowTrace.s3 = tokenBombS3LiveTrace;
     }
     if (qaTurnCapture && typeof qaTurnCapture === "object") {
       qaTurnCapture.token_bomb_s1_shadow = tokenBombS1ShadowTrace;
       qaTurnCapture.token_bomb_s2_shadow = tokenBombS1ShadowTrace.s2 || null;
+      qaTurnCapture.token_bomb_s3_live = tokenBombS1ShadowTrace.s3 || tokenBombS3LiveTrace;
     }
   } catch {
     tokenBombS1ShadowTrace = {
       shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
-      live_body_changed: false,
-      shadow_provider_call: 0,
       error: "shadow_build_failed",
+      s3: tokenBombS3LiveTrace,
     };
   }
 
@@ -5662,11 +5735,13 @@ async function callClaudeFirstDirect({
     let res;
     try {
       actualProviderFetchCount += 1;
+      const heavyReplay =
+        actualProviderFetchCount > 1 && bodyHasHeavyFullContext(body);
       providerFetchObservations.push(
         buildProviderFetchObservation({
           providerFetchIndex: actualProviderFetchCount,
           body,
-          priorHeavyContextReplayed: actualProviderFetchCount > 1,
+          priorHeavyContextReplayed: heavyReplay,
         }),
       );
       res = await fetchImpl(ANTHROPIC_URL, {
@@ -5697,6 +5772,8 @@ async function callClaudeFirstDirect({
         actual_provider_fetch_count: actualProviderFetchCount,
         provider_fetch_observations: providerFetchObservations,
         token_bomb_s1_shadow: tokenBombS1ShadowTrace,
+        token_bomb_s3_live: tokenBombS3LiveTrace,
+        live_request_mode: "ONE_SHOT_SELECTIVE",
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -5980,6 +6057,11 @@ async function callClaudeFirstDirect({
     actual_provider_fetch_count: actualProviderFetchCount,
     provider_fetch_observations: providerFetchObservations,
     token_bomb_s1_shadow: tokenBombS1ShadowTrace,
+    token_bomb_s3_live: tokenBombS3LiveTrace,
+    live_request_mode: "ONE_SHOT_SELECTIVE",
+    heavy_context_replay_count: providerFetchObservations.filter(
+      (o) => o?.prior_heavy_context_replayed === true,
+    ).length,
     prompt_cache: {
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,
