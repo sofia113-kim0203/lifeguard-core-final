@@ -325,10 +325,13 @@ function questionSignals(question = "", explicit = {}) {
       /(몇\s*개|가입\s*건수|계약\s*수|보험\s*몇|몇\s*건)/.test(q),
     coverage:
       explicit.coverage_question === true ||
-      /(진단비|보장\s*금액|담보|얼마야|보장\s*얼마)/.test(q),
+      /(진단비|보장\s*금액|담보|얼마야|보장\s*얼마|주요\s*보장|보장만|보장\s*알려|보장\s*내용)/.test(
+        q,
+      ),
     premiumSum:
       explicit.premium_sum_question === true ||
-      /(합계|월\s*보험료|보험료\s*합)/.test(q),
+      /(합계|월\s*보험료|보험료\s*합)/.test(q) ||
+      (/(이\s*보험|선택한\s*보험|이\s*계약)/.test(q) && /보험료/.test(q)),
     claim:
       explicit.claim_question === true ||
       /(청구|보험금|심사|지급|접수)/.test(q),
@@ -338,6 +341,10 @@ function questionSignals(question = "", explicit = {}) {
     termination:
       explicit.termination_question === true ||
       /(해지|유지해도|깨도|그만둬도)/.test(q),
+    // "이 보험" / selected-contract framing — pointer scope, not termination-only.
+    thisContractAsk:
+      explicit.this_contract_question === true ||
+      /(이\s*보험|선택한\s*보험|이\s*계약)/.test(q),
     weather:
       explicit.weather_question === true ||
       /(날씨|기온|비\s*와|우산)/.test(q),
@@ -707,35 +714,26 @@ export function buildOneShotSelectionPlan({
     }
   }
 
-  if (sig.coverage) {
-    const covs = byType("coverage_packet_");
-    const pointed = sig.pointed_coverage_labels;
-    let matched = covs.filter(
-      (p) =>
-        pointed.some((lab) => matchCoverageLabel(norm(p.safe_label), lab)) ||
-        matchCoverageLabel(sig.q, p.safe_label),
-    );
-    if (!matched.length && pointed.length === 0) {
-      // no label match → do not dump all coverages
-      unresolved.push("coverage_amount");
-    } else {
-      for (const p of matched) {
-        selectPacket(p, "coverage_label_match", "safe_label_match");
-      }
-    }
-  }
+  const contractIds = sig.pointed_contract_ids;
+  const needsPointedContractFacts =
+    sig.termination ||
+    sig.thisContractAsk ||
+    (contractIds.length > 0 &&
+      (sig.coverage || sig.premiumSum || /목록|보장|보험료|해지/.test(sig.q)));
 
-  if (sig.termination) {
-    const contractIds = sig.pointed_contract_ids;
-    const covs = byType("coverage_packet_");
-    const premiums = byType("premium_packet_");
-    const list = packets.find((p) => p.packet_id === "policy_list_packet");
+  // Owned pointer → only that contract's list/premium/coverage (never other contracts).
+  if (needsPointedContractFacts) {
     if (contractIds.length) {
+      const covs = byType("coverage_packet_");
+      const premiums = byType("premium_packet_");
+      const list = packets.find((p) => p.packet_id === "policy_list_packet");
       if (list) {
         const filtered = deepClone(list);
         filtered.safe_payload = {
-          confirmed_contract_list: (list.safe_payload.confirmed_contract_list || []).filter(
-            (c) => contractIds.some((id) => c.contract_ref === stableResourceHash(id)),
+          confirmed_contract_list: (
+            list.safe_payload.confirmed_contract_list || []
+          ).filter((c) =>
+            contractIds.some((id) => c.contract_ref === stableResourceHash(id)),
           ),
         };
         selectPacket(filtered, "pointed_contract_only", "explicit_resource_id");
@@ -752,7 +750,8 @@ export function buildOneShotSelectionPlan({
       for (const p of covs) {
         if (
           contractIds.some(
-            (id) => p.safe_payload?.linked_contract_ref === stableResourceHash(id),
+            (id) =>
+              p.safe_payload?.linked_contract_ref === stableResourceHash(id),
           )
         ) {
           selectPacket(p, "pointed_contract_coverage", "explicit_resource_id");
@@ -760,8 +759,35 @@ export function buildOneShotSelectionPlan({
       }
       const thread = packets.find((p) => p.packet_id === "conversation_packet");
       if (thread) selectPacket(thread, "stated_reason_context", "minimal_thread");
+      if (
+        !selectedPackets.some((row) =>
+          String(row.packet_id || "").startsWith("coverage_packet_") ||
+          String(row.packet_id || "").startsWith("premium_packet_") ||
+          row.packet_id === "policy_list_packet",
+        )
+      ) {
+        unresolved.push("pointed_contract_materials");
+      }
     } else {
       unresolved.push("pointed_contract_id");
+    }
+  }
+
+  // Coverage without pointer: label match only — never dump all coverages.
+  if (sig.coverage && !contractIds.length) {
+    const covs = byType("coverage_packet_");
+    const pointed = sig.pointed_coverage_labels;
+    let matched = covs.filter(
+      (p) =>
+        pointed.some((lab) => matchCoverageLabel(norm(p.safe_label), lab)) ||
+        matchCoverageLabel(sig.q, p.safe_label),
+    );
+    if (!matched.length && pointed.length === 0) {
+      unresolved.push("coverage_amount");
+    } else {
+      for (const p of matched) {
+        selectPacket(p, "coverage_label_match", "safe_label_match");
+      }
     }
   }
 
@@ -1469,15 +1495,19 @@ export function buildClaudeFirstOneShotSelectiveRequest({
     variant = "manifest_first";
   }
 
+  // ROOT_C — contract / private-fact turns: no web_search tool.
+  // Public-info turns only (weather / product showcase / place).
+  const gatedTools =
+    plan.web_tool_candidate === true && Array.isArray(liveTools)
+      ? liveTools
+      : [];
   const assembled = assembleSelectiveBody({
     question,
     plan,
     variant,
-    // Preserve existing live tools exactly (do not gate on web_tool_candidate).
-    liveTools: Array.isArray(liveTools) ? liveTools : [],
+    liveTools: gatedTools,
   });
-  // Force tools = existing live tools (placement policy unchanged)
-  assembled.tools = deepClone(Array.isArray(liveTools) ? liveTools : []);
+  assembled.tools = deepClone(gatedTools);
   assembled.metrics = measureAnthropicRequestMetrics({
     system: assembled.system,
     messages: assembled.messages,
@@ -1495,10 +1525,11 @@ export function buildClaudeFirstOneShotSelectiveRequest({
   assembled.metrics.prior_original_present = false;
   assembled.metrics.provider_round_target = 1;
   assembled.metrics.live_request_mode = "ONE_SHOT_SELECTIVE";
+  assembled.metrics.web_search_tool_mounted = gatedTools.length > 0;
 
   assembled.inventory.current_attachment_policy = CURRENT_ATTACHMENT_POLICY;
   assembled.inventory.live_request_mode = "ONE_SHOT_SELECTIVE";
-  assembled.inventory.live_tools_policy = "EXISTING_BEHAVIOR_PRESERVED";
+  assembled.inventory.live_tools_policy = "WEB_SEARCH_CANDIDATE_GATE";
   assembled.inventory.full_conversation_present = false;
   assembled.inventory.heavy_context_replay = false;
 
@@ -1522,12 +1553,53 @@ export function buildClaudeFirstOneShotSelectiveRequest({
       KEY_PROMPT_AND_MATERIAL_ROUTING: true,
       KEY_FINAL_INSURANCE_JUDGMENT_BEFORE_CLAUDE: false,
       CURRENT_ATTACHMENT_POLICY,
-      LIVE_TOOLS_POLICY_CHANGED: false,
+      LIVE_TOOLS_POLICY_CHANGED: true,
       WEB_SEARCH_DELETED: false,
+      WEB_SEARCH_GATED_TO_CANDIDATE: true,
+      WEB_SEARCH_TOOL_MOUNTED: gatedTools.length > 0,
       FULL_DATA_FALLBACK: 0,
       HEAVY_CONTEXT_REPLAY: 0,
+      PRE_S3_FULL_ASSEMBLE: 0,
     },
   };
+}
+
+/**
+ * ROOT_C — when a pointed/"이 보험" turn has zero contract packets, do not call Provider.
+ */
+export function shouldSkipProviderForEmptyContractPackets({
+  selectionPlan = null,
+  pointedContractIds = null,
+  question = "",
+  presenceTurn = false,
+} = {}) {
+  if (presenceTurn === true) return false;
+  const plan = selectionPlan && typeof selectionPlan === "object" ? selectionPlan : {};
+  const packets = Array.isArray(plan.selected_resource_packets)
+    ? plan.selected_resource_packets
+    : [];
+  const unresolved = Array.isArray(plan.unresolved_material_selection)
+    ? plan.unresolved_material_selection
+    : [];
+  const pointed = Array.isArray(pointedContractIds)
+    ? pointedContractIds.map((id) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+  const q = String(question ?? "");
+  const contractFramed =
+    pointed.length > 0 ||
+    unresolved.includes("pointed_contract_id") ||
+    unresolved.includes("pointed_contract_materials") ||
+    /(이\s*보험|선택한\s*보험|이\s*계약|주요\s*보장|해지)/.test(q);
+  if (!contractFramed) return false;
+  const hasContractPacket = packets.some((p) => {
+    const id = String(p?.packet_id ?? "");
+    return (
+      id === "policy_list_packet" ||
+      id.startsWith("coverage_packet_") ||
+      id.startsWith("premium_packet_")
+    );
+  });
+  return !hasContractPacket;
 }
 
 export function comparePreS3AndS3Live({

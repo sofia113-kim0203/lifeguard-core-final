@@ -12,8 +12,11 @@ import {
   applyPointedContractSelection,
   assertContractCardIdUnique,
   buildPointedContractIdsPayload,
+  findContractCardById,
   listUniqueContractCards,
   resolveCanonicalContractId,
+  resolveContractCardSelectionState,
+  shouldClearPointedContractOnLifecycle,
 } from "../src/lib/keyContractFocusSsot.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -101,14 +104,48 @@ function testFakeRequestPointer() {
   console.log("PASS fake_request_pointer");
 }
 
+function testLifecycleClearAndIdLookup() {
+  assert.equal(shouldClearPointedContractOnLifecycle({ event: "new_chat" }), true);
+  assert.equal(shouldClearPointedContractOnLifecycle({ event: "logout" }), true);
+  assert.equal(
+    shouldClearPointedContractOnLifecycle({ event: "customer_change" }),
+    true,
+  );
+  assert.equal(
+    shouldClearPointedContractOnLifecycle({ event: "back_to_chat" }),
+    false,
+  );
+  const cards = listUniqueContractCards([
+    { id: "a", insurer_name: "A", product_name: "P1" },
+    { id: "b", insurer_name: "B", product_name: "P2" },
+  ]);
+  assert.equal(findContractCardById(cards, "b")?.contract_id, "b");
+  assert.equal(findContractCardById(cards, "missing"), null);
+  const sel = resolveContractCardSelectionState({
+    pointedContractId: "b",
+    contractId: "b",
+  });
+  assert.equal(sel.selected, true);
+  assert.equal(sel.data_contract_selected, "true");
+  const unsel = resolveContractCardSelectionState({
+    pointedContractId: "b",
+    contractId: "a",
+  });
+  assert.equal(unsel.selected, false);
+  noProvider();
+  console.log("PASS lifecycle_clear_and_id_lookup");
+}
+
 function testSourceWiring() {
   const src = readFileSync(
     join(ROOT, "src/components/LifeguardHomeChat.jsx"),
     "utf8",
   );
   assert.match(src, /data-contract-id=\{contractId\}/);
+  assert.match(src, /data-contract-selected=/);
   assert.match(src, /listUniqueContractCards/);
   assert.match(src, /buildPointedContractIdsPayload/);
+  assert.match(src, /shouldClearPointedContractOnLifecycle/);
   assert.match(src, /resolveC1InsurancePanelEntryAction/);
   const entry = resolveC1InsurancePanelEntryAction();
   assert.equal(entry.panelView, "insurance");
@@ -121,6 +158,7 @@ function main() {
   testDedupeAndUnique();
   testSelectionReplaceAndClear();
   testFakeRequestPointer();
+  testLifecycleClearAndIdLookup();
   testSourceWiring();
   console.log(
     JSON.stringify({

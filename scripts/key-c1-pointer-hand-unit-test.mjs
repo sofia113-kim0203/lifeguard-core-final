@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import {
   buildClaudeFirstOneShotSelectiveRequest,
+  shouldSkipProviderForEmptyContractPackets,
 } from "../server/keyCore/keyClaudeFirstOneShotSelectiveShadow.js";
 import {
   collectCustomerOwnedContractIds,
@@ -162,18 +163,73 @@ function testU5() {
   console.log("U5=PASS");
 }
 
+/** U6 — 주요 보장 + owned pointer → C1 coverage packets only; web_search off */
+function testU6() {
+  const req = liveSelective("이 보험의 주요 보장만 알려줘", {
+    pointed_contract_ids: ["c1"],
+  });
+  assert.equal(req.meta.FULL_DATA_FALLBACK, 0);
+  assert.equal(req.meta.PRE_S3_FULL_ASSEMBLE, 0);
+  assert.equal(req.meta.WEB_SEARCH_TOOL_MOUNTED, false);
+  assert.equal((req.tools || []).length, 0);
+  assert.ok(req.selection_plan.selected_prompt_blocks.includes("COND_COVERAGE"));
+  const ids = selectedPacketIds(req);
+  assert.ok(
+    ids.some((id) => id.startsWith("coverage_packet_") || id === "policy_list_packet"),
+    "U6 expected pointed coverage/list packets",
+  );
+  // Must not carry foreign contract coverage as selected authority dump:
+  // c2 coverage exists in chart but must not be selected without pointer c2.
+  const covReasons = (req.selection_plan.selected_resource_packets || []).filter(
+    (p) => String(p.packet_id).startsWith("coverage_packet_"),
+  );
+  assert.ok(covReasons.length >= 1);
+  assert.ok(
+    covReasons.every((p) => p.selection_reason === "pointed_contract_coverage"),
+  );
+  assert.equal(
+    shouldSkipProviderForEmptyContractPackets({
+      selectionPlan: req.selection_plan,
+      pointedContractIds: ["c1"],
+      question: "이 보험의 주요 보장만 알려줘",
+    }),
+    false,
+  );
+  console.log("U6=PASS");
+}
+
+/** U7 — this-insurance + no pointer → empty packets → Provider skip */
+function testU7() {
+  const req = liveSelective("이 보험의 주요 보장만 알려줘", {
+    pointed_contract_ids: [],
+  });
+  assert.equal(selectedPacketIds(req).length, 0);
+  assert.ok(unresolvedList(req).includes("pointed_contract_id"));
+  assert.equal(
+    shouldSkipProviderForEmptyContractPackets({
+      selectionPlan: req.selection_plan,
+      pointedContractIds: [],
+      question: "이 보험의 주요 보장만 알려줘",
+    }),
+    true,
+  );
+  console.log("U7=PASS");
+}
+
 function main() {
   testU1();
   testU2();
   testU3();
   testU4();
   testU5();
+  testU6();
+  testU7();
   console.log(
     JSON.stringify({
       KEY_C1_POINTER_HAND_UNIT: "PASS",
       REAL_PROVIDER_CALL: 0,
       FULL_DATA_FALLBACK: 0,
-      tests: ["U1", "U2", "U3", "U4", "U5"],
+      tests: ["U1", "U2", "U3", "U4", "U5", "U6", "U7"],
     }),
   );
 }

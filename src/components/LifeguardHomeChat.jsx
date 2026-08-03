@@ -67,6 +67,8 @@ import {
   buildPointedContractIdsPayload,
   listUniqueContractCards,
   resolveCanonicalContractId,
+  shouldClearPointedContractOnLifecycle,
+  resolveContractCardSelectionState,
 } from "../lib/keyContractFocusSsot.js";
 import {
   createAgentKeyBriefingRequest,
@@ -333,9 +335,11 @@ function CustomerInsuranceList({
     >
       {contractCards.map((policy) => {
         const contractId = resolveCanonicalContractId(policy);
-        const selected =
-          Boolean(contractId) &&
-          contractId === String(selectedPolicyId ?? "").trim();
+        const selection = resolveContractCardSelectionState({
+          pointedContractId: selectedPolicyId,
+          contractId,
+        });
+        const selected = selection.selected;
         const selectable =
           typeof onSelectPolicy === "function" && Boolean(contractId);
         return (
@@ -344,9 +348,10 @@ function CustomerInsuranceList({
             type="button"
             data-contract-id={contractId}
             data-contract-card="true"
+            data-contract-selected={selection.data_contract_selected}
             disabled={!selectable}
-            aria-pressed={selected}
-            aria-label={selected ? "선택한 보험" : "이 보험 선택"}
+            aria-pressed={selection.aria_pressed === "true"}
+            aria-label={selection.aria_label}
             onClick={() => {
               if (!selectable) return;
               onSelectPolicy(
@@ -814,6 +819,9 @@ export default function LifeguardHomeChat({
     setPendingDocumentDelivery(createEmptyPendingDocumentDelivery());
     pendingDocumentDeliveryRef.current = createEmptyPendingDocumentDelivery();
     setChatAttachments((prev) => discardComposerUploadTransit(prev));
+    if (shouldClearPointedContractOnLifecycle({ event: "customer_change" })) {
+      setPointedContractId(null);
+    }
   }, [customerId]);
 
   useEffect(() => {
@@ -2529,6 +2537,9 @@ export default function LifeguardHomeChat({
     clearExplicitReopenFlight();
     setRestorableAttachmentCandidate(null);
     clearComposerAttach();
+    if (shouldClearPointedContractOnLifecycle({ event: "new_chat" })) {
+      setPointedContractId(null);
+    }
     setPanelView("chat");
     setSidebarOpen(false);
     setInsuranceRailOpen(false);
@@ -2891,6 +2902,9 @@ export default function LifeguardHomeChat({
     onSignOut: async () => {
       if (isAgentAudience && authUser?.id) {
         clearAllAgentKeyChatSessions(authUser.id);
+      }
+      if (shouldClearPointedContractOnLifecycle({ event: "logout" })) {
+        setPointedContractId(null);
       }
       await supabase.auth.signOut();
     },

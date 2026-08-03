@@ -68,3 +68,43 @@ export function buildPointedContractIdsPayload(pointedContractId = null) {
   const id = String(pointedContractId ?? "").trim();
   return id ? [id] : [];
 }
+
+/**
+ * ROOT_B — when pointed selection must clear.
+ * Keep across panel back-to-chat. Clear on new chat / logout / customer change.
+ */
+export function shouldClearPointedContractOnLifecycle({
+  event = null,
+} = {}) {
+  const e = String(event ?? "").trim();
+  return (
+    e === "new_chat" ||
+    e === "logout" ||
+    e === "customer_change" ||
+    e === "session_reset"
+  );
+}
+
+/** Resolve selected card by data-contract-id after re-render (never by list index). */
+export function findContractCardById(cards = [], contractId = null) {
+  const id = String(contractId ?? "").trim();
+  if (!id) return null;
+  const list = Array.isArray(cards) ? cards : [];
+  return list.find((c) => resolveCanonicalContractId(c) === id) || null;
+}
+
+/** Selected UI attrs from pointed id + card id (re-render safe). */
+export function resolveContractCardSelectionState({
+  pointedContractId = null,
+  contractId = null,
+} = {}) {
+  const pointed = String(pointedContractId ?? "").trim();
+  const id = String(contractId ?? "").trim();
+  const selected = Boolean(pointed) && Boolean(id) && pointed === id;
+  return {
+    selected,
+    aria_pressed: selected ? "true" : "false",
+    aria_label: selected ? "선택한 보험" : "이 보험 선택",
+    data_contract_selected: selected ? "true" : "false",
+  };
+}

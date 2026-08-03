@@ -109,10 +109,15 @@ import {
   buildClaudeFirstOneShotSelectiveShadowBodies,
   compareLiveS1S2Bodies,
   comparePreS3AndS3Live,
+  shouldSkipProviderForEmptyContractPackets,
 } from "./keyClaudeFirstOneShotSelectiveShadow.js";
 import { buildKeyClaudePreviewRuntimeTrace } from "./keyClaudePreviewRuntimeTrace.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import { resolveOwnedPointedContractIds } from "./keySelectivePointedContractHand.js";
+
+/** Empty pointed-contract packets — hold without Provider (no invented multi-contract dump). */
+const KEY_EMPTY_CONTRACT_PACKET_HOLD =
+  "선택하신 계약 기준으로 바로 확인하려면 확인된 계약 자료가 필요해요. 보험 목록에서 계약을 골라 주시거나, 어떤 보험인지 알려 주시면 그 계약만 기준으로 다시 말씀드릴게요.";
 
 /** Preview-only metadata for key_voice_trace — never mutates customer text / Provider body. */
 function buildPreviewRuntimeTraceFromClaude(claude, latency = {}, env = process.env) {
@@ -5487,40 +5492,6 @@ async function callClaudeFirstDirect({
       /* capture must never break Claude path */
     }
   }
-  // Phase 1 prompt cache: A (system) + B (evidence) cached via B breakpoint; C variable + PDF uncached.
-  // Identity text blocks precede unique originals; exact duplicates get identity-only (no repeat image).
-  const cachedParts = buildClaudeFirstCachedRequestParts({
-    systemText,
-    userPayload,
-    pdfBase64: primaryPdfBase64,
-    mediaType: primaryPdfMediaType,
-    attachments:
-      multiAttachments.length >= 1
-        ? multiAttachments.map((row) => ({
-            base64: row.base64,
-            mediaType: row.mediaType,
-            document_id: row.document_id ?? null,
-            original_filename: row.original_filename ?? null,
-            source_scope: row.source_scope ?? null,
-            delivery_bytes_sha256: row.delivery_bytes_sha256 ?? null,
-          }))
-        : null,
-    attachmentIdentityPlan:
-      attachmentIdentityPlan && typeof attachmentIdentityPlan === "object"
-        ? attachmentIdentityPlan
-        : null,
-    cacheControl: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
-  });
-  // PRE-S3 full assembly kept for compare-only (never fetchImpl after S3 cutover).
-  const preS3System = cachedParts.system;
-  const preS3Messages = cachedParts.messages;
-  const preS3LiveBody = {
-    model,
-    system: preS3System,
-    messages: preS3Messages,
-    tools: requestTools,
-  };
-
   const pointedIds = Array.isArray(requestedAttachDocumentIds)
     ? requestedAttachDocumentIds.map(String)
     : [];
@@ -5543,7 +5514,7 @@ async function callClaudeFirstDirect({
     pointed_contract_ids: ownedPointedContracts.pointed_contract_ids,
   };
 
-  // TOKEN BOMB S3 — Live ONE_SHOT_SELECTIVE cutover (fetchImpl body).
+  // TOKEN BOMB S3 — Live ONE_SHOT_SELECTIVE first (gates tools; skips FULL assemble).
   let tokenBombS3LiveTrace = null;
   let selectiveLiveRequest = null;
   try {
@@ -5561,12 +5532,14 @@ async function callClaudeFirstDirect({
         readyCardMeta: presenceTurn === true ? null : readyCardMeta,
         keyRelevantMemoryPacket,
       },
+      // Pool only — Selective gates web_search to web_tool_candidate.
       liveTools: requestTools,
     });
     tokenBombS3LiveTrace = {
       live_request_mode: "ONE_SHOT_SELECTIVE",
       live_body_changed: true,
       shadow_provider_call: 0,
+      pre_s3_full_assemble: 0,
       meta: selectiveLiveRequest.meta,
       selection_plan: selectiveLiveRequest.selection_plan,
       metrics: selectiveLiveRequest.metrics,
@@ -5576,9 +5549,20 @@ async function callClaudeFirstDirect({
     tokenBombS3LiveTrace = {
       live_request_mode: "ONE_SHOT_SELECTIVE",
       live_body_changed: true,
+      pre_s3_full_assemble: 0,
       error: "s3_live_selective_build_failed",
     };
   }
+
+  // ROOT_C — Selective live: never assemble Pre-S3 FULL A/B/C Provider body.
+  const cachedParts = {
+    system: null,
+    messages: null,
+    cache_strategy: "SKIPPED_SELECTIVE_LIVE",
+    cache_breakpoints: 0,
+    pre_s3_full_assemble: 0,
+  };
+  const preS3LiveBody = null;
 
   // Fetch uses selective live request only — never pre-S3 full B/C.
   let system = selectiveLiveRequest?.system ?? [
@@ -5604,9 +5588,14 @@ async function callClaudeFirstDirect({
     },
   ];
 
-  // TOKEN BOMB S1/S2 — Shadow compare only (never passed to fetchImpl).
-  let tokenBombS1ShadowTrace = null;
-  try {
+  // TOKEN BOMB S1/S2 — Shadow compare only when Pre-S3 FULL exists (Selective live skips).
+  let tokenBombS1ShadowTrace = {
+    pre_s3_full_assemble: 0,
+    shadow_skipped: true,
+    shadow_provider_call: 0,
+    s3: tokenBombS3LiveTrace,
+  };
+  if (preS3LiveBody) try {
     const shadowBodies = buildClaudeFirstOnDemandShadowBodies({
       question: presenceTurn === true ? "" : question,
       history: presenceTurn === true ? [] : history,
@@ -5636,6 +5625,8 @@ async function callClaudeFirstDirect({
       shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
       live_body_changed: false,
       shadow_provider_call: 0,
+      pre_s3_full_assemble: 1,
+      shadow_skipped: false,
       meta: shadowBodies.meta,
       compare,
       content_first_metrics: shadowBodies.content_first?.metrics ?? null,
@@ -5711,9 +5702,15 @@ async function callClaudeFirstDirect({
     tokenBombS1ShadowTrace = {
       shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
       error: "shadow_build_failed",
+      pre_s3_full_assemble: 1,
       s3: tokenBombS3LiveTrace,
     };
   }
+
+  // Selective-gated tools (web_search only when candidate).
+  const effectiveProviderTools = Array.isArray(selectiveLiveRequest?.tools)
+    ? selectiveLiveRequest.tools
+    : [];
 
   let lastTtft = null;
   let lastPicked = {
@@ -5757,7 +5754,75 @@ async function callClaudeFirstDirect({
     response: null,
   };
   let lastStopReason = null;
-  const maxProviderTurns = publicWebSearchTools.length > 0 ? 3 : 1;
+  // ROOT_C — empty pointed-contract packets → Provider 0 (no invented dump).
+  if (
+    shouldSkipProviderForEmptyContractPackets({
+      selectionPlan: selectiveLiveRequest?.selection_plan,
+      pointedContractIds: ownedPointedContracts.pointed_contract_ids,
+      question: presenceTurn === true ? "" : question,
+      presenceTurn,
+    })
+  ) {
+    const holdAnswer = KEY_EMPTY_CONTRACT_PACKET_HOLD;
+    try {
+      const visible = stripKeyRecordFromStreamText(holdAnswer);
+      if (visible) onAnswerProgress?.(visible);
+    } catch {
+      /* non-blocking */
+    }
+    return {
+      ok: true,
+      customer_answer: holdAnswer,
+      progress_only_answer: false,
+      confirmed_source_facts: [],
+      coverage_baseline_facts: [],
+      policy_inventory_facts: [],
+      claim_case_updates: [],
+      visual_blocks: [],
+      key_record_sidecar: { present: false, ok: false, error: null },
+      decision: null,
+      session_goal: null,
+      session_goal_tool_seen: false,
+      session_goal_rejected: false,
+      session_goal_reject_reason: null,
+      session_goal_injected: false,
+      recommendation_basis_tool_seen: false,
+      recommendation_basis_count: 0,
+      recommendation_basis_rejected_count: 0,
+      recommendation_basis_reject_reasons: [],
+      recommendation_basis_ok: true,
+      decision_persisted: false,
+      answer_source: "empty_contract_packet_hold",
+      ttft_ms: null,
+      chart,
+      allowlist,
+      pdf_attached: pdfAttached,
+      original_attachment_count:
+        multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
+      web_search_trace: emptyWebSearchTrace(),
+      public_evidence: [],
+      empty_answer_diag: { input: null, response: null },
+      provider_usage: pickAnthropicUsageNumbers(null),
+      stop_reason: null,
+      document_record_tools_sent: 0,
+      provider_messages_request_count: 0,
+      actual_provider_fetch_count: 0,
+      provider_fetch_observations: [],
+      token_bomb_s1_shadow: tokenBombS1ShadowTrace,
+      token_bomb_s3_live: tokenBombS3LiveTrace,
+      live_request_mode: "ONE_SHOT_SELECTIVE",
+      heavy_context_replay_count: 0,
+      prompt_cache: {
+        strategy: cachedParts.cache_strategy,
+        breakpoints: cachedParts.cache_breakpoints,
+        control: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
+      },
+      empty_contract_packet_hold: true,
+      pre_s3_full_assemble: 0,
+    };
+  }
+
+  const maxProviderTurns = effectiveProviderTools.length > 0 ? 3 : 1;
   const streamProgressSafe = (text) => {
     const visible = stripKeyRecordFromStreamText(text);
     if (visible) onAnswerProgress?.(visible);
@@ -5770,8 +5835,8 @@ async function callClaudeFirstDirect({
       system,
       messages,
       stream: true,
-      ...(requestTools.length
-        ? { tools: requestTools, tool_choice: { type: "auto" } }
+      ...(effectiveProviderTools.length
+        ? { tools: effectiveProviderTools, tool_choice: { type: "auto" } }
         : {}),
     };
     emptyAnswerDiag.input = buildEmptyAnswerInputDiag({
@@ -6034,7 +6099,7 @@ async function callClaudeFirstDirect({
         (b?.type === "server_tool_use" && b?.name === "web_search") ||
         b?.type === "web_search_tool_result",
     );
-    if (publicWebSearchTools.length && usedServerSearch && turn + 1 < maxProviderTurns) {
+    if (effectiveProviderTools.length && usedServerSearch && turn + 1 < maxProviderTurns) {
       messages = [...messages, { role: "assistant", content: assistantContent }];
       continue;
     }
@@ -8641,77 +8706,22 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   }
 
+  // ROOT_E — persist failure must not block customer SSE done.
+  // Trace the failure, emit early done with sealed answer, then continue normal done path.
+  let documentMemoryPersistFailedPayload = null;
   if (
     isOfficialDocumentMemoryTurn &&
     (!documentMemoryPersistResult || documentMemoryPersistResult.ok !== true)
   ) {
-      const failPayload = buildDocumentMemoryPersistFailedPayload({
-        memoryCommitId: documentMemoryPersistResult?.memory_commit_id ?? null,
-        errorMessage: documentMemoryPersistResult?.error ?? documentMemoryPersistResult?.reason,
-      });
-      try {
-        streamHandlers?.onDocumentMemoryPersistFailed?.(failPayload);
-      } catch {
-        /* non-blocking */
-      }
-      return {
-        ok: true,
-        document_memory_persist_failed: true,
-        answerText: sealed.key_speak_original,
-        key_speak_original: sealed.key_speak_original,
-        customerText: sealed.key_speak_original,
-        keySpeakOriginal: sealed.key_speak_original,
-        visualBlocks: [],
-        response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
-        compose_mode: "key_claude_first_direct",
-        key_monopoly_failure: false,
-        failure_reason: KEY_DOCUMENT_MEMORY_PERSIST_FAILED,
-        memory_commit_id: failPayload.memory_commit_id,
-        commit_status: "failed",
-        answer_sealed: true,
-        customer_done_ms: customerDoneMs,
-        streamed_equals_sealed: streamedEqualsSealed,
-        session_goal: persistableSessionGoal,
-        agentTurn: {
-          text: sealed.key_speak_original,
-          responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
-          consultationIntent: { intent: "claude_first_direct" },
-          factBundle: { policies, policy_count, one_key_core: true },
-        },
-        modeDecision: null,
-        loadedContext,
-        contextSnapshot,
-        unifiedState,
-        customerContextBundle,
-        salesDirectorTrace: {
-          one_key_core: true,
-          compose_mode: "key_claude_first_direct",
-          session_goal: persistableSessionGoal,
-          key_compose_trace: {
-            compose_mode: "key_claude_first_direct",
-            key_voice_trace: {
-              provider: "claude_first_direct",
-              document_memory_persist_failed: true,
-              memory_commit_id: failPayload.memory_commit_id,
-              provider_calls: 1,
-              s6_speak_calls: 0,
-              original_attachment_count:
-                Number(claude.original_attachment_count ?? 0) || 0,
-            },
-          },
-        },
-        oneKeyCoreTrace: {
-          schema_version: "one-key-core-trace-claude-first-v1",
-          steps: [
-            {
-              step: "document_memory_persist_failed",
-              at_ms: customerDoneMs,
-              payload: failPayload,
-            },
-          ],
-          legacy_paths_blocked: ["interpret", "decision", "planner", "s3_s6_compose"],
-        },
-      };
+    documentMemoryPersistFailedPayload = buildDocumentMemoryPersistFailedPayload({
+      memoryCommitId: documentMemoryPersistResult?.memory_commit_id ?? null,
+      errorMessage: documentMemoryPersistResult?.error ?? documentMemoryPersistResult?.reason,
+    });
+    try {
+      streamHandlers?.onDocumentMemoryPersistFailed?.(documentMemoryPersistFailedPayload);
+    } catch {
+      /* non-blocking */
+    }
   }
 
   const keyConsultationRecord = usedFailure
@@ -8774,6 +8784,8 @@ export async function runClaudeFirstDirectQuestionTurn({
         response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
         // Same compose_mode already nested under sales_director_trace / key_compose_trace.
         compose_mode: "key_claude_first_direct",
+        document_memory_persist_failed: Boolean(documentMemoryPersistFailedPayload),
+        memory_commit_id: documentMemoryPersistFailedPayload?.memory_commit_id ?? null,
         key_monopoly_failure: usedFailure === true,
         failure_reason: failureReason,
         customer_done_ms: customerDoneMs,
