@@ -21,6 +21,13 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { rebuildCustomerMemoryFoundation } from "../server/customerMemoryFoundation.js";
+import {
+  buildMemoryBuilderCompletedMetadataPatch,
+  decideMemoryCronAuthority,
+  MEMORY_BUILDER_FACTORY,
+  resolveMemoryJobDocumentId,
+} from "../server/keyBrain/memoryCronAuthority.js";
+import { recordKeyWorkOrderFactoryUse } from "../server/keyBrain/workOrder.js";
 const BATCH_SIZE = 1;
 const BACKOFF_SECONDS = [60, 300, 1800];
 const FALLBACK_BACKOFF_SECONDS = 1800;
@@ -38,14 +45,66 @@ function isAuthorized(req, env = process.env) {
   const header = String(req.headers?.authorization ?? "");
   return header === `Bearer ${secret}`;
 }
+async function loadMemoryAuthorityDocument(adminSupabase, job) {
+  const documentId = resolveMemoryJobDocumentId(job);
+  if (!documentId) return null;
+  const { data, error } = await adminSupabase
+    .from("customer_documents")
+    .select("id, customer_id, metadata_json, deleted_at")
+    .eq("id", documentId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(`memory_document_lookup_failed:${error.message}`);
+  return data ?? null;
+}
+
 async function executeJob(adminSupabase, job) {
   if (job.job_type === "memory_builder") {
+    const documentRow = await loadMemoryAuthorityDocument(adminSupabase, job);
+    const authority = decideMemoryCronAuthority({
+      env: process.env,
+      job,
+      documentRow,
+    });
+    if (!authority.ok) {
+      throw new Error(`memory_cron_authority_rejected:${authority.reason}`);
+    }
+    if (!authority.run_rebuild || authority.mutation_allowed === false) {
+      // Idempotent skip — no customer_conversations insert, no fact mutation.
+      return {
+        skipped: true,
+        reason: authority.reason,
+        gate: authority.gate,
+        factory: MEMORY_BUILDER_FACTORY,
+      };
+    }
+
     await rebuildCustomerMemoryFoundation({
       supabase: adminSupabase,
       customerId: job.customer_id,
       includeConversation: true,
     });
-    return;
+
+    if (authority.document_id && documentRow && authority.work_order_id) {
+      const stampedMeta = buildMemoryBuilderCompletedMetadataPatch({
+        metadataJson: documentRow.metadata_json,
+        workOrderId: authority.work_order_id,
+      });
+      const recorded = await recordKeyWorkOrderFactoryUse(adminSupabase, {
+        documentId: authority.document_id,
+        customerId: job.customer_id,
+        metadataJson: stampedMeta,
+        workOrderId: authority.work_order_id,
+        factory: MEMORY_BUILDER_FACTORY,
+      });
+      if (!recorded?.ok) {
+        // Rebuild already ran; still fail the job so retry/DLQ surfaces stamp problems.
+        throw new Error(
+          `memory_builder_wo_stamp_failed:${recorded?.reason ?? "unknown"}`,
+        );
+      }
+    }
+    return { skipped: false, gate: authority.gate, factory: MEMORY_BUILDER_FACTORY };
   }
   throw new Error(`unsupported_job_type:${job.job_type}`);
 }

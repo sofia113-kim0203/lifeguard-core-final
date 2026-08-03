@@ -50,7 +50,12 @@ export function buildDocumentDispatchPlanShadow({
       shadow_only: true,
       hold_reason: "analysis_consent_missing",
       factory_work_orders: [],
-      deferred_factories: ["document_ocr", "policy_extract", "analysis_refresh"],
+      deferred_factories: [
+        "document_ocr",
+        "policy_extract",
+        "analysis_refresh",
+        "memory_builder",
+      ],
       claude_factory_direction: direction,
     };
   }
@@ -87,6 +92,16 @@ export function buildDocumentDispatchPlanShadow({
     scope: "post_extract_refresh",
     reason: direction ? "claude_directed_sync" : "unified_state_sync",
     limit: "document_linked_analysis_only",
+    ordered_by: "KEY",
+    executed_in_ku1: false,
+  });
+
+  // R17 — memory builder may run only under the same KEY Work Order authority.
+  workOrders.push({
+    factory: "memory_builder",
+    scope: "document_linked_memory",
+    reason: direction ? "claude_directed_memory" : "post_extract_memory",
+    limit: "one_document_once",
     ordered_by: "KEY",
     executed_in_ku1: false,
   });
