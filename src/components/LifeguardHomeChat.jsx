@@ -63,6 +63,12 @@ import {
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
 import { resolveC1InsurancePanelEntryAction } from "../lib/keyC1InsurancePanelEntry.js";
 import {
+  applyPointedContractSelection,
+  buildPointedContractIdsPayload,
+  listUniqueContractCards,
+  resolveCanonicalContractId,
+} from "../lib/keyContractFocusSsot.js";
+import {
   createAgentKeyBriefingRequest,
   listAgentKeyBriefings,
 } from "../lib/agentKeyBriefing.js";
@@ -308,7 +314,9 @@ function CustomerInsuranceList({
   if (loading) {
     return <p style={{ margin: 0, color: LG.textMuted }}>보험 정보를 불러오는 중…</p>;
   }
-  if (!policies.length) {
+  // CONTRACT FOCUS SSOT — unique contract_id cards only (no name matching).
+  const contractCards = listUniqueContractCards(policies);
+  if (!contractCards.length) {
     return (
       <p style={{ margin: 0, color: LG.textMuted }}>
         {emptyHint ||
@@ -318,21 +326,35 @@ function CustomerInsuranceList({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {policies.map((policy) => {
-        const policyId = String(policy?.id ?? policy?.contract_id ?? "").trim();
-        const selected = Boolean(policyId) && policyId === String(selectedPolicyId ?? "").trim();
-        const selectable = typeof onSelectPolicy === "function" && Boolean(policyId);
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+      data-contract-card-list="true"
+      data-contract-card-count={String(contractCards.length)}
+    >
+      {contractCards.map((policy) => {
+        const contractId = resolveCanonicalContractId(policy);
+        const selected =
+          Boolean(contractId) &&
+          contractId === String(selectedPolicyId ?? "").trim();
+        const selectable =
+          typeof onSelectPolicy === "function" && Boolean(contractId);
         return (
           <button
-            key={policyId || policy.insurer_name}
+            key={contractId}
             type="button"
+            data-contract-id={contractId}
+            data-contract-card="true"
             disabled={!selectable}
             aria-pressed={selected}
             aria-label={selected ? "선택한 보험" : "이 보험 선택"}
             onClick={() => {
               if (!selectable) return;
-              onSelectPolicy(selected ? null : policyId);
+              onSelectPolicy(
+                applyPointedContractSelection({
+                  pointedContractId: selectedPolicyId,
+                  contractId,
+                }),
+              );
             }}
             style={{
               ...listCardStyle(),
@@ -2069,8 +2091,8 @@ export default function LifeguardHomeChat({
         ...(viewMode !== "personal" && selectedEntityId
           ? { entityId: selectedEntityId, entityType: "corporate" }
           : {}),
-        ...(String(pointedContractId ?? "").trim()
-          ? { pointedContractIds: [String(pointedContractId).trim()] }
+        ...(buildPointedContractIdsPayload(pointedContractId).length
+          ? { pointedContractIds: buildPointedContractIdsPayload(pointedContractId) }
           : {}),
       };
       const markFirstSse = () => {

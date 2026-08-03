@@ -1,8 +1,12 @@
 /**
- * C1 UI ENTRY RECONNECT — pure entry action (offline-testable).
- * panelView="insurance" is the SSOT for CustomerInsuranceList / pointedContractId.
- * Narrow sheet (insuranceRailOpen) is display-only and must not own selection.
+ * C1 UI ENTRY — panelView insurance SSOT (entry only).
+ * Contract focus selection lives in keyContractFocusSsot.js.
  */
+import {
+  applyPointedContractSelection,
+  buildPointedContractIdsPayload,
+} from "./keyContractFocusSsot.js";
+
 export function resolveC1InsurancePanelEntryAction() {
   return {
     panelView: "insurance",
@@ -11,15 +15,16 @@ export function resolveC1InsurancePanelEntryAction() {
   };
 }
 
-/**
- * Offline UI selection: exact C1 card click → pointedContractId (0..1).
- */
+/** @deprecated use applyPointedContractSelection — kept as thin alias for entry tests */
 export function applyC1PolicySelection({
   pointedContractId = null,
   policyId = null,
+  contractId = null,
 } = {}) {
-  const next = String(policyId ?? "").trim();
-  if (!next) return null;
-  const current = String(pointedContractId ?? "").trim();
-  return current && current === next ? null : next;
+  return applyPointedContractSelection({
+    pointedContractId,
+    contractId: contractId ?? policyId,
+  });
 }
+
+export { applyPointedContractSelection, buildPointedContractIdsPayload };
