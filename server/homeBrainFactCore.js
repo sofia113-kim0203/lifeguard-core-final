@@ -27,8 +27,10 @@ import { resolveSupabaseConfig } from "./claudeGroundedExecutionCore.js";
 import { buildDocumentDispatchPlanShadow } from "./keyBrain/documentIntakeShadow.js";
 import {
   buildKeyWorkOrderRecord,
+  gateFactoryWithKeyWorkOrder,
   mintKeyWorkOrderId,
   persistKeyWorkOrder,
+  recordKeyWorkOrderFactoryUse,
   resolveKeyWorkOrderTtlMs,
 } from "./keyBrain/workOrder.js";
 import { runDocumentPolicyExtraction } from "./documentPolicyExtractionPipeline.js";
@@ -172,13 +174,32 @@ export async function runHomeChatFactoryAfterClaude({
   if (docError || !document) {
     return { ok: false, reason: "document_not_found" };
   }
+  const existingExtractionStatus = document.metadata_json?.policy_extraction_status ?? null;
+  if (existingExtractionStatus === "completed") {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "already_completed",
+      work_order_id: document.metadata_json?.key_work_order?.work_order_id ?? null,
+    };
+  }
+  if (document.ingest_status === "ready") {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "already_ingest_ready",
+      work_order_id: document.metadata_json?.key_work_order?.work_order_id ?? null,
+    };
+  }
 
   const dispatchPlan = buildDocumentDispatchPlanShadow({
     document,
     hasAnalysisConsent: true,
     claudeFactoryDirection,
   });
-  const workOrderId = mintKeyWorkOrderId();
+  const workOrderId =
+    String(document.metadata_json?.key_work_order?.work_order_id ?? "").trim() ||
+    mintKeyWorkOrderId();
   const workOrderRecord = buildKeyWorkOrderRecord({
     workOrderId,
     customerId,
@@ -227,6 +248,59 @@ export async function runHomeChatFactoryAfterClaude({
   let policyExtraction = null;
   if (worker.ok && worker.payload?.ingest_status === "ready") {
     try {
+      const { data: readyDocument, error: readyDocumentError } = await userSupabase
+        .from("customer_documents")
+        .select("metadata_json")
+        .eq("id", trimmedId)
+        .eq("customer_id", customerId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (readyDocumentError || !readyDocument) {
+        throw new Error("document_not_found_after_ingest");
+      }
+      const extractGate = gateFactoryWithKeyWorkOrder({
+        activeGateEnabled: true,
+        workOrderId,
+        documentId: trimmedId,
+        customerId,
+        metadataJson: readyDocument.metadata_json ?? {},
+        factory: "policy_extract",
+      });
+      if (!extractGate.ok) {
+        policyExtraction = {
+          ok: false,
+          reason: extractGate.reason,
+          message: extractGate.message,
+        };
+        return {
+          ok: worker.ok === true,
+          work_order_id: workOrderId,
+          claude_factory_direction: claudeFactoryDirection ?? null,
+          worker,
+          policyExtraction,
+        };
+      }
+      const factoryUse = await recordKeyWorkOrderFactoryUse(userSupabase, {
+        documentId: trimmedId,
+        customerId,
+        metadataJson: readyDocument.metadata_json ?? {},
+        workOrderId,
+        factory: "policy_extract",
+      });
+      if (!factoryUse.ok) {
+        policyExtraction = {
+          ok: false,
+          reason: factoryUse.reason,
+          message: factoryUse.message,
+        };
+        return {
+          ok: worker.ok === true,
+          work_order_id: workOrderId,
+          claude_factory_direction: claudeFactoryDirection ?? null,
+          worker,
+          policyExtraction,
+        };
+      }
       policyExtraction = await runDocumentPolicyExtraction({
         customerId,
         documentId: trimmedId,

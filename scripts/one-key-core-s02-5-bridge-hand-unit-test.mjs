@@ -141,6 +141,8 @@ await runCase("S02-5-3 runOneKeyCoreTurn bridge 8-step trace", async () => {
     false,
   );
   assert.ok(String(result.bridgeSentence ?? "").length > 0);
+  assert.equal(result.key_customer_text_sealed, true);
+  assert.equal(result.key_speak_original, result.bridgeSentence);
   assert.equal(result.intakeTrace.response_source, ONE_KEY_CORE_RESPONSE_SOURCE.BRIDGE);
 });
 

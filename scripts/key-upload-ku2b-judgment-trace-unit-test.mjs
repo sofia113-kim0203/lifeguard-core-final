@@ -28,10 +28,11 @@ const SAMPLE_DOC = {
 };
 
 function testUnifiedActiveAuthorityFlag() {
-  assert.equal(getKeyUploadEntryMode({}), KEY_UPLOAD_ENTRY_MODES.OFF);
+  assert.equal(getKeyUploadEntryMode({}), KEY_UPLOAD_ENTRY_MODES.ACTIVE);
   assert.equal(isKeyUploadEntryActiveEnabled({ KEY_UPLOAD_ENTRY: "active" }), true);
   assert.equal(isKeyUploadActiveAuthorityEnabled({ KEY_UPLOAD_ENTRY: "active" }), true);
   assert.equal(isKeyUploadActiveAuthorityEnabled({ KEY_UPLOAD_ENTRY: "shadow" }), false);
+  assert.equal(isKeyUploadActiveAuthorityEnabled({ KEY_UPLOAD_ENTRY: "off" }), false);
 }
 
 function testActiveAuthorityTraceStep() {

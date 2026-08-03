@@ -149,6 +149,8 @@ export async function generateShortConnectedExplanation({
       question,
       workingContext,
       supabase,
+      authHeader: workingContext?.authHeader ?? null,
+      testCustomerId: customerId,
       fetchImpl,
       env,
     });

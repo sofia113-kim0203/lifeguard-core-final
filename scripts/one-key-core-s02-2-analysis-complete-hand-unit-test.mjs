@@ -133,6 +133,8 @@ await runCase("S02-2-2 runOneKeyCoreTurn analysis_complete 8-step trace", async 
     false,
   );
   assert.ok(String(result.customerInitiativeSentence ?? "").length > 0);
+  assert.equal(result.key_customer_text_sealed, true);
+  assert.equal(result.key_speak_original, result.customerInitiativeSentence);
   assert.equal(result.intakeTrace.response_source, ONE_KEY_CORE_RESPONSE_SOURCE.ANALYSIS_COMPLETE);
 });
 

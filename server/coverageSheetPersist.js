@@ -160,6 +160,11 @@ async function loadUploadExtractPoliciesForDocument(admin, customerId, documentI
   return (data ?? []).filter((row) => row.coverage_summary?.source_document_id === documentId);
 }
 
+function hasKeyProtectedVerifiedFacts(coverageSummary) {
+  const facts = coverageSummary?.key_confirmed_source_facts;
+  return Array.isArray(facts) && facts.length > 0;
+}
+
 async function retireUploadExtractPolicies(admin, customerId, policyIds) {
   const retired = [];
   for (const policyId of policyIds) {
@@ -171,6 +176,8 @@ async function retireUploadExtractPolicies(admin, customerId, policyIds) {
       .maybeSingle();
     if (readError) throw new Error(`policy_retire_read_failed: ${readError.message}`);
     if (!existing) continue;
+    // KEY-confirmed facts are authoritative; sheet re-extraction cannot retire them.
+    if (hasKeyProtectedVerifiedFacts(existing.coverage_summary)) continue;
 
     const coverageSummary = {
       ...(existing.coverage_summary ?? {}),
@@ -219,6 +226,17 @@ export async function persistCoverageSheetRows(admin, customerId, documentId, pa
     activeKeys.push(uploadExtractKey);
 
     if (existing?.id) {
+      // Same authority boundary as the main policy extractor: factory rows never
+      // overwrite KEY-confirmed source facts.
+      if (hasKeyProtectedVerifiedFacts(existing.coverage_summary)) {
+        actions.push({
+          policy_id: existing.id,
+          action: "kept_existing_verified",
+          upload_extract_key: uploadExtractKey,
+          sheet_row_index: row.row_index ?? null,
+        });
+        continue;
+      }
       const { data, error } = await admin
         .from("profile_insurance_policies")
         .update(policyRow)
@@ -250,7 +268,10 @@ export async function persistCoverageSheetRows(admin, customerId, documentId, pa
     });
   }
 
-  const retireIds = planRetiredPolicyIds(existingRows, documentId, activeKeys);
+  const retireIds = planRetiredPolicyIds(existingRows, documentId, activeKeys).filter((policyId) => {
+    const existing = (existingRows ?? []).find((row) => row.id === policyId);
+    return !hasKeyProtectedVerifiedFacts(existing?.coverage_summary);
+  });
   const retiredPolicyIds = await retireUploadExtractPolicies(admin, customerId, retireIds);
 
   return {

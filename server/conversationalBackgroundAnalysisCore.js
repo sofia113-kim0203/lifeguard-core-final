@@ -138,17 +138,9 @@ async function postResultMessageIfNeeded(adminClient, customerId, job) {
     return null;
   }
 
-  return insertConversationMessage(adminClient, customerId, {
-    role: "assistant",
-    message: job.final_response_text,
-    metadata: {
-      source: "conversational_background_analysis",
-      phase: "phase26-2a-result",
-      analysis_job_id: job.id,
-      connected_to_analysis: true,
-      timing_metrics: job.timing_metrics ?? {},
-    },
-  });
+  // KEY monopoly — background analysis must not write customer speech.
+  // Claiming the job preserves idempotency so cron/worker retries stop here.
+  return null;
 }
 
 

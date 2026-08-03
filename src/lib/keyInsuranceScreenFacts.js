@@ -20,6 +20,7 @@ import {
   isVerifiedBaselineFact,
   policiesHaveKeyBaselineFacts,
 } from "./keyCoverageBaselineFacts.js";
+import { isEligibleConfirmedContractCard } from "./policyIdentityPollution.js";
 
 export const KEY_TURN_MIRROR_EMPTY = "\uC544\uC9C1 \uC774 \uB300\uD654\uC5D0\uC11C \uD655\uC778\uB41C \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
 
@@ -326,6 +327,7 @@ export function projectCanonicalContracts(policies = [], opts = {}) {
   let ownership_exclusions = 0;
 
   for (const policy of active) {
+    if (!isEligibleConfirmedContractCard(policy)) continue;
     const source_fact_key = buildSourceFactKey(policy);
     const contract_identity_key = buildContractIdentityKey(policy, opts);
     const enriched = {
@@ -363,15 +365,19 @@ export function projectCanonicalContracts(policies = [], opts = {}) {
       continue;
     }
 
-    const prev = confirmedByKey.get(contract_identity_key);
+    // A distinct persisted contract_id is never merged into another card, even
+    // when its extracted identity fingerprint happens to match.
+    const contractId = String(policy.contract_id ?? policy.id ?? "").trim();
+    const confirmedKey = contractId ? `contract:${contractId}` : contract_identity_key;
+    const prev = confirmedByKey.get(confirmedKey);
     if (!prev) {
-      confirmedByKey.set(contract_identity_key, enriched);
+      confirmedByKey.set(confirmedKey, enriched);
     } else {
       // Prefer row with more source linkage; keep single confirmed contract.
       const prevLinks = Number(Boolean(summaryOf(prev).source_document_id)) +
         Number(Boolean(pickSourceSha(prev)));
       const nextLinks = Number(Boolean(docId)) + Number(Boolean(pickSourceSha(policy)));
-      if (nextLinks > prevLinks) confirmedByKey.set(contract_identity_key, enriched);
+      if (nextLinks > prevLinks) confirmedByKey.set(confirmedKey, enriched);
     }
   }
 

@@ -1,6 +1,6 @@
 /**
- * Phase 28 — chat duplicate response fix verification.
- * Simulates concurrent job completion handlers and asserts one result row per job.
+ * Phase 28 — background result speech monopoly verification.
+ * Simulates concurrent job completion handlers and asserts no result row is created.
  */
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
@@ -54,10 +54,10 @@ const concurrentPosts = Array.from({ length: 12 }, () =>
 
 const results = await Promise.all(concurrentPosts);
 const postedRows = results.filter((row) => row?.id);
-assert.ok(postedRows.length >= 1, "at least one concurrent post handler should return a message row");
+assert.equal(postedRows.length, 0, "background handlers must not return a customer message row");
 
 const resultCount = await countResultMessages(TEST_CUSTOMER_ID, jobId);
-assert.equal(resultCount, 1, `expected 1 phase26-2a-result row, got ${resultCount}`);
+assert.equal(resultCount, 0, `expected no phase26-2a-result row, got ${resultCount}`);
 
 const { data: jobRow } = await supabase
   .from("analysis_jobs")

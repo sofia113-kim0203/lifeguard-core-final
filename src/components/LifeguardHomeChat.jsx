@@ -812,7 +812,10 @@ export default function LifeguardHomeChat({
 
   useEffect(() => {
     if (prevCustomerIdRef.current === customerId) return;
+    const previousCustomerId = prevCustomerIdRef.current;
     prevCustomerIdRef.current = customerId;
+    clearReadyCardHandoffToken();
+    if (previousCustomerId) clearLifeguardChatSnapshot(previousCustomerId);
     clearConversationActiveAttachment();
     clearExplicitReopenFlight();
     setRestorableAttachmentCandidate(null);
@@ -2679,14 +2682,16 @@ export default function LifeguardHomeChat({
   const finishDocumentDeleteResult = useCallback(
     async (result, { setLocalError }) => {
       const did = String(result?.documentId ?? "").trim();
-      // Soft-delete already took effect ? never restore active document_id / prior_attach.
-      // Success or clear flag: drop matching activeAttachment from state + snapshot immediately.
-      if (did && (result?.success || result?.clear_active_attachment)) {
+      // Do not remove the attachment/card until server-side finalization completes;
+      // a partial delete must stay visible for an explicit retry.
+      if (did && result?.success) {
         applyDocumentDeletedLocally(did);
       }
-      await reloadDocuments();
-      // Re-hydrate customer card so left rail drops retired / deleted-source policies.
-      if (typeof session?.refreshSession === "function") {
+      if (result?.success) {
+        await reloadDocuments();
+      }
+      // Re-hydrate customer card only after the complete delete contract succeeds.
+      if (result?.success && typeof session?.refreshSession === "function") {
         try {
           await session.refreshSession({ event: "document_soft_deleted", reloadJob: false });
         } catch {

@@ -289,6 +289,8 @@ export async function buildClaimBridgeAnswer({
   question,
   workingContext = {},
   supabase = null,
+  authHeader = null,
+  testCustomerId = null,
   fetchImpl = fetch,
   env = process.env,
 } = {}) {
@@ -307,6 +309,8 @@ export async function buildClaimBridgeAnswer({
       question,
       mode: "rag_only",
       adminSupabase: supabase,
+      authHeader,
+      testCustomerId,
       env,
       fetchImpl,
     }).catch(() => null);

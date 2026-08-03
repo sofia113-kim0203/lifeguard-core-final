@@ -711,6 +711,9 @@ export default function AiRecommendationPanel({
   const [rebalancingResult, setRebalancingResult] = useState(null);
   const [analysisJob, setAnalysisJob] = useState(null);
   const displayedPanelJobRef = useRef(null);
+  const customerScopeId =
+    session?.dashboardData?.customerId ?? session?.unifiedState?.customer_id ?? user?.id ?? null;
+  const previousCustomerScopeRef = useRef(customerScopeId);
 
   useEffect(() => {
     const debugPayload = {
@@ -788,6 +791,15 @@ export default function AiRecommendationPanel({
     setDesignResult(null);
     setRebalancingResult(null);
   }, []);
+
+  useEffect(() => {
+    if (previousCustomerScopeRef.current === customerScopeId) return;
+    previousCustomerScopeRef.current = customerScopeId;
+    clearPanelResults();
+    displayedPanelJobRef.current = null;
+    setAnalysisJob(null);
+    setError("");
+  }, [customerScopeId, clearPanelResults]);
 
   const loadInitialAnalysis = useCallback(async ({ signal } = {}) => {
     const aborted = () => Boolean(signal?.aborted);

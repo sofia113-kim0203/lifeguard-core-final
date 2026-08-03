@@ -7,6 +7,7 @@ import {
 } from "../keyBrain/returnJudgmentFirstSpeak.js";
 import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
+import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { buildKeyReturnJudgmentIntakeShadowTrace } from "../keyBrain/returnJudgmentIntakeShadow.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
@@ -307,7 +308,8 @@ export async function runOneKeyCoreReturnJudgmentTurn({
       speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
   });
   const keyFirstJudgment = keyJudgment;
-  const returnJudgmentSentence = outletResult.keySpeakOriginal;
+  const returnJudgmentSeal = sealKeyCustomerText(outletResult.keySpeakOriginal);
+  const returnJudgmentSentence = returnJudgmentSeal.key_speak_original;
   const personaMeta = {
     generation_mode: outletResult.generation_mode,
     persona_rewrite_blocked: true,
@@ -331,6 +333,7 @@ export async function runOneKeyCoreReturnJudgmentTurn({
     gate,
     keyFirstJudgment,
     returnJudgmentSentence,
+    ...returnJudgmentSeal,
     personaMeta,
     oneKeyCoreTrace: { ...trace, complete: traceComplete },
   });
@@ -351,6 +354,7 @@ export async function runOneKeyCoreReturnJudgmentTurn({
     event: "return_judgment",
     response_source: ONE_KEY_CORE_RESPONSE_SOURCE.RETURN_JUDGMENT,
     returnJudgmentSentence,
+    ...returnJudgmentSeal,
     personaMeta,
     keyFirstJudgment,
     intakeTrace,

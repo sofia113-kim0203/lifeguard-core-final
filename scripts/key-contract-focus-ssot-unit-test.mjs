@@ -18,6 +18,10 @@ import {
   resolveContractCardSelectionState,
   shouldClearPointedContractOnLifecycle,
 } from "../src/lib/keyContractFocusSsot.js";
+import {
+  buildMyInsuranceStatus,
+  projectCanonicalContracts,
+} from "../src/lib/keyInsuranceScreenFacts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -136,6 +140,58 @@ function testLifecycleClearAndIdLookup() {
   console.log("PASS lifecycle_clear_and_id_lookup");
 }
 
+function testConfirmedBoundaryAcrossCardsAndRail() {
+  const rows = [
+    {
+      id: "pending",
+      contract_id: "pending",
+      insurer_name: "A",
+      product_name: "대기 상품",
+      coverage_summary: { factory_verification_status: "pending_unverified" },
+      policy_number: "A-100",
+    },
+    {
+      id: "empty-product",
+      contract_id: "empty-product",
+      insurer_name: "A",
+      product_name: "",
+      policy_number: "A-101",
+    },
+    {
+      id: "same-facts-1",
+      contract_id: "same-facts-1",
+      insurer_name: "A",
+      product_name: "정상 상품",
+      policy_number: "A-102",
+    },
+    {
+      id: "same-facts-2",
+      contract_id: "same-facts-2",
+      insurer_name: "A",
+      product_name: "정상 상품",
+      policy_number: "A-102",
+    },
+  ];
+  const cards = listUniqueContractCards(rows);
+  assert.deepEqual(
+    cards.map((row) => row.contract_id),
+    ["same-facts-1", "same-facts-2"],
+  );
+  const projection = projectCanonicalContracts(rows);
+  assert.deepEqual(
+    projection.personal_confirmed_contracts.map((row) => row.contract_id),
+    ["same-facts-1", "same-facts-2"],
+  );
+  const rail = buildMyInsuranceStatus(rows);
+  assert.equal(rail.confirmedCount, 2);
+  assert.deepEqual(
+    rail.confirmedPolicies.map((row) => row.id),
+    ["same-facts-1", "same-facts-2"],
+  );
+  noProvider();
+  console.log("PASS confirmed_boundary_cards_rail_and_projection");
+}
+
 function testSourceWiring() {
   const src = readFileSync(
     join(ROOT, "src/components/LifeguardHomeChat.jsx"),
@@ -159,6 +215,7 @@ function main() {
   testSelectionReplaceAndClear();
   testFakeRequestPointer();
   testLifecycleClearAndIdLookup();
+  testConfirmedBoundaryAcrossCardsAndRail();
   testSourceWiring();
   console.log(
     JSON.stringify({

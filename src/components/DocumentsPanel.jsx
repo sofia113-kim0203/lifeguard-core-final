@@ -229,10 +229,8 @@ export default function DocumentsPanel({ user }) {
     try {
       const result = await softDeleteDocument(user, documentId);
       const customerId = result?.customerId;
-      // Soft-delete took effect → never restore active attach / document_id on partial failure.
-      // Same Hand contract as LifeguardHomeChat.finishDocumentDeleteResult.
       if (
-        (result?.success || result?.clear_active_attachment) &&
+        result?.success &&
         customerId &&
         result.documentId
       ) {
@@ -253,12 +251,12 @@ export default function DocumentsPanel({ user }) {
           });
         }
       }
-      await loadData();
-      // Re-hydrate unifiedState / left rail after soft-delete (parity with HomeChat).
-      if (
-        (result?.success || result?.clear_active_attachment) &&
-        typeof refreshSession === "function"
-      ) {
+      // Keep the card in place until every finalization step succeeds. A failed
+      // finalize must remain retryable and must not look like a completed delete.
+      if (result?.success) {
+        await loadData();
+      }
+      if (result?.success && typeof refreshSession === "function") {
         try {
           await refreshSession({ event: "document_soft_deleted", reloadJob: false });
         } catch {

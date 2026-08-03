@@ -12,6 +12,7 @@ import {
 import { jobHasStoredRecommendation } from "../keyBrain/analysisCompleteFirstSpeak.js";
 import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
+import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
 import {
@@ -283,7 +284,8 @@ export async function runOneKeyCoreAnalysisCompleteTurn({
     failureMode:
       speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
   });
-  const customerInitiativeSentence = outletResult.keySpeakOriginal;
+  const customerInitiativeSeal = sealKeyCustomerText(outletResult.keySpeakOriginal);
+  const customerInitiativeSentence = customerInitiativeSeal.key_speak_original;
   const personaMeta = {
     generation_mode: outletResult.generation_mode,
     persona_rewrite_blocked: true,
@@ -308,6 +310,7 @@ export async function runOneKeyCoreAnalysisCompleteTurn({
     transitionObservedAt,
     keyJudgment,
     customerInitiativeSentence,
+    ...customerInitiativeSeal,
     personaMeta,
     oneKeyCoreTrace: { ...trace, complete: traceComplete },
   });
@@ -317,6 +320,7 @@ export async function runOneKeyCoreAnalysisCompleteTurn({
     event: "analysis_complete",
     response_source: ONE_KEY_CORE_RESPONSE_SOURCE.ANALYSIS_COMPLETE,
     customerInitiativeSentence,
+    ...customerInitiativeSeal,
     personaMeta,
     keyFirstJudgment: keyJudgment,
     intakeTrace,

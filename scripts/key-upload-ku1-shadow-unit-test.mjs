@@ -21,8 +21,9 @@ const SAMPLE_DOC = {
 };
 
 function testShadowFlag() {
-  assert.equal(getKeyUploadEntryMode({}), KEY_UPLOAD_ENTRY_MODES.OFF);
+  assert.equal(getKeyUploadEntryMode({}), KEY_UPLOAD_ENTRY_MODES.ACTIVE);
   assert.equal(isKeyUploadEntryShadowEnabled({ KEY_UPLOAD_ENTRY: "shadow" }), true);
+  assert.equal(getKeyUploadEntryMode({ KEY_UPLOAD_ENTRY: "off" }), KEY_UPLOAD_ENTRY_MODES.OFF);
 }
 
 function testTraceChain() {

@@ -47,6 +47,7 @@ export function useCustomerDocumentUpload({
   const statusRef = useRef(storageConsentStatus);
   statusRef.current = storageConsentStatus;
   const hydrateInFlightRef = useRef(null);
+  const uploadInFlightRef = useRef(false);
 
   const hasConsent = isDocumentStorageConsentGranted(storageConsentStatus);
 
@@ -217,12 +218,14 @@ export function useCustomerDocumentUpload({
       setError(DOCUMENT_UI_MESSAGES.selectFile);
       return;
     }
+    // React state updates are asynchronous; guard the same event-loop turn too.
+    if (uploadInFlightRef.current) return;
 
+    uploadInFlightRef.current = true;
     setUploading(true);
     clearMessages();
     try {
       let lastKeyFirstSentence = null;
-      let lastKeyFollowUpSentence = null;
       let lastPipeline = null;
       let lastPolicyCount = insurancePolicyCount;
       const uploadErrors = [];
@@ -235,22 +238,16 @@ export function useCustomerDocumentUpload({
             uploadResult?.keyIntake?.customer_first_sentence ??
             uploadResult?.keyIntakeTrace?.customer_first_sentence ??
             null;
-          const keyFollowUpSentence = ingest?.policyExtraction?.keyFollowUpSentence ?? null;
           lastKeyFirstSentence = keyFirstSentence;
-          lastKeyFollowUpSentence = keyFollowUpSentence;
 
-          if (keyFirstSentence && keyFollowUpSentence) {
-            setSuccess(`${keyFirstSentence}\n\n${keyFollowUpSentence}`);
-          } else if (keyFirstSentence) {
+          if (keyFirstSentence) {
             setSuccess(keyFirstSentence);
-          } else if (keyFollowUpSentence) {
-            setSuccess(keyFollowUpSentence);
           } else if (ingest?.blocked) {
             setSuccess(
               `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.analysisBlockedNotice}`,
             );
           } else if (ingest?.failed) {
-            setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+            setSuccess("");
             setError(ingest.message ?? DOCUMENT_UI_MESSAGES.ingestFailedNotice);
           } else if (ingest?.policyExtraction?.ok) {
             setSuccess(
@@ -261,7 +258,7 @@ export function useCustomerDocumentUpload({
             ingest?.policyExtraction &&
             !ingest.policyExtraction.ok
           ) {
-            setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
+            setSuccess("");
             setError(
               ingest.policyExtraction.message ?? DOCUMENT_UI_MESSAGES.policyExtractPartialNotice,
             );
@@ -298,32 +295,28 @@ export function useCustomerDocumentUpload({
             insurancePolicyCount;
 
           if (pipeline.ok) {
-            if (!keyFirstSentence && !keyFollowUpSentence) {
+            if (!keyFirstSentence) {
               setSuccess(
                 `${DOCUMENT_UI_MESSAGES.uploadSuccess} ${DOCUMENT_UI_MESSAGES.pipelineRefreshSuccessNotice}`,
               );
             }
             setError("");
           } else if (pipeline.steps?.policy_extraction?.ok && !pipeline.steps?.analysis_job?.ok) {
-            if (!keyFirstSentence && !keyFollowUpSentence) {
-              setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-            }
+            setSuccess("");
             setError(pipeline.message ?? DOCUMENT_UI_MESSAGES.pipelineAnalysisFailedNotice);
           } else if (
             !pipeline.steps?.policy_extraction?.ok &&
             ingest?.workerResult?.ingest_status === "ready"
           ) {
-            if (!keyFirstSentence && !keyFollowUpSentence) {
-              setSuccess(DOCUMENT_UI_MESSAGES.uploadSuccess);
-            }
+            setSuccess("");
             setError(
               pipeline.steps?.policy_extraction?.error_message ??
                 DOCUMENT_UI_MESSAGES.policyExtractPartialNotice,
             );
           }
 
-          if (typeof onKeyChatPresence === "function" && (keyFirstSentence || keyFollowUpSentence)) {
-            onKeyChatPresence({ keyFirstSentence, keyFollowUpSentence });
+          if (typeof onKeyChatPresence === "function" && keyFirstSentence) {
+            onKeyChatPresence({ keyFirstSentence });
           }
           return { ok: true, documentId };
         } catch (err) {
@@ -355,13 +348,13 @@ export function useCustomerDocumentUpload({
 
       if (uploadErrors.length > 0) {
         setError(uploadErrors[0]);
-        if (!lastKeyFirstSentence && !lastKeyFollowUpSentence && !lastPipeline) {
-          setSuccess("");
-        }
+        setSuccess("");
       }
     } catch (err) {
+      setSuccess("");
       setError(toCustomerErrorMessage(err, "문서 업로드에 실패했습니다."));
     } finally {
+      uploadInFlightRef.current = false;
       setUploading(false);
     }
   }, [

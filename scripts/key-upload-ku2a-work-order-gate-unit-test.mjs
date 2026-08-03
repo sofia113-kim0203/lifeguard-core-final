@@ -171,8 +171,10 @@ function testGateActivePassesWithKeyWorkOrder() {
 }
 
 function testActiveFlag() {
+  assert.equal(isKeyUploadEntryActiveEnabled({}), true);
   assert.equal(isKeyUploadEntryActiveEnabled({ KEY_UPLOAD_ENTRY: "active" }), true);
   assert.equal(isKeyUploadEntryActiveEnabled({ KEY_UPLOAD_ENTRY: "shadow" }), false);
+  assert.equal(isKeyUploadEntryActiveEnabled({ KEY_UPLOAD_ENTRY: "off" }), false);
 }
 
 function testUnauthorizedFactoryRejected() {

@@ -159,6 +159,8 @@ await runCase("S02-4-3 runOneKeyCoreTurn return_judgment 8-step trace", async ()
     false,
   );
   assert.ok(String(result.returnJudgmentSentence ?? "").length > 0);
+  assert.equal(result.key_customer_text_sealed, true);
+  assert.equal(result.key_speak_original, result.returnJudgmentSentence);
   assert.equal(result.intakeTrace.response_source, ONE_KEY_CORE_RESPONSE_SOURCE.RETURN_JUDGMENT);
 });
 

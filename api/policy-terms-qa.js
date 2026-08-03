@@ -8,6 +8,11 @@ import {
   parsePolicyTermsQaBody,
 } from "../server/policyTermsQaCore.js";
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
+import {
+  createUserSupabaseClient,
+  readCustomerAuthHeader,
+  requireAdminAuth,
+} from "../server/agent/requireAdminAuth.js";
 
 /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res */
 export default async function handler(req, res) {
@@ -28,6 +33,15 @@ export default async function handler(req, res) {
     return;
   }
 
+  const authHeader = readCustomerAuthHeader(req);
+  const auth = await requireAdminAuth(createUserSupabaseClient(authHeader));
+  if (!auth.ok) {
+    res.statusCode = auth.reason === "UNAUTHORIZED" ? 401 : 403;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: false, reason: auth.reason }));
+    return;
+  }
+
   try {
     const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
     const parsed = parsePolicyTermsQaBody(body);
@@ -38,7 +52,6 @@ export default async function handler(req, res) {
       return;
     }
 
-    const authHeader = req.headers?.authorization ?? req.headers?.Authorization ?? null;
     const result = await handlePolicyTermsQaRequest({
       question: parsed.question,
       mode: parsed.mode,

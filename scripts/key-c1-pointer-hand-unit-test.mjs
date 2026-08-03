@@ -216,6 +216,37 @@ function testU7() {
   console.log("U7=PASS");
 }
 
+/** U8 — pointed coverage with list but no coverage evidence → Provider skip */
+function testU8() {
+  const req = liveSelective(
+    "이 보험의 주요 보장만 알려줘",
+    { pointed_contract_ids: ["c1"] },
+    {
+      chart: {
+        verified_document_coverages: [
+          { coverage_name: "수술비", coverage_amount: 2000000, contract_id: "c2" },
+        ],
+      },
+    },
+  );
+  assert.ok(selectedPacketIds(req).includes("policy_list_packet"));
+  assert.equal(
+    selectedPacketIds(req).filter((id) => id.startsWith("coverage_packet_")).length,
+    0,
+  );
+  assert.ok(req.selection_plan.selected_prompt_blocks.includes("COND_COVERAGE"));
+  assert.equal(
+    shouldSkipProviderForEmptyContractPackets({
+      selectionPlan: req.selection_plan,
+      pointedContractIds: ["c1"],
+      question: "이 보험의 주요 보장만 알려줘",
+    }),
+    true,
+  );
+  assert.equal(req.meta.FULL_DATA_FALLBACK, 0);
+  console.log("U8=PASS");
+}
+
 function main() {
   testU1();
   testU2();
@@ -224,12 +255,13 @@ function main() {
   testU5();
   testU6();
   testU7();
+  testU8();
   console.log(
     JSON.stringify({
       KEY_C1_POINTER_HAND_UNIT: "PASS",
       REAL_PROVIDER_CALL: 0,
       FULL_DATA_FALLBACK: 0,
-      tests: ["U1", "U2", "U3", "U4", "U5", "U6", "U7"],
+      tests: ["U1", "U2", "U3", "U4", "U5", "U6", "U7", "U8"],
     }),
   );
 }

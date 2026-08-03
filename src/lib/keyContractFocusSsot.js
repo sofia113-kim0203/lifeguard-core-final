@@ -2,7 +2,7 @@
  * CONTRACT FOCUS SSOT — contract_id owns UI selection → request pointer.
  * No insurer/product name matching. No react_key dependency.
  */
-import { isNonContractPolicyRow } from "./policyIdentityPollution.js";
+import { isEligibleConfirmedContractCard } from "./policyIdentityPollution.js";
 
 /** Canonical internal contract id for a policy/card row. */
 export function resolveCanonicalContractId(policy) {
@@ -23,7 +23,7 @@ export function listUniqueContractCards(policies = []) {
   const seen = new Set();
   const out = [];
   for (const policy of Array.isArray(policies) ? policies : []) {
-    if (isNonContractPolicyRow(policy)) continue;
+    if (!isEligibleConfirmedContractCard(policy)) continue;
     const contractId = resolveCanonicalContractId(policy);
     if (!contractId) continue;
     if (seen.has(contractId)) continue;

@@ -1,0 +1,218 @@
+{
+  "schema_version": "key-whole-connection-root-fix-checklist-v1",
+  "base_sha": "2facf9b9bfd4b35ce8ec600f76f03c8c0eed0894",
+  "locked_order": ["R11", "R14", "R1", "R2", "R3", "R5", "R4"],
+  "note_order": "Tom GO: R11 → R14 → R1–R5 → R4. R4(upload) after R1–R5 fact/HOLD roots. Numeric R4 inside R1–R5 is NOT a second pass — trailing R4 = upload/idempotency batch.",
+  "do_not_touch": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10"],
+  "production_change": 0,
+  "roots": {
+    "R11": {
+      "title": "AI상담실·cron 이중/자동 발화",
+      "tom_sections": ["1", "5", "H4", "H5"],
+      "audit_ids": ["A6", "E1"],
+      "status": "CODE_FIXED"
+    },
+    "R14": {
+      "title": "Bridge/Return/Analysis intake Seal 밖 문장",
+      "tom_sections": ["1", "H7"],
+      "audit_ids": ["A7"],
+      "status": "CODE_FIXED"
+    },
+    "R1": {
+      "title": "OCR evidence_state verified 승격",
+      "tom_sections": ["1", "2"],
+      "audit_ids": ["A1"],
+      "status": "CODE_FIXED"
+    },
+    "R2": {
+      "title": "Factory/DU1 Seal 밖 고객 문장",
+      "tom_sections": ["1"],
+      "audit_ids": ["A2"],
+      "status": "CODE_FIXED"
+    },
+    "R3": {
+      "title": "KEY confirm 전 pending row UI/chart/memory 제외",
+      "tom_sections": ["2", "4"],
+      "audit_ids": ["A3", "B11", "E7"],
+      "status": "CODE_FIXED",
+      "note": "KEY-confirmed facts override pending_unverified"
+    },
+    "R5": {
+      "title": "coverage_packet=0 HOLD · invent 금지",
+      "tom_sections": ["2", "7", "H6"],
+      "audit_ids": ["A5"],
+      "status": "CODE_FIXED"
+    },
+    "R4": {
+      "title": "Upload ENTRY active · 단일경로 · 멱등 · UI 상태",
+      "tom_sections": ["3", "H1", "H2", "H3"],
+      "audit_ids": ["B1", "B2", "B3", "B4", "B5", "B6", "B8", "B9", "B10", "B12", "A4"],
+      "status": "CODE_FIXED"
+    },
+    "R6": {
+      "title": "카드·rail·status·projection SSOT",
+      "tom_sections": ["4"],
+      "audit_ids": ["B7"],
+      "status": "CODE_FIXED",
+      "belong_to": "R3/R4 UI projection slice"
+    },
+    "R12": {
+      "title": "claimBridge auth/ownership",
+      "tom_sections": ["6"],
+      "audit_ids": ["C2"],
+      "status": "CODE_FIXED"
+    },
+    "R13": {
+      "title": "health endpoints auth",
+      "tom_sections": ["6"],
+      "audit_ids": ["C1"],
+      "status": "CODE_FIXED"
+    },
+    "R15": {
+      "title": "Shared policy promotion KEY WO",
+      "tom_sections": ["6", "8"],
+      "audit_ids": ["A8", "C8"],
+      "status": "CODE_FIXED"
+    },
+    "R16": {
+      "title": "corporate entity_id RLS/CHECK",
+      "tom_sections": ["6", "8", "H8"],
+      "audit_ids": ["A9"],
+      "status": "CODE_FIXED_MIGRATION_PENDING_APPLY",
+      "migration": "supabase/migrations/029_customer_documents_entity_authority_guard.sql"
+    },
+    "R17": {
+      "title": "Memory/analysis cron KEY WO 면제 정리",
+      "tom_sections": ["3", "8"],
+      "audit_ids": ["B10"],
+      "status": "PARTIAL",
+      "belong_to": "R4",
+      "note": "R11 blocks conversation insert; memory cron WO still separate HOLD"
+    },
+    "R18": {
+      "title": "FACTORY_SPEAK dead Anthropic 제거",
+      "tom_sections": ["5", "7"],
+      "audit_ids": ["C4", "C5"],
+      "status": "CODE_FIXED"
+    },
+    "R19": {
+      "title": "Agent briefing audience + ownership",
+      "tom_sections": ["5"],
+      "audit_ids": ["D3", "D4"],
+      "status": "CODE_FIXED"
+    },
+    "R20": {
+      "title": "Dead UI·route 정리",
+      "tom_sections": ["5"],
+      "audit_ids": ["E3", "E4", "E5"],
+      "status": "CODE_FIXED"
+    },
+    "R_SESSION": {
+      "title": "logout/customer switch clear",
+      "tom_sections": ["4", "H7"],
+      "audit_ids": ["D1", "D2", "D5"],
+      "status": "CODE_FIXED",
+      "belong_to": "R3/R4 UI session"
+    },
+    "R_ORPHAN_API": {
+      "title": "orphan Provider API 차단",
+      "tom_sections": ["6"],
+      "audit_ids": ["C3"],
+      "status": "CODE_FIXED"
+    },
+    "R_STAGING": {
+      "title": "staging polluted cleanup + env.example",
+      "tom_sections": ["8"],
+      "audit_ids": ["F1", "F2", "F4"],
+      "status": "ENV_EXAMPLE_DONE_CLEANUP_PENDING"
+    }
+  },
+  "audit_id_to_root": {
+    "A1": "R1",
+    "A2": "R2",
+    "A3": "R3",
+    "A4": "R4",
+    "A5": "R5",
+    "A6": "R11",
+    "A7": "R14",
+    "A8": "R15",
+    "A9": "R16",
+    "B1": "R4",
+    "B2": "R4",
+    "B3": "R4",
+    "B4": "R4",
+    "B5": "R4",
+    "B6": "R4",
+    "B7": "R6",
+    "B8": "R4",
+    "B9": "R4",
+    "B10": "R17",
+    "B11": "R3",
+    "B12": "R4",
+    "C1": "R13",
+    "C2": "R12",
+    "C3": "R_ORPHAN_API",
+    "C4": "R18",
+    "C5": "R18",
+    "C6": "G1-G3",
+    "C7": "G10",
+    "C8": "R15",
+    "D1": "R_SESSION",
+    "D2": "R_SESSION",
+    "D3": "R19",
+    "D4": "R19",
+    "D5": "R_SESSION",
+    "D6": "R_SESSION",
+    "E1": "R11",
+    "E2": "R18",
+    "E3": "R20",
+    "E4": "R20",
+    "E5": "R20",
+    "E6": "R3",
+    "E7": "R3",
+    "F1": "R_STAGING",
+    "F2": "R_STAGING",
+    "F3": "PRODUCTION_PENDING",
+    "F4": "R_STAGING",
+    "F5": "HOLD_NO_NEW_FEATURE",
+    "F6": "VERIFY_H"
+  },
+  "jerry_gap_vs_tom_go": [
+    {
+      "id": "GAP_F3",
+      "item": "Production SHA lag (4c617e07 vs 2facf9b)",
+      "tom_coverage": "Production 변경 0 — 이번 GO 범위 밖",
+      "jerry_action": "REPORT as Production pending · 수정하지 않음"
+    },
+    {
+      "id": "GAP_F5",
+      "item": "SELECTIVE env kill-switch",
+      "tom_coverage": "§7 Selective 유지 · 새 플래그 추가 없음",
+      "jerry_action": "HOLD_NO_NEW_FEATURE · 회귀 테스트로 유지"
+    },
+    {
+      "id": "GAP_MATCH_RPC",
+      "item": "match RPC service_role exempt (018)",
+      "tom_coverage": "§6 ownership 강제에 간접만",
+      "jerry_action": "명시 수정 없으면 HOLD · Tom 추가 GO 필요시 보고"
+    },
+    {
+      "id": "GAP_DEMO_ENTITY",
+      "item": "corporate demo upload vs active-only picker mismatch",
+      "tom_coverage": "H8 ownership · RLS에 부분 포함",
+      "jerry_action": "R16/H8에서 demo 정책 확인 · 누락 시 보고"
+    }
+  ],
+  "closed_g": {
+    "G1": "Selective live · FULL skip",
+    "G2": "Empty packet Provider 0",
+    "G3": "pointed ownership · private Q web_search 0",
+    "G4": "pollution extract/sheet gates",
+    "G5": "doc-memory fail ≠ block SSE done",
+    "G6": "Factory-after-Claude sealed rewrite 금지",
+    "G7": "HomeChat Claude-first only",
+    "G8": "FACTORY_SPEAK Provider block",
+    "G9": "intake customer_speak_suppressed",
+    "G10": "Vault one-shot · ≤6"
+  }
+}

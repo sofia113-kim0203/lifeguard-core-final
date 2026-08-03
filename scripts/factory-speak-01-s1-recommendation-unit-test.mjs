@@ -98,18 +98,17 @@ test("serialized output has no factory Korean recommendation sentences", () => {
   assert.doesNotMatch(json, /월 보험 예산이 Memory에/);
 });
 
-test("panel why uses KEY voice not factory reason field", () => {
+test("panel why exposes structured status, not invented judgment", () => {
   const item = result.customer_visible_top2[0];
   const why = buildRecommendationPanelItemWhy(item);
-  assert.match(why, /암 보장부터 같이 확인/);
-  assert.doesNotMatch(why, /왜냐하면/);
-  assert.doesNotMatch(why, /보장 보강이 필요/);
+  assert.match(why, /암/);
+  assert.match(why, /KEY 확인 필요/);
 });
 
 test("panel caveat uses uw_flags budget_band not factory sentences", () => {
   const item = result.customer_visible_top2[0];
   const caveat = buildRecommendationPanelItemCaveat(item);
-  assert.match(caveat, /단정하기보다/);
+  assert.equal(caveat, "KEY 확인 필요");
 });
 
 console.log(`\n${passed}/${passed} passed`);

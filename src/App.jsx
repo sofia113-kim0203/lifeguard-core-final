@@ -190,9 +190,19 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      const { clearAllAgentKeyChatSessions } = await import("./lib/agentKeyChatSession.js");
+      const [
+        { clearAllAgentKeyChatSessions },
+        { clearReadyCardHandoffToken },
+        { clearLifeguardChatSnapshot },
+      ] = await Promise.all([
+        import("./lib/agentKeyChatSession.js"),
+        import("./lib/keyReadyCardWarm.js"),
+        import("./lib/lifeguardChatSessions.js"),
+      ]);
       const agentId = String(user?.id ?? "").trim();
       if (agentId) clearAllAgentKeyChatSessions(agentId);
+      clearReadyCardHandoffToken();
+      if (context?.customerId) clearLifeguardChatSnapshot(context.customerId);
     } catch {
       /* ignore session clear */
     }

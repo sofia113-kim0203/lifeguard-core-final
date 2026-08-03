@@ -23,7 +23,7 @@ type WorkOrderRecord = {
 
 export function isKeyUploadEntryActive(envValue: string | undefined): boolean {
   const raw = String(envValue ?? "").trim().toLowerCase();
-  return raw === "active" || raw === "1";
+  return raw !== "shadow" && raw !== "off" && raw !== "0";
 }
 
 function readKeyWorkOrder(metadataJson: MetadataJson): WorkOrderRecord | null {

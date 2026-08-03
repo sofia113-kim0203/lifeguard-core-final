@@ -175,11 +175,11 @@ test("serialized output has no factory rebalancing speak fields", () => {
   assert.doesNotMatch(json, /보장 보강 검토/);
 });
 
-test("panel lead and next steps use KEY hedged voice", () => {
+test("panel lead and next steps expose structured state only", () => {
   const lead = buildRebalancingPanelLead(visible);
   const steps = buildRebalancingPanelNextSteps(visible);
-  assert.match(lead, /현재 확인된 자료/);
-  assert.doesNotMatch(lead, /가입하세요/);
+  assert.match(lead, /확인 코드/);
+  assert.match(lead, /KEY 확인 필요/);
   assert.ok(steps.length >= 1);
   for (const step of steps) {
     assert.doesNotMatch(step, /보장 보강 검토$/);

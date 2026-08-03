@@ -401,7 +401,7 @@ export function extractPartyStructuresFromBlock(blockText, { policyholder = null
       beneficiary_type: entry.beneficiary_type ?? "beneficiary",
       share: entry.share ?? null,
       effective_from: entry.effective_from ?? null,
-      evidence_state: "verified",
+      evidence_state: "pending_unverified",
       provenance: {
         source_line: entry.source_line ?? null,
       },
@@ -433,7 +433,7 @@ export function extractPartyStructuresFromBlock(blockText, { policyholder = null
       if (name && !namesEqualParty(name, policyholder)) {
         actual_premium_funder = {
           name,
-          evidence_state: "verified",
+          evidence_state: "pending_unverified",
           provenance: {
             source_line: line,
             source_label: cleanValue(funderMatch[1]),
@@ -463,7 +463,7 @@ export function extractPartyStructuresFromBlock(blockText, { policyholder = null
         previous_value: cleanValue(change[2]),
         new_value: cleanValue(change[3]),
         effective_date: effective ? cleanValue(effective) : null,
-        evidence_state: "verified",
+        evidence_state: "pending_unverified",
         provenance: { source_line: line },
       });
     }
@@ -489,7 +489,7 @@ export function extractPartyStructuresFromBlock(blockText, { policyholder = null
         previous_value: null,
         new_value: cleanValue(endorsement[1]),
         effective_date: effective ? cleanValue(effective) : null,
-        evidence_state: "verified",
+        evidence_state: "pending_unverified",
         provenance: { source_line: line },
       });
     }

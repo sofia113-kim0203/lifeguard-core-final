@@ -67,29 +67,19 @@ export function getRebalancingCautionLabel(code) {
 }
 
 export function buildRebalancingPanelLead(visible = {}) {
-  const strengthen = (visible.strengthen_coverage_labels ?? []).filter(Boolean)[0];
-  const keep = (visible.keep_coverage_labels ?? []).filter(Boolean)[0];
-  if (strengthen && keep) {
-    return `현재 확인된 자료를 기준으로 ${keep}은 유지하고, ${strengthen} 축부터 같이 정리하겠습니다.`;
-  }
-  if (strengthen) {
-    return `현재 확인된 자료를 기준으로 ${strengthen} 축부터 같이 정리하겠습니다.`;
-  }
-  if (keep) {
-    return `현재 확인된 자료를 기준으로 ${keep}은 유지하면서, 변경이 필요한 부분부터 같이 보겠습니다.`;
-  }
-  return "현재 확인된 자료를 기준으로 유지·보강 방향부터 같이 정리하겠습니다.";
+  const count = (visible.rebalancing_action_codes ?? []).filter(Boolean).length;
+  return count ? `확인 코드 ${count}건 · KEY 확인 필요` : "KEY 확인 필요";
 }
 
 export function buildRebalancingPanelKeepLine(visible = {}) {
   const labels = (visible.keep_coverage_labels ?? []).filter(Boolean);
-  if (!labels.length) return "유지하고 볼 보험은 등록된 자료를 함께 보면서 정리하겠습니다.";
+  if (!labels.length) return "확인 코드 없음";
   return labels.join(", ");
 }
 
 export function buildRebalancingPanelStrengthenLine(visible = {}) {
   const labels = (visible.strengthen_coverage_labels ?? []).filter(Boolean);
-  if (!labels.length) return "보강이 필요한 축은 등록된 자료를 함께 보면서 정리하겠습니다.";
+  if (!labels.length) return "확인 코드 없음";
   return labels.join(", ");
 }
 
@@ -119,5 +109,5 @@ export function buildRebalancingPanelNextSteps(visible = {}) {
 }
 
 export function buildRebalancingPanelCaveat() {
-  return "다만 특정 상품 변경·해지·가입 여부는 지금 단정하지 않고, 고객 상황을 보면서 순서를 함께 정하겠습니다.";
+  return "KEY 확인 필요";
 }

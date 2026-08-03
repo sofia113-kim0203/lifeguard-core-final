@@ -1,3 +1,4 @@
+// Disabled legacy surface: /agent is served only by LIFEGUARD(KEY) + Hand.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LifeguardAssistantMarkdown } from "../lib/lifeguardChatMarkdown.jsx";
 import {
@@ -607,5 +608,8 @@ function AgentDeskConsultRoom() {
 
 /** App already gates /agent to settled role=agent — no second RoleAccessPanel fetch. */
 export default function AgentDeskPanel() {
-  return <AgentDeskConsultRoom />;
+  if (import.meta.env.MODE !== "test") {
+    throw new Error("AgentDeskPanel is disabled; use LIFEGUARD(KEY) + Hand.");
+  }
+  return null;
 }

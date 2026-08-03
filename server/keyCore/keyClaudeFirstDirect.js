@@ -5763,7 +5763,8 @@ async function callClaudeFirstDirect({
       presenceTurn,
     })
   ) {
-    const holdAnswer = KEY_EMPTY_CONTRACT_PACKET_HOLD;
+    const holdSeal = sealKeyCustomerText(KEY_EMPTY_CONTRACT_PACKET_HOLD);
+    const holdAnswer = holdSeal.key_speak_original;
     try {
       const visible = stripKeyRecordFromStreamText(holdAnswer);
       if (visible) onAnswerProgress?.(visible);
@@ -5773,6 +5774,7 @@ async function callClaudeFirstDirect({
     return {
       ok: true,
       customer_answer: holdAnswer,
+      ...holdSeal,
       progress_only_answer: false,
       confirmed_source_facts: [],
       coverage_baseline_facts: [],

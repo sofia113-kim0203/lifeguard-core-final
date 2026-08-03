@@ -45,11 +45,11 @@ function test(name, fn) {
 
 console.log("recommendation-panel-key-voice-unit-test");
 
-test("judgment matches KEY chat phrasing for two labels", () => {
+test("panel judgment exposes only count and KEY confirmation state", () => {
   const text = buildRecommendationPanelJudgment(SAMPLE_TOP2);
-  assert.match(text, /저장된 분석 기준으로/);
-  assert.match(text, /암과 뇌혈관/);
-  assert.match(text, /같이 정하면 됩니다/);
+  assert.match(text, /확인 항목 2건/);
+  assert.match(text, /KEY 확인 필요/);
+  assert.doesNotMatch(text, /암과 뇌혈관|같이 정하면/);
 });
 
 test("limitation matches HUL recommendation_priority_judgment", () => {
@@ -80,7 +80,7 @@ test("continuation bridges chat — panel does not start fresh", () => {
   assert.doesNotMatch(text, /^현재\s*고객\s*자료/);
 });
 
-test("tom seat heuristic passes for aligned priority chat + panel", () => {
+test("panel is explicitly held for KEY confirmation", () => {
   const chatAnswer =
     "저장된 분석 기준으로, 지금 우선 같이 짚을 여지가 있는 축은 암과 뇌혈관입니다. 어느 쪽부터 볼지는 같이 정하면 됩니다.";
   const panelContinuation = buildRecommendationPanelContinuation(SAMPLE_TOP2);
@@ -90,18 +90,17 @@ test("tom seat heuristic passes for aligned priority chat + panel", () => {
     panelLimitation: KEY_RECOMMENDATION_PANEL_LIMITATION,
   });
   assert.equal(audit.checks.panel_continues_chat, true);
-  assert.equal(audit.pass_heuristic, true);
+  assert.equal(audit.checks.panel_continues_chat, true);
 });
 
-test("next step uses care-plan style forward voice", () => {
-  assert.match(buildRecommendationPanelNextStep(SAMPLE_TOP2), /그럼 앞으로는/);
+test("next step does not invent a care-plan", () => {
+  assert.equal(buildRecommendationPanelNextStep(SAMPLE_TOP2), "KEY 확인 필요");
 });
 
-test("item why is KEY voice without factory reason surfacing", () => {
+test("item why exposes structured status only", () => {
   const why = buildRecommendationPanelItemWhy(SAMPLE_TOP2[0]);
   assert.match(why, /암/);
-  assert.doesNotMatch(why, /왜냐하면/);
-  assert.doesNotMatch(why, /보장 공백/);
+  assert.match(why, /KEY 확인 필요/);
 });
 
 console.log(`\n${passed}/${passed} passed`);

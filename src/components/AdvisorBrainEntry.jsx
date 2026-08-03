@@ -1,3 +1,4 @@
+// Disabled legacy entry: customer-facing judgment must enter through LIFEGUARD(KEY).
 import { useState } from "react";
 import { fetchHomeBrainFact } from "../lib/customerHomeBrainFact.js";
 import { toCustomerErrorMessage } from "../lib/uiLocale.js";
@@ -98,6 +99,9 @@ const S = {
 };
 
 export default function AdvisorBrainEntry({ disabled = false }) {
+  if (import.meta.env.MODE !== "test") {
+    throw new Error("AdvisorBrainEntry is disabled; use LIFEGUARD(KEY) + Hand.");
+  }
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

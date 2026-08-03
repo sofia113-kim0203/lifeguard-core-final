@@ -177,6 +177,7 @@ export async function processCustomerPolicyDocument({
   customerDocumentId,
   metadata = null,
   dryRun = false,
+  env = process.env,
 } = {}) {
   if (!supabase) throw new Error("supabase_required");
   if (!supabaseUrl || !serviceRoleKey) throw new Error("supabaseUrl_and_serviceRoleKey_required");
@@ -262,6 +263,7 @@ export async function processCustomerPolicyDocument({
       supabase,
       customerDocumentId,
       metadata: resolvedMetadata,
+      env,
     });
     const policyPdfId = promotion.policy_pdf.id;
 
@@ -356,6 +358,7 @@ export async function runCustomerPolicyKnowledgeAutoPipeline({
   filenames = null,
   limit = 50,
   dryRun = false,
+  env = process.env,
 } = {}) {
   if (!supabase) throw new Error("supabase_required");
 
@@ -398,6 +401,7 @@ export async function runCustomerPolicyKnowledgeAutoPipeline({
       serviceRoleKey,
       customerDocumentId: document.id,
       dryRun,
+      env,
     });
     results.push({
       original_filename: document.original_filename,

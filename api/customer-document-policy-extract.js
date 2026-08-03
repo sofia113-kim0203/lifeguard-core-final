@@ -4,12 +4,7 @@
  */
 
 import { readJsonBody } from "../server/claudeGroundedExecutionCore.js";
-import {
-  buildLoadedContextFromSnapshot,
-  loadSalesDirectorTurnContext,
-} from "../server/customerContextSnapshot.js";
 import { runDocumentPolicyExtraction } from "../server/documentPolicyExtractionPipeline.js";
-import { buildPhaseAFollowUpCustomerSpeak } from "../server/keyBrain/du1DocumentUploadFirstSpeak.js";
 import { isKeyUploadEntryActiveEnabled } from "../server/keyBrain/uploadEntryFlags.js";
 import { gateFactoryWithKeyWorkOrder, recordKeyWorkOrderFactoryUse } from "../server/keyBrain/workOrder.js";
 import {
@@ -17,39 +12,6 @@ import {
   readCustomerAuthHeader,
   requireCustomerAuth,
 } from "../server/requireCustomerAuth.js";
-
-const DOCUMENT_SELECT =
-  "id, customer_id, original_filename, ingest_status, doc_class, customer_hint_type, mime_type, metadata_json, created_at";
-
-async function buildPhaseAFollowUpFromDocument({
-  supabase,
-  customerId,
-  documentRow,
-  result = null,
-} = {}) {
-  if (!documentRow) return null;
-
-  const meta = documentRow?.metadata_json ?? result?.metadata_json ?? {};
-  const extractionReady =
-    result?.ok === true || meta.policy_extraction_status === "completed";
-
-  const turnContext = await loadSalesDirectorTurnContext(supabase, customerId, {
-    requestHistory: [],
-  });
-
-  return buildPhaseAFollowUpCustomerSpeak({
-    document: documentRow,
-    contextSnapshot: turnContext.snapshot,
-    loadedContext: buildLoadedContextFromSnapshot(turnContext.snapshot),
-    multiExtraction: extractionReady
-      ? (result?.extraction ?? meta.policy_extraction ?? null)
-      : null,
-    linkedPolicyIds: extractionReady
-      ? (result?.policy_ids ?? meta.profile_policy_ids ?? [])
-      : [],
-    ea1CustomerSummary: extractionReady ? (meta.key_ea1_customer_summary ?? null) : null,
-  });
-}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -168,26 +130,6 @@ export default async function handler(req, res) {
       forceRetry,
     });
 
-    let keyFollowUp = null;
-    try {
-      const { data: documentRow } = await supabase
-        .from("customer_documents")
-        .select(DOCUMENT_SELECT)
-        .eq("id", documentId)
-        .eq("customer_id", auth.customerId)
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      keyFollowUp = await buildPhaseAFollowUpFromDocument({
-        supabase,
-        customerId: auth.customerId,
-        documentRow,
-        result,
-      });
-    } catch {
-      keyFollowUp = null;
-    }
-
     res.statusCode = result.ok ? 200 : 422;
     res.setHeader("Content-Type", "application/json");
     res.end(
@@ -196,38 +138,20 @@ export default async function handler(req, res) {
         customer_id: auth.customerId,
         document_id: documentId,
         ...result,
-        key_follow_up_sentence: keyFollowUp?.text ?? null,
-        key_follow_up_segments: keyFollowUp?.segments ?? null,
+        key_follow_up_sentence: null,
+        key_follow_up_segments: null,
       }),
     );
   } catch (error) {
-    let keyFollowUp = null;
-    try {
-      const { data: documentRow } = await supabase
-        .from("customer_documents")
-        .select(DOCUMENT_SELECT)
-        .eq("id", documentId)
-        .eq("customer_id", auth.customerId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      keyFollowUp = await buildPhaseAFollowUpFromDocument({
-        supabase,
-        customerId: auth.customerId,
-        documentRow,
-      });
-    } catch {
-      keyFollowUp = null;
-    }
-
-    res.statusCode = keyFollowUp?.text ? 422 : 500;
+    res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
         reason: "policy_extraction_failed",
         error_message: error instanceof Error ? error.message : "policy_extraction_failed",
-        key_follow_up_sentence: keyFollowUp?.text ?? null,
-        key_follow_up_segments: keyFollowUp?.segments ?? null,
+        key_follow_up_sentence: null,
+        key_follow_up_segments: null,
       }),
     );
   }

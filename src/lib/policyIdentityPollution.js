@@ -56,6 +56,54 @@ export function hasInvalidPolicyIdentityFields(fact = {}) {
   );
 }
 
+function policySummary(policy = {}) {
+  return policy?.coverage_summary && typeof policy.coverage_summary === "object"
+    ? policy.coverage_summary
+    : {};
+}
+
+/** True when KEY already confirmed source facts on this row (verified promotion path). */
+export function hasKeyConfirmedPolicyFacts(policy = {}) {
+  const summary = policySummary(policy);
+  const facts = summary.key_confirmed_source_facts ?? policy?.key_confirmed_source_facts;
+  if (Array.isArray(facts) && facts.length > 0) return true;
+  const source = String(
+    summary.confirmation_source ?? policy?.confirmation_source ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  if (source.startsWith("key_") || source === "key_confirmed") return true;
+  return false;
+}
+
+/** Pending factory rows are evidence candidates, never confirmed customer contracts. */
+export function hasPendingPolicyVerification(policy = {}) {
+  if (hasKeyConfirmedPolicyFacts(policy)) return false;
+  const summary = policySummary(policy);
+  return [
+    policy?.evidence_state,
+    policy?.factory_analysis_status,
+    policy?.factory_verification_status,
+    summary.evidence_state,
+    summary.factory_analysis_status,
+    summary.factory_verification_status,
+  ].some((value) => {
+    const status = String(value ?? "").trim().toLowerCase();
+    return status === "pending" || status === "pending_unverified";
+  });
+}
+
+/**
+ * Customer-confirmed contract boundary.
+ * Never promote OCR pollution, pending factory rows, or unnamed products into a card.
+ * KEY-confirmed facts win over factory pending_unverified labels.
+ */
+export function isEligibleConfirmedContractCard(policy = {}) {
+  if (isNonContractPolicyRow(policy)) return false;
+  if (hasPendingPolicyVerification(policy)) return false;
+  return Boolean(String(policy?.product_name ?? policySummary(policy).product_name ?? "").trim());
+}
+
 /** True when a policy/card row must not be treated as a selectable contract. */
 export function isNonContractPolicyRow(policy = {}) {
   if (hasInvalidPolicyIdentityFields(policy)) return true;

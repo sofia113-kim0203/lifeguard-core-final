@@ -4,6 +4,7 @@
 import { scanBridgeSentence } from "../keyBrain/bridgeFirstSpeak.js";
 import { keySpeakAsync, KEY_SPEAK_MASTER_PATH } from "../keyBrain/keySpeak.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
+import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
 import { buildKeyBridgeIntakeShadowTrace } from "../keyBrain/bridgeIntakeShadow.js";
 import { KEY_ENTRY, runSalesDirectorKeyTurn } from "../salesDirectorKeyOrchestrator.js";
 import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
@@ -265,7 +266,8 @@ export async function runOneKeyCoreBridgeTurn({
       speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
   });
   const scan = scanBridgeSentence(outletResult.keySpeakOriginal ?? "");
-  const bridgeSentence = scan.ok ? outletResult.keySpeakOriginal : null;
+  const bridgeSeal = scan.ok ? sealKeyCustomerText(outletResult.keySpeakOriginal) : null;
+  const bridgeSentence = bridgeSeal?.key_speak_original ?? null;
   const personaMeta = bridgeSentence
     ? {
         generation_mode: outletResult.generation_mode,
@@ -291,6 +293,7 @@ export async function runOneKeyCoreBridgeTurn({
     anchorJobId: anchorJob?.id ?? null,
     gate,
     bridgeSentence,
+    ...(bridgeSeal ?? {}),
     personaMeta,
     oneKeyCoreTrace: { ...trace, complete: traceComplete },
   });
@@ -310,6 +313,7 @@ export async function runOneKeyCoreBridgeTurn({
     event: "bridge",
     response_source: ONE_KEY_CORE_RESPONSE_SOURCE.BRIDGE,
     bridgeSentence,
+    ...bridgeSeal,
     personaMeta,
     intakeTrace,
     workOrderId: null,

@@ -21,8 +21,11 @@ export const KEY_UPLOAD_ACTIVE_GATE = "KEY_UPLOAD_ACTIVE";
 export function getKeyUploadEntryMode(env = process.env) {
   const raw = String(env.KEY_UPLOAD_ENTRY ?? "").trim().toLowerCase();
   if (raw === "shadow") return KEY_UPLOAD_ENTRY_MODES.SHADOW;
+  if (raw === "off" || raw === "0") return KEY_UPLOAD_ENTRY_MODES.OFF;
   if (raw === "active" || raw === "1") return KEY_UPLOAD_ENTRY_MODES.ACTIVE;
-  return KEY_UPLOAD_ENTRY_MODES.OFF;
+  // KEY authority is the safe default. Explicit shadow/off remain available
+  // only for controlled rollback and observation.
+  return KEY_UPLOAD_ENTRY_MODES.ACTIVE;
 }
 
 export function isKeyUploadEntryShadowEnabled(env = process.env) {

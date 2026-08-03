@@ -687,15 +687,20 @@ export async function uploadDocument(
     throw new Error(toCustomerErrorMessage(insertError, "문서 정보를 저장하지 못했습니다."));
   }
 
-  // HomeChat: store original only. Intake / Stage3 / OCR / factory wait for Claude-first answer.
+  // HomeChat defers the factory, not KEY authority. Mint the same KEY Work Order
+  // now; after Claude it is enriched with Claude direction before either factory runs.
   if (deferFactoryUntilClaude) {
+    const keyIntakeResult = await requestKeyDocumentIntake(documentId, {
+      categoryKey: category.key,
+      uploadSource: "web",
+    });
     return {
       customerId,
       document: data,
       ingest: null,
-      keyIntake: null,
-      keyIntakeTrace: null,
-      workOrderId: null,
+      keyIntake: keyIntakeResult,
+      keyIntakeTrace: keyIntakeResult?.intake_trace ?? null,
+      workOrderId: keyIntakeResult?.work_order_id ?? null,
       deferred_factory: true,
     };
   }

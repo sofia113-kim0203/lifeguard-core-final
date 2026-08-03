@@ -1,3 +1,5 @@
+import { isKeyUploadEntryActiveEnabled } from "./keyBrain/uploadEntryFlags.js";
+
 export const DEFAULT_HANWHA_POLICY_DOCUMENT_ID = "7a897bce-c8dd-4ca9-b6bb-1d17945c6002";
 
 export const DEFAULT_HANWHA_POLICY_METADATA = {
@@ -186,7 +188,11 @@ export async function promoteCustomerDocumentToSharedPolicy({
   supabase,
   customerDocumentId = DEFAULT_HANWHA_POLICY_DOCUMENT_ID,
   metadata = DEFAULT_HANWHA_POLICY_METADATA,
+  env = process.env,
 } = {}) {
+  if (String(env.KEY_SHARED_POLICY_PROMOTE ?? "").trim() !== "1") {
+    throw new Error("key_shared_policy_promotion_disabled");
+  }
   if (!supabase) throw new Error("supabase_required");
   const { data: document, error: docError } = await supabase
     .from("customer_documents")
@@ -196,6 +202,10 @@ export async function promoteCustomerDocumentToSharedPolicy({
     .single();
   if (docError || !document) throw new Error(`customer_document_not_found: ${docError?.message ?? customerDocumentId}`);
   if (document.mime_type !== "application/pdf") throw new Error("customer_document_must_be_pdf");
+  const workOrderId = String(document.metadata_json?.key_work_order?.work_order_id ?? "").trim();
+  if (!isKeyUploadEntryActiveEnabled(env) || !workOrderId) {
+    throw new Error("key_work_order_required_for_shared_policy_promotion");
+  }
 
   const targetPath = `hanwha/${metadata.product_code}/${metadata.source_file_name}`;
   const bucket = await ensurePolicyBucket(supabase);

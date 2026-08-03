@@ -4,6 +4,20 @@
  */
 
 import { handleOpenAiHealthCheck } from "../server/openaiHealthCore.js";
+import {
+  createUserSupabaseClient,
+  readCustomerAuthHeader,
+  requireAdminAuth,
+} from "../server/agent/requireAdminAuth.js";
+
+async function isHealthAuthorized(req) {
+  const authHeader = readCustomerAuthHeader(req);
+  const bearer = String(authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
+  const cronSecret = String(process.env.CRON_SECRET ?? "").trim();
+  const serviceRoleKey = String(process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  if ((cronSecret && bearer === cronSecret) || (serviceRoleKey && bearer === serviceRoleKey)) return true;
+  return (await requireAdminAuth(createUserSupabaseClient(authHeader))).ok === true;
+}
 
 /** @param {import('http').IncomingMessage} req @param {import('http').ServerResponse} res */
 export default async function handler(req, res) {
@@ -21,6 +35,13 @@ export default async function handler(req, res) {
     res.statusCode = 405;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ ok: false, reason: "METHOD_NOT_ALLOWED" }));
+    return;
+  }
+
+  if (!(await isHealthAuthorized(req))) {
+    res.statusCode = 401;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: false, reason: "UNAUTHORIZED" }));
     return;
   }
 

@@ -278,8 +278,26 @@ export async function createAgentKeyBriefing({
     conversationWriteProbe("pre_key");
   }
 
+  // Service-role warehouse reads must be preceded by a fresh ownership/consent check.
+  const refreshedAccess = await resolveAgentCustomerKeyAccess({
+    userSupabase,
+    agentUserId,
+    assignmentId,
+    adminSupabase,
+    env,
+  });
+  if (!refreshedAccess.ok || refreshedAccess.assignment.id !== assignment.id) {
+    return {
+      ok: false,
+      reason: refreshedAccess.reason ?? "NOT_ASSIGNED",
+      status: refreshedAccess.status ?? 403,
+      error_message: refreshedAccess.error_message,
+    };
+  }
+
   const keyResult = await runKeyTurn({
     event: "question",
+    audience: "agent",
     userSupabase: admin,
     customerId: assignment.customer_id,
     question: framedQuestion,

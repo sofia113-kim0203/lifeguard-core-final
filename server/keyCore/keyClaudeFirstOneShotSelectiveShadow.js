@@ -1565,7 +1565,7 @@ export function buildClaudeFirstOneShotSelectiveRequest({
 }
 
 /**
- * ROOT_C — when a pointed/"이 보험" turn has zero contract packets, do not call Provider.
+ * ROOT_C — a pointed contract with no required material must not call Provider.
  */
 export function shouldSkipProviderForEmptyContractPackets({
   selectionPlan = null,
@@ -1591,6 +1591,18 @@ export function shouldSkipProviderForEmptyContractPackets({
     unresolved.includes("pointed_contract_materials") ||
     /(이\s*보험|선택한\s*보험|이\s*계약|주요\s*보장|해지)/.test(q);
   if (!contractFramed) return false;
+  const coverageSelected =
+    Array.isArray(plan.selected_prompt_blocks) &&
+    plan.selected_prompt_blocks.includes("COND_COVERAGE");
+  const coverageIntent = coverageSelected || /보장|담보|진단비|수술비/.test(q);
+  // Coverage asks require coverage evidence specifically. A pointed list/premium
+  // packet is not authority to describe coverage, so HOLD before Provider.
+  if (pointed.length > 0 && coverageIntent) {
+    const hasCoveragePacket = packets.some((p) =>
+      String(p?.packet_id ?? "").startsWith("coverage_packet_"),
+    );
+    if (!hasCoveragePacket) return true;
+  }
   const hasContractPacket = packets.some((p) => {
     const id = String(p?.packet_id ?? "");
     return (
