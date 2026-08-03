@@ -14,8 +14,14 @@ SET search_path = public
 AS $$
 DECLARE
   v_actor_id UUID := auth.uid();
+  v_role TEXT := COALESCE(auth.role(), current_setting('request.jwt.claim.role', true), '');
 BEGIN
   IF NEW.entity_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Approved workers use service_role and must keep existing ingest/finalize paths.
+  IF v_role = 'service_role' THEN
     RETURN NEW;
   END IF;
 
