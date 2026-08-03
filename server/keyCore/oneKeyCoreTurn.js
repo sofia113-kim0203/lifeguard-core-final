@@ -347,6 +347,7 @@ export async function runOneKeyCoreTurn({
   readyCardHandoffToken = null,
   presenceTurn = false,
   clientTurnId = null,
+  pointedContractIds = null,
   /** @type {"customer"|"agent"|undefined} */
   audience,
   /** @type {"general"|"customer_scoped"|"customer_denied"|undefined} */
@@ -434,6 +435,7 @@ export async function runOneKeyCoreTurn({
     entityContext,
     readyCardHandoffToken,
     clientTurnId,
+    pointedContractIds,
     shadowVisualBlocksOverride,
     audience,
     conversationMode,
@@ -465,6 +467,7 @@ async function runOneKeyCoreQuestionTurn({
   readyCardHandoffToken = null,
   presenceTurn = false,
   clientTurnId = null,
+  pointedContractIds = null,
   shadowVisualBlocksOverride = null,
   audience,
   conversationMode,
@@ -599,6 +602,7 @@ async function runOneKeyCoreQuestionTurn({
       readyCardHandoffToken,
       presenceTurn: presenceTurn === true,
       clientTurnId,
+      pointedContractIds,
       audience: resolvedAudience,
       conversationMode: resolvedConversationMode,
       keyRoleContract,

@@ -111,6 +111,18 @@ export default async function handler(req, res) {
     );
     const clientTurnId =
       String(body?.client_turn_id ?? body?.clientTurnId ?? "").trim() || null;
+    // C1 Pointer Hand — hint only; Core re-authorizes ownership via chart/ledger.
+    const pointedContractIds = Array.isArray(body?.pointed_contract_ids)
+      ? body.pointed_contract_ids
+          .map((id) => String(id ?? "").trim())
+          .filter(Boolean)
+          .slice(0, 1)
+      : Array.isArray(body?.pointedContractIds)
+        ? body.pointedContractIds
+            .map((id) => String(id ?? "").trim())
+            .filter(Boolean)
+            .slice(0, 1)
+        : [];
     const stream = wantsStream(body, req);
 
     const authHeader = readCustomerAuthHeader(req);
@@ -184,6 +196,7 @@ export default async function handler(req, res) {
         shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
         accessToken: authHeader,
         clientTurnId,
+        pointedContractIds: presenceTurn ? [] : pointedContractIds,
         streamHandlers,
         requestStartedAt,
       });
@@ -242,6 +255,7 @@ export default async function handler(req, res) {
       shadowVisualBlocksOverride: presenceTurn ? null : shadowVisualBlocksOverride,
       accessToken: authHeader,
       clientTurnId,
+      pointedContractIds: presenceTurn ? [] : pointedContractIds,
     });
 
     if (!result.ok) {

@@ -85,6 +85,14 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
       : null;
   const clientTurnId =
     String(options.clientTurnId ?? options.client_turn_id ?? "").trim() || null;
+  // C1 Pointer Hand — v1 max one internal contract id (server re-checks ownership).
+  const pointedRaw = options.pointedContractIds ?? options.pointed_contract_ids;
+  const pointedContractIds = Array.isArray(pointedRaw)
+    ? pointedRaw
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 1)
+    : [];
 
   return {
     question: trimmed,
@@ -109,5 +117,8 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
     ...(entityType && !presenceTurn ? { entity_type: entityType } : {}),
     ...(viewMode && !presenceTurn ? { view_mode: viewMode } : {}),
     ...(clientTurnId ? { client_turn_id: clientTurnId } : {}),
+    ...(pointedContractIds.length && !presenceTurn
+      ? { pointed_contract_ids: pointedContractIds }
+      : {}),
   };
 }

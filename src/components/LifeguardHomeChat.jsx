@@ -297,7 +297,13 @@ function listCardStyle() {
   };
 }
 
-function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
+function CustomerInsuranceList({
+  policies,
+  loading,
+  emptyHint = null,
+  selectedPolicyId = null,
+  onSelectPolicy = null,
+}) {
   if (loading) {
     return <p style={{ margin: 0, color: LG.textMuted }}>보험 정보를 불러오는 중…</p>;
   }
@@ -312,14 +318,44 @@ function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      {policies.map((policy) => (
-        <div key={policy.id} style={listCardStyle()}>
-          <div style={{ fontWeight: 600, color: LG.text, marginBottom: "6px" }}>
-            {policy.insurer_name ?? "—"}
-          </div>
-          {policy.product_name ? (
-            <div style={{ fontSize: "14px", color: LG.textMuted, marginBottom: "4px" }}>{policy.product_name}</div>
-          ) : null}
+      {policies.map((policy) => {
+        const policyId = String(policy?.id ?? policy?.contract_id ?? "").trim();
+        const selected = Boolean(policyId) && policyId === String(selectedPolicyId ?? "").trim();
+        const selectable = typeof onSelectPolicy === "function" && Boolean(policyId);
+        return (
+          <button
+            key={policyId || policy.insurer_name}
+            type="button"
+            disabled={!selectable}
+            aria-pressed={selected}
+            aria-label={selected ? "선택한 보험" : "이 보험 선택"}
+            onClick={() => {
+              if (!selectable) return;
+              onSelectPolicy(selected ? null : policyId);
+            }}
+            style={{
+              ...listCardStyle(),
+              textAlign: "left",
+              cursor: selectable ? "pointer" : "default",
+              borderColor: selected ? FINAL_UI.teal : LG.border,
+              boxShadow: selected ? "0 0 0 1px rgba(15,118,110,0.35)" : "none",
+              font: "inherit",
+              width: "100%",
+            }}
+          >
+            <div style={{ fontWeight: 600, color: LG.text, marginBottom: "6px" }}>
+              {policy.insurer_name ?? "—"}
+              {selected ? (
+                <span style={{ marginLeft: "8px", fontSize: "12px", color: FINAL_UI.teal }}>
+                  선택됨
+                </span>
+              ) : null}
+            </div>
+            {policy.product_name ? (
+              <div style={{ fontSize: "14px", color: LG.textMuted, marginBottom: "4px" }}>
+                {policy.product_name}
+              </div>
+            ) : null}
             <div style={{ display: "grid", gap: "4px", fontSize: "14px", color: LG.textMuted }}>
               <div>{formatMonthlyPremium(policy.monthly_premium)}</div>
               <div>
@@ -329,8 +365,9 @@ function CustomerInsuranceList({ policies, loading, emptyHint = null }) {
                   : "확인 필요"}
               </div>
             </div>
-        </div>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -599,6 +636,8 @@ export default function LifeguardHomeChat({
   // Unified view ? React state only; new session defaults personal (no auto entity restore).
   const [viewMode, setViewMode] = useState("personal");
   const [selectedEntityId, setSelectedEntityId] = useState(null);
+  /** C1 Pointer Hand — internal contract id for Selective (0..1). */
+  const [pointedContractId, setPointedContractId] = useState(null);
   const [corporateEntities, setCorporateEntities] = useState([]);
   const [handSnapshot, setHandSnapshot] = useState(null);
   const [doneStatusOverlay, setDoneStatusOverlay] = useState(null);
@@ -2029,6 +2068,9 @@ export default function LifeguardHomeChat({
         ...(viewMode !== "personal" && selectedEntityId
           ? { entityId: selectedEntityId, entityType: "corporate" }
           : {}),
+        ...(String(pointedContractId ?? "").trim()
+          ? { pointedContractIds: [String(pointedContractId).trim()] }
+          : {}),
       };
       const markFirstSse = () => {
         if (sawFirstSseEvent) return;
@@ -3402,6 +3444,8 @@ export default function LifeguardHomeChat({
               <CustomerInsuranceList
                 policies={viewMode === "corporate" ? [] : policies}
                 loading={loadingSession}
+                selectedPolicyId={pointedContractId}
+                onSelectPolicy={setPointedContractId}
                 emptyHint={
                   viewMode === "corporate"
                     ? "이 법인에 연결된 보험 자료가 아직 없습니다. 문서를 추가하거나 보험 현황을 질문해 주세요."

@@ -112,6 +112,7 @@ import {
 } from "./keyClaudeFirstOneShotSelectiveShadow.js";
 import { buildKeyClaudePreviewRuntimeTrace } from "./keyClaudePreviewRuntimeTrace.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
+import { resolveOwnedPointedContractIds } from "./keySelectivePointedContractHand.js";
 
 /** Preview-only metadata for key_voice_trace — never mutates customer text / Provider body. */
 function buildPreviewRuntimeTraceFromClaude(claude, latency = {}, env = process.env) {
@@ -5065,6 +5066,8 @@ async function callClaudeFirstDirect({
   keyLatestDocumentContext = null,
   /** STAGE 5A focused KEY memory packet. */
   keyRelevantMemoryPacket = null,
+  /** C1 Pointer Hand — client hint; ownership re-checked against chart/ledger. */
+  pointedContractIds = null,
 }) {
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
@@ -5521,6 +5524,12 @@ async function callClaudeFirstDirect({
   const pointedIds = Array.isArray(requestedAttachDocumentIds)
     ? requestedAttachDocumentIds.map(String)
     : [];
+  // C1 Pointer Hand — adopt only owned internal contract ids (chart/ledger authority).
+  const ownedPointedContracts = resolveOwnedPointedContractIds({
+    pointedContractIds,
+    chart,
+    policyTruthContext,
+  });
   const selectiveExplicit = {
     presence_turn: presenceTurn === true,
     audience,
@@ -5531,6 +5540,7 @@ async function callClaudeFirstDirect({
     pointed_attachment_ids: pointedIds,
     current_attachment_question:
       attachAnalysisScopeOnly === true || pointedIds.length > 0,
+    pointed_contract_ids: ownedPointedContracts.pointed_contract_ids,
   };
 
   // TOKEN BOMB S3 — Live ONE_SHOT_SELECTIVE cutover (fetchImpl body).
@@ -6188,6 +6198,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   conversationMode = null,
   keyRoleContract = null,
   clientTurnId = null,
+  /** C1 Pointer Hand — 0..1 internal contract ids from Home request. */
+  pointedContractIds = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -8037,6 +8049,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         : null,
     pdfMeta: isPresenceTurn ? null : pdfMetaForClaude,
     requestedAttachDocumentIds: isPresenceTurn ? null : clientAttachedDocumentIds,
+    pointedContractIds: isPresenceTurn ? null : pointedContractIds,
     attachmentIdentityPlan: isPresenceTurn ? null : attachmentIdentityPlanForClaude,
     corporateContexts: isPresenceTurn ? null : corporateContexts,
     corporateGapEvidence: isPresenceTurn ? null : corporateGapEvidence,
