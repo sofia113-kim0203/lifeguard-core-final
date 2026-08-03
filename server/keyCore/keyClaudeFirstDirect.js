@@ -103,6 +103,10 @@ import {
   buildProviderFetchObservation,
   compareLiveAndShadowBodies,
 } from "./keyClaudeFirstOnDemandShadow.js";
+import {
+  buildClaudeFirstOneShotSelectiveShadowBodies,
+  compareLiveS1S2Bodies,
+} from "./keyClaudeFirstOneShotSelectiveShadow.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
   gateKeyVoiceAnswer,
@@ -5502,8 +5506,76 @@ async function callClaudeFirstDirect({
       content_first_metrics: shadowBodies.content_first?.metrics ?? null,
       manifest_first_metrics: shadowBodies.manifest_first?.metrics ?? null,
     };
+    // TOKEN BOMB S2 — ONE_SHOT_SELECTIVE shadow (compare only; never fetchImpl).
+    let tokenBombS2ShadowTrace = null;
+    try {
+      const pointedIds = Array.isArray(requestedAttachDocumentIds)
+        ? requestedAttachDocumentIds.map(String)
+        : [];
+      const s2Bodies = buildClaudeFirstOneShotSelectiveShadowBodies({
+        question: presenceTurn === true ? "" : question,
+        explicit: {
+          presence_turn: presenceTurn === true,
+          audience,
+          pdf_attached: pdfAttached === true,
+          current_attachment_ids: multiAttachments
+            .map((r) => String(r?.document_id ?? "").trim())
+            .filter(Boolean),
+          pointed_attachment_ids: pointedIds,
+          current_attachment_question:
+            attachAnalysisScopeOnly === true || pointedIds.length > 0,
+        },
+        fixture: {
+          full_chart_available: Boolean(chart),
+          full_ledger_available: Boolean(policyTruthContext),
+          full_prior_consultation_available: Boolean(priorConsultationForContext),
+          full_prior_originals_available: Boolean(pdfMeta?.vault_recall_mode),
+          attachments: multiAttachments.map((row, idx) => ({
+            document_id: row?.document_id,
+            ordinal: idx + 1,
+            mediaType: row?.mediaType,
+            base64: row?.base64,
+          })),
+          minimal_thread: Array.isArray(history)
+            ? history.slice(-2).map((h) => ({
+                role: h?.role,
+                text: String(h?.text ?? h?.content ?? "").slice(0, 160),
+              }))
+            : [],
+        },
+        liveTools: requestTools,
+      });
+      const s1s2Compare = compareLiveS1S2Bodies({
+        liveBody: liveBodyForCompare,
+        liveUserPayload: userPayload,
+        liveTools: requestTools,
+        s1Shadow: shadowBodies,
+        s2Shadow: s2Bodies,
+      });
+      tokenBombS2ShadowTrace = {
+        shadow_builder: "buildClaudeFirstOneShotSelectiveShadowBodies",
+        live_body_changed: false,
+        shadow_provider_call: 0,
+        meta: s2Bodies.meta,
+        compare: s1s2Compare,
+        selective_content_first_metrics:
+          s2Bodies.selective_content_first?.metrics ?? null,
+        selective_manifest_first_metrics:
+          s2Bodies.selective_manifest_first?.metrics ?? null,
+        selection_plan: s2Bodies.selective_content_first?.selection_plan ?? null,
+      };
+      tokenBombS1ShadowTrace.s2 = tokenBombS2ShadowTrace;
+    } catch {
+      tokenBombS1ShadowTrace.s2 = {
+        shadow_builder: "buildClaudeFirstOneShotSelectiveShadowBodies",
+        live_body_changed: false,
+        shadow_provider_call: 0,
+        error: "s2_shadow_build_failed",
+      };
+    }
     if (qaTurnCapture && typeof qaTurnCapture === "object") {
       qaTurnCapture.token_bomb_s1_shadow = tokenBombS1ShadowTrace;
+      qaTurnCapture.token_bomb_s2_shadow = tokenBombS1ShadowTrace.s2 || null;
     }
   } catch {
     tokenBombS1ShadowTrace = {
