@@ -61,6 +61,7 @@ import {
   wantsOwnedInsuranceVaultEvidence,
 } from "../lib/chatActiveAttachment.js";
 import { fetchHomeBrainFactStream, mapHomeBrainFactPayload } from "../lib/customerHomeBrainFact.js";
+import { resolveC1InsurancePanelEntryAction } from "../lib/keyC1InsurancePanelEntry.js";
 import {
   createAgentKeyBriefingRequest,
   listAgentKeyBriefings,
@@ -2851,10 +2852,12 @@ export default function LifeguardHomeChat({
       setSidebarOpen(false);
     },
     onOpenInsurancePanel: () => {
-      // Narrow: final-shell left sheet. Mid+: left rail already inline.
-      setPanelView("chat");
-      setSidebarOpen(false);
-      if (!isMidRoom) setInsuranceRailOpen(true);
+      // C1 UI ENTRY RECONNECT — panelView="insurance" is SSOT for contract selection.
+      // Narrow left sheet must not replace the insurance selection panel.
+      const entry = resolveC1InsurancePanelEntryAction();
+      setPanelView(entry.panelView);
+      setSidebarOpen(entry.sidebarOpen);
+      setInsuranceRailOpen(entry.insuranceRailOpen);
     },
     onOpenBaselinePanel: () => {
       // Narrow/mid: final-shell right sheet. Wide: right rail already inline.
