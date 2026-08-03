@@ -98,6 +98,11 @@ import {
   shouldPreferRequestDocumentScopeOnly,
   stripNonAttachEvidenceFromUserPayload,
 } from "./keyDocumentSumAccuracy.js";
+import {
+  buildClaudeFirstOnDemandShadowBodies,
+  buildProviderFetchObservation,
+  compareLiveAndShadowBodies,
+} from "./keyClaudeFirstOnDemandShadow.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import {
   gateKeyVoiceAnswer,
@@ -5454,6 +5459,61 @@ async function callClaudeFirstDirect({
   const system = cachedParts.system;
   let messages = cachedParts.messages;
 
+  // TOKEN BOMB S1 — Shadow on-demand bodies (compare only; never passed to fetchImpl).
+  let tokenBombS1ShadowTrace = null;
+  try {
+    const shadowBodies = buildClaudeFirstOnDemandShadowBodies({
+      question: presenceTurn === true ? "" : question,
+      history: presenceTurn === true ? [] : history,
+      chart,
+      policyTruthContext,
+      readyCardMeta,
+      priorConsultation: priorConsultationForContext,
+      keyRelevantMemoryPacket,
+      activeClaimCases,
+      insuranceClockBrief,
+      lifeLedgerBrief,
+      paymentTruthBrief,
+      signupOnboardingBrief,
+      currentAttachments: multiAttachments,
+      priorOriginalsAvailable:
+        Boolean(pdfMeta?.vault_recall_mode) ||
+        Boolean(userPayload?.current_context?.conversation?.retained_past_originals?.length),
+      liveTools: requestTools,
+    });
+    const liveBodyForCompare = {
+      model,
+      system,
+      messages,
+      tools: requestTools,
+    };
+    const compare = compareLiveAndShadowBodies({
+      liveBody: liveBodyForCompare,
+      liveUserPayload: userPayload,
+      liveTools: requestTools,
+      shadow: shadowBodies,
+    });
+    tokenBombS1ShadowTrace = {
+      shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
+      live_body_changed: false,
+      shadow_provider_call: 0,
+      meta: shadowBodies.meta,
+      compare,
+      content_first_metrics: shadowBodies.content_first?.metrics ?? null,
+      manifest_first_metrics: shadowBodies.manifest_first?.metrics ?? null,
+    };
+    if (qaTurnCapture && typeof qaTurnCapture === "object") {
+      qaTurnCapture.token_bomb_s1_shadow = tokenBombS1ShadowTrace;
+    }
+  } catch {
+    tokenBombS1ShadowTrace = {
+      shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
+      live_body_changed: false,
+      shadow_provider_call: 0,
+      error: "shadow_build_failed",
+    };
+  }
+
   let lastTtft = null;
   let lastPicked = {
     customer_answer: "",
@@ -5484,6 +5544,9 @@ async function callClaudeFirstDirect({
   const sessionGoalRejectReason = null;
   const recommendationBasisTrace = emptyRecommendationBasisTrace();
   let messagesRequestCount = 0;
+  /** Internal SSOT — increments when Anthropic fetchImpl is invoked (not provider_calls hardcode). */
+  let actualProviderFetchCount = 0;
+  const providerFetchObservations = [];
   const searchWallStarted = Date.now();
   const PROVIDER_TURN_TIMEOUT_MS = 180_000;
 
@@ -5526,6 +5589,14 @@ async function callClaudeFirstDirect({
     const timeoutId = setTimeout(() => abortController.abort(), PROVIDER_TURN_TIMEOUT_MS);
     let res;
     try {
+      actualProviderFetchCount += 1;
+      providerFetchObservations.push(
+        buildProviderFetchObservation({
+          providerFetchIndex: actualProviderFetchCount,
+          body,
+          priorHeavyContextReplayed: actualProviderFetchCount > 1,
+        }),
+      );
       res = await fetchImpl(ANTHROPIC_URL, {
         method: "POST",
         headers: {
@@ -5551,6 +5622,9 @@ async function callClaudeFirstDirect({
         visual_blocks: [],
         pdf_attached: false,
         pdf_attached_attempted: pdfAttached === true,
+        actual_provider_fetch_count: actualProviderFetchCount,
+        provider_fetch_observations: providerFetchObservations,
+        token_bomb_s1_shadow: tokenBombS1ShadowTrace,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -5831,6 +5905,9 @@ async function callClaudeFirstDirect({
     stop_reason: lastStopReason,
     document_record_tools_sent: 0,
     provider_messages_request_count: messagesRequestCount,
+    actual_provider_fetch_count: actualProviderFetchCount,
+    provider_fetch_observations: providerFetchObservations,
+    token_bomb_s1_shadow: tokenBombS1ShadowTrace,
     prompt_cache: {
       strategy: cachedParts.cache_strategy,
       breakpoints: cachedParts.cache_breakpoints,

@@ -183,6 +183,7 @@
     "test:key-multi-upload-all-files": "node scripts/key-multi-upload-all-files-unit-test.mjs",
     "test:key-multi-attach-composer": "node scripts/key-multi-attach-composer-unit-test.mjs",
     "test:key-attachment-one-shot-delivery": "node scripts/key-attachment-one-shot-delivery-unit-test.mjs",
+    "test:key-token-bomb-s1-shadow": "node scripts/key-token-bomb-s1-shadow-unit-test.mjs",
     "test:key-upload-transit-cleanup": "node scripts/key-upload-transit-cleanup-unit-test.mjs",
     "test:key-document-memory-commit": "node scripts/key-document-memory-commit-unit-test.mjs",
     "test:key-relevant-memory-packet": "node scripts/key-relevant-memory-packet-unit-test.mjs",
