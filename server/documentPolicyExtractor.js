@@ -88,7 +88,7 @@ const LABEL_RULES = [
       new RegExp(`상품명\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`보험상품\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
       new RegExp(`증권명\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
-      new RegExp(`담보\\s*[:：]?\\s*([^\\n]+?)${NEXT_LABEL}`, "i"),
+      // `담보` is coverage identity only — never promote to product_name.
     ],
   },
   {

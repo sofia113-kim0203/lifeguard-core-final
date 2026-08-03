@@ -18,12 +18,21 @@ import {
   buildSourceFactKey,
 } from "../src/lib/keyInsuranceScreenFacts.js";
 import { classifyPolicyNumberQuality as classifyPolicyNumberQualityForPersist } from "./keyCore/keyDocumentMemoryCommit.js";
+import {
+  hasInvalidPolicyIdentityFields,
+  isPollutedPolicyIdentityField,
+} from "../src/lib/policyIdentityPollution.js";
 
 export {
   normalizeKeyCoverageBaselineFacts,
   mergeKeyCoverageBaselineFacts,
   keyValidateCoverageBaselineFacts,
   KEY_BASELINE_FACT_STATUSES,
+};
+
+export {
+  hasInvalidPolicyIdentityFields,
+  isPollutedPolicyIdentityField,
 };
 
 const EXTRACTOR_VERSION = "step4-ocr-policy-v3-multi";
@@ -1638,49 +1647,6 @@ export async function persistKeyActiveClaimCases({
     stored: incoming.length,
     case_count: merged.length,
   };
-}
-
-/**
- * Reject insurer/product values that are clearly OCR body / table / JSON / prose dumps,
- * not contract identity fields. No allowlist, no rewrite, no Claude.
- */
-export function isPollutedPolicyIdentityField(value = "") {
-  const s = String(value ?? "").trim();
-  if (!s) return false;
-  if (/[\r\n]/.test(s)) return true;
-  if (/```/.test(s)) return true;
-  if (/(?:\|[\t ]*[-:]+[\t ]*){2,}\|/.test(s)) return true;
-  if ((s.match(/\|/g) || []).length >= 3) return true;
-  if (/^\s*[{\[]/.test(s) && /[}\]]/.test(s) && /["']?\w+["']?\s*:/.test(s)) return true;
-
-  const labelHits = [
-    /계약번호/,
-    /피보험자/,
-    /계약자/,
-    /보험기간/,
-    /월보험료/,
-    /납입기간/,
-    /상품명/,
-    /policy\s*number/i,
-    /premium/i,
-  ].filter((re) => re.test(s)).length;
-  if (labelHits >= 2) return true;
-
-  // Long packed OCR dump (observed Hanwha polluted row ~240–250 chars, single line).
-  if (s.length >= 80) {
-    if (/\d{4}[-./]\d{1,2}[-./]\d{1,2}/.test(s)) return true;
-    if (/\d{1,3}(?:,\d{3}){2,}/.test(s)) return true;
-    if ((s.match(/[.!?。]/g) || []).length >= 2) return true;
-    if ((s.match(/\s+/g) || []).length >= 12) return true;
-  }
-  return false;
-}
-
-export function hasInvalidPolicyIdentityFields(fact = {}) {
-  return (
-    isPollutedPolicyIdentityField(fact?.insurer) ||
-    isPollutedPolicyIdentityField(fact?.product_name)
-  );
 }
 
 /**

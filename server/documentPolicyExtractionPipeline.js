@@ -23,6 +23,7 @@ import {
   planRetiredPolicyIds,
   resolveExistingPolicyForCandidate,
 } from "./documentPolicyUploadPersist.js";
+import { hasInvalidPolicyIdentityFields } from "../src/lib/policyIdentityPollution.js";
 import {
   CUSTOMER_DOCUMENT_SELECT_FIELDS,
   runShadowCoverageSheetSafe,
@@ -142,6 +143,23 @@ export async function persistExtractedPolicies(admin, customerId, documentId, mu
       candidate,
       candidates.length,
     );
+    const fields = candidate?.fields ?? {};
+    if (
+      hasInvalidPolicyIdentityFields({
+        insurer: fields.insurer_name,
+        insurer_name: fields.insurer_name,
+        product_name: fields.product_name,
+      })
+    ) {
+      actions.push({
+        policy_id: null,
+        action: "skipped_polluted_identity",
+        upload_extract_key: uploadExtractKey,
+        block_index: candidate.block_index ?? null,
+      });
+      // Do not keep activeKeys — re-extract can retire prior polluted upload_extract rows.
+      continue;
+    }
     const row = markFactoryPendingUnverified(
       buildPolicyRowFromCandidate(customerId, documentId, candidate, existing?.coverage_summary),
     );

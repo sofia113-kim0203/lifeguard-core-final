@@ -2,6 +2,7 @@
  * CONTRACT FOCUS SSOT — contract_id owns UI selection → request pointer.
  * No insurer/product name matching. No react_key dependency.
  */
+import { isNonContractPolicyRow } from "./policyIdentityPollution.js";
 
 /** Canonical internal contract id for a policy/card row. */
 export function resolveCanonicalContractId(policy) {
@@ -14,6 +15,7 @@ export function resolveCanonicalContractId(policy) {
 /**
  * Real contract cards for selection UI:
  * - must have canonical contract_id
+ * - exclude coverage-dump / polluted identity rows (not contracts)
  * - same contract_id rendered once (first wins)
  * Returns rows with both `contract_id` and `id` normalized to the canonical value.
  */
@@ -21,6 +23,7 @@ export function listUniqueContractCards(policies = []) {
   const seen = new Set();
   const out = [];
   for (const policy of Array.isArray(policies) ? policies : []) {
+    if (isNonContractPolicyRow(policy)) continue;
     const contractId = resolveCanonicalContractId(policy);
     if (!contractId) continue;
     if (seen.has(contractId)) continue;

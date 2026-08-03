@@ -11,6 +11,32 @@ import {
   mergeCoverageSummary,
 } from "./coverageRiderPopulation.js";
 import { planRetiredPolicyIds } from "./documentPolicyUploadPersist.js";
+import {
+  hasInvalidPolicyIdentityFields,
+  isPollutedPolicyIdentityField,
+} from "../src/lib/policyIdentityPollution.js";
+
+/**
+ * Sheet L1 rows that are coverage fragments must not become policy contracts.
+ * Keep riders/coverage in coverage_summary of real product rows only.
+ */
+export function shouldPersistSheetRowAsPolicyContract(row = {}) {
+  const product = String(row?.product_name ?? "").trim();
+  const coverage = String(row?.coverage_name ?? "").trim();
+  if (hasInvalidPolicyIdentityFields({
+    insurer_name: row?.insurer_name,
+    product_name: product,
+  })) {
+    return false;
+  }
+  if (isPollutedPolicyIdentityField(product)) return false;
+  // Coverage-only sheet line with no clean product title → not a contract.
+  if (!product && coverage) return false;
+  if (product && coverage && product === coverage && /(수술비|진단비|입원|통원|장해)/.test(product)) {
+    return false;
+  }
+  return Boolean(String(row?.insurer_name ?? "").trim() && product);
+}
 
 function normalizeKeyPart(value) {
   return String(value ?? "")
@@ -180,6 +206,15 @@ export async function persistCoverageSheetRows(admin, customerId, documentId, pa
       row,
       rowCount,
     );
+    if (!shouldPersistSheetRowAsPolicyContract(row)) {
+      actions.push({
+        action: "skipped_non_contract_sheet_row",
+        upload_extract_key: uploadExtractKey,
+        sheet_row_index: row.row_index ?? null,
+        reason: "coverage_fragment_or_polluted_product_name",
+      });
+      continue;
+    }
     const policyRow = buildPolicyRowFromSheetRow(customerId, documentId, row, existing?.coverage_summary);
     activeKeys.push(uploadExtractKey);
 
