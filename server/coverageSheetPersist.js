@@ -117,7 +117,14 @@ export function buildCoverageSummaryFromSheetRow(documentId, row = {}, existingS
 }
 
 export function buildPolicyRowFromSheetRow(customerId, documentId, row = {}, existingCoverageSummary = null) {
-  const coverageSummary = buildCoverageSummaryFromSheetRow(documentId, row, existingCoverageSummary);
+  const baseSummary = buildCoverageSummaryFromSheetRow(documentId, row, existingCoverageSummary);
+  // Coverage-sheet extraction is factory evidence too. Only KEY's
+  // record_confirmed_source_facts path may promote it beyond pending_unverified.
+  const coverageSummary = {
+    ...baseSummary,
+    factory_analysis_status: "pending_unverified",
+    factory_verification_status: "pending_unverified",
+  };
 
   return {
     customer_id: customerId,
