@@ -348,6 +348,8 @@ export async function runOneKeyCoreTurn({
   presenceTurn = false,
   clientTurnId = null,
   pointedContractIds = null,
+  /** Phase 8 Preview-only Golden parallel capture bag. */
+  phase8TraceBag = null,
   /** @type {"customer"|"agent"|undefined} */
   audience,
   /** @type {"general"|"customer_scoped"|"customer_denied"|undefined} */
@@ -436,6 +438,7 @@ export async function runOneKeyCoreTurn({
     readyCardHandoffToken,
     clientTurnId,
     pointedContractIds,
+    phase8TraceBag,
     shadowVisualBlocksOverride,
     audience,
     conversationMode,
@@ -468,6 +471,7 @@ async function runOneKeyCoreQuestionTurn({
   presenceTurn = false,
   clientTurnId = null,
   pointedContractIds = null,
+  phase8TraceBag = null,
   shadowVisualBlocksOverride = null,
   audience,
   conversationMode,
@@ -603,6 +607,7 @@ async function runOneKeyCoreQuestionTurn({
       presenceTurn: presenceTurn === true,
       clientTurnId,
       pointedContractIds,
+      phase8TraceBag,
       audience: resolvedAudience,
       conversationMode: resolvedConversationMode,
       keyRoleContract,

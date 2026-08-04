@@ -1,0 +1,200 @@
+{
+  "schema_version": "lifeguard-one-path-final-connection-live-v1",
+  "observed_at": "2026-08-04T17:21:17.893Z",
+  "preview_url": "https://lifeguard-core-final-6bg63jvk0-70sofia113-1918s-projects.vercel.app",
+  "commit": "1e2f3f3a0eb41c62b285081866ea6928a98e84f1",
+  "commit_short": "1e2f3f3",
+  "production": 0,
+  "push": 0,
+  "live_process_ok": false,
+  "live_exit": 2,
+  "first_failure": null,
+  "l4_past_original": {
+    "provider": 0,
+    "document_attached": false,
+    "hash_match": false
+  },
+  "key_management": {
+    "sealed_turn_stored": false,
+    "source_linked": false,
+    "status": "pending_unverified",
+    "forced_sidecar": false
+  },
+  "accuracy_trace": {
+    "model": "claude-sonnet-4-6",
+    "raw_provider_answer": "첨부하신 보험증권을 직접 읽었습니다.\n\n**보험사:** 삼성화재\n**상품명:** 브매담 큐하이카 운전자상해보험\n**증권번호:** SFQAOCR260801A\n\n---\n\n**주요 보장 내용**\n\n| 담보 | 가입금액 |\n|------|---------|\n| 교통상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n**계약자:** QA합성강 / **피보험자:** QA한청강\n\n---\n\n운전 중 교통사고에 특화된 보험으로, 사망·부상 치료비·벌금까지 세 가지 담보를 한 번에 커버하는 구성입니다. 추가로 궁금하신 내용이 있으면 말씀해 주세요!",
+    "sealed_answer": "첨부하신 보험증권을 직접 읽었습니다.\n\n**보험사:** 삼성화재\n**상품명:** 브매담 큐하이카 운전자상해보험\n**증권번호:** SFQAOCR260801A\n\n---\n\n**주요 보장 내용**\n\n| 담보 | 가입금액 |\n|------|---------|\n| 교통상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n**계약자:** QA합성강 / **피보험자:** QA한청강\n\n---\n\n운전 중 교통사고에 특화된 보험으로, 사망·부상 치료비·벌금까지 세 가지 담보를 한 번에 커버하는 구성입니다. 추가로 궁금하신 내용이 있으면 말씀해 주세요!",
+    "failure_location": "CLAUDE_API_DOCUMENT_ACCURACY_FAIL",
+    "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84"
+  },
+  "turns": [
+    {
+      "id": "L1",
+      "provider_calls": 1,
+      "answer_len": 566,
+      "a1_hold_96": false,
+      "document_attached": true,
+      "hash_match": true,
+      "key_sealed_turn_source_record": null,
+      "accuracy_trace": null,
+      "answer_preview": null,
+      "phase8_original": {
+        "selective_pdf_present": true,
+        "provider_document_block_present": true,
+        "provider_block_type": "document",
+        "provider_media_type": "application/pdf",
+        "provider_source_type": "base64",
+        "provider_decoded_byte_length": 72721,
+        "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "uploaded_fixture_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "document_hash_match": true
+      }
+    },
+    {
+      "id": "L2",
+      "provider_calls": 1,
+      "answer_len": 351,
+      "a1_hold_96": false,
+      "document_attached": true,
+      "hash_match": true,
+      "key_sealed_turn_source_record": {
+        "schema_version": "key-sealed-turn-source-v1",
+        "turn_id": "2d011627-f4c7-4c30-b504-8673b0224671",
+        "question": "이 증권의 보험사, 상품명, 증권번호와 주요 보장을 알려줘.",
+        "sealed_answer": "첨부하신 보험증권을 직접 읽었습니다.\n\n**보험사:** 삼성화재\n**상품명:** 브매담 큐하이카 운전자상해보험\n**증권번호:** SFQAOCR260801A\n\n---\n\n**주요 보장 내용**\n\n| 담보 | 가입금액 |\n|------|---------|\n| 교통상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n**계약자:** QA합성강 / **피보험자:** QA한청강\n\n---\n\n운전 중 교통사고에 특화된 보험으로, 사망·부상 치료비·벌금까지 세 가지 담보를 한 번에 커버하는 구성입니다. 추가로 궁금하신 내용이 있으면 말씀해 주세요!",
+        "source_documents": [
+          {
+            "document_id": "70487c44-48f6-4aaf-9876-ee3ca4f6fa0d",
+            "sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+            "source": "current_upload"
+          }
+        ],
+        "conversation_position": 65,
+        "observed_at": "2026-08-04T17:17:17.033Z",
+        "status": "pending_unverified",
+        "confirmed_auto_promote": false,
+        "customer_answer_mutated": false,
+        "extra_claude_calls": 0,
+        "forced_sidecar": false
+      },
+      "accuracy_trace": {
+        "model": "claude-sonnet-4-6",
+        "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "provider_raw_answer": "첨부하신 보험증권을 직접 읽었습니다.\n\n**보험사:** 삼성화재\n**상품명:** 브매담 큐하이카 운전자상해보험\n**증권번호:** SFQAOCR260801A\n\n---\n\n**주요 보장 내용**\n\n| 담보 | 가입금액 |\n|------|---------|\n| 교통상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n**계약자:** QA합성강 / **피보험자:** QA한청강\n\n---\n\n운전 중 교통사고에 특화된 보험으로, 사망·부상 치료비·벌금까지 세 가지 담보를 한 번에 커버하는 구성입니다. 추가로 궁금하신 내용이 있으면 말씀해 주세요!",
+        "sealed_answer": "첨부하신 보험증권을 직접 읽었습니다.\n\n**보험사:** 삼성화재\n**상품명:** 브매담 큐하이카 운전자상해보험\n**증권번호:** SFQAOCR260801A\n\n---\n\n**주요 보장 내용**\n\n| 담보 | 가입금액 |\n|------|---------|\n| 교통상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n**계약자:** QA합성강 / **피보험자:** QA한청강\n\n---\n\n운전 중 교통사고에 특화된 보험으로, 사망·부상 치료비·벌금까지 세 가지 담보를 한 번에 커버하는 구성입니다. 추가로 궁금하신 내용이 있으면 말씀해 주세요!",
+        "failure_location": null,
+        "forced_sidecar": false
+      },
+      "answer_preview": "첨부하신 보험증권을 직접 읽었습니다.\n\n**보험사:** 삼성화재\n**상품명:** 브매담 큐하이카 운전자상해보험\n**증권번호:** SFQAOCR260801A\n\n---\n\n**주요 보장 내용**\n\n| 담보 | 가입금액 |\n|------|---------|\n| 교통상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n**계약자:** QA합성강 ",
+      "phase8_original": {
+        "selective_pdf_present": true,
+        "provider_document_block_present": true,
+        "provider_block_type": "document",
+        "provider_media_type": "application/pdf",
+        "provider_source_type": "base64",
+        "provider_decoded_byte_length": 72721,
+        "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "uploaded_fixture_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "document_hash_match": true
+      }
+    },
+    {
+      "id": "L3",
+      "provider_calls": 1,
+      "answer_len": 749,
+      "a1_hold_96": false,
+      "document_attached": false,
+      "hash_match": false,
+      "key_sealed_turn_source_record": {
+        "schema_version": "key-sealed-turn-source-v1",
+        "turn_id": "52437beb-192a-4924-891d-05db7b7952ba",
+        "question": "방금 본 보험에서 내가 특히 확인해야 할 부분은 뭐야?",
+        "sealed_answer": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험(SFQAOCR260801A)**에서 특히 체크해 두실 부분을 짚어드릴게요.\n\n---\n\n## 꼭 확인하세요\n\n**1. 보장 범위가 '운전 중'으로 한정될 수 있어요**\n운전자보험은 일반적으로 **운전 중 발생한 사고**에만 적용됩니다. 보행 중 교통사고나 일상 상해는 보장되지 않을 수 있으니, 약관에서 보장 범위를 꼭 확인하세요.\n\n**2. 자동차사고벌금 3,000만 원 — 지급 조건 확인**\n벌금 담보는 **형사합의금과 다릅니다.** 실제 법원에서 선고된 벌금에만 지급되며, 음주·무면허 운전 시에는 면책될 가능성이 높습니다.\n\n**3. 교통상해사망 1억 원 — 기존 생명보험과 중복 여부**\n사망 보장이 이미 다른 보험에 있다면 이 담보가 과잉일 수 있고, 반대로 이 보험이 유일한 사망 보장이라면 금액이 충분한지 점검이 필요합니다.\n\n**4. 운전자부상치료비 2,000만 원 — 부상 등급 기준 확인**\n부상 등급(1~14급)에 따라 실제 지급액이 달라집니다. 경상의 경우 소액만 지급될 수 있어요.\n\n**5. 계약자와 피보험자가 다릅니다**\n계약자는 QA합성강, 피보험자는 QA한청강으로 되어 있습니다. **실제로 운전하는 분이 피보험자로 등록되어 있는지** 확인하세요. 잘못 등록되면 보험금 지급이 거절될 수 있습니다.\n\n---\n\n가장 먼저 확인하실 부분은 **⑤ 피보험자 일치 여부**와 **② 벌금 담보의 면책 조건**입니다. 추가로 궁금한 점 있으시면 말씀해 주세요!",
+        "source_documents": [],
+        "conversation_position": 67,
+        "observed_at": "2026-08-04T17:17:34.095Z",
+        "status": "pending_unverified",
+        "confirmed_auto_promote": false,
+        "customer_answer_mutated": false,
+        "extra_claude_calls": 0,
+        "forced_sidecar": false
+      },
+      "accuracy_trace": {
+        "model": "claude-sonnet-4-6",
+        "provider_document_sha256": null,
+        "provider_raw_answer": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험(SFQAOCR260801A)**에서 특히 체크해 두실 부분을 짚어드릴게요.\n\n---\n\n## 꼭 확인하세요\n\n**1. 보장 범위가 '운전 중'으로 한정될 수 있어요**\n운전자보험은 일반적으로 **운전 중 발생한 사고**에만 적용됩니다. 보행 중 교통사고나 일상 상해는 보장되지 않을 수 있으니, 약관에서 보장 범위를 꼭 확인하세요.\n\n**2. 자동차사고벌금 3,000만 원 — 지급 조건 확인**\n벌금 담보는 **형사합의금과 다릅니다.** 실제 법원에서 선고된 벌금에만 지급되며, 음주·무면허 운전 시에는 면책될 가능성이 높습니다.\n\n**3. 교통상해사망 1억 원 — 기존 생명보험과 중복 여부**\n사망 보장이 이미 다른 보험에 있다면 이 담보가 과잉일 수 있고, 반대로 이 보험이 유일한 사망 보장이라면 금액이 충분한지 점검이 필요합니다.\n\n**4. 운전자부상치료비 2,000만 원 — 부상 등급 기준 확인**\n부상 등급(1~14급)에 따라 실제 지급액이 달라집니다. 경상의 경우 소액만 지급될 수 있어요.\n\n**5. 계약자와 피보험자가 다릅니다**\n계약자는 QA합성강, 피보험자는 QA한청강으로 되어 있습니다. **실제로 운전하는 분이 피보험자로 등록되어 있는지** 확인하세요. 잘못 등록되면 보험금 지급이 거절될 수 있습니다.\n\n---\n\n가장 먼저 확인하실 부분은 **⑤ 피보험자 일치 여부**와 **② 벌금 담보의 면책 조건**입니다. 추가로 궁금한 점 있으시면 말씀해 주세요!",
+        "sealed_answer": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험(SFQAOCR260801A)**에서 특히 체크해 두실 부분을 짚어드릴게요.\n\n---\n\n## 꼭 확인하세요\n\n**1. 보장 범위가 '운전 중'으로 한정될 수 있어요**\n운전자보험은 일반적으로 **운전 중 발생한 사고**에만 적용됩니다. 보행 중 교통사고나 일상 상해는 보장되지 않을 수 있으니, 약관에서 보장 범위를 꼭 확인하세요.\n\n**2. 자동차사고벌금 3,000만 원 — 지급 조건 확인**\n벌금 담보는 **형사합의금과 다릅니다.** 실제 법원에서 선고된 벌금에만 지급되며, 음주·무면허 운전 시에는 면책될 가능성이 높습니다.\n\n**3. 교통상해사망 1억 원 — 기존 생명보험과 중복 여부**\n사망 보장이 이미 다른 보험에 있다면 이 담보가 과잉일 수 있고, 반대로 이 보험이 유일한 사망 보장이라면 금액이 충분한지 점검이 필요합니다.\n\n**4. 운전자부상치료비 2,000만 원 — 부상 등급 기준 확인**\n부상 등급(1~14급)에 따라 실제 지급액이 달라집니다. 경상의 경우 소액만 지급될 수 있어요.\n\n**5. 계약자와 피보험자가 다릅니다**\n계약자는 QA합성강, 피보험자는 QA한청강으로 되어 있습니다. **실제로 운전하는 분이 피보험자로 등록되어 있는지** 확인하세요. 잘못 등록되면 보험금 지급이 거절될 수 있습니다.\n\n---\n\n가장 먼저 확인하실 부분은 **⑤ 피보험자 일치 여부**와 **② 벌금 담보의 면책 조건**입니다. 추가로 궁금한 점 있으시면 말씀해 주세요!",
+        "failure_location": null,
+        "forced_sidecar": false
+      },
+      "answer_preview": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험(SFQAOCR260801A)**에서 특히 체크해 두실 부분을 짚어드릴게요.\n\n---\n\n## 꼭 확인하세요\n\n**1. 보장 범위가 '운전 중'으로 한정될 수 있어요**\n운전자보험은 일반적으로 **운전 중 발생한 사고**에만 적용됩니다. 보행 중 교통사고나 일상 상해는 보장되지 않을 수 있으니, 약관에서 보장 범위를 꼭 확인하세요.\n\n**2. 자동차사고벌금 3,000만 원 —",
+      "phase8_original": null
+    },
+    {
+      "id": "L4",
+      "provider_calls": 0,
+      "answer_len": 0,
+      "a1_hold_96": false,
+      "document_attached": false,
+      "hash_match": false,
+      "key_sealed_turn_source_record": null,
+      "accuracy_trace": null,
+      "answer_preview": null,
+      "phase8_original": null
+    },
+    {
+      "id": "L5",
+      "provider_calls": 1,
+      "answer_len": 753,
+      "a1_hold_96": false,
+      "document_attached": false,
+      "hash_match": false,
+      "key_sealed_turn_source_record": {
+        "schema_version": "key-sealed-turn-source-v1",
+        "turn_id": "106ce3c9-d75a-406a-b51a-35e21f16f7e0",
+        "question": "이 보장을 유지할지 판단할 때 무엇을 봐야 해?",
+        "sealed_answer": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험**을 유지할지 판단하려면 아래 기준으로 보시면 됩니다.\n\n---\n\n## 유지 판단 체크포인트\n\n**1. 지금도 운전을 하고 있나요?**\n운전자보험은 운전을 전제로 한 상품입니다. 운전 빈도가 거의 없거나 앞으로 운전을 안 할 계획이라면 보험료 대비 효용이 낮아집니다.\n\n**2. 비슷한 담보가 다른 보험에 있나요?**\n- **교통상해사망 1억 원** — 생명보험이나 다른 상해보험에 이미 사망 보장이 충분하다면 중복입니다.\n- **운전자부상치료비** — 실손보험이나 단체보험에서 치료비가 커버된다면 실익이 줄어듭니다.\n- **자동차사고벌금 3,000만 원** — 이 담보는 다른 보험에서 잘 안 다루는 영역이라, 중복 가능성은 낮습니다.\n\n**3. 월 35,560원이 부담스럽지 않나요?**\n세 담보 합산 보험료로는 나쁘지 않은 수준이지만, 실제 생활에서 활용 가능성이 낮다면 재검토할 여지가 있습니다.\n\n**4. 피보험자(QA한청강)가 실제 주운전자인가요?**\n앞서 말씀드렸듯이, 실제 운전자와 피보험자가 다르면 사고 시 보험금이 지급되지 않을 수 있습니다. 이 부분이 맞지 않으면 유지 전에 반드시 정정이 필요합니다.\n\n---\n\n## 한 줄 판단 기준\n\n> **\"운전을 자주 하고, 다른 보험에 중복 담보가 없다면\" → 유지 가치 있음**\n> **\"운전이 거의 없거나, 사망·치료비 담보가 이미 충분하다면\" → 재검토 권장**\n\n다른 보험 내역이 있으시면 함께 비교해 드릴 수 있습니다.",
+        "source_documents": [],
+        "conversation_position": 69,
+        "observed_at": "2026-08-04T17:20:55.124Z",
+        "status": "pending_unverified",
+        "confirmed_auto_promote": false,
+        "customer_answer_mutated": false,
+        "extra_claude_calls": 0,
+        "forced_sidecar": false
+      },
+      "accuracy_trace": {
+        "model": "claude-sonnet-4-6",
+        "provider_document_sha256": null,
+        "provider_raw_answer": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험**을 유지할지 판단하려면 아래 기준으로 보시면 됩니다.\n\n---\n\n## 유지 판단 체크포인트\n\n**1. 지금도 운전을 하고 있나요?**\n운전자보험은 운전을 전제로 한 상품입니다. 운전 빈도가 거의 없거나 앞으로 운전을 안 할 계획이라면 보험료 대비 효용이 낮아집니다.\n\n**2. 비슷한 담보가 다른 보험에 있나요?**\n- **교통상해사망 1억 원** — 생명보험이나 다른 상해보험에 이미 사망 보장이 충분하다면 중복입니다.\n- **운전자부상치료비** — 실손보험이나 단체보험에서 치료비가 커버된다면 실익이 줄어듭니다.\n- **자동차사고벌금 3,000만 원** — 이 담보는 다른 보험에서 잘 안 다루는 영역이라, 중복 가능성은 낮습니다.\n\n**3. 월 35,560원이 부담스럽지 않나요?**\n세 담보 합산 보험료로는 나쁘지 않은 수준이지만, 실제 생활에서 활용 가능성이 낮다면 재검토할 여지가 있습니다.\n\n**4. 피보험자(QA한청강)가 실제 주운전자인가요?**\n앞서 말씀드렸듯이, 실제 운전자와 피보험자가 다르면 사고 시 보험금이 지급되지 않을 수 있습니다. 이 부분이 맞지 않으면 유지 전에 반드시 정정이 필요합니다.\n\n---\n\n## 한 줄 판단 기준\n\n> **\"운전을 자주 하고, 다른 보험에 중복 담보가 없다면\" → 유지 가치 있음**\n> **\"운전이 거의 없거나, 사망·치료비 담보가 이미 충분하다면\" → 재검토 권장**\n\n다른 보험 내역이 있으시면 함께 비교해 드릴 수 있습니다.",
+        "sealed_answer": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험**을 유지할지 판단하려면 아래 기준으로 보시면 됩니다.\n\n---\n\n## 유지 판단 체크포인트\n\n**1. 지금도 운전을 하고 있나요?**\n운전자보험은 운전을 전제로 한 상품입니다. 운전 빈도가 거의 없거나 앞으로 운전을 안 할 계획이라면 보험료 대비 효용이 낮아집니다.\n\n**2. 비슷한 담보가 다른 보험에 있나요?**\n- **교통상해사망 1억 원** — 생명보험이나 다른 상해보험에 이미 사망 보장이 충분하다면 중복입니다.\n- **운전자부상치료비** — 실손보험이나 단체보험에서 치료비가 커버된다면 실익이 줄어듭니다.\n- **자동차사고벌금 3,000만 원** — 이 담보는 다른 보험에서 잘 안 다루는 영역이라, 중복 가능성은 낮습니다.\n\n**3. 월 35,560원이 부담스럽지 않나요?**\n세 담보 합산 보험료로는 나쁘지 않은 수준이지만, 실제 생활에서 활용 가능성이 낮다면 재검토할 여지가 있습니다.\n\n**4. 피보험자(QA한청강)가 실제 주운전자인가요?**\n앞서 말씀드렸듯이, 실제 운전자와 피보험자가 다르면 사고 시 보험금이 지급되지 않을 수 있습니다. 이 부분이 맞지 않으면 유지 전에 반드시 정정이 필요합니다.\n\n---\n\n## 한 줄 판단 기준\n\n> **\"운전을 자주 하고, 다른 보험에 중복 담보가 없다면\" → 유지 가치 있음**\n> **\"운전이 거의 없거나, 사망·치료비 담보가 이미 충분하다면\" → 재검토 권장**\n\n다른 보험 내역이 있으시면 함께 비교해 드릴 수 있습니다.",
+        "failure_location": null,
+        "forced_sidecar": false
+      },
+      "answer_preview": "방금 확인한 **삼성화재 브매담 큐하이카 운전자상해보험**을 유지할지 판단하려면 아래 기준으로 보시면 됩니다.\n\n---\n\n## 유지 판단 체크포인트\n\n**1. 지금도 운전을 하고 있나요?**\n운전자보험은 운전을 전제로 한 상품입니다. 운전 빈도가 거의 없거나 앞으로 운전을 안 할 계획이라면 보험료 대비 효용이 낮아집니다.\n\n**2. 비슷한 담보가 다른 보험에 있나요?**\n- **교통상해사망 1억 원** — 생명보험이나 다른 상",
+      "phase8_original": null
+    }
+  ],
+  "document_accuracy": {
+    "insurer": true,
+    "product": false,
+    "policy_number": true,
+    "coverage": [
+      {
+        "name": "교통상해사망",
+        "hit": true
+      },
+      {
+        "name": "운전자부상치료비",
+        "hit": true
+      },
+      {
+        "name": "자동차사고벌금",
+        "hit": true
+      }
+    ]
+  },
+  "path_verdict": "FAIL",
+  "document_accuracy_verdict": "FAIL",
+  "overall_verdict": "ONE_PATH_FINAL_CONNECTION_BLOCKED"
+}

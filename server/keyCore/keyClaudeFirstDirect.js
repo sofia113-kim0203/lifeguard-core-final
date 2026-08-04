@@ -111,6 +111,22 @@ import {
   comparePreS3AndS3Live,
   shouldSkipProviderForEmptyContractPackets,
 } from "./keyClaudeFirstOneShotSelectiveShadow.js";
+import {
+  buildAccuracyTrace,
+  buildKeyMemoryCandidatesFromSidecar,
+  buildOnePathClaudeFirstRequest,
+  buildSealedTurnSourceRecord,
+  ONE_PATH_LIVE_MODE,
+  shouldSkipProviderOnCustomerAnswerPath,
+} from "./keyOnePathClaudeFirst.js";
+import {
+  resolveKeyCustomerRelationshipState,
+  shouldStopProviderForMemoryQueryFailure,
+} from "./keyCustomerRelationshipState.js";
+import {
+  normalizeOwnedOriginals,
+  ownedOriginalsToMultiAttachments,
+} from "./keyOwnedOriginalsCanonical.js";
 import { buildKeyClaudePreviewRuntimeTrace } from "./keyClaudePreviewRuntimeTrace.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import { resolveOwnedPointedContractIds } from "./keySelectivePointedContractHand.js";
@@ -122,9 +138,11 @@ const KEY_EMPTY_CONTRACT_PACKET_HOLD =
 /** Preview-only metadata for key_voice_trace — never mutates customer text / Provider body. */
 function buildPreviewRuntimeTraceFromClaude(claude, latency = {}, env = process.env) {
   const liveMode =
-    claude?.live_request_mode === "ONE_SHOT_SELECTIVE"
-      ? "ONE_SHOT_SELECTIVE"
-      : "FULL_CURRENT";
+    claude?.live_request_mode === ONE_PATH_LIVE_MODE
+      ? ONE_PATH_LIVE_MODE
+      : claude?.live_request_mode === "ONE_SHOT_SELECTIVE"
+        ? "ONE_SHOT_SELECTIVE"
+        : "FULL_CURRENT";
   const s3 = claude?.token_bomb_s3_live ?? null;
   const metrics = s3?.metrics && typeof s3.metrics === "object" ? s3.metrics : null;
   const inventory =
@@ -344,6 +362,7 @@ import {
   recordQaTurnTrace,
   shouldActivateQaTurnRecorder,
 } from "./keyQaTurnRecorder.js";
+import { buildPhase8GoldenParallelTrace } from "./keyPhase8GoldenParallelTrace.js";
 import {
   canSupportCorporateClaims,
   loadHolderAuthorityGrants,
@@ -5063,6 +5082,8 @@ async function callClaudeFirstDirect({
   attachAnalysisScopeOnly = false,
   /** Preview QA turn capture bag (Surgery 0) — mutate-only; never affects customer path. */
   qaTurnCapture = null,
+  /** Phase 8 Preview Golden parallel capture bag — observe only; never Provider/DB. */
+  phase8TraceBag = null,
   /** Ordered request document_ids for Claude scope (may exceed post-fetch rows). */
   requestedAttachDocumentIds = null,
   /** Identity plan: attachment identities vs unique original blocks (+ duplicate map). */
@@ -5071,6 +5092,16 @@ async function callClaudeFirstDirect({
   keyLatestDocumentContext = null,
   /** STAGE 5A focused KEY memory packet. */
   keyRelevantMemoryPacket = null,
+  /** KEY-owned customer relationship state (not memory-query judgment). */
+  customerRelationshipState = null,
+  customerIdForRelationship = null,
+  conversationIdForRelationship = null,
+  currentTurnDocumentIdsForRelationship = null,
+  explicitReopenDocumentIdsForRelationship = null,
+  originalDeliveryReasonForRelationship = null,
+  hasOwnedVaultOriginalsForRelationship = false,
+  memoryQueryFailedForRelationship = false,
+  memoryLoadStatusForRelationship = null,
   /** C1 Pointer Hand — client hint; ownership re-checked against chart/ledger. */
   pointedContractIds = null,
 }) {
@@ -5255,21 +5286,20 @@ async function callClaudeFirstDirect({
     presenceTurn === true
       ? scopedPayload
       : applyCustomerViewModeToUserPayload(scopedPayload, customerViewModeForPayload);
-  const multiAttachments =
+  // ONE PATH — Canonical owned originals Hand (singular/array/pointer converge).
+  const ownedOriginalsCanonical =
     presenceTurn === true
       ? []
-      : Array.isArray(pdfAttachments)
-        ? pdfAttachments.filter((row) => row?.base64)
-        : [];
-  const primaryPdfBase64 =
-    presenceTurn === true
-      ? null
-      : pdfBase64 || multiAttachments[0]?.base64 || null;
-  const primaryPdfMediaType =
-    presenceTurn === true
-      ? null
-      : pdfMediaType || multiAttachments[0]?.mediaType || null;
-  const pdfAttached = Boolean(primaryPdfBase64);
+      : normalizeOwnedOriginals({
+          pdfBase64,
+          pdfMediaType,
+          pdfMeta,
+          pdfAttachments,
+        });
+  const multiAttachments = ownedOriginalsToMultiAttachments(ownedOriginalsCanonical);
+  const primaryPdfBase64 = multiAttachments[0]?.base64 || null;
+  const primaryPdfMediaType = multiAttachments[0]?.mediaType || null;
+  const pdfAttached = multiAttachments.length > 0;
   // Customer path: no client-side record_* tools (tool_use must not truncate the answer).
   // Sidecar after completed customer_answer carries KEY inventory facts non-blocking.
   // web_search stays available even when originals are attached — Claude decides use.
@@ -5514,29 +5544,39 @@ async function callClaudeFirstDirect({
     pointed_contract_ids: ownedPointedContracts.pointed_contract_ids,
   };
 
-  // TOKEN BOMB S3 — Live ONE_SHOT_SELECTIVE first (gates tools; skips FULL assemble).
+  // ONE PATH CLAUDE FIRST — question + originals + minimal prompt + confirmed memory.
+  // Selective packet routing / OCR extract / pending text are not Provider inputs.
+  void selectiveExplicit;
+  void chart;
+  void readyCardMeta;
+  void keyRelevantMemoryPacket;
+  void buildClaudeFirstOneShotSelectiveRequest;
   let tokenBombS3LiveTrace = null;
   let selectiveLiveRequest = null;
   try {
-    selectiveLiveRequest = buildClaudeFirstOneShotSelectiveRequest({
+    selectiveLiveRequest = buildOnePathClaudeFirstRequest({
       question: presenceTurn === true ? "" : question,
-      explicit: selectiveExplicit,
-      liveSources: {
-        chart,
-        policyTruthContext,
-        multiAttachments,
-        history: presenceTurn === true ? [] : history,
-        activeClaimCases,
-        insuranceClockBrief,
-        priorConsultation: priorConsultationForContext,
-        readyCardMeta: presenceTurn === true ? null : readyCardMeta,
-        keyRelevantMemoryPacket,
-      },
-      // Pool only — Selective gates web_search to web_tool_candidate.
+      history: presenceTurn === true ? [] : history,
+      pdfBase64: primaryPdfBase64,
+      pdfMediaType: primaryPdfMediaType,
+      pdfMeta,
+      pdfAttachments: multiAttachments,
+      policyTruthContext,
       liveTools: requestTools,
+      customerRelationshipState,
+      customerId: customerIdForRelationship,
+      conversationId: conversationIdForRelationship,
+      currentTurnDocumentIds: currentTurnDocumentIdsForRelationship,
+      explicitReopenDocumentIds: explicitReopenDocumentIdsForRelationship,
+      originalDeliveryReason: originalDeliveryReasonForRelationship,
+      priorConsultation: priorConsultationForContext,
+      readyCardMeta,
+      hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
+      memoryQueryFailed: memoryQueryFailedForRelationship === true,
+      memoryLoadStatus: memoryLoadStatusForRelationship,
     });
     tokenBombS3LiveTrace = {
-      live_request_mode: "ONE_SHOT_SELECTIVE",
+      live_request_mode: ONE_PATH_LIVE_MODE,
       live_body_changed: true,
       shadow_provider_call: 0,
       pre_s3_full_assemble: 0,
@@ -5547,10 +5587,10 @@ async function callClaudeFirstDirect({
     };
   } catch {
     tokenBombS3LiveTrace = {
-      live_request_mode: "ONE_SHOT_SELECTIVE",
+      live_request_mode: ONE_PATH_LIVE_MODE,
       live_body_changed: true,
       pre_s3_full_assemble: 0,
-      error: "s3_live_selective_build_failed",
+      error: "one_path_claude_first_build_failed",
     };
   }
 
@@ -5733,6 +5773,7 @@ async function callClaudeFirstDirect({
     ok: false,
     error: null,
   };
+  let keyMemoryCandidates = [];
   let lastProviderDataRaw = null;
   let lastProviderRawTextJoined = "";
   const claimCaseUpdates = [];
@@ -5754,81 +5795,27 @@ async function callClaudeFirstDirect({
     response: null,
   };
   let lastStopReason = null;
-  // ROOT_C — empty pointed-contract packets → Provider 0 (no invented dump).
-  if (
-    shouldSkipProviderForEmptyContractPackets({
-      selectionPlan: selectiveLiveRequest?.selection_plan,
-      pointedContractIds: ownedPointedContracts.pointed_contract_ids,
-      question: presenceTurn === true ? "" : question,
-      presenceTurn,
-    })
-  ) {
-    const holdSeal = sealKeyCustomerText(KEY_EMPTY_CONTRACT_PACKET_HOLD);
-    const holdAnswer = holdSeal.key_speak_original;
-    try {
-      const visible = stripKeyRecordFromStreamText(holdAnswer);
-      if (visible) onAnswerProgress?.(visible);
-    } catch {
-      /* non-blocking */
-    }
-    return {
-      ok: true,
-      customer_answer: holdAnswer,
-      ...holdSeal,
-      progress_only_answer: false,
-      confirmed_source_facts: [],
-      coverage_baseline_facts: [],
-      policy_inventory_facts: [],
-      claim_case_updates: [],
-      visual_blocks: [],
-      key_record_sidecar: { present: false, ok: false, error: null },
-      decision: null,
-      session_goal: null,
-      session_goal_tool_seen: false,
-      session_goal_rejected: false,
-      session_goal_reject_reason: null,
-      session_goal_injected: false,
-      recommendation_basis_tool_seen: false,
-      recommendation_basis_count: 0,
-      recommendation_basis_rejected_count: 0,
-      recommendation_basis_reject_reasons: [],
-      recommendation_basis_ok: true,
-      decision_persisted: false,
-      answer_source: "empty_contract_packet_hold",
-      ttft_ms: null,
-      chart,
-      allowlist,
-      pdf_attached: pdfAttached,
-      original_attachment_count:
-        multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
-      web_search_trace: emptyWebSearchTrace(),
-      public_evidence: [],
-      empty_answer_diag: { input: null, response: null },
-      provider_usage: pickAnthropicUsageNumbers(null),
-      stop_reason: null,
-      document_record_tools_sent: 0,
-      provider_messages_request_count: 0,
-      actual_provider_fetch_count: 0,
-      provider_fetch_observations: [],
-      token_bomb_s1_shadow: tokenBombS1ShadowTrace,
-      token_bomb_s3_live: tokenBombS3LiveTrace,
-      live_request_mode: "ONE_SHOT_SELECTIVE",
-      heavy_context_replay_count: 0,
-      prompt_cache: {
-        strategy: cachedParts.cache_strategy,
-        breakpoints: cachedParts.cache_breakpoints,
-        control: ANTHROPIC_PROMPT_CACHE_CONTROL_5M,
-      },
-      empty_contract_packet_hold: true,
-      pre_s3_full_assemble: 0,
-    };
+  // ONE PATH — A1/ROOT_C never blocks customer answer Provider.
+  // Hard failures (auth/ownership/bytes/security) are handled outside this path.
+  void shouldSkipProviderForEmptyContractPackets;
+  void KEY_EMPTY_CONTRACT_PACKET_HOLD;
+  void shouldSkipProviderOnCustomerAnswerPath;
+  if (shouldSkipProviderOnCustomerAnswerPath() === true) {
+    /* unreachable — kept as explicit lock */
   }
 
-  const maxProviderTurns = effectiveProviderTools.length > 0 ? 3 : 1;
+  // ONE PATH — customer Claude call exactly once (no tool-driven multi-turn).
+  const maxProviderTurns = 1;
   const streamProgressSafe = (text) => {
     const visible = stripKeyRecordFromStreamText(text);
     if (visible) onAnswerProgress?.(visible);
   };
+  const phase8CaptureActive =
+    phase8TraceBag &&
+    phase8TraceBag.active === true &&
+    Array.isArray(phase8TraceBag.probes) &&
+    phase8TraceBag.probes.length > 0;
+  let phase8ProviderSnapshot = null;
   for (let turn = 0; turn < maxProviderTurns; turn += 1) {
     const body = {
       model,
@@ -5852,6 +5839,18 @@ async function callClaudeFirstDirect({
       body,
       userPayload,
     });
+
+    // Phase 8 — capture final Anthropic request structure once (no body mutation).
+    if (phase8CaptureActive && phase8ProviderSnapshot == null) {
+      phase8ProviderSnapshot = {
+        system,
+        messages,
+        selectiveLiveRequest,
+        multiAttachments,
+        chart,
+        policyTruthContext,
+      };
+    }
 
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), PROVIDER_TURN_TIMEOUT_MS);
@@ -5896,7 +5895,7 @@ async function callClaudeFirstDirect({
         provider_fetch_observations: providerFetchObservations,
         token_bomb_s1_shadow: tokenBombS1ShadowTrace,
         token_bomb_s3_live: tokenBombS3LiveTrace,
-        live_request_mode: "ONE_SHOT_SELECTIVE",
+        live_request_mode: ONE_PATH_LIVE_MODE,
         web_search_trace: {
           ...webSearchTrace,
           claude_messages_request_count: messagesRequestCount,
@@ -6032,26 +6031,13 @@ async function callClaudeFirstDirect({
         source_content_sha256: pdfMeta?.content_sha256 ?? null,
       });
       policyInventoryFacts = normalizedSidecar.policy_inventory_facts;
-      confirmedSourceFacts = normalizeKeyConfirmedSourceFacts(
-        normalizedSidecar.confirmed_source_facts,
-        {
-          source_document_id: pdfMeta?.document_id ?? null,
-          source_content_sha256: pdfMeta?.content_sha256 ?? null,
-        },
-      ).filter((fact) => !isClaudeInferenceOrEvaluationLiteral(fact?.literal_value));
-      // Also lift inventory rows into confirmed literal facts when typed.
-      if (!confirmedSourceFacts.length && policyInventoryFacts.length) {
-        confirmedSourceFacts = liftInventoryToConfirmedSourceFacts(
-          policyInventoryFacts,
-        ).filter((fact) => !isClaudeInferenceOrEvaluationLiteral(fact?.literal_value));
-      }
-      coverageBaselineFacts = normalizeKeyCoverageBaselineFacts(
-        normalizedSidecar.coverage_baseline_facts,
-        {
-          source_document_id: pdfMeta?.document_id ?? null,
-          source_content_sha256: pdfMeta?.content_sha256 ?? null,
-        },
-      );
+      // ONE PATH — Claude discoveries are KEY pending candidates, not confirmed.
+      keyMemoryCandidates = buildKeyMemoryCandidatesFromSidecar(split.key_record, {
+        source_document_id: pdfMeta?.document_id ?? null,
+        observed_at: new Date().toISOString(),
+      });
+      confirmedSourceFacts = [];
+      coverageBaselineFacts = [];
       try {
         visualBlocks = wantsClaudeFirstVisualBlocks(question)
           ? normalizeVisualBlocks(normalizedSidecar.visual_blocks)
@@ -6059,6 +6045,8 @@ async function callClaudeFirstDirect({
       } catch {
         visualBlocks = [];
       }
+      keyRecordSidecarMeta.key_memory_candidates = keyMemoryCandidates;
+      keyRecordSidecarMeta.confirmed_promotion = 0;
     }
     const customerVisible = split.customer_answer || stripKeyRecordFromStreamText(picked.customer_answer);
     webSearchTrace = accumulateWebSearchTrace(
@@ -6169,9 +6157,46 @@ async function callClaudeFirstDirect({
     }
   }
 
+  let phase8GoldenParallelTrace = null;
+  if (phase8CaptureActive) {
+    try {
+      const snap = phase8ProviderSnapshot || {
+        system,
+        messages,
+        selectiveLiveRequest,
+        multiAttachments,
+        chart,
+        policyTruthContext,
+      };
+      phase8GoldenParallelTrace = buildPhase8GoldenParallelTrace({
+        active: true,
+        probes: phase8TraceBag.probes,
+        uploadedFixtureSha256: phase8TraceBag.uploadedFixtureSha256,
+        selectiveLiveRequest: snap.selectiveLiveRequest,
+        multiAttachments: snap.multiAttachments,
+        chart: snap.chart,
+        policyTruthContext: snap.policyTruthContext,
+        system: snap.system,
+        messages: snap.messages,
+        finalAnswer: progressOnly ? "" : customer_answer,
+        actualProviderFetchCount,
+      });
+      phase8TraceBag.result = phase8GoldenParallelTrace;
+    } catch {
+      phase8GoldenParallelTrace = null;
+    }
+  }
+
   return {
     ok: Boolean(customer_answer) && !progressOnly,
     customer_answer: progressOnly ? "" : customer_answer,
+    provider_raw_customer_text: String(
+      lastProviderRawTextJoined || customer_answer || streamedAnswer || "",
+    ),
+    model,
+    owned_originals: Array.isArray(selectiveLiveRequest?.owned_originals)
+      ? selectiveLiveRequest.owned_originals
+      : [],
     progress_only_answer: progressOnly === true,
     confirmed_source_facts: confirmedSourceFacts,
     coverage_baseline_facts: coverageBaselineFacts,
@@ -6179,6 +6204,7 @@ async function callClaudeFirstDirect({
     claim_case_updates: claimCaseUpdates,
     visual_blocks: visualBlocks,
     key_record_sidecar: keyRecordSidecarMeta,
+    key_memory_candidates: keyMemoryCandidates,
     // GO3: decision never generated/persisted on Claude-first.
     decision: null,
     session_goal: sessionGoalRecord,
@@ -6216,7 +6242,11 @@ async function callClaudeFirstDirect({
     provider_fetch_observations: providerFetchObservations,
     token_bomb_s1_shadow: tokenBombS1ShadowTrace,
     token_bomb_s3_live: tokenBombS3LiveTrace,
-    live_request_mode: "ONE_SHOT_SELECTIVE",
+    live_request_mode: ONE_PATH_LIVE_MODE,
+    customer_relationship_state:
+      selectiveLiveRequest?.customer_relationship_state ??
+      customerRelationshipState ??
+      null,
     heavy_context_replay_count: providerFetchObservations.filter(
       (o) => o?.prior_heavy_context_replayed === true,
     ).length,
@@ -6229,6 +6259,7 @@ async function callClaudeFirstDirect({
         userPayload,
       }),
     },
+    phase8_golden_parallel_trace: phase8GoldenParallelTrace,
     error: progressOnly
       ? "progress_only_answer"
       : customer_answer
@@ -6267,6 +6298,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   clientTurnId = null,
   /** C1 Pointer Hand — 0..1 internal contract ids from Home request. */
   pointedContractIds = null,
+  /** Phase 8 Preview Golden parallel capture bag. */
+  phase8TraceBag = null,
   env = process.env,
   fetchImpl = fetch,
   startedAt = Date.now(),
@@ -6613,7 +6646,14 @@ export async function runClaudeFirstDirectQuestionTurn({
   clientAttachedDocumentIds = listAttachedDocumentIds(
     Array.isArray(activeDocumentCase.documentIds) ? activeDocumentCase.documentIds : [],
   );
-  let explicitDocumentId = String(activeDocumentCase.documentId ?? "").trim();
+  // FINAL CONNECTION — upload/explicit-reopen delivery ids must not be dropped by case narrowing.
+  // Past-original L4: Pointer/Vault authority → same ownedOriginals[] path as current upload.
+  if (originalDeliveryIds.length > 0) {
+    clientAttachedDocumentIds = originalDeliveryIds.slice();
+  }
+  let explicitDocumentId = String(
+    clientAttachedDocumentIds[0] || activeDocumentCase.documentId || "",
+  ).trim();
   const caseDocumentId = explicitDocumentId;
   let documentMentionResolve = null;
   let vaultRecall = null;
@@ -7092,6 +7132,27 @@ export async function runClaudeFirstDirectQuestionTurn({
           ...(vaultRecall?.listing ? { document_box_listing: vaultRecall.listing } : {}),
         },
       };
+      // Singular fetch used to set pdfBase64 only — Selective never saw an attachment packet.
+      if (
+        pdf?.pdfBase64 &&
+        !(Array.isArray(pdfAttachmentsForClaude) && pdfAttachmentsForClaude.length)
+      ) {
+        pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(
+          [
+            {
+              base64: pdf.pdfBase64,
+              mediaType: pdf.mediaType || pdf?.meta?.mime_type || "application/pdf",
+              document_id:
+                String(explicitDocumentId || pdf?.meta?.document_id || "").trim() ||
+                null,
+              original_filename: pdf?.meta?.original_filename ?? null,
+              content_sha256: pdf?.meta?.content_sha256 ?? null,
+              source_scope: "current_turn_attachment",
+            },
+          ],
+          { vaultSafeImage: true, maxImageEdge: 2048 },
+        );
+      }
     }
   } else if (explicitDocumentId && attachModeDecision.attach_full_base64 === false) {
     // T1: skip Storage original rebroadcast; keep document identity + scope for Claude.
@@ -7114,6 +7175,84 @@ export async function runClaudeFirstDirectQuestionTurn({
         }),
       },
     };
+  }
+
+  // FINAL CONNECTION — if delivery authority exists, always rehydrate owned bytes
+  // into the same attachment list Claude uses (current upload + past pointer).
+  if (
+    !isPresenceTurn &&
+    originalDeliveryIds.length > 0 &&
+    userSupabase &&
+    customerId &&
+    !(
+      Array.isArray(pdfAttachmentsForClaude) &&
+      pdfAttachmentsForClaude.some((row) => row?.base64 || row?.pdfBase64)
+    )
+  ) {
+    const identityRows = [];
+    const fetchStarted = Date.now();
+    for (const documentId of originalDeliveryIds) {
+      const fetched = await verifyAndFetchCustomerPdfOriginal({
+        supabase: userSupabase,
+        customerId,
+        documentId,
+        env,
+      });
+      if (fetched?.ok && fetched.pdfBase64) {
+        const bytesSha = contentSha256FromBase64(fetched.pdfBase64);
+        const storedSha = String(fetched.content_sha256 ?? "")
+          .trim()
+          .toLowerCase();
+        identityRows.push({
+          base64: fetched.pdfBase64,
+          mediaType: fetched.mediaType,
+          document_id: documentId,
+          original_filename: fetched.document?.original_filename ?? null,
+          content_sha256: storedSha || bytesSha || null,
+          delivery_bytes_sha256: bytesSha || null,
+          source_scope:
+            originalByteDelivery.reason === "explicit_reopen"
+              ? "owned_pointer"
+              : "current_turn_attachment",
+        });
+      }
+    }
+    pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+    if (identityRows.length) {
+      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(identityRows, {
+        vaultSafeImage: true,
+        maxImageEdge: 2048,
+      });
+      const primary = identityRows[0];
+      pdf = {
+        pdfBase64: primary.base64,
+        mediaType: primary.mediaType,
+        meta: {
+          attached: true,
+          document_id: primary.document_id,
+          original_filename: primary.original_filename,
+          content_sha256: primary.content_sha256,
+          reuse_without_bytes: false,
+          pdf_attach_mode: "full_original_once",
+          document_review_scope: "owned_original_byte_delivery_authority",
+          document_evidence_status: "document_source_confirmed",
+          note: "final_connection_owned_originals_rehydrated",
+          source:
+            originalByteDelivery.reason === "explicit_reopen"
+              ? "owned_pointer"
+              : "current_upload",
+          attach_signals: buildAttachOpsSignals({
+            attachment_requested: true,
+            attachment_attached: true,
+            attachment_failed: false,
+            attachment_block_built: true,
+          }),
+        },
+      };
+      if (!explicitDocumentId) {
+        explicitDocumentId = String(primary.document_id || "").trim();
+      }
+    }
   }
 
   // Explicit attach requested this turn but processing failed → fail-closed.
@@ -7989,6 +8128,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   const chartForMemoryGate = isPresenceTurn
     ? null
     : buildVerifiedCustomerChart(reality);
+  // KEY relationship state is fact-owned. Memory query failure ≠ NEW_CUSTOMER
+  // and must never stop the customer-answer Provider path (Tom GO).
   if (
     shouldHardStopOnMemoryQueryFailed({
       originalAttachmentCount: originalDeliveryIds.length,
@@ -7997,60 +8138,14 @@ export async function runClaudeFirstDirectQuestionTurn({
       chart: chartForMemoryGate,
     })
   ) {
-    console.error("[key_document_memory_query_failed_hard_stop]", {
+    console.error("[key_document_memory_query_failed_continue_provider]", {
       reason: keyLatestDocumentMemoryLoad.reason,
       error: keyLatestDocumentMemoryLoad.error,
       customer_id: customerId ? String(customerId).slice(0, 8) : null,
+      stop_provider: shouldStopProviderForMemoryQueryFailure(),
     });
-    return {
-      ok: false,
-      answerText: null,
-      customerText: null,
-      keySpeakOriginal: null,
-      visualBlocks: [],
-      key_monopoly_failure: false,
-      failure_reason: "key_document_memory_query_failed",
-      memory_query_failed: true,
-      key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
-      provider_calls: 0,
-      response_source: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
-      compose_mode: "key_claude_first_direct",
-      agentTurn: null,
-      modeDecision: null,
-      loadedContext,
-      contextSnapshot,
-      unifiedState,
-      customerContextBundle,
-      salesDirectorTrace: {
-        one_key_core: true,
-        compose_mode: "key_claude_first_direct",
-        key_compose_trace: {
-          compose_mode: "key_claude_first_direct",
-          key_voice_trace: {
-            provider: "claude_first_direct",
-            memory_query_failed: true,
-            key_latest_document_memory_load: keyLatestDocumentMemoryLoad,
-            provider_calls: 0,
-            original_attachment_count: 0,
-          },
-        },
-      },
-      oneKeyCoreTrace: {
-        schema_version: "one-key-core-trace-claude-first-v1",
-        steps: [
-          {
-            step: "key_document_memory_query_failed",
-            at_ms: relMs(startedAt),
-            payload: {
-              reason: keyLatestDocumentMemoryLoad.reason,
-              error: keyLatestDocumentMemoryLoad.error,
-              provider_calls: 0,
-            },
-          },
-        ],
-      },
-    };
   }
+  void shouldStopProviderForMemoryQueryFailure;
 
   // Focused packet for document follow-ups (memory hit, or miss with document signals).
   if (
@@ -8085,6 +8180,32 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  const keyCustomerRelationshipState = resolveKeyCustomerRelationshipState({
+    customerId,
+    conversationId: sessionId,
+    history: isPresenceTurn ? [] : history,
+    confirmedContracts: Array.isArray(policyTruthContextForClaude?.confirmed_contracts)
+      ? policyTruthContextForClaude.confirmed_contracts
+      : Array.isArray(verifiedPolicyLedgerBrief?.confirmed_contracts)
+        ? verifiedPolicyLedgerBrief.confirmed_contracts
+        : [],
+    priorConsultation: isPresenceTurn ? null : priorConsultationForContext,
+    readyCardMeta: isPresenceTurn ? null : readyCardMeta,
+    currentTurnDocumentIds: scopedCurrentTurnDocumentIds,
+    explicitReopenDocumentIds: scopedExplicitReopenDocumentIds,
+    originalDeliveryReason: originalByteDelivery.reason,
+    ownedOriginalSources: Array.isArray(pdfAttachmentsForClaude)
+      ? pdfAttachmentsForClaude.map(
+          (r) => r?.source || r?.source_scope || null,
+        )
+      : [],
+    hasOwnedVaultOriginals:
+      Boolean(vaultRecall?.attachments?.length) ||
+      Number(readyCardMeta?.document_status?.active_count) > 0,
+    memoryQueryFailed: keyLatestDocumentMemoryLoad?.status === "query_failed",
+    memoryLoadStatus: keyLatestDocumentMemoryLoad?.status ?? null,
+  });
+
   const claude = await callClaudeFirstDirect({
     question: isPresenceTurn ? KEY_PRESENCE_INTERNAL_QUESTION : question,
     history: isPresenceTurn ? [] : history,
@@ -8094,6 +8215,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     fetchImpl,
     startedAt,
     qaTurnCapture,
+    phase8TraceBag,
     onFirstContent: (ms) => {
       if (firstTokenMs == null) firstTokenMs = ms;
     },
@@ -8169,6 +8291,17 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? null
       : keyLatestDocumentContextForClaude,
     keyRelevantMemoryPacket: keyRelevantMemoryPacketForClaude,
+    customerRelationshipState: keyCustomerRelationshipState,
+    customerIdForRelationship: customerId,
+    conversationIdForRelationship: sessionId,
+    currentTurnDocumentIdsForRelationship: scopedCurrentTurnDocumentIds,
+    explicitReopenDocumentIdsForRelationship: scopedExplicitReopenDocumentIds,
+    originalDeliveryReasonForRelationship: originalByteDelivery.reason,
+    hasOwnedVaultOriginalsForRelationship:
+      keyCustomerRelationshipState.facts?.has_owned_vault_originals === true,
+    memoryQueryFailedForRelationship:
+      keyCustomerRelationshipState.memory_query_failed === true,
+    memoryLoadStatusForRelationship: keyLatestDocumentMemoryLoad?.status ?? null,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -8533,6 +8666,41 @@ export async function runClaudeFirstDirectQuestionTurn({
     turnOrd: Array.isArray(history) ? history.length + 1 : 1,
   });
   const nowStamp = startedAt instanceof Date ? startedAt : new Date(startedAt);
+
+  // FINAL CONNECTION — post-Seal KEY turn/source + accuracy trace (no forced sidecar).
+  const ownedOriginalsForRecord = Array.isArray(claude?.owned_originals)
+    ? claude.owned_originals
+    : normalizeOwnedOriginals({
+        pdfBase64: pdf?.pdfBase64 ?? null,
+        pdfMediaType: pdf?.mediaType ?? null,
+        pdfMeta: pdf?.meta ?? null,
+        pdfAttachments: pdfAttachmentsForClaude,
+      });
+  const keySealedTurnSourceRecord = usedFailure
+    ? null
+    : buildSealedTurnSourceRecord({
+        turnId: resolvedClientTurnId,
+        question: isPresenceTurn ? "" : question,
+        sealedAnswer: sealed.key_speak_original,
+        ownedOriginals: ownedOriginalsForRecord,
+        conversationPosition: Array.isArray(history) ? history.length + 1 : 1,
+        observedAt: Number.isFinite(nowStamp.getTime())
+          ? nowStamp.toISOString()
+          : new Date().toISOString(),
+        status: "pending_unverified",
+      });
+  const accuracyTrace = buildAccuracyTrace({
+    model: claude?.model ?? null,
+    providerDocumentSha256:
+      ownedOriginalsForRecord[0]?.sha256 ||
+      pdf?.meta?.content_sha256 ||
+      pdf?.meta?.delivery_bytes_sha256 ||
+      null,
+    providerRawAnswer:
+      claude?.provider_raw_customer_text || claude?.customer_answer || "",
+    sealedAnswer: sealed.key_speak_original,
+  });
+
   const customerStatedGoalText =
     !isPresenceTurn && !usedFailure && discardRequested !== true
       ? extractCustomerStatedGoalFromUtterance(question)
@@ -8794,6 +8962,14 @@ export async function runClaudeFirstDirectQuestionTurn({
         streamed_equals_sealed: streamedEqualsSealed,
         session_goal: persistableSessionGoal,
         key_consultation_record: keyConsultationRecord,
+        // Phase 8 Preview diagnostic only (response field; not memory/DB).
+        phase8_golden_parallel_trace: claude?.phase8_golden_parallel_trace ?? null,
+        key_memory_candidates: Array.isArray(claude?.key_memory_candidates)
+          ? claude.key_memory_candidates
+          : [],
+        key_sealed_turn_source_record: keySealedTurnSourceRecord,
+        accuracy_trace: accuracyTrace,
+        customer_relationship_state: keyCustomerRelationshipState,
         presence_quiet: isPresenceTurn && !String(sealed.key_speak_original ?? "").trim(),
         sales_director_trace: {
           one_key_core: true,
@@ -9731,6 +9907,13 @@ export async function runClaudeFirstDirectQuestionTurn({
     visualBlocks: usedFailure ? [] : claude.visual_blocks ?? [],
     key_monopoly_failure: usedFailure,
     failure_reason: failureReason,
+    phase8_golden_parallel_trace: claude?.phase8_golden_parallel_trace ?? null,
+    key_memory_candidates: Array.isArray(claude?.key_memory_candidates)
+      ? claude.key_memory_candidates
+      : [],
+    key_sealed_turn_source_record: keySealedTurnSourceRecord,
+    accuracy_trace: accuracyTrace,
+    customer_relationship_state: keyCustomerRelationshipState,
     agentTurn: {
       text: sealed.key_speak_original,
       responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
@@ -9743,6 +9926,11 @@ export async function runClaudeFirstDirectQuestionTurn({
         key_confirmed_source_facts: factsToPersist,
         key_coverage_baseline_facts: baselineFactsToPersist,
         active_claim_cases: claimCasesToPersist,
+        key_memory_candidates: Array.isArray(claude?.key_memory_candidates)
+          ? claude.key_memory_candidates
+          : [],
+        key_sealed_turn_source_record: keySealedTurnSourceRecord,
+        customer_relationship_state: keyCustomerRelationshipState,
       },
     },
     modeDecision: null,

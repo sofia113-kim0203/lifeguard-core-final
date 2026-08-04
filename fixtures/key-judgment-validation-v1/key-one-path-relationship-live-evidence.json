@@ -1,0 +1,198 @@
+{
+  "schema_version": "key-relationship-one-path-live-v1",
+  "observed_at": "2026-08-04T17:50:30.406Z",
+  "preview_url": "https://lifeguard-core-final-fe3bmvr6m-70sofia113-1918s-projects.vercel.app",
+  "commit": "1e2f3f3a0eb41c62b285081866ea6928a98e84f1",
+  "commit_short": "1e2f3f3",
+  "production": 0,
+  "push": 0,
+  "live_process_ok": false,
+  "live_exit": 2,
+  "lock_check": {
+    "memory_query_failed_to_partial_unavailable": true,
+    "memory_fail_never_new_customer": true,
+    "memory_fail_never_provider_stop": true
+  },
+  "l4_report": {
+    "relationship_state": "RETURNING_CUSTOMER",
+    "conversation": "CONTINUING_CONVERSATION",
+    "states": [
+      "RETURNING_CUSTOMER",
+      "CONTINUING_CONVERSATION",
+      "PRIOR_ORIGINAL_IN_SAME_CONVERSATION"
+    ],
+    "prior_original_in_same_conversation": true,
+    "memory_availability": "available",
+    "memory_query_failed": false,
+    "document_id": "f35476ff-1935-4ffb-a0a6-42c3a8c2ce23",
+    "ownership": "owned_pointer_or_attached",
+    "bytes_loaded": true,
+    "canonical_originals_count": 1,
+    "provider": 1,
+    "response_completed": true,
+    "hash_match": true,
+    "provider_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+    "uploaded_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+    "first_failed_stage": null
+  },
+  "turns": [
+    {
+      "id": "L1",
+      "provider_calls": 1,
+      "answer_len": 670,
+      "response_completed": true,
+      "a1_hold_96": false,
+      "relationship_state": null,
+      "document_attached": true,
+      "hash_match": true,
+      "provider_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+      "source_document_id": null,
+      "source_sha": null,
+      "canonical_originals_count": 1,
+      "answer_preview": null,
+      "phase8_original": {
+        "selective_pdf_present": true,
+        "provider_document_block_present": true,
+        "provider_block_type": "document",
+        "provider_media_type": "application/pdf",
+        "provider_source_type": "base64",
+        "provider_decoded_byte_length": 72721,
+        "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "uploaded_fixture_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "document_hash_match": true
+      },
+      "request_seen": false
+    },
+    {
+      "id": "L2",
+      "provider_calls": 1,
+      "answer_len": 469,
+      "response_completed": true,
+      "a1_hold_96": false,
+      "relationship_state": {
+        "relationship": "RETURNING_CUSTOMER",
+        "conversation": "CONTINUING_CONVERSATION",
+        "prior_original_in_same_conversation": false,
+        "states": [
+          "RETURNING_CUSTOMER",
+          "CONTINUING_CONVERSATION"
+        ],
+        "memory_availability": "available",
+        "memory_query_failed": false
+      },
+      "document_attached": true,
+      "hash_match": true,
+      "provider_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+      "source_document_id": "f35476ff-1935-4ffb-a0a6-42c3a8c2ce23",
+      "source_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+      "canonical_originals_count": 1,
+      "answer_preview": "이번 턴에 첨부된 증권을 직접 읽었습니다.\n\n---\n\n**보험사:** 삼성화재\n**상품명:** 브래담 큐하이카 운전자상해보험\n**증권번호:** SFOAOCR260801A\n\n---\n\n**주요 보장 내역**\n\n| 담보명 | 가입금액 |\n|---|---|\n| 교통 상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n**월 보험료:** 35,560원\n\n---\n\n세 가지 담보 ",
+      "phase8_original": {
+        "selective_pdf_present": true,
+        "provider_document_block_present": true,
+        "provider_block_type": "document",
+        "provider_media_type": "application/pdf",
+        "provider_source_type": "base64",
+        "provider_decoded_byte_length": 72721,
+        "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "uploaded_fixture_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "document_hash_match": true
+      },
+      "request_seen": true
+    },
+    {
+      "id": "L3",
+      "provider_calls": 1,
+      "answer_len": 771,
+      "response_completed": true,
+      "a1_hold_96": false,
+      "relationship_state": {
+        "relationship": "RETURNING_CUSTOMER",
+        "conversation": "CONTINUING_CONVERSATION",
+        "prior_original_in_same_conversation": false,
+        "states": [
+          "RETURNING_CUSTOMER",
+          "CONTINUING_CONVERSATION"
+        ],
+        "memory_availability": "available",
+        "memory_query_failed": false
+      },
+      "document_attached": false,
+      "hash_match": false,
+      "provider_sha": null,
+      "source_document_id": null,
+      "source_sha": null,
+      "canonical_originals_count": 0,
+      "answer_preview": "방금 확인한 삼성화재 브래담 큐하이카 운전자상해보험에서 특히 챙겨보실 부분을 말씀드릴게요.\n\n---\n\n**1. 보험기간 확인 필요**\n증권에서 보험기간이 확인되지 않았습니다. 언제까지 보장되는지 반드시 확인하세요. 만기가 가까운 경우 갱신 여부와 갱신 시 보험료 변동도 함께 체크하시는 게 좋습니다.\n\n**2. 자동차사고벌금 3,000만 원 — 지급 조건 확인**\n벌금 담보는 모든 사고에 다 나오는 게 아닙니다. 보통 12대 중",
+      "phase8_original": null,
+      "request_seen": true
+    },
+    {
+      "id": "L4",
+      "provider_calls": 1,
+      "answer_len": 548,
+      "response_completed": true,
+      "a1_hold_96": false,
+      "relationship_state": {
+        "relationship": "RETURNING_CUSTOMER",
+        "conversation": "CONTINUING_CONVERSATION",
+        "prior_original_in_same_conversation": true,
+        "states": [
+          "RETURNING_CUSTOMER",
+          "CONTINUING_CONVERSATION",
+          "PRIOR_ORIGINAL_IN_SAME_CONVERSATION"
+        ],
+        "memory_availability": "available",
+        "memory_query_failed": false
+      },
+      "document_attached": true,
+      "hash_match": true,
+      "provider_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+      "source_document_id": "f35476ff-1935-4ffb-a0a6-42c3a8c2ce23",
+      "source_sha": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+      "canonical_originals_count": 1,
+      "answer_preview": "아까 올려주신 증권을 다시 확인했습니다. 보장 내용 정리해 드릴게요.\n\n---\n\n**삼성화재 브래담 큐하이카 운전자상해보험**\n증권번호: SFOAOCR260801A\n월 보험료: 35,560원\n\n---\n\n**보장 내역**\n\n| 담보명 | 가입금액 |\n|---|---|\n| 교통 상해사망 | 1억 원 |\n| 운전자부상치료비 | 2,000만 원 |\n| 자동차사고벌금 | 3,000만 원 |\n\n---\n\n**각 담보 간단 설명**\n\n- *",
+      "phase8_original": {
+        "selective_pdf_present": true,
+        "provider_document_block_present": true,
+        "provider_block_type": "document",
+        "provider_media_type": "application/pdf",
+        "provider_source_type": "base64",
+        "provider_decoded_byte_length": 72721,
+        "provider_document_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "uploaded_fixture_sha256": "c07e2990630c2199cea09902d05cf1193023f1f71589b328a8d7f1ce53211f84",
+        "document_hash_match": true
+      },
+      "request_seen": true
+    },
+    {
+      "id": "L5",
+      "provider_calls": 1,
+      "answer_len": 892,
+      "response_completed": true,
+      "a1_hold_96": false,
+      "relationship_state": {
+        "relationship": "RETURNING_CUSTOMER",
+        "conversation": "CONTINUING_CONVERSATION",
+        "prior_original_in_same_conversation": false,
+        "states": [
+          "RETURNING_CUSTOMER",
+          "CONTINUING_CONVERSATION"
+        ],
+        "memory_availability": "available",
+        "memory_query_failed": false
+      },
+      "document_attached": false,
+      "hash_match": false,
+      "provider_sha": null,
+      "source_document_id": null,
+      "source_sha": null,
+      "canonical_originals_count": 0,
+      "answer_preview": "지금 갖고 계신 삼성화재 브래담 큐하이카 운전자상해보험을 유지할지 판단하실 때 이렇게 보시면 됩니다.\n\n---\n\n**1. 다른 보험과 중복 여부 확인**\n\n자동차보험에도 운전자 관련 보장이 일부 포함되어 있는 경우가 많습니다. 특히 벌금이나 부상치료비가 다른 곳에서 이미 보장되고 있다면, 이 보험의 가치가 상대적으로 낮아집니다. 반대로 이 보험이 유일한 보장이라면 유지 필요성이 높아지죠.\n\n---\n\n**2. 담보 구성의 충분성",
+      "phase8_original": null,
+      "request_seen": true
+    }
+  ],
+  "path_verdict": "PASS",
+  "overall_verdict": "KEY_RELATIONSHIP_ONE_PATH_LIVE_COMPLETE"
+}

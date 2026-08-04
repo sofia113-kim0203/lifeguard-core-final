@@ -44,7 +44,13 @@ export default async function handler(req, res) {
 
   let memoryFailedSent = false;
   try {
-    const body = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
+    const rawBody = req.body && typeof req.body === "object" ? req.body : await readJsonBody(req);
+    // Phase 8 diagnostic probes — strip before any product path; never reach Provider.
+    const { stripPhase8DiagnosticFieldsFromBody, createPhase8TraceBag } = await import(
+      "../server/keyCore/keyPhase8GoldenParallelTrace.js"
+    );
+    const stripped = stripPhase8DiagnosticFieldsFromBody(rawBody);
+    const body = stripped.body;
     const presenceTurn = body?.presence === true || body?.presence_turn === true;
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
@@ -128,6 +134,15 @@ export default async function handler(req, res) {
     const authHeader = readCustomerAuthHeader(req);
     const userSupabase = createUserSupabaseClient(authHeader);
     const resolved = await requireCustomerAuth(userSupabase);
+    const phase8TraceBag =
+      resolved?.ok === true
+        ? createPhase8TraceBag({
+            env: process.env,
+            customerId: resolved.customerId,
+            probes: stripped.probes,
+            uploadedFixtureSha256: stripped.uploadedFixtureSha256,
+          })
+        : { active: false, probes: [], uploadedFixtureSha256: null, result: null };
 
     if (!resolved.ok && resolved.reason === "SUPABASE_NOT_CONFIGURED") {
       res.statusCode = 500;
@@ -197,6 +212,7 @@ export default async function handler(req, res) {
         accessToken: authHeader,
         clientTurnId,
         pointedContractIds: presenceTurn ? [] : pointedContractIds,
+        phase8TraceBag,
         streamHandlers,
         requestStartedAt,
       });
@@ -256,6 +272,7 @@ export default async function handler(req, res) {
       accessToken: authHeader,
       clientTurnId,
       pointedContractIds: presenceTurn ? [] : pointedContractIds,
+      phase8TraceBag,
     });
 
     if (!result.ok) {

@@ -691,6 +691,8 @@ export async function handleHomeBrainFactRequest({
   accessToken = null,
   clientTurnId = null,
   pointedContractIds = null,
+  /** Phase 8 Preview-only Golden parallel capture bag (observe; never Provider). */
+  phase8TraceBag = null,
   env = process.env,
   fetchImpl = fetch,
   streamHandlers = null,
@@ -778,6 +780,7 @@ export async function handleHomeBrainFactRequest({
     shadowVisualBlocksOverride: isPresenceTurn ? null : shadowVisualBlocksOverride,
     clientTurnId,
     pointedContractIds: isPresenceTurn ? null : pointedContractIds,
+    phase8TraceBag: isPresenceTurn ? null : phase8TraceBag,
     streamHandlers: activeStreamHandlers,
     env: keyEnv,
     fetchImpl,
@@ -992,6 +995,16 @@ export async function handleHomeBrainFactRequest({
       one_key_core_trace: coreResult.oneKeyCoreTrace ?? null,
       key_monopoly_failure: coreResult.key_monopoly_failure === true,
       failure_reason: coreResult.failure_reason ?? null,
+      // Phase 8 Preview diagnostic only — never persisted to memory/DB by this field.
+      phase8_golden_parallel_trace: coreResult.phase8_golden_parallel_trace ?? null,
+      key_memory_candidates: Array.isArray(coreResult.key_memory_candidates)
+        ? coreResult.key_memory_candidates
+        : [],
+      key_sealed_turn_source_record:
+        coreResult.key_sealed_turn_source_record ?? null,
+      accuracy_trace: coreResult.accuracy_trace ?? null,
+      customer_relationship_state:
+        coreResult.customer_relationship_state ?? null,
       // GO3 — short-term session work state for client metadata persist (not decision/memory).
       session_goal: coreResult.salesDirectorTrace?.session_goal ?? null,
       // OUR CLAUDE memory loop — consultation kinds for assistant metadata (not verified fact).

@@ -202,7 +202,8 @@
     "test:key-persona-v1-journey-checks": "node scripts/key-persona-v1-journey-checks-unit-test.mjs",
     "test:key-token-bomb-s4-preview-trace": "node scripts/key-token-bomb-s4-preview-trace-unit-test.mjs",
     "test:key-upload-connection-authority-closure": "node scripts/key-upload-connection-authority-closure-unit-test.mjs",
-    "test:key-upload-phase7-harness": "node scripts/key-upload-phase7-harness-unit-test.mjs"
+    "test:key-upload-phase7-harness": "node scripts/key-upload-phase7-harness-unit-test.mjs",
+    "test:key-one-path-claude-first": "node scripts/key-one-path-claude-first-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

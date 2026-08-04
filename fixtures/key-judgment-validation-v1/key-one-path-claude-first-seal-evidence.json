@@ -1,0 +1,42 @@
+{
+  "schema_version": "key-one-path-claude-first-seal-evidence-v1",
+  "slice": "ONE_PATH_CLAUDE_FIRST_SEAL",
+  "observed_at": "2026-08-04T17:50:30.406Z",
+  "production": 0,
+  "push": 0,
+  "locked_flow": "relationship_state → originals → question+memory+minimal_prompt → Claude 1 → Gate → Seal",
+  "relationship_states": [
+    "NEW_CUSTOMER",
+    "RETURNING_CUSTOMER",
+    "CONTINUING_CONVERSATION",
+    "PRIOR_ORIGINAL_IN_SAME_CONVERSATION"
+  ],
+  "memory_failure_lock": {
+    "memory_query_failed": "partial_unavailable",
+    "never_downgrade_to_new_customer": true,
+    "never_stop_provider": true
+  },
+  "unit": {
+    "command": "npm run test:key-one-path-claude-first",
+    "verdict": "PASS"
+  },
+  "preview_live": {
+    "evidence": "fixtures/key-judgment-validation-v1/key-one-path-relationship-live-evidence.json",
+    "preview_url": "https://lifeguard-core-final-fe3bmvr6m-70sofia113-1918s-projects.vercel.app",
+    "verdict": "KEY_RELATIONSHIP_ONE_PATH_LIVE_COMPLETE",
+    "path_verdict": "PASS",
+    "l4": {
+      "provider": 1,
+      "prior_original_in_same_conversation": true,
+      "bytes_loaded": true,
+      "hash_match": true,
+      "relationship": "RETURNING_CUSTOMER"
+    }
+  },
+  "forbidden_in_this_seal": [
+    "ONE_PATH redesign",
+    "A1/Selective re-expansion as customer answer path",
+    "OCR/extract in front of Claude",
+    "new answer pathway"
+  ]
+}
