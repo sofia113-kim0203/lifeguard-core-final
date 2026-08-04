@@ -23,12 +23,9 @@ export function useCustomerDocumentUpload({
   user,
   refreshSession,
   setActiveAnalysisJob,
-  notifySystemMessage = null,
-  insurancePolicyCount = null,
   onUploadComplete = null,
   onKeyChatPresence = null,
   trackAnalysisJobFromUpload = null,
-  enableSystemMessage = false,
   defaultCategoryKey = "insurance_policy",
 } = {}) {
   const fileInputRef = useRef(null);
@@ -226,8 +223,6 @@ export function useCustomerDocumentUpload({
     clearMessages();
     try {
       let lastKeyFirstSentence = null;
-      let lastPipeline = null;
-      let lastPolicyCount = insurancePolicyCount;
       const uploadErrors = [];
 
       await processSelectedUploadFiles(selectedFiles, async (file) => {
@@ -280,19 +275,12 @@ export function useCustomerDocumentUpload({
             setActiveAnalysisJob,
             onTrackAnalysisJob: trackAnalysisJobFromUpload,
           });
-          lastPipeline = pipeline;
-
-          let refreshed = null;
           if (typeof refreshSession === "function") {
-            refreshed = await refreshSession({
+            await refreshSession({
               event: "document_pipeline_complete",
               reloadJob: true,
             });
           }
-          lastPolicyCount =
-            refreshed?.unified?.policy_count ??
-            refreshed?.dashboard?.insurancePolicyCount ??
-            insurancePolicyCount;
 
           if (pipeline.ok) {
             if (!keyFirstSentence) {
@@ -330,18 +318,6 @@ export function useCustomerDocumentUpload({
         fileInputRef.current.value = "";
       }
 
-      if (enableSystemMessage && typeof notifySystemMessage === "function" && lastPipeline) {
-        await notifySystemMessage(
-          lastPipeline.ok
-            ? `문서 분석과 보험 추천이 갱신되었습니다. 현재 등록된 가입 보험은 ${lastPolicyCount}건입니다.`
-            : `문서가 업로드되었습니다. 현재 등록된 가입 보험은 ${lastPolicyCount}건으로 확인됩니다.`,
-          {
-            metadata: { category_key: categoryKey, pipeline_ok: lastPipeline.ok },
-            refresh: false,
-          },
-        );
-      }
-
       if (typeof onUploadComplete === "function") {
         await onUploadComplete();
       }
@@ -365,9 +341,6 @@ export function useCustomerDocumentUpload({
     hydrateStorageConsent,
     refreshSession,
     setActiveAnalysisJob,
-    insurancePolicyCount,
-    enableSystemMessage,
-    notifySystemMessage,
     onUploadComplete,
     onKeyChatPresence,
     trackAnalysisJobFromUpload,
