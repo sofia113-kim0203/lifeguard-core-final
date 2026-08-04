@@ -151,6 +151,137 @@ await test("COMPOSER-1..8 mints a new WO then durably enqueues", async () => {
   assert.ok(mock.calls.updates.some((row) => row.metadata_json?.key_work_order));
 });
 
+await test("ready ingest never short-circuits extraction (already_ingest_ready deleted)", async () => {
+  const core = source("server/homeBrainFactCore.js");
+  assert.doesNotMatch(core, /already_ingest_ready/);
+  assert.doesNotMatch(
+    core,
+    /existingExtractionStatus === "completed" \|\| document\.ingest_status === "ready"/,
+  );
+
+  // Force OCR-ready + unextracted — must enter extract, not skip.
+  const document = {
+    id: "doc-ready-unextracted",
+    customer_id: "customer-1",
+    ingest_status: "ready",
+    customer_hint_type: "insurance_policy",
+    doc_class: "insurance_policy",
+    metadata_json: {
+      key_work_order: { work_order_id: "attach-time-wo" },
+      // policy_extraction_status absent ⇒ must NOT no-op
+    },
+  };
+  const calls = { rpc: [], updates: [] };
+  const documents = {
+    select() {
+      return this;
+    },
+    update(payload) {
+      calls.updates.push(payload);
+      return this;
+    },
+    eq() {
+      return this;
+    },
+    is() {
+      return this;
+    },
+    maybeSingle: async () => ({ data: document, error: null }),
+  };
+  const consents = {
+    select() {
+      return this;
+    },
+    eq() {
+      return this;
+    },
+    limit: async () => ({ data: [{ id: "consent-1" }], error: null }),
+  };
+  const readyMock = {
+    calls,
+    from(table) {
+      if (table === "customer_documents") return documents;
+      if (table === "customer_consents") return consents;
+      throw new Error(`unexpected_table:${table}`);
+    },
+    rpc: async (name, args) => {
+      calls.rpc.push({ name, args });
+      return { data: { ingest_status: "ready" }, error: null };
+    },
+  };
+
+  const result = await runHomeChatFactoryAfterClaude({
+    userSupabase: readyMock,
+    customerId: "customer-1",
+    documentId: "doc-ready-unextracted",
+    claudeFactoryDirection: { source: "unit-test-ready" },
+    accessToken: "unit-test-token",
+    env: {
+      KEY_WORK_ORDER_TTL_MS: "60000",
+      SUPABASE_URL: "https://supabase.invalid",
+      SUPABASE_ANON_KEY: "unit-test-anon",
+    },
+    fetchImpl: async () => {
+      throw new Error("ingest_worker_must_not_run_when_ocr_already_ready");
+    },
+  });
+
+  assert.notEqual(result.reason, "already_ingest_ready");
+  assert.notEqual(result.skipped, true);
+  // OCR already ready → no re-ingest RPC; extract path is entered (may HOLD without service role).
+  assert.equal(calls.rpc.length, 0);
+  assert.ok(calls.updates.some((row) => row.metadata_json?.key_work_order));
+  assert.ok(
+    result.worker?.skipped_re_ingest === true ||
+      result.reason === "extract_failed" ||
+      result.ok === false,
+  );
+});
+
+await test("extraction completed with facts remains idempotent no-op", async () => {
+  const document = {
+    id: "doc-extracted",
+    customer_id: "customer-1",
+    ingest_status: "ready",
+    metadata_json: {
+      policy_extraction_status: "completed",
+      profile_policy_ids: ["policy-1"],
+      key_work_order: { work_order_id: "wo-done" },
+    },
+  };
+  const calls = { rpc: [] };
+  const mock = {
+    calls,
+    from(table) {
+      if (table !== "customer_documents") throw new Error(`unexpected_table:${table}`);
+      return {
+        select() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        is() {
+          return this;
+        },
+        maybeSingle: async () => ({ data: document, error: null }),
+      };
+    },
+    rpc: async () => {
+      throw new Error("rpc_must_not_run_when_extraction_done");
+    },
+  };
+  const result = await runHomeChatFactoryAfterClaude({
+    userSupabase: mock,
+    customerId: "customer-1",
+    documentId: "doc-extracted",
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, "already_completed");
+  assert.equal(calls.rpc.length, 0);
+});
+
 await test("COMPOSER seals then awaits; no fire-and-forget remains", () => {
   const composer = source("server/homeBrainFactCore.js");
   assert.doesNotMatch(composer, /scheduleHomeChatFactoryAfterClaude|void\s+runHomeChatFactoryAfterClaude/);

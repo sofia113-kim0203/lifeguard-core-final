@@ -240,24 +240,34 @@ export async function runHomeChatFactoryAfterClaude({
     return { ok: false, reason: "document_not_found" };
   }
 
-  // Idempotent short-circuit BEFORE minting a new execution WO.
-  const existingExtractionStatus = document.metadata_json?.policy_extraction_status ?? null;
-  if (existingExtractionStatus === "completed" || document.ingest_status === "ready") {
+  // Extraction idempotency ONLY — ingest_status=ready is OCR/storage, never an extract skip.
+  // Skip only when policy extraction is already complete (or stored policy facts exist).
+  const metadata = document.metadata_json ?? {};
+  const existingExtractionStatus = metadata.policy_extraction_status ?? null;
+  const existingPolicyIds = Array.isArray(metadata.profile_policy_ids)
+    ? metadata.profile_policy_ids.filter(Boolean)
+    : metadata.profile_policy_id
+      ? [metadata.profile_policy_id]
+      : [];
+  const extractionAlreadyDone =
+    existingExtractionStatus === "completed" && existingPolicyIds.length > 0;
+  if (extractionAlreadyDone) {
     return {
       ok: true,
       skipped: true,
-      reason: existingExtractionStatus === "completed" ? "already_completed" : "already_ingest_ready",
-      work_order_id: document.metadata_json?.key_work_order?.work_order_id ?? null,
-      existing_ingest_job_id: document.metadata_json?.ingest_job_id ?? null,
+      reason: "already_completed",
+      work_order_id: metadata.key_work_order?.work_order_id ?? null,
+      existing_ingest_job_id: metadata.ingest_job_id ?? null,
     };
   }
+  // OCR still in flight — do not mint a competing factory WO yet.
   if (["queued", "processing"].includes(document.ingest_status)) {
     return {
       ok: true,
       skipped: true,
       reason: "already_ingest_queued",
-      work_order_id: document.metadata_json?.key_work_order?.work_order_id ?? null,
-      existing_ingest_job_id: document.metadata_json?.ingest_job_id ?? null,
+      work_order_id: metadata.key_work_order?.work_order_id ?? null,
+      existing_ingest_job_id: metadata.ingest_job_id ?? null,
     };
   }
 
@@ -352,22 +362,35 @@ export async function runHomeChatFactoryAfterClaude({
     return { ok: false, reason, error: error ?? null, work_order_id: workOrderId, hold, ...extras };
   };
 
-  const { data: rpcData, error: rpcError } = await userSupabase.rpc(
-    "lifeguard_request_customer_document_ingest",
-    { p_document_id: trimmedId },
-  );
-  if (rpcError) return failAfterSeal("ingest_rpc_failed", rpcError.message);
-  if (rpcData?.blocked) {
-    return failAfterSeal("ingest_blocked", rpcData.message ?? null);
-  }
+  // ingest_status=ready ⇒ OCR/storage already done → enter extract (no re-OCR short-circuit).
+  // Otherwise enqueue + run ingest worker, then extract when ready.
+  const ocrAlreadyReady = String(document.ingest_status || "").toLowerCase() === "ready";
+  let worker = null;
+  if (ocrAlreadyReady) {
+    worker = {
+      ok: true,
+      payload: { ingest_status: "ready" },
+      skipped_re_ingest: true,
+      reason: "ocr_already_ready_enter_extract",
+    };
+  } else {
+    const { data: rpcData, error: rpcError } = await userSupabase.rpc(
+      "lifeguard_request_customer_document_ingest",
+      { p_document_id: trimmedId },
+    );
+    if (rpcError) return failAfterSeal("ingest_rpc_failed", rpcError.message);
+    if (rpcData?.blocked) {
+      return failAfterSeal("ingest_blocked", rpcData.message ?? null);
+    }
 
-  const worker = await invokeDocumentIngestWorkerAfterClaude({
-    env,
-    accessToken,
-    documentId: trimmedId,
-    workOrderId,
-    fetchImpl,
-  });
+    worker = await invokeDocumentIngestWorkerAfterClaude({
+      env,
+      accessToken,
+      documentId: trimmedId,
+      workOrderId,
+      fetchImpl,
+    });
+  }
 
   let policyExtraction = null;
   let analysisRefresh = null;
