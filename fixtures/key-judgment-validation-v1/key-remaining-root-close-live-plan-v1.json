@@ -1,0 +1,177 @@
+{
+  "schema_version": "key-remaining-root-close-live-plan-v1",
+  "locked_at": "2026-08-04T20:32:00+09:00",
+  "phase7_align": true,
+  "harness_law": "header ≡ plan ≡ pass_predicate ≡ summary",
+  "preview_assembly_sha": "0dd243a3e5e5edb4e2e690d7f9bf429c910648c7",
+  "run_status": "HARNESS_ALIGNED_NOT_LIVE",
+  "provider_policy": {
+    "allowed_steps": ["H1", "H4", "H6"],
+    "max_total_provider_calls": 3,
+    "web_search": 0,
+    "full_assemble": 0,
+    "any_provider_outside_H1_H4_H6": "STOP_IMMEDIATE"
+  },
+  "header": [
+    "P-H1-SURFACE",
+    "P-H1-TYPEA",
+    "P-H1-SELECTED",
+    "P-H1-SPEECH",
+    "P-H1-PENDING",
+    "P-H2-DEFER",
+    "P-H2-WO",
+    "P-H2-AWAIT",
+    "P-H2-REFRESH",
+    "P-H2-TYPEA",
+    "P-H2-PROVIDER",
+    "P-H3-DELETE"
+  ],
+  "pass_predicate": [
+    "P-H1-SURFACE",
+    "P-H1-TYPEA",
+    "P-H1-SELECTED",
+    "P-H1-SPEECH",
+    "P-H1-PENDING",
+    "P-H2-DEFER",
+    "P-H2-WO",
+    "P-H2-AWAIT",
+    "P-H2-REFRESH",
+    "P-H2-TYPEA",
+    "P-H2-PROVIDER",
+    "P-H3-DELETE"
+  ],
+  "summary": [
+    "P-H1-SURFACE",
+    "P-H1-TYPEA",
+    "P-H1-SELECTED",
+    "P-H1-SPEECH",
+    "P-H1-PENDING",
+    "P-H2-DEFER",
+    "P-H2-WO",
+    "P-H2-AWAIT",
+    "P-H2-REFRESH",
+    "P-H2-TYPEA",
+    "P-H2-PROVIDER",
+    "P-H3-DELETE"
+  ],
+  "predicates": {
+    "P-H1-SURFACE": "HomeChat documents vs App DocumentsPanel scenario must be explicit (no mix)",
+    "P-H1-TYPEA": "document_id = network Type-A only (list UUID excluded)",
+    "P-H1-SELECTED": "selectedFiles≥1 + consent + button enabled before click",
+    "P-H1-SPEECH": "Customer chat KEY-outside system sentences = 0 after DocumentsPanel upload (symbol-name residue scan FORBIDDEN)",
+    "P-H1-PENDING": "extract may persist pending_unverified; verified only after KEY confirm (pending is not FAIL)",
+    "P-H2-DEFER": "deferFactoryUntilClaude=true · pre-Claude ingest/OCR/extract=0",
+    "P-H2-WO": "post-Claude exec WO ≠ attach WO",
+    "P-H2-AWAIT": "factory enqueue awaited/durable before done (void schedule=0)",
+    "P-H2-REFRESH": "analysis-refresh ≥ 1 after deferred extract",
+    "P-H2-TYPEA": "doc B = Type-A network lock",
+    "P-H2-PROVIDER": "Provider exactly 1 on Claude-first question turn",
+    "P-H3-DELETE": "delete by document.id · data-document-id locator discarded"
+  },
+  "forbidden_checks": [
+    "bundle_or_source_scan_for_enableSystemMessage",
+    "bundle_or_source_scan_for_notifySystemMessage_as_speech_fail"
+  ],
+  "live_steps": {
+    "H1": {
+      "action": "Panel upload test document A (1 file)",
+      "path": "DocumentsPanel (explicit; not Composer)",
+      "pass_predicate": [
+        "P-H1-SURFACE",
+        "P-H1-TYPEA",
+        "P-H1-SELECTED",
+        "P-H1-SPEECH",
+        "P-H1-PENDING"
+      ],
+      "expect": [
+        "Panel file input + selectedFile ready + upload enabled",
+        "document_id Type-A from network lock",
+        "KEY intake + active Work Order",
+        "ingest/OCR/extract as Panel path requires",
+        "pending_unverified allowed before KEY confirm (not a FAIL)",
+        "related HomeChat KEY turn reviews original + pending",
+        "record_confirmed_source_facts promotion exactly 1 when KEY confirms",
+        "KEY-outside system sentences in customer chat = 0 (observe timeline; do not scan symbol names)"
+      ],
+      "provider": "allowed (counts toward max 3)"
+    },
+    "H2": {
+      "action": "Composer upload different test document B (1 file)",
+      "path": "deferFactoryUntilClaude / HomeChat composer",
+      "pass_predicate": [
+        "P-H2-DEFER",
+        "P-H2-WO",
+        "P-H2-AWAIT",
+        "P-H2-REFRESH",
+        "P-H2-TYPEA",
+        "P-H2-PROVIDER"
+      ],
+      "expect": [
+        "document_id B ≠ document_id A",
+        "deferFactoryUntilClaude true",
+        "pre-Claude ingest/OCR/extract 0",
+        "Provider exactly 1 on question turn",
+        "Seal then post-Claude NEW Work Order (attach WO not reused)",
+        "durable enqueue awaited",
+        "ingest/OCR/extract exactly 1 + analysis-refresh exactly 1",
+        "post-seal rewrite 0 · duplicate factory 0"
+      ],
+      "provider": "allowed on question turn only (counts toward max 3; attach upload Provider 0)"
+    },
+    "H3": {
+      "action": "soft-delete BOTH test documents A and B",
+      "pass_predicate": ["P-H3-DELETE"],
+      "expect": [
+        "delete by document.id",
+        "Storage/DB/policy/coverage/card/rail sync",
+        "stale 0 for both"
+      ],
+      "provider": "forbidden"
+    },
+    "H4": {
+      "action": "/chat one question",
+      "expect": ["assistant messages exactly 1", "no unsealed factory speech"],
+      "provider": "allowed (counts toward max 3)"
+    },
+    "H5": {
+      "action": "memory/background cron once",
+      "expect": [
+        "customer_conversations direct insert 0",
+        "mutation without Work Order 0",
+        "duplicate memory 0"
+      ],
+      "provider": "forbidden"
+    },
+    "H6": {
+      "action": "pointed contract without coverage_packet",
+      "expect": [
+        "pointed id 1",
+        "other-contract facts 0",
+        "honest missing-materials HOLD",
+        "no general-knowledge invent"
+      ],
+      "provider": "allowed (prefer 0 on HOLD; if called counts toward max 3)"
+    },
+    "H7": {
+      "action": "logout + customer switch",
+      "expect": ["pointer/snapshot/handoff/recommendation/inflight residual 0"],
+      "provider": "forbidden"
+    },
+    "H8": {
+      "action": "corporate entity membership+consent allow / deny",
+      "expect": ["membership+consent PASS", "missing membership or consent DENY"],
+      "provider": "forbidden"
+    }
+  },
+  "fail_policy": {
+    "on_any_live_fail": "REPORT_AND_STOP",
+    "code_fix": 0,
+    "redeploy": 0,
+    "retry": 0
+  },
+  "live": 0,
+  "notes": [
+    "Phase 7 aligns harness only — LIVE run is Phase 8",
+    "P-H1-SPEECH re-pass uses customer chat timeline observation"
+  ]
+}

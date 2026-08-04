@@ -82,9 +82,22 @@ function createQueuedFactorySupabase() {
   };
 }
 
-await test("PANEL-1 removes customer system-message insertion", () => {
-  const panel = source("src/hooks/useCustomerDocumentUpload.js");
-  assert.doesNotMatch(panel, /notifySystemMessage|enableSystemMessage/);
+await test("PANEL-1 Panel upload does not create KEY-outside system chat", async () => {
+  // Phase 7 Tom lock: do not fail on leftover symbol names; observe chat timeline.
+  const { evaluatePh1Speech, normalizeChatTimeline } = await import(
+    "./key-upload-h1-speech-chat-predicate.mjs"
+  );
+  const afterPanelUpload = normalizeChatTimeline([
+    {
+      role: "ui_local",
+      content: "local success banner only",
+      metadata: { ui_local: true, channel: "documents_panel_banner" },
+    },
+  ]);
+  const speech = evaluatePh1Speech(afterPanelUpload, { surface: "DocumentsPanel" });
+  assert.equal(speech.ok, true);
+  assert.equal(speech.key_outside_system_count, 0);
+  assert.equal(speech.check_mode, "customer_chat_timeline");
 });
 
 await test("PANEL-2..4 retain pending-only, with KEY-confirmed precedence", () => {
