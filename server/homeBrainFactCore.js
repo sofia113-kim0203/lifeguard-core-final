@@ -141,9 +141,79 @@ async function invokeDocumentIngestWorkerAfterClaude({
   return { ok: true, payload };
 }
 
+async function invokeDocumentAnalysisRefreshAfterClaude({
+  env,
+  accessToken,
+  documentId,
+  workOrderId,
+  fetchImpl = fetch,
+}) {
+  const token = String(accessToken ?? "").replace(/^Bearer\s+/i, "").trim();
+  const rawOrigin = String(env.LIFEGUARD_APP_URL ?? env.VERCEL_URL ?? "").trim();
+  const origin = rawOrigin
+    ? rawOrigin.startsWith("http")
+      ? rawOrigin
+      : `https://${rawOrigin}`
+    : null;
+  if (!origin || !token) return { ok: false, reason: "missing_analysis_refresh_auth" };
+
+  const response = await fetchImpl(
+    `${origin.replace(/\/$/, "")}/api/customer-document-analysis-refresh`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        document_id: documentId,
+        work_order_id: workOrderId,
+      }),
+    },
+  );
+  const payload = await response.json().catch(() => null);
+  return response.ok && payload?.ok === true
+    ? { ok: true, payload }
+    : {
+        ok: false,
+        reason: payload?.reason ?? "analysis_refresh_failed",
+        status: response.status,
+        error: payload?.error_message ?? null,
+      };
+}
+
+async function persistPostClaudeFactoryHold({
+  userSupabase,
+  document,
+  customerId,
+  documentId,
+  workOrderId,
+  reason,
+  error = null,
+}) {
+  const metadata = {
+    ...(document?.metadata_json ?? {}),
+    factory_deferred_until_claude: false,
+    post_claude_factory: {
+      status: "hold_retry_needed",
+      work_order_id: workOrderId,
+      reason,
+      error: error ? String(error).slice(0, 200) : null,
+      updated_at: new Date().toISOString(),
+    },
+  };
+  await userSupabase
+    .from("customer_documents")
+    .update({ metadata_json: metadata, updated_at: new Date().toISOString() })
+    .eq("id", documentId)
+    .eq("customer_id", customerId);
+  return metadata.post_claude_factory;
+}
+
 /**
- * After Claude seal: issue WO carrying Claude direction, then existing ingest path.
- * Never throws to caller — factory failure must not alter the sealed customer answer.
+ * After Claude seal: issue a new execution WO, durably enqueue, then run the
+ * existing worker/extract/refresh path. This function never changes the sealed
+ * customer answer; failure is recorded as factory HOLD for a later retry.
  */
 export async function runHomeChatFactoryAfterClaude({
   userSupabase,
@@ -159,11 +229,6 @@ export async function runHomeChatFactoryAfterClaude({
     return { ok: false, reason: "missing_args" };
   }
 
-  const hasConsent = await hasDocumentAnalysisConsent(userSupabase, customerId);
-  if (!hasConsent) {
-    return { ok: false, reason: "analysis_consent_missing" };
-  }
-
   const { data: document, error: docError } = await userSupabase
     .from("customer_documents")
     .select("id, customer_id, metadata_json, customer_hint_type, doc_class, ingest_status")
@@ -174,22 +239,43 @@ export async function runHomeChatFactoryAfterClaude({
   if (docError || !document) {
     return { ok: false, reason: "document_not_found" };
   }
+
+  // Idempotent short-circuit BEFORE minting a new execution WO.
   const existingExtractionStatus = document.metadata_json?.policy_extraction_status ?? null;
-  if (existingExtractionStatus === "completed") {
+  if (existingExtractionStatus === "completed" || document.ingest_status === "ready") {
     return {
       ok: true,
       skipped: true,
-      reason: "already_completed",
+      reason: existingExtractionStatus === "completed" ? "already_completed" : "already_ingest_ready",
       work_order_id: document.metadata_json?.key_work_order?.work_order_id ?? null,
+      existing_ingest_job_id: document.metadata_json?.ingest_job_id ?? null,
     };
   }
-  if (document.ingest_status === "ready") {
+  if (["queued", "processing"].includes(document.ingest_status)) {
     return {
       ok: true,
       skipped: true,
-      reason: "already_ingest_ready",
+      reason: "already_ingest_queued",
       work_order_id: document.metadata_json?.key_work_order?.work_order_id ?? null,
+      existing_ingest_job_id: document.metadata_json?.ingest_job_id ?? null,
     };
+  }
+
+  const hasConsent = await hasDocumentAnalysisConsent(userSupabase, customerId);
+  if (!hasConsent) {
+    try {
+      await persistPostClaudeFactoryHold({
+        userSupabase,
+        document,
+        customerId,
+        documentId: trimmedId,
+        workOrderId: null,
+        reason: "analysis_consent_missing",
+      });
+    } catch {
+      /* sealed answer unchanged */
+    }
+    return { ok: false, reason: "analysis_consent_missing" };
   }
 
   const dispatchPlan = buildDocumentDispatchPlanShadow({
@@ -197,9 +283,8 @@ export async function runHomeChatFactoryAfterClaude({
     hasAnalysisConsent: true,
     claudeFactoryDirection,
   });
-  const workOrderId =
-    String(document.metadata_json?.key_work_order?.work_order_id ?? "").trim() ||
-    mintKeyWorkOrderId();
+  // Attach-time WO is history only. Post-Claude execution always has a new KEY WO.
+  const workOrderId = mintKeyWorkOrderId();
   const workOrderRecord = buildKeyWorkOrderRecord({
     workOrderId,
     customerId,
@@ -209,32 +294,71 @@ export async function runHomeChatFactoryAfterClaude({
   });
   workOrderRecord.claude_factory_direction = claudeFactoryDirection ?? null;
 
-  await persistKeyWorkOrder(userSupabase, {
-    documentId: trimmedId,
-    customerId,
-    workOrderRecord,
-    existingMetadata: {
-      ...(document.metadata_json ?? {}),
-      claude_factory_direction: claudeFactoryDirection ?? null,
-      factory_deferred_until_claude: false,
-      factory_started_after_claude: true,
-    },
-  });
+  try {
+    await persistKeyWorkOrder(userSupabase, {
+      documentId: trimmedId,
+      customerId,
+      workOrderRecord,
+      existingMetadata: {
+        ...(document.metadata_json ?? {}),
+        claude_factory_direction: claudeFactoryDirection ?? null,
+        factory_deferred_until_claude: false,
+        factory_started_after_claude: true,
+        attach_time_work_order_id:
+          document.metadata_json?.attach_time_work_order_id ??
+          document.metadata_json?.key_work_order?.work_order_id ??
+          null,
+      },
+    });
+  } catch (error) {
+    let hold = null;
+    try {
+      hold = await persistPostClaudeFactoryHold({
+        userSupabase,
+        document,
+        customerId,
+        documentId: trimmedId,
+        workOrderId,
+        reason: "work_order_persist_failed",
+        error,
+      });
+    } catch {
+      // The caller still returns the sealed customer answer.
+    }
+    return {
+      ok: false,
+      reason: "work_order_persist_failed",
+      error: String(error?.message ?? error).slice(0, 200),
+      work_order_id: workOrderId,
+      hold,
+    };
+  }
+
+  const failAfterSeal = async (reason, error = null, extras = {}) => {
+    let hold = null;
+    try {
+      hold = await persistPostClaudeFactoryHold({
+        userSupabase,
+        document,
+        customerId,
+        documentId: trimmedId,
+        workOrderId,
+        reason,
+        error,
+      });
+    } catch {
+      // Keep the customer answer sealed even when the HOLD audit write fails.
+    }
+    return { ok: false, reason, error: error ?? null, work_order_id: workOrderId, hold, ...extras };
+  };
 
   const { data: rpcData, error: rpcError } = await userSupabase.rpc(
     "lifeguard_request_customer_document_ingest",
     { p_document_id: trimmedId },
   );
-  if (rpcError) {
-    return { ok: false, reason: "ingest_rpc_failed", error: rpcError.message, work_order_id: workOrderId };
-  }
+  if (rpcError) return failAfterSeal("ingest_rpc_failed", rpcError.message);
   if (rpcData?.blocked) {
-    return {
-      ok: false,
-      reason: "ingest_blocked",
-      work_order_id: workOrderId,
-      message: rpcData.message ?? null,
-    };
+    return failAfterSeal("ingest_blocked", rpcData.message ?? null);
   }
 
   const worker = await invokeDocumentIngestWorkerAfterClaude({
@@ -246,6 +370,7 @@ export async function runHomeChatFactoryAfterClaude({
   });
 
   let policyExtraction = null;
+  let analysisRefresh = null;
   if (worker.ok && worker.payload?.ingest_status === "ready") {
     try {
       const { data: readyDocument, error: readyDocumentError } = await userSupabase
@@ -272,13 +397,7 @@ export async function runHomeChatFactoryAfterClaude({
           reason: extractGate.reason,
           message: extractGate.message,
         };
-        return {
-          ok: worker.ok === true,
-          work_order_id: workOrderId,
-          claude_factory_direction: claudeFactoryDirection ?? null,
-          worker,
-          policyExtraction,
-        };
+        return failAfterSeal(extractGate.reason, extractGate.message, { worker, policyExtraction });
       }
       const factoryUse = await recordKeyWorkOrderFactoryUse(userSupabase, {
         documentId: trimmedId,
@@ -293,13 +412,7 @@ export async function runHomeChatFactoryAfterClaude({
           reason: factoryUse.reason,
           message: factoryUse.message,
         };
-        return {
-          ok: worker.ok === true,
-          work_order_id: workOrderId,
-          claude_factory_direction: claudeFactoryDirection ?? null,
-          worker,
-          policyExtraction,
-        };
+        return failAfterSeal(factoryUse.reason, factoryUse.message, { worker, policyExtraction });
       }
       policyExtraction = await runDocumentPolicyExtraction({
         customerId,
@@ -316,22 +429,40 @@ export async function runHomeChatFactoryAfterClaude({
     }
   }
 
+  if (!worker.ok) {
+    return failAfterSeal(worker.reason ?? "worker_failed", worker.error ?? null, { worker });
+  }
+  if (policyExtraction && !policyExtraction.ok) {
+    return failAfterSeal(policyExtraction.reason ?? "extract_failed", policyExtraction.message ?? null, {
+      worker,
+      policyExtraction,
+    });
+  }
+  if (policyExtraction?.ok) {
+    analysisRefresh = await invokeDocumentAnalysisRefreshAfterClaude({
+      env,
+      accessToken,
+      documentId: trimmedId,
+      workOrderId,
+      fetchImpl,
+    });
+    if (!analysisRefresh.ok) {
+      return failAfterSeal(analysisRefresh.reason, analysisRefresh.error ?? null, {
+        worker,
+        policyExtraction,
+        analysis_refresh: analysisRefresh,
+      });
+    }
+  }
+
   return {
     ok: worker.ok === true,
     work_order_id: workOrderId,
     claude_factory_direction: claudeFactoryDirection ?? null,
     worker,
     policyExtraction,
+    analysis_refresh: analysisRefresh,
   };
-}
-
-export function scheduleHomeChatFactoryAfterClaude(args) {
-  void runHomeChatFactoryAfterClaude(args).catch((error) => {
-    console.error(
-      "[homechat_factory_after_claude]",
-      String(error?.message ?? error).slice(0, 240),
-    );
-  });
 }
 
 export {
@@ -787,11 +918,12 @@ export async function handleHomeBrainFactRequest({
       })
     : null;
 
-  // Customer answer is already sealed/streamed — factory must not delay or rewrite it.
-  // Same-turn multi-attach: schedule factory once per uploaded document_id (order preserved).
+  // Customer answer is already sealed/streamed. Await durable post-Claude handoff
+  // before emitting `done`, but never rewrite that sealed answer on factory HOLD.
+  const postClaudeFactoryResults = [];
   if (attachedIds.length && claudeFactoryDirection) {
     for (const documentId of attachedIds) {
-      scheduleHomeChatFactoryAfterClaude({
+      const result = await runHomeChatFactoryAfterClaude({
         userSupabase,
         customerId,
         documentId,
@@ -804,6 +936,7 @@ export async function handleHomeBrainFactRequest({
         env,
         fetchImpl,
       });
+      postClaudeFactoryResults.push({ document_id: documentId, ...result });
     }
   }
 
@@ -847,7 +980,8 @@ export async function handleHomeBrainFactRequest({
         ? {
             deferred_until_after_claude: true,
             document_id: attachedId,
-            started_async: true,
+            durable_handoff_awaited: true,
+            results: postClaudeFactoryResults,
           }
         : null,
     },
