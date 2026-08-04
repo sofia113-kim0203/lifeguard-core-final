@@ -1,15 +1,15 @@
 /**
  * LIFEGUARD ONE PATH — Claude First final request builder.
- * Customer answer materials only:
- *   question + owned originals + minimal prompt + customer memory (confirmed + history)
- * No OCR / extract / pending / pre-judgment in Provider body.
+ * Tom lock wire:
+ *   question + KEY customer card + this-turn original bytes (if any) → Claude
+ * No OCR / extract / pending / pre-judgment / document pick-rank in Provider body.
  */
 import {
-  buildConfirmedCustomerMemoryBrief,
   buildProviderBlocksFromOwnedOriginals,
   normalizeOwnedOriginals,
   ownedOriginalsToMultiAttachments,
 } from "./keyOwnedOriginalsCanonical.js";
+import { buildKeyCustomerCardForClaude } from "./keyCustomerCard.js";
 import {
   KEY_MEMORY_AVAILABILITY,
   KEY_RELATIONSHIP,
@@ -32,10 +32,11 @@ export function buildOnePathMinimalSystem({
     "[KEY_ONE_PATH_CLAUDE_FIRST]",
     "DEFAULT_PROVIDER_CALL_TARGET=1",
     "당신은 LIFEGUARD의 KEY다. 고객의 눈·귀·머리·입이다.",
-    "고객 질문과 원본을 직접 읽고 이해한다.",
+    "KEY가 고객카드를 통째로 넘긴다. 라이프가드가 앞에서 문서를 고르거나 순위를 매기지 않았다.",
+    "고객 질문 + 고객카드 + (있으면) 이번 턴 원본 바이트만 보고 답한다.",
     "고객 관계 상태(신규/기존/이어지는 대화)는 KEY가 이미 확정했다. 네가 재판정하지 않는다.",
     "확실한 사실과 불확실한 판단을 구분한다.",
-    "문서에 없는 사실을 만들지 않는다.",
+    "문서·카드에 없는 사실을 만들지 않는다.",
     "보험사명·상품명·증권번호 등 식별값은 필요할 때 원문 그대로 쓴다.",
     "고객 질문에 초점을 맞춰 자연스럽고 완결된 답변을 한다.",
     "결론·추천·해지·분량·섹션·필수 필드를 미리 정해 두지 않았다. 네가 판단한다.",
@@ -46,12 +47,12 @@ export function buildOnePathMinimalSystem({
     parts.push(
       [
         "KEY 확정: 이용 가능한 과거 고객 기억이 없다(첫 고객 또는 기억 없음).",
-        "지난 상담·과거 계약을 짐작해 말하지 않는다. 이번 질문과 첨부 원본만으로 답한다.",
+        "지난 상담·과거 계약을 짐작해 말하지 않는다. 이번 질문과 첨부 원본·빈 카드만으로 답한다.",
       ].join("\n"),
     );
   } else {
     parts.push(
-      "KEY가 넘긴 확인된 고객 기억과 최근 대화를 자연스럽게 참고한다. 없는 과거를 만들지 않는다.",
+      "KEY 고객카드의 확인된 계약·사실·최근 대화·맡긴 원본 연결을 자연스럽게 참고한다. 없는 과거를 만들지 않는다.",
     );
   }
   if (mem === KEY_MEMORY_AVAILABILITY.PARTIAL_UNAVAILABLE) {
@@ -169,6 +170,8 @@ export function buildOnePathClaudeFirstRequest({
   originalDeliveryReason = null,
   priorConsultation = null,
   readyCardMeta = null,
+  /** READY CARD materials / KEY SSOT briefs (policies, clock, ledger, docs…). */
+  readyCardSsot = null,
   hasOwnedVaultOriginals = false,
   memoryQueryFailed = false,
   memoryLoadStatus = null,
@@ -180,10 +183,6 @@ export function buildOnePathClaudeFirstRequest({
     pdfAttachments,
   });
   const multiAttachments = ownedOriginalsToMultiAttachments(ownedOriginals);
-  const memory = buildConfirmedCustomerMemoryBrief({
-    policyTruthContext,
-    history,
-  });
   const relationshipState =
     customerRelationshipState && typeof customerRelationshipState === "object"
       ? customerRelationshipState
@@ -202,11 +201,40 @@ export function buildOnePathClaudeFirstRequest({
           memoryQueryFailed,
           memoryLoadStatus,
         });
+  const keyCustomerCard = buildKeyCustomerCardForClaude({
+    policyTruthContext,
+    history,
+    readyCardMeta,
+    relationshipState,
+    ownedOriginals,
+    originalDeliveryReason,
+    currentTurnDocumentIds,
+    explicitReopenDocumentIds,
+    readyCardSsot:
+      readyCardSsot && typeof readyCardSsot === "object"
+        ? readyCardSsot
+        : {
+            priorConsultation,
+            policies: [],
+            activeDocuments: [],
+            activeClaimCases: [],
+            insuranceClockBrief: null,
+            lifeLedgerBrief: null,
+            claimEvidenceBrief: null,
+          },
+  });
   const systemText = buildOnePathMinimalSystem({
     hasOriginals: ownedOriginals.length > 0,
     relationshipState,
   });
   const system = [{ type: "text", text: systemText }];
+
+  // Compat mirror — tests / inventory still read customer_memory.*.
+  const customerMemoryCompat = {
+    status: relationshipState.memory_availability,
+    confirmed_contracts: keyCustomerCard.insurance_contracts,
+    recent_conversation: keyCustomerCard.recent_conversation,
+  };
 
   const content = [
     {
@@ -214,32 +242,15 @@ export function buildOnePathClaudeFirstRequest({
       text: JSON.stringify({
         TURN_MODE: ONE_PATH_LIVE_MODE,
         provider_round_target: 1,
-        customer_relationship_state: {
-          authority: relationshipState.authority,
-          relationship: relationshipState.relationship,
-          conversation: relationshipState.conversation,
-          prior_original_in_same_conversation:
-            relationshipState.prior_original_in_same_conversation === true,
-          states: relationshipState.states,
-          memory_availability: relationshipState.memory_availability,
-          memory_query_failed: relationshipState.memory_query_failed === true,
-        },
-        customer_memory: {
-          status: relationshipState.memory_availability,
-          confirmed_contracts: memory.confirmed_contracts,
-          recent_conversation: memory.recent_conversation,
-        },
-        owned_originals_meta: ownedOriginals.map((o) => ({
-          document_id: o.document_id,
-          mime_type: o.mime_type,
-          sha256: o.sha256,
-          source: o.source,
-          ownership_verified: o.ownership_verified,
-        })),
+        delivery_mode: "CUSTOMER_CARD_WHOLESALE",
+        key_customer_card: keyCustomerCard,
+        customer_relationship_state: keyCustomerCard.relationship,
+        customer_memory: customerMemoryCompat,
       }),
     },
   ];
 
+  // This-turn / delivery-authority originals only — no pick-rank attach list.
   const providerBlocks = buildProviderBlocksFromOwnedOriginals(ownedOriginals);
   for (const block of providerBlocks) {
     content.push(block);
@@ -259,17 +270,18 @@ export function buildOnePathClaudeFirstRequest({
   void liveTools;
   const tools = [];
 
+  // No packet selection — card wholesale. retained shape for telemetry only.
   const selection_plan = {
-    selected_prompt_blocks: ["ONE_PATH_MINIMAL"],
-    selected_resource_packets: ownedOriginals.map((o) => ({
-      packet_id: `attachment_packet_${o.document_id}`,
-      current_turn_attachment: o.source === "current_upload",
-      source_type: "owned_original",
-    })),
+    mode: "CUSTOMER_CARD_WHOLESALE",
+    selected_prompt_blocks: ["ONE_PATH_CUSTOMER_CARD"],
+    selected_resource_packets: [],
     unresolved_material_selection: [],
     one_shot_input_sufficient: true,
     web_tool_candidate: false,
-    current_attachment_mode: ownedOriginals.length ? "CONTENT_FIRST" : "NOT_RELEVANT",
+    document_pick_rank_in_front: false,
+    current_attachment_mode: ownedOriginals.length
+      ? "THIS_TURN_ORIGINAL"
+      : "CARD_ONLY",
     live_request_mode: ONE_PATH_LIVE_MODE,
     key_final_insurance_judgment_before_claude: false,
   };
@@ -281,12 +293,16 @@ export function buildOnePathClaudeFirstRequest({
     selection_plan,
     owned_originals: ownedOriginals,
     multi_attachments: multiAttachments,
+    key_customer_card: keyCustomerCard,
     customer_relationship_state: relationshipState,
     inventory: {
       live_request_mode: ONE_PATH_LIVE_MODE,
+      delivery_mode: "CUSTOMER_CARD_WHOLESALE",
       owned_original_count: ownedOriginals.length,
-      confirmed_memory_count: memory.confirmed_contracts.length,
-      history_turn_count: memory.recent_conversation.length,
+      confirmed_memory_count: keyCustomerCard.insurance_contracts.length,
+      history_turn_count: keyCustomerCard.recent_conversation.length,
+      entrusted_original_link_count:
+        keyCustomerCard.entrusted_originals?.links?.length || 0,
       relationship: relationshipState.relationship,
       conversation: relationshipState.conversation,
       memory_availability: relationshipState.memory_availability,
@@ -294,18 +310,22 @@ export function buildOnePathClaudeFirstRequest({
       full_ledger_present: false,
       pending_extract_present: false,
       ocr_text_present: false,
+      document_pick_rank_in_front: false,
     },
     metrics: {
       live_request_mode: ONE_PATH_LIVE_MODE,
       provider_round_target: 1,
       owned_original_count: ownedOriginals.length,
+      delivery_mode: "CUSTOMER_CARD_WHOLESALE",
     },
     meta: {
       LIVE_REQUEST_MODE: ONE_PATH_LIVE_MODE,
       DEFAULT_PROVIDER_CALL_TARGET: 1,
+      DELIVERY_MODE: "CUSTOMER_CARD_WHOLESALE",
       KEY_FINAL_INSURANCE_JUDGMENT_BEFORE_CLAUDE: false,
       OCR_EXTRACT_PENDING_IN_PROVIDER: 0,
       PRE_S3_FULL_ASSEMBLE: 0,
+      DOCUMENT_PICK_RANK_IN_FRONT: 0,
       CUSTOMER_RELATIONSHIP: relationshipState.relationship,
       CUSTOMER_CONVERSATION: relationshipState.conversation,
     },

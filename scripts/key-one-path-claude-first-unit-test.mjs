@@ -120,10 +120,46 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(text.includes("확인된손보"), true);
   assert.equal(text.includes("주요 보장 알려줘"), true);
   assert.equal(req.system[0].text.includes("KEY_ONE_PATH_CLAUDE_FIRST"), true);
+  assert.equal(req.system[0].text.includes("고객카드를 통째로"), true);
   assert.equal(req.system[0].text.includes("KEY_RECORD"), false);
   assert.equal(req.system[0].text.includes("key_memory_candidates"), false);
   assert.equal(req.system[0].text.includes("특정 JSON 스키마"), true);
-  console.log("PASS U6/U7 question·original·prompt·memory only; OCR/extract/pending 0; forced sidecar 0");
+  const cardPayload = JSON.parse(req.messages[0].content[0].text);
+  assert.equal(cardPayload.delivery_mode, "CUSTOMER_CARD_WHOLESALE");
+  assert.equal(cardPayload.key_customer_card.delivery_mode, "CUSTOMER_CARD_WHOLESALE");
+  assert.equal(cardPayload.key_customer_card.past_original_bytes_mode, "links_only");
+  assert.equal(req.selection_plan.document_pick_rank_in_front, false);
+  assert.equal(req.meta.DOCUMENT_PICK_RANK_IN_FRONT, 0);
+  const reqSsot = buildOnePathClaudeFirstRequest({
+    question: "내 보험 현황 알려줘",
+    policyTruthContext: {
+      confirmed_contracts: [
+        { insurer: "확인된손보", product_name: "확인상품", policy_number: "C-1" },
+      ],
+    },
+    readyCardSsot: {
+      policies: [{ insurer: "READY손보", product_name: "READY상품" }],
+      activeDocuments: [{ id: "doc-ready", original_filename: "증권.pdf" }],
+      insuranceClockBrief: { upcoming: [{ label: "갱신" }], overdue: [] },
+      lifeLedgerBrief: { goals: [], item_count: 0 },
+      claimEvidenceBrief: { packages: [], item_count: 0 },
+      activeClaimCases: [],
+    },
+    readyCardMeta: {
+      status: "normal",
+      materials_connected: true,
+      document_status: {
+        active_count: 1,
+        documents: [{ id: "doc-ready", original_filename: "증권.pdf" }],
+      },
+    },
+  });
+  const ssotCard = JSON.parse(reqSsot.messages[0].content[0].text).key_customer_card;
+  assert.equal(ssotCard.insurance_contracts[0].insurer, "확인된손보");
+  assert.equal(ssotCard.entrusted_originals.links[0].document_id, "doc-ready");
+  assert.equal(ssotCard.insurance_clock.upcoming[0].label, "갱신");
+  assert.equal(ssotCard.past_original_bytes_mode, "links_only");
+  console.log("PASS U6/U7 question·KEY SSOT card·links_only; no pick-rank");
 }
 
 {

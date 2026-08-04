@@ -5544,11 +5544,10 @@ async function callClaudeFirstDirect({
     pointed_contract_ids: ownedPointedContracts.pointed_contract_ids,
   };
 
-  // ONE PATH CLAUDE FIRST — question + originals + minimal prompt + confirmed memory.
-  // Selective packet routing / OCR extract / pending text are not Provider inputs.
+  // ONE PATH — question + KEY customer card + this-turn originals.
+  // No OCR / extract / pending / document pick-rank in Provider inputs.
   void selectiveExplicit;
   void chart;
-  void readyCardMeta;
   void keyRelevantMemoryPacket;
   void buildClaudeFirstOneShotSelectiveRequest;
   let tokenBombS3LiveTrace = null;
@@ -5571,6 +5570,23 @@ async function callClaudeFirstDirect({
       originalDeliveryReason: originalDeliveryReasonForRelationship,
       priorConsultation: priorConsultationForContext,
       readyCardMeta,
+      readyCardSsot: {
+        ssotGoal: sessionGoalForContext || null,
+        ssotReason: sessionGoalForContext ? "ready_card" : null,
+        priorConsultation: priorConsultationForContext || null,
+        priorConsultationReason: priorConsultationForContext
+          ? "ready_card"
+          : null,
+        policies: Array.isArray(reality?.policies) ? reality.policies : [],
+        policy_count: Number(reality?.policy_count) || 0,
+        activeDocuments: Array.isArray(activeDocuments) ? activeDocuments : [],
+        activeClaimCases: Array.isArray(activeClaimCases)
+          ? activeClaimCases
+          : [],
+        insuranceClockBrief: insuranceClockBrief || null,
+        lifeLedgerBrief: lifeLedgerBrief || null,
+        claimEvidenceBrief: claimEvidenceBrief || null,
+      },
       hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
       memoryQueryFailed: memoryQueryFailedForRelationship === true,
       memoryLoadStatus: memoryLoadStatusForRelationship,
@@ -5628,123 +5644,23 @@ async function callClaudeFirstDirect({
     },
   ];
 
-  // TOKEN BOMB S1/S2 — Shadow compare only when Pre-S3 FULL exists (Selective live skips).
-  let tokenBombS1ShadowTrace = {
+  // Pre-S3 FULL + S1/S2 shadow compare REMOVED (CUSTOMER_CARD_WHOLESALE — no dual assemble).
+  void preS3LiveBody;
+  void buildClaudeFirstOnDemandShadowBodies;
+  void buildClaudeFirstOneShotSelectiveShadowBodies;
+  void compareLiveAndShadowBodies;
+  void compareLiveS1S2Bodies;
+  void comparePreS3AndS3Live;
+  const tokenBombS1ShadowTrace = {
     pre_s3_full_assemble: 0,
     shadow_skipped: true,
     shadow_provider_call: 0,
     s3: tokenBombS3LiveTrace,
   };
-  if (preS3LiveBody) try {
-    const shadowBodies = buildClaudeFirstOnDemandShadowBodies({
-      question: presenceTurn === true ? "" : question,
-      history: presenceTurn === true ? [] : history,
-      chart,
-      policyTruthContext,
-      readyCardMeta,
-      priorConsultation: priorConsultationForContext,
-      keyRelevantMemoryPacket,
-      activeClaimCases,
-      insuranceClockBrief,
-      lifeLedgerBrief,
-      paymentTruthBrief,
-      signupOnboardingBrief,
-      currentAttachments: multiAttachments,
-      priorOriginalsAvailable:
-        Boolean(pdfMeta?.vault_recall_mode) ||
-        Boolean(userPayload?.current_context?.conversation?.retained_past_originals?.length),
-      liveTools: requestTools,
-    });
-    const compare = compareLiveAndShadowBodies({
-      liveBody: preS3LiveBody,
-      liveUserPayload: userPayload,
-      liveTools: requestTools,
-      shadow: shadowBodies,
-    });
-    tokenBombS1ShadowTrace = {
-      shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
-      live_body_changed: false,
-      shadow_provider_call: 0,
-      pre_s3_full_assemble: 1,
-      shadow_skipped: false,
-      meta: shadowBodies.meta,
-      compare,
-      content_first_metrics: shadowBodies.content_first?.metrics ?? null,
-      manifest_first_metrics: shadowBodies.manifest_first?.metrics ?? null,
-    };
-    try {
-      const s2Bodies = buildClaudeFirstOneShotSelectiveShadowBodies({
-        question: presenceTurn === true ? "" : question,
-        explicit: selectiveExplicit,
-        fixture: {
-          full_chart_available: Boolean(chart),
-          full_ledger_available: Boolean(policyTruthContext),
-          full_prior_consultation_available: Boolean(priorConsultationForContext),
-          full_prior_originals_available: Boolean(pdfMeta?.vault_recall_mode),
-          attachments: multiAttachments.map((row, idx) => ({
-            document_id: row?.document_id,
-            ordinal: idx + 1,
-            mediaType: row?.mediaType,
-            base64: row?.base64,
-          })),
-          minimal_thread: Array.isArray(history)
-            ? history.slice(-2).map((h) => ({
-                role: h?.role,
-                text: String(h?.text ?? h?.content ?? "").slice(0, 160),
-              }))
-            : [],
-        },
-        liveTools: requestTools,
-      });
-      const s1s2Compare = compareLiveS1S2Bodies({
-        liveBody: preS3LiveBody,
-        liveUserPayload: userPayload,
-        liveTools: requestTools,
-        s1Shadow: shadowBodies,
-        s2Shadow: s2Bodies,
-      });
-      const s3Compare = comparePreS3AndS3Live({
-        preS3LiveBody,
-        s3LiveRequest: selectiveLiveRequest,
-        s1Shadow: shadowBodies,
-        s2Shadow: s2Bodies,
-        liveTools: requestTools,
-      });
-      tokenBombS1ShadowTrace.s2 = {
-        shadow_builder: "buildClaudeFirstOneShotSelectiveShadowBodies",
-        live_body_changed: false,
-        shadow_provider_call: 0,
-        meta: s2Bodies.meta,
-        compare: s1s2Compare,
-        selective_content_first_metrics:
-          s2Bodies.selective_content_first?.metrics ?? null,
-        selective_manifest_first_metrics:
-          s2Bodies.selective_manifest_first?.metrics ?? null,
-        selection_plan: s2Bodies.selective_content_first?.selection_plan ?? null,
-      };
-      tokenBombS1ShadowTrace.s3 = {
-        ...tokenBombS3LiveTrace,
-        compare: s3Compare,
-      };
-    } catch {
-      tokenBombS1ShadowTrace.s2 = {
-        shadow_builder: "buildClaudeFirstOneShotSelectiveShadowBodies",
-        error: "s2_shadow_build_failed",
-      };
-      tokenBombS1ShadowTrace.s3 = tokenBombS3LiveTrace;
-    }
-    if (qaTurnCapture && typeof qaTurnCapture === "object") {
-      qaTurnCapture.token_bomb_s1_shadow = tokenBombS1ShadowTrace;
-      qaTurnCapture.token_bomb_s2_shadow = tokenBombS1ShadowTrace.s2 || null;
-      qaTurnCapture.token_bomb_s3_live = tokenBombS1ShadowTrace.s3 || tokenBombS3LiveTrace;
-    }
-  } catch {
-    tokenBombS1ShadowTrace = {
-      shadow_builder: "buildClaudeFirstOnDemandShadowBodies",
-      error: "shadow_build_failed",
-      pre_s3_full_assemble: 1,
-      s3: tokenBombS3LiveTrace,
-    };
+  if (qaTurnCapture && typeof qaTurnCapture === "object") {
+    qaTurnCapture.token_bomb_s1_shadow = tokenBombS1ShadowTrace;
+    qaTurnCapture.token_bomb_s2_shadow = null;
+    qaTurnCapture.token_bomb_s3_live = tokenBombS3LiveTrace;
   }
 
   // Selective-gated tools (web_search only when candidate).
@@ -6661,192 +6577,26 @@ export async function runClaudeFirstDirectQuestionTurn({
   let attachmentIdentityPlanForClaude = null;
   let pdfFetchMs = null;
   const hasActiveInsuranceDocumentCase = Boolean(caseDocumentId);
-  // Vault auto-attach of prior owned originals is forbidden without active attachment scope.
-  const wantsVaultEvidence =
-    hasActiveInsuranceDocumentCase &&
-    shouldProvideOwnedInsuranceVaultOriginals({
-      question,
-      isPresenceTurn,
-      attachedDocumentId: caseDocumentId,
-    });
-  const runVaultRecall = shouldRunOwnedVaultRecall({
-    wantsVaultEvidence,
-    isPresenceTurn,
-  });
-  // C-first: owned insurance-series vault recall (sha256 dedupe; no silent latest).
-  // Vault multi-intent must run even when activeAttachmentId / singular document_id is set.
-  // Cap stays ≤6 / 22MB — never attach the full owned document box.
-  if (runVaultRecall && userSupabase && customerId) {
-    const fetchStarted = Date.now();
-    vaultRecall = await resolveOwnedInsuranceVaultRecall({
-      supabase: userSupabase,
-      customerId,
-      env,
-      maxUniqueAttach: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
-    });
-    pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
+  // Tom lock — CUSTOMER_CARD_WHOLESALE:
+  // Keyword vault pick/rank REMOVED. Past originals = card links only.
+  // Byte attach only via delivery authority (current_upload | explicit_reopen).
+  void shouldProvideOwnedInsuranceVaultOriginals;
+  void shouldRunOwnedVaultRecall;
+  void resolveOwnedInsuranceVaultRecall;
+  void mergeOwnedDocumentAttachRows;
+  void CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH;
+  const wantsVaultEvidence = false;
+  const runVaultRecall = false;
+  void wantsVaultEvidence;
+  // Keyword/filename document pick in front of Claude — REMOVED (Tom card wholesale).
+  void hasActiveInsuranceDocumentCase;
+  void extractMentionedFilenamesFromChat;
+  void isExplicitDocumentBoxMentionQuestion;
+  void resolveExplicitCustomerDocumentMention;
+  documentMentionResolve = null;
 
-    const explicitRequestIds = clientAttachedDocumentIds.length
-      ? clientAttachedDocumentIds
-      : caseDocumentId
-        ? [caseDocumentId]
-        : [];
-    const explicitAttachmentRows = [];
-    for (const requestDocumentId of explicitRequestIds) {
-      const inVault = (vaultRecall.attachments || []).some(
-        (row) => String(row?.document_id ?? "").trim() === requestDocumentId,
-      );
-      if (inVault) continue;
-      const fetched = await verifyAndFetchCustomerPdfOriginal({
-        supabase: userSupabase,
-        customerId,
-        documentId: requestDocumentId,
-        env,
-      });
-      if (fetched?.ok && fetched.pdfBase64) {
-        explicitAttachmentRows.push({
-          document_id: requestDocumentId,
-          original_filename: fetched.document?.original_filename ?? null,
-          pdfBase64: fetched.pdfBase64,
-          mediaType: fetched.mediaType,
-          fileSizeBytes: fetched.fileSizeBytes ?? null,
-          content_sha256: fetched.content_sha256 ?? null,
-        });
-      }
-    }
-
-    // Composer multi: keep request-order identities; unique blocks = id/bytes dedupe only.
-    // Never drop distinct request document_ids because of a shared stored content_sha256.
-    let mergedAttach;
-    let identityRowsForPlan = null;
-    if (clientAttachedDocumentIds.length > 1) {
-      const byId = new Map();
-      for (const row of [
-        ...explicitAttachmentRows,
-        ...(Array.isArray(vaultRecall.attachments) ? vaultRecall.attachments : []),
-      ]) {
-        const did = String(row?.document_id ?? "").trim();
-        if (!did || byId.has(did)) continue;
-        byId.set(did, row);
-      }
-      const ordered = [];
-      for (const id of clientAttachedDocumentIds) {
-        if (!byId.has(id)) continue;
-        ordered.push(byId.get(id));
-        byId.delete(id);
-      }
-      // Remaining vault rows only when explicit vault ask (non-requestScope path).
-      const extras = [...byId.values()];
-      identityRowsForPlan = [...ordered, ...extras].map((row) => ({
-        base64: row.pdfBase64 ?? row.base64,
-        mediaType: row.mediaType,
-        document_id: row.document_id,
-        original_filename: row.original_filename,
-        content_sha256: row.content_sha256,
-        source_scope: clientAttachedDocumentIds.includes(String(row.document_id ?? "").trim())
-          ? "current_turn_attachment"
-          : "vault_document",
-      }));
-      const plan = buildAttachmentIdentityDeliveryPlan({
-        identityRows: identityRowsForPlan,
-        defaultSourceScope: "current_turn_attachment",
-      });
-      attachmentIdentityPlanForClaude = plan;
-      mergedAttach = plan.unique_original_blocks.slice(
-        0,
-        CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
-      );
-    } else {
-      mergedAttach = mergeOwnedDocumentAttachRows({
-        vaultAttachments: vaultRecall.attachments || [],
-        explicitAttachment: explicitAttachmentRows[0] || null,
-        explicitDocumentId: caseDocumentId || null,
-        maxUnique: CLAUDE_FIRST_VAULT_MAX_UNIQUE_ATTACH,
-      });
-    }
-
-    if (mergedAttach.length) {
-      const rawRows = mergedAttach.map((row) => ({
-        base64: row.pdfBase64 ?? row.base64,
-        mediaType: row.mediaType,
-        document_id: row.document_id,
-        original_filename: row.original_filename,
-        content_sha256: row.content_sha256,
-        source_scope: row.source_scope,
-        delivery_bytes_sha256: row.delivery_bytes_sha256,
-      }));
-      // Runtime EXIF/orientation normalize for Claude only — Storage originals untouched.
-      // Vault multi: PDF-first upstream + Anthropic-safe JPEG; drop undecodable images
-      // (root cause of ANTHROPIC_HTTP_400 "Could not process image" monopoly stub).
-      pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(rawRows, {
-        vaultSafeImage: true,
-        maxImageEdge: 2048,
-      });
-      if (!attachmentIdentityPlanForClaude && identityRowsForPlan) {
-        attachmentIdentityPlanForClaude = buildAttachmentIdentityDeliveryPlan({
-          identityRows: identityRowsForPlan,
-        });
-      } else if (!attachmentIdentityPlanForClaude) {
-        attachmentIdentityPlanForClaude = buildAttachmentIdentityDeliveryPlan({
-          identityRows: rawRows.map((row) => ({
-            ...row,
-            source_scope: "vault_document",
-          })),
-          defaultSourceScope: "vault_document",
-        });
-      }
-      if (!explicitDocumentId) {
-        explicitDocumentId = String(mergedAttach[0].document_id).trim();
-      }
-      if (vaultRecall.mode !== "attach") {
-        vaultRecall = {
-          ...vaultRecall,
-          mode: "attach",
-          reason: vaultRecall.reason || "owned_vault_merged_with_explicit",
-          attachments: mergedAttach,
-        };
-      } else {
-        vaultRecall = {
-          ...vaultRecall,
-          attachments: mergedAttach,
-          reason: "owned_insurance_vault_merged_deduped",
-        };
-      }
-    }
-  }
-  // B: explicit 내 문서 / filename pointer — only inside authorized attachment scope.
-  // Mention / prior-answer text alone must not restore prior originals.
-  if (
-    !isPresenceTurn &&
-    !explicitDocumentId &&
-    !wantsVaultEvidence &&
-    hasActiveInsuranceDocumentCase &&
-    userSupabase &&
-    customerId
-  ) {
-    const mentionedFilenames = extractMentionedFilenamesFromChat(question, history);
-    const wantsBox =
-      isExplicitDocumentBoxMentionQuestion(question) ||
-      mentionedFilenames.length > 0 ||
-      isPriorAttachFollowUpQuestion(question, { history, priorAttachFollowUp });
-    if (wantsBox) {
-      documentMentionResolve = await resolveExplicitCustomerDocumentMention({
-        supabase: userSupabase,
-        customerId,
-        question,
-        history,
-        mentionedFilenames,
-      });
-      const mentionedId = documentMentionResolve?.ok
-        ? String(documentMentionResolve.documentId ?? "").trim()
-        : "";
-      if (mentionedId && clientAttachedDocumentIds.includes(mentionedId)) {
-        explicitDocumentId = mentionedId;
-      }
-    }
-  }
   const allowLatestFallback = false;
-  // One-shot: only current_upload / explicit_reopen force full bytes (vault uses vaultMultiRecall).
+  // Bytes only: current_upload / explicit_reopen (no vault multi-recall).
   const clientPriorAttach =
     priorAttachFollowUp === true &&
     originalDeliveryIds.length === 0 &&
@@ -6856,29 +6606,11 @@ export async function runClaudeFirstDirectQuestionTurn({
     explicitReopenDocumentIds: scopedExplicitReopenDocumentIds,
   });
 
-  // Triangle T1 — prepared excerpts when available; never invent verified facts from chunks.
-  let documentChunksForClaude = [];
-  if (
-    explicitDocumentId &&
-    userSupabase &&
-    customerId &&
-    !pdfAttachmentsForClaude
-  ) {
-    const chunkLoadStarted = Date.now();
-    documentChunksForClaude = await loadCustomerDocumentChunksByDocumentId({
-      supabase: userSupabase,
-      customerId,
-      documentId: explicitDocumentId,
-      limit: 40,
-    });
-    // chunk load is not Storage PDF fetch; pdf_fetch_ms set only on original fetch below.
-    void chunkLoadStarted;
-  }
+  // OCR/chunk excerpts are not Provider inputs on CUSTOMER_CARD_WHOLESALE.
+  const documentChunksForClaude = [];
+  void loadCustomerDocumentChunksByDocumentId;
 
-  const vaultMultiRecallActive =
-    runVaultRecall === true &&
-    Array.isArray(pdfAttachmentsForClaude) &&
-    pdfAttachmentsForClaude.length > 0;
+  const vaultMultiRecallActive = false;
   let attachModeDecision = decidePdfAttachMode({
     documentId: explicitDocumentId || null,
     priorAttachFollowUp: clientPriorAttach,
