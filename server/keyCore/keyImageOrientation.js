@@ -172,6 +172,20 @@ export async function normalizeImageOrientationForClaude({
 
 export async function normalizeAttachmentRowsForClaude(rows = [], opts = {}) {
   const list = Array.isArray(rows) ? rows : [];
+  // current_upload / explicit_reopen photos: Storage original bytes + mime unchanged.
+  if (opts.preserveStorageOriginalBytes === true) {
+    return list
+      .filter((row) => row?.base64)
+      .map((row) => ({
+        ...row,
+        orientation: {
+          rotated: false,
+          before: null,
+          after: null,
+          reason: "storage_original_passthrough",
+        },
+      }));
+  }
   const out = [];
   const vaultSafeImage = opts.vaultSafeImage === true;
   // preserveAllRows: never silent-drop a request document_id when orientation fails.

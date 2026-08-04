@@ -335,10 +335,7 @@ import {
   splitCustomerAnswerAndKeyRecord,
   stripKeyRecordFromStreamText,
 } from "./keyRecordSidecar.js";
-import {
-  normalizeAttachmentRowsForClaude,
-  normalizeImageOrientationForClaude,
-} from "./keyImageOrientation.js";
+import { normalizeAttachmentRowsForClaude } from "./keyImageOrientation.js";
 import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
 import {
   buildPolicyCountAuthorityAddendum,
@@ -4878,6 +4875,8 @@ async function resolveOptionalPdfAttachment({
       };
     }
 
+    // Tom lock — current_upload / explicit_reopen photos: Storage original only.
+    // Do not EXIF-rotate / resize / re-encode after storage_original build.
     const built = buildClaudeImageAttachFromStorageOriginal({
       storageBase64: fetched.pdfBase64,
       storageMediaType: fetched.mediaType,
@@ -4903,26 +4902,23 @@ async function resolveOptionalPdfAttachment({
       };
     }
 
-    const oriented = await normalizeImageOrientationForClaude({
-      base64: built.base64,
-      mediaType: built.mediaType,
-    });
     return {
-      pdfBase64: oriented.base64 || built.base64,
-      mediaType: oriented.mediaType || built.mediaType,
+      pdfBase64: built.base64,
+      mediaType: built.mediaType,
       meta: {
         attached: true,
         document_id: documentId,
         original_filename: fetched.document?.original_filename ?? null,
-        mime_type: oriented.mediaType || built.mediaType,
+        mime_type: built.mediaType,
         storage_mime_type: fetched.mediaType ?? null,
         content_sha256: fetched.content_sha256 ?? null,
-        claude_image_source: built.claude_image_source,
+        delivery_bytes_sha256: fetched.content_sha256 ?? null,
+        claude_image_source: built.claude_image_source || "storage_original",
         orientation: {
-          rotated: oriented.rotated === true,
-          before: oriented.orientation_before,
-          after: oriented.orientation_after,
-          reason: oriented.reason,
+          rotated: false,
+          before: null,
+          after: null,
+          reason: "storage_original_passthrough",
         },
         attach_signals:
           built.attach_signals ??
@@ -6772,12 +6768,10 @@ export async function runClaudeFirstDirectQuestionTurn({
           defaultSourceScope: "current_turn_attachment",
         });
         attachmentIdentityPlanForClaude = plan;
+        // current_upload / explicit_reopen: Storage original bytes+mime as-is (no vaultSafe).
         pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(
           plan.unique_original_blocks,
-          {
-            vaultSafeImage: true,
-            maxImageEdge: 2048,
-          },
+          { preserveStorageOriginalBytes: true },
         );
         const primary = plan.unique_original_blocks[0] || identityRows[0];
         const sourceScopes = plan.attachment_identities.map((row) => ({
@@ -6800,6 +6794,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             mime_type: primary.mediaType,
             storage_mime_type: primary.mediaType,
             content_sha256: primary.content_sha256 ?? null,
+            delivery_bytes_sha256:
+              primary.delivery_bytes_sha256 ?? primary.content_sha256 ?? null,
             claude_image_source: "storage_original",
             pdf_attach_mode: attachModeDecision.mode,
             document_review_scope: "current_turn_attachments_multi_original",
@@ -6879,10 +6875,12 @@ export async function runClaudeFirstDirectQuestionTurn({
                 null,
               original_filename: pdf?.meta?.original_filename ?? null,
               content_sha256: pdf?.meta?.content_sha256 ?? null,
+              delivery_bytes_sha256:
+                pdf?.meta?.delivery_bytes_sha256 ?? pdf?.meta?.content_sha256 ?? null,
               source_scope: "current_turn_attachment",
             },
           ],
-          { vaultSafeImage: true, maxImageEdge: 2048 },
+          { preserveStorageOriginalBytes: true },
         );
       }
     }
@@ -6951,9 +6949,9 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
     pdfFetchMs = Math.max(0, Date.now() - fetchStarted);
     if (identityRows.length) {
+      // current_upload / explicit_reopen: no vaultSafeImage re-encode.
       pdfAttachmentsForClaude = await normalizeAttachmentRowsForClaude(identityRows, {
-        vaultSafeImage: true,
-        maxImageEdge: 2048,
+        preserveStorageOriginalBytes: true,
       });
       const primary = identityRows[0];
       pdf = {
@@ -6963,7 +6961,11 @@ export async function runClaudeFirstDirectQuestionTurn({
           attached: true,
           document_id: primary.document_id,
           original_filename: primary.original_filename,
+          mime_type: primary.mediaType,
+          storage_mime_type: primary.mediaType,
           content_sha256: primary.content_sha256,
+          delivery_bytes_sha256: primary.delivery_bytes_sha256 || primary.content_sha256,
+          claude_image_source: "storage_original",
           reuse_without_bytes: false,
           pdf_attach_mode: "full_original_once",
           document_review_scope: "owned_original_byte_delivery_authority",
@@ -8421,12 +8423,35 @@ export async function runClaudeFirstDirectQuestionTurn({
           : new Date().toISOString(),
         status: "pending_unverified",
       });
+  const ownedPrimary = ownedOriginalsForRecord[0] || null;
+  const ownedMime = String(
+    ownedPrimary?.mime_type || pdf?.mediaType || pdf?.meta?.mime_type || "",
+  )
+    .trim()
+    .toLowerCase();
+  const ownedBlockType = ownedMime.startsWith("image/")
+    ? "image"
+    : ownedMime.includes("pdf")
+      ? "document"
+      : null;
   const accuracyTrace = buildAccuracyTrace({
     model: claude?.model ?? null,
-    providerDocumentSha256:
-      ownedOriginalsForRecord[0]?.sha256 ||
+    documentId:
+      ownedPrimary?.document_id ||
+      pdf?.meta?.document_id ||
+      explicitDocumentId ||
+      null,
+    providerBlockType: ownedBlockType,
+    providerMediaType: ownedMime || null,
+    storageOriginalSha256:
       pdf?.meta?.content_sha256 ||
+      ownedPrimary?.sha256 ||
       pdf?.meta?.delivery_bytes_sha256 ||
+      null,
+    providerDocumentSha256:
+      ownedPrimary?.sha256 ||
+      pdf?.meta?.delivery_bytes_sha256 ||
+      pdf?.meta?.content_sha256 ||
       null,
     providerRawAnswer:
       claude?.provider_raw_customer_text || claude?.customer_answer || "",

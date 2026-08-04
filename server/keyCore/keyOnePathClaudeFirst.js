@@ -107,6 +107,10 @@ export function buildSealedTurnSourceRecord({
 export function buildAccuracyTrace({
   model = null,
   providerDocumentSha256 = null,
+  storageOriginalSha256 = null,
+  providerBlockType = null,
+  providerMediaType = null,
+  documentId = null,
   providerRawAnswer = "",
   sealedAnswer = "",
 } = {}) {
@@ -120,13 +124,29 @@ export function buildAccuracyTrace({
   } else if (raw && sealed && raw !== sealed) {
     failure_location = "PRODUCT_TRANSFORM_FAIL";
   }
+  const providerSha = providerDocumentSha256
+    ? String(providerDocumentSha256).toLowerCase()
+    : null;
+  const storageSha = storageOriginalSha256
+    ? String(storageOriginalSha256).toLowerCase()
+    : null;
+  const blockType = providerBlockType
+    ? String(providerBlockType).trim().toLowerCase()
+    : null;
+  const mediaType = providerMediaType
+    ? String(providerMediaType).trim().toLowerCase()
+    : null;
   // Document content accuracy vs Golden is reported separately by harness.
   // If raw already diverges from document truth → CLAUDE_API_DOCUMENT_ACCURACY_FAIL (harness).
   return {
     model: model ? String(model) : null,
-    provider_document_sha256: providerDocumentSha256
-      ? String(providerDocumentSha256).toLowerCase()
-      : null,
+    document_id: documentId ? String(documentId).trim() || null : null,
+    provider_block_type: blockType || null,
+    provider_media_type: mediaType || null,
+    storage_original_sha256: storageSha,
+    provider_document_sha256: providerSha,
+    storage_provider_hash_match:
+      Boolean(storageSha) && Boolean(providerSha) && storageSha === providerSha,
     provider_raw_answer: raw,
     sealed_answer: sealed,
     failure_location,
