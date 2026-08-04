@@ -53,10 +53,18 @@ export default async function handler(req, res) {
   }
 
   const mode = getKeyUploadEntryMode(process.env);
-  if (mode === KEY_UPLOAD_ENTRY_MODES.OFF) {
-    res.statusCode = 200;
+  // Customer path: off/shadow fail-closed (no legacy factory skip).
+  if (mode !== KEY_UPLOAD_ENTRY_MODES.ACTIVE) {
+    res.statusCode = 409;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ ok: true, mode: "off", intake_skipped: true }));
+    res.end(
+      JSON.stringify({
+        ok: false,
+        mode,
+        reason: "key_upload_entry_not_active",
+        intake_skipped: false,
+      }),
+    );
     return;
   }
 

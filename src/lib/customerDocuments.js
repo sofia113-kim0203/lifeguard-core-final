@@ -2,6 +2,8 @@ import { loadCustomerDashboardData } from "./customerDashboard.js";
 import { extractPolicyFromReadyDocument } from "./customerDocumentPolicyExtract.js";
 import { DOCUMENT_CATEGORIES, resolveLegacyDocClass } from "./documentCategories.js";
 import { appendLegacyPipelineContinuedClientTrace, assertKu2bReadyForFactory, requestKeyDocumentIntake } from "./keyDocumentIntake.js";
+import { assertCustomerUploadEntryAuthority } from "./customerUploadEntryAuthority.js";
+import { fetchCustomerApi } from "./customerApiAuth.js";
 import { supabase } from "./supabase.js";
 import { toCustomerErrorMessage } from "./uiLocale.js";
 
@@ -573,6 +575,16 @@ export async function uploadDocument(
   authUser,
   { file, categoryKey, deferFactoryUntilClaude = false, entityId = null } = {},
 ) {
+  // Entry authority is checked before validation, Storage, row insert, or factory.
+  // `deferFactoryUntilClaude` still creates the document/KEY intake only; it never
+  // starts ingest/OCR/extract before the Claude-first turn has sealed.
+  assertCustomerUploadEntryAuthority();
+  const entryResponse = await fetchCustomerApi("/api/key-upload-entry-authority", {
+    body: {},
+  });
+  if (!entryResponse.response.ok || entryResponse.payload?.ok !== true) {
+    throw new Error("현재 문서 업로드는 KEY 확인 후에만 진행할 수 있습니다.");
+  }
   const category = getCategory(categoryKey);
   const { customerId } = await ensureCustomerContext(authUser);
 
