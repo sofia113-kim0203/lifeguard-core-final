@@ -15,24 +15,57 @@ export const KEY_CUSTOMER_CARD_SCHEMA = "key-customer-card-v1";
 /** Tom lock — past originals never bulk-dumped into Provider. */
 export const PAST_ORIGINAL_BYTES_MODE = "links_only";
 
-function briefPolicy(row) {
-  if (!row || typeof row !== "object") return null;
-  return {
-    insurer: row.insurer || row.company_name || null,
-    product_name: row.product_name || row.product_label || null,
-    policy_number: row.policy_number || null,
-    status: row.status || row.contract_status || null,
-    contract_id: row.contract_id || row.id || null,
-  };
+/**
+ * Keep existing KEY/READY row fields as-is.
+ * Do not invent keys; do not skeleton-strip contracts/coverages.
+ */
+function preserveExistingRow(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  return { ...row };
 }
 
-function briefClaim(row) {
-  if (!row || typeof row !== "object") return null;
-  return {
-    claim_id: row.claim_id || row.id || null,
-    status: row.status || null,
-    title: row.title || row.label || null,
+function existingInsuranceContracts(policyTruthContext, ssot) {
+  const ssotPolicies = Array.isArray(ssot?.policies)
+    ? ssot.policies.map(preserveExistingRow).filter(Boolean)
+    : [];
+  // Live path: reality/READY policies still carry coverage_summary — prefer when present.
+  if (ssotPolicies.length > 0) return ssotPolicies.slice(0, 24);
+
+  const ledger =
+    policyTruthContext?.VERIFIED_POLICY_LEDGER &&
+    typeof policyTruthContext.VERIFIED_POLICY_LEDGER === "object"
+      ? policyTruthContext.VERIFIED_POLICY_LEDGER
+      : null;
+  const fromLedger = Array.isArray(ledger?.confirmed_contracts)
+    ? ledger.confirmed_contracts.map(preserveExistingRow).filter(Boolean)
+    : [];
+  if (fromLedger.length > 0) return fromLedger.slice(0, 24);
+
+  const fromTruth = Array.isArray(policyTruthContext?.confirmed_contracts)
+    ? policyTruthContext.confirmed_contracts.map(preserveExistingRow).filter(Boolean)
+    : [];
+  return fromTruth.slice(0, 24);
+}
+
+function existingConfirmedFacts(policyTruthContext) {
+  const out = [];
+  const pushAll = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const row of list.slice(0, 24)) {
+      const preserved = preserveExistingRow(row);
+      if (preserved) out.push(preserved);
+    }
   };
+  pushAll(policyTruthContext?.confirmed_facts);
+  pushAll(policyTruthContext?.verified_facts);
+  const ledger =
+    policyTruthContext?.VERIFIED_POLICY_LEDGER &&
+    typeof policyTruthContext.VERIFIED_POLICY_LEDGER === "object"
+      ? policyTruthContext.VERIFIED_POLICY_LEDGER
+      : null;
+  pushAll(ledger?.confirmed_facts);
+  pushAll(ledger?.verified_facts);
+  return out.slice(0, 40);
 }
 
 /**
@@ -99,60 +132,32 @@ export function buildKeyCustomerCardForClaude({
     }),
   );
 
-  const confirmedFacts = [];
-  const pushFact = (row) => {
-    if (!row || typeof row !== "object") return;
-    confirmedFacts.push({
-      kind: row.kind || row.type || "fact",
-      value: row.value ?? row.text ?? row.summary ?? null,
-      source_document_id: row.source_document_id || row.document_id || null,
-    });
-  };
-  if (Array.isArray(policyTruthContext?.confirmed_facts)) {
-    for (const row of policyTruthContext.confirmed_facts.slice(0, 24)) pushFact(row);
-  }
-  if (Array.isArray(policyTruthContext?.verified_facts)) {
-    for (const row of policyTruthContext.verified_facts.slice(0, 24)) pushFact(row);
-  }
-
-  const ssotPolicies = Array.isArray(ssot?.policies)
-    ? ssot.policies.map(briefPolicy).filter(Boolean).slice(0, 24)
-    : [];
-  const contractsFromTruth = memory.confirmed_contracts || [];
-  // Prefer ledger confirmed contracts; fill from READY insurance_card policies when empty.
-  const insuranceContracts =
-    contractsFromTruth.length > 0 ? contractsFromTruth : ssotPolicies;
+  const confirmedFacts = existingConfirmedFacts(policyTruthContext);
+  const insuranceContracts = existingInsuranceContracts(policyTruthContext, ssot);
 
   const activeClaims = (Array.isArray(ssot?.activeClaimCases)
     ? ssot.activeClaimCases
     : []
   )
-    .map(briefClaim)
+    .map(preserveExistingRow)
     .filter(Boolean)
     .slice(0, 12);
 
   let activeGoal = null;
   if (ssot?.ssotGoal && typeof ssot.ssotGoal === "object") {
-    activeGoal = {
-      summary:
-        ssot.ssotGoal.summary ||
-        ssot.ssotGoal.goal_text ||
-        ssot.ssotGoal.text ||
-        null,
-      status: ssot.ssotGoal.status || null,
-      reason: ssot.ssotReason || null,
-    };
+    activeGoal = preserveExistingRow({
+      ...ssot.ssotGoal,
+      reason: ssot.ssotReason || ssot.ssotGoal.reason || null,
+    });
   }
 
   let priorConsultation = null;
   if (ssot?.priorConsultation && typeof ssot.priorConsultation === "object") {
-    priorConsultation = {
-      summary:
-        ssot.priorConsultation.summary ||
-        ssot.priorConsultation.text ||
-        null,
-      reason: ssot.priorConsultationReason || null,
-    };
+    priorConsultation = preserveExistingRow({
+      ...ssot.priorConsultation,
+      reason:
+        ssot.priorConsultationReason || ssot.priorConsultation.reason || null,
+    });
   }
 
   return {
@@ -179,7 +184,7 @@ export function buildKeyCustomerCardForClaude({
         }
       : null,
     insurance_contracts: insuranceContracts,
-    confirmed_facts: confirmedFacts.slice(0, 40),
+    confirmed_facts: confirmedFacts,
     active_goal: activeGoal,
     prior_consultation: priorConsultation,
     insurance_clock: ssot?.insuranceClockBrief || null,

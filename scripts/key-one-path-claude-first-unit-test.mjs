@@ -109,7 +109,12 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     pdfMeta: { document_id: "doc-a" },
     policyTruthContext: {
       confirmed_contracts: [
-        { insurer: "확인된손보", product_name: "확인상품", policy_number: "C-1" },
+        {
+          insurer: "확인된손보",
+          product_name: "확인상품",
+          policy_number: "C-1",
+          coverages: [{ coverage_name: "암진단비", status: "verified" }],
+        },
       ],
     },
   });
@@ -118,6 +123,11 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   const text = JSON.stringify(body);
   assert.equal(text.includes("pending_extract"), false);
   assert.equal(text.includes("확인된손보"), true);
+  assert.equal(text.includes("암진단비"), true);
+  assert.equal(
+    req.key_customer_card.insurance_contracts[0].coverages[0].coverage_name,
+    "암진단비",
+  );
   assert.equal(text.includes("주요 보장 알려줘"), true);
   assert.equal(req.system[0].text.includes("KEY_ONE_PATH_CLAUDE_FIRST"), true);
   assert.equal(req.system[0].text.includes("고객카드를 통째로"), true);
@@ -138,7 +148,17 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       ],
     },
     readyCardSsot: {
-      policies: [{ insurer: "READY손보", product_name: "READY상품" }],
+      policies: [
+        {
+          insurer_name: "READY손보",
+          product_name: "READY상품",
+          coverage_summary: {
+            key_coverage_baseline_facts: [
+              { status: "verified", coverage_name: "암진단비", coverage_amount: 1000 },
+            ],
+          },
+        },
+      ],
       activeDocuments: [{ id: "doc-ready", original_filename: "증권.pdf" }],
       insuranceClockBrief: { upcoming: [{ label: "갱신" }], overdue: [] },
       lifeLedgerBrief: { goals: [], item_count: 0 },
@@ -155,11 +175,22 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     },
   });
   const ssotCard = JSON.parse(reqSsot.messages[0].content[0].text).key_customer_card;
-  assert.equal(ssotCard.insurance_contracts[0].insurer, "확인된손보");
+  // Prefer READY/reality policies when present — keep coverage_summary (no skeleton strip).
+  assert.equal(ssotCard.insurance_contracts[0].insurer_name, "READY손보");
+  assert.equal(
+    ssotCard.insurance_contracts[0].coverage_summary.key_coverage_baseline_facts[0]
+      .coverage_name,
+    "암진단비",
+  );
   assert.equal(ssotCard.entrusted_originals.links[0].document_id, "doc-ready");
   assert.equal(ssotCard.insurance_clock.upcoming[0].label, "갱신");
   assert.equal(ssotCard.past_original_bytes_mode, "links_only");
-  console.log("PASS U6/U7 question·KEY SSOT card·links_only; no pick-rank");
+  // ONE PATH body must carry the same preserved card (no second reshape).
+  assert.equal(
+    JSON.stringify(reqSsot.key_customer_card.insurance_contracts),
+    JSON.stringify(ssotCard.insurance_contracts),
+  );
+  console.log("PASS U6/U7 question·KEY SSOT card·links_only; coverage preserved; no pick-rank");
 }
 
 {
