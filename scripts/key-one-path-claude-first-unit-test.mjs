@@ -393,7 +393,61 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.ok(Array.isArray(p4.key_customer_card.recent_conversation));
   assert.equal(p4.customer_relationship_state, undefined);
   assert.equal(p4.customer_memory, undefined);
-  console.log("PASS KEY relationship state · memory fail ≠ NEW · L4 flags");
+
+  // Dialogue authority: keep user/assistant turns; do not treat assistant claims as confirmed contracts.
+  const reqDialogue = buildOnePathClaudeFirstRequest({
+    question: "나에게 추천해줄수있어 필요한보장?",
+    customerId: "cust-1",
+    conversationId: "c1",
+    history: [
+      { role: "user", text: "뇌혈관이 걱정되고 전화가 편해요. 암·실손은 유지할게요." },
+      {
+        role: "assistant",
+        text: "이전에 확인된 암 진단비는 5,000만원입니다.",
+      },
+    ],
+    policyTruthContext: {
+      confirmed_contracts: [
+        {
+          insurer: "확인된손보",
+          product_name: "확인상품",
+          coverage_summary: { premium: 1000 },
+        },
+      ],
+      confirmed_facts: [{ fact: "verified_only", detail: "ok" }],
+    },
+  });
+  const dialogueCard = reqDialogue.key_customer_card;
+  assert.equal(dialogueCard.recent_conversation.length, 2);
+  assert.equal(dialogueCard.recent_conversation[0].role, "user");
+  assert.equal(
+    dialogueCard.recent_conversation[0].text.includes("뇌혈관이 걱정"),
+    true,
+  );
+  assert.equal(dialogueCard.recent_conversation[1].role, "assistant");
+  assert.equal(
+    dialogueCard.recent_conversation[1].text.includes("5,000만원"),
+    true,
+  );
+  assert.equal(dialogueCard.insurance_contracts.length, 1);
+  assert.equal(dialogueCard.insurance_contracts[0].insurer, "확인된손보");
+  assert.equal(dialogueCard.confirmed_facts.length, 1);
+  assert.equal(
+    JSON.stringify(dialogueCard.insurance_contracts).includes("5,000만원"),
+    false,
+  );
+  assert.equal(
+    reqDialogue.system[0].text.includes("확인된 계약·사실·최근 대화"),
+    false,
+  );
+  assert.equal(
+    reqDialogue.system[0].text.includes(
+      "최근 대화에 나온 숫자·계약·보장 내용은 확인된 계약/사실 또는 이번 턴 원본 근거가 없으면 확정하지 않는다",
+    ),
+    true,
+  );
+
+  console.log("PASS KEY relationship state · memory fail ≠ NEW · L4 flags · dialogue authority");
 }
 
 {

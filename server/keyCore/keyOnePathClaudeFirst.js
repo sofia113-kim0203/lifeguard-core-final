@@ -52,7 +52,14 @@ export function buildOnePathMinimalSystem({
     );
   } else {
     parts.push(
-      "KEY 고객카드의 확인된 계약·사실·최근 대화·맡긴 원본 연결을 자연스럽게 참고한다. 없는 과거를 만들지 않는다.",
+      [
+        "KEY 고객카드의 확인된 계약(insurance_contracts)·확인된 사실(confirmed_facts)만 고객의 확정 사실이다.",
+        "recent_conversation은 대화 맥락이다. 검증된 계약·사실이 아니다.",
+        "role=user 내용은 고객이 말한 선호·걱정·요청이지 계약 증거가 아니다.",
+        "role=assistant 내용은 이전 KEY 답변이지 검증된 사실이 아니다.",
+        "최근 대화에 나온 숫자·계약·보장 내용은 확인된 계약/사실 또는 이번 턴 원본 근거가 없으면 확정하지 않는다.",
+        "맡긴 원본 연결은 참고하되, 없는 과거를 만들지 않는다.",
+      ].join("\n"),
     );
   }
   if (mem === KEY_MEMORY_AVAILABILITY.PARTIAL_UNAVAILABLE) {
