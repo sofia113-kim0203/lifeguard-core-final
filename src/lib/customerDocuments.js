@@ -1027,6 +1027,67 @@ export async function softDeleteDocument(authUser, documentId, options = {}) {
   };
 }
 
+/** Client-only bulk pacing: reuse softDeleteDocument, max N in flight. No new RPC. */
+export const BULK_SOFT_DELETE_CONCURRENCY = 3;
+
+/**
+ * Soft-delete many documents via the existing softDeleteDocument path.
+ * Processes in chunks of {@link BULK_SOFT_DELETE_CONCURRENCY} (override with options.concurrency).
+ */
+export async function softDeleteDocumentsBatched(authUser, documentIds, options = {}) {
+  const deleteOne = options.softDeleteDocument ?? softDeleteDocument;
+  const concurrency = Math.max(
+    1,
+    Math.min(
+      32,
+      Number.isFinite(Number(options.concurrency))
+        ? Math.floor(Number(options.concurrency))
+        : BULK_SOFT_DELETE_CONCURRENCY,
+    ),
+  );
+  const ids = [
+    ...new Set(
+      (Array.isArray(documentIds) ? documentIds : [])
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const succeeded = [];
+  const failed = [];
+
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const chunk = ids.slice(i, i + concurrency);
+    const outcomes = await Promise.all(
+      chunk.map(async (documentId) => {
+        try {
+          const result = await deleteOne(authUser, documentId, options);
+          return { documentId, result, error: null };
+        } catch (error) {
+          return { documentId, result: null, error };
+        }
+      }),
+    );
+    for (const outcome of outcomes) {
+      if (outcome.result?.success === true) {
+        succeeded.push({
+          documentId: outcome.result.documentId ?? outcome.documentId,
+          result: outcome.result,
+        });
+      } else {
+        failed.push(outcome);
+      }
+    }
+  }
+
+  return {
+    total: ids.length,
+    deletedCount: succeeded.length,
+    failedCount: failed.length,
+    succeeded,
+    failed,
+  };
+}
+
 export function claimCaseReferencesSourceDocument(row, documentId) {
   const did = String(documentId ?? "").trim();
   if (!did || !row || typeof row !== "object") return false;

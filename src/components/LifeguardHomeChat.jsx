@@ -16,6 +16,7 @@ import {
   DOCUMENT_DELETE_REASON,
   listDocuments,
   softDeleteDocument,
+  softDeleteDocumentsBatched,
   uploadDocument,
 } from "../lib/customerDocuments.js";
 import { CHAT_ATTACH_FILE_ACCEPT, isChatAttachFile } from "../lib/chatPdfAttach.js";
@@ -2823,52 +2824,39 @@ export default function LifeguardHomeChat({
     if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteAllConfirm(total))) return;
 
     setDocumentDeletingId(BULK_DOCUMENT_DELETE_ID);
-    let deletedCount = 0;
     try {
-      for (const document of targets) {
-        let result;
-        try {
-          result = await softDeleteDocument(authUser, document.id);
-        } catch (err) {
-          const remainingCount = total - deletedCount;
-          setDocumentsError(
-            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다.")}`,
-          );
-          await reloadDocuments();
-          return;
-        }
-        if (!result?.success) {
-          const remainingCount = total - deletedCount;
-          const detail =
-            result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED ||
-            result?.reason === DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED ||
-            result?.reason === DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
-              ? DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed
-              : result?.reason === DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED
-                ? DOCUMENT_UI_MESSAGES.deleteStorageRetryHint
-                : result?.error_message ||
-                  toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다.");
-          setDocumentsError(
-            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${detail}`,
-          );
-          await reloadDocuments();
-          return;
-        }
-        applyDocumentDeletedLocally(result.documentId);
-        deletedCount += 1;
-        if (typeof session?.refreshSession === "function") {
-          try {
-            await session.refreshSession({
-              event: "document_soft_deleted",
-              reloadJob: false,
-            });
-          } catch {
-            /* next session load refreshes; do not block delete UX */
-          }
-        }
+      const batch = await softDeleteDocumentsBatched(
+        authUser,
+        targets.map((document) => document.id),
+      );
+      for (const row of batch.succeeded) {
+        applyDocumentDeletedLocally(row.documentId);
       }
       await reloadDocuments();
-      setDocumentDeleteNotice(DOCUMENT_UI_MESSAGES.deleteAllSuccess(deletedCount));
+      if (batch.deletedCount > 0 && typeof session?.refreshSession === "function") {
+        try {
+          await session.refreshSession({
+            event: "document_soft_deleted",
+            reloadJob: false,
+          });
+        } catch {
+          /* next session load refreshes; do not block delete UX */
+        }
+      }
+      const summary = DOCUMENT_UI_MESSAGES.deleteAllSummary(
+        batch.deletedCount,
+        batch.failedCount,
+      );
+      if (batch.failedCount > 0) {
+        setDocumentsError(summary);
+        if (batch.deletedCount > 0) {
+          setDocumentDeleteNotice(
+            `삭제 완료 ${batch.deletedCount}개. ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`,
+          );
+        }
+      } else {
+        setDocumentDeleteNotice(summary);
+      }
     } finally {
       setDocumentDeletingId(null);
     }

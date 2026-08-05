@@ -5,6 +5,7 @@ import {
   listDocuments,
   downloadDocument,
   softDeleteDocument,
+  softDeleteDocumentsBatched,
   retryPendingPolicyExtractions,
 } from "../lib/customerDocuments.js";
 import CustomerDocumentUploadFlow from "./CustomerDocumentUploadFlow.jsx";
@@ -317,42 +318,36 @@ export default function DocumentsPanel({ user }) {
     if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteAllConfirm(total))) return;
 
     setBulkDeleting(true);
-    let deletedCount = 0;
     try {
-      for (const document of targets) {
-        let result;
-        try {
-          result = await softDeleteDocument(user, document.id);
-        } catch (err) {
-          const remainingCount = total - deletedCount;
-          setError(
-            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${describeDeleteFailure(null, err)}`,
-          );
-          await loadData();
-          return;
-        }
-        if (!result?.success) {
-          const remainingCount = total - deletedCount;
-          setError(
-            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${describeDeleteFailure(result)}`,
-          );
-          await loadData();
-          return;
-        }
-        applyLocalDeleteCleanup(result);
-        deletedCount += 1;
-        if (typeof refreshSession === "function") {
-          try {
-            await refreshSession({ event: "document_soft_deleted", reloadJob: false });
-          } catch {
-            /* next session load refreshes; do not block delete UX */
-          }
-        }
+      const batch = await softDeleteDocumentsBatched(
+        user,
+        targets.map((document) => document.id),
+      );
+      for (const row of batch.succeeded) {
+        applyLocalDeleteCleanup(row.result);
       }
       await loadData();
-      setSuccess(
-        `${DOCUMENT_UI_MESSAGES.deleteAllSuccess(deletedCount)} ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`,
+      if (batch.deletedCount > 0 && typeof refreshSession === "function") {
+        try {
+          await refreshSession({ event: "document_soft_deleted", reloadJob: false });
+        } catch {
+          /* next session load refreshes; do not block delete UX */
+        }
+      }
+      const summary = DOCUMENT_UI_MESSAGES.deleteAllSummary(
+        batch.deletedCount,
+        batch.failedCount,
       );
+      if (batch.failedCount > 0) {
+        setError(summary);
+        if (batch.deletedCount > 0) {
+          setSuccess(
+            `삭제 완료 ${batch.deletedCount}개. ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`,
+          );
+        }
+      } else {
+        setSuccess(`${summary} ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`);
+      }
     } finally {
       setBulkDeleting(false);
     }
