@@ -128,6 +128,10 @@ import {
   ownedOriginalsToMultiAttachments,
 } from "./keyOwnedOriginalsCanonical.js";
 import { buildKeyClaudePreviewRuntimeTrace } from "./keyClaudePreviewRuntimeTrace.js";
+import {
+  buildKeyClaudeRequestSizeObservation,
+  emitKeyClaudeRequestSizeObservation,
+} from "./keyClaudeRequestSizeObserve.js";
 import { resolveActiveInsuranceDocumentCase } from "./keyActiveInsuranceDocumentCase.js";
 import { resolveOwnedPointedContractIds } from "./keySelectivePointedContractHand.js";
 
@@ -5778,6 +5782,15 @@ async function callClaudeFirstDirect({
           priorHeavyContextReplayed: heavyReplay,
         }),
       );
+      // Preview-only size black box — sizes/hashes only; never mutates body; never SSE.
+      try {
+        emitKeyClaudeRequestSizeObservation(
+          buildKeyClaudeRequestSizeObservation({ body }),
+          env,
+        );
+      } catch {
+        /* observe must never break Claude path */
+      }
       res = await fetchImpl(ANTHROPIC_URL, {
         method: "POST",
         headers: {
