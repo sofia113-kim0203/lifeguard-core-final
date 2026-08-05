@@ -400,13 +400,33 @@ function CustomerInsuranceList({
   );
 }
 
+const BULK_DOCUMENT_DELETE_ID = "__bulk_all__";
+
+function filterDocumentsForViewMode(documents, viewMode, selectedEntityId) {
+  const rows = Array.isArray(documents) ? documents : [];
+  return rows.filter((doc) => {
+    const docEntityId = String(doc?.entity_id ?? "").trim();
+    if (viewMode === "corporate") {
+      return Boolean(selectedEntityId) && docEntityId === selectedEntityId;
+    }
+    if (viewMode === "both") {
+      return !docEntityId || (selectedEntityId && docEntityId === selectedEntityId);
+    }
+    return !docEntityId;
+  });
+}
+
 function CustomerDocumentsList({
   documents,
   loading,
   error,
   deletingId = null,
   onDeleteDocument = null,
+  onDeleteAllDocuments = null,
 }) {
+  const bulkBusy = deletingId === BULK_DOCUMENT_DELETE_ID;
+  const anyBusy = Boolean(deletingId);
+
   if (loading) {
     return <p style={{ margin: 0, color: LG.textMuted }}>문서를 불러오는 중…</p>;
   }
@@ -419,8 +439,39 @@ function CustomerDocumentsList({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {typeof onDeleteAllDocuments === "function" ? (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <button
+            type="button"
+            aria-label={DOCUMENT_UI_MESSAGES.deleteAllAction}
+            title={DOCUMENT_UI_MESSAGES.deleteAllAction}
+            disabled={anyBusy}
+            onClick={onDeleteAllDocuments}
+            style={{
+              border: "1px solid rgba(185, 28, 28, 0.35)",
+              background: "rgba(254, 226, 226, 0.65)",
+              color: anyBusy ? LG.textSoft : "#B91C1C",
+              cursor: anyBusy ? "default" : "pointer",
+              fontSize: "13px",
+              fontWeight: 650,
+              lineHeight: 1.3,
+              padding: "8px 12px",
+              borderRadius: "10px",
+            }}
+          >
+            {bulkBusy ? "삭제 중…" : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAllAction}`}
+          </button>
+        </div>
+      ) : null}
       {documents.map((document) => {
-        const busy = deletingId === document.id;
+        const busy = bulkBusy || deletingId === document.id;
         return (
           <div key={document.id} style={listCardStyle()}>
             <div
@@ -453,7 +504,7 @@ function CustomerDocumentsList({
                     flexShrink: 0,
                   }}
                 >
-                  {busy ? "…" : "🗑"}
+                  {busy && deletingId === document.id ? "…" : "🗑"}
                 </button>
               ) : null}
             </div>
@@ -2744,6 +2795,93 @@ export default function LifeguardHomeChat({
     [authUser, documentDeletingId, finishDocumentDeleteResult],
   );
 
+  const handleDeleteAllUploadedDocuments = useCallback(async () => {
+    if (!authUser || documentDeletingId) return;
+
+    setDocumentsError("");
+    setDocumentDeleteNotice("");
+    let targets = [];
+    try {
+      const listed = await listDocuments(authUser, { categoryKey: "all" });
+      targets = filterDocumentsForViewMode(
+        listed?.documents ?? [],
+        viewMode,
+        selectedEntityId,
+      );
+    } catch (err) {
+      setDocumentsError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
+      return;
+    }
+
+    const total = targets.length;
+    if (total === 0) {
+      setDocumentDeleteNotice(DOCUMENT_UI_MESSAGES.emptyList);
+      await reloadDocuments();
+      return;
+    }
+
+    if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteAllConfirm(total))) return;
+
+    setDocumentDeletingId(BULK_DOCUMENT_DELETE_ID);
+    let deletedCount = 0;
+    try {
+      for (const document of targets) {
+        let result;
+        try {
+          result = await softDeleteDocument(authUser, document.id);
+        } catch (err) {
+          const remainingCount = total - deletedCount;
+          setDocumentsError(
+            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다.")}`,
+          );
+          await reloadDocuments();
+          return;
+        }
+        if (!result?.success) {
+          const remainingCount = total - deletedCount;
+          const detail =
+            result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED ||
+            result?.reason === DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED ||
+            result?.reason === DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
+              ? DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed
+              : result?.reason === DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED
+                ? DOCUMENT_UI_MESSAGES.deleteStorageRetryHint
+                : result?.error_message ||
+                  toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다.");
+          setDocumentsError(
+            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${detail}`,
+          );
+          await reloadDocuments();
+          return;
+        }
+        applyDocumentDeletedLocally(result.documentId);
+        deletedCount += 1;
+        if (typeof session?.refreshSession === "function") {
+          try {
+            await session.refreshSession({
+              event: "document_soft_deleted",
+              reloadJob: false,
+            });
+          } catch {
+            /* next session load refreshes; do not block delete UX */
+          }
+        }
+      }
+      await reloadDocuments();
+      setDocumentDeleteNotice(DOCUMENT_UI_MESSAGES.deleteAllSuccess(deletedCount));
+    } finally {
+      setDocumentDeletingId(null);
+    }
+  }, [
+    authUser,
+    documentDeletingId,
+    viewMode,
+    selectedEntityId,
+    reloadDocuments,
+    applyDocumentDeletedLocally,
+    session,
+  ]);
+
   const handleComposerRemove = async (documentId = null) => {
     const did =
       String(documentId ?? "").trim() ||
@@ -3515,20 +3653,16 @@ export default function LifeguardHomeChat({
                 </p>
               ) : null}
               <CustomerDocumentsList
-                documents={documents.filter((doc) => {
-                  const docEntityId = String(doc?.entity_id ?? "").trim();
-                  if (viewMode === "corporate") {
-                    return Boolean(selectedEntityId) && docEntityId === selectedEntityId;
-                  }
-                  if (viewMode === "both") {
-                    return !docEntityId || (selectedEntityId && docEntityId === selectedEntityId);
-                  }
-                  return !docEntityId;
-                })}
+                documents={filterDocumentsForViewMode(
+                  documents,
+                  viewMode,
+                  selectedEntityId,
+                )}
                 loading={documentsLoading}
                 error={documentsError}
                 deletingId={documentDeletingId}
                 onDeleteDocument={handleDeleteUploadedDocument}
+                onDeleteAllDocuments={handleDeleteAllUploadedDocuments}
               />
             </LayerPanel>
           ) : null}
