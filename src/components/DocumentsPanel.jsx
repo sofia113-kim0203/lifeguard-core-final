@@ -147,6 +147,7 @@ export default function DocumentsPanel({ user }) {
   const [filterKey, setFilterKey] = useState("all");
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState("");
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -205,8 +206,45 @@ export default function DocumentsPanel({ user }) {
     loadData();
   }, [loadData]);
 
+  const applyLocalDeleteCleanup = (result) => {
+    const customerId = result?.customerId;
+    if (!result?.success || !customerId || !result.documentId) return;
+    rememberClearedActiveAttachmentId(customerId, result.documentId);
+    const snap = readLifeguardChatSnapshot(customerId);
+    if (!snap) return;
+    const nextActive = clearActiveAttachmentIfDocumentDeleted(
+      snap.activeAttachment,
+      result.documentId,
+    );
+    writeLifeguardChatSnapshot(customerId, {
+      sessionId: snap.sessionId,
+      messages: scrubDeletedDocumentFromMessageActiveAttachments(
+        snap.messages,
+        result.documentId,
+      ),
+      activeAttachment: nextActive,
+    });
+  };
+
+  const describeDeleteFailure = (result, err) => {
+    if (err) return toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다.");
+    if (
+      result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED ||
+      result?.reason === DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED ||
+      result?.reason === DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
+    ) {
+      return DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed;
+    }
+    if (result?.reason === DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED) {
+      return DOCUMENT_UI_MESSAGES.deleteStorageRetryHint;
+    }
+    return (
+      result?.error_message || toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다.")
+    );
+  };
+
   const handleDownload = async (documentId) => {
-    if (!user) return;
+    if (!user || bulkDeleting) return;
     setActionId(documentId);
     setError("");
     try {
@@ -220,7 +258,7 @@ export default function DocumentsPanel({ user }) {
   };
 
   const handleDelete = async (documentId) => {
-    if (!user) return;
+    if (!user || bulkDeleting) return;
     if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteConfirm)) return;
 
     setActionId(documentId);
@@ -228,29 +266,7 @@ export default function DocumentsPanel({ user }) {
     setSuccess("");
     try {
       const result = await softDeleteDocument(user, documentId);
-      const customerId = result?.customerId;
-      if (
-        result?.success &&
-        customerId &&
-        result.documentId
-      ) {
-        rememberClearedActiveAttachmentId(customerId, result.documentId);
-        const snap = readLifeguardChatSnapshot(customerId);
-        if (snap) {
-          const nextActive = clearActiveAttachmentIfDocumentDeleted(
-            snap.activeAttachment,
-            result.documentId,
-          );
-          writeLifeguardChatSnapshot(customerId, {
-            sessionId: snap.sessionId,
-            messages: scrubDeletedDocumentFromMessageActiveAttachments(
-              snap.messages,
-              result.documentId,
-            ),
-            activeAttachment: nextActive,
-          });
-        }
-      }
+      applyLocalDeleteCleanup(result);
       // Keep the card in place until every finalization step succeeds. A failed
       // finalize must remain retryable and must not look like a completed delete.
       if (result?.success) {
@@ -269,25 +285,76 @@ export default function DocumentsPanel({ user }) {
         );
         return;
       }
-      if (
-        result?.reason === DOCUMENT_DELETE_REASON.CLAIM_SCRUB_FAILED ||
-        result?.reason === DOCUMENT_DELETE_REASON.POLICY_RETIRE_FAILED ||
-        result?.reason === DOCUMENT_DELETE_REASON.MEMORY_SCRUB_FAILED
-      ) {
-        setError(DOCUMENT_UI_MESSAGES.deleteClaimScrubFailed);
-        return;
-      }
-      if (result?.reason === DOCUMENT_DELETE_REASON.STORAGE_REMOVE_FAILED) {
-        setError(DOCUMENT_UI_MESSAGES.deleteStorageRetryHint);
-        return;
-      }
-      setError(
-        result?.error_message || toCustomerErrorMessage(null, "문서를 삭제하지 못했습니다."),
-      );
+      setError(describeDeleteFailure(result));
     } catch (err) {
-      setError(toCustomerErrorMessage(err, "문서를 삭제하지 못했습니다."));
+      setError(describeDeleteFailure(null, err));
     } finally {
       setActionId("");
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (!user || bulkDeleting || actionId) return;
+
+    setError("");
+    setSuccess("");
+    let targets = [];
+    try {
+      const listed = await listDocuments(user, { categoryKey: "all" });
+      targets = Array.isArray(listed?.documents) ? listed.documents : [];
+    } catch (err) {
+      setError(toCustomerErrorMessage(err, "문서 목록을 불러오지 못했습니다."));
+      return;
+    }
+
+    const total = targets.length;
+    if (total === 0) {
+      setSuccess(DOCUMENT_UI_MESSAGES.emptyList);
+      await loadData();
+      return;
+    }
+
+    if (!window.confirm(DOCUMENT_UI_MESSAGES.deleteAllConfirm(total))) return;
+
+    setBulkDeleting(true);
+    let deletedCount = 0;
+    try {
+      for (const document of targets) {
+        let result;
+        try {
+          result = await softDeleteDocument(user, document.id);
+        } catch (err) {
+          const remainingCount = total - deletedCount;
+          setError(
+            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${describeDeleteFailure(null, err)}`,
+          );
+          await loadData();
+          return;
+        }
+        if (!result?.success) {
+          const remainingCount = total - deletedCount;
+          setError(
+            `${DOCUMENT_UI_MESSAGES.deleteAllStopped(deletedCount, remainingCount)} ${describeDeleteFailure(result)}`,
+          );
+          await loadData();
+          return;
+        }
+        applyLocalDeleteCleanup(result);
+        deletedCount += 1;
+        if (typeof refreshSession === "function") {
+          try {
+            await refreshSession({ event: "document_soft_deleted", reloadJob: false });
+          } catch {
+            /* next session load refreshes; do not block delete UX */
+          }
+        }
+      }
+      await loadData();
+      setSuccess(
+        `${DOCUMENT_UI_MESSAGES.deleteAllSuccess(deletedCount)} ${DOCUMENT_UI_MESSAGES.deleteUploadHint}`,
+      );
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -336,9 +403,28 @@ export default function DocumentsPanel({ user }) {
           }}
         >
           <h2 style={{ ...S.sectionTitle, margin: 0 }}>문서 목록</h2>
-          <button type="button" style={S.btnSecondary} onClick={loadData}>
-            {DOCUMENT_UI_MESSAGES.refreshAction}
-          </button>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={S.btnSecondary}
+              disabled={bulkDeleting || Boolean(actionId)}
+              onClick={loadData}
+            >
+              {DOCUMENT_UI_MESSAGES.refreshAction}
+            </button>
+            <button
+              type="button"
+              style={S.btnDanger}
+              disabled={bulkDeleting || Boolean(actionId)}
+              aria-label={DOCUMENT_UI_MESSAGES.deleteAllAction}
+              title={DOCUMENT_UI_MESSAGES.deleteAllAction}
+              onClick={handleDeleteAll}
+            >
+              {bulkDeleting
+                ? "삭제 중…"
+                : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAllAction}`}
+            </button>
+          </div>
         </div>
 
         <div style={{ ...S.filterRow, marginBottom: "16px" }}>
@@ -372,7 +458,7 @@ export default function DocumentsPanel({ user }) {
               <tbody>
                 {documents.map((document) => {
                   const byteSize = document.metadata_json?.byte_size;
-                  const busy = actionId === document.id;
+                  const busy = bulkDeleting || actionId === document.id;
                   return (
                     <tr key={document.id}>
                       <td style={S.td}>{document.original_filename ?? "—"}</td>
@@ -398,7 +484,9 @@ export default function DocumentsPanel({ user }) {
                             title={DOCUMENT_UI_MESSAGES.deleteAction}
                             onClick={() => handleDelete(document.id)}
                           >
-                            {busy ? "삭제 중…" : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
+                            {busy && actionId === document.id
+                              ? "삭제 중…"
+                              : `🗑 ${DOCUMENT_UI_MESSAGES.deleteAction}`}
                           </button>
                         </div>
                       </td>

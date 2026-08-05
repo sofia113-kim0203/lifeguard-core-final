@@ -52,6 +52,13 @@ export const DOCUMENT_UI_MESSAGES = {
   deleteSuccess: "삭제된 파일의 정보가 현재 보험 현황에서 제외되었습니다.",
   deleteConfirm:
     "이 파일을 삭제할까요?\n\n삭제된 파일의 정보는 현재 보험 현황에서 제외됩니다. 새 파일을 올리면 KEY가 다시 확인합니다.",
+  deleteAllAction: "모두 삭제",
+  deleteAllConfirm: (count) =>
+    `문서 ${count}개를 모두 삭제할까요?\n\n삭제된 파일의 정보는 현재 보험 현황에서 제외됩니다. 새 파일을 올리면 KEY가 다시 확인합니다.`,
+  deleteAllSuccess: (count) =>
+    `문서 ${count}개를 모두 삭제했습니다. 삭제된 파일의 정보가 현재 보험 현황에서 제외되었습니다.`,
+  deleteAllStopped: (deletedCount, remainingCount) =>
+    `삭제를 멈췄습니다. 삭제된 문서 ${deletedCount}개, 남은 문서 ${remainingCount}개.`,
   deleteUploadHint: "새 파일 올리기",
   deleteClaimScrubFailed: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
   deleteStorageRetryHint: "파일 정보는 제외되었습니다. 원본 정리에 실패해 다시 시도해 주세요.",
