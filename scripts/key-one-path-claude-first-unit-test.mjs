@@ -520,6 +520,58 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
 }
 
 {
+  // Explicit needed-coverage recommend: existing web_search + cleaned showcase only.
+  const reqProduct = buildOnePathClaudeFirstRequest({
+    question: "나에게 추천해줄수있어 필요한보장?",
+    customerId: "cust-1",
+    conversationId: "c1",
+    history: [{ role: "user", text: "안녕" }],
+  });
+  assert.equal(reqProduct.tools.length, 1);
+  assert.equal(reqProduct.tools[0].name, "web_search");
+  assert.equal(reqProduct.tools[0].type, "web_search_20250305");
+  assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
+  assert.equal(
+    reqProduct.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes("web_search(web_search_20250305)"),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes("나에게 맞춘 더좋은 초경증 간편건강보험2607"),
+    false,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes("확인 기준일은 2026-07-27"),
+    false,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes("정상 구조: 우선 필요한 보장"),
+    false,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes("CUSTOMER_CARD_WHOLESALE") ||
+      JSON.stringify(reqProduct.messages).includes("CUSTOMER_CARD_WHOLESALE"),
+    true,
+  );
+
+  const reqGeneral = buildOnePathClaudeFirstRequest({
+    question: "내 보험 현황 알려줘",
+    customerId: "cust-1",
+    conversationId: "c1",
+  });
+  assert.equal(reqGeneral.tools.length, 0);
+  assert.equal(reqGeneral.selection_plan.web_tool_candidate, false);
+  assert.equal(
+    reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+    false,
+  );
+  console.log("PASS product showcase web_search restore · general tools empty");
+}
+
+{
   const jpeg = buildAnthropicDirectAttachBlock({
     base64: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
     mediaType: "image/jpeg",

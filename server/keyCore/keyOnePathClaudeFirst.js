@@ -15,6 +15,11 @@ import {
   KEY_RELATIONSHIP,
   resolveKeyCustomerRelationshipState,
 } from "./keyCustomerRelationshipState.js";
+import {
+  ANTHROPIC_WEB_SEARCH_TOOL,
+  buildCurrentInsuranceProductShowcaseAddendum,
+  isExplicitCurrentInsuranceProductRequest,
+} from "./keyBorrowedSensesSpeak.js";
 
 export const ONE_PATH_LIVE_MODE = "ONE_PATH_CLAUDE_FIRST";
 
@@ -250,10 +255,19 @@ export function buildOnePathClaudeFirstRequest({
             claimEvidenceBrief: null,
           },
   });
-  const systemText = buildOnePathMinimalSystem({
+  // Explicit current-product / needed-coverage recommend: reuse existing public web_search path only.
+  const productShowcaseRequest =
+    isExplicitCurrentInsuranceProductRequest(question) === true;
+  const productShowcaseAddendum = productShowcaseRequest
+    ? buildCurrentInsuranceProductShowcaseAddendum({ question })
+    : "";
+  let systemText = buildOnePathMinimalSystem({
     hasOriginals: ownedOriginals.length > 0,
     relationshipState,
   });
+  if (productShowcaseAddendum) {
+    systemText = `${systemText}\n\n${productShowcaseAddendum}`;
+  }
   const system = [{ type: "text", text: systemText }];
 
   const content = [
@@ -283,10 +297,10 @@ export function buildOnePathClaudeFirstRequest({
   });
 
   const messages = [{ role: "user", content }];
-  // Public web_search only when no private-doc dependency — keep tools empty for one-path default.
-  // Caller may pass liveTools; we mount none by default (Claude reads originals).
+  // Default: no tools. Product-showcase ask only: existing Anthropic web_search (1).
+  // Caller liveTools unused — avoid unrelated tool injection on ONE PATH.
   void liveTools;
-  const tools = [];
+  const tools = productShowcaseRequest ? [ANTHROPIC_WEB_SEARCH_TOOL] : [];
 
   // No packet selection — card wholesale. retained shape for telemetry only.
   const selection_plan = {
@@ -295,7 +309,7 @@ export function buildOnePathClaudeFirstRequest({
     selected_resource_packets: [],
     unresolved_material_selection: [],
     one_shot_input_sufficient: true,
-    web_tool_candidate: false,
+    web_tool_candidate: productShowcaseRequest === true,
     document_pick_rank_in_front: false,
     current_attachment_mode: ownedOriginals.length
       ? "THIS_TURN_ORIGINAL"
