@@ -24,13 +24,13 @@ function preserveExistingRow(row) {
   return { ...row };
 }
 
-function existingInsuranceContracts(policyTruthContext, ssot) {
-  const ssotPolicies = Array.isArray(ssot?.policies)
-    ? ssot.policies.map(preserveExistingRow).filter(Boolean)
-    : [];
-  // Live path: reality/READY policies still carry coverage_summary — prefer when present.
-  if (ssotPolicies.length > 0) return ssotPolicies.slice(0, 24);
-
+/**
+ * Card insurance_contracts = confirmed authority only.
+ * Raw READY / reality ssot.policies must not enter this slot
+ * (weak-identity / review rows are not "확인된 계약").
+ * ssot.policies itself is left untouched for other READY reuse.
+ */
+function existingInsuranceContracts(policyTruthContext) {
   const ledger =
     policyTruthContext?.VERIFIED_POLICY_LEDGER &&
     typeof policyTruthContext.VERIFIED_POLICY_LEDGER === "object"
@@ -133,7 +133,7 @@ export function buildKeyCustomerCardForClaude({
   );
 
   const confirmedFacts = existingConfirmedFacts(policyTruthContext);
-  const insuranceContracts = existingInsuranceContracts(policyTruthContext, ssot);
+  const insuranceContracts = existingInsuranceContracts(policyTruthContext);
 
   const activeClaims = (Array.isArray(ssot?.activeClaimCases)
     ? ssot.activeClaimCases

@@ -144,7 +144,16 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     question: "내 보험 현황 알려줘",
     policyTruthContext: {
       confirmed_contracts: [
-        { insurer: "확인된손보", product_name: "확인상품", policy_number: "C-1" },
+        {
+          insurer: "확인된손보",
+          product_name: "확인상품",
+          policy_number: "C-1",
+          coverage_summary: {
+            key_coverage_baseline_facts: [
+              { status: "verified", coverage_name: "암진단비", coverage_amount: 1000 },
+            ],
+          },
+        },
       ],
     },
     readyCardSsot: {
@@ -175,13 +184,17 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     },
   });
   const ssotCard = JSON.parse(reqSsot.messages[0].content[0].text).key_customer_card;
-  // Prefer READY/reality policies when present — keep coverage_summary (no skeleton strip).
-  assert.equal(ssotCard.insurance_contracts[0].insurer_name, "READY손보");
+  // Confirmed authority only — raw READY/ssot policies must not enter insurance_contracts.
+  assert.equal(ssotCard.insurance_contracts.length, 1);
+  assert.equal(ssotCard.insurance_contracts[0].insurer, "확인된손보");
   assert.equal(
     ssotCard.insurance_contracts[0].coverage_summary.key_coverage_baseline_facts[0]
       .coverage_name,
     "암진단비",
   );
+  assert.equal(JSON.stringify(ssotCard.insurance_contracts).includes("READY손보"), false);
+  // ssot.policies row itself remains available for READY reuse (not deleted).
+  assert.equal(reqSsot.inventory.confirmed_memory_count, 1);
   assert.equal(ssotCard.entrusted_originals.links[0].document_id, "doc-ready");
   assert.equal(ssotCard.insurance_clock.upcoming[0].label, "갱신");
   assert.equal(ssotCard.past_original_bytes_mode, "links_only");
@@ -190,7 +203,55 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     JSON.stringify(reqSsot.key_customer_card.insurance_contracts),
     JSON.stringify(ssotCard.insurance_contracts),
   );
-  console.log("PASS U6/U7 question·KEY SSOT card·links_only; coverage preserved; no pick-rank");
+
+  const rawSsotOnly = buildOnePathClaudeFirstRequest({
+    question: "내 보험 현황 알려줘",
+    policyTruthContext: {},
+    readyCardSsot: {
+      policies: [
+        {
+          insurer_name: "READY손보",
+          product_name: "READY상품",
+          coverage_summary: {
+            key_coverage_baseline_facts: [
+              { status: "verified", coverage_name: "암진단비", coverage_amount: 1000 },
+            ],
+          },
+        },
+      ],
+      activeDocuments: [],
+      activeClaimCases: [],
+    },
+  });
+  assert.equal(rawSsotOnly.key_customer_card.insurance_contracts.length, 0);
+  assert.equal(rawSsotOnly.inventory.confirmed_memory_count, 0);
+
+  const ledgerConfirmed = buildOnePathClaudeFirstRequest({
+    question: "내 보험 현황 알려줘",
+    policyTruthContext: {
+      VERIFIED_POLICY_LEDGER: {
+        confirmed_contracts: [
+          {
+            insurer: "원장손보",
+            product_name: "원장상품",
+            coverage_summary: { premium: 12000 },
+          },
+        ],
+      },
+      confirmed_contracts: [],
+    },
+    readyCardSsot: {
+      policies: [{ insurer_name: "READY손보", product_name: "READY상품" }],
+    },
+  });
+  assert.equal(ledgerConfirmed.key_customer_card.insurance_contracts.length, 1);
+  assert.equal(ledgerConfirmed.key_customer_card.insurance_contracts[0].insurer, "원장손보");
+  assert.equal(
+    ledgerConfirmed.key_customer_card.insurance_contracts[0].coverage_summary.premium,
+    12000,
+  );
+
+  console.log("PASS U6/U7 question·confirmed-only card·links_only; coverage preserved; no pick-rank");
 }
 
 {
