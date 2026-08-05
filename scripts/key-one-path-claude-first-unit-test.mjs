@@ -294,8 +294,12 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     pdfMeta: { document_id: "doc-new" },
   });
   const payload = JSON.parse(reqNew.messages[0].content[0].text);
-  assert.equal(payload.customer_relationship_state.relationship, "NEW_CUSTOMER");
-  assert.equal(payload.customer_memory.status, "none");
+  assert.equal(payload.key_customer_card.relationship.relationship, "NEW_CUSTOMER");
+  assert.equal(payload.key_customer_card.memory_status, "none");
+  assert.ok(Array.isArray(payload.key_customer_card.insurance_contracts));
+  assert.ok(Array.isArray(payload.key_customer_card.recent_conversation));
+  assert.equal(payload.customer_relationship_state, undefined);
+  assert.equal(payload.customer_memory, undefined);
   assert.ok(reqNew.system[0].text.includes("과거 고객 기억이 없다"));
 
   const reqL4 = buildOnePathClaudeFirstRequest({
@@ -317,13 +321,17 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     memoryLoadStatus: "query_failed",
   });
   const p4 = JSON.parse(reqL4.messages[0].content[0].text);
-  assert.equal(p4.customer_relationship_state.relationship, "RETURNING_CUSTOMER");
+  assert.equal(p4.key_customer_card.relationship.relationship, "RETURNING_CUSTOMER");
   assert.equal(
-    p4.customer_relationship_state.prior_original_in_same_conversation,
+    p4.key_customer_card.relationship.prior_original_in_same_conversation,
     true,
   );
-  assert.equal(p4.customer_relationship_state.memory_query_failed, true);
-  assert.equal(p4.customer_memory.status, "partial_unavailable");
+  assert.equal(p4.key_customer_card.relationship.memory_query_failed, true);
+  assert.equal(p4.key_customer_card.memory_status, "partial_unavailable");
+  assert.ok(Array.isArray(p4.key_customer_card.insurance_contracts));
+  assert.ok(Array.isArray(p4.key_customer_card.recent_conversation));
+  assert.equal(p4.customer_relationship_state, undefined);
+  assert.equal(p4.customer_memory, undefined);
   console.log("PASS KEY relationship state · memory fail ≠ NEW · L4 flags");
 }
 

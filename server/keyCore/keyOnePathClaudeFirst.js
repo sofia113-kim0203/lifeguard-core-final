@@ -249,13 +249,6 @@ export function buildOnePathClaudeFirstRequest({
   });
   const system = [{ type: "text", text: systemText }];
 
-  // Compat mirror — tests / inventory still read customer_memory.*.
-  const customerMemoryCompat = {
-    status: relationshipState.memory_availability,
-    confirmed_contracts: keyCustomerCard.insurance_contracts,
-    recent_conversation: keyCustomerCard.recent_conversation,
-  };
-
   const content = [
     {
       type: "text",
@@ -264,8 +257,6 @@ export function buildOnePathClaudeFirstRequest({
         provider_round_target: 1,
         delivery_mode: "CUSTOMER_CARD_WHOLESALE",
         key_customer_card: keyCustomerCard,
-        customer_relationship_state: keyCustomerCard.relationship,
-        customer_memory: customerMemoryCompat,
       }),
     },
   ];
