@@ -88,6 +88,111 @@ function withRecentConversationAuthorityMarkers(recentConversation) {
   });
 }
 
+function isEmptyHandoffArray(value) {
+  return !Array.isArray(value) || value.length === 0;
+}
+
+/** Official insurer link only — unconnected boilerplate is not content. */
+function hasSubstantiveInsurerSource(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return false;
+  const status = String(source.status ?? "")
+    .trim()
+    .toLowerCase();
+  if (status && status !== "unconnected") return true;
+  if (source.as_of != null && String(source.as_of).trim()) return true;
+  return false;
+}
+
+function isEntrustedOriginalsHandoffEmpty(value) {
+  if (value == null) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return true;
+  if (!isEmptyHandoffArray(value.links)) return false;
+  if ((Number(value.active_count) || 0) !== 0) return false;
+  if (value.materials_connected === true) return false;
+  if (!isEmptyHandoffArray(value.unknowns)) return false;
+  if (hasSubstantiveInsurerSource(value.insurer_source)) return false;
+  return true;
+}
+
+function isInsuranceClockHandoffEmpty(value) {
+  if (value == null) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return true;
+  return (
+    isEmptyHandoffArray(value.upcoming) &&
+    isEmptyHandoffArray(value.overdue) &&
+    isEmptyHandoffArray(value.unknown_date) &&
+    isEmptyHandoffArray(value.completed_recent)
+  );
+}
+
+function isLifeLedgerHandoffEmpty(value) {
+  if (value == null) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return true;
+  return (
+    (Number(value.item_count) || 0) === 0 &&
+    isEmptyHandoffArray(value.goals) &&
+    isEmptyHandoffArray(value.preferences) &&
+    isEmptyHandoffArray(value.decisions) &&
+    isEmptyHandoffArray(value.open_questions) &&
+    isEmptyHandoffArray(value.life_threads) &&
+    isEmptyHandoffArray(value.outcomes)
+  );
+}
+
+function isClaimEvidenceHandoffEmpty(value) {
+  if (value == null) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return true;
+  return (
+    (Number(value.item_count) || 0) === 0 && isEmptyHandoffArray(value.packages)
+  );
+}
+
+function isActiveGoalHandoffEmpty(value) {
+  return value == null || typeof value !== "object" || Array.isArray(value);
+}
+
+function isThisTurnOriginalDeliveryHandoffEmpty(value) {
+  if (value == null) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return true;
+  const reason = String(value.reason ?? "").trim();
+  return (
+    !reason &&
+    isEmptyHandoffArray(value.current_turn_document_ids) &&
+    isEmptyHandoffArray(value.explicit_reopen_document_ids) &&
+    isEmptyHandoffArray(value.attached)
+  );
+}
+
+/**
+ * S1 — Claude card only: drop empty optional handoff keys.
+ * Does not mutate READY/SSOT/DB. Does not rewrite non-empty values.
+ */
+function omitEmptyHandoffFieldsFromClaudeCard(card) {
+  if (!card || typeof card !== "object") return card;
+  if (isEntrustedOriginalsHandoffEmpty(card.entrusted_originals)) {
+    delete card.entrusted_originals;
+  }
+  if (isInsuranceClockHandoffEmpty(card.insurance_clock)) {
+    delete card.insurance_clock;
+  }
+  if (isLifeLedgerHandoffEmpty(card.life_ledger)) {
+    delete card.life_ledger;
+  }
+  if (isClaimEvidenceHandoffEmpty(card.claim_evidence)) {
+    delete card.claim_evidence;
+  }
+  if (isEmptyHandoffArray(card.active_claims)) {
+    delete card.active_claims;
+  }
+  if (isActiveGoalHandoffEmpty(card.active_goal)) {
+    delete card.active_goal;
+  }
+  if (isThisTurnOriginalDeliveryHandoffEmpty(card.this_turn_original_delivery)) {
+    delete card.this_turn_original_delivery;
+  }
+  return card;
+}
+
 /**
  * Build the card KEY hands to Claude this turn (wholesale, no selection plan).
  * Prefers READY CARD / KEY SSOT briefs already loaded for the turn.
@@ -180,7 +285,7 @@ export function buildKeyCustomerCardForClaude({
     });
   }
 
-  return {
+  const card = {
     schema_version: KEY_CUSTOMER_CARD_SCHEMA,
     authority: "KEY",
     delivery_mode: "CUSTOMER_CARD_WHOLESALE",
@@ -239,4 +344,7 @@ export function buildKeyCustomerCardForClaude({
     },
     memory_status: relationshipState?.memory_availability || null,
   };
+
+  // Claude Provider card only — empty optional handoff envelopes omitted (S1).
+  return omitEmptyHandoffFieldsFromClaudeCard(card);
 }

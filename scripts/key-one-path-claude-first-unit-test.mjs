@@ -12,6 +12,7 @@ import {
   providerBodyHasForbiddenFactoryPayload,
   shouldSkipProviderOnCustomerAnswerPath,
 } from "../server/keyCore/keyOnePathClaudeFirst.js";
+import { buildKeyCustomerCardForClaude } from "../server/keyCore/keyCustomerCard.js";
 import {
   resolveKeyCustomerRelationshipState,
   shouldStopProviderForMemoryQueryFailure,
@@ -714,6 +715,239 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   });
   assert.equal(jpeg.type, "image");
   console.log("PASS U20 production-change N/A offline · media types ok");
+}
+
+{
+  // S1 EMPTY HANDOFF OMIT — Claude card keys only (READY/SSOT untouched).
+  const HANDOFF_KEYS = [
+    "entrusted_originals",
+    "insurance_clock",
+    "life_ledger",
+    "claim_evidence",
+    "active_claims",
+    "active_goal",
+    "this_turn_original_delivery",
+  ];
+
+  // A — all empty → none of the 7 keys
+  const emptyCard = buildKeyCustomerCardForClaude({
+    readyCardSsot: {
+      activeDocuments: [],
+      activeClaimCases: [],
+      insuranceClockBrief: {
+        hand: "key_insurance_clock",
+        upcoming: [],
+        overdue: [],
+        unknown_date: [],
+        completed_recent: [],
+        packs_separated: true,
+        product_focus: null,
+        note: "boilerplate_only",
+      },
+      lifeLedgerBrief: {
+        goals: [],
+        preferences: [],
+        decisions: [],
+        open_questions: [],
+        life_threads: [],
+        outcomes: [],
+        item_count: 0,
+        packs_separated: true,
+        note: "boilerplate_only",
+      },
+      claimEvidenceBrief: {
+        packages: [],
+        item_count: 0,
+        packs_separated: true,
+        note: "boilerplate_only",
+      },
+      ssotGoal: null,
+    },
+    readyCardMeta: {
+      status: "miss",
+      card_version: "v-test",
+      materials_connected: false,
+      unknowns: [],
+      insurer_source: {
+        status: "unconnected",
+        as_of: null,
+        note: "unconnected boilerplate",
+      },
+      document_status: { active_count: 0, documents: [] },
+    },
+  });
+  for (const key of HANDOFF_KEYS) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(emptyCard, key),
+      false,
+      `A: expected omit ${key}`,
+    );
+  }
+
+  // B — boilerplate-only briefs → omitted
+  const boilerplateCard = buildKeyCustomerCardForClaude({
+    readyCardSsot: {
+      activeDocuments: [],
+      activeClaimCases: [],
+      insuranceClockBrief: {
+        hand: "key_insurance_clock",
+        upcoming: [],
+        overdue: [],
+        unknown_date: [],
+        completed_recent: [],
+        packs_separated: true,
+        product_focus: null,
+        note: "key_owns_dates",
+      },
+      lifeLedgerBrief: {
+        goals: [],
+        preferences: [],
+        decisions: [],
+        open_questions: [],
+        life_threads: [],
+        outcomes: [],
+        item_count: 0,
+        note: "key_owns_life_ledger",
+        packs_separated: true,
+      },
+      claimEvidenceBrief: {
+        packages: [],
+        item_count: 0,
+        note: "key_owns_claim_evidence",
+        packs_separated: true,
+      },
+    },
+    readyCardMeta: {
+      status: "miss",
+      card_version: "ready-v1",
+      materials_connected: false,
+      document_status: { active_count: 0, documents: [] },
+      insurer_source: { status: "unconnected", note: "x" },
+    },
+  });
+  assert.equal("insurance_clock" in boilerplateCard, false);
+  assert.equal("life_ledger" in boilerplateCard, false);
+  assert.equal("claim_evidence" in boilerplateCard, false);
+  assert.equal("entrusted_originals" in boilerplateCard, false);
+
+  // C — each field with one substantive value stays unchanged
+  const clockIn = {
+    hand: "key_insurance_clock",
+    upcoming: [{ id: "c1", label: "갱신", status: "active" }],
+    overdue: [],
+    unknown_date: [],
+    completed_recent: [],
+    packs_separated: true,
+    note: "keep_me",
+  };
+  const ledgerIn = {
+    goals: [{ id: "g1", type: "goal", content: "보장 점검", status: "active" }],
+    preferences: [],
+    decisions: [],
+    open_questions: [],
+    life_threads: [],
+    outcomes: [],
+    item_count: 1,
+    note: "keep_ledger",
+  };
+  const evidenceIn = {
+    packages: [{ claim_case_id: "case-1", held_evidence: [] }],
+    item_count: 1,
+    packs_separated: true,
+    note: "keep_evidence",
+  };
+  const claimRow = {
+    claim_case_key: "case-1",
+    status: "denied",
+    card_source: "key_claude_claim_case",
+  };
+  const goalIn = { goal: "청구 준비", status: "active" };
+  const cardFull = buildKeyCustomerCardForClaude({
+    readyCardSsot: {
+      activeDocuments: [{ id: "doc-1", original_filename: "증권.pdf" }],
+      activeClaimCases: [claimRow],
+      insuranceClockBrief: clockIn,
+      lifeLedgerBrief: ledgerIn,
+      claimEvidenceBrief: evidenceIn,
+      ssotGoal: goalIn,
+      ssotReason: "test",
+    },
+    readyCardMeta: {
+      status: "normal",
+      materials_connected: true,
+      document_status: {
+        active_count: 1,
+        documents: [{ id: "doc-1", original_filename: "증권.pdf" }],
+      },
+      unknowns: ["policy_lookup_partial"],
+    },
+    originalDeliveryReason: "current_upload",
+    currentTurnDocumentIds: ["doc-1"],
+    explicitReopenDocumentIds: [],
+    ownedOriginals: [
+      {
+        document_id: "doc-1",
+        mime_type: "application/pdf",
+        sha256: "abc",
+        source: "upload",
+        ownership_verified: true,
+      },
+    ],
+  });
+  assert.equal(cardFull.insurance_clock.upcoming[0].label, "갱신");
+  assert.deepEqual(cardFull.insurance_clock, clockIn);
+  assert.deepEqual(cardFull.life_ledger, ledgerIn);
+  assert.deepEqual(cardFull.claim_evidence, evidenceIn);
+  assert.equal(cardFull.active_claims.length, 1);
+  assert.equal(cardFull.active_claims[0].claim_case_key, "case-1");
+  assert.equal(cardFull.active_claims[0].status, "denied");
+  assert.equal(cardFull.active_goal.goal, "청구 준비");
+  assert.equal(cardFull.entrusted_originals.links[0].document_id, "doc-1");
+  assert.equal(cardFull.this_turn_original_delivery.reason, "current_upload");
+  assert.deepEqual(cardFull.this_turn_original_delivery.current_turn_document_ids, [
+    "doc-1",
+  ]);
+
+  // D — mixed: empty keys omitted, substantive kept as-is
+  const mixedClock = {
+    upcoming: [{ id: "u1", label: "만기" }],
+    overdue: [],
+    unknown_date: [],
+    completed_recent: [],
+    note: "mixed",
+  };
+  const mixed = buildKeyCustomerCardForClaude({
+    readyCardSsot: {
+      activeDocuments: [],
+      activeClaimCases: [],
+      insuranceClockBrief: mixedClock,
+      lifeLedgerBrief: {
+        goals: [],
+        preferences: [],
+        decisions: [],
+        open_questions: [],
+        life_threads: [],
+        outcomes: [],
+        item_count: 0,
+        note: "empty",
+      },
+      claimEvidenceBrief: { packages: [], item_count: 0, note: "empty" },
+      ssotGoal: null,
+    },
+    readyCardMeta: {
+      materials_connected: false,
+      document_status: { active_count: 0, documents: [] },
+    },
+  });
+  assert.deepEqual(mixed.insurance_clock, mixedClock);
+  assert.equal("life_ledger" in mixed, false);
+  assert.equal("claim_evidence" in mixed, false);
+  assert.equal("active_claims" in mixed, false);
+  assert.equal("active_goal" in mixed, false);
+  assert.equal("entrusted_originals" in mixed, false);
+  assert.equal("this_turn_original_delivery" in mixed, false);
+
+  console.log("PASS S1 empty handoff omit A/B/C/D");
 }
 
 console.log(
