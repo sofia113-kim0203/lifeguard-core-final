@@ -424,10 +424,30 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     dialogueCard.recent_conversation[0].text.includes("뇌혈관이 걱정"),
     true,
   );
+  assert.equal(
+    dialogueCard.recent_conversation[0].source_kind,
+    "USER_STATED_CONTEXT",
+  );
+  assert.equal(
+    dialogueCard.recent_conversation[0].fact_authority,
+    "not_verified_fact",
+  );
   assert.equal(dialogueCard.recent_conversation[1].role, "assistant");
   assert.equal(
     dialogueCard.recent_conversation[1].text.includes("5,000만원"),
     true,
+  );
+  assert.equal(
+    dialogueCard.recent_conversation[1].source_kind,
+    "PRIOR_ASSISTANT_CONVERSATION",
+  );
+  assert.equal(
+    dialogueCard.recent_conversation[1].fact_authority,
+    "not_verified_fact",
+  );
+  assert.equal(
+    Object.keys(dialogueCard).filter((k) => k === "recent_conversation").length,
+    1,
   );
   assert.equal(dialogueCard.insurance_contracts.length, 1);
   assert.equal(dialogueCard.insurance_contracts[0].insurer, "확인된손보");
@@ -570,12 +590,28 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     true,
   );
   assert.equal(
+    reqProduct.key_customer_card.recent_conversation[0].source_kind,
+    "USER_STATED_CONTEXT",
+  );
+  assert.equal(
+    reqProduct.key_customer_card.recent_conversation[0].fact_authority,
+    "not_verified_fact",
+  );
+  assert.equal(
     reqProduct.key_customer_card.recent_conversation[1].role,
     "assistant",
   );
   assert.equal(
     reqProduct.key_customer_card.recent_conversation[1].text.includes("한화"),
     true,
+  );
+  assert.equal(
+    reqProduct.key_customer_card.recent_conversation[1].source_kind,
+    "PRIOR_ASSISTANT_CONVERSATION",
+  );
+  assert.equal(
+    reqProduct.key_customer_card.recent_conversation[1].fact_authority,
+    "not_verified_fact",
   );
   assert.equal(
     reqProduct.system[0].text.includes(

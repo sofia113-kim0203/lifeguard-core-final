@@ -69,6 +69,26 @@ function existingConfirmedFacts(policyTruthContext) {
 }
 
 /**
+ * Provider card recent_conversation — keep brief role/text; reuse prior_consultation
+ * authority terms only (no new schema / no delete / no second copy).
+ */
+function withRecentConversationAuthorityMarkers(recentConversation) {
+  const rows = Array.isArray(recentConversation) ? recentConversation : [];
+  return rows.map((row) => {
+    const role = row?.role === "assistant" ? "assistant" : "user";
+    return {
+      role,
+      text: String(row?.text ?? ""),
+      source_kind:
+        role === "assistant"
+          ? "PRIOR_ASSISTANT_CONVERSATION"
+          : "USER_STATED_CONTEXT",
+      fact_authority: "not_verified_fact",
+    };
+  });
+}
+
+/**
  * Build the card KEY hands to Claude this turn (wholesale, no selection plan).
  * Prefers READY CARD / KEY SSOT briefs already loaded for the turn.
  */
@@ -191,7 +211,9 @@ export function buildKeyCustomerCardForClaude({
     life_ledger: ssot?.lifeLedgerBrief || null,
     claim_evidence: ssot?.claimEvidenceBrief || null,
     active_claims: activeClaims,
-    recent_conversation: memory.recent_conversation,
+    recent_conversation: withRecentConversationAuthorityMarkers(
+      memory.recent_conversation,
+    ),
     entrusted_originals: {
       past_original_bytes_mode: PAST_ORIGINAL_BYTES_MODE,
       active_count:
