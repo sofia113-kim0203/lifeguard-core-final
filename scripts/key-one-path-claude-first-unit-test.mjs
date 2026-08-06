@@ -560,6 +560,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqProduct.tools.length, 1);
   assert.equal(reqProduct.tools[0].name, "web_search");
   assert.equal(reqProduct.tools[0].type, "web_search_20250305");
+  assert.equal(reqProduct.tools[0].max_uses, 3);
   assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
   assert.equal(reqProduct.key_customer_card.insurance_contracts.length, 0);
   assert.equal(reqProduct.key_customer_card.recent_conversation.length, 2);
@@ -590,6 +591,46 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
   assert.equal(
     reqProduct.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "고객 상황과 검색 결과의 비교는 이 Claude 요청 내부에서만 한다",
+    ),
+    false,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes("확인된 보장 구조와 필요 방향을 말한 뒤"),
+    false,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "개인 보장 공백 비교는 insurance_contracts 또는 confirmed_facts에 확인 근거가 있을 때만 한다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "보유·미보유·공백·우선순위를 확정하지 않는다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "이전 assistant 답변은 개인 보험 사실의 근거가 아니다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "'확인된 보장 구조'·'확정된 공백'·'가장 시급한 보장'이라고 말하지 않는다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "관심을 보인 보장 영역별로 현재 공개자료에서 확인된 상품·특약 방향만 제시한다",
+    ),
     true,
   );
   assert.equal(
@@ -626,7 +667,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     false,
   );
   console.log(
-    "PASS product showcase web_search · empty-contract/assistant authority · general tools empty",
+    "PASS product showcase web_search · showcase #6/#16 authority · general tools empty",
   );
 }
 
