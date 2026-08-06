@@ -446,6 +446,30 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     ),
     true,
   );
+  assert.equal(
+    reqDialogue.system[0].text.includes(
+      "insurance_contracts가 빈 배열이면 확인된 계약 자료가 현재 카드에 없다는 뜻이다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqDialogue.system[0].text.includes(
+      "빈 배열만으로 고객이 보험이나 특정 보장을 보유하지 않았다고 결론 내리지 않는다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqDialogue.system[0].text.includes(
+      "role=assistant 내용은 이전 KEY 답변일 뿐이다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqDialogue.system[0].text.includes(
+      "청구 또는 거절 이력을 증거로 사용하지 않는다",
+    ),
+    true,
+  );
 
   console.log("PASS KEY relationship state · memory fail ≠ NEW · L4 flags · dialogue authority");
 }
@@ -525,12 +549,45 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     question: "나에게 추천해줄수있어 필요한보장?",
     customerId: "cust-1",
     conversationId: "c1",
-    history: [{ role: "user", text: "안녕" }],
+    history: [
+      { role: "user", text: "뇌혈관이 걱정되고 전화가 편해요." },
+      {
+        role: "assistant",
+        text: "한화 3.10.5와 청구 거절 이력이 있다고 이전에 말씀드렸습니다.",
+      },
+    ],
   });
   assert.equal(reqProduct.tools.length, 1);
   assert.equal(reqProduct.tools[0].name, "web_search");
   assert.equal(reqProduct.tools[0].type, "web_search_20250305");
   assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
+  assert.equal(reqProduct.key_customer_card.insurance_contracts.length, 0);
+  assert.equal(reqProduct.key_customer_card.recent_conversation.length, 2);
+  assert.equal(reqProduct.key_customer_card.recent_conversation[0].role, "user");
+  assert.equal(
+    reqProduct.key_customer_card.recent_conversation[0].text.includes("뇌혈관이 걱정"),
+    true,
+  );
+  assert.equal(
+    reqProduct.key_customer_card.recent_conversation[1].role,
+    "assistant",
+  );
+  assert.equal(
+    reqProduct.key_customer_card.recent_conversation[1].text.includes("한화"),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "빈 배열만으로 고객이 보험이나 특정 보장을 보유하지 않았다고 결론 내리지 않는다",
+    ),
+    true,
+  );
+  assert.equal(
+    reqProduct.system[0].text.includes(
+      "청구 또는 거절 이력을 증거로 사용하지 않는다",
+    ),
+    true,
+  );
   assert.equal(
     reqProduct.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
     true,
@@ -568,7 +625,9 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
     false,
   );
-  console.log("PASS product showcase web_search restore · general tools empty");
+  console.log(
+    "PASS product showcase web_search · empty-contract/assistant authority · general tools empty",
+  );
 }
 
 {

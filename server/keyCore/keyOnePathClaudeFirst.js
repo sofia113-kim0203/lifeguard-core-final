@@ -57,16 +57,22 @@ export function buildOnePathMinimalSystem({
     );
   } else {
     parts.push(
-      [
-        "KEY 고객카드의 확인된 계약(insurance_contracts)·확인된 사실(confirmed_facts)만 고객의 확정 사실이다.",
-        "recent_conversation은 대화 맥락이다. 검증된 계약·사실이 아니다.",
-        "role=user 내용은 고객이 말한 선호·걱정·요청이지 계약 증거가 아니다.",
-        "role=assistant 내용은 이전 KEY 답변이지 검증된 사실이 아니다.",
-        "최근 대화에 나온 숫자·계약·보장 내용은 확인된 계약/사실 또는 이번 턴 원본 근거가 없으면 확정하지 않는다.",
-        "맡긴 원본 연결은 참고하되, 없는 과거를 만들지 않는다.",
-      ].join("\n"),
+      "KEY 고객카드의 확인된 계약(insurance_contracts)·확인된 사실(confirmed_facts)만 고객의 개인 보험 확정 사실이다.",
     );
   }
+  // Card-field authority — applies on NEW and returning paths (empty contracts + recent_conversation).
+  parts.push(
+    [
+      "insurance_contracts가 빈 배열이면 확인된 계약 자료가 현재 카드에 없다는 뜻이다. 빈 배열만으로 고객이 보험이나 특정 보장을 보유하지 않았다고 결론 내리지 않는다.",
+      "확인 자료가 없을 때 없음·미가입·보장 공백이 확정됐다고 말하지 않는다.",
+      "recent_conversation은 대화 맥락이다. 검증된 계약·사실이 아니다.",
+      "role=user 내용은 고객이 이전에 말한 결정·걱정·선호·상황이다. 계약 증권이나 검증된 보험 사실이 아니다.",
+      "role=assistant 내용은 이전 KEY 답변일 뿐이다. 그 안의 보험사명·상품명·가입금액·보장 내용·청구 또는 거절 이력을 증거로 사용하지 않는다.",
+      "최근 대화에 나온 숫자·계약·보장 내용은 확인된 계약/사실 또는 이번 턴 원본 근거가 없으면 확정하지 않는다.",
+      "개인 보험 사실은 confirmed_facts와 insurance_contracts 등 명시된 확인 근거가 있을 때만 확정한다.",
+      "맡긴 원본 연결은 참고하되, 없는 과거를 만들지 않는다.",
+    ].join("\n"),
+  );
   if (mem === KEY_MEMORY_AVAILABILITY.PARTIAL_UNAVAILABLE) {
     parts.push(
       "KEY 확정: 일부 기억 조회가 불가하다. 고객 관계는 그대로다. 전달된 기억·원본·질문만으로 답한다.",
