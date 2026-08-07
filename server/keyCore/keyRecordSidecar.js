@@ -104,19 +104,84 @@ export function buildKeyRecordSidecarHint({
   const idLine = ids.length
     ? `source_document_id 후보: ${ids.join(", ")}`
     : "source_document_id를 알면 반드시 넣는다.";
+  const confirmedIdRule =
+    ids.length > 1
+      ? "원본이 여러 개면 confirmed_source_facts의 각 항목에 ATTACHMENT_IDENTITY의 document_id를 source_document_id로 반드시 넣는다. 추측 금지."
+      : ids.length === 1
+        ? `원본이 하나면 confirmed_source_facts의 source_document_id는 ${ids[0]}를 쓴다(생략 시 KEY가 그 문서로 귀속한다).`
+        : "confirmed_source_facts에 source_document_id를 알면 넣는다.";
   return [
     "원본 첨부가 있다. 고객 답변은 평문 한국어로 먼저 끝까지 완결한다.",
     "접수·예고 문장으로 끝내지 않는다. '찾아볼게요', '확인해볼게요', '분석해드릴게요', '기록하고 분석하겠습니다'처럼 나중에 하겠다는 말만 남기지 않는다.",
     "고객 답변이 끝난 뒤에만, 아래 내부 채널을 한 번 붙일 수 있다. 고객에게 이 채널·JSON·필드명을 말하지 않는다.",
     `${KEY_RECORD_SIDECAR_START}`,
-    '{"policy_inventory_facts":[{"insurer":"","product_name":"","contract_date":null,"payment_term":null,"maturity_date":null,"monthly_premium":null,"policy_number":null,"contract_status":null,"source_document_id":"","source_page_or_image":null,"verification_status":"document_read","uncertain_fields":[]}],"coverage_facts":[{"coverage_name":"","coverage_amount":null,"baseline_item_id":null,"source_document_id":"","source_locator":{"page":null,"source_text":null}}],"visual_blocks":[],"uncertain_fields":[]}',
+    '{"policy_inventory_facts":[{"insurer":"","product_name":"","contract_date":null,"payment_term":null,"maturity_date":null,"monthly_premium":null,"policy_number":null,"contract_status":null,"source_document_id":"","source_page_or_image":null,"verification_status":"document_read","uncertain_fields":[]}],"coverage_facts":[{"coverage_name":"","coverage_amount":null,"baseline_item_id":null,"source_document_id":"","source_locator":{"page":null,"source_text":null}}],"confirmed_source_facts":[],"visual_blocks":[],"uncertain_fields":[]}',
     `${KEY_RECORD_SIDECAR_END}`,
-    "policy_inventory_facts에는 원본에 명시된 계약만 넣는다. 추론·추천·유지/해지 의견·가입 건수 요약 숫자는 넣지 않는다. 원본에 없는 값은 null 또는 uncertain_fields로 둔다.",
-    "coverage_facts에는 원본에 담보명과 보장금액이 함께 명시된 항목만 넣는다. 각 항목에 coverage_name(또는 original_coverage_name), coverage_amount, source_document_id, source_locator(page·section·line·source_text 중 하나 이상)를 넣는다. baseline_item_id는 원본 담보명이 기준선 항목과 명확히 대응될 때만 넣는다(예: 일반암 진단 → cancer_diagnosis). 고객 의견·적정 필요금액·추론 금액·다른 계약 담보는 넣지 않는다. 원본에 해당 담보가 없으면 [].",
+    "policy_inventory_facts에는 원본에 명시된 계약만 넣는다. 추론·추천·유지/해지 의견·가입 건수 요약 숫자는 넣지 않는다. 원본에 없는 값은 null 또는 uncertain_fields로 둔다. inventory는 후보/읽기 기록이며 confirmed_source_facts로 옮기거나 자동 승격하지 않는다.",
+    "coverage_facts에는 원본에 담보명과 보장금액이 함께 명시된 항목만 넣는다. 각 항목에 coverage_name(또는 original_coverage_name), coverage_amount, source_document_id, source_locator(page·section·line·source_text 중 하나 이상)를 넣는다. baseline_item_id는 원본 담보명이 기준선 항목과 명확히 대응될 때만 넣는다(예: 일반암 진단 → cancer_diagnosis). 고객 의견·적정 필요금액·추론 금액·다른 계약 담보는 넣지 않는다. 원본에 해당 담보가 없으면 []. coverage_facts도 confirmed_source_facts로 변환하지 않는다.",
+    "confirmed_source_facts는 inventory/coverage와 완전히 별도 필드다. 원본에서 직접 확인한 계약 사실만 {fact_type, literal_value, source_document_id, source_locator?}로 넣는다. 확인할 fact가 없으면 []가 정상이다. 최소 개수를 채우지 않는다. 추측·검색 일반정보·추천·의미 변환 금지. literal_value는 원문 그대로.",
+    confirmedIdRule,
     "visual_blocks는 같은 답변에 표·카드가 필요할 때만 넣는다. 없으면 [].",
     "내부 채널이 없거나 JSON이 깨져도 고객 답변은 그대로 둔다.",
     idLine,
   ].join("\n");
+}
+
+/**
+ * Attach-plan provenance for sidecar confirmed_source_facts (pre-Gate).
+ * No attachmentIdentityPlan / empty owned ids → promote nothing ([]).
+ * 1 doc: missing source_document_id falls back to that id; out-of-set dropped.
+ * 2+ docs: each fact must carry source_document_id in the owned set.
+ */
+export function applyConfirmedSourceFactsAttachProvenance({
+  facts = [],
+  attachmentIdentityPlan = null,
+} = {}) {
+  const ownedIds = [
+    ...new Set(
+      (Array.isArray(attachmentIdentityPlan?.attachment_identities)
+        ? attachmentIdentityPlan.attachment_identities
+        : []
+      )
+        .map((row) => String(row?.document_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!ownedIds.length) {
+    return {
+      facts: [],
+      defaultSourceDocumentId: null,
+      reason: "no_attachment_identity_plan",
+    };
+  }
+  const rows = Array.isArray(facts) ? facts : [];
+  if (ownedIds.length === 1) {
+    const only = ownedIds[0];
+    const out = [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const sid = String(row.source_document_id ?? "").trim();
+      if (sid && sid !== only) continue;
+      out.push(sid ? row : { ...row, source_document_id: only });
+    }
+    return {
+      facts: out,
+      defaultSourceDocumentId: only,
+      reason: null,
+    };
+  }
+  const out = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const sid = String(row.source_document_id ?? "").trim();
+    if (!sid || !ownedIds.includes(sid)) continue;
+    out.push(row);
+  }
+  return {
+    facts: out,
+    defaultSourceDocumentId: null,
+    reason: null,
+  };
 }
 
 export function normalizeKeyRecordSidecar(raw = null, defaults = {}) {

@@ -331,6 +331,7 @@ import {
   shouldHardStopOnMemoryQueryFailed,
 } from "./keyRelevantMemoryPacket.js";
 import {
+  applyConfirmedSourceFactsAttachProvenance,
   buildKeyRecordSidecarHint,
   isProgressOnlyCustomerAnswer,
   KEY_RECORD_SIDECAR_END,
@@ -5961,7 +5962,16 @@ async function callClaudeFirstDirect({
         source_document_id: pdfMeta?.document_id ?? null,
         observed_at: new Date().toISOString(),
       });
-      confirmedSourceFacts = [];
+      // Confirmed writer: sidecar.confirmed_source_facts only (never inventory/candidate lift).
+      // No attachmentIdentityPlan → promote nothing. Gate/persist unchanged downstream.
+      const confirmedProvenance = applyConfirmedSourceFactsAttachProvenance({
+        facts: normalizedSidecar.confirmed_source_facts,
+        attachmentIdentityPlan,
+      });
+      confirmedSourceFacts = normalizeKeyConfirmedSourceFacts(confirmedProvenance.facts, {
+        source_document_id: confirmedProvenance.defaultSourceDocumentId,
+        source_content_sha256: pdfMeta?.content_sha256 ?? null,
+      });
       coverageBaselineFacts = [];
       try {
         visualBlocks = wantsClaudeFirstVisualBlocks(question)
@@ -5972,6 +5982,9 @@ async function callClaudeFirstDirect({
       }
       keyRecordSidecarMeta.key_memory_candidates = keyMemoryCandidates;
       keyRecordSidecarMeta.confirmed_promotion = 0;
+      keyRecordSidecarMeta.confirmed_source_facts_count = confirmedSourceFacts.length;
+      keyRecordSidecarMeta.confirmed_provenance_reason =
+        confirmedProvenance.reason ?? null;
     }
     const customerVisible = split.customer_answer || stripKeyRecordFromStreamText(picked.customer_answer);
     webSearchTrace = accumulateWebSearchTrace(
