@@ -186,6 +186,7 @@
     "test:key-token-bomb-s1-shadow": "node scripts/key-token-bomb-s1-shadow-unit-test.mjs",
     "test:key-token-bomb-s2-selective-shadow": "node scripts/key-token-bomb-s2-selective-shadow-unit-test.mjs",
     "test:key-token-bomb-s3-live-selective": "node scripts/key-token-bomb-s3-live-selective-unit-test.mjs",
+    "test:key-confirmation-trace-bridge": "node scripts/key-confirmation-trace-bridge-unit-test.mjs",
     "test:key-c1-pointer-hand": "node scripts/key-c1-pointer-hand-unit-test.mjs",
     "test:key-c1-ui-entry-reconnect": "node scripts/key-c1-ui-entry-reconnect-unit-test.mjs",
     "test:key-contract-focus-ssot": "node scripts/key-contract-focus-ssot-unit-test.mjs",

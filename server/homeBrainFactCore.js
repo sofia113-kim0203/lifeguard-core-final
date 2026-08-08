@@ -1005,6 +1005,8 @@ export async function handleHomeBrainFactRequest({
       accuracy_trace: coreResult.accuracy_trace ?? null,
       customer_relationship_state:
         coreResult.customer_relationship_state ?? null,
+      // S3 TRACE BRIDGE — pass-through only; assistant metadata persists compact counts.
+      key_confirmation_trace: coreResult.key_confirmation_trace ?? null,
       // GO3 — short-term session work state for client metadata persist (not decision/memory).
       session_goal: coreResult.salesDirectorTrace?.session_goal ?? null,
       // OUR CLAUDE memory loop — consultation kinds for assistant metadata (not verified fact).

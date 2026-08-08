@@ -340,6 +340,7 @@ import {
   splitCustomerAnswerAndKeyRecord,
   stripKeyRecordFromStreamText,
 } from "./keyRecordSidecar.js";
+import { buildKeyConfirmationTrace } from "../../src/lib/keyConfirmationTrace.js";
 import { normalizeAttachmentRowsForClaude } from "./keyImageOrientation.js";
 import { normalizeVisualBlocks } from "./keyClaudeFullEmit.js";
 import {
@@ -6207,6 +6208,107 @@ async function callClaudeFirstDirect({
 }
 
 /**
+ * S3 TRACE BRIDGE — map already-computed runtime fields only (no invent / no fact bodies).
+ * Used so early-done SSE can carry the same compact counts into assistant metadata.
+ */
+function buildRuntimeKeyConfirmationTrace({
+  claude = null,
+  originalDeliveryIds = null,
+  scopedCurrentTurnDocumentIds = null,
+  keyCustomerRelationshipState = null,
+  preDoneFactGate = null,
+  keyConfirmedFactGate = null,
+  preDoneAcceptedFacts = null,
+  factsToPersist = null,
+  documentMemoryPersistResult = null,
+  documentMemoryPersistFailedPayload = null,
+} = {}) {
+  const sidecar =
+    claude?.key_record_sidecar && typeof claude.key_record_sidecar === "object"
+      ? claude.key_record_sidecar
+      : null;
+  const gate =
+    (keyConfirmedFactGate && typeof keyConfirmedFactGate === "object"
+      ? keyConfirmedFactGate
+      : null) ||
+    (preDoneFactGate && typeof preDoneFactGate === "object" ? preDoneFactGate : null);
+  const deliveryIds = Array.isArray(originalDeliveryIds)
+    ? originalDeliveryIds
+    : Array.isArray(scopedCurrentTurnDocumentIds)
+      ? scopedCurrentTurnDocumentIds
+      : null;
+  const facts = Array.isArray(claude?.confirmed_source_facts)
+    ? claude.confirmed_source_facts
+    : [];
+  const provenanceIds = facts
+    .map((row) => String(row?.source_document_id ?? "").trim())
+    .filter(Boolean);
+
+  let confirmedCount = null;
+  if (Array.isArray(factsToPersist)) {
+    confirmedCount = factsToPersist.length;
+  } else if (Array.isArray(preDoneAcceptedFacts)) {
+    confirmedCount = preDoneAcceptedFacts.length;
+  } else if (typeof sidecar?.confirmed_source_facts_count === "number") {
+    confirmedCount = sidecar.confirmed_source_facts_count;
+  } else if (facts.length) {
+    confirmedCount = facts.length;
+  }
+
+  let memoryCommitId = null;
+  let memoryPersistStatus = null;
+  if (documentMemoryPersistFailedPayload) {
+    memoryCommitId = documentMemoryPersistFailedPayload.memory_commit_id ?? null;
+    memoryPersistStatus = "failed";
+  } else if (documentMemoryPersistResult?.ok === true) {
+    memoryCommitId = documentMemoryPersistResult.memory_commit_id ?? null;
+    memoryPersistStatus = "committed";
+  } else if (
+    documentMemoryPersistResult &&
+    documentMemoryPersistResult.ok !== true &&
+    (documentMemoryPersistResult.reason || documentMemoryPersistResult.error)
+  ) {
+    memoryCommitId = documentMemoryPersistResult.memory_commit_id ?? null;
+    memoryPersistStatus = "failed";
+  }
+
+  const relCount = keyCustomerRelationshipState?.facts?.current_turn_document_count;
+
+  return buildKeyConfirmationTrace({
+    original_attachment_count:
+      typeof claude?.original_attachment_count === "number"
+        ? claude.original_attachment_count
+        : null,
+    // Direct writer-surface field only — do not derive from ids.length.
+    current_turn_document_count: typeof relCount === "number" ? relCount : null,
+    current_turn_document_ids: deliveryIds,
+    sidecar_present: typeof sidecar?.present === "boolean" ? sidecar.present : null,
+    sidecar_ok:
+      typeof sidecar?.ok === "boolean"
+        ? sidecar.ok
+        : typeof sidecar?.sidecar_parse_ok === "boolean"
+          ? sidecar.sidecar_parse_ok
+          : null,
+    confirmed_source_facts_count: confirmedCount,
+    confirmed_promotion:
+      typeof sidecar?.confirmed_promotion === "number" ? sidecar.confirmed_promotion : null,
+    provenance_source_document_ids: provenanceIds,
+    confirmed_provenance_reason: sidecar?.confirmed_provenance_reason ?? null,
+    gate_attempted: typeof gate?.attempted === "boolean" ? gate.attempted : null,
+    gate_accepted_count:
+      typeof gate?.accepted_count === "number" ? gate.accepted_count : null,
+    gate_rejected_count:
+      typeof gate?.rejected_count === "number" ? gate.rejected_count : null,
+    gate_rejected_reason_counts:
+      gate?.rejected_reason_counts && typeof gate.rejected_reason_counts === "object"
+        ? gate.rejected_reason_counts
+        : null,
+    memory_commit_id: memoryCommitId,
+    memory_persist_status: memoryPersistStatus,
+  });
+}
+
+/**
  * Preview Claude-first question turn — skips interpret/Decision/Goal/planner/S3–S6.
  */
 export async function runClaudeFirstDirectQuestionTurn({
@@ -8739,6 +8841,17 @@ export async function runClaudeFirstDirectQuestionTurn({
         compose_mode: "key_claude_first_direct",
         document_memory_persist_failed: Boolean(documentMemoryPersistFailedPayload),
         memory_commit_id: documentMemoryPersistFailedPayload?.memory_commit_id ?? null,
+        // S3 TRACE BRIDGE — compact counts only; does not change seal/stream timing.
+        key_confirmation_trace: buildRuntimeKeyConfirmationTrace({
+          claude,
+          originalDeliveryIds,
+          scopedCurrentTurnDocumentIds,
+          keyCustomerRelationshipState,
+          preDoneFactGate,
+          preDoneAcceptedFacts,
+          documentMemoryPersistResult,
+          documentMemoryPersistFailedPayload,
+        }),
         key_monopoly_failure: usedFailure === true,
         failure_reason: failureReason,
         customer_done_ms: customerDoneMs,
@@ -9683,6 +9796,19 @@ export async function runClaudeFirstDirectQuestionTurn({
   triangleT0.streamed_equals_sealed =
     String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? "");
 
+  const keyConfirmationTrace = buildRuntimeKeyConfirmationTrace({
+    claude,
+    originalDeliveryIds,
+    scopedCurrentTurnDocumentIds,
+    keyCustomerRelationshipState,
+    preDoneFactGate,
+    keyConfirmedFactGate,
+    preDoneAcceptedFacts,
+    factsToPersist,
+    documentMemoryPersistResult,
+    documentMemoryPersistFailedPayload,
+  });
+
   return {
     ok: true,
     customerText: sealed.key_speak_original,
@@ -9697,6 +9823,8 @@ export async function runClaudeFirstDirectQuestionTurn({
     key_sealed_turn_source_record: keySealedTurnSourceRecord,
     accuracy_trace: accuracyTrace,
     customer_relationship_state: keyCustomerRelationshipState,
+    // S3 TRACE BRIDGE — same compact bag as early-done (final gate counts when present).
+    key_confirmation_trace: keyConfirmationTrace,
     agentTurn: {
       text: sealed.key_speak_original,
       responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,

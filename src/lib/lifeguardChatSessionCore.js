@@ -2,6 +2,7 @@
  * P5-STATE / P5-CONTINUITY-01 Phase A — pure session helpers (no Supabase import).
  */
 import { normalizeActiveAttachment } from "./chatActiveAttachment.js";
+import { extractKeyConfirmationTraceFromDonePayload } from "./keyConfirmationTrace.js";
 
 export const LIFEGUARD_HOME_CHAT_PHASE = "lifeguard-home-chat";
 export const LIFEGUARD_HOME_CHAT_SOURCE = "lifeguard_home_chat";
@@ -402,10 +403,14 @@ export function buildPersistableTurnTraceSummary(donePayload = null) {
     latencyMarks = null;
   }
 
+  const keyConfirmationTrace = extractKeyConfirmationTraceFromDonePayload(payload);
+
   return {
     compose_mode: composeMode == null ? null : String(composeMode),
     response_latency_ms: responseLatencyMs,
     one_key_core_trace_summary: {
+      // S3 TRACE BRIDGE — nest under existing summary persistence path only.
+      ...(keyConfirmationTrace ? { key_confirmation_trace: keyConfirmationTrace } : {}),
       steps: stepSummaries,
       voice_entered:
         speakPayload.key_speak_master === true ||
