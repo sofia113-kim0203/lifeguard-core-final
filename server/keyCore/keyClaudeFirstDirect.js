@@ -14,6 +14,7 @@ import {
   ANTHROPIC_WEB_SEARCH_TOOL,
   shouldEnablePublicWebSearch,
   buildCurrentInsuranceProductShowcaseAddendum,
+  isExplicitCurrentInsuranceProductRequest,
 } from "./keyBorrowedSensesSpeak.js";
 import { buildOutOfDomainPlaceRecommendAddendum } from "./keyOutOfDomainRecommend.js";
 import { collectVerifiedSpeakAllowlistFromReality } from "./keyVoiceDirective.js";
@@ -5524,7 +5525,12 @@ async function callClaudeFirstDirect({
           : [],
         insuranceClockBrief: insuranceClockBrief || null,
         lifeLedgerBrief: lifeLedgerBrief || null,
-        claimEvidenceBrief: claimEvidenceBrief || null,
+        // Product-recommend turns: omit claim_evidence card handoff only (token surgery S1).
+        // Builder/DB/SSOT/active_claims/KEY_RELEVANT untouched; non-product turns unchanged.
+        claimEvidenceBrief:
+          isExplicitCurrentInsuranceProductRequest(question) === true
+            ? null
+            : claimEvidenceBrief || null,
       },
       hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
       memoryQueryFailed: memoryQueryFailedForRelationship === true,
