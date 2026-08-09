@@ -5528,7 +5528,12 @@ async function callClaudeFirstDirect({
             : Array.isArray(activeClaimCases)
               ? activeClaimCases
               : [],
-        insuranceClockBrief: insuranceClockBrief || null,
+        // Product-recommend turns: omit insurance_clock card handoff (token surgery S4).
+        // Clock DB/SSOT unchanged; non-product turns keep existing brief.
+        insuranceClockBrief:
+          isExplicitCurrentInsuranceProductRequest(question) === true
+            ? null
+            : insuranceClockBrief || null,
         // Product-recommend turns: omit life_ledger card handoff (token surgery S3).
         // Ledger DB/SSOT unchanged; non-product turns keep existing brief.
         lifeLedgerBrief:
