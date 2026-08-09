@@ -328,7 +328,9 @@ import {
   resolveOfficialDocumentMemoryForTurn,
 } from "./keyDocumentMemoryCommit.js";
 import {
+  buildKeyRelevantEvidenceForOnePath,
   buildKeyRelevantMemoryPacket,
+  collectVerifiedDocumentIdsFromKeyRelevantEvidence,
   shouldHardStopOnMemoryQueryFailed,
 } from "./keyRelevantMemoryPacket.js";
 import {
@@ -1873,6 +1875,31 @@ export function collectConsultationOutcomes({
   return out;
 }
 
+/**
+ * Consultation verified_fact_refs — document refs only.
+ * Union of current-turn documentId + KEY_RELEVANT_EVIDENCE verified source docs.
+ */
+export function buildVerifiedFactRefsForConsultationRecord({
+  documentId = null,
+  keyRelevantEvidence = null,
+} = {}) {
+  const seen = new Set();
+  const refs = [];
+  const push = (raw) => {
+    const id = String(raw ?? "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    refs.push({ kind: "document", id });
+  };
+  push(documentId);
+  for (const id of collectVerifiedDocumentIdsFromKeyRelevantEvidence(
+    keyRelevantEvidence,
+  )) {
+    push(id);
+  }
+  return refs;
+}
+
 /** Structured consultation memory kinds (A–F) for assistant metadata — not verified fact. */
 export function buildKeyConsultationRecord({
   question = "",
@@ -1881,6 +1908,7 @@ export function buildKeyConsultationRecord({
   recommendationBasisCount = 0,
   pdfAttached = false,
   documentId = null,
+  keyRelevantEvidence = null,
   outcomes = undefined,
   systemEvents = null,
   sourceLink = null,
@@ -1954,9 +1982,10 @@ export function buildKeyConsultationRecord({
   return {
     schema: "key_consultation_record_v1",
     customer_utterance: q || null,
-    verified_fact_refs: documentId
-      ? [{ kind: "document", id: String(documentId) }]
-      : [],
+    verified_fact_refs: buildVerifiedFactRefsForConsultationRecord({
+      documentId,
+      keyRelevantEvidence,
+    }),
     claude_judgment: {
       answer_preview: a || null,
       recommendation_basis_count: Number(recommendationBasisCount) || 0,
@@ -8894,6 +8923,10 @@ export async function runClaudeFirstDirectQuestionTurn({
     }
   }
 
+  const keyRelevantEvidenceForConsultation = isPresenceTurn
+    ? null
+    : buildKeyRelevantEvidenceForOnePath(keyRelevantMemoryPacketForClaude);
+
   const keyConsultationRecord = usedFailure
     ? null
     : buildKeyConsultationRecord({
@@ -8903,6 +8936,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         recommendationBasisCount: Number(claude.recommendation_basis_count ?? 0) || 0,
         pdfAttached: isPresenceTurn ? false : claude.pdf_attached === true,
         documentId: isPresenceTurn ? null : pdf?.meta?.document_id ?? null,
+        keyRelevantEvidence: keyRelevantEvidenceForConsultation,
         sourceLink,
         customerId,
         now: nowStamp,

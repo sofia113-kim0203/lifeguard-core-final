@@ -633,6 +633,12 @@ export function buildKeyRelevantMemoryPacket({
  * ONE_PATH Claude delivery shape — verified/current FACT+CONTEXT only.
  * Never promotes pending/unverified/OCR/inventory. No judgment prose.
  */
+function isPendingLikeVerificationStatus(status) {
+  return /pending|unverified|candidate|ocr|inventory|review/.test(
+    String(status ?? "").toLowerCase(),
+  );
+}
+
 export function buildKeyRelevantEvidenceForOnePath(packetResult = null) {
   const packet =
     packetResult && typeof packetResult === "object"
@@ -644,15 +650,13 @@ export function buildKeyRelevantEvidenceForOnePath(packetResult = null) {
       : null;
   if (!packet || typeof packet !== "object") return null;
 
-  const isPendingLike = (status) =>
-    /pending|unverified|candidate|ocr|inventory|review/.test(
-      String(status ?? "").toLowerCase(),
-    );
-
   const confirmed_facts = (Array.isArray(packet.confirmed_facts)
     ? packet.confirmed_facts
     : []
-  ).filter((f) => f && typeof f === "object" && !isPendingLike(f.verification_status));
+  ).filter(
+    (f) =>
+      f && typeof f === "object" && !isPendingLikeVerificationStatus(f.verification_status),
+  );
 
   const focused_contracts = (
     Array.isArray(packet.focused_contracts) ? packet.focused_contracts : []
@@ -674,7 +678,10 @@ export function buildKeyRelevantEvidenceForOnePath(packetResult = null) {
     official_document_memory: packet.official_document_memory ?? null,
     customer_confirmed_facts: Array.isArray(packet.customer_confirmed_facts)
       ? packet.customer_confirmed_facts.filter(
-          (f) => f && typeof f === "object" && !isPendingLike(f.verification_status),
+          (f) =>
+            f &&
+            typeof f === "object" &&
+            !isPendingLikeVerificationStatus(f.verification_status),
         )
       : [],
     verified_chart_slice: chart
@@ -689,6 +696,88 @@ export function buildKeyRelevantEvidenceForOnePath(packetResult = null) {
         }
       : null,
   };
+}
+
+/**
+ * Document ids referenced by verified/confirmed KEY_RELEVANT_EVIDENCE only.
+ * Never includes pending/unverified/OCR/candidate/inventory/review sources.
+ */
+export function collectVerifiedDocumentIdsFromKeyRelevantEvidence(
+  keyRelevantEvidence = null,
+) {
+  const evidence =
+    keyRelevantEvidence && typeof keyRelevantEvidence === "object"
+      ? keyRelevantEvidence
+      : null;
+  if (!evidence) return [];
+
+  const out = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const id = String(raw ?? "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+
+  const pushFactDoc = (fact) => {
+    if (!fact || typeof fact !== "object") return;
+    if (isPendingLikeVerificationStatus(fact.verification_status)) return;
+    push(fact.source_document_id ?? fact.document_id);
+  };
+
+  for (const f of Array.isArray(evidence.confirmed_facts) ? evidence.confirmed_facts : []) {
+    pushFactDoc(f);
+  }
+  for (const f of Array.isArray(evidence.customer_confirmed_facts)
+    ? evidence.customer_confirmed_facts
+    : []) {
+    pushFactDoc(f);
+  }
+
+  for (const c of Array.isArray(evidence.focused_contracts)
+    ? evidence.focused_contracts
+    : []) {
+    if (!c || typeof c !== "object") continue;
+    if (isPendingLikeVerificationStatus(c.verification_status)) continue;
+    push(c.source_document_id ?? c.document_id);
+    for (const ref of Array.isArray(c.fact_refs) ? c.fact_refs : []) {
+      pushFactDoc(ref);
+    }
+  }
+
+  const slice =
+    evidence.verified_chart_slice && typeof evidence.verified_chart_slice === "object"
+      ? evidence.verified_chart_slice
+      : null;
+  for (const c of Array.isArray(slice?.confirmed_contracts)
+    ? slice.confirmed_contracts
+    : []) {
+    if (!c || typeof c !== "object") continue;
+    if (isPendingLikeVerificationStatus(c.verification_status)) continue;
+    push(c.source_document_id ?? c.document_id);
+  }
+  for (const cov of Array.isArray(slice?.verified_document_coverages)
+    ? slice.verified_document_coverages
+    : []) {
+    if (!cov || typeof cov !== "object") continue;
+    if (isPendingLikeVerificationStatus(cov.verification_status)) continue;
+    push(cov.source_document_id ?? cov.document_id);
+  }
+
+  const official =
+    evidence.official_document_memory &&
+    typeof evidence.official_document_memory === "object"
+      ? evidence.official_document_memory
+      : null;
+  if (official) {
+    push(official.primary_document_id);
+    for (const id of Array.isArray(official.document_ids) ? official.document_ids : []) {
+      push(id);
+    }
+  }
+
+  return out;
 }
 
 /**
