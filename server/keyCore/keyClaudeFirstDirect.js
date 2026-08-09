@@ -5419,6 +5419,13 @@ async function callClaudeFirstDirect({
       hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
       memoryQueryFailed: memoryQueryFailedForRelationship === true,
       memoryLoadStatus: memoryLoadStatusForRelationship,
+      // Deliver existing focused packet into ONE_PATH (do not void/discard).
+      keyRelevantMemoryPacket:
+        presenceTurn === true
+          ? null
+          : keyRelevantMemoryPacket && typeof keyRelevantMemoryPacket === "object"
+            ? keyRelevantMemoryPacket
+            : null,
     });
     tokenBombS3LiveTrace = {
       live_request_mode: ONE_PATH_LIVE_MODE,
@@ -5629,11 +5636,10 @@ async function callClaudeFirstDirect({
     pointed_contract_ids: ownedPointedContracts.pointed_contract_ids,
   };
 
-  // ONE PATH — request already built above for structured/sidecar gate.
+  // ONE PATH — request already built above (structured/sidecar gate + relevant evidence).
   // No OCR / extract / pending / document pick-rank in Provider inputs.
   void selectiveExplicit;
   void chart;
-  void keyRelevantMemoryPacket;
   void buildClaudeFirstOneShotSelectiveRequest;
 
   // ROOT_C — Selective live: never assemble Pre-S3 FULL A/B/C Provider body.

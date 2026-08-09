@@ -630,6 +630,68 @@ export function buildKeyRelevantMemoryPacket({
 }
 
 /**
+ * ONE_PATH Claude delivery shape — verified/current FACT+CONTEXT only.
+ * Never promotes pending/unverified/OCR/inventory. No judgment prose.
+ */
+export function buildKeyRelevantEvidenceForOnePath(packetResult = null) {
+  const packet =
+    packetResult && typeof packetResult === "object"
+      ? packetResult.packet && typeof packetResult.packet === "object"
+        ? packetResult.packet
+        : packetResult.schema_version
+          ? packetResult
+          : null
+      : null;
+  if (!packet || typeof packet !== "object") return null;
+
+  const isPendingLike = (status) =>
+    /pending|unverified|candidate|ocr|inventory|review/.test(
+      String(status ?? "").toLowerCase(),
+    );
+
+  const confirmed_facts = (Array.isArray(packet.confirmed_facts)
+    ? packet.confirmed_facts
+    : []
+  ).filter((f) => f && typeof f === "object" && !isPendingLike(f.verification_status));
+
+  const focused_contracts = (
+    Array.isArray(packet.focused_contracts) ? packet.focused_contracts : []
+  ).filter((c) => c && typeof c === "object");
+
+  const chart =
+    packet.focused_chart && typeof packet.focused_chart === "object"
+      ? packet.focused_chart
+      : null;
+
+  return {
+    schema_version: "key_relevant_evidence_v1",
+    authority: "verified_current_over_customer_card",
+    note: "FACT/CONTEXT only. Ready Card / customer card cache must not override this block.",
+    focus_resolution: packet.focus_resolution ?? null,
+    focused_contracts,
+    confirmed_facts,
+    unconfirmed: packet.unconfirmed ?? null,
+    official_document_memory: packet.official_document_memory ?? null,
+    customer_confirmed_facts: Array.isArray(packet.customer_confirmed_facts)
+      ? packet.customer_confirmed_facts.filter(
+          (f) => f && typeof f === "object" && !isPendingLike(f.verification_status),
+        )
+      : [],
+    verified_chart_slice: chart
+      ? {
+          focus_status: chart.focus_status ?? null,
+          confirmed_contracts: Array.isArray(chart.confirmed_contracts)
+            ? chart.confirmed_contracts
+            : [],
+          verified_document_coverages: Array.isArray(chart.verified_document_coverages)
+            ? chart.verified_document_coverages
+            : [],
+        }
+      : null,
+  };
+}
+
+/**
  * Structural signal: this no-original turn depends on official document memory.
  * No keyword classifier — Ready/chart/memory attempt evidence only.
  */

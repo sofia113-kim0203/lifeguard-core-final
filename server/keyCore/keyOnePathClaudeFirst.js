@@ -20,8 +20,19 @@ import {
   buildCurrentInsuranceProductShowcaseAddendum,
   isExplicitCurrentInsuranceProductRequest,
 } from "./keyBorrowedSensesSpeak.js";
+import { buildKeyRelevantEvidenceForOnePath } from "./keyRelevantMemoryPacket.js";
 
 export const ONE_PATH_LIVE_MODE = "ONE_PATH_CLAUDE_FIRST";
+
+function buildKeyRelevantEvidenceSystemAddendum() {
+  return [
+    "[KEY_RELEVANT_EVIDENCE_AUTHORITY]",
+    "user content의 KEY_RELEVANT_EVIDENCE는 KEY가 공식 확인한 verified/current 사실·맥락이다.",
+    "key_customer_card는 보조 context/cache다. 고객 보험 사실이 충돌하면 KEY_RELEVANT_EVIDENCE가 권위다.",
+    "pending/unverified/후보/OCR/Ready Card/대화 추정을 confirmed 사실로 쓰지 않는다.",
+    "이 블록은 FACT/CONTEXT만 제공한다. 판단·추천·설명 문장은 네가 한다.",
+  ].join("\n");
+}
 
 /**
  * Minimal KEY prompt only — no forced sidecar / JSON field schema.
@@ -213,6 +224,8 @@ export function buildOnePathClaudeFirstRequest({
   hasOwnedVaultOriginals = false,
   memoryQueryFailed = false,
   memoryLoadStatus = null,
+  /** Existing focused packet from buildKeyRelevantMemoryPacket — deliver, do not discard. */
+  keyRelevantMemoryPacket = null,
 } = {}) {
   const ownedOriginals = normalizeOwnedOriginals({
     pdfBase64,
@@ -261,6 +274,9 @@ export function buildOnePathClaudeFirstRequest({
             claimEvidenceBrief: null,
           },
   });
+  const keyRelevantEvidence = buildKeyRelevantEvidenceForOnePath(
+    keyRelevantMemoryPacket,
+  );
   // Explicit current-product / needed-coverage recommend: reuse existing public web_search path only.
   const productShowcaseRequest =
     isExplicitCurrentInsuranceProductRequest(question) === true;
@@ -273,6 +289,9 @@ export function buildOnePathClaudeFirstRequest({
   });
   if (productShowcaseAddendum) {
     systemText = `${systemText}\n\n${productShowcaseAddendum}`;
+  }
+  if (keyRelevantEvidence) {
+    systemText = `${systemText}\n\n${buildKeyRelevantEvidenceSystemAddendum()}`;
   }
   const system = [{ type: "text", text: systemText }];
 
@@ -287,6 +306,16 @@ export function buildOnePathClaudeFirstRequest({
       }),
     },
   ];
+
+  // Deliver existing relevant packet — verified/current evidence for same Claude 1-call.
+  if (keyRelevantEvidence) {
+    content.push({
+      type: "text",
+      text: JSON.stringify({
+        KEY_RELEVANT_EVIDENCE: keyRelevantEvidence,
+      }),
+    });
+  }
 
   // This-turn / delivery-authority originals only — no pick-rank attach list.
   const providerBlocks = buildProviderBlocksFromOwnedOriginals(ownedOriginals);
@@ -308,11 +337,16 @@ export function buildOnePathClaudeFirstRequest({
   void liveTools;
   const tools = productShowcaseRequest ? [ANTHROPIC_WEB_SEARCH_TOOL] : [];
 
-  // No packet selection — card wholesale. retained shape for telemetry only.
+  // Card wholesale retained; relevant evidence is an additive verified block when present.
   const selection_plan = {
     mode: "CUSTOMER_CARD_WHOLESALE",
-    selected_prompt_blocks: ["ONE_PATH_CUSTOMER_CARD"],
-    selected_resource_packets: [],
+    selected_prompt_blocks: [
+      "ONE_PATH_CUSTOMER_CARD",
+      ...(keyRelevantEvidence ? ["KEY_RELEVANT_EVIDENCE"] : []),
+    ],
+    selected_resource_packets: keyRelevantEvidence
+      ? ["KEY_RELEVANT_EVIDENCE"]
+      : [],
     unresolved_material_selection: [],
     one_shot_input_sufficient: true,
     web_tool_candidate: productShowcaseRequest === true,
@@ -322,6 +356,7 @@ export function buildOnePathClaudeFirstRequest({
       : "CARD_ONLY",
     live_request_mode: ONE_PATH_LIVE_MODE,
     key_final_insurance_judgment_before_claude: false,
+    key_relevant_evidence_delivered: Boolean(keyRelevantEvidence),
   };
 
   return {
@@ -332,6 +367,7 @@ export function buildOnePathClaudeFirstRequest({
     owned_originals: ownedOriginals,
     multi_attachments: multiAttachments,
     key_customer_card: keyCustomerCard,
+    key_relevant_evidence: keyRelevantEvidence,
     customer_relationship_state: relationshipState,
     inventory: {
       live_request_mode: ONE_PATH_LIVE_MODE,
@@ -344,6 +380,10 @@ export function buildOnePathClaudeFirstRequest({
       relationship: relationshipState.relationship,
       conversation: relationshipState.conversation,
       memory_availability: relationshipState.memory_availability,
+      key_relevant_evidence_delivered: Boolean(keyRelevantEvidence),
+      key_relevant_confirmed_fact_count: keyRelevantEvidence
+        ? keyRelevantEvidence.confirmed_facts.length
+        : 0,
       full_chart_present: false,
       full_ledger_present: false,
       pending_extract_present: false,
@@ -355,12 +395,14 @@ export function buildOnePathClaudeFirstRequest({
       provider_round_target: 1,
       owned_original_count: ownedOriginals.length,
       delivery_mode: "CUSTOMER_CARD_WHOLESALE",
+      key_relevant_evidence_delivered: Boolean(keyRelevantEvidence),
     },
     meta: {
       LIVE_REQUEST_MODE: ONE_PATH_LIVE_MODE,
       DEFAULT_PROVIDER_CALL_TARGET: 1,
       DELIVERY_MODE: "CUSTOMER_CARD_WHOLESALE",
       KEY_FINAL_INSURANCE_JUDGMENT_BEFORE_CLAUDE: false,
+      KEY_RELEVANT_EVIDENCE_DELIVERED: Boolean(keyRelevantEvidence),
       OCR_EXTRACT_PENDING_IN_PROVIDER: 0,
       PRE_S3_FULL_ASSEMBLE: 0,
       DOCUMENT_PICK_RANK_IN_FRONT: 0,
