@@ -3870,6 +3870,9 @@ export function extractPublicEvidenceFromClaudeContent(
     const key = `${url ?? ""}|${title ?? ""}|${row.citation_reference ?? ""}`;
     if (seen.has(key)) return;
     seen.add(key);
+    const citedRaw = row.cited_text;
+    const cited_text =
+      citedRaw != null && String(citedRaw).trim() ? String(citedRaw) : null;
     out.push({
       title,
       publisher: row.publisher != null ? String(row.publisher) : null,
@@ -3877,6 +3880,7 @@ export function extractPublicEvidenceFromClaudeContent(
       published_at: row.published_at ?? null,
       retrieved_at,
       citation_reference: row.citation_reference ?? null,
+      cited_text,
     });
   };
 
@@ -3891,6 +3895,8 @@ export function extractPublicEvidenceFromClaudeContent(
           published_at: item.published_at ?? item.page_age ?? null,
           citation_reference:
             item.cited_text ?? item.encrypted_index ?? item.snippet ?? null,
+          // Only real cited_text — never encrypted_index / encrypted_content.
+          cited_text: item.cited_text ?? null,
         });
       }
     }
@@ -3908,11 +3914,59 @@ export function extractPublicEvidenceFromClaudeContent(
             (c.start_char_index != null
               ? `chars:${c.start_char_index}-${c.end_char_index ?? ""}`
               : null),
+          cited_text: c.cited_text ?? null,
         });
       }
     }
   }
   return out;
+}
+
+/**
+ * QA-only projection from existing public_evidence + web_search_trace.
+ * Does not re-read provider raw / encrypted_content. Not customer-facing.
+ */
+export function buildQaPublicSearchEvidence({
+  public_evidence = [],
+  web_search_trace = null,
+} = {}) {
+  const evidence = Array.isArray(public_evidence) ? public_evidence : [];
+  const trace =
+    web_search_trace && typeof web_search_trace === "object" ? web_search_trace : {};
+  const results = [];
+  const citations = [];
+  const seenResult = new Set();
+  const seenCite = new Set();
+  for (const row of evidence) {
+    if (!row || typeof row !== "object") continue;
+    const url = row.url != null ? String(row.url) : null;
+    const title = row.title != null ? String(row.title) : null;
+    if (url || title) {
+      const rk = `${url ?? ""}|${title ?? ""}`;
+      if (!seenResult.has(rk)) {
+        seenResult.add(rk);
+        results.push({ url, title });
+      }
+    }
+    const cited_text =
+      row.cited_text != null && String(row.cited_text).trim()
+        ? String(row.cited_text)
+        : null;
+    if (cited_text) {
+      const ck = `${url ?? ""}|${cited_text}`;
+      if (!seenCite.has(ck)) {
+        seenCite.add(ck);
+        citations.push({ url, cited_text });
+      }
+    }
+  }
+  const count = Number(trace.web_search_count ?? 0) || 0;
+  return {
+    web_search_used: trace.web_search_used === true || count > 0 || results.length > 0,
+    web_search_count: count,
+    results,
+    citations,
+  };
 }
 
 /**
@@ -9212,6 +9266,12 @@ export async function runClaudeFirstDirectQuestionTurn({
                 keyLatestDocumentContextForClaude != null,
               qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
               qa_turn_record: null,
+              // QA-only: this-turn public search evidence for numeric grounding checks.
+              // Projection from existing claude.public_evidence / web_search_trace — not a Gate.
+              qa_public_search_evidence: buildQaPublicSearchEvidence({
+                public_evidence: claude?.public_evidence,
+                web_search_trace: claude?.web_search_trace,
+              }),
               preview_runtime_trace: buildPreviewRuntimeTraceFromClaude(
                 claude,
                 {
