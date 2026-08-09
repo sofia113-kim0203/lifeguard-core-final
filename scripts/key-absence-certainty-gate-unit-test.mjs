@@ -82,14 +82,29 @@ function pushCumulative(stream, parts) {
 
 // --- Repair A classifier (regression) ---
 
-test("1) verified negative 없음 + 진단비가 없습니다 → BLOCK", () => {
-  assertBlock("암 진단비가 없습니다.");
+test("1) verified negative 없음 + 진단비가 없어요 → BLOCK", () => {
+  assertBlock("암 진단비가 없어요.");
+});
+
+test("1b) CLASSIFIER_MISS repair — 진단비는 없어요 → BLOCK", () => {
+  assertBlock("암 진단비는 없어요.");
+  assertBlock(
+    "현재 보유하신 한화 3.10.5 간편건강보험은 수술비만 있고 암 진단비는 없어요.",
+  );
+});
+
+test("1c) 뇌혈관 진단비는 없습니다 → BLOCK", () => {
+  assertBlock("뇌혈관 진단비는 없습니다.");
 });
 
 test("2) verified negative 없음 + 포함돼 있지 않습니다 → BLOCK", () => {
   assertBlock(
     "이 계약에는 암 진단비, 뇌혈관 진단비 등 진단형 보장이 포함돼 있지 않습니다.",
   );
+});
+
+test("2b) 수술비는 포함돼 있지 않습니다 → BLOCK", () => {
+  assertBlock("이 계약에서 수술비는 포함돼 있지 않습니다.");
 });
 
 test("3) verified negative 없음 + 보장받을 수 없습니다 → BLOCK", () => {
@@ -110,10 +125,27 @@ test("4) verified negative 있음 + 진단비가 없습니다 → PASS", () => {
   assertPass("이 계약에는 암 진단비가 없습니다.", evidence);
 });
 
+test("4b) verified negative + 암 진단비는 없어요 → PASS", () => {
+  const evidence = collectVerifiedNegativeCoverageEvidence({
+    coverages: [
+      {
+        coverage_name: "암진단비",
+        status: "verified_absent",
+        verified_absent: true,
+      },
+    ],
+  });
+  assertPass("암 진단비는 없어요.", evidence);
+});
+
 test("5) 정보 없음 + 현재 자료에서는 확인되지 않습니다 → PASS", () => {
   assertPass(
     "현재 자료에서는 암 진단비를 확인할 수 없습니다. 원본에서 확인되지 않았습니다.",
   );
+});
+
+test("5b) 현재 자료에서는 암 진단비가 확인되지 않습니다 → PASS", () => {
+  assertPass("현재 자료에서는 암 진단비가 확인되지 않습니다.");
 });
 
 test("6) 일반적인 보험 구조 설명 → PASS", () => {
