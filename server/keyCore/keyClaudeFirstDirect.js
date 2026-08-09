@@ -4450,11 +4450,50 @@ function bumpSseEventCount(counts, type) {
   else counts.other += 1;
 }
 
+/**
+ * Anthropic server-tool activity blocks (web_search lane).
+ * Structure-only — never language / phrase filters.
+ */
+export function isServerToolRelatedContentBlock(block = null) {
+  const type = String(block?.type ?? "");
+  return type === "server_tool_use" || type === "web_search_tool_result";
+}
+
+/**
+ * Customer-speech text parts from provider content blocks.
+ * - No server-tool activity → all text blocks (unchanged).
+ * - Server-tool activity → only text blocks after the last tool-related block.
+ * Planning / search-decision text before tools is not customer speech.
+ */
+export function selectCustomerSpeechTextPartsFromContentBlocks(contentBlocks = []) {
+  const blocks = Array.isArray(contentBlocks) ? contentBlocks : [];
+  let lastToolRelatedIndex = -1;
+  for (let i = 0; i < blocks.length; i += 1) {
+    if (isServerToolRelatedContentBlock(blocks[i])) lastToolRelatedIndex = i;
+  }
+  const start = lastToolRelatedIndex >= 0 ? lastToolRelatedIndex + 1 : 0;
+  const textParts = [];
+  for (let i = start; i < blocks.length; i += 1) {
+    const block = blocks[i];
+    if (block?.type === "text" && String(block.text ?? "").trim()) {
+      textParts.push(String(block.text).trim());
+    }
+  }
+  return textParts;
+}
+
+export function joinCustomerSpeechTextFromContentBlocks(contentBlocks = []) {
+  return selectCustomerSpeechTextPartsFromContentBlocks(contentBlocks).join("\n\n").trim();
+}
+
 async function readAnthropicSseWithAnswerStream({
   res,
   startedAt,
   onFirstContent = null,
   onAnswerProgress = null,
+  // When provider tools are offered, text may be search-planning until tool lane ends.
+  // Buffer text; publish only settled customer speech (same rule as pickCustomerAnswer).
+  deferCustomerSpeechForToolLane = false,
 }) {
   const reader = res.body?.getReader?.();
   if (!reader) {
@@ -4495,6 +4534,11 @@ async function readAnthropicSseWithAnswerStream({
   };
 
   const publishProgress = () => {
+    if (deferCustomerSpeechForToolLane) {
+      // Tool lane: never forward unsettled assistant text. Structured JSON progress only.
+      if (streamedAnswer) onAnswerProgress?.(streamedAnswer);
+      return;
+    }
     const textParts = contentBlocks
       .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
       .map((b) => String(b.text));
@@ -4571,6 +4615,15 @@ async function readAnthropicSseWithAnswerStream({
 
   const content = finalizeClaudeFirstStreamContentBlocks(contentBlocks);
 
+  // Tool lane settled: publish structure-selected customer speech once (planning excluded).
+  if (deferCustomerSpeechForToolLane && !streamedAnswer) {
+    const settledSpeech = joinCustomerSpeechTextFromContentBlocks(content);
+    if (settledSpeech) {
+      streamedAnswer = settledSpeech;
+      onAnswerProgress?.(settledSpeech);
+    }
+  }
+
   return {
     dataRaw: {
       ...(message && typeof message === "object" ? message : {}),
@@ -4633,12 +4686,11 @@ function accumulateWebSearchTrace(trace, content = [], dataRaw = null) {
   };
 }
 
-function pickCustomerAnswer(dataRaw) {
+export function pickCustomerAnswer(dataRaw) {
   const blocks = Array.isArray(dataRaw?.content) ? dataRaw.content : [];
   // Native Claude answers as plain text (Slice 5 — no emit_claude_full).
-  const textParts = blocks
-    .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
-    .map((b) => String(b.text).trim());
+  // Same structure rule as stream settle: drop search-planning text before server tools.
+  const textParts = selectCustomerSpeechTextPartsFromContentBlocks(blocks);
   if (textParts.length) {
     return {
       customer_answer: textParts.join("\n\n").trim(),
@@ -5963,6 +6015,7 @@ async function callClaudeFirstDirect({
         startedAt,
         onFirstContent: turn === 0 ? onFirstContent : null,
         onAnswerProgress: streamProgressSafe,
+        deferCustomerSpeechForToolLane: effectiveProviderTools.length > 0,
       });
     } finally {
       clearTimeout(timeoutId);
@@ -6029,10 +6082,14 @@ async function callClaudeFirstDirect({
       ? streamed.dataRaw.content
       : [];
     // Structured lane: official JSON contract. Else: non-blocking sidecar (never Continue).
+    // Full provider text kept for diagnostics; customer-visible join uses speech selection.
     const rawTextJoined = assistantContent
       .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
       .map((b) => String(b.text).trim())
       .join("\n\n");
+    const customerSpeechJoined =
+      joinCustomerSpeechTextFromContentBlocks(assistantContent) ||
+      String(streamed.streamed_answer || "").trim();
     lastProviderDataRaw = streamed.dataRaw ?? null;
     lastProviderRawTextJoined = rawTextJoined || streamed.streamed_answer || "";
     let customerVisible = "";
@@ -6080,7 +6137,7 @@ async function callClaudeFirstDirect({
       streamedAnswer = customerVisible || structuredStreamedCustomerAnswer;
     } else {
       const split = splitCustomerAnswerAndKeyRecord(
-        rawTextJoined || streamed.streamed_answer || "",
+        customerSpeechJoined || streamed.streamed_answer || "",
       );
       keyRecordSidecarMeta = {
         present: split.sidecar_present === true,
