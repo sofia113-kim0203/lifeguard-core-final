@@ -581,7 +581,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqProduct.tools.length, 1);
   assert.equal(reqProduct.tools[0].name, "web_search");
   assert.equal(reqProduct.tools[0].type, "web_search_20250305");
-  assert.equal(reqProduct.tools[0].max_uses, 3);
+  assert.equal(reqProduct.tools[0].max_uses, 1);
   assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
   assert.equal(reqProduct.key_customer_card.insurance_contracts.length, 0);
   assert.equal(reqProduct.key_customer_card.recent_conversation.length, 2);

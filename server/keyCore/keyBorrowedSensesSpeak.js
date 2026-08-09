@@ -38,7 +38,7 @@ const MAX_PARSE_RETRIES = 1;
 export const ANTHROPIC_WEB_SEARCH_TOOL = Object.freeze({
   type: "web_search_20250305",
   name: "web_search",
-  max_uses: 3,
+  max_uses: 1,
 });
 
 const BORROWED_SENSES_TOOL = {
