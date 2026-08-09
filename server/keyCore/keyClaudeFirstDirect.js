@@ -189,6 +189,11 @@ import {
   jailbreakAudit,
   recommendationOrTerminationRisk,
 } from "./keyVoiceGate.js";
+import {
+  collectVerifiedNegativeCoverageEvidence,
+  evaluateAbsenceCertaintyGate,
+  shouldEmitAbsenceCertaintySlice,
+} from "./keyAbsenceCertaintyGate.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { repairInProgressClaimZeroBareYeyo } from "./keyCustomerTextCompleteness.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
@@ -5053,6 +5058,10 @@ export function hardOnlySafetyCheck(
     allowed_entities = [],
     authenticatedCustomerIdentity = null,
     documentSubjectIdentity = null,
+    verifiedNegativeEvidence = null,
+    coverages = null,
+    confirmedFacts = null,
+    coverageBaselineFacts = null,
   } = {},
 ) {
   const insurerGuess =
@@ -5099,12 +5108,32 @@ export function hardOnlySafetyCheck(
       if (!hard.includes(reason)) hard.push(reason);
     }
   }
+  // Repair A — absence certainty without verified negative evidence (Gate judgment only).
+  const negativeEvidence = Array.isArray(verifiedNegativeEvidence)
+    ? verifiedNegativeEvidence
+    : collectVerifiedNegativeCoverageEvidence({
+        coverages,
+        confirmedFacts,
+        coverageBaselineFacts,
+      });
+  const absenceGate = evaluateAbsenceCertaintyGate({
+    text,
+    verifiedNegativeEvidence: negativeEvidence,
+  });
+  if (
+    absenceGate.ok === false &&
+    absenceGate.reason &&
+    !hard.includes(absenceGate.reason)
+  ) {
+    hard.push(absenceGate.reason);
+  }
   return {
     hard_fail: hard.length > 0,
     hard,
     soft: (gate.reasons ?? []).filter((r) => !hard.includes(r)),
     jailbreak_detail: jail,
     identity_mismatch_detail: identityMismatch.detail,
+    absence_certainty_gate: absenceGate,
   };
 }
 
@@ -7521,12 +7550,17 @@ export async function runClaudeFirstDirectQuestionTurn({
   let firstTokenMs = null;
   let sentenceStreamAborted = false;
   let sentenceAbortReason = null;
-  // T4 — pass Claude original through immediately (no sentence/paragraph wait).
+  // Repair A2 — sentence-boundary hold + absence veto before customer emit (no rewrite).
   let sseEmittedText = "";
+  const absenceVetoEvidenceRef = { current: [] };
   const commitStream = createImmediateAnswerDeltaStream({
+    shouldEmitSlice(slice) {
+      return shouldEmitAbsenceCertaintySlice(slice, absenceVetoEvidenceRef.current);
+    },
     onCommit(chunk) {
       const slice = String(chunk ?? "");
       if (!slice) return { keep: true };
+      // Veto already applied in stream — emit only surviving Claude slices as-is.
       sseEmittedText += slice;
       if (streamHandlers?.onDelta) {
         streamHandlers.onDelta(slice);
@@ -8191,6 +8225,15 @@ export async function runClaudeFirstDirectQuestionTurn({
   const chartForMemoryGate = isPresenceTurn
     ? null
     : buildVerifiedCustomerChart(reality);
+  // Repair A2 — KEY-owned negative evidence for pre-emit veto (before Claude paints).
+  absenceVetoEvidenceRef.current = collectVerifiedNegativeCoverageEvidence({
+    coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
+      ? chartForMemoryGate.verified_document_coverages
+      : [],
+    confirmedFacts: Array.isArray(chartForMemoryGate?.key_confirmed_source_facts)
+      ? chartForMemoryGate.key_confirmed_source_facts
+      : [],
+  });
   // KEY relationship state is fact-owned. Memory query failure ≠ NEW_CUSTOMER
   // and must never stop the customer-answer Provider path (Tom GO).
   if (
@@ -8406,7 +8449,20 @@ export async function runClaudeFirstDirectQuestionTurn({
     cache_creation_ephemeral_5m_input_tokens:
       claude?.provider_usage?.cache_creation_ephemeral_5m_input_tokens ?? null,
   };
-  // Drop held incomplete trailing words — never EOF-flush mid-word fragments into the customer stream.
+  // Repair A2 — refresh evidence, then remainder flush through same veto (no rewrite).
+  absenceVetoEvidenceRef.current = collectVerifiedNegativeCoverageEvidence({
+    coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
+      ? chartForMemoryGate.verified_document_coverages
+      : [],
+    confirmedFacts: Array.isArray(claude?.confirmed_source_facts)
+      ? claude.confirmed_source_facts
+      : Array.isArray(chartForMemoryGate?.key_confirmed_source_facts)
+        ? chartForMemoryGate.key_confirmed_source_facts
+        : [],
+    coverageBaselineFacts: Array.isArray(claude?.coverage_baseline_facts)
+      ? claude.coverage_baseline_facts
+      : [],
+  });
   commitStream.flush();
   if (commitStream.isAborted()) {
     sentenceStreamAborted = true;
@@ -8557,11 +8613,21 @@ export async function runClaudeFirstDirectQuestionTurn({
   let failureReason = null;
   // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
   // fact_identity_mismatch is recorded only; does not rewrite customer text.
+  // Repair A: absence-certainty hard reason is recorded via Gate (no rewrite layer here).
   let safety = hardOnlySafetyCheck(presenceChoseSilence ? "" : claude.customer_answer, {
     allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
     allowed_entities: claude.allowlist?.allowed_entities ?? [],
     authenticatedCustomerIdentity,
     documentSubjectIdentity,
+    coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
+      ? chartForMemoryGate.verified_document_coverages
+      : [],
+    confirmedFacts: Array.isArray(claude?.confirmed_source_facts)
+      ? claude.confirmed_source_facts
+      : [],
+    coverageBaselineFacts: Array.isArray(claude?.coverage_baseline_facts)
+      ? claude.coverage_baseline_facts
+      : [],
   });
   let replacingHard = [];
   let alreadyCommitted =
@@ -8657,6 +8723,7 @@ export async function runClaudeFirstDirectQuestionTurn({
     finalText = emittedCommitted;
   }
   // Append-only catch-up of complete continuation before seal/done.
+  // Absence veto drains per sentence unit; remainder flushed via same Gate.
   if (!sentenceStreamAborted && !presenceChoseSilence && finalText) {
     sentenceCatchUp = commitStream.catchUpFinalAnswer(finalText, {
       stopReason: claudeStopReason,
@@ -8665,6 +8732,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       sentenceStreamAborted = true;
       sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
     }
+    commitStream.flush();
   }
   // Customer authority after catch-up: committed stream (equals or is prefix-safe final).
   const customerCommitted = String(commitStream.getCommitted() ?? "");
@@ -8708,6 +8776,7 @@ export async function runClaudeFirstDirectQuestionTurn({
       sentenceStreamAborted = true;
       sentenceAbortReason = commitStream.getAbortReason() ?? sentenceAbortReason;
     }
+    commitStream.flush();
   }
   // done.answerText === committed stream after catch-up (prefix-immutable).
   const doneAnswerText = String(commitStream.getCommitted() ?? sealed.key_speak_original ?? "");

@@ -80,9 +80,11 @@ export function resolveCompleteAnswerText(text = "", { stopReason = null } = {})
 /**
  * Customer stream — emit sentence/block boundaries only; hold incomplete tails.
  * onCommit(slice) → { keep: true } | { keep: false, abort: true, reason?: string }
+ * shouldEmitSlice(slice) → false = veto only (no emit / no commit / no rewrite).
  */
 export function createImmediateAnswerDeltaStream({
   onCommit = null,
+  shouldEmitSlice = null,
   safetyBufferChars = 0,
 } = {}) {
   let committed = "";
@@ -92,9 +94,15 @@ export function createImmediateAnswerDeltaStream({
   let aborted = false;
   let abortReason = null;
   let droppedPendingLen = 0;
+  let vetoedSliceCount = 0;
 
   function commitSlice(slice) {
     if (!slice || aborted) return;
+    if (typeof shouldEmitSlice === "function" && shouldEmitSlice(slice) === false) {
+      vetoedSliceCount += 1;
+      droppedPendingLen += slice.length;
+      return;
+    }
     const decision = onCommit?.(slice) ?? { keep: true };
     if (decision?.abort === true) {
       aborted = true;
@@ -133,14 +141,17 @@ export function createImmediateAnswerDeltaStream({
     },
     /**
      * Append-only catch-up from sealed/complete final.
-     * Drops held incomplete pending; never flushes mid-word/sentence tails.
-     * Appends only when resolved complete final starts with committed.
+     * When shouldEmitSlice is set: drain suffix by sentence units (veto per unit).
+     * Incomplete remainder stays in pending for flush().
      */
     catchUpFinalAnswer(finalAnswer = "", { stopReason = null } = {}) {
       if (aborted) return { aborted: true, appended: false, reason: "already_aborted" };
-      if (pending) {
+      if (pending && typeof shouldEmitSlice !== "function") {
         droppedPendingLen += pending.length;
         pending = "";
+      } else if (pending && typeof shouldEmitSlice === "function") {
+        // Gate path: do not silently drop — flush() owns remainder veto/emit.
+        drainCompleteUnits();
       }
       const raw = String(finalAnswer ?? "");
       if (!raw) {
@@ -168,17 +179,50 @@ export function createImmediateAnswerDeltaStream({
       const suffix = target.slice(committed.length);
       lastSeen = raw.length > lastSeen.length ? raw : target;
       catchUpAppended = true;
-      // Complete suffix may include multiple sentences — commit as one append-only block.
-      commitSlice(suffix);
-      return { aborted, appended: !aborted, suffix_len: suffix.length };
-    },
-    /** Drop held incomplete pending — do not flush mid-word/sentence fragments. */
-    flush() {
-      if (pending) {
-        droppedPendingLen += pending.length;
-        pending = "";
+      const committedBefore = committed.length;
+      if (typeof shouldEmitSlice === "function") {
+        pending += suffix;
+        drainCompleteUnits();
+      } else {
+        commitSlice(suffix);
       }
-      return { aborted, dropped_pending_len: droppedPendingLen };
+      return {
+        aborted,
+        appended: !aborted && committed.length > committedBefore,
+        suffix_len: suffix.length,
+      };
+    },
+    /**
+     * Default: drop held incomplete pending.
+     * With shouldEmitSlice: veto-check remainder — emit as-is if allowed, else drop.
+     * Never rewrite / never invent substitute prose.
+     */
+    flush() {
+      if (!pending) {
+        return {
+          aborted,
+          dropped_pending_len: droppedPendingLen,
+          vetoed_slice_count: vetoedSliceCount,
+        };
+      }
+      if (typeof shouldEmitSlice === "function") {
+        const held = pending;
+        pending = "";
+        commitSlice(held);
+        return {
+          aborted,
+          dropped_pending_len: droppedPendingLen,
+          vetoed_slice_count: vetoedSliceCount,
+          remainder_flushed: true,
+        };
+      }
+      droppedPendingLen += pending.length;
+      pending = "";
+      return {
+        aborted,
+        dropped_pending_len: droppedPendingLen,
+        vetoed_slice_count: vetoedSliceCount,
+      };
     },
     getCommitted() {
       return committed;
@@ -197,6 +241,9 @@ export function createImmediateAnswerDeltaStream({
     },
     getDroppedPendingLen() {
       return droppedPendingLen;
+    },
+    getVetoedSliceCount() {
+      return vetoedSliceCount;
     },
   };
 }

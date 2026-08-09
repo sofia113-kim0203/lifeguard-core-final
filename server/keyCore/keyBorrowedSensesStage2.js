@@ -7,6 +7,7 @@ import {
   isPlacePublicResearchRequest,
   countGroundedPlaceCandidates,
 } from "./keyBorrowedSensesSpeak.js";
+import { voiceHasUnverifiedAbsenceCertaintyClaim } from "./keyAbsenceCertaintyGate.js";
 
 export const STAGE2_SCHEMA = "s7-active-stage2-partial-v0";
 
@@ -784,6 +785,7 @@ export function collectAnswerFacingSafetyFail({
   question = "",
   decision = null,
   publicResearchEvidence = null,
+  verifiedNegativeEvidence = null,
 } = {}) {
   if (!gate || typeof gate !== "object") return "gate_missing";
   const v = String(voice ?? "").trim();
@@ -792,6 +794,9 @@ export function collectAnswerFacingSafetyFail({
   if (hasHardSalesPush(v)) return "hard_sales_push";
   if (voiceHasForbiddenCertainty(v)) return "answer_forbidden_certainty";
   if (voiceHasUnverifiedCustomerCoverageClaim(v)) return "unverified_customer_coverage_claim";
+  if (voiceHasUnverifiedAbsenceCertaintyClaim(v, verifiedNegativeEvidence)) {
+    return "unverified_customer_coverage_claim";
+  }
   if (isDailyOwnedDecisionFocus(decision) && voiceHasDailyInsurancePollution(v, question)) {
     return "decision_mismatch_insurance_pollution";
   }
