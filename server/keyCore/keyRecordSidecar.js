@@ -1,10 +1,267 @@
 /**
  * Non-blocking KEY record sidecar — terminal channel after customer_answer.
  * Never drives Claude tools / Continue / second Claude. Parse failures are ignored.
+ *
+ * Also hosts PRE-GATE structured writer helpers for ONE_PATH document/original lane
+ * (Anthropic output_config.format). Sidecar remains for other lanes; structured lane
+ * must not dual-write.
  */
 
 export const KEY_RECORD_SIDECAR_START = "<<<KEY_RECORD>>>";
 export const KEY_RECORD_SIDECAR_END = "<<<END_KEY_RECORD>>>";
+
+/** Document/original + tools=[] only — never with web_search/citations. */
+export function shouldUseKeyTurnStructuredWriter({
+  presenceTurn = false,
+  ownedOriginalAttached = false,
+  selectiveLiveRequest = null,
+  tools = null,
+} = {}) {
+  if (presenceTurn === true) return false;
+  if (ownedOriginalAttached !== true) return false;
+  if (!selectiveLiveRequest || typeof selectiveLiveRequest !== "object") return false;
+  const mode = String(
+    selectiveLiveRequest?.selection_plan?.current_attachment_mode ?? "",
+  ).trim();
+  if (mode !== "THIS_TURN_ORIGINAL") return false;
+  const resolvedTools = Array.isArray(tools)
+    ? tools
+    : Array.isArray(selectiveLiveRequest?.tools)
+      ? selectiveLiveRequest.tools
+      : null;
+  if (!Array.isArray(resolvedTools) || resolvedTools.length !== 0) return false;
+  return true;
+}
+
+/**
+ * Anthropic Messages API output_config for KEY turn result.
+ * Property order: customer_answer first (required) for safe stream decode.
+ */
+export function buildKeyTurnStructuredOutputConfig(factTypes = []) {
+  const types = [
+    ...new Set(
+      (Array.isArray(factTypes) ? factTypes : [])
+        .map((t) => String(t ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const factItem = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      fact_type: types.length
+        ? { type: "string", enum: types }
+        : { type: "string" },
+      literal: { type: "string" },
+      source_document_id: { type: "string" },
+    },
+    required: ["fact_type", "literal", "source_document_id"],
+  };
+  return {
+    format: {
+      type: "json_schema",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          customer_answer: { type: "string" },
+          confirmed_source_facts: {
+            type: "array",
+            items: factItem,
+          },
+        },
+        required: ["customer_answer", "confirmed_source_facts"],
+      },
+    },
+  };
+}
+
+/** System addendum — structured lane only; overrides ONE_PATH "no JSON" for this turn. */
+export function buildKeyTurnStructuredOutputHint({
+  documentIds = [],
+  primaryDocumentId = null,
+} = {}) {
+  const ids = [
+    ...new Set(
+      [...(Array.isArray(documentIds) ? documentIds : []), primaryDocumentId]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 8);
+  const idLine = ids.length
+    ? `source_document_id 후보(서버 제공, 추측 금지): ${ids.join(", ")}`
+    : "source_document_id는 서버가 준 ATTACHMENT_IDENTITY document_id만 쓴다. 생성·추측 금지.";
+  const confirmedIdRule =
+    ids.length > 1
+      ? "원본이 여러 개면 각 confirmed_source_facts에 ATTACHMENT_IDENTITY의 document_id를 source_document_id로 넣는다."
+      : ids.length === 1
+        ? `원본이 하나면 source_document_id는 ${ids[0]}를 쓴다.`
+        : "source_document_id를 모르면 해당 fact를 넣지 않는다.";
+  return [
+    "[KEY_TURN_STRUCTURED_OUTPUT]",
+    "이 턴은 공식 Structured Output 계약이다. 위 지시 중 'JSON을 출력하지 않는다/완성된 고객 답변만'은 이 턴에 한해 적용하지 않는다.",
+    "응답 본문은 schema에 맞는 JSON 객체 하나만 출력한다. KEY_RECORD sidecar·마크다운·여분 텍스트 금지.",
+    "필드 순서: customer_answer 다음 confirmed_source_facts.",
+    "customer_answer: 고객에게 보여줄 한국어 완결 답변(평문). JSON 키·스키마·내부 용어를 고객 답변에 넣지 않는다.",
+    "confirmed_source_facts: 이번 턴 첨부 원본을 직접 읽고 원본에서 실제 확인한 사실만 {fact_type, literal, source_document_id}.",
+    "금지: web/search·일반지식·conversation memory·추론·예상·inventory/OCR/candidate 자동승격·source_document_id 생성.",
+    "확인할 사실이 없으면 confirmed_source_facts는 [].",
+    confirmedIdRule,
+    idLine,
+  ].join("\n");
+}
+
+/**
+ * Stream-safe: decode only the JSON string value of customer_answer.
+ * Never returns JSON framing / keys.
+ */
+export function extractCustomerAnswerFromStructuredJsonPartial(rawText = "") {
+  const raw = String(rawText ?? "");
+  const m = /"customer_answer"\s*:\s*"/.exec(raw);
+  if (!m) {
+    return { customer_answer: "", started: false, complete: false, error: null };
+  }
+  let i = m.index + m[0].length;
+  let out = "";
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === "\\") {
+      if (i + 1 >= raw.length) {
+        return { customer_answer: out, started: true, complete: false, error: null };
+      }
+      const n = raw[i + 1];
+      if (n === "u") {
+        if (i + 5 >= raw.length) {
+          return { customer_answer: out, started: true, complete: false, error: null };
+        }
+        const hex = raw.slice(i + 2, i + 6);
+        if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+          return {
+            customer_answer: out,
+            started: true,
+            complete: false,
+            error: "bad_unicode_escape",
+          };
+        }
+        out += String.fromCharCode(Number.parseInt(hex, 16));
+        i += 6;
+        continue;
+      }
+      const map = {
+        '"': '"',
+        "\\": "\\",
+        "/": "/",
+        b: "\b",
+        f: "\f",
+        n: "\n",
+        r: "\r",
+        t: "\t",
+      };
+      if (Object.prototype.hasOwnProperty.call(map, n)) {
+        out += map[n];
+        i += 2;
+        continue;
+      }
+      return {
+        customer_answer: out,
+        started: true,
+        complete: false,
+        error: "bad_escape",
+      };
+    }
+    if (ch === '"') {
+      return { customer_answer: out, started: true, complete: true, error: null };
+    }
+    out += ch;
+    i += 1;
+  }
+  return { customer_answer: out, started: true, complete: false, error: null };
+}
+
+/** True when text still looks like structured JSON envelope (customer leak). */
+export function customerTextHasStructuredJsonLeak(text = "") {
+  const t = String(text ?? "");
+  if (!t) return false;
+  if (/"customer_answer"\s*:/.test(t)) return true;
+  if (/"confirmed_source_facts"\s*:/.test(t)) return true;
+  if (/^\s*\{\s*"customer_answer"/m.test(t)) return true;
+  if (/^\s*\{\s*$/m.test(t) && t.includes("customer_answer")) return true;
+  return false;
+}
+
+/**
+ * Final structured JSON parse. Maps schema `literal` → Gate `literal_value`.
+ * Parse failure → ok:false, facts:[], never treat raw JSON as customer_answer.
+ */
+export function parseKeyTurnStructuredResult(rawText = "") {
+  const raw = String(rawText ?? "").trim();
+  if (!raw) {
+    return {
+      ok: false,
+      error: "empty_structured_text",
+      customer_answer: "",
+      confirmed_source_facts: [],
+    };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return {
+      ok: false,
+      error: String(err?.message ?? err).slice(0, 120),
+      customer_answer: "",
+      confirmed_source_facts: [],
+    };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error: "structured_not_object",
+      customer_answer: "",
+      confirmed_source_facts: [],
+    };
+  }
+  if (typeof parsed.customer_answer !== "string") {
+    return {
+      ok: false,
+      error: "missing_customer_answer",
+      customer_answer: "",
+      confirmed_source_facts: [],
+    };
+  }
+  if (!Array.isArray(parsed.confirmed_source_facts)) {
+    return {
+      ok: false,
+      error: "missing_confirmed_source_facts",
+      customer_answer: "",
+      confirmed_source_facts: [],
+    };
+  }
+  const confirmed_source_facts = [];
+  for (const row of parsed.confirmed_source_facts) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const literal =
+      row.literal_value != null && String(row.literal_value).trim() !== ""
+        ? row.literal_value
+        : row.literal;
+    if (literal == null || String(literal).trim() === "") continue;
+    confirmed_source_facts.push({
+      fact_type: row.fact_type,
+      literal_value: literal,
+      source_document_id: row.source_document_id,
+      ...(row.source_locator && typeof row.source_locator === "object"
+        ? { source_locator: row.source_locator }
+        : {}),
+    });
+  }
+  return {
+    ok: true,
+    error: null,
+    customer_answer: parsed.customer_answer,
+    confirmed_source_facts,
+  };
+}
 
 const PROGRESS_ONLY_RE =
   /^(?:네[,.]?\s*)?(?:알겠습니다[,.]?\s*)?(?:찾아볼게(?:요)?|확인해\s*볼게(?:요)?|확인해볼게(?:요)?|분석해\s*드릴게(?:요)?|분석해드릴게(?:요)?|기록하고\s*분석하겠습니다|먼저\s*확인하겠습니다|잠시만\s*기다려\s*주세요)[.!]?\s*$/u;

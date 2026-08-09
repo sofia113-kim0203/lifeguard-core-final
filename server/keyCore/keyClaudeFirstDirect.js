@@ -309,6 +309,7 @@ import {
   mergeKeyCoverageBaselineFacts,
   keyValidateCoverageBaselineFacts,
   KEY_BASELINE_FACT_STATUSES,
+  KEY_CONFIRMED_SOURCE_FACT_TYPES,
   persistKeyCoverageBaselineFactsToPolicies,
   normalizeKeyClaimCaseUpdates,
   mergeKeyActiveClaimCases,
@@ -333,10 +334,15 @@ import {
 import {
   applyConfirmedSourceFactsAttachProvenance,
   buildKeyRecordSidecarHint,
+  buildKeyTurnStructuredOutputConfig,
+  buildKeyTurnStructuredOutputHint,
+  extractCustomerAnswerFromStructuredJsonPartial,
   isProgressOnlyCustomerAnswer,
   KEY_RECORD_SIDECAR_END,
   KEY_RECORD_SIDECAR_START,
   normalizeKeyRecordSidecar,
+  parseKeyTurnStructuredResult,
+  shouldUseKeyTurnStructuredWriter,
   splitCustomerAnswerAndKeyRecord,
   stripKeyRecordFromStreamText,
 } from "./keyRecordSidecar.js";
@@ -5372,7 +5378,81 @@ async function callClaudeFirstDirect({
       systemTextBase = `${systemTextBase}\n\n${domainAddendum}`;
     }
   }
-  if (presenceTurn !== true && pdfAttached) {
+  // ONE PATH request early — needed for structured/sidecar gate (tools + attachment mode).
+  let tokenBombS3LiveTrace = null;
+  let selectiveLiveRequest = null;
+  try {
+    selectiveLiveRequest = buildOnePathClaudeFirstRequest({
+      question: presenceTurn === true ? "" : question,
+      history: presenceTurn === true ? [] : history,
+      pdfBase64: primaryPdfBase64,
+      pdfMediaType: primaryPdfMediaType,
+      pdfMeta,
+      pdfAttachments: multiAttachments,
+      policyTruthContext,
+      liveTools: requestTools,
+      customerRelationshipState,
+      customerId: customerIdForRelationship,
+      conversationId: conversationIdForRelationship,
+      currentTurnDocumentIds: currentTurnDocumentIdsForRelationship,
+      explicitReopenDocumentIds: explicitReopenDocumentIdsForRelationship,
+      originalDeliveryReason: originalDeliveryReasonForRelationship,
+      priorConsultation: priorConsultationForContext,
+      readyCardMeta,
+      readyCardSsot: {
+        ssotGoal: sessionGoalForContext || null,
+        ssotReason: sessionGoalForContext ? "ready_card" : null,
+        priorConsultation: priorConsultationForContext || null,
+        priorConsultationReason: priorConsultationForContext
+          ? "ready_card"
+          : null,
+        policies: Array.isArray(reality?.policies) ? reality.policies : [],
+        policy_count: Number(reality?.policy_count) || 0,
+        activeDocuments: Array.isArray(activeDocuments) ? activeDocuments : [],
+        activeClaimCases: Array.isArray(activeClaimCases)
+          ? activeClaimCases
+          : [],
+        insuranceClockBrief: insuranceClockBrief || null,
+        lifeLedgerBrief: lifeLedgerBrief || null,
+        claimEvidenceBrief: claimEvidenceBrief || null,
+      },
+      hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
+      memoryQueryFailed: memoryQueryFailedForRelationship === true,
+      memoryLoadStatus: memoryLoadStatusForRelationship,
+    });
+    tokenBombS3LiveTrace = {
+      live_request_mode: ONE_PATH_LIVE_MODE,
+      live_body_changed: true,
+      shadow_provider_call: 0,
+      pre_s3_full_assemble: 0,
+      meta: selectiveLiveRequest.meta,
+      selection_plan: selectiveLiveRequest.selection_plan,
+      metrics: selectiveLiveRequest.metrics,
+      inventory: selectiveLiveRequest.inventory,
+    };
+  } catch {
+    tokenBombS3LiveTrace = {
+      live_request_mode: ONE_PATH_LIVE_MODE,
+      live_body_changed: true,
+      pre_s3_full_assemble: 0,
+      error: "one_path_claude_first_build_failed",
+    };
+  }
+  const effectiveProviderTools = Array.isArray(selectiveLiveRequest?.tools)
+    ? selectiveLiveRequest.tools
+    : [];
+  const useStructuredWriter = shouldUseKeyTurnStructuredWriter({
+    presenceTurn: presenceTurn === true,
+    ownedOriginalAttached: pdfAttached === true,
+    selectiveLiveRequest,
+    tools: effectiveProviderTools,
+  });
+  // Sidecar OFF only when structured writer is actually on; all other attach lanes keep it.
+  if (
+    presenceTurn !== true &&
+    pdfAttached &&
+    useStructuredWriter !== true
+  ) {
     systemTextBase = `${systemTextBase}\n${buildKeyRecordSidecarHint({
       documentIds: attachDocumentIds,
       primaryDocumentId: pdfMeta?.document_id ?? null,
@@ -5492,7 +5572,10 @@ async function callClaudeFirstDirect({
         systemText,
         policyCountAuthorityAddendum,
         hasDomainContext: /\[DOMAIN_CONTEXT\]/i.test(systemText),
-        hasSidecarHint: presenceTurn !== true && pdfAttached,
+        hasSidecarHint:
+          presenceTurn !== true &&
+          pdfAttached &&
+          useStructuredWriter !== true,
         hasPlaceAddendum: /PLACE_RECOMMEND|out_of_domain_place/i.test(systemText),
         hasProductAddendum: /CURRENT_INSURANCE_PRODUCT|insurance_product_showcase/i.test(
           systemText,
@@ -5546,71 +5629,12 @@ async function callClaudeFirstDirect({
     pointed_contract_ids: ownedPointedContracts.pointed_contract_ids,
   };
 
-  // ONE PATH — question + KEY customer card + this-turn originals.
+  // ONE PATH — request already built above for structured/sidecar gate.
   // No OCR / extract / pending / document pick-rank in Provider inputs.
   void selectiveExplicit;
   void chart;
   void keyRelevantMemoryPacket;
   void buildClaudeFirstOneShotSelectiveRequest;
-  let tokenBombS3LiveTrace = null;
-  let selectiveLiveRequest = null;
-  try {
-    selectiveLiveRequest = buildOnePathClaudeFirstRequest({
-      question: presenceTurn === true ? "" : question,
-      history: presenceTurn === true ? [] : history,
-      pdfBase64: primaryPdfBase64,
-      pdfMediaType: primaryPdfMediaType,
-      pdfMeta,
-      pdfAttachments: multiAttachments,
-      policyTruthContext,
-      liveTools: requestTools,
-      customerRelationshipState,
-      customerId: customerIdForRelationship,
-      conversationId: conversationIdForRelationship,
-      currentTurnDocumentIds: currentTurnDocumentIdsForRelationship,
-      explicitReopenDocumentIds: explicitReopenDocumentIdsForRelationship,
-      originalDeliveryReason: originalDeliveryReasonForRelationship,
-      priorConsultation: priorConsultationForContext,
-      readyCardMeta,
-      readyCardSsot: {
-        ssotGoal: sessionGoalForContext || null,
-        ssotReason: sessionGoalForContext ? "ready_card" : null,
-        priorConsultation: priorConsultationForContext || null,
-        priorConsultationReason: priorConsultationForContext
-          ? "ready_card"
-          : null,
-        policies: Array.isArray(reality?.policies) ? reality.policies : [],
-        policy_count: Number(reality?.policy_count) || 0,
-        activeDocuments: Array.isArray(activeDocuments) ? activeDocuments : [],
-        activeClaimCases: Array.isArray(activeClaimCases)
-          ? activeClaimCases
-          : [],
-        insuranceClockBrief: insuranceClockBrief || null,
-        lifeLedgerBrief: lifeLedgerBrief || null,
-        claimEvidenceBrief: claimEvidenceBrief || null,
-      },
-      hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
-      memoryQueryFailed: memoryQueryFailedForRelationship === true,
-      memoryLoadStatus: memoryLoadStatusForRelationship,
-    });
-    tokenBombS3LiveTrace = {
-      live_request_mode: ONE_PATH_LIVE_MODE,
-      live_body_changed: true,
-      shadow_provider_call: 0,
-      pre_s3_full_assemble: 0,
-      meta: selectiveLiveRequest.meta,
-      selection_plan: selectiveLiveRequest.selection_plan,
-      metrics: selectiveLiveRequest.metrics,
-      inventory: selectiveLiveRequest.inventory,
-    };
-  } catch {
-    tokenBombS3LiveTrace = {
-      live_request_mode: ONE_PATH_LIVE_MODE,
-      live_body_changed: true,
-      pre_s3_full_assemble: 0,
-      error: "one_path_claude_first_build_failed",
-    };
-  }
 
   // ROOT_C — Selective live: never assemble Pre-S3 FULL A/B/C Provider body.
   const cachedParts = {
@@ -5665,10 +5689,21 @@ async function callClaudeFirstDirect({
     qaTurnCapture.token_bomb_s3_live = tokenBombS3LiveTrace;
   }
 
-  // Selective-gated tools (web_search only when candidate).
-  const effectiveProviderTools = Array.isArray(selectiveLiveRequest?.tools)
-    ? selectiveLiveRequest.tools
-    : [];
+  // PRE-GATE structured writer — document/original + tools=[] only (no citations/web_search).
+  // useStructuredWriter / effectiveProviderTools already resolved above (sidecar gate).
+  const structuredOutputConfig = useStructuredWriter
+    ? buildKeyTurnStructuredOutputConfig(KEY_CONFIRMED_SOURCE_FACT_TYPES)
+    : null;
+  if (useStructuredWriter) {
+    const structuredHint = buildKeyTurnStructuredOutputHint({
+      documentIds: attachDocumentIds,
+      primaryDocumentId: pdfMeta?.document_id ?? null,
+    });
+    system = [
+      ...(Array.isArray(system) ? system : []),
+      { type: "text", text: structuredHint },
+    ];
+  }
 
   let lastTtft = null;
   let lastPicked = {
@@ -5724,7 +5759,16 @@ async function callClaudeFirstDirect({
 
   // ONE PATH — customer Claude call exactly once (no tool-driven multi-turn).
   const maxProviderTurns = 1;
+  let structuredStreamedCustomerAnswer = "";
   const streamProgressSafe = (text) => {
+    if (useStructuredWriter) {
+      const extracted = extractCustomerAnswerFromStructuredJsonPartial(text);
+      structuredStreamedCustomerAnswer = extracted.customer_answer || "";
+      if (structuredStreamedCustomerAnswer) {
+        onAnswerProgress?.(structuredStreamedCustomerAnswer);
+      }
+      return;
+    }
     const visible = stripKeyRecordFromStreamText(text);
     if (visible) onAnswerProgress?.(visible);
   };
@@ -5744,6 +5788,9 @@ async function callClaudeFirstDirect({
       stream: true,
       ...(effectiveProviderTools.length
         ? { tools: effectiveProviderTools, tool_choice: { type: "auto" } }
+        : {}),
+      ...(structuredOutputConfig
+        ? { output_config: structuredOutputConfig }
         : {}),
     };
     emptyAnswerDiag.input = buildEmptyAnswerInputDiag({
@@ -5887,7 +5934,14 @@ async function callClaudeFirstDirect({
     }
     if (streamed.ttft_ms != null && lastTtft == null) lastTtft = streamed.ttft_ms;
     if (streamed.streamed_answer) {
-      streamedAnswer = stripKeyRecordFromStreamText(streamed.streamed_answer);
+      if (useStructuredWriter) {
+        structuredStreamedCustomerAnswer =
+          extractCustomerAnswerFromStructuredJsonPartial(streamed.streamed_answer)
+            .customer_answer || structuredStreamedCustomerAnswer;
+        streamedAnswer = structuredStreamedCustomerAnswer;
+      } else {
+        streamedAnswer = stripKeyRecordFromStreamText(streamed.streamed_answer);
+      }
     }
     if (streamed.stop_reason != null) lastStopReason = String(streamed.stop_reason);
     providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
@@ -5939,55 +5993,103 @@ async function callClaudeFirstDirect({
     const assistantContent = Array.isArray(streamed.dataRaw?.content)
       ? streamed.dataRaw.content
       : [];
-    // Non-blocking sidecar parse from plain text — never Continue / never second Claude.
+    // Structured lane: official JSON contract. Else: non-blocking sidecar (never Continue).
     const rawTextJoined = assistantContent
       .filter((b) => b?.type === "text" && String(b.text ?? "").trim())
       .map((b) => String(b.text).trim())
       .join("\n\n");
     lastProviderDataRaw = streamed.dataRaw ?? null;
     lastProviderRawTextJoined = rawTextJoined || streamed.streamed_answer || "";
-    const split = splitCustomerAnswerAndKeyRecord(rawTextJoined || streamed.streamed_answer || "");
-    keyRecordSidecarMeta = {
-      present: split.sidecar_present === true,
-      ok: split.sidecar_ok === true,
-      error: split.sidecar_error,
-    };
-    if (split.sidecar_ok && split.key_record) {
-      const normalizedSidecar = normalizeKeyRecordSidecar(split.key_record, {
-        source_document_id: pdfMeta?.document_id ?? null,
-        source_content_sha256: pdfMeta?.content_sha256 ?? null,
-      });
-      policyInventoryFacts = normalizedSidecar.policy_inventory_facts;
-      // ONE PATH — Claude discoveries are KEY pending candidates, not confirmed.
-      keyMemoryCandidates = buildKeyMemoryCandidatesFromSidecar(split.key_record, {
-        source_document_id: pdfMeta?.document_id ?? null,
-        observed_at: new Date().toISOString(),
-      });
-      // Confirmed writer: sidecar.confirmed_source_facts only (never inventory/candidate lift).
-      // No attachmentIdentityPlan → promote nothing. Gate/persist unchanged downstream.
-      const confirmedProvenance = applyConfirmedSourceFactsAttachProvenance({
-        facts: normalizedSidecar.confirmed_source_facts,
-        attachmentIdentityPlan,
-      });
-      confirmedSourceFacts = normalizeKeyConfirmedSourceFacts(confirmedProvenance.facts, {
-        source_document_id: confirmedProvenance.defaultSourceDocumentId,
-        source_content_sha256: pdfMeta?.content_sha256 ?? null,
-      });
-      coverageBaselineFacts = [];
-      try {
-        visualBlocks = wantsClaudeFirstVisualBlocks(question)
-          ? normalizeVisualBlocks(normalizedSidecar.visual_blocks)
-          : [];
-      } catch {
-        visualBlocks = [];
+    let customerVisible = "";
+    if (useStructuredWriter) {
+      const structured = parseKeyTurnStructuredResult(
+        rawTextJoined || streamed.streamed_answer || "",
+      );
+      keyRecordSidecarMeta = {
+        present: false,
+        ok: structured.ok === true,
+        error: structured.ok ? null : structured.error,
+      };
+      if (structured.ok) {
+        // Same provenance → normalize → Gate path as sidecar writer (no inventory lift).
+        const confirmedProvenance = applyConfirmedSourceFactsAttachProvenance({
+          facts: structured.confirmed_source_facts,
+          attachmentIdentityPlan,
+        });
+        confirmedSourceFacts = normalizeKeyConfirmedSourceFacts(
+          confirmedProvenance.facts,
+          {
+            source_document_id: confirmedProvenance.defaultSourceDocumentId,
+            source_content_sha256: pdfMeta?.content_sha256 ?? null,
+          },
+        );
+        coverageBaselineFacts = [];
+        policyInventoryFacts = [];
+        keyMemoryCandidates = [];
+        keyRecordSidecarMeta.confirmed_promotion = 0;
+        keyRecordSidecarMeta.confirmed_source_facts_count = confirmedSourceFacts.length;
+        keyRecordSidecarMeta.confirmed_provenance_reason =
+          confirmedProvenance.reason ?? null;
+        customerVisible = String(structured.customer_answer ?? "").trim();
+        structuredStreamedCustomerAnswer = customerVisible || structuredStreamedCustomerAnswer;
+      } else {
+        // Parse fail: no confirmed persist; never leak raw JSON to customer.
+        confirmedSourceFacts = [];
+        coverageBaselineFacts = [];
+        policyInventoryFacts = [];
+        keyMemoryCandidates = [];
+        keyRecordSidecarMeta.confirmed_promotion = 0;
+        keyRecordSidecarMeta.confirmed_source_facts_count = 0;
+        customerVisible = String(structuredStreamedCustomerAnswer ?? "").trim();
       }
-      keyRecordSidecarMeta.key_memory_candidates = keyMemoryCandidates;
-      keyRecordSidecarMeta.confirmed_promotion = 0;
-      keyRecordSidecarMeta.confirmed_source_facts_count = confirmedSourceFacts.length;
-      keyRecordSidecarMeta.confirmed_provenance_reason =
-        confirmedProvenance.reason ?? null;
+      streamedAnswer = customerVisible || structuredStreamedCustomerAnswer;
+    } else {
+      const split = splitCustomerAnswerAndKeyRecord(
+        rawTextJoined || streamed.streamed_answer || "",
+      );
+      keyRecordSidecarMeta = {
+        present: split.sidecar_present === true,
+        ok: split.sidecar_ok === true,
+        error: split.sidecar_error,
+      };
+      if (split.sidecar_ok && split.key_record) {
+        const normalizedSidecar = normalizeKeyRecordSidecar(split.key_record, {
+          source_document_id: pdfMeta?.document_id ?? null,
+          source_content_sha256: pdfMeta?.content_sha256 ?? null,
+        });
+        policyInventoryFacts = normalizedSidecar.policy_inventory_facts;
+        // ONE PATH — Claude discoveries are KEY pending candidates, not confirmed.
+        keyMemoryCandidates = buildKeyMemoryCandidatesFromSidecar(split.key_record, {
+          source_document_id: pdfMeta?.document_id ?? null,
+          observed_at: new Date().toISOString(),
+        });
+        // Confirmed writer: sidecar.confirmed_source_facts only (never inventory/candidate lift).
+        // No attachmentIdentityPlan → promote nothing. Gate/persist unchanged downstream.
+        const confirmedProvenance = applyConfirmedSourceFactsAttachProvenance({
+          facts: normalizedSidecar.confirmed_source_facts,
+          attachmentIdentityPlan,
+        });
+        confirmedSourceFacts = normalizeKeyConfirmedSourceFacts(confirmedProvenance.facts, {
+          source_document_id: confirmedProvenance.defaultSourceDocumentId,
+          source_content_sha256: pdfMeta?.content_sha256 ?? null,
+        });
+        coverageBaselineFacts = [];
+        try {
+          visualBlocks = wantsClaudeFirstVisualBlocks(question)
+            ? normalizeVisualBlocks(normalizedSidecar.visual_blocks)
+            : [];
+        } catch {
+          visualBlocks = [];
+        }
+        keyRecordSidecarMeta.key_memory_candidates = keyMemoryCandidates;
+        keyRecordSidecarMeta.confirmed_promotion = 0;
+        keyRecordSidecarMeta.confirmed_source_facts_count = confirmedSourceFacts.length;
+        keyRecordSidecarMeta.confirmed_provenance_reason =
+          confirmedProvenance.reason ?? null;
+      }
+      customerVisible =
+        split.customer_answer || stripKeyRecordFromStreamText(picked.customer_answer);
     }
-    const customerVisible = split.customer_answer || stripKeyRecordFromStreamText(picked.customer_answer);
     webSearchTrace = accumulateWebSearchTrace(
       webSearchTrace,
       assistantContent,
@@ -6014,9 +6116,16 @@ async function callClaudeFirstDirect({
         visual_blocks: visualBlocks,
         decision: null,
         session_goal: null,
-        source: picked.source || "plain_text",
+        source: useStructuredWriter
+          ? "structured_output"
+          : picked.source || "plain_text",
       };
-      streamProgressSafe(customerVisible);
+      if (useStructuredWriter) {
+        structuredStreamedCustomerAnswer = customerVisible;
+        onAnswerProgress?.(customerVisible);
+      } else {
+        streamProgressSafe(customerVisible);
+      }
       break;
     }
 
