@@ -3024,13 +3024,64 @@ export function shouldRecordKeyClaudeProviderUsageObserve(env = process.env) {
 }
 
 /**
+ * Fold Anthropic SSE usage events. Preserves first message_start input_tokens.
+ * Never invents numbers — only copies provider usage objects.
+ */
+export function foldAnthropicStreamUsage(state, type, evt) {
+  const next = {
+    usage: state?.usage ?? null,
+    start_input_tokens:
+      typeof state?.start_input_tokens === "number" &&
+      Number.isFinite(state.start_input_tokens)
+        ? state.start_input_tokens
+        : null,
+  };
+  let piece = null;
+  if (type === "message_start" && evt?.message?.usage) {
+    piece = evt.message.usage;
+  } else if (type === "message_delta" && evt?.usage) {
+    piece = evt.usage;
+  }
+  if (!piece || typeof piece !== "object") return next;
+  if (
+    type === "message_start" &&
+    next.start_input_tokens == null &&
+    typeof piece.input_tokens === "number" &&
+    Number.isFinite(piece.input_tokens)
+  ) {
+    next.start_input_tokens = piece.input_tokens;
+  }
+  next.usage = { ...(next.usage ?? {}), ...piece };
+  return next;
+}
+
+/** Attach preserved start_input_tokens onto the merged final usage object (QA field). */
+export function finalizeAnthropicStreamUsage(state) {
+  const usage = state?.usage && typeof state.usage === "object" ? state.usage : null;
+  const start =
+    typeof state?.start_input_tokens === "number" &&
+    Number.isFinite(state.start_input_tokens)
+      ? state.start_input_tokens
+      : null;
+  if (!usage && start == null) return null;
+  const out = { ...(usage ?? {}) };
+  if (start != null) out.start_input_tokens = start;
+  return out;
+}
+
+/**
  * Compact actual Anthropic usage numbers for QA logs.
- * Uses pickAnthropicUsageNumbers only — never estimated_input_tokens / chars÷4.
+ * start_input_tokens = message_start; final_input_tokens = merged final input_tokens.
+ * Never estimated_input_tokens / chars÷4.
  */
 export function buildKeyClaudeProviderUsageObserve(usage = null) {
   const u = pickAnthropicUsageNumbers(usage);
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const start =
+    usage && typeof usage === "object" ? num(usage.start_input_tokens) : null;
   return {
-    input_tokens: u.input_tokens,
+    start_input_tokens: start,
+    final_input_tokens: u.input_tokens,
     output_tokens: u.output_tokens,
     cache_creation_input_tokens: u.cache_creation_input_tokens,
     cache_read_input_tokens: u.cache_read_input_tokens,
@@ -4607,7 +4658,7 @@ async function readAnthropicSseWithAnswerStream({
   let buffer = "";
   let ttft_ms = null;
   let message = null;
-  let usage = null;
+  let usageState = { usage: null, start_input_tokens: null };
   let contentBlocks = [];
   let streamedAnswer = "";
   let answerComplete = false;
@@ -4663,9 +4714,7 @@ async function readAnthropicSseWithAnswerStream({
         message = evt.message;
         if (Array.isArray(message.content)) contentBlocks = [...message.content];
         if (message?.stop_reason != null) stop_reason = String(message.stop_reason);
-        if (message?.usage && typeof message.usage === "object") {
-          usage = { ...(usage ?? {}), ...message.usage };
-        }
+        usageState = foldAnthropicStreamUsage(usageState, type, evt);
       } else if (type === "content_block_start") {
         markTtft();
         const idx = Number(evt.index);
@@ -4700,13 +4749,15 @@ async function readAnthropicSseWithAnswerStream({
           if (partial.complete) answerComplete = true;
         }
       } else if (type === "message_delta") {
-        if (evt.usage) usage = { ...(usage ?? {}), ...evt.usage };
+        usageState = foldAnthropicStreamUsage(usageState, type, evt);
         if (evt.delta?.stop_reason != null) stop_reason = String(evt.delta.stop_reason);
       }
     }
   }
 
   const content = finalizeClaudeFirstStreamContentBlocks(contentBlocks);
+  const usage =
+    finalizeAnthropicStreamUsage(usageState) ?? message?.usage ?? null;
 
   // Tool lane settled: publish structure-selected customer speech once (planning excluded).
   if (deferCustomerSpeechForToolLane && !streamedAnswer) {
@@ -4721,7 +4772,7 @@ async function readAnthropicSseWithAnswerStream({
     dataRaw: {
       ...(message && typeof message === "object" ? message : {}),
       content,
-      usage: usage ?? message?.usage ?? null,
+      usage,
       ...(stop_reason != null ? { stop_reason } : {}),
     },
     ttft_ms,
