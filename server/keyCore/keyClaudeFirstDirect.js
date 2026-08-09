@@ -3015,6 +3015,39 @@ export function pickAnthropicUsageNumbers(usage = null) {
   };
 }
 
+/** Preview QA console tag — numeric provider usage only; never prompt/PII/secret. */
+export const KEY_CLAUDE_PROVIDER_USAGE_OBSERVE_LOG_TAG =
+  "KEY_CLAUDE_PROVIDER_USAGE_OBSERVE";
+
+export function shouldRecordKeyClaudeProviderUsageObserve(env = process.env) {
+  return String(env?.VERCEL_ENV ?? "").trim() === "preview";
+}
+
+/**
+ * Compact actual Anthropic usage numbers for QA logs.
+ * Uses pickAnthropicUsageNumbers only — never estimated_input_tokens / chars÷4.
+ */
+export function buildKeyClaudeProviderUsageObserve(usage = null) {
+  const u = pickAnthropicUsageNumbers(usage);
+  return {
+    input_tokens: u.input_tokens,
+    output_tokens: u.output_tokens,
+    cache_creation_input_tokens: u.cache_creation_input_tokens,
+    cache_read_input_tokens: u.cache_read_input_tokens,
+  };
+}
+
+/**
+ * Preview-only console record after provider response.
+ * Never mutates Claude input / customer text. Never re-injects into the model.
+ */
+export function emitKeyClaudeProviderUsageObserve(usage = null, env = process.env) {
+  if (!shouldRecordKeyClaudeProviderUsageObserve(env)) return false;
+  const line = buildKeyClaudeProviderUsageObserve(usage);
+  console.log(KEY_CLAUDE_PROVIDER_USAGE_OBSERVE_LOG_TAG, JSON.stringify(line));
+  return true;
+}
+
 function systemPromptCharCount(system) {
   if (typeof system === "string") return system.length;
   if (Array.isArray(system)) {
@@ -6137,6 +6170,12 @@ async function callClaudeFirstDirect({
     }
     if (streamed.stop_reason != null) lastStopReason = String(streamed.stop_reason);
     providerUsage = pickAnthropicUsageNumbers(streamed.dataRaw?.usage ?? null);
+    // Preview QA: actual provider usage numbers only (never chars÷4 / estimated).
+    try {
+      emitKeyClaudeProviderUsageObserve(streamed.dataRaw?.usage ?? null, env);
+    } catch {
+      /* observe must never break Claude path */
+    }
     // Enrich last provider_fetch_observation with usage/stop (no body/text retained).
     {
       const lastObs =
