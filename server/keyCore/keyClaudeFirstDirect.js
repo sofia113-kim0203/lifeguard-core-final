@@ -5520,13 +5520,18 @@ async function callClaudeFirstDirect({
         policies: Array.isArray(reality?.policies) ? reality.policies : [],
         policy_count: Number(reality?.policy_count) || 0,
         activeDocuments: Array.isArray(activeDocuments) ? activeDocuments : [],
-        activeClaimCases: Array.isArray(activeClaimCases)
-          ? activeClaimCases
-          : [],
+        // Product-recommend turns: omit active_claims card handoff (token surgery S2).
+        // Claim DB/SSOT/intake unchanged; non-product turns keep existing cases.
+        activeClaimCases:
+          isExplicitCurrentInsuranceProductRequest(question) === true
+            ? []
+            : Array.isArray(activeClaimCases)
+              ? activeClaimCases
+              : [],
         insuranceClockBrief: insuranceClockBrief || null,
         lifeLedgerBrief: lifeLedgerBrief || null,
-        // Product-recommend turns: omit claim_evidence card handoff only (token surgery S1).
-        // Builder/DB/SSOT/active_claims/KEY_RELEVANT untouched; non-product turns unchanged.
+        // Product-recommend turns: omit claim_evidence card handoff (token surgery S1).
+        // Builder/DB/SSOT/KEY_RELEVANT untouched; non-product turns unchanged.
         claimEvidenceBrief:
           isExplicitCurrentInsuranceProductRequest(question) === true
             ? null
