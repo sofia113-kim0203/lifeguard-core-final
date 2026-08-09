@@ -3147,6 +3147,85 @@ export function emitKeyClaudeProviderUsageObserve(usage = null, env = process.en
   return true;
 }
 
+/** Preview QA console tag — encrypted_content sizes only; never ciphertext/PII/URL dump. */
+export const KEY_CLAUDE_ENCRYPTED_CONTENT_SIZE_OBSERVE_LOG_TAG =
+  "KEY_CLAUDE_ENCRYPTED_CONTENT_SIZE_OBSERVE";
+
+export function shouldRecordKeyClaudeEncryptedContentSizeObserve(env = process.env) {
+  return String(env?.VERCEL_ENV ?? "").trim() === "preview";
+}
+
+function utf8ByteLength(text) {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * QA sizes from web_search_result.encrypted_content.
+ * Never returns ciphertext. Never decrypts. Numbers only.
+ */
+export function buildKeyClaudeEncryptedContentSizeObserve(content = []) {
+  const encrypted_content_chars = [];
+  const encrypted_content_bytes = [];
+  let search_result_count = 0;
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type !== "web_search_tool_result") continue;
+    const items = Array.isArray(block.content) ? block.content : [];
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      if (item.type === "web_search_tool_result_error") continue;
+      if (item.type && item.type !== "web_search_result") continue;
+      if (
+        !(
+          item.url ||
+          item.title ||
+          item.type === "web_search_result" ||
+          item.encrypted_content != null
+        )
+      ) {
+        continue;
+      }
+      search_result_count += 1;
+      const raw = item.encrypted_content;
+      if (raw == null) {
+        encrypted_content_chars.push(0);
+        encrypted_content_bytes.push(0);
+        continue;
+      }
+      const s = typeof raw === "string" ? raw : String(raw);
+      encrypted_content_chars.push(s.length);
+      encrypted_content_bytes.push(utf8ByteLength(s));
+    }
+  }
+  let total_encrypted_content_chars = 0;
+  let total_encrypted_content_bytes = 0;
+  for (const n of encrypted_content_chars) total_encrypted_content_chars += n;
+  for (const n of encrypted_content_bytes) total_encrypted_content_bytes += n;
+  return {
+    search_result_count,
+    encrypted_content_chars,
+    encrypted_content_bytes,
+    total_encrypted_content_chars,
+    total_encrypted_content_bytes,
+  };
+}
+
+/**
+ * Preview-only console record after provider content is available.
+ * Never mutates Claude input / customer text. Never logs ciphertext.
+ */
+export function emitKeyClaudeEncryptedContentSizeObserve(
+  content = null,
+  env = process.env,
+) {
+  if (!shouldRecordKeyClaudeEncryptedContentSizeObserve(env)) return false;
+  const line = buildKeyClaudeEncryptedContentSizeObserve(content);
+  console.log(
+    KEY_CLAUDE_ENCRYPTED_CONTENT_SIZE_OBSERVE_LOG_TAG,
+    JSON.stringify(line),
+  );
+  return true;
+}
+
 function systemPromptCharCount(system) {
   if (typeof system === "string") return system.length;
   if (Array.isArray(system)) {
@@ -6433,6 +6512,12 @@ async function callClaudeFirstDirect({
       assistantContent,
       streamed.dataRaw,
     );
+    // Preview QA: encrypted_content sizes only (never ciphertext / decrypt / SSE).
+    try {
+      emitKeyClaudeEncryptedContentSizeObserve(assistantContent, env);
+    } catch {
+      /* observe must never break Claude path */
+    }
     const extracted = extractPublicEvidenceFromClaudeContent(assistantContent, {
       retrievedAt: buildRequestClock(new Date(), REQUEST_TIMEZONE).current_datetime,
     });

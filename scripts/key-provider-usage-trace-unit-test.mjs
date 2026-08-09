@@ -11,6 +11,10 @@ import {
   foldAnthropicStreamUsage,
   finalizeAnthropicStreamUsage,
   KEY_CLAUDE_PROVIDER_USAGE_OBSERVE_LOG_TAG,
+  buildKeyClaudeEncryptedContentSizeObserve,
+  emitKeyClaudeEncryptedContentSizeObserve,
+  shouldRecordKeyClaudeEncryptedContentSizeObserve,
+  KEY_CLAUDE_ENCRYPTED_CONTENT_SIZE_OBSERVE_LOG_TAG,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { buildCurrentInsuranceProductShowcaseAddendum } from "../server/keyCore/keyBorrowedSensesSpeak.js";
 
@@ -212,6 +216,100 @@ function reduceEvents(events) {
     console.log = orig;
   }
   console.log("PASS T9 emit snapshots + preview-only");
+}
+
+{
+  // T10: encrypted_content sizes only — never ciphertext in observe
+  const secretA = "EqgfSECRET_CIPHERTEXT_AAA";
+  const secretB = "EqgfSECRET_CIPHERTEXT_BBB_한글";
+  const content = [
+    {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_1",
+      content: [
+        {
+          type: "web_search_result",
+          url: "https://example.com/a",
+          title: "A",
+          encrypted_content: secretA,
+          page_age: "2025",
+        },
+        {
+          type: "web_search_result",
+          url: "https://example.com/b",
+          title: "B",
+          encrypted_content: secretB,
+        },
+      ],
+    },
+    { type: "text", text: "answer" },
+  ];
+  const built = buildKeyClaudeEncryptedContentSizeObserve(content);
+  assert.equal(built.search_result_count, 2);
+  assert.deepEqual(built.encrypted_content_chars, [secretA.length, secretB.length]);
+  assert.deepEqual(built.encrypted_content_bytes, [
+    new TextEncoder().encode(secretA).length,
+    new TextEncoder().encode(secretB).length,
+  ]);
+  assert.equal(
+    built.total_encrypted_content_chars,
+    secretA.length + secretB.length,
+  );
+  assert.equal(
+    built.total_encrypted_content_bytes,
+    new TextEncoder().encode(secretA).length +
+      new TextEncoder().encode(secretB).length,
+  );
+  const json = JSON.stringify(built);
+  assert.equal(json.includes(secretA), false);
+  assert.equal(json.includes(secretB), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(built, "encrypted_content"), false);
+  console.log("PASS T10 encrypted_content sizes only");
+}
+
+{
+  // T11: emit preview-only + no ciphertext leak
+  assert.equal(
+    shouldRecordKeyClaudeEncryptedContentSizeObserve({ VERCEL_ENV: "preview" }),
+    true,
+  );
+  assert.equal(
+    shouldRecordKeyClaudeEncryptedContentSizeObserve({ VERCEL_ENV: "production" }),
+    false,
+  );
+  const secret = "EqgfNEVER_LOG_THIS_CIPHER";
+  const logs = [];
+  const orig = console.log;
+  console.log = (...args) => {
+    logs.push(args);
+  };
+  try {
+    const wrote = emitKeyClaudeEncryptedContentSizeObserve(
+      [
+        {
+          type: "web_search_tool_result",
+          content: [
+            {
+              type: "web_search_result",
+              url: "https://example.com",
+              title: "T",
+              encrypted_content: secret,
+            },
+          ],
+        },
+      ],
+      { VERCEL_ENV: "preview" },
+    );
+    assert.equal(wrote, true);
+    assert.equal(logs[0][0], KEY_CLAUDE_ENCRYPTED_CONTENT_SIZE_OBSERVE_LOG_TAG);
+    const parsed = JSON.parse(logs[0][1]);
+    assert.equal(parsed.search_result_count, 1);
+    assert.equal(parsed.encrypted_content_chars[0], secret.length);
+    assert.equal(logs[0][1].includes(secret), false);
+  } finally {
+    console.log = orig;
+  }
+  console.log("PASS T11 emit encrypted sizes preview-only");
 }
 
 console.log("ALL_KEY_PROVIDER_USAGE_TRACE_UNIT_TESTS_PASSED");
