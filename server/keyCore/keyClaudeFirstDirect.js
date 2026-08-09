@@ -5529,7 +5529,12 @@ async function callClaudeFirstDirect({
               ? activeClaimCases
               : [],
         insuranceClockBrief: insuranceClockBrief || null,
-        lifeLedgerBrief: lifeLedgerBrief || null,
+        // Product-recommend turns: omit life_ledger card handoff (token surgery S3).
+        // Ledger DB/SSOT unchanged; non-product turns keep existing brief.
+        lifeLedgerBrief:
+          isExplicitCurrentInsuranceProductRequest(question) === true
+            ? null
+            : lifeLedgerBrief || null,
         // Product-recommend turns: omit claim_evidence card handoff (token surgery S1).
         // Builder/DB/SSOT/KEY_RELEVANT untouched; non-product turns unchanged.
         claimEvidenceBrief:
