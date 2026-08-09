@@ -2127,6 +2127,8 @@ export default function LifeguardHomeChat({
 
     /** @type {ReturnType<typeof createAgentStreamPaintController> | null} */
     let paint = null;
+    // Success-done only (payload.ok === true). Failed done still sets sawSseDone via onDone.
+    let sawSuccessfulSseDone = false;
     try {
       const historyMessages = nextMessages.slice(0, -1);
       const history = historyMessages.map((m) => ({ role: m.role, content: m.content }));
@@ -2231,6 +2233,9 @@ export default function LifeguardHomeChat({
           onDone: (payload) => {
             markFirstSse();
             markSseDone();
+            if (payload?.ok === true) {
+              sawSuccessfulSseDone = true;
+            }
             const mapped = mapHomeBrainFactPayload(payload ?? {});
             const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
             if (visualBlocks.length === 0) return;
@@ -2570,7 +2575,11 @@ export default function LifeguardHomeChat({
       setRestorableAttachmentCandidate(null);
       endInflightHomeChatTurn(turnId);
       inflightTurnIdRef.current = null;
-      setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
+      // Successful SSE done already painted KEY answer — do not overlay fake hard failure.
+      // Failed done (ok:false) / pre-done throws keep the customer-visible error.
+      if (sawSuccessfulSseDone !== true) {
+        setError(toCustomerErrorMessage(err, "질문에 답변하지 못했습니다."));
+      }
     } finally {
       setLoading(false);
       setStreaming(false);
