@@ -3024,10 +3024,14 @@ export function shouldRecordKeyClaudeProviderUsageObserve(env = process.env) {
 }
 
 /**
- * Fold Anthropic SSE usage events. Preserves first message_start input_tokens.
+ * Fold Anthropic SSE usage events.
+ * Preserves first message_start input_tokens + ordered input_tokens snapshots.
  * Never invents numbers — only copies provider usage objects.
  */
 export function foldAnthropicStreamUsage(state, type, evt) {
+  const prevSnapshots = Array.isArray(state?.input_token_snapshots)
+    ? state.input_token_snapshots
+    : [];
   const next = {
     usage: state?.usage ?? null,
     start_input_tokens:
@@ -3035,6 +3039,7 @@ export function foldAnthropicStreamUsage(state, type, evt) {
       Number.isFinite(state.start_input_tokens)
         ? state.start_input_tokens
         : null,
+    input_token_snapshots: prevSnapshots,
   };
   let piece = null;
   if (type === "message_start" && evt?.message?.usage) {
@@ -3051,11 +3056,24 @@ export function foldAnthropicStreamUsage(state, type, evt) {
   ) {
     next.start_input_tokens = piece.input_tokens;
   }
+  if (
+    typeof piece.input_tokens === "number" &&
+    Number.isFinite(piece.input_tokens)
+  ) {
+    // Preserve every provider event that carries input_tokens (including repeats).
+    next.input_token_snapshots = [
+      ...prevSnapshots,
+      {
+        index: prevSnapshots.length,
+        input_tokens: piece.input_tokens,
+      },
+    ];
+  }
   next.usage = { ...(next.usage ?? {}), ...piece };
   return next;
 }
 
-/** Attach preserved start_input_tokens onto the merged final usage object (QA field). */
+/** Attach preserved start_input_tokens + ordered snapshots onto final usage (QA fields). */
 export function finalizeAnthropicStreamUsage(state) {
   const usage = state?.usage && typeof state.usage === "object" ? state.usage : null;
   const start =
@@ -3063,15 +3081,29 @@ export function finalizeAnthropicStreamUsage(state) {
     Number.isFinite(state.start_input_tokens)
       ? state.start_input_tokens
       : null;
-  if (!usage && start == null) return null;
+  const snapshots = Array.isArray(state?.input_token_snapshots)
+    ? state.input_token_snapshots
+        .filter(
+          (s) =>
+            s &&
+            typeof s.input_tokens === "number" &&
+            Number.isFinite(s.input_tokens),
+        )
+        .map((s, i) => ({
+          index: typeof s.index === "number" ? s.index : i,
+          input_tokens: s.input_tokens,
+        }))
+    : [];
+  if (!usage && start == null && snapshots.length === 0) return null;
   const out = { ...(usage ?? {}) };
   if (start != null) out.start_input_tokens = start;
+  if (snapshots.length > 0) out.provider_input_token_snapshots = snapshots;
   return out;
 }
 
 /**
  * Compact actual Anthropic usage numbers for QA logs.
- * start_input_tokens = message_start; final_input_tokens = merged final input_tokens.
+ * start/final + ordered provider_input_token_snapshots (numbers only).
  * Never estimated_input_tokens / chars÷4.
  */
 export function buildKeyClaudeProviderUsageObserve(usage = null) {
@@ -3079,12 +3111,28 @@ export function buildKeyClaudeProviderUsageObserve(usage = null) {
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const start =
     usage && typeof usage === "object" ? num(usage.start_input_tokens) : null;
+  const rawSnapshots =
+    usage && typeof usage === "object" && Array.isArray(usage.provider_input_token_snapshots)
+      ? usage.provider_input_token_snapshots
+      : [];
+  const provider_input_token_snapshots = rawSnapshots
+    .filter(
+      (s) =>
+        s &&
+        typeof s.input_tokens === "number" &&
+        Number.isFinite(s.input_tokens),
+    )
+    .map((s, i) => ({
+      index: typeof s.index === "number" ? s.index : i,
+      input_tokens: s.input_tokens,
+    }));
   return {
     start_input_tokens: start,
     final_input_tokens: u.input_tokens,
     output_tokens: u.output_tokens,
     cache_creation_input_tokens: u.cache_creation_input_tokens,
     cache_read_input_tokens: u.cache_read_input_tokens,
+    provider_input_token_snapshots,
   };
 }
 
@@ -4658,7 +4706,11 @@ async function readAnthropicSseWithAnswerStream({
   let buffer = "";
   let ttft_ms = null;
   let message = null;
-  let usageState = { usage: null, start_input_tokens: null };
+  let usageState = {
+    usage: null,
+    start_input_tokens: null,
+    input_token_snapshots: [],
+  };
   let contentBlocks = [];
   let streamedAnswer = "";
   let answerComplete = false;
