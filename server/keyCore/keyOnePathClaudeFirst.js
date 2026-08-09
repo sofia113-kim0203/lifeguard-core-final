@@ -363,6 +363,9 @@ export function buildOnePathClaudeFirstRequest({
     system,
     messages,
     tools,
+    // Anthropic Automatic Prompt Caching (official): top-level on /v1/messages.
+    // https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+    cache_control: { type: "ephemeral" },
     selection_plan,
     owned_originals: ownedOriginals,
     multi_attachments: multiAttachments,

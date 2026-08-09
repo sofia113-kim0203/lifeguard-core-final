@@ -43,6 +43,12 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     pdfMeta: { document_id: "doc-a" },
   });
   assert.equal(req.meta.LIVE_REQUEST_MODE, ONE_PATH_LIVE_MODE);
+  // Anthropic Automatic Prompt Cache — top-level only (not content-block breakpoints).
+  assert.deepEqual(req.cache_control, { type: "ephemeral" });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(req.system[0], "cache_control"),
+    false,
+  );
   const blocks = req.messages[0].content.filter(
     (b) => b.type === "document" || b.type === "image",
   );
@@ -50,6 +56,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(blocks[0].type, "document");
   assert.equal(blocks[0].source.media_type, "application/pdf");
   console.log("PASS U2 PDF document block once");
+  console.log("PASS U2b automatic prompt cache top-level ephemeral");
 }
 
 {

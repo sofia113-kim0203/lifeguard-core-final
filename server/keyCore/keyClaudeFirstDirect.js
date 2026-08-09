@@ -6192,6 +6192,11 @@ async function callClaudeFirstDirect({
       system,
       messages,
       stream: true,
+      // ONE_PATH Automatic Prompt Cache — Anthropic official top-level only.
+      ...(selectiveLiveRequest?.cache_control &&
+      typeof selectiveLiveRequest.cache_control === "object"
+        ? { cache_control: selectiveLiveRequest.cache_control }
+        : {}),
       ...(effectiveProviderTools.length
         ? { tools: effectiveProviderTools, tool_choice: { type: "auto" } }
         : {}),
