@@ -140,28 +140,26 @@ function isLifeLedgerHandoffEmpty(value) {
 }
 
 /**
- * S8-2 — Customer-card surface role for relationship/life context only.
- * Does not delete ledger rows, change storage, or alter verified insurance authority.
- * Claude may still read the content; it must not look like active current-fact speech fuel.
+ * S8-2B — Relationship memory background envelope.
+ * Keeps life_ledger content intact, but moves it out of the same top-level
+ * semantic layer as verified/current facts (confirmed_facts / insurance_contracts).
+ * No delete. No DB/schema change. Claude may still read for recall.
  */
-function withLifeLedgerRelationshipSurface(brief) {
+function withRelationshipBackgroundEnvelope(brief) {
   if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
-  const priorNote = brief.note != null ? String(brief.note).trim() : "";
+  if (isLifeLedgerHandoffEmpty(brief)) return null;
   return {
-    ...brief,
     surface_role: "relationship_background",
     fact_authority: "not_verified_fact",
     speech_priority: "not_active_current_fact",
-    note: [
-      priorNote,
-      "RELATIONSHIP_BACKGROUND: goals/preferences/decisions/open_questions/life_threads/outcomes are remembered relationship context.",
-      "Not verified insurance facts. Not default speech candidates for this turn.",
+    usage_note: [
+      "RELATIONSHIP_BACKGROUND envelope — remembered relationship/life context only.",
+      "Not verified insurance facts. Not active/current fact for this turn by default.",
       "Current customer request has highest response priority.",
-      "Use only when this turn directly continues that background, avoids needless re-explanation, or omission would cause real harm/responsibility risk.",
       "If the current request is sufficient alone, keep this background silent.",
-    ]
-      .filter(Boolean)
-      .join(" "),
+      "Use when the customer directly continues this background, to avoid needless re-explanation, or when omission would cause real harm/responsibility risk.",
+    ].join(" "),
+    life_ledger: { ...brief },
   };
 }
 
@@ -201,7 +199,18 @@ function omitEmptyHandoffFieldsFromClaudeCard(card) {
   if (isInsuranceClockHandoffEmpty(card.insurance_clock)) {
     delete card.insurance_clock;
   }
-  if (isLifeLedgerHandoffEmpty(card.life_ledger)) {
+  // S8-2B: life memory lives under relationship_background.life_ledger (not top-level peer).
+  if (
+    card.relationship_background == null ||
+    isLifeLedgerHandoffEmpty(card.relationship_background.life_ledger)
+  ) {
+    delete card.relationship_background;
+  }
+  // Legacy top-level life_ledger must not remain as a verified-fact peer.
+  if (
+    card.life_ledger == null ||
+    isLifeLedgerHandoffEmpty(card.life_ledger)
+  ) {
     delete card.life_ledger;
   }
   if (isClaimEvidenceHandoffEmpty(card.claim_evidence)) {
@@ -339,7 +348,10 @@ export function buildKeyCustomerCardForClaude({
     active_goal: activeGoal,
     prior_consultation: priorConsultation,
     insurance_clock: ssot?.insuranceClockBrief || null,
-    life_ledger: withLifeLedgerRelationshipSurface(ssot?.lifeLedgerBrief),
+    // S8-2B: relationship/life memory under background envelope (not top-level peer of confirmed_facts).
+    relationship_background: withRelationshipBackgroundEnvelope(
+      ssot?.lifeLedgerBrief,
+    ),
     claim_evidence: ssot?.claimEvidenceBrief || null,
     active_claims: activeClaims,
     recent_conversation: withRecentConversationAuthorityMarkers(

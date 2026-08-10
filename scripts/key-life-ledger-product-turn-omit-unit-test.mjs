@@ -214,16 +214,20 @@ function productHandoff() {
   console.log("PASS source Exact Change lock (S3 + S2 + S1)");
 }
 
-// T1 — product → no life_ledger
+// T1 — product → no life_ledger / relationship_background
 {
   assert.equal(isExplicitCurrentInsuranceProductRequest(PRODUCT_Q), true);
   const req = buildReq(PRODUCT_Q, productHandoff());
   const card = extractCard(req);
   assert.equal(Object.prototype.hasOwnProperty.call(card, "life_ledger"), false);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(card, "relationship_background"),
+    false,
+  );
   console.log("PASS T1 product turn omits life_ledger");
 }
 
-// T2 — other non-product → life_ledger kept
+// T2 — other non-product → life_ledger kept under relationship_background envelope
 {
   assert.equal(isExplicitCurrentInsuranceProductRequest(OTHER_Q), false);
   const req = buildReq(OTHER_Q, {
@@ -232,12 +236,13 @@ function productHandoff() {
     lifeLedgerBrief: handoffLifeLedgerBrief(OTHER_Q, ledgerIn),
   });
   const card = extractCard(req);
-  assert.ok(card?.life_ledger, "T2: life_ledger missing");
-  assert.equal(card.life_ledger.goals[0].id, "g1");
+  assert.equal("life_ledger" in card, false, "T2: life_ledger must not be top-level");
+  assert.ok(card?.relationship_background?.life_ledger, "T2: life_ledger missing");
+  assert.equal(card.relationship_background.life_ledger.goals[0].id, "g1");
   console.log("PASS T2 other turn keeps life_ledger");
 }
 
-// T3 — claim → life_ledger kept
+// T3 — claim → life_ledger kept under relationship_background envelope
 {
   assert.equal(isExplicitCurrentInsuranceProductRequest(CLAIM_Q), false);
   const req = buildReq(CLAIM_Q, {
@@ -246,7 +251,10 @@ function productHandoff() {
     lifeLedgerBrief: handoffLifeLedgerBrief(CLAIM_Q, ledgerIn),
   });
   const card = extractCard(req);
-  assert.ok(card?.life_ledger, "T3: life_ledger missing");
+  assert.ok(
+    card?.relationship_background?.life_ledger,
+    "T3: life_ledger missing",
+  );
   console.log("PASS T3 claim turn keeps life_ledger");
 }
 

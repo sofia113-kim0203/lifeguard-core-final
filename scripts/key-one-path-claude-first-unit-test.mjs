@@ -757,6 +757,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   const HANDOFF_KEYS = [
     "entrusted_originals",
     "insurance_clock",
+    "relationship_background",
     "life_ledger",
     "claim_evidence",
     "active_claims",
@@ -861,6 +862,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     },
   });
   assert.equal("insurance_clock" in boilerplateCard, false);
+  assert.equal("relationship_background" in boilerplateCard, false);
   assert.equal("life_ledger" in boilerplateCard, false);
   assert.equal("claim_evidence" in boilerplateCard, false);
   assert.equal("entrusted_originals" in boilerplateCard, false);
@@ -931,14 +933,23 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   });
   assert.equal(cardFull.insurance_clock.upcoming[0].label, "갱신");
   assert.deepEqual(cardFull.insurance_clock, clockIn);
-  // S8-2: life_ledger content preserved; surface role marks relationship background.
-  assert.equal(cardFull.life_ledger.goals[0].id, ledgerIn.goals[0].id);
-  assert.equal(cardFull.life_ledger.goals[0].content, ledgerIn.goals[0].content);
-  assert.equal(cardFull.life_ledger.item_count, ledgerIn.item_count);
-  assert.equal(cardFull.life_ledger.surface_role, "relationship_background");
-  assert.equal(cardFull.life_ledger.speech_priority, "not_active_current_fact");
-  assert.equal(cardFull.life_ledger.fact_authority, "not_verified_fact");
-  assert.ok(String(cardFull.life_ledger.note || "").includes("RELATIONSHIP_BACKGROUND"));
+  // S8-2B: life_ledger nested under relationship_background envelope (not top-level peer).
+  assert.equal("life_ledger" in cardFull, false);
+  assert.ok(cardFull.relationship_background, "C: relationship_background envelope");
+  assert.equal(cardFull.relationship_background.surface_role, "relationship_background");
+  assert.equal(cardFull.relationship_background.speech_priority, "not_active_current_fact");
+  assert.equal(cardFull.relationship_background.fact_authority, "not_verified_fact");
+  assert.ok(
+    String(cardFull.relationship_background.usage_note || "").includes(
+      "keep this background silent",
+    ),
+  );
+  assert.equal(cardFull.relationship_background.life_ledger.goals[0].id, ledgerIn.goals[0].id);
+  assert.equal(
+    cardFull.relationship_background.life_ledger.goals[0].content,
+    ledgerIn.goals[0].content,
+  );
+  assert.equal(cardFull.relationship_background.life_ledger.item_count, ledgerIn.item_count);
   assert.deepEqual(cardFull.claim_evidence, evidenceIn);
   assert.equal(cardFull.active_claims.length, 1);
   assert.equal(cardFull.active_claims[0].claim_case_key, "case-1");
@@ -982,6 +993,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     },
   });
   assert.deepEqual(mixed.insurance_clock, mixedClock);
+  assert.equal("relationship_background" in mixed, false);
   assert.equal("life_ledger" in mixed, false);
   assert.equal("claim_evidence" in mixed, false);
   assert.equal("active_claims" in mixed, false);
@@ -1251,7 +1263,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
 }
 
 {
-  // S8-2 — relationship memory surface role (structure only; no golden answer text).
+  // S8-2B — relationship background envelope (structure only; no golden answer text).
   const parentCareThread = {
     id: "lt-parent-care",
     type: "life_thread",
@@ -1294,7 +1306,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     },
   ];
 
-  // Case A — idle daily question: relationship memory present but not active current fact.
+  // Case A — idle daily question: parent-care inside background envelope, not verified layer.
   const cardA = buildKeyCustomerCardForClaude({
     policyTruthContext: {
       confirmed_contracts: contracts,
@@ -1303,7 +1315,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     history: [
       { role: "user", text: "안녕" },
       { role: "assistant", text: "안녕하세요." },
-      { role: "user", text: "오늘 퇴근하고 그냥 쉴까" },
+      { role: "user", text: "오늘 퇴근하고 그냥 쉴까 고민중이야" },
     ],
     readyCardSsot: {
       lifeLedgerBrief: ledgerWithThread,
@@ -1311,13 +1323,21 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       priorConsultation: { related_turns: [], open_goals: [], life_threads: [] },
     },
   });
-  assert.ok(cardA.life_ledger, "A: life_ledger must remain available");
-  assert.equal(cardA.life_ledger.life_threads[0].content, "[PARENT_CARE_PRESENT]");
-  assert.equal(cardA.life_ledger.surface_role, "relationship_background");
-  assert.equal(cardA.life_ledger.speech_priority, "not_active_current_fact");
-  assert.equal(cardA.life_ledger.fact_authority, "not_verified_fact");
-  assert.ok(
-    String(cardA.life_ledger.note || "").includes("keep this background silent"),
+  const rbA = cardA.relationship_background;
+  assert.ok(rbA, "A: relationship_background envelope");
+  assert.equal("life_ledger" in cardA, false, "A: life_ledger must not be top-level peer");
+  assert.equal(rbA.life_ledger.life_threads[0].content, "[PARENT_CARE_PRESENT]");
+  assert.equal(rbA.surface_role, "relationship_background");
+  assert.equal(rbA.speech_priority, "not_active_current_fact");
+  assert.equal(rbA.fact_authority, "not_verified_fact");
+  assert.ok(String(rbA.usage_note || "").includes("keep this background silent"));
+  assert.equal(
+    JSON.stringify(cardA.confirmed_facts || []).includes("PARENT_CARE"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(cardA.insurance_contracts || []).includes("PARENT_CARE"),
+    false,
   );
   assert.equal(cardA.insurance_contracts[0].insurer, "테스트손보");
   assert.equal(cardA.confirmed_facts[0].literal, "암진단비");
@@ -1334,13 +1354,14 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     ],
     readyCardSsot: { lifeLedgerBrief: ledgerWithThread },
   });
-  assert.ok(cardB.life_ledger, "B: relationship memory still available");
-  assert.equal(cardB.life_ledger.life_threads.length, 1);
-  assert.equal(cardB.life_ledger.speech_priority, "not_active_current_fact");
-  // Availability preserved — no deletion / no forced speech template.
-  assert.equal(cardB.life_ledger.life_threads[0].id, "lt-parent-care");
+  const rbB = cardB.relationship_background;
+  assert.ok(rbB?.life_ledger, "B: relationship memory still available");
+  assert.equal(rbB.life_ledger.life_threads.length, 1);
+  assert.equal(rbB.speech_priority, "not_active_current_fact");
+  assert.equal(rbB.life_ledger.life_threads[0].id, "lt-parent-care");
+  assert.equal("life_ledger" in cardB, false);
 
-  // Case C — deadline/promise authority not weakened by ledger surface markers.
+  // Case C — deadline/promise authority not weakened by background envelope.
   const cardC = buildKeyCustomerCardForClaude({
     policyTruthContext: { confirmed_contracts: contracts, confirmed_facts: facts },
     readyCardSsot: {
@@ -1354,13 +1375,21 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(cardC.active_goal.goal, "청구 서류 준비");
   assert.equal(cardC.insurance_contracts.length, 1);
   assert.equal(cardC.confirmed_facts.length, 1);
-  assert.equal(cardC.life_ledger.surface_role, "relationship_background");
+  assert.equal(cardC.relationship_background.surface_role, "relationship_background");
+  assert.ok(cardC.relationship_background.life_ledger.life_threads[0]);
 
   console.log(
     JSON.stringify({
-      S8_2_MEMORY_SURFACE_UNIT: "PASS",
+      S8_2B_RELATIONSHIP_BACKGROUND_ENVELOPE_UNIT: "PASS",
+      RELATIONSHIP_BACKGROUND_SEPARATE_ENVELOPE: "YES",
+      VERIFIED_FACT_LAYER_SEPARATE: "YES",
+      BACKGROUND_METADATA_ADJACENT_TO_LIFE_LEDGER: "YES",
+      PARENT_CARE_MEMORY_PRESENT: "YES",
+      PARENT_CARE_INSIDE_RELATIONSHIP_BACKGROUND: "YES",
+      PARENT_CARE_NOT_IN_VERIFIED_CURRENT_FACT_LAYER: "YES",
       RELATIONSHIP_MEMORY_STILL_AVAILABLE: "YES",
-      RELATIONSHIP_MEMORY_NOT_ACTIVE_CURRENT_FACT: "YES",
+      LIFE_LEDGER_CONTENT_PRESERVED: "YES",
+      LIFE_THREADS_CONTENT_PRESERVED: "YES",
       VERIFIED_FACT_AUTHORITY_PRESERVED: "YES",
       DEADLINE_PROMISE_MEMORY_PRESERVED: "YES",
     }),
