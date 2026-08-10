@@ -140,12 +140,11 @@ function isLifeLedgerHandoffEmpty(value) {
 }
 
 /**
- * S8-2B — Relationship memory background envelope.
- * Keeps life_ledger content intact, but moves it out of the same top-level
- * semantic layer as verified/current facts (confirmed_facts / insurance_contracts).
+ * S8-2D — Relationship background payload for a separate Claude request block.
+ * Keeps life_ledger content intact. Not placed on key_customer_card peer layer.
  * No delete. No DB/schema change. Claude may still read for recall.
  */
-function withRelationshipBackgroundEnvelope(brief) {
+export function buildKeyRelationshipBackgroundForClaude(brief) {
   if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
   if (isLifeLedgerHandoffEmpty(brief)) return null;
   return {
@@ -153,8 +152,9 @@ function withRelationshipBackgroundEnvelope(brief) {
     fact_authority: "not_verified_fact",
     speech_priority: "not_active_current_fact",
     usage_note: [
-      "RELATIONSHIP_BACKGROUND envelope — remembered relationship/life context only.",
+      "KEY_RELATIONSHIP_BACKGROUND — remembered relationship/life context only.",
       "Not verified insurance facts. Not active/current fact for this turn by default.",
+      "Not part of key_customer_card verified/current authority layer.",
       "Current customer request has highest response priority.",
       "If the current request is sufficient alone, keep this background silent.",
       "Use when the customer directly continues this background, to avoid needless re-explanation, or when omission would cause real harm/responsibility risk.",
@@ -199,20 +199,9 @@ function omitEmptyHandoffFieldsFromClaudeCard(card) {
   if (isInsuranceClockHandoffEmpty(card.insurance_clock)) {
     delete card.insurance_clock;
   }
-  // S8-2B: life memory lives under relationship_background.life_ledger (not top-level peer).
-  if (
-    card.relationship_background == null ||
-    isLifeLedgerHandoffEmpty(card.relationship_background.life_ledger)
-  ) {
-    delete card.relationship_background;
-  }
-  // Legacy top-level life_ledger must not remain as a verified-fact peer.
-  if (
-    card.life_ledger == null ||
-    isLifeLedgerHandoffEmpty(card.life_ledger)
-  ) {
-    delete card.life_ledger;
-  }
+  // S8-2D: relationship memory is not a customer-card peer (delivered as separate block).
+  delete card.relationship_background;
+  delete card.life_ledger;
   if (isClaimEvidenceHandoffEmpty(card.claim_evidence)) {
     delete card.claim_evidence;
   }
@@ -348,10 +337,8 @@ export function buildKeyCustomerCardForClaude({
     active_goal: activeGoal,
     prior_consultation: priorConsultation,
     insurance_clock: ssot?.insuranceClockBrief || null,
-    // S8-2B: relationship/life memory under background envelope (not top-level peer of confirmed_facts).
-    relationship_background: withRelationshipBackgroundEnvelope(
-      ssot?.lifeLedgerBrief,
-    ),
+    // S8-2D: life_ledger / relationship_background intentionally omitted from card.
+    // Delivered separately as KEY_RELATIONSHIP_BACKGROUND (see keyOnePathClaudeFirst).
     claim_evidence: ssot?.claimEvidenceBrief || null,
     active_claims: activeClaims,
     recent_conversation: withRecentConversationAuthorityMarkers(

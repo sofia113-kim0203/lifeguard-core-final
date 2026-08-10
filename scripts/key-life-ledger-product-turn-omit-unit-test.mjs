@@ -122,6 +122,24 @@ function extractKeyRelevant(req) {
   return null;
 }
 
+function extractRelationshipBackground(req) {
+  for (const m of req.messages || []) {
+    for (const b of Array.isArray(m?.content) ? m.content : []) {
+      const text = typeof b?.text === "string" ? b.text : "";
+      if (!text) continue;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed?.KEY_RELATIONSHIP_BACKGROUND) {
+          return parsed.KEY_RELATIONSHIP_BACKGROUND;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return null;
+}
+
 function buildReq(question, { claimEvidenceBrief, activeClaimCases, lifeLedgerBrief }) {
   const packet = buildKeyRelevantMemoryPacket({
     question,
@@ -214,7 +232,7 @@ function productHandoff() {
   console.log("PASS source Exact Change lock (S3 + S2 + S1)");
 }
 
-// T1 — product → no life_ledger / relationship_background
+// T1 — product → no life_ledger on card / no KEY_RELATIONSHIP_BACKGROUND
 {
   assert.equal(isExplicitCurrentInsuranceProductRequest(PRODUCT_Q), true);
   const req = buildReq(PRODUCT_Q, productHandoff());
@@ -224,10 +242,11 @@ function productHandoff() {
     Object.prototype.hasOwnProperty.call(card, "relationship_background"),
     false,
   );
+  assert.equal(extractRelationshipBackground(req), null);
   console.log("PASS T1 product turn omits life_ledger");
 }
 
-// T2 — other non-product → life_ledger kept under relationship_background envelope
+// T2 — other non-product → life_ledger via KEY_RELATIONSHIP_BACKGROUND (not card peer)
 {
   assert.equal(isExplicitCurrentInsuranceProductRequest(OTHER_Q), false);
   const req = buildReq(OTHER_Q, {
@@ -237,12 +256,14 @@ function productHandoff() {
   });
   const card = extractCard(req);
   assert.equal("life_ledger" in card, false, "T2: life_ledger must not be top-level");
-  assert.ok(card?.relationship_background?.life_ledger, "T2: life_ledger missing");
-  assert.equal(card.relationship_background.life_ledger.goals[0].id, "g1");
+  assert.equal("relationship_background" in card, false, "T2: not card peer");
+  const rb = extractRelationshipBackground(req);
+  assert.ok(rb?.life_ledger, "T2: life_ledger missing");
+  assert.equal(rb.life_ledger.goals[0].id, "g1");
   console.log("PASS T2 other turn keeps life_ledger");
 }
 
-// T3 — claim → life_ledger kept under relationship_background envelope
+// T3 — claim → life_ledger via KEY_RELATIONSHIP_BACKGROUND (not card peer)
 {
   assert.equal(isExplicitCurrentInsuranceProductRequest(CLAIM_Q), false);
   const req = buildReq(CLAIM_Q, {
@@ -251,8 +272,9 @@ function productHandoff() {
     lifeLedgerBrief: handoffLifeLedgerBrief(CLAIM_Q, ledgerIn),
   });
   const card = extractCard(req);
+  assert.equal("relationship_background" in card, false);
   assert.ok(
-    card?.relationship_background?.life_ledger,
+    extractRelationshipBackground(req)?.life_ledger,
     "T3: life_ledger missing",
   );
   console.log("PASS T3 claim turn keeps life_ledger");

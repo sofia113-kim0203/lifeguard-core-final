@@ -9,7 +9,10 @@ import {
   normalizeOwnedOriginals,
   ownedOriginalsToMultiAttachments,
 } from "./keyOwnedOriginalsCanonical.js";
-import { buildKeyCustomerCardForClaude } from "./keyCustomerCard.js";
+import {
+  buildKeyCustomerCardForClaude,
+  buildKeyRelationshipBackgroundForClaude,
+} from "./keyCustomerCard.js";
 import {
   KEY_MEMORY_AVAILABILITY,
   KEY_RELATIONSHIP,
@@ -305,6 +308,15 @@ export function buildOnePathClaudeFirstRequest({
   const keyRelevantEvidence = buildKeyRelevantEvidenceForOnePath(
     keyRelevantMemoryPacket,
   );
+  // S8-2D — relationship/life memory as separate non-authoritative user block.
+  // Same Claude 1-call; not a card peer of confirmed_facts; storage unchanged.
+  const lifeLedgerBriefForBackground =
+    readyCardSsot && typeof readyCardSsot === "object"
+      ? readyCardSsot.lifeLedgerBrief
+      : null;
+  const keyRelationshipBackground = buildKeyRelationshipBackgroundForClaude(
+    lifeLedgerBriefForBackground,
+  );
   // Explicit current-product / needed-coverage recommend: separate insurance matcher.
   // Daily-chat matchers resolve independently (never merged into productShowcase).
   // tools + showcase system contract stay byte-stable for Anthropic prompt-cache prefix.
@@ -357,6 +369,16 @@ export function buildOnePathClaudeFirstRequest({
       type: "text",
       text: JSON.stringify({
         KEY_RELEVANT_EVIDENCE: keyRelevantEvidence,
+      }),
+    });
+  }
+
+  // S8-2D — relationship background after verified evidence; before CURRENT_CUSTOMER_REQUEST.
+  if (keyRelationshipBackground) {
+    content.push({
+      type: "text",
+      text: JSON.stringify({
+        KEY_RELATIONSHIP_BACKGROUND: keyRelationshipBackground,
       }),
     });
   }
@@ -415,6 +437,7 @@ export function buildOnePathClaudeFirstRequest({
     selected_prompt_blocks: [
       "ONE_PATH_CUSTOMER_CARD",
       ...(keyRelevantEvidence ? ["KEY_RELEVANT_EVIDENCE"] : []),
+      ...(keyRelationshipBackground ? ["KEY_RELATIONSHIP_BACKGROUND"] : []),
       ...(dailyChatPolicy.lane &&
       dailyChatPolicy.lane !== ONE_PATH_DAILY_CHAT_LANES.NONE
         ? ["KEY_DAILY_CHAT_POLICY"]
@@ -449,6 +472,7 @@ export function buildOnePathClaudeFirstRequest({
     multi_attachments: multiAttachments,
     key_customer_card: keyCustomerCard,
     key_relevant_evidence: keyRelevantEvidence,
+    key_relationship_background: keyRelationshipBackground,
     customer_relationship_state: relationshipState,
     inventory: {
       live_request_mode: ONE_PATH_LIVE_MODE,

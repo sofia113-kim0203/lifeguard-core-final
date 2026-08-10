@@ -12,7 +12,10 @@ import {
   providerBodyHasForbiddenFactoryPayload,
   shouldSkipProviderOnCustomerAnswerPath,
 } from "../server/keyCore/keyOnePathClaudeFirst.js";
-import { buildKeyCustomerCardForClaude } from "../server/keyCore/keyCustomerCard.js";
+import {
+  buildKeyCustomerCardForClaude,
+  buildKeyRelationshipBackgroundForClaude,
+} from "../server/keyCore/keyCustomerCard.js";
 import {
   resolveKeyCustomerRelationshipState,
   shouldStopProviderForMemoryQueryFailure,
@@ -933,23 +936,18 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   });
   assert.equal(cardFull.insurance_clock.upcoming[0].label, "갱신");
   assert.deepEqual(cardFull.insurance_clock, clockIn);
-  // S8-2B: life_ledger nested under relationship_background envelope (not top-level peer).
+  // S8-2D: life_ledger not on customer card; separate background builder preserves content.
   assert.equal("life_ledger" in cardFull, false);
-  assert.ok(cardFull.relationship_background, "C: relationship_background envelope");
-  assert.equal(cardFull.relationship_background.surface_role, "relationship_background");
-  assert.equal(cardFull.relationship_background.speech_priority, "not_active_current_fact");
-  assert.equal(cardFull.relationship_background.fact_authority, "not_verified_fact");
-  assert.ok(
-    String(cardFull.relationship_background.usage_note || "").includes(
-      "keep this background silent",
-    ),
-  );
-  assert.equal(cardFull.relationship_background.life_ledger.goals[0].id, ledgerIn.goals[0].id);
-  assert.equal(
-    cardFull.relationship_background.life_ledger.goals[0].content,
-    ledgerIn.goals[0].content,
-  );
-  assert.equal(cardFull.relationship_background.life_ledger.item_count, ledgerIn.item_count);
+  assert.equal("relationship_background" in cardFull, false);
+  const rbFull = buildKeyRelationshipBackgroundForClaude(ledgerIn);
+  assert.ok(rbFull, "C: relationship background payload");
+  assert.equal(rbFull.surface_role, "relationship_background");
+  assert.equal(rbFull.speech_priority, "not_active_current_fact");
+  assert.equal(rbFull.fact_authority, "not_verified_fact");
+  assert.ok(String(rbFull.usage_note || "").includes("keep this background silent"));
+  assert.equal(rbFull.life_ledger.goals[0].id, ledgerIn.goals[0].id);
+  assert.equal(rbFull.life_ledger.goals[0].content, ledgerIn.goals[0].content);
+  assert.equal(rbFull.life_ledger.item_count, ledgerIn.item_count);
   assert.deepEqual(cardFull.claim_evidence, evidenceIn);
   assert.equal(cardFull.active_claims.length, 1);
   assert.equal(cardFull.active_claims[0].claim_case_key, "case-1");
@@ -1263,7 +1261,21 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
 }
 
 {
-  // S8-2B — relationship background envelope (structure only; no golden answer text).
+  // S8-2D — separate KEY_RELATIONSHIP_BACKGROUND block (structure only; no golden text).
+  const extractRelationshipBackground = (req) => {
+    for (const b of req.messages?.[0]?.content || []) {
+      if (b?.type !== "text" || typeof b.text !== "string") continue;
+      try {
+        const parsed = JSON.parse(b.text);
+        if (parsed?.KEY_RELATIONSHIP_BACKGROUND) {
+          return parsed.KEY_RELATIONSHIP_BACKGROUND;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return null;
+  };
   const parentCareThread = {
     id: "lt-parent-care",
     type: "life_thread",
@@ -1306,26 +1318,34 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     },
   ];
 
-  // Case A — idle daily question: parent-care inside background envelope, not verified layer.
-  const cardA = buildKeyCustomerCardForClaude({
-    policyTruthContext: {
-      confirmed_contracts: contracts,
-      confirmed_facts: facts,
-    },
+  // Case A — idle daily: memory in KEY_RELATIONSHIP_BACKGROUND, not card peer.
+  const reqA = buildOnePathClaudeFirstRequest({
+    question: "오늘 퇴근하고 그냥 쉴까 고민중이야",
     history: [
       { role: "user", text: "안녕" },
       { role: "assistant", text: "안녕하세요." },
       { role: "user", text: "오늘 퇴근하고 그냥 쉴까 고민중이야" },
     ],
+    policyTruthContext: {
+      confirmed_contracts: contracts,
+      confirmed_facts: facts,
+    },
     readyCardSsot: {
       lifeLedgerBrief: ledgerWithThread,
       insuranceClockBrief: clockKeep,
       priorConsultation: { related_turns: [], open_goals: [], life_threads: [] },
     },
   });
-  const rbA = cardA.relationship_background;
-  assert.ok(rbA, "A: relationship_background envelope");
-  assert.equal("life_ledger" in cardA, false, "A: life_ledger must not be top-level peer");
+  const cardA = reqA.key_customer_card;
+  const rbA = extractRelationshipBackground(reqA);
+  assert.ok(rbA, "A: KEY_RELATIONSHIP_BACKGROUND block");
+  assert.ok(reqA.key_relationship_background, "A: request exposes background");
+  assert.equal(
+    reqA.key_relationship_background.life_ledger.life_threads[0].content,
+    rbA.life_ledger.life_threads[0].content,
+  );
+  assert.equal("life_ledger" in cardA, false);
+  assert.equal("relationship_background" in cardA, false);
   assert.equal(rbA.life_ledger.life_threads[0].content, "[PARENT_CARE_PRESENT]");
   assert.equal(rbA.surface_role, "relationship_background");
   assert.equal(rbA.speech_priority, "not_active_current_fact");
@@ -1342,10 +1362,14 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(cardA.insurance_contracts[0].insurer, "테스트손보");
   assert.equal(cardA.confirmed_facts[0].literal, "암진단비");
   assert.equal(cardA.insurance_clock.upcoming[0].label, "보험료 납입");
-  assert.deepEqual(cardA.insurance_clock, clockKeep);
+  assert.ok(
+    reqA.selection_plan.selected_prompt_blocks.includes("KEY_RELATIONSHIP_BACKGROUND"),
+  );
+  assert.equal(reqA.meta.DEFAULT_PROVIDER_CALL_TARGET, 1);
 
-  // Case B — customer continues parent-care topic: same memory still available to read.
-  const cardB = buildKeyCustomerCardForClaude({
+  // Case B — recall: same relationship memory still available on separate block.
+  const reqB = buildOnePathClaudeFirstRequest({
+    question: "지난번 부모님 간병 얘기 이어서 하자",
     history: [
       {
         role: "user",
@@ -1354,15 +1378,16 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     ],
     readyCardSsot: { lifeLedgerBrief: ledgerWithThread },
   });
-  const rbB = cardB.relationship_background;
+  const rbB = extractRelationshipBackground(reqB);
   assert.ok(rbB?.life_ledger, "B: relationship memory still available");
   assert.equal(rbB.life_ledger.life_threads.length, 1);
   assert.equal(rbB.speech_priority, "not_active_current_fact");
   assert.equal(rbB.life_ledger.life_threads[0].id, "lt-parent-care");
-  assert.equal("life_ledger" in cardB, false);
+  assert.equal("relationship_background" in reqB.key_customer_card, false);
 
-  // Case C — deadline/promise authority not weakened by background envelope.
-  const cardC = buildKeyCustomerCardForClaude({
+  // Case C — deadline/promise authority preserved on card; memory on separate block.
+  const reqC = buildOnePathClaudeFirstRequest({
+    question: "청구 서류 준비해야지",
     policyTruthContext: { confirmed_contracts: contracts, confirmed_facts: facts },
     readyCardSsot: {
       lifeLedgerBrief: ledgerWithThread,
@@ -1371,19 +1396,21 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       ssotReason: "ready_card",
     },
   });
-  assert.deepEqual(cardC.insurance_clock, clockKeep);
-  assert.equal(cardC.active_goal.goal, "청구 서류 준비");
-  assert.equal(cardC.insurance_contracts.length, 1);
-  assert.equal(cardC.confirmed_facts.length, 1);
-  assert.equal(cardC.relationship_background.surface_role, "relationship_background");
-  assert.ok(cardC.relationship_background.life_ledger.life_threads[0]);
+  assert.deepEqual(reqC.key_customer_card.insurance_clock, clockKeep);
+  assert.equal(reqC.key_customer_card.active_goal.goal, "청구 서류 준비");
+  assert.equal(reqC.key_customer_card.insurance_contracts.length, 1);
+  assert.equal(reqC.key_customer_card.confirmed_facts.length, 1);
+  assert.equal(
+    extractRelationshipBackground(reqC).surface_role,
+    "relationship_background",
+  );
+  assert.ok(extractRelationshipBackground(reqC).life_ledger.life_threads[0]);
 
   console.log(
     JSON.stringify({
-      S8_2B_RELATIONSHIP_BACKGROUND_ENVELOPE_UNIT: "PASS",
-      RELATIONSHIP_BACKGROUND_SEPARATE_ENVELOPE: "YES",
-      VERIFIED_FACT_LAYER_SEPARATE: "YES",
-      BACKGROUND_METADATA_ADJACENT_TO_LIFE_LEDGER: "YES",
+      S8_2D_RELATIONSHIP_BACKGROUND_BLOCK_UNIT: "PASS",
+      KEY_RELATIONSHIP_BACKGROUND_SEPARATE_BLOCK: "YES",
+      REMOVED_FROM_VERIFIED_CARD_PEER_LAYER: "YES",
       PARENT_CARE_MEMORY_PRESENT: "YES",
       PARENT_CARE_INSIDE_RELATIONSHIP_BACKGROUND: "YES",
       PARENT_CARE_NOT_IN_VERIFIED_CURRENT_FACT_LAYER: "YES",
@@ -1392,6 +1419,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       LIFE_THREADS_CONTENT_PRESERVED: "YES",
       VERIFIED_FACT_AUTHORITY_PRESERVED: "YES",
       DEADLINE_PROMISE_MEMORY_PRESERVED: "YES",
+      ONE_CLAUDE_CALL_PRESERVED: "YES",
     }),
   );
 }
