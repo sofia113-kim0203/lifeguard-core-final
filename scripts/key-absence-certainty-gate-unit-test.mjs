@@ -7,6 +7,9 @@ import {
   collectVerifiedNegativeCoverageEvidence,
   evaluateAbsenceCertaintyGate,
   shouldEmitAbsenceCertaintySlice,
+  evaluateCoverageAmountAttributionGate,
+  shouldEmitCoverageAmountIntegritySlice,
+  COVERAGE_AMOUNT_ATTRIBUTION_CLASS,
 } from "../server/keyCore/keyAbsenceCertaintyGate.js";
 import { hardOnlySafetyCheck } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { createImmediateAnswerDeltaStream } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
@@ -317,6 +320,220 @@ test("A2-T12 table: unsupported absence row만 veto / 나머지 원문", () => {
   assert.ok(out.includes("| 암진단비 | 3천만원 |"));
   assert.ok(out.includes("| 수술비 | 확인 필요 |"));
   assert.equal(stream.getCommitted(), out);
+});
+
+// --- S10D coverage amount attribution integrity (pre-emit veto) ---
+
+const S10D_COVERAGES_1_3 = [
+  {
+    coverage_name: "질병1~5종수술비IV (1종)",
+    coverage_amount: "50만원",
+    status: "verified",
+  },
+  {
+    coverage_name: "질병1~5종수술비IV (3종)",
+    coverage_amount: "500만원",
+    status: "verified",
+  },
+];
+
+function makeCombinedVetoStream(absenceEvidence = [], verifiedCoverages = []) {
+  const emitted = [];
+  const stream = createImmediateAnswerDeltaStream({
+    shouldEmitSlice(slice) {
+      return (
+        shouldEmitAbsenceCertaintySlice(slice, absenceEvidence) &&
+        shouldEmitCoverageAmountIntegritySlice(slice, verifiedCoverages)
+      );
+    },
+    onCommit(slice) {
+      emitted.push(slice);
+      return { keep: true };
+    },
+  });
+  return {
+    stream,
+    emitted,
+    customerText() {
+      return emitted.join("");
+    },
+  };
+}
+
+test("S10D-T1 MATCH — verified 1종=50 / answer 1종=50 → emit", () => {
+  const coverages = [
+    {
+      coverage_name: "질병1~5종수술비IV (1종)",
+      coverage_amount: "50만원",
+    },
+  ];
+  const text = "질병1~5종수술비IV (1종) 50만원입니다.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: coverages,
+  });
+  assert.equal(g.class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH);
+  assert.equal(shouldEmitCoverageAmountIntegritySlice(text, coverages), true);
+  const { stream, customerText } = makeCombinedVetoStream([], coverages);
+  stream.pushAnswerText(text);
+  stream.flush();
+  assert.equal(customerText(), text);
+});
+
+test("S10D-T2 CLEAR_MISMATCH — verified 1종=50 / answer 2종=50 → veto", () => {
+  const coverages = [
+    {
+      coverage_name: "질병1~5종수술비IV (1종)",
+      coverage_amount: "50만원",
+    },
+  ];
+  const text = "질병1~5종수술비IV (2종) 50만원입니다.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: coverages,
+  });
+  assert.equal(g.class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH);
+  assert.equal(shouldEmitCoverageAmountIntegritySlice(text, coverages), false);
+  const { stream, customerText } = makeCombinedVetoStream([], coverages);
+  stream.pushAnswerText(text);
+  stream.flush();
+  assert.equal(customerText(), "");
+  assert.equal(stream.getVetoedSliceCount() >= 1, true);
+});
+
+test("S10D-T3 CLEAR_MISMATCH — grouped 1·2종 각 50 → veto", () => {
+  const coverages = [
+    {
+      coverage_name: "질병1~5종수술비IV (1종)",
+      coverage_amount: "50만원",
+    },
+  ];
+  const text = "질병 1~5종 수술비 (1·2종) 각 50만원.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: coverages,
+  });
+  assert.equal(g.class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH);
+  assert.equal(shouldEmitCoverageAmountIntegritySlice(text, coverages), false);
+});
+
+test("S10D-T4 MATCH — 1종=50 / 3종=500 exact → emit", () => {
+  const text =
+    "질병1~5종수술비IV (1종) 50만원, (3종) 500만원입니다.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: S10D_COVERAGES_1_3,
+  });
+  assert.equal(g.class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH);
+  assert.equal(
+    shouldEmitCoverageAmountIntegritySlice(text, S10D_COVERAGES_1_3),
+    true,
+  );
+});
+
+test("S10D-T5 CLEAR_MISMATCH — verified 3종=500 / answer 4종=500 → veto", () => {
+  const coverages = [
+    {
+      coverage_name: "질병1~5종수술비IV (3종)",
+      coverage_amount: "500만원",
+    },
+  ];
+  const text = "질병1~5종수술비IV (4종) 500만원입니다.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: coverages,
+  });
+  assert.equal(g.class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH);
+  assert.equal(shouldEmitCoverageAmountIntegritySlice(text, coverages), false);
+});
+
+test("S10D-T6 NOT_CHECKABLE — ambiguous association → emit", () => {
+  const coverages = S10D_COVERAGES_1_3;
+  const text = "수술비 구성은 조금 더 열어봐야 정확히 말씀드릴 수 있어요.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: coverages,
+  });
+  assert.ok(
+    g.class === COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH ||
+      g.class === COVERAGE_AMOUNT_ATTRIBUTION_CLASS.NOT_CHECKABLE,
+  );
+  assert.equal(shouldEmitCoverageAmountIntegritySlice(text, coverages), true);
+});
+
+test("S10D-T7 일반론 숫자 — 비대상 → emit", () => {
+  const text =
+    "암 진단비는 3천만원을 이야기하는 경우도 있다.";
+  const g = evaluateCoverageAmountAttributionGate({
+    text,
+    verifiedCoverages: S10D_COVERAGES_1_3,
+  });
+  assert.notEqual(g.class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH);
+  assert.equal(
+    shouldEmitCoverageAmountIntegritySlice(text, S10D_COVERAGES_1_3),
+    true,
+  );
+});
+
+test("S10D-T8 보험료 일반문장 — 비대상 → emit", () => {
+  const text = "매달 보험료가 대략 얼마인지부터 같이 보면 좋아요.";
+  assert.equal(
+    shouldEmitCoverageAmountIntegritySlice(text, S10D_COVERAGES_1_3),
+    true,
+  );
+});
+
+test("S10D-T9 absence veto 회귀 — unsupported absence still veto", () => {
+  const bad = "뇌혈관 진단비는 포함돼 있지 않습니다.";
+  const { stream, customerText } = makeCombinedVetoStream([], S10D_COVERAGES_1_3);
+  stream.pushAnswerText(bad);
+  stream.flush();
+  assert.equal(customerText(), "");
+  assert.equal(stream.getVetoedSliceCount() >= 1, true);
+});
+
+test("S10D-T10 catch-up/remainder — CLEAR_MISMATCH 우회 emit 없음", () => {
+  const coverages = [
+    {
+      coverage_name: "질병1~5종수술비IV (1종)",
+      coverage_amount: "50만원",
+    },
+  ];
+  const bad = "질병 1~5종 수술비 (1·2종) 각 50만원.";
+  const { stream, customerText } = makeCombinedVetoStream([], coverages);
+  stream.pushAnswerText(bad);
+  assert.equal(customerText(), "");
+  // catch-up path must still veto
+  stream.catchUpFinalAnswer(bad, { stopReason: "end_turn" });
+  stream.flush();
+  assert.equal(customerText().includes("1·2종"), false);
+  assert.equal(customerText().includes("각 50만원"), false);
+  assert.equal(stream.getVetoedSliceCount() >= 1, true);
+});
+
+test("S10D-T3b S9A-shaped grouped expansion both lines → veto units", () => {
+  const coverages = S10D_COVERAGES_1_3;
+  const lineA = "질병 1~5종 수술비 (3·4종) 각 500만원.";
+  const lineB = "질병 1~5종 수술비 (1·2종) 각 50만원.";
+  assert.equal(
+    evaluateCoverageAmountAttributionGate({
+      text: lineA,
+      verifiedCoverages: coverages,
+    }).class,
+    COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH,
+  );
+  assert.equal(
+    evaluateCoverageAmountAttributionGate({
+      text: lineB,
+      verifiedCoverages: coverages,
+    }).class,
+    COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH,
+  );
+  const { stream, customerText } = makeCombinedVetoStream([], coverages);
+  stream.pushAnswerText(`${lineA} ${lineB}`);
+  stream.flush();
+  assert.equal(customerText().includes("3·4종"), false);
+  assert.equal(customerText().includes("1·2종"), false);
 });
 
 console.log(

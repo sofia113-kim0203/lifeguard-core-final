@@ -194,6 +194,7 @@ import {
   collectVerifiedNegativeCoverageEvidence,
   evaluateAbsenceCertaintyGate,
   shouldEmitAbsenceCertaintySlice,
+  shouldEmitCoverageAmountIntegritySlice,
 } from "./keyAbsenceCertaintyGate.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { repairInProgressClaimZeroBareYeyo } from "./keyCustomerTextCompleteness.js";
@@ -7863,11 +7864,19 @@ export async function runClaudeFirstDirectQuestionTurn({
   let sentenceStreamAborted = false;
   let sentenceAbortReason = null;
   // Repair A2 — sentence-boundary hold + absence veto before customer emit (no rewrite).
+  // S10D — same pre-emit point: CLEAR_MISMATCH coverage amount attribution also vetoes.
   let sseEmittedText = "";
   const absenceVetoEvidenceRef = { current: [] };
+  const coverageAmountIntegrityRef = { current: [] };
   const commitStream = createImmediateAnswerDeltaStream({
     shouldEmitSlice(slice) {
-      return shouldEmitAbsenceCertaintySlice(slice, absenceVetoEvidenceRef.current);
+      return (
+        shouldEmitAbsenceCertaintySlice(slice, absenceVetoEvidenceRef.current) &&
+        shouldEmitCoverageAmountIntegritySlice(
+          slice,
+          coverageAmountIntegrityRef.current,
+        )
+      );
     },
     onCommit(chunk) {
       const slice = String(chunk ?? "");
@@ -8538,10 +8547,15 @@ export async function runClaudeFirstDirectQuestionTurn({
     ? null
     : buildVerifiedCustomerChart(reality);
   // Repair A2 — KEY-owned negative evidence for pre-emit veto (before Claude paints).
+  // S10D — reuse same verified_document_coverages for amount↔kind attribution veto.
+  const verifiedDocCoveragesForIntegrity = Array.isArray(
+    chartForMemoryGate?.verified_document_coverages,
+  )
+    ? chartForMemoryGate.verified_document_coverages
+    : [];
+  coverageAmountIntegrityRef.current = verifiedDocCoveragesForIntegrity;
   absenceVetoEvidenceRef.current = collectVerifiedNegativeCoverageEvidence({
-    coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
-      ? chartForMemoryGate.verified_document_coverages
-      : [],
+    coverages: verifiedDocCoveragesForIntegrity,
     confirmedFacts: Array.isArray(chartForMemoryGate?.key_confirmed_source_facts)
       ? chartForMemoryGate.key_confirmed_source_facts
       : [],
@@ -8761,11 +8775,15 @@ export async function runClaudeFirstDirectQuestionTurn({
     cache_creation_ephemeral_5m_input_tokens:
       claude?.provider_usage?.cache_creation_ephemeral_5m_input_tokens ?? null,
   };
-  // Repair A2 — refresh evidence, then remainder flush through same veto (no rewrite).
+  // Repair A2 / S10D — refresh evidence, then remainder flush through same veto (no rewrite).
+  const verifiedDocCoveragesFlush = Array.isArray(
+    chartForMemoryGate?.verified_document_coverages,
+  )
+    ? chartForMemoryGate.verified_document_coverages
+    : [];
+  coverageAmountIntegrityRef.current = verifiedDocCoveragesFlush;
   absenceVetoEvidenceRef.current = collectVerifiedNegativeCoverageEvidence({
-    coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
-      ? chartForMemoryGate.verified_document_coverages
-      : [],
+    coverages: verifiedDocCoveragesFlush,
     confirmedFacts: Array.isArray(claude?.confirmed_source_facts)
       ? claude.confirmed_source_facts
       : Array.isArray(chartForMemoryGate?.key_confirmed_source_facts)

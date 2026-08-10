@@ -212,3 +212,239 @@ export function shouldEmitAbsenceCertaintySlice(
     }).ok !== false
   );
 }
+
+/* ── S10D — coverage amount attribution integrity (pre-emit veto family) ──
+ * Blocks only CLEAR_MISMATCH: customer-visible text attributes a verified
+ * amount to a coverage kind that verified tuples do not support (incl. grouped
+ * expansion 1·2종). MATCH / NOT_CHECKABLE → emit. No rewrite / no 2nd Claude.
+ */
+
+export const COVERAGE_AMOUNT_ATTRIBUTION_CLASS = Object.freeze({
+  MATCH: "MATCH",
+  CLEAR_MISMATCH: "CLEAR_MISMATCH",
+  NOT_CHECKABLE: "NOT_CHECKABLE",
+});
+
+const KIND_AMOUNT_ANCHOR_RE =
+  /수술비|담보|이\s*계약|원본|확인된\s*계약|질병\s*1\s*[~～\-]\s*5\s*종|질병1\s*[~～\-]\s*5종|1\s*[~～\-]\s*5\s*종\s*수술/;
+
+const GENERAL_AMOUNT_TALK_RE =
+  /일반적으로|보통\s*(?:은|이|약관|상품)|흔히|많은\s*상품|시장에서|이야기하는\s*경우|경우도\s*있|예시|대략|정도/;
+
+/** Parse kind digits from a kind-list fragment like "1·2" / "3,4" / "1". */
+export function parseCoverageKindList(fragment = "") {
+  const raw = String(fragment ?? "");
+  if (!raw.trim()) return [];
+  // Range inside kind list without explicit enumeration → not high-confidence.
+  if (/(\d)\s*[~～\-]\s*(\d)/.test(raw) && !/[·,]/.test(raw)) return [];
+  const kinds = [];
+  const seen = new Set();
+  for (const m of raw.matchAll(/(\d)/g)) {
+    const k = String(m[1]);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    kinds.push(k);
+  }
+  return kinds;
+}
+
+/**
+ * High-confidence kinds from a verified coverage_name.
+ * Prefers parenthetical specific kinds: "(1종)", "(1·2종)".
+ * Family ranges like "1~5종" alone do not yield kinds.
+ */
+export function extractKindsFromCoverageName(name = "") {
+  const s = String(name ?? "");
+  if (!s.trim()) return [];
+  const paren = s.match(/[（(]\s*([\d·,.\s]+)\s*종\s*[）)]/);
+  if (paren) return parseCoverageKindList(paren[1]);
+  // No parenthetical specific kind — do not treat family "1~5종" as kinds.
+  if (/\d\s*[~～\-]\s*\d\s*종/.test(s)) return [];
+  return [];
+}
+
+/** Normalize amount to 만원-unit digit string, or null if not high-confidence. */
+export function normalizeCoverageAmountKey(amount = null) {
+  if (amount == null || amount === "") return null;
+  const s = String(amount).replace(/,/g, "").replace(/\s+/g, "").trim();
+  if (!s) return null;
+  const manWon = s.match(/^(\d+)만원?$/);
+  if (manWon) return String(Number(manWon[1]));
+  const manOnly = s.match(/^(\d+)만$/);
+  if (manOnly) return String(Number(manOnly[1]));
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    if (n >= 10000 && n % 10000 === 0) return String(n / 10000);
+    if (n < 10000) return String(n);
+  }
+  return null;
+}
+
+/**
+ * Build amount → Set(kinds) from verified coverage rows (name+amount only).
+ * Rows without extractable kind or amount are skipped (not inventable).
+ */
+export function buildVerifiedCoverageAmountKindIndex(coverages = []) {
+  const amountToKinds = new Map();
+  const kindToAmount = new Map();
+  let indexedRowCount = 0;
+  for (const row of Array.isArray(coverages) ? coverages : []) {
+    if (!row || typeof row !== "object") continue;
+    const kinds = extractKindsFromCoverageName(
+      row.coverage_name ?? row.original_coverage_name ?? "",
+    );
+    const amountKey = normalizeCoverageAmountKey(row.coverage_amount);
+    if (!kinds.length || !amountKey) continue;
+    indexedRowCount += 1;
+    if (!amountToKinds.has(amountKey)) amountToKinds.set(amountKey, new Set());
+    const set = amountToKinds.get(amountKey);
+    for (const k of kinds) {
+      set.add(k);
+      // First verified amount wins for a kind; conflict → leave both for mismatch checks.
+      if (!kindToAmount.has(k)) kindToAmount.set(k, amountKey);
+    }
+  }
+  return { amountToKinds, kindToAmount, indexedRowCount };
+}
+
+/**
+ * Extract high-confidence kind→amount attribution claims from customer-visible text.
+ * Only patterns like "(1·2종) 각 50만원" / "1종 50만원" with coverage/surgery anchor.
+ */
+export function extractCoverageAmountAttributionClaims(text = "") {
+  const src = asText(text);
+  if (!src) return [];
+  if (GENERAL_AMOUNT_TALK_RE.test(src) && !KIND_AMOUNT_ANCHOR_RE.test(src)) {
+    return [];
+  }
+  if (!KIND_AMOUNT_ANCHOR_RE.test(src) && !/\d\s*종/.test(src)) {
+    return [];
+  }
+
+  const claims = [];
+  const push = (kinds, amountKey, raw) => {
+    if (!kinds.length || !amountKey) return;
+    claims.push({ kinds, amountKey, raw });
+  };
+
+  // (1·2종) 각 50만원  /  （3·4종） 각 500만원
+  for (const m of src.matchAll(
+    /[（(]\s*([\d·,.\s]+)\s*종\s*[）)]\s*(?:각\s*)?(\d+)\s*만\s*원?/g,
+  )) {
+    push(parseCoverageKindList(m[1]), normalizeCoverageAmountKey(`${m[2]}만원`), m[0]);
+  }
+
+  // 1·2종 각 50만원 (no parens) — require 각 or tight amount adjacency
+  for (const m of src.matchAll(
+    /(?<![（(\d])([\d·,.]+)\s*종\s*(?:각\s+)(\d+)\s*만\s*원?/g,
+  )) {
+    push(parseCoverageKindList(m[1]), normalizeCoverageAmountKey(`${m[2]}만원`), m[0]);
+  }
+
+  // 1종 50만원 / 1종	50만원 (single kind, amount nearby)
+  for (const m of src.matchAll(
+    /(?<![·,.\d～~\-])(\d)\s*종\s*(?:은|는|:|：|=|→)?\s*(\d+)\s*만\s*원?/g,
+  )) {
+    push([String(m[1])], normalizeCoverageAmountKey(`${m[2]}만원`), m[0]);
+  }
+
+  return claims;
+}
+
+/**
+ * @returns {{
+ *   ok: boolean,
+ *   class: 'MATCH'|'CLEAR_MISMATCH'|'NOT_CHECKABLE',
+ *   reason: string|null,
+ *   claims: object[],
+ * }}
+ */
+export function evaluateCoverageAmountAttributionGate({
+  text = "",
+  verifiedCoverages = null,
+} = {}) {
+  const coverages = Array.isArray(verifiedCoverages) ? verifiedCoverages : [];
+  const index = buildVerifiedCoverageAmountKindIndex(coverages);
+  const claims = extractCoverageAmountAttributionClaims(text);
+
+  if (!claims.length) {
+    return {
+      ok: true,
+      class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH,
+      reason: null,
+      claims: [],
+    };
+  }
+  if (index.indexedRowCount === 0) {
+    return {
+      ok: true,
+      class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.NOT_CHECKABLE,
+      reason: "no_verified_kind_amount_tuples",
+      claims,
+    };
+  }
+
+  const mismatches = [];
+  let sawCheckable = false;
+
+  for (const claim of claims) {
+    const verifiedKindsForAmount = index.amountToKinds.get(claim.amountKey);
+    if (!verifiedKindsForAmount || verifiedKindsForAmount.size === 0) {
+      // Amount not present on any kind-indexed verified row → do not guess.
+      continue;
+    }
+    sawCheckable = true;
+    const extra = claim.kinds.filter((k) => !verifiedKindsForAmount.has(k));
+    if (extra.length > 0) {
+      mismatches.push({ ...claim, extraKinds: extra });
+      continue;
+    }
+    // All claimed kinds verified for this amount — also flag wrong amount for a known kind.
+    for (const k of claim.kinds) {
+      const verifiedAmt = index.kindToAmount.get(k);
+      if (verifiedAmt && verifiedAmt !== claim.amountKey) {
+        mismatches.push({ ...claim, extraKinds: [k], wrongAmount: true });
+      }
+    }
+  }
+
+  if (mismatches.length > 0) {
+    return {
+      ok: false,
+      class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH,
+      reason: "coverage_amount_kind_attribution_mismatch",
+      claims: mismatches,
+    };
+  }
+  if (!sawCheckable) {
+    return {
+      ok: true,
+      class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.NOT_CHECKABLE,
+      reason: "claims_not_bound_to_verified_amounts",
+      claims,
+    };
+  }
+  return {
+    ok: true,
+    class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH,
+    reason: null,
+    claims,
+  };
+}
+
+/**
+ * S10D — pre-emit veto only for CLEAR_MISMATCH coverage amount attribution.
+ * Return false → do not commit/emit. MATCH / NOT_CHECKABLE → true (emit).
+ */
+export function shouldEmitCoverageAmountIntegritySlice(
+  slice = "",
+  verifiedCoverages = null,
+) {
+  if (!String(slice ?? "").trim()) return true;
+  const gate = evaluateCoverageAmountAttributionGate({
+    text: slice,
+    verifiedCoverages,
+  });
+  return gate.class !== COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH;
+}
