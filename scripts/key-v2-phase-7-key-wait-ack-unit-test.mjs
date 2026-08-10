@@ -2,11 +2,32 @@
  * KEY v2 phase 7 — customer wait time: KEY wait ack before final answer.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { consumeHomeBrainFactSse } from "../src/lib/homeBrainFactSse.js";
-import { buildKeyWaitAck, KEY_WAIT_ACK_DEFAULT } from "../server/keyWaitAck.js";
+import {
+  buildKeyWaitAck,
+  KEY_WAIT_ACK_DEFAULT,
+  KEY_WAIT_ACK_GREETING,
+} from "../server/keyWaitAck.js";
 import { handleHomeBrainFactRequest } from "../server/homeBrainFactCore.js";
 import { writeHomeBrainFactSseEvent } from "../server/homeBrainFactStream.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const GREETING_FIXTURE = JSON.parse(
+  readFileSync(
+    join(
+      __dirname,
+      "..",
+      "fixtures",
+      "key-human-voice-greeting-v1",
+      "turn1-greeting-wait-ack.json",
+    ),
+    "utf8",
+  ),
+);
 
 const mockPolicies = [
   { id: "p1", insurer_name: "삼성", product_name: "실손", policy_type: "health" },
@@ -85,8 +106,29 @@ async function record(ok) {
 await record(
   await runCase("V2-W1 buildKeyWaitAck — KEY voice, no sales director label", async () => {
     assert.equal(buildKeyWaitAck("암보장 있어?"), KEY_WAIT_ACK_DEFAULT);
-    assert.match(buildKeyWaitAck("안녕하세요"), /안녕하세요/);
+    assert.equal(buildKeyWaitAck("안녕하세요"), KEY_WAIT_ACK_GREETING);
     assert.doesNotMatch(buildKeyWaitAck("보험료"), /영업부장|Sales Director|시스템|엔진|Brain|Layer/i);
+  }),
+);
+
+await record(
+  await runCase("V2-W1b Turn1 greeting fixture — human voice, 10-type default unchanged", async () => {
+    assert.equal(KEY_WAIT_ACK_GREETING, GREETING_FIXTURE.expected_greeting_ack);
+    assert.equal(KEY_WAIT_ACK_DEFAULT, GREETING_FIXTURE.expected_default_ack);
+    for (const q of GREETING_FIXTURE.greeting_inputs) {
+      const ack = buildKeyWaitAck(q);
+      assert.equal(ack, GREETING_FIXTURE.expected_greeting_ack, q);
+      for (const bad of GREETING_FIXTURE.forbidden_substrings) {
+        assert.equal(ack.includes(bad), false, `${q} must not include ${bad}`);
+      }
+    }
+    for (const row of GREETING_FIXTURE.regression_default_inputs) {
+      assert.equal(
+        buildKeyWaitAck(row.question),
+        GREETING_FIXTURE.expected_default_ack,
+        row.type,
+      );
+    }
   }),
 );
 

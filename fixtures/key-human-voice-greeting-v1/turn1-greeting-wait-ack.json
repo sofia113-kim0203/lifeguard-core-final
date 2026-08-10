@@ -1,0 +1,25 @@
+{
+  "id": "turn1-greeting-wait-ack",
+  "purpose": "HUMAN VOICE micro-fix — Turn1 greeting wait-ack only",
+  "expected_greeting_ack": "안녕하세요.",
+  "forbidden_substrings": [
+    "말씀 주신 내용",
+    "함께 확인해 볼게요",
+    "안내드리겠습니다",
+    "확인해 보겠습니다"
+  ],
+  "greeting_inputs": ["안녕", "안녕하세요", "하이", "헬로", "hello"],
+  "regression_default_inputs": [
+    { "type": "감정", "question": "오늘 너무 힘들다" },
+    { "type": "잡담", "question": "심심한데 얘기 좀 하자" },
+    { "type": "생활", "question": "저녁 뭐 먹을까?" },
+    { "type": "일반지식", "question": "비행기는 왜 날아?" },
+    { "type": "맛집", "question": "분당 맛집 추천해줘" },
+    { "type": "영화추천", "question": "영화 추천해줘" },
+    { "type": "이어가기", "question": "아까 말한 거 다시 설명해줘" },
+    { "type": "보험_현황", "question": "내 보험 현황 알려줘" },
+    { "type": "보험_상품추천", "question": "나에게 추천해줄수있어 필요한보장?" },
+    { "type": "보험_증권설명", "question": "이 증권을 직접 읽고 중요한 내용을 설명해줘." }
+  ],
+  "expected_default_ack": "말씀 주신 내용 잘 받았어요. 함께 확인해 볼게요."
+}
