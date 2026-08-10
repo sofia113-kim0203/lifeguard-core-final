@@ -1200,14 +1200,24 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       true,
       c.id,
     );
-    // S8-3A Emotion Humility — unspoken inner-state completion restrained; warmth kept.
+    // S8-4A Emotion Humility — unspoken completion + early memory-as-emotion-cause restrained; warmth kept.
     assert.equal(
       sys.includes("이해하려는 것과 설명해버리는 것은 다르다"),
       true,
       c.id,
     );
     assert.equal(
+      sys.includes("심리·원인·배경·상태"),
+      true,
+      c.id,
+    );
+    assert.equal(
       sys.includes("몸/마음 내부 상태"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("원인 후보를 사실처럼 자연스럽게 이어 붙이지 않는다"),
       true,
       c.id,
     );
@@ -1221,6 +1231,21 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       true,
       c.id,
     );
+    assert.equal(
+      sys.includes("열린 질문으로 이어갈 수 있다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes(
+        "고객이 이번 말에 열지 않은 관계·배경 기억을 감정의 근거처럼 먼저 연결하지 않는다",
+      ),
+      true,
+      c.id,
+    );
+    // No literal answer templates / forbidden-cause phrase as canned reply.
+    assert.equal(sys.includes("때문일 수도 있겠네요"), false, c.id);
+    assert.equal(sys.includes("몸이 움직이는데 마음이 따라가지"), false, c.id);
     assert.equal(
       sys.includes("해결을 원한다는 신호가 없는데 절차·조언·행동 계획을 먼저 쏟아내지 않는다"),
       true,
@@ -1273,6 +1298,8 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       HEART_QUESTION_RESTRAINT: "PASS",
       HEART_EMOTION_HUMILITY: "PASS",
       HEART_UNSPOKEN_INNER_STATE_COMPLETION_FORBIDDEN: "PASS",
+      HEART_CAUSE_COMPLETION_RESTRAINED: "PASS",
+      HEART_MEMORY_AS_EMOTION_CAUSE_EARLY_LINK_RESTRAINED: "PASS",
       HEART_SOLUTION_RESTRAINT: "PASS",
       HEART_CAN_ACKNOWLEDGE_EMOTION: "YES",
       HEART_CAN_ASK: "YES",
