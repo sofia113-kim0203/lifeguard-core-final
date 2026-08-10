@@ -325,11 +325,18 @@ export function isExplicitCurrentInsuranceProductRequest(question = "") {
  * Narrow material contract for the same Claude turn when current-product showcase is requested.
  * No second Claude · no catalog · no premium inventing.
  */
-export function buildCurrentInsuranceProductShowcaseAddendum({ question = "" } = {}) {
-  if (!isExplicitCurrentInsuranceProductRequest(question)) return "";
+export function buildCurrentInsuranceProductShowcaseAddendum({
+  question = "",
+  /** When true, return the identical showcase contract even if matcher is false (ONE_PATH cache prefix). */
+  stablePrefix = false,
+} = {}) {
+  if (!stablePrefix && !isExplicitCurrentInsuranceProductRequest(question)) {
+    return "";
+  }
   return [
     "[CURRENT_INSURANCE_PRODUCT_SHOWCASE]",
-    "고객이 필요한 보장·회사·상품 추천 또는 현재 판매 상품 비교를 요청했다.",
+    // Always-on prefix wording: apply only when the customer actually asks (tool_choice gates search).
+    "고객이 필요한 보장·회사·상품 추천 또는 현재 판매 상품 비교를 요청한 경우, 아래 계약을 적용한다.",
     "회사명·상품명 추천 자체를 금지하지 않는다. 근거 없는 확정 추천만 금지한다.",
     "다음 고정 회피문을 기본값으로 쓰지 않는다: 어느 회사가 좋다고 말하기 어렵습니다 / 보험은 모두 비슷합니다 / 회사보다 보장이 중요합니다 / 현재 보험을 유지하는 게 좋습니다 / 전문가와 상담하세요 / 특정 상품 이름은 말씀드리기 어렵습니다.",
     "이 턴에서는 제공된 web_search(web_search_20250305)로 공개 사실만 확인한 뒤, 같은 답변에서 비교·추천·설명한다. 두 번째 모델 호출이나 후처리 rewrite로 바꾸지 않는다.",

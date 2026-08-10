@@ -277,12 +277,14 @@ export function buildOnePathClaudeFirstRequest({
   const keyRelevantEvidence = buildKeyRelevantEvidenceForOnePath(
     keyRelevantMemoryPacket,
   );
-  // Explicit current-product / needed-coverage recommend: reuse existing public web_search path only.
+  // Explicit current-product / needed-coverage recommend: matcher gates tool_choice only.
+  // tools + showcase system contract stay byte-stable for Anthropic prompt-cache prefix.
   const productShowcaseRequest =
     isExplicitCurrentInsuranceProductRequest(question) === true;
-  const productShowcaseAddendum = productShowcaseRequest
-    ? buildCurrentInsuranceProductShowcaseAddendum({ question })
-    : "";
+  const productShowcaseAddendum = buildCurrentInsuranceProductShowcaseAddendum({
+    question,
+    stablePrefix: true,
+  });
   let systemText = buildOnePathMinimalSystem({
     hasOriginals: ownedOriginals.length > 0,
     relationshipState,
@@ -332,10 +334,14 @@ export function buildOnePathClaudeFirstRequest({
   });
 
   const messages = [{ role: "user", content }];
-  // Default: no tools. Product-showcase ask only: existing Anthropic web_search (1).
+  // Prompt-cache prefix: always declare the same web_search tool.
+  // Search enablement: matcher → tool_choice auto|none (official: choice invalidates messages only).
   // Caller liveTools unused — avoid unrelated tool injection on ONE PATH.
   void liveTools;
-  const tools = productShowcaseRequest ? [ANTHROPIC_WEB_SEARCH_TOOL] : [];
+  const tools = [ANTHROPIC_WEB_SEARCH_TOOL];
+  const tool_choice = productShowcaseRequest
+    ? { type: "auto" }
+    : { type: "none" };
 
   // Card wholesale retained; relevant evidence is an additive verified block when present.
   const selection_plan = {
@@ -363,6 +369,7 @@ export function buildOnePathClaudeFirstRequest({
     system,
     messages,
     tools,
+    tool_choice,
     // Anthropic Automatic Prompt Caching (official): top-level on /v1/messages.
     // https://platform.claude.com/docs/en/build-with-claude/prompt-caching
     cache_control: { type: "ephemeral" },

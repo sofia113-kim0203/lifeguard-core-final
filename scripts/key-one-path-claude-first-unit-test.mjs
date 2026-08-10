@@ -589,6 +589,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqProduct.tools[0].name, "web_search");
   assert.equal(reqProduct.tools[0].type, "web_search_20250305");
   assert.equal(reqProduct.tools[0].max_uses, 1);
+  assert.deepEqual(reqProduct.tool_choice, { type: "auto" });
   assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
   assert.equal(reqProduct.key_customer_card.insurance_contracts.length, 0);
   assert.equal(reqProduct.key_customer_card.recent_conversation.length, 2);
@@ -704,14 +705,33 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     customerId: "cust-1",
     conversationId: "c1",
   });
-  assert.equal(reqGeneral.tools.length, 0);
+  // Prompt-cache prefix: tools + showcase system stay identical; matcher → tool_choice only.
+  assert.equal(reqGeneral.tools.length, 1);
+  assert.equal(reqGeneral.tools[0].name, "web_search");
+  assert.equal(reqGeneral.tools[0].type, "web_search_20250305");
+  assert.equal(reqGeneral.tools[0].max_uses, 1);
+  assert.deepEqual(reqGeneral.tool_choice, { type: "none" });
   assert.equal(reqGeneral.selection_plan.web_tool_candidate, false);
   assert.equal(
     reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
-    false,
+    true,
+  );
+  assert.deepEqual(reqGeneral.tools, reqProduct.tools);
+  assert.equal(
+    reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+    reqProduct.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+  );
+  // Showcase contract body identical across product/non-product (prefix stability).
+  const productShowcaseSlice = (text) => {
+    const i = text.indexOf("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]");
+    return i >= 0 ? text.slice(i) : "";
+  };
+  assert.equal(
+    productShowcaseSlice(reqGeneral.system[0].text),
+    productShowcaseSlice(reqProduct.system[0].text),
   );
   console.log(
-    "PASS product showcase web_search · showcase #6/#16 authority · general tools empty",
+    "PASS product showcase web_search · stable tools/system · matcher tool_choice auto|none",
   );
 }
 

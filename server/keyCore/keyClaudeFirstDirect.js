@@ -6198,7 +6198,15 @@ async function callClaudeFirstDirect({
         ? { cache_control: selectiveLiveRequest.cache_control }
         : {}),
       ...(effectiveProviderTools.length
-        ? { tools: effectiveProviderTools, tool_choice: { type: "auto" } }
+        ? {
+            tools: effectiveProviderTools,
+            // ONE_PATH: matcher gates tool_choice only (auto|none). Default auto elsewhere.
+            tool_choice:
+              selectiveLiveRequest?.tool_choice &&
+              typeof selectiveLiveRequest.tool_choice === "object"
+                ? selectiveLiveRequest.tool_choice
+                : { type: "auto" },
+          }
         : {}),
       ...(structuredOutputConfig
         ? { output_config: structuredOutputConfig }
