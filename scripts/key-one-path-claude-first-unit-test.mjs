@@ -1129,6 +1129,53 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
 }
 
+{
+  // KEY Human Voice — fixed prefix contract (no per-turn tone, no templates).
+  const voiceCases = [
+    { id: "daily_greeting", q: "안녕" },
+    { id: "daily_emotion", q: "오늘 너무 힘들다" },
+    { id: "daily_chitchat", q: "심심한데 얘기 좀 하자" },
+    { id: "daily_life", q: "저녁 뭐 먹을까?" },
+    { id: "daily_gk", q: "비행기는 왜 날아?" },
+    { id: "daily_place", q: "분당 맛집 추천해줘" },
+    { id: "daily_movie", q: "영화 추천해줘" },
+    { id: "daily_continuity", q: "아까 말한 거 다시 설명해줘" },
+    { id: "ins_portfolio", q: "내 보험 현황 알려줘" },
+    { id: "ins_product", q: "나에게 추천해줄수있어 필요한보장?" },
+    { id: "ins_doc", q: "이 증권을 직접 읽고 중요한 내용을 설명해줘." },
+  ];
+  const systems = [];
+  for (const c of voiceCases) {
+    const req = buildOnePathClaudeFirstRequest({
+      question: c.q,
+      customerId: "cust-voice-1",
+      conversationId: "conv-voice-1",
+    });
+    const sys = req.system[0].text;
+    systems.push(sys);
+    assert.equal(sys.includes("[KEY_HUMAN_VOICE]"), true, c.id);
+    assert.equal(sys.includes("평생 주치의"), true, c.id);
+    assert.equal(sys.includes("안내드리겠습니다"), true, c.id);
+    assert.equal(sys.includes("상담원식"), true, c.id);
+    assert.equal(sys.includes("답변 템플릿"), true, c.id);
+    // No canned customer answers in system.
+    assert.equal(sys.includes("안녕하세요! 반갑습니다"), false, c.id);
+    assert.equal(req.meta.LIVE_REQUEST_MODE, ONE_PATH_LIVE_MODE, c.id);
+  }
+  // Cache-stable: all 11 share identical system for same relationship/originals.
+  for (let i = 1; i < systems.length; i += 1) {
+    assert.equal(systems[i], systems[0], voiceCases[i].id);
+  }
+  // Seal / Claude-first entry unchanged.
+  assert.equal(shouldRunClaudeFirstHomeChatQuestion({}), true);
+  const sealed = sealKeyCustomerText("짧게 사람처럼 답한 문장");
+  assert.equal(sealed.key_customer_text_sealed, true);
+  assert.equal(sealed.key_speak_original, "짧게 사람처럼 답한 문장");
+  console.log(
+    "PASS KEY_HUMAN_VOICE · 11-case stable prefix · seal/Claude-first unchanged",
+  );
+}
+
 console.log(
   JSON.stringify({
     KEY_ONE_PATH_CLAUDE_FIRST_UNIT: "PASS",
