@@ -1130,7 +1130,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
 }
 
 {
-  // KEY Human Voice — fixed prefix contract (no per-turn tone, no templates).
+  // KEY Human Voice + HEART — fixed prefix contract (no per-turn tone, no templates).
   const voiceCases = [
     { id: "daily_greeting", q: "안녕" },
     { id: "daily_emotion", q: "오늘 너무 힘들다" },
@@ -1154,13 +1154,37 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     const sys = req.system[0].text;
     systems.push(sys);
     assert.equal(sys.includes("[KEY_HUMAN_VOICE]"), true, c.id);
+    assert.equal(sys.includes("[KEY_HEART]"), true, c.id);
     assert.equal(sys.includes("평생 주치의"), true, c.id);
     assert.equal(sys.includes("안내드리겠습니다"), true, c.id);
     assert.equal(sys.includes("상담원식"), true, c.id);
     assert.equal(sys.includes("답변 템플릿"), true, c.id);
+    // HEART philosophy present — not rulebook / classifier / template answers.
+    assert.equal(sys.includes("사람을 대하는 철학"), true, c.id);
+    assert.equal(sys.includes("추월하지 않는다"), true, c.id);
+    assert.equal(sys.includes("억지 질문은 하지 않는다"), true, c.id);
+    assert.equal(sys.includes("현재 고객의 말이 과거 관찰보다 우선"), true, c.id);
+    assert.equal(sys.includes("충분히 답한다"), true, c.id);
+    // No forced question count / empathy phrase / profiling / Presence JSON.
+    assert.equal(sys.includes("질문 1개"), false, c.id);
+    assert.equal(sys.includes("무조건 해결"), false, c.id);
+    assert.equal(sys.includes("힘드시겠어요"), false, c.id);
+    assert.equal(sys.includes("고객 유형"), false, c.id);
+    assert.equal(sys.includes("presence_state"), false, c.id);
+    assert.equal(sys.includes("heart_score"), false, c.id);
+    assert.equal(sys.includes("IF/THEN"), false, c.id);
+    // Greeting may stay short; content questions must not be forced short-close.
+    assert.equal(sys.includes("인사·짧은 반응은 짧게"), true, c.id);
+    assert.equal(sys.includes("단답으로 기계 종료하지 않는다"), true, c.id);
+    assert.equal(
+      sys.includes("짧게 받을 말은 사람처럼 짧게. 설명이 필요할 때만"),
+      false,
+      c.id,
+    );
     // No canned customer answers in system.
     assert.equal(sys.includes("안녕하세요! 반갑습니다"), false, c.id);
     assert.equal(req.meta.LIVE_REQUEST_MODE, ONE_PATH_LIVE_MODE, c.id);
+    assert.equal(req.meta.DEFAULT_PROVIDER_CALL_TARGET, 1, c.id);
   }
   // Cache-stable: all 11 share identical system for same relationship/originals.
   for (let i = 1; i < systems.length; i += 1) {
@@ -1172,7 +1196,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(sealed.key_customer_text_sealed, true);
   assert.equal(sealed.key_speak_original, "짧게 사람처럼 답한 문장");
   console.log(
-    "PASS KEY_HUMAN_VOICE · 11-case stable prefix · seal/Claude-first unchanged",
+    "PASS KEY_HUMAN_VOICE · KEY_HEART · 11-case stable prefix · seal/Claude-first unchanged",
   );
 }
 
