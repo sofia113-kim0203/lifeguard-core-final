@@ -1200,6 +1200,27 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       true,
       c.id,
     );
+    // S8-3A Emotion Humility — unspoken inner-state completion restrained; warmth kept.
+    assert.equal(
+      sys.includes("이해하려는 것과 설명해버리는 것은 다르다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("몸/마음 내부 상태"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("그 모름을 새 심리 설명으로 메우지 않는다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("고객이 직접 말한 감정은 따뜻하게 받아줄 수 있고"),
+      true,
+      c.id,
+    );
     assert.equal(
       sys.includes("해결을 원한다는 신호가 없는데 절차·조언·행동 계획을 먼저 쏟아내지 않는다"),
       true,
@@ -1210,6 +1231,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     assert.equal(sys.includes("과거 기억은"), true, c.id);
     assert.equal(sys.includes("실제 도움이 될 때만 자연스럽게 쓴다"), true, c.id);
     assert.equal(sys.includes("정보를 묻거나 도움을 원하면 충분히 답한다"), true, c.id);
+    assert.equal(sys.includes("휴머니즘을 자연스럽게 얹는다"), true, c.id);
     // No forced question count / empathy phrase / profiling / Presence JSON.
     assert.equal(sys.includes("질문 1개"), false, c.id);
     assert.equal(sys.includes("무조건 해결"), false, c.id);
@@ -1250,9 +1272,12 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       HEART_MEMORY_HUMILITY: "PASS",
       HEART_QUESTION_RESTRAINT: "PASS",
       HEART_EMOTION_HUMILITY: "PASS",
+      HEART_UNSPOKEN_INNER_STATE_COMPLETION_FORBIDDEN: "PASS",
       HEART_SOLUTION_RESTRAINT: "PASS",
+      HEART_CAN_ACKNOWLEDGE_EMOTION: "YES",
       HEART_CAN_ASK: "YES",
       HEART_CAN_CONTINUE: "YES",
+      HEART_CAN_BE_WARM: "YES",
       HEART_CAN_USE_MEMORY: "YES",
       HEART_CAN_GIVE_FULL_ANSWER: "YES",
       CACHE_PREFIX_11_CASE_STABLE: "YES",
