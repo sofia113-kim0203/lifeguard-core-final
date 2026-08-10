@@ -5,7 +5,7 @@ import KeyCustomerLeftRail from "./KeyCustomerLeftRail.jsx";
 import KeyCustomerRightRail from "./KeyCustomerRightRail.jsx";
 import KeyAgentLeftRail from "./KeyAgentLeftRail.jsx";
 import KeyAgentRightRail from "./KeyAgentRightRail.jsx";
-import KeyNowActionCard from "./KeyNowActionCard.jsx";
+import KeyNowActionCard, { shouldShowKeyNowActionCard } from "./KeyNowActionCard.jsx";
 import KeyInsuranceDetailDrawer from "./KeyInsuranceDetailDrawer.jsx";
 import { useOptionalCustomerSession } from "../hooks/useCustomerSession.js";
 import { useCustomerDocumentUpload } from "../hooks/useCustomerDocumentUpload.js";
@@ -544,7 +544,13 @@ function SidebarNav({
   onSignOut,
   onClose = null,
   style = {},
+  showMovedHeaderControls = false,
+  viewMode = "personal",
+  onSelectPersonal = null,
+  onSelectCorporate = null,
+  onSelectCombined = null,
 }) {
+  const touchMin = FINAL_UI.touchMinPx;
   return (
     <aside style={style}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
@@ -570,8 +576,8 @@ function SidebarNav({
               background: "transparent",
               color: LG.textSoft,
               borderRadius: "8px",
-              width: "36px",
-              height: "36px",
+              width: `${touchMin}px`,
+              height: `${touchMin}px`,
               cursor: "pointer",
               flexShrink: 0,
               fontSize: "18px",
@@ -581,8 +587,46 @@ function SidebarNav({
           </button>
         ) : null}
       </div>
+      {showMovedHeaderControls ? (
+        <div
+          role="group"
+          aria-label="자료 범위"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            marginBottom: "12px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onSelectPersonal}
+            style={{ ...sidebarBtn(viewMode === "personal"), minHeight: `${touchMin}px` }}
+          >
+            개인
+          </button>
+          <button
+            type="button"
+            onClick={onSelectCorporate}
+            style={{ ...sidebarBtn(viewMode === "corporate"), minHeight: `${touchMin}px` }}
+          >
+            법인
+          </button>
+          <button
+            type="button"
+            onClick={onSelectCombined}
+            style={{ ...sidebarBtn(viewMode === "both"), minHeight: `${touchMin}px` }}
+          >
+            개인+법인 함께
+          </button>
+        </div>
+      ) : null}
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <button type="button" onClick={onNewChat} style={{ ...sidebarBtn(false), flex: 1 }}>
+        <button
+          type="button"
+          onClick={onNewChat}
+          style={{ ...sidebarBtn(false), flex: 1, minHeight: `${touchMin}px` }}
+        >
           새 대화
         </button>
       </div>
@@ -615,7 +659,7 @@ function SidebarNav({
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
         <button
           type="button"
-          style={sidebarBtn(panelView === "insurance")}
+          style={{ ...sidebarBtn(panelView === "insurance"), minHeight: `${touchMin}px` }}
           onClick={() => {
             if (typeof onOpenInsurancePanel === "function") onOpenInsurancePanel();
             else onPanelChange("insurance");
@@ -624,19 +668,45 @@ function SidebarNav({
           내 보험 점검
         </button>
         {typeof onOpenBaselinePanel === "function" ? (
-          <button type="button" style={sidebarBtn(false)} onClick={() => onOpenBaselinePanel()}>
+          <button
+            type="button"
+            style={{ ...sidebarBtn(false), minHeight: `${touchMin}px` }}
+            onClick={() => onOpenBaselinePanel()}
+          >
             기준선
           </button>
         ) : null}
-        <button type="button" style={sidebarBtn(panelView === "documents")} onClick={() => onPanelChange("documents")}>
+        <button
+          type="button"
+          style={{ ...sidebarBtn(panelView === "documents"), minHeight: `${touchMin}px` }}
+          onClick={() => onPanelChange("documents")}
+        >
           내 문서
         </button>
-        <button type="button" style={sidebarBtn(panelView === "settings")} onClick={() => onPanelChange("settings")}>
+        {showMovedHeaderControls ? (
+          <button
+            type="button"
+            aria-label="알림"
+            style={{ ...sidebarBtn(false), minHeight: `${touchMin}px` }}
+          >
+            알림
+          </button>
+        ) : null}
+        <button
+          type="button"
+          style={{ ...sidebarBtn(panelView === "settings"), minHeight: `${touchMin}px` }}
+          onClick={() => onPanelChange("settings")}
+        >
           설정
         </button>
         <button
           type="button"
-          style={{ ...sidebarBtn(false), marginTop: "8px", color: LG.textMuted }}
+          style={{
+            ...sidebarBtn(false),
+            marginTop: "8px",
+            color: LG.textMuted,
+            minHeight: `${touchMin}px`,
+          }}
           onClick={onSignOut}
         >
           로그아웃
@@ -1101,7 +1171,10 @@ export default function LifeguardHomeChat({
 
   const isMidRoom = useMediaQuery(`(min-width: ${ROOM_MID_BREAKPOINT}px)`);
   const isWideRoom = useMediaQuery(`(min-width: ${ROOM_WIDE_BREAKPOINT}px)`);
+  /** <1024: mobile chat-first chrome (375/390/430 audit). Mid/wide keep desktop header. */
+  const isNarrowShell = !isMidRoom;
   const shellHeaderPx = isWideRoom ? FINAL_UI.headerPx : FINAL_UI.headerPxMobile;
+  const touchMinPx = FINAL_UI.touchMinPx;
 
   useEffect(() => {
     // Inline rails on mid/wide ? close mobile/tablet sheets so they never cover the shell.
@@ -3048,7 +3121,27 @@ export default function LifeguardHomeChat({
       }
       await supabase.auth.signOut();
     },
+    showMovedHeaderControls: isNarrowShell,
+    viewMode,
+    onSelectPersonal: () => {
+      selectPersonalScope();
+      setSidebarOpen(false);
+    },
+    onSelectCorporate: () => {
+      selectCorporateScope();
+      setSidebarOpen(false);
+    },
+    onSelectCombined: () => {
+      selectCombinedScope();
+      setSidebarOpen(false);
+    },
   };
+
+  const nowActionForCard = isAgentAudience
+    ? AGENT_NOW_ACTION
+    : finalShell?.nowAction || null;
+  const showNowActionCard =
+    panelView === "chat" && shouldShowKeyNowActionCard(nowActionForCard);
 
   const menuDrawerStyle = {
     position: "fixed",
@@ -3300,10 +3393,10 @@ export default function LifeguardHomeChat({
           <div
             style={{
               width: showInsuranceInline ? leftCol : "auto",
-              maxWidth: showInsuranceInline ? leftCol : "46%",
+              maxWidth: showInsuranceInline ? leftCol : isNarrowShell ? "30%" : "46%",
               display: "flex",
               alignItems: "center",
-              gap: "10px",
+              gap: isNarrowShell ? "4px" : "10px",
               paddingLeft: "4px",
               flexShrink: 1,
               minWidth: 0,
@@ -3321,71 +3414,75 @@ export default function LifeguardHomeChat({
                 background: "transparent",
                 color: FINAL_UI.navy,
                 borderRadius: "8px",
-                width: "32px",
-                height: "32px",
+                width: `${touchMinPx}px`,
+                height: `${touchMinPx}px`,
                 cursor: "pointer",
                 fontSize: "18px",
                 padding: 0,
                 lineHeight: 1,
                 flexShrink: 0,
+                display: "grid",
+                placeItems: "center",
               }}
             >
               ☰
             </button>
-            <div
-              role="group"
-              aria-label="메뉴 열기"
-              className="lg-v31-scope lg-v31-header-scope"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                display: "flex",
-                flexDirection: "row",
-                flexWrap: "nowrap",
-                alignItems: "center",
-                justifyContent: "flex-start",
-                gap: "8px",
-                overflowX: "auto",
-                overflowY: "hidden",
-              }}
-            >
-              <button
-                type="button"
-                onClick={selectPersonalScope}
-                style={scopeBtnStyle(viewMode === "personal")}
+            {!isNarrowShell ? (
+              <div
+                role="group"
+                aria-label="자료 범위"
+                className="lg-v31-scope lg-v31-header-scope"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "row",
+                  flexWrap: "nowrap",
+                  alignItems: "center",
+                  justifyContent: "flex-start",
+                  gap: "8px",
+                  overflowX: "auto",
+                  overflowY: "hidden",
+                }}
               >
-                개인
-              </button>
-              <button
-                type="button"
-                onClick={selectCorporateScope}
-                style={scopeBtnStyle(viewMode === "corporate")}
-              >
-                법인
-              </button>
-              <button
-                type="button"
-                onClick={selectCombinedScope}
-                style={scopeBtnStyle(viewMode === "both")}
-              >
-                개인+법인 함께
-              </button>
-              {isAgentAudience ? (
-                <span
-                  className="lg-agent-key-badge"
-                  style={{
-                    fontSize: `${FINAL_UI.brandTagSize}px`,
-                    color: FINAL_UI.muted,
-                    lineHeight: 1.2,
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    marginLeft: "4px",
-                  }}
+                <button
+                  type="button"
+                  onClick={selectPersonalScope}
+                  style={scopeBtnStyle(viewMode === "personal")}
                 >
-                  설계사 KEY
-                </span>
-              ) : null}
-            </div>
+                  개인
+                </button>
+                <button
+                  type="button"
+                  onClick={selectCorporateScope}
+                  style={scopeBtnStyle(viewMode === "corporate")}
+                >
+                  법인
+                </button>
+                <button
+                  type="button"
+                  onClick={selectCombinedScope}
+                  style={scopeBtnStyle(viewMode === "both")}
+                >
+                  개인+법인 함께
+                </button>
+                {isAgentAudience ? (
+                  <span
+                    className="lg-agent-key-badge"
+                    style={{
+                      fontSize: `${FINAL_UI.brandTagSize}px`,
+                      color: FINAL_UI.muted,
+                      lineHeight: 1.2,
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                      marginLeft: "4px",
+                    }}
+                  >
+                    설계사 KEY
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div
@@ -3396,7 +3493,7 @@ export default function LifeguardHomeChat({
               display: "flex",
               alignItems: "center",
               justifyContent: "flex-end",
-              gap: "10px",
+              gap: isNarrowShell ? "4px" : "10px",
               paddingRight: "4px",
               flexShrink: 0,
               position: "relative",
@@ -3430,52 +3527,58 @@ export default function LifeguardHomeChat({
                 </div>
               </div>
             ) : null}
-            <button
-              type="button"
-              aria-label="알림"
-              style={{
-                width: "32px",
-                height: "32px",
-                borderRadius: "8px",
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                color: FINAL_UI.muted,
-                display: "grid",
-                placeItems: "center",
-                flexShrink: 0,
-              }}
-            >
-              <HeaderIconBell />
-            </button>
-            <button
-              type="button"
-              aria-label="설정"
-              onClick={() => setPanelView("settings")}
-              style={{
-                width: "32px",
-                height: "32px",
-                borderRadius: "8px",
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                color: FINAL_UI.muted,
-                display: "grid",
-                placeItems: "center",
-                flexShrink: 0,
-              }}
-            >
-              <HeaderIconGear />
-            </button>
+            {!isNarrowShell ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="알림"
+                  style={{
+                    width: `${touchMinPx}px`,
+                    height: `${touchMinPx}px`,
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: FINAL_UI.muted,
+                    display: "grid",
+                    placeItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <HeaderIconBell />
+                </button>
+                <button
+                  type="button"
+                  aria-label="설정"
+                  onClick={() => setPanelView("settings")}
+                  style={{
+                    width: `${touchMinPx}px`,
+                    height: `${touchMinPx}px`,
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: FINAL_UI.muted,
+                    display: "grid",
+                    placeItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <HeaderIconGear />
+                </button>
+              </>
+            ) : null}
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "6px",
-                padding: "3px 8px 3px 3px",
+                padding: isNarrowShell ? "6px 10px 6px 6px" : "3px 8px 3px 3px",
+                minHeight: `${touchMinPx}px`,
                 borderRadius: "999px",
                 background: FINAL_UI.tealSoft,
                 flexShrink: 0,
+                boxSizing: "border-box",
               }}
             >
               <div
@@ -3494,9 +3597,11 @@ export default function LifeguardHomeChat({
                 {nameInitial}
               </div>
               <span style={{ fontSize: "12px", fontWeight: 700, color: FINAL_UI.text }}>
-                {displayName}님
+                {isNarrowShell ? "고객" : `${displayName}님`}
               </span>
-              <span style={{ color: FINAL_UI.muted, fontSize: "10px" }}>▾</span>
+              {!isNarrowShell ? (
+                <span style={{ color: FINAL_UI.muted, fontSize: "10px" }}>▾</span>
+              ) : null}
             </div>
           </div>
         </header>
@@ -3565,7 +3670,7 @@ export default function LifeguardHomeChat({
               overflow: "hidden",
             }}
           >
-        {panelView === "chat" ? (
+        {showNowActionCard ? (
           <div
             className="lg-v31-action-slot lg-v31-content-rail"
             style={finalUiContentRailStyle({
@@ -3575,7 +3680,7 @@ export default function LifeguardHomeChat({
             })}
           >
             <KeyNowActionCard
-              action={isAgentAudience ? AGENT_NOW_ACTION : finalShell?.nowAction || null}
+              action={nowActionForCard}
               disabled={isDisabled || loading || streaming}
               onCta={() => {
                 if (isAgentAudience) {
@@ -3886,7 +3991,9 @@ export default function LifeguardHomeChat({
           <div
             className="lg-v31-composer-wrap"
             style={{
-              padding: `0 ${FINAL_UI.contentRailInsetPx}px ${FINAL_UI.composerWrapPadBottomPx}px`,
+              padding: isNarrowShell
+                ? `0 ${FINAL_UI.contentRailInsetMobilePx}px max(${FINAL_UI.composerWrapPadBottomPx}px, env(safe-area-inset-bottom, 0px))`
+                : `0 ${FINAL_UI.contentRailInsetPx}px ${FINAL_UI.composerWrapPadBottomPx}px`,
               width: "100%",
               maxWidth: `${FINAL_UI.centerColPx}px`,
               margin: "0 auto",
@@ -3895,7 +4002,8 @@ export default function LifeguardHomeChat({
               boxSizing: "border-box",
             }}
           >
-            {!isMidRoom || !isWideRoom ? (
+            {/* Mid tablet only: rail entry chips. Narrow mobile uses menu (내 보험 점검 / 기준선). */}
+            {isMidRoom && !isWideRoom ? (
               <div
                 style={{
                   display: "flex",
@@ -3904,44 +4012,24 @@ export default function LifeguardHomeChat({
                   marginBottom: "10px",
                 }}
               >
-                {!isMidRoom ? (
-                  <button
-                    type="button"
-                    onClick={() => setInsuranceRailOpen(true)}
-                    style={{
-                      border: `1px solid ${FINAL_UI.line}`,
-                      background: FINAL_UI.surface,
-                      borderRadius: "999px",
-                      padding: "8px 12px",
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      color: FINAL_UI.text,
-                      cursor: "pointer",
-                      fontFamily: FINAL_UI.sans,
-                    }}
-                  >
-                    내 현황
-                  </button>
-                ) : null}
-                {!isWideRoom ? (
-                  <button
-                    type="button"
-                    onClick={() => setMirrorRailOpen(true)}
-                    style={{
-                      border: `1px solid ${FINAL_UI.line}`,
-                      background: FINAL_UI.surface,
-                      borderRadius: "999px",
-                      padding: "8px 12px",
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      color: FINAL_UI.text,
-                      cursor: "pointer",
-                      fontFamily: FINAL_UI.sans,
-                    }}
-                  >
-                    일정·흐름
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setMirrorRailOpen(true)}
+                  style={{
+                    border: `1px solid ${FINAL_UI.line}`,
+                    background: FINAL_UI.surface,
+                    borderRadius: "999px",
+                    padding: "8px 12px",
+                    minHeight: `${touchMinPx}px`,
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: FINAL_UI.text,
+                    cursor: "pointer",
+                    fontFamily: FINAL_UI.sans,
+                  }}
+                >
+                  일정·흐름
+                </button>
               </div>
             ) : null}
             {error ? <div style={{ color: "#B91C1C", fontSize: "13px", marginBottom: "8px" }}>{error}</div> : null}
@@ -4058,15 +4146,15 @@ export default function LifeguardHomeChat({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "8px",
-                padding: "0 18px",
+                gap: isNarrowShell ? "4px" : "8px",
+                padding: isNarrowShell ? "0 8px" : "0 18px",
                 borderRadius: "999px",
                 border: `1px solid ${FINAL_UI.line}`,
                 background: FINAL_UI.surface,
                 boxShadow: "0 4px 14px rgba(18, 50, 95, 0.05)",
                 width: "100%",
                 maxWidth: "100%",
-                minHeight: `${COMPOSER_SHELL_MIN_PX}px`,
+                minHeight: `${Math.max(COMPOSER_SHELL_MIN_PX, touchMinPx + 12)}px`,
                 height: "auto",
                 boxSizing: "border-box",
               }}
@@ -4093,9 +4181,14 @@ export default function LifeguardHomeChat({
                   fontWeight: 500,
                   color: FINAL_UI.muted,
                   cursor: chatAttachUploading ? "default" : "pointer",
-                  padding: "0 4px",
+                  padding: 0,
+                  width: `${touchMinPx}px`,
+                  height: `${touchMinPx}px`,
                   fontFamily: FINAL_UI.sans,
                   lineHeight: 1,
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
                 }}
               >
                 📎
@@ -4124,6 +4217,7 @@ export default function LifeguardHomeChat({
                   fontFamily: FINAL_UI.sans,
                   outline: "none",
                   minWidth: 0,
+                  width: "100%",
                   resize: "none",
                   lineHeight: 1.5,
                   padding: "10px 0",
@@ -4145,8 +4239,8 @@ export default function LifeguardHomeChat({
                 onClick={() => submitQuestion(input)}
                 style={{
                   border: "none",
-                  width: "40px",
-                  height: "40px",
+                  width: `${touchMinPx}px`,
+                  height: `${touchMinPx}px`,
                   borderRadius: "999px",
                   background:
                     input.trim() && !chatAttachUploading ? FINAL_UI.teal : FINAL_UI.pendingBar,

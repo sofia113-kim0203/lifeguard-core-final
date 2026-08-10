@@ -1,6 +1,7 @@
-/** Center “지금 하시면 돼요” — always on; honest empty until KEY judgment. */
+/** Center “지금 하시면 돼요” — only when KEY has a real next action (not empty pending). */
 
 import { FINAL_UI } from "../lib/customerUiFinalTokens.js";
+import { shouldShowKeyNowActionCard } from "../lib/keyNowActionCardVisibility.js";
 
 const C = FINAL_UI;
 
@@ -12,12 +13,15 @@ const DEFAULT_ACTION = Object.freeze({
   ctaHint: "사진으로 보내 주셔도 괜찮아요",
 });
 
+export { shouldShowKeyNowActionCard };
+
 export default function KeyNowActionCard({
   action = null,
   onCta = null,
   disabled = false,
 }) {
-  const a = action && typeof action === "object" ? { ...DEFAULT_ACTION, ...action } : DEFAULT_ACTION;
+  if (!shouldShowKeyNowActionCard(action)) return null;
+  const a = { ...DEFAULT_ACTION, ...action };
   const title = String(a.title || DEFAULT_ACTION.title).trim() || DEFAULT_ACTION.title;
   const body = String(a.body || DEFAULT_ACTION.body).trim() || DEFAULT_ACTION.body;
   const ctaLabel = String(a.ctaLabel || DEFAULT_ACTION.ctaLabel).trim() || DEFAULT_ACTION.ctaLabel;

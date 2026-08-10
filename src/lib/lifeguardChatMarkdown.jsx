@@ -207,19 +207,22 @@ const StableMarkdownBlock = memo(
     if (type === "table") {
       return (
         <div
+          className="lg-md-table-wrap"
           style={{
             margin: "10px 0 14px",
             overflowX: "auto",
+            maxWidth: "100%",
             border: "1px solid #E8E8E4",
             borderRadius: "10px",
             background: "#FFFFFF",
+            WebkitOverflowScrolling: "touch",
           }}
         >
           <table
             style={{
               width: "100%",
               borderCollapse: "collapse",
-              fontSize: "13px",
+              fontSize: "14px",
               color,
               fontFamily,
             }}
@@ -231,10 +234,12 @@ const StableMarkdownBlock = memo(
                     key={`${blockKey}-th-${idx}`}
                     style={{
                       textAlign: "left",
-                      padding: "8px 10px",
+                      padding: "10px 12px",
                       borderBottom: "1px solid #E8E8E4",
                       color: "#666666",
                       fontWeight: 600,
+                      wordBreak: "keep-all",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {renderInline(cell, `${blockKey}-th-${idx}`)}
@@ -249,10 +254,11 @@ const StableMarkdownBlock = memo(
                     <td
                       key={`${blockKey}-td-${rIdx}-${cIdx}`}
                       style={{
-                        padding: "8px 10px",
+                        padding: "10px 12px",
                         borderBottom: "1px solid #F3F3F0",
                         verticalAlign: "top",
-                        lineHeight: 1.5,
+                        lineHeight: 1.55,
+                        wordBreak: "keep-all",
                       }}
                     >
                       {renderInline(cell, `${blockKey}-td-${rIdx}-${cIdx}`)}

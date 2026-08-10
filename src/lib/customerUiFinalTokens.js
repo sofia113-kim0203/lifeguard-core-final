@@ -77,6 +77,10 @@ export const FINAL_UI = {
   shellBottomInsetPx: 12,
   /** Bottom of composer wrap — match rail footer pad for shared baseline */
   composerWrapPadBottomPx: 12,
+  /** Mobile touch target floor (iOS HIG / Material) */
+  touchMinPx: 44,
+  /** Narrow shell (< mid breakpoint) content inset — chat-first */
+  contentRailInsetMobilePx: 12,
   heroY: 87,
   heroX: 27,
   heroW: 230,
@@ -145,6 +149,7 @@ export const FINAL_UI_ROOM_CSS = `
     radial-gradient(800px 380px at 92% 0%, rgba(232, 106, 74, 0.12), transparent 50%),
     radial-gradient(700px 360px at 70% 100%, rgba(59, 130, 196, 0.10), transparent 55%),
     linear-gradient(165deg, ${FINAL_UI.bg0}, ${FINAL_UI.bg1} 55%, #F3F6FB) !important;
+  overflow-x: hidden;
 }
 .lg-final-shell .lg-v31-rail {
   border-radius: ${FINAL_UI.shellRadius}px;
@@ -158,6 +163,29 @@ export const FINAL_UI_ROOM_CSS = `
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.75);
   box-shadow: 0 10px 30px rgba(18, 50, 95, 0.05);
+  overflow-x: hidden;
+  min-width: 0;
+}
+@media (max-width: 1023px) {
+  .lg-final-shell .lg-v31-content-rail {
+    width: min(${FINAL_UI.contentRailMaxPx}px, calc(100% - ${FINAL_UI.contentRailInsetMobilePx * 2}px)) !important;
+  }
+  .lg-final-shell .lg-v31-composer-wrap {
+    padding-left: ${FINAL_UI.contentRailInsetMobilePx}px !important;
+    padding-right: ${FINAL_UI.contentRailInsetMobilePx}px !important;
+    padding-bottom: max(${FINAL_UI.composerWrapPadBottomPx}px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .lg-final-shell .lg-md-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .lg-final-shell .lg-md-table-wrap table {
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+    font-size: 14px;
+  }
 }
 `;
 
