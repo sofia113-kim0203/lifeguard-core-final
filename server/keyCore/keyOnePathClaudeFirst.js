@@ -295,7 +295,15 @@ export function buildOnePathClaudeFirstRequest({
   if (keyRelevantEvidence) {
     systemText = `${systemText}\n\n${buildKeyRelevantEvidenceSystemAddendum()}`;
   }
-  const system = [{ type: "text", text: systemText }];
+  // Explicit Prompt Cache breakpoint on the last stable system block (tools → system).
+  // Do NOT use top-level automatic cache_control — messages change every turn.
+  const system = [
+    {
+      type: "text",
+      text: systemText,
+      cache_control: { type: "ephemeral" },
+    },
+  ];
 
   const content = [
     {
@@ -370,9 +378,6 @@ export function buildOnePathClaudeFirstRequest({
     messages,
     tools,
     tool_choice,
-    // Anthropic Automatic Prompt Caching (official): top-level on /v1/messages.
-    // https://platform.claude.com/docs/en/build-with-claude/prompt-caching
-    cache_control: { type: "ephemeral" },
     selection_plan,
     owned_originals: ownedOriginals,
     multi_attachments: multiAttachments,

@@ -43,12 +43,9 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     pdfMeta: { document_id: "doc-a" },
   });
   assert.equal(req.meta.LIVE_REQUEST_MODE, ONE_PATH_LIVE_MODE);
-  // Anthropic Automatic Prompt Cache — top-level only (not content-block breakpoints).
-  assert.deepEqual(req.cache_control, { type: "ephemeral" });
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(req.system[0], "cache_control"),
-    false,
-  );
+  // Explicit Prompt Cache — system block breakpoint only (not top-level automatic).
+  assert.equal(Object.prototype.hasOwnProperty.call(req, "cache_control"), false);
+  assert.deepEqual(req.system[0].cache_control, { type: "ephemeral" });
   const blocks = req.messages[0].content.filter(
     (b) => b.type === "document" || b.type === "image",
   );
@@ -56,7 +53,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(blocks[0].type, "document");
   assert.equal(blocks[0].source.media_type, "application/pdf");
   console.log("PASS U2 PDF document block once");
-  console.log("PASS U2b automatic prompt cache top-level ephemeral");
+  console.log("PASS U2b explicit prompt cache on system block");
 }
 
 {
@@ -730,8 +727,14 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     productShowcaseSlice(reqGeneral.system[0].text),
     productShowcaseSlice(reqProduct.system[0].text),
   );
+  // Explicit cache on system; no top-level automatic.
+  assert.equal(Object.prototype.hasOwnProperty.call(reqProduct, "cache_control"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(reqGeneral, "cache_control"), false);
+  assert.deepEqual(reqProduct.system[0].cache_control, { type: "ephemeral" });
+  assert.deepEqual(reqGeneral.system[0].cache_control, { type: "ephemeral" });
+  assert.equal(reqProduct.system[0].text, reqGeneral.system[0].text);
   console.log(
-    "PASS product showcase web_search · stable tools/system · matcher tool_choice auto|none",
+    "PASS product showcase · explicit system cache · stable tools/system · tool_choice auto|none",
   );
 }
 
