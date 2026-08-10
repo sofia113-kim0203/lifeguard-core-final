@@ -25,6 +25,11 @@ import { shouldSkipProviderForEmptyContractPackets } from "../server/keyCore/key
 import { buildAnthropicDirectAttachBlock } from "../server/keyCore/keyClaudeFullDocumentDirect.js";
 import { shouldRunClaudeFirstHomeChatQuestion } from "../server/keyCore/oneKeyCoreFlags.js";
 import { sealKeyCustomerText } from "../server/keyCore/keyCustomerTextSeal.js";
+import {
+  ONE_PATH_DAILY_CHAT_LANES,
+  resolveOnePathDailyChatPolicy,
+  isNonInsuranceDailyRecommendRequest,
+} from "../server/keyCore/keyOnePathDailyChatPolicy.js";
 
 const pdfBytes = Buffer.from("%PDF-1.4 one-path-unit");
 const pdfB64 = pdfBytes.toString("base64");
@@ -978,6 +983,150 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal("this_turn_original_delivery" in mixed, false);
 
   console.log("PASS S1 empty handoff omit A/B/C/D");
+}
+
+{
+  // Daily-chat matcher → ONE_PATH tool-policy + user context (Claude-first unchanged).
+  // productShowcase stays a separate insurance matcher.
+  const findDailyPolicy = (req) => {
+    const block = req.messages[0].content.find((b) => {
+      if (b.type !== "text" || typeof b.text !== "string") return false;
+      try {
+        return Boolean(JSON.parse(b.text)?.KEY_DAILY_CHAT_POLICY);
+      } catch {
+        return false;
+      }
+    });
+    if (!block) return null;
+    return JSON.parse(block.text).KEY_DAILY_CHAT_POLICY;
+  };
+
+  // Matcher reuse proof (existing functions, not new regex families).
+  assert.equal(resolveOnePathDailyChatPolicy({ question: "안녕" }).lane, "greeting");
+  assert.equal(
+    resolveOnePathDailyChatPolicy({ question: "오늘 너무 힘들다" }).lane,
+    "emotion",
+  );
+  assert.equal(
+    resolveOnePathDailyChatPolicy({ question: "비행기는 왜 날아?" }).lane,
+    "general_knowledge",
+  );
+  assert.equal(
+    resolveOnePathDailyChatPolicy({ question: "분당 맛집 추천해줘" }).lane,
+    "place_recommend",
+  );
+  assert.equal(isNonInsuranceDailyRecommendRequest("영화 추천해줘"), true);
+  assert.equal(
+    resolveOnePathDailyChatPolicy({ question: "영화 추천해줘" }).lane,
+    "non_insurance_recommend",
+  );
+  assert.equal(
+    resolveOnePathDailyChatPolicy({
+      question: "아까 말한 거 다시 설명해줘",
+    }).lane,
+    "continuity",
+  );
+  assert.equal(
+    resolveOnePathDailyChatPolicy({
+      question: "나에게 추천해줄수있어 필요한보장?",
+    }).lane,
+    ONE_PATH_DAILY_CHAT_LANES.NONE,
+  );
+  assert.equal(
+    resolveOnePathDailyChatPolicy({
+      question: "나에게 추천해줄수있어 필요한보장?",
+    }).product_showcase_request,
+    true,
+  );
+
+  const reqGreeting = buildOnePathClaudeFirstRequest({ question: "안녕" });
+  assert.deepEqual(reqGreeting.tool_choice, { type: "none" });
+  assert.equal(reqGreeting.selection_plan.daily_chat_lane, "greeting");
+  assert.equal(reqGreeting.selection_plan.product_showcase_request, false);
+  assert.equal(findDailyPolicy(reqGreeting)?.lane, "greeting");
+  assert.equal(findDailyPolicy(reqGreeting)?.web_search_allowed, false);
+
+  const reqEmotion = buildOnePathClaudeFirstRequest({
+    question: "기분이 좀 우울해",
+  });
+  assert.deepEqual(reqEmotion.tool_choice, { type: "none" });
+  assert.equal(reqEmotion.selection_plan.daily_chat_lane, "emotion");
+
+  const reqLife = buildOnePathClaudeFirstRequest({
+    question: "저녁 뭐 먹을까?",
+  });
+  assert.deepEqual(reqLife.tool_choice, { type: "none" });
+  assert.equal(reqLife.selection_plan.daily_chat_lane, "life");
+
+  const reqGk = buildOnePathClaudeFirstRequest({
+    question: "커피는 왜 잠이 깨?",
+  });
+  assert.deepEqual(reqGk.tool_choice, { type: "auto" });
+  assert.equal(reqGk.selection_plan.daily_chat_lane, "general_knowledge");
+  assert.equal(reqGk.selection_plan.daily_chat_web_search, true);
+  assert.equal(reqGk.selection_plan.product_showcase_request, false);
+
+  const reqPlace = buildOnePathClaudeFirstRequest({
+    question: "분당 맛집 추천해줘",
+  });
+  assert.deepEqual(reqPlace.tool_choice, { type: "auto" });
+  assert.equal(reqPlace.selection_plan.daily_chat_lane, "place_recommend");
+  assert.equal(reqPlace.selection_plan.product_showcase_request, false);
+  const placePolicy = findDailyPolicy(reqPlace);
+  assert.equal(placePolicy?.lane, "place_recommend");
+  assert.equal(placePolicy?.web_search_allowed, true);
+  assert.equal(placePolicy?.product_showcase_separated, true);
+  assert.equal(
+    String(placePolicy?.place_recommend_guidance ?? "").includes("맛집"),
+    true,
+  );
+
+  const reqMovie = buildOnePathClaudeFirstRequest({
+    question: "영화 추천해줘",
+  });
+  assert.deepEqual(reqMovie.tool_choice, { type: "auto" });
+  assert.equal(
+    reqMovie.selection_plan.daily_chat_lane,
+    "non_insurance_recommend",
+  );
+  assert.equal(reqMovie.selection_plan.product_showcase_request, false);
+  assert.equal(
+    reqMovie.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+    true,
+  );
+
+  const reqCont = buildOnePathClaudeFirstRequest({
+    question: "아까 말한 거 다시 설명해줘",
+    history: [
+      { role: "user", text: "주말에 영화 볼까?" },
+      { role: "assistant", text: "가벼운 코미디부터 보면 좋아요." },
+    ],
+  });
+  assert.deepEqual(reqCont.tool_choice, { type: "none" });
+  assert.equal(reqCont.selection_plan.daily_chat_lane, "continuity");
+  assert.equal(findDailyPolicy(reqCont)?.continuity_use_recent_conversation, true);
+  assert.equal(reqCont.key_customer_card.recent_conversation.length, 2);
+
+  // Insurance productShowcase still separate + auto; daily lane none.
+  const reqProduct = buildOnePathClaudeFirstRequest({
+    question: "나에게 추천해줄수있어 필요한보장?",
+  });
+  assert.deepEqual(reqProduct.tool_choice, { type: "auto" });
+  assert.equal(reqProduct.selection_plan.product_showcase_request, true);
+  assert.equal(
+    reqProduct.selection_plan.daily_chat_lane,
+    ONE_PATH_DAILY_CHAT_LANES.NONE,
+  );
+  assert.equal(findDailyPolicy(reqProduct), null);
+
+  // System prefix cache stability: daily context must not alter system text.
+  assert.equal(reqGreeting.system[0].text, reqMovie.system[0].text);
+  assert.equal(reqMovie.system[0].text, reqPlace.system[0].text);
+  assert.equal(reqPlace.system[0].text, reqProduct.system[0].text);
+
+  console.log(
+    "PASS daily-chat ONE_PATH policy · matcher reuse · productShowcase separated · tool_choice",
+  );
 }
 
 console.log(

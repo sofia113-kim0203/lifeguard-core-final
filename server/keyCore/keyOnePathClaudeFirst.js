@@ -21,6 +21,10 @@ import {
   isExplicitCurrentInsuranceProductRequest,
 } from "./keyBorrowedSensesSpeak.js";
 import { buildKeyRelevantEvidenceForOnePath } from "./keyRelevantMemoryPacket.js";
+import {
+  ONE_PATH_DAILY_CHAT_LANES,
+  resolveOnePathDailyChatPolicy,
+} from "./keyOnePathDailyChatPolicy.js";
 
 export const ONE_PATH_LIVE_MODE = "ONE_PATH_CLAUDE_FIRST";
 
@@ -277,10 +281,16 @@ export function buildOnePathClaudeFirstRequest({
   const keyRelevantEvidence = buildKeyRelevantEvidenceForOnePath(
     keyRelevantMemoryPacket,
   );
-  // Explicit current-product / needed-coverage recommend: matcher gates tool_choice only.
+  // Explicit current-product / needed-coverage recommend: separate insurance matcher.
+  // Daily-chat matchers resolve independently (never merged into productShowcase).
   // tools + showcase system contract stay byte-stable for Anthropic prompt-cache prefix.
+  // Daily lane/context lives in user messages so system prefix stays cache-stable.
   const productShowcaseRequest =
     isExplicitCurrentInsuranceProductRequest(question) === true;
+  const dailyChatPolicy = resolveOnePathDailyChatPolicy({
+    question,
+    history,
+  });
   const productShowcaseAddendum = buildCurrentInsuranceProductShowcaseAddendum({
     question,
     stablePrefix: true,
@@ -327,6 +337,28 @@ export function buildOnePathClaudeFirstRequest({
     });
   }
 
+  // Daily-chat matcher → context only (not customer-text owner; Claude-first unchanged).
+  if (
+    dailyChatPolicy.lane &&
+    dailyChatPolicy.lane !== ONE_PATH_DAILY_CHAT_LANES.NONE
+  ) {
+    content.push({
+      type: "text",
+      text: JSON.stringify({
+        KEY_DAILY_CHAT_POLICY: {
+          lane: dailyChatPolicy.lane,
+          matched_rule: dailyChatPolicy.matched_rule,
+          web_search_allowed: dailyChatPolicy.web_search === true,
+          product_showcase_separated: true,
+          continuity_use_recent_conversation:
+            dailyChatPolicy.lane === ONE_PATH_DAILY_CHAT_LANES.CONTINUITY,
+          place_recommend_guidance: dailyChatPolicy.place_addendum || null,
+          signals: dailyChatPolicy.signals,
+        },
+      }),
+    });
+  }
+
   // This-turn / delivery-authority originals only — no pick-rank attach list.
   const providerBlocks = buildProviderBlocksFromOwnedOriginals(ownedOriginals);
   for (const block of providerBlocks) {
@@ -343,11 +375,13 @@ export function buildOnePathClaudeFirstRequest({
 
   const messages = [{ role: "user", content }];
   // Prompt-cache prefix: always declare the same web_search tool.
-  // Search enablement: matcher → tool_choice auto|none (official: choice invalidates messages only).
+  // Search enablement: insurance productShowcase OR daily web_search → tool_choice auto|none.
   // Caller liveTools unused — avoid unrelated tool injection on ONE PATH.
   void liveTools;
   const tools = [ANTHROPIC_WEB_SEARCH_TOOL];
-  const tool_choice = productShowcaseRequest
+  const webSearchAllowed =
+    productShowcaseRequest === true || dailyChatPolicy.web_search === true;
+  const tool_choice = webSearchAllowed
     ? { type: "auto" }
     : { type: "none" };
 
@@ -357,13 +391,20 @@ export function buildOnePathClaudeFirstRequest({
     selected_prompt_blocks: [
       "ONE_PATH_CUSTOMER_CARD",
       ...(keyRelevantEvidence ? ["KEY_RELEVANT_EVIDENCE"] : []),
+      ...(dailyChatPolicy.lane &&
+      dailyChatPolicy.lane !== ONE_PATH_DAILY_CHAT_LANES.NONE
+        ? ["KEY_DAILY_CHAT_POLICY"]
+        : []),
     ],
     selected_resource_packets: keyRelevantEvidence
       ? ["KEY_RELEVANT_EVIDENCE"]
       : [],
     unresolved_material_selection: [],
     one_shot_input_sufficient: true,
-    web_tool_candidate: productShowcaseRequest === true,
+    web_tool_candidate: webSearchAllowed,
+    product_showcase_request: productShowcaseRequest === true,
+    daily_chat_lane: dailyChatPolicy.lane,
+    daily_chat_web_search: dailyChatPolicy.web_search === true,
     document_pick_rank_in_front: false,
     current_attachment_mode: ownedOriginals.length
       ? "THIS_TURN_ORIGINAL"
@@ -379,6 +420,7 @@ export function buildOnePathClaudeFirstRequest({
     tools,
     tool_choice,
     selection_plan,
+    daily_chat_policy: dailyChatPolicy,
     owned_originals: ownedOriginals,
     multi_attachments: multiAttachments,
     key_customer_card: keyCustomerCard,
@@ -399,6 +441,9 @@ export function buildOnePathClaudeFirstRequest({
       key_relevant_confirmed_fact_count: keyRelevantEvidence
         ? keyRelevantEvidence.confirmed_facts.length
         : 0,
+      daily_chat_lane: dailyChatPolicy.lane,
+      daily_chat_web_search: dailyChatPolicy.web_search === true,
+      product_showcase_request: productShowcaseRequest === true,
       full_chart_present: false,
       full_ledger_present: false,
       pending_extract_present: false,
@@ -411,6 +456,8 @@ export function buildOnePathClaudeFirstRequest({
       owned_original_count: ownedOriginals.length,
       delivery_mode: "CUSTOMER_CARD_WHOLESALE",
       key_relevant_evidence_delivered: Boolean(keyRelevantEvidence),
+      daily_chat_lane: dailyChatPolicy.lane,
+      daily_chat_web_search: dailyChatPolicy.web_search === true,
     },
     meta: {
       LIVE_REQUEST_MODE: ONE_PATH_LIVE_MODE,
@@ -423,6 +470,9 @@ export function buildOnePathClaudeFirstRequest({
       DOCUMENT_PICK_RANK_IN_FRONT: 0,
       CUSTOMER_RELATIONSHIP: relationshipState.relationship,
       CUSTOMER_CONVERSATION: relationshipState.conversation,
+      DAILY_CHAT_LANE: dailyChatPolicy.lane,
+      DAILY_CHAT_WEB_SEARCH: dailyChatPolicy.web_search === true,
+      PRODUCT_SHOWCASE_REQUEST: productShowcaseRequest === true,
     },
   };
 }
