@@ -1172,6 +1172,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     systems.push(sys);
     assert.equal(sys.includes("[KEY_HUMAN_VOICE]"), true, c.id);
     assert.equal(sys.includes("[KEY_HEART]"), true, c.id);
+    assert.equal(sys.includes("[KEY_PROFESSIONAL_JUDGMENT]"), true, c.id);
     assert.equal(sys.includes("평생 주치의"), true, c.id);
     assert.equal(sys.includes("안내드리겠습니다"), true, c.id);
     assert.equal(sys.includes("상담원식"), true, c.id);
@@ -1246,6 +1247,32 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     // No literal answer templates / forbidden-cause phrase as canned reply.
     assert.equal(sys.includes("때문일 수도 있겠네요"), false, c.id);
     assert.equal(sys.includes("몸이 움직이는데 마음이 따라가지"), false, c.id);
+    // S9A Professional Judgment — expression quality outside KEY_HEART; not rule engines.
+    assert.equal(
+      sys.includes("처방·행동 제안보다 판단 근거를 먼저 말한다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("확정과 미확정을 자연스럽게 구분한다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("추론을 늘리거나 새 보험 기준을 만들지 않는다"),
+      true,
+      c.id,
+    );
+    assert.equal(sys.includes("judgment_score"), false, c.id);
+    assert.equal(sys.includes("recommendation_rank"), false, c.id);
+    // KEY_HEART block must not absorb Professional Judgment header.
+    {
+      const heartStart = sys.indexOf("[KEY_HEART]");
+      const heartEnd = sys.indexOf("[KEY_PROFESSIONAL_JUDGMENT]");
+      assert.equal(heartStart >= 0 && heartEnd > heartStart, true, c.id);
+      const heartSlice = sys.slice(heartStart, heartEnd);
+      assert.equal(heartSlice.includes("[KEY_PROFESSIONAL_JUDGMENT]"), false, c.id);
+    }
     assert.equal(
       sys.includes("해결을 원한다는 신호가 없는데 절차·조언·행동 계획을 먼저 쏟아내지 않는다"),
       true,
@@ -1307,6 +1334,10 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       HEART_CAN_BE_WARM: "YES",
       HEART_CAN_USE_MEMORY: "YES",
       HEART_CAN_GIVE_FULL_ANSWER: "YES",
+      PROFESSIONAL_JUDGMENT_BLOCK: "PASS",
+      PROFESSIONAL_JUDGMENT_OUTSIDE_HEART: "PASS",
+      PROFESSIONAL_JUDGMENT_EVIDENCE_FIRST: "PASS",
+      PROFESSIONAL_JUDGMENT_NO_NEW_RULE_ENGINE: "PASS",
       CACHE_PREFIX_11_CASE_STABLE: "YES",
     }),
   );
