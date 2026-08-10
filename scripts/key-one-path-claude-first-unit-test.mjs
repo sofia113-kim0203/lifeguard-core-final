@@ -931,7 +931,14 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   });
   assert.equal(cardFull.insurance_clock.upcoming[0].label, "갱신");
   assert.deepEqual(cardFull.insurance_clock, clockIn);
-  assert.deepEqual(cardFull.life_ledger, ledgerIn);
+  // S8-2: life_ledger content preserved; surface role marks relationship background.
+  assert.equal(cardFull.life_ledger.goals[0].id, ledgerIn.goals[0].id);
+  assert.equal(cardFull.life_ledger.goals[0].content, ledgerIn.goals[0].content);
+  assert.equal(cardFull.life_ledger.item_count, ledgerIn.item_count);
+  assert.equal(cardFull.life_ledger.surface_role, "relationship_background");
+  assert.equal(cardFull.life_ledger.speech_priority, "not_active_current_fact");
+  assert.equal(cardFull.life_ledger.fact_authority, "not_verified_fact");
+  assert.ok(String(cardFull.life_ledger.note || "").includes("RELATIONSHIP_BACKGROUND"));
   assert.deepEqual(cardFull.claim_evidence, evidenceIn);
   assert.equal(cardFull.active_claims.length, 1);
   assert.equal(cardFull.active_claims[0].claim_case_key, "case-1");
@@ -1239,6 +1246,123 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       HEART_CAN_USE_MEMORY: "YES",
       HEART_CAN_GIVE_FULL_ANSWER: "YES",
       CACHE_PREFIX_11_CASE_STABLE: "YES",
+    }),
+  );
+}
+
+{
+  // S8-2 — relationship memory surface role (structure only; no golden answer text).
+  const parentCareThread = {
+    id: "lt-parent-care",
+    type: "life_thread",
+    content: "[PARENT_CARE_PRESENT]",
+    status: "active",
+  };
+  const ledgerWithThread = {
+    goals: [{ id: "g-ins", type: "goal", content: "보장 점검", status: "active" }],
+    preferences: [],
+    decisions: [],
+    open_questions: [],
+    life_threads: [parentCareThread],
+    outcomes: [],
+    item_count: 2,
+    packs_separated: true,
+    note: "key_owns_life_ledger; soft_reference_only; claude_judges_freely",
+  };
+  const clockKeep = {
+    hand: "key_insurance_clock",
+    upcoming: [{ id: "due-1", label: "보험료 납입", status: "active" }],
+    overdue: [],
+    unknown_date: [],
+    completed_recent: [],
+    packs_separated: true,
+    note: "key_owns_dates",
+  };
+  const contracts = [
+    {
+      insurer: "테스트손보",
+      product_name: "종합건강보험",
+      policy_number: "P-KEEP-1",
+      status: "active",
+    },
+  ];
+  const facts = [
+    {
+      fact_type: "coverage",
+      literal: "암진단비",
+      verification_status: "confirmed",
+    },
+  ];
+
+  // Case A — idle daily question: relationship memory present but not active current fact.
+  const cardA = buildKeyCustomerCardForClaude({
+    policyTruthContext: {
+      confirmed_contracts: contracts,
+      confirmed_facts: facts,
+    },
+    history: [
+      { role: "user", text: "안녕" },
+      { role: "assistant", text: "안녕하세요." },
+      { role: "user", text: "오늘 퇴근하고 그냥 쉴까" },
+    ],
+    readyCardSsot: {
+      lifeLedgerBrief: ledgerWithThread,
+      insuranceClockBrief: clockKeep,
+      priorConsultation: { related_turns: [], open_goals: [], life_threads: [] },
+    },
+  });
+  assert.ok(cardA.life_ledger, "A: life_ledger must remain available");
+  assert.equal(cardA.life_ledger.life_threads[0].content, "[PARENT_CARE_PRESENT]");
+  assert.equal(cardA.life_ledger.surface_role, "relationship_background");
+  assert.equal(cardA.life_ledger.speech_priority, "not_active_current_fact");
+  assert.equal(cardA.life_ledger.fact_authority, "not_verified_fact");
+  assert.ok(
+    String(cardA.life_ledger.note || "").includes("keep this background silent"),
+  );
+  assert.equal(cardA.insurance_contracts[0].insurer, "테스트손보");
+  assert.equal(cardA.confirmed_facts[0].literal, "암진단비");
+  assert.equal(cardA.insurance_clock.upcoming[0].label, "보험료 납입");
+  assert.deepEqual(cardA.insurance_clock, clockKeep);
+
+  // Case B — customer continues parent-care topic: same memory still available to read.
+  const cardB = buildKeyCustomerCardForClaude({
+    history: [
+      {
+        role: "user",
+        text: "지난번 부모님 간병 얘기 이어서 하자",
+      },
+    ],
+    readyCardSsot: { lifeLedgerBrief: ledgerWithThread },
+  });
+  assert.ok(cardB.life_ledger, "B: relationship memory still available");
+  assert.equal(cardB.life_ledger.life_threads.length, 1);
+  assert.equal(cardB.life_ledger.speech_priority, "not_active_current_fact");
+  // Availability preserved — no deletion / no forced speech template.
+  assert.equal(cardB.life_ledger.life_threads[0].id, "lt-parent-care");
+
+  // Case C — deadline/promise authority not weakened by ledger surface markers.
+  const cardC = buildKeyCustomerCardForClaude({
+    policyTruthContext: { confirmed_contracts: contracts, confirmed_facts: facts },
+    readyCardSsot: {
+      lifeLedgerBrief: ledgerWithThread,
+      insuranceClockBrief: clockKeep,
+      ssotGoal: { goal: "청구 서류 준비", status: "active" },
+      ssotReason: "ready_card",
+    },
+  });
+  assert.deepEqual(cardC.insurance_clock, clockKeep);
+  assert.equal(cardC.active_goal.goal, "청구 서류 준비");
+  assert.equal(cardC.insurance_contracts.length, 1);
+  assert.equal(cardC.confirmed_facts.length, 1);
+  assert.equal(cardC.life_ledger.surface_role, "relationship_background");
+
+  console.log(
+    JSON.stringify({
+      S8_2_MEMORY_SURFACE_UNIT: "PASS",
+      RELATIONSHIP_MEMORY_STILL_AVAILABLE: "YES",
+      RELATIONSHIP_MEMORY_NOT_ACTIVE_CURRENT_FACT: "YES",
+      VERIFIED_FACT_AUTHORITY_PRESERVED: "YES",
+      DEADLINE_PROMISE_MEMORY_PRESERVED: "YES",
     }),
   );
 }

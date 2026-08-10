@@ -139,6 +139,32 @@ function isLifeLedgerHandoffEmpty(value) {
   );
 }
 
+/**
+ * S8-2 — Customer-card surface role for relationship/life context only.
+ * Does not delete ledger rows, change storage, or alter verified insurance authority.
+ * Claude may still read the content; it must not look like active current-fact speech fuel.
+ */
+function withLifeLedgerRelationshipSurface(brief) {
+  if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
+  const priorNote = brief.note != null ? String(brief.note).trim() : "";
+  return {
+    ...brief,
+    surface_role: "relationship_background",
+    fact_authority: "not_verified_fact",
+    speech_priority: "not_active_current_fact",
+    note: [
+      priorNote,
+      "RELATIONSHIP_BACKGROUND: goals/preferences/decisions/open_questions/life_threads/outcomes are remembered relationship context.",
+      "Not verified insurance facts. Not default speech candidates for this turn.",
+      "Current customer request has highest response priority.",
+      "Use only when this turn directly continues that background, avoids needless re-explanation, or omission would cause real harm/responsibility risk.",
+      "If the current request is sufficient alone, keep this background silent.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
 function isClaimEvidenceHandoffEmpty(value) {
   if (value == null) return true;
   if (typeof value !== "object" || Array.isArray(value)) return true;
@@ -313,7 +339,7 @@ export function buildKeyCustomerCardForClaude({
     active_goal: activeGoal,
     prior_consultation: priorConsultation,
     insurance_clock: ssot?.insuranceClockBrief || null,
-    life_ledger: ssot?.lifeLedgerBrief || null,
+    life_ledger: withLifeLedgerRelationshipSurface(ssot?.lifeLedgerBrief),
     claim_evidence: ssot?.claimEvidenceBrief || null,
     active_claims: activeClaims,
     recent_conversation: withRecentConversationAuthorityMarkers(
