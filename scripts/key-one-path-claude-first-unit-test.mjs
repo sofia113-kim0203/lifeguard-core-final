@@ -1165,6 +1165,34 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     assert.equal(sys.includes("억지 질문은 하지 않는다"), true, c.id);
     assert.equal(sys.includes("현재 고객의 말이 과거 관찰보다 우선"), true, c.id);
     assert.equal(sys.includes("충분히 답한다"), true, c.id);
+    // S8-1 HEART pacing refinement (structure only — not Human Gate).
+    assert.equal(sys.includes("현재 대화만으로 충분하면 굳이 꺼내지 않는다"), true, c.id);
+    assert.equal(sys.includes("알고 있음을 보여주기 위해 쓰지 않는다"), true, c.id);
+    assert.equal(
+      sys.includes("대화를 이어간다는 것은 항상 질문으로 끝내는 뜻이 아니다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("질문 없이 받아주거나 잠시 머무르는 것도 자연스럽다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("말하지 않은 마음을 그럴듯하게 완성하지 않는다"),
+      true,
+      c.id,
+    );
+    assert.equal(
+      sys.includes("해결을 원한다는 신호가 없는데 절차·조언·행동 계획을 먼저 쏟아내지 않는다"),
+      true,
+      c.id,
+    );
+    // Capabilities preserved (restraint ≠ capability kill).
+    assert.equal(sys.includes("자연스럽게 질문하고 대화를 이어간다"), true, c.id);
+    assert.equal(sys.includes("과거 기억은"), true, c.id);
+    assert.equal(sys.includes("실제 도움이 될 때만 자연스럽게 쓴다"), true, c.id);
+    assert.equal(sys.includes("정보를 묻거나 도움을 원하면 충분히 답한다"), true, c.id);
     // No forced question count / empathy phrase / profiling / Presence JSON.
     assert.equal(sys.includes("질문 1개"), false, c.id);
     assert.equal(sys.includes("무조건 해결"), false, c.id);
@@ -1173,6 +1201,8 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     assert.equal(sys.includes("presence_state"), false, c.id);
     assert.equal(sys.includes("heart_score"), false, c.id);
     assert.equal(sys.includes("IF/THEN"), false, c.id);
+    assert.equal(sys.includes("emotion_classifier"), false, c.id);
+    assert.equal(sys.includes("intent classifier"), false, c.id);
     // Greeting may stay short; content questions must not be forced short-close.
     assert.equal(sys.includes("인사·짧은 반응은 짧게"), true, c.id);
     assert.equal(sys.includes("단답으로 기계 종료하지 않는다"), true, c.id);
@@ -1196,7 +1226,20 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(sealed.key_customer_text_sealed, true);
   assert.equal(sealed.key_speak_original, "짧게 사람처럼 답한 문장");
   console.log(
-    "PASS KEY_HUMAN_VOICE · KEY_HEART · 11-case stable prefix · seal/Claude-first unchanged",
+    "PASS KEY_HUMAN_VOICE · KEY_HEART · HEART_PACING · 11-case stable prefix · seal/Claude-first unchanged",
+  );
+  console.log(
+    JSON.stringify({
+      HEART_MEMORY_HUMILITY: "PASS",
+      HEART_QUESTION_RESTRAINT: "PASS",
+      HEART_EMOTION_HUMILITY: "PASS",
+      HEART_SOLUTION_RESTRAINT: "PASS",
+      HEART_CAN_ASK: "YES",
+      HEART_CAN_CONTINUE: "YES",
+      HEART_CAN_USE_MEMORY: "YES",
+      HEART_CAN_GIVE_FULL_ANSWER: "YES",
+      CACHE_PREFIX_11_CASE_STABLE: "YES",
+    }),
   );
 }
 
