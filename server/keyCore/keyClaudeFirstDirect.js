@@ -197,9 +197,6 @@ import {
   shouldEmitAbsenceCertaintySlice,
   COVERAGE_AMOUNT_ATTRIBUTION_CLASS,
 } from "./keyAbsenceCertaintyGate.js";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { repairInProgressClaimZeroBareYeyo } from "./keyCustomerTextCompleteness.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
@@ -398,7 +395,7 @@ import {
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
-/* ── S10F — TEMP pre-emit observability (diagnosis only; never changes emit) ── */
+/* ── S10F/S10G — TEMP pre-emit observability (diagnosis only; never changes emit) ── */
 /** Opt-in: S10F_PRE_EMIT_OBSERVABILITY=1. Preview may enable unless explicitly 0. */
 export function isS10fPreEmitObservabilityEnabled(env = process.env) {
   const flag = String(env?.S10F_PRE_EMIT_OBSERVABILITY ?? "").trim();
@@ -407,13 +404,44 @@ export function isS10fPreEmitObservabilityEnabled(env = process.env) {
   return String(env?.VERCEL_ENV ?? "").toLowerCase() === "preview";
 }
 
-export function resolveS10fPreEmitAuditDir(env = process.env) {
-  const override = String(env?.S10F_PRE_EMIT_AUDIT_DIR ?? "").trim();
-  if (override) return override;
-  if (env?.VERCEL || env?.VERCEL_ENV) {
-    return join(tmpdir(), "s10f-pre-emit-observability");
+/**
+ * Envelope exposure: Preview + observability enabled.
+ * Production must leave s10f_pre_emit_audit absent (no new auth).
+ */
+export function shouldExposeS10fPreEmitAuditEnvelope(env = process.env) {
+  return (
+    isS10fPreEmitObservabilityEnabled(env) &&
+    String(env?.VERCEL_ENV ?? "").trim() === "preview"
+  );
+}
+
+/** Request-local in-memory buffer (retrievable via SSE done envelope). */
+export function createS10fPreEmitAuditBuffer() {
+  return [];
+}
+
+/** Push one EXACT-7-field record. Never throws; never writes disk/DB. */
+export function pushS10fPreEmitObservation(buffer, record) {
+  try {
+    if (!Array.isArray(buffer) || !record || typeof record !== "object") {
+      return false;
+    }
+    buffer.push(record);
+    return true;
+  } catch {
+    return false;
   }
-  return join(process.cwd(), ".tmp", "s10f-pre-emit-observability");
+}
+
+/**
+ * Preview-only fields for key_voice_trace sibling.
+ * Returns {} when not exposable (Production / disabled → key absent).
+ */
+export function s10fPreEmitAuditEnvelopeFields(buffer, env = process.env) {
+  if (!shouldExposeS10fPreEmitAuditEnvelope(env)) return {};
+  return {
+    s10f_pre_emit_audit: Array.isArray(buffer) ? buffer.slice() : [],
+  };
 }
 
 /** Secret-safe shape: coverage_name + coverage_amount only. */
@@ -484,23 +512,6 @@ export function buildS10fPreEmitObservationRecord({
     emit_decision: emit_decision === true,
     bypass_path: bypass_path === true,
   };
-}
-
-/** Best-effort TEMP append. Never throws to caller. */
-export function appendS10fPreEmitObservation(record, env = process.env) {
-  try {
-    const dir = resolveS10fPreEmitAuditDir(env);
-    mkdirSync(dir, { recursive: true });
-    const rid = String(record?.request_id ?? "unknown").replace(
-      /[^a-zA-Z0-9._:-]+/g,
-      "_",
-    );
-    const file = join(dir, `${rid}.jsonl`);
-    appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Curated non-PII tokens used only for Anthropic error fingerprinting. */
@@ -7979,6 +7990,7 @@ export async function runClaudeFirstDirectQuestionTurn({
   const absenceVetoEvidenceRef = { current: [] };
   const coverageAmountIntegrityRef = { current: [] };
   const s10fObsEnabled = isS10fPreEmitObservabilityEnabled(env);
+  const s10fAuditBuffer = createS10fPreEmitAuditBuffer();
   const s10fAuditRequestId = String(
     clientTurnId || sessionId || `s10f_${Number(startedAt) || Date.now()}`,
   ).slice(0, 200);
@@ -7992,7 +8004,8 @@ export async function runClaudeFirstDirectQuestionTurn({
       });
       if (s10fObsEnabled) {
         s10fSequenceIndex += 1;
-        appendS10fPreEmitObservation(
+        pushS10fPreEmitObservation(
+          s10fAuditBuffer,
           buildS10fPreEmitObservationRecord({
             request_id: s10fAuditRequestId,
             sequence_index: s10fSequenceIndex,
@@ -8002,7 +8015,6 @@ export async function runClaudeFirstDirectQuestionTurn({
             emit_decision: decided.emit_decision,
             bypass_path: false,
           }),
-          env,
         );
       }
       return decided.emit_decision;
@@ -8987,6 +8999,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             session_goal_ssot_reason: ssotReason,
             anthropic_upstream_diag: claude.anthropic_upstream_diag ?? null,
             empty_answer_diag: claude.empty_answer_diag ?? null,
+            // S10G — Preview-only retrieval sibling (not customer text / not seal).
+            ...s10fPreEmitAuditEnvelopeFields(s10fAuditBuffer, env),
             web_search: claude.web_search_trace ?? null,
             pdf_attached: claude.pdf_attached === true,
             pdf_attached_attempted: claude.pdf_attached_attempted === true,
@@ -9556,6 +9570,23 @@ export async function runClaudeFirstDirectQuestionTurn({
           : [],
         { limit: 6, activeOnly: true, customerId },
       );
+  // S10G — observe fallback bypass before done envelope (same condition as later onDelta).
+  // Customer emit still happens later; observation only so SSE done can retrieve it.
+  if (s10fObsEnabled && streamHandlers?.onDelta && !streamHandlers._emitted) {
+    s10fSequenceIndex += 1;
+    pushS10fPreEmitObservation(
+      s10fAuditBuffer,
+      buildS10fPreEmitObservationRecord({
+        request_id: s10fAuditRequestId,
+        sequence_index: s10fSequenceIndex,
+        verifiedCoverages: coverageAmountIntegrityRef.current,
+        candidate_slice: String(sealed.key_speak_original ?? ""),
+        gate_class: null,
+        emit_decision: true,
+        bypass_path: true,
+      }),
+    );
+  }
   if (typeof streamHandlers?.onEarlyCustomerDone === "function") {
     try {
       // Same authority as callClaudeFirstDirect messagesRequestCount (via return web_search_trace).
@@ -9656,6 +9687,8 @@ export async function runClaudeFirstDirectQuestionTurn({
                 public_evidence: claude?.public_evidence,
                 web_search_trace: claude?.web_search_trace,
               }),
+              // S10G — Preview-only retrieval sibling (not customer text / not seal).
+              ...s10fPreEmitAuditEnvelopeFields(s10fAuditBuffer, env),
               preview_runtime_trace: buildPreviewRuntimeTraceFromClaude(
                 claude,
                 {
@@ -10525,22 +10558,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
 
   // If nothing was streamed (e.g. empty path), emit once.
+  // S10G — bypass observation already buffered before early done (no dual/tmp write).
   if (streamHandlers?.onDelta && !streamHandlers._emitted) {
-    // S10F — observe fallback bypass only; do not run coverage gate to block/rewrite.
-    if (s10fObsEnabled) {
-      appendS10fPreEmitObservation(
-        buildS10fPreEmitObservationRecord({
-          request_id: s10fAuditRequestId,
-          sequence_index: s10fSequenceIndex + 1,
-          verifiedCoverages: coverageAmountIntegrityRef.current,
-          candidate_slice: String(sealed.key_speak_original ?? ""),
-          gate_class: null,
-          emit_decision: true,
-          bypass_path: true,
-        }),
-        env,
-      );
-    }
     streamHandlers.onDelta(sealed.key_speak_original);
     streamHandlers._emitted = true;
     sseEmittedText = String(sealed.key_speak_original ?? "");
@@ -10750,6 +10769,8 @@ export async function runClaudeFirstDirectQuestionTurn({
             String(sseEmittedText ?? "") === String(sealed.key_speak_original ?? ""),
           qa_turn_trace_id: qaTurnCapture?.turn_trace_id ?? null,
           qa_turn_record: qaTurnRecordMeta,
+          // S10G — Preview-only retrieval sibling (not customer text / not seal).
+          ...s10fPreEmitAuditEnvelopeFields(s10fAuditBuffer, env),
           preview_runtime_trace: buildPreviewRuntimeTraceFromClaude(
             claude,
             {

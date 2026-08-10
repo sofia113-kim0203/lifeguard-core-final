@@ -16,13 +16,16 @@ import {
   decideS10fPreEmitEmitDecision,
   buildS10fPreEmitObservationRecord,
   shapeVerifiedCoveragesForS10fAudit,
-  appendS10fPreEmitObservation,
-  resolveS10fPreEmitAuditDir,
+  createS10fPreEmitAuditBuffer,
+  pushS10fPreEmitObservation,
+  s10fPreEmitAuditEnvelopeFields,
+  shouldExposeS10fPreEmitAuditEnvelope,
+  isS10fPreEmitObservabilityEnabled,
 } from "../server/keyCore/keyClaudeFirstDirect.js";
 import { createImmediateAnswerDeltaStream } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function test(name, fn) {
   try {
@@ -610,6 +613,11 @@ test("S10F-T1 MATCH — obs ON/OFF customer text identical", () => {
   assert.equal(on.customerText(), text);
   assert.equal(on.observations.length >= 1, true);
   assert.equal(on.observations[0].bypass_path, false);
+  assert.equal(
+    on.observations[0].gate_class,
+    COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH,
+  );
+  assert.equal(on.observations[0].emit_decision, true);
 });
 
 test("S10F-T2 CLEAR_MISMATCH — obs ON/OFF veto identical", () => {
@@ -637,6 +645,12 @@ test("S10F-T2 CLEAR_MISMATCH — obs ON/OFF veto identical", () => {
   on.stream.flush();
   assert.equal(on.customerText(), off.customerText());
   assert.equal(on.customerText(), "");
+  assert.equal(on.observations.length >= 1, true);
+  assert.equal(
+    on.observations[0].gate_class,
+    COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH,
+  );
+  assert.equal(on.observations[0].emit_decision, false);
 });
 
 test("S10F-T3 NOT_CHECKABLE — obs ON/OFF emit identical", () => {
@@ -661,6 +675,8 @@ test("S10F-T3 NOT_CHECKABLE — obs ON/OFF emit identical", () => {
   on.stream.flush();
   assert.equal(on.customerText(), off.customerText());
   assert.equal(on.customerText(), text);
+  assert.equal(on.observations.length >= 1, true);
+  assert.equal(on.observations[0].emit_decision, true);
 });
 
 test("S10F-T4 absence veto — observation does not change result", () => {
@@ -697,21 +713,110 @@ test("S10F-T5 fallback — bypass_path=true record only; no gate rewrite", () =>
   assert.equal(rec.emit_decision, true);
   assert.equal(rec.gate_class, null);
   assert.equal(rec.candidate_slice, sealed);
-  // TEMP write does not alter customer-facing sealed text.
-  const dir = mkdtempSync(join(tmpdir(), "s10f-unit-"));
-  try {
-    const ok = appendS10fPreEmitObservation(rec, {
-      S10F_PRE_EMIT_AUDIT_DIR: dir,
-    });
-    assert.equal(ok, true);
-    assert.equal(resolveS10fPreEmitAuditDir({ S10F_PRE_EMIT_AUDIT_DIR: dir }), dir);
-    const written = readFileSync(join(dir, "unit-s10f-bypass.jsonl"), "utf8");
-    const parsed = JSON.parse(written.trim());
-    assert.equal(parsed.bypass_path, true);
-    assert.equal(parsed.candidate_slice, sealed);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  // S10G — in-memory buffer only; customer sealed text unchanged.
+  const buf = createS10fPreEmitAuditBuffer();
+  const ok = pushS10fPreEmitObservation(buf, rec);
+  assert.equal(ok, true);
+  assert.equal(buf.length, 1);
+  assert.equal(buf[0].bypass_path, true);
+  assert.equal(buf[0].candidate_slice, sealed);
+  assert.equal(sealed, "질병1~5종수술비IV (2종)\t50만원\n");
+});
+
+test("S10G-T6 retrieval envelope — S10F records attachable on done trace", () => {
+  const buf = createS10fPreEmitAuditBuffer();
+  const rec = buildS10fPreEmitObservationRecord({
+    request_id: "client-turn-1",
+    sequence_index: 1,
+    verifiedCoverages: S10D_COVERAGES_1_3,
+    candidate_slice: "질병1~5종수술비IV (1종) 50만원",
+    gate_class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH,
+    emit_decision: true,
+    bypass_path: false,
+  });
+  pushS10fPreEmitObservation(buf, rec);
+  const previewEnv = {
+    VERCEL_ENV: "preview",
+    S10F_PRE_EMIT_OBSERVABILITY: "1",
+  };
+  assert.equal(shouldExposeS10fPreEmitAuditEnvelope(previewEnv), true);
+  const fields = s10fPreEmitAuditEnvelopeFields(buf, previewEnv);
+  assert.equal(Array.isArray(fields.s10f_pre_emit_audit), true);
+  assert.equal(fields.s10f_pre_emit_audit.length, 1);
+  const keys = Object.keys(fields.s10f_pre_emit_audit[0]).sort().join(",");
+  assert.equal(
+    keys,
+    "bypass_path,candidate_slice,emit_decision,gate_class,request_id,sequence_index,verified_tuple_shape",
+  );
+  // Customer-visible / seal fields stay separate.
+  const donePayload = {
+    answerText: "고객에게 보이는 문장",
+    key_speak_original: "고객에게 보이는 문장",
+    sales_director_trace: {
+      key_compose_trace: {
+        key_voice_trace: {
+          provider: "claude_first_direct",
+          ...fields,
+        },
+      },
+    },
+  };
+  assert.equal(donePayload.answerText, "고객에게 보이는 문장");
+  assert.equal(donePayload.key_speak_original, "고객에게 보이는 문장");
+  assert.equal(
+    donePayload.sales_director_trace.key_compose_trace.key_voice_trace
+      .s10f_pre_emit_audit[0].request_id,
+    "client-turn-1",
+  );
+});
+
+test("S10G-T7 Production/disabled — s10f_pre_emit_audit absent", () => {
+  const buf = createS10fPreEmitAuditBuffer();
+  pushS10fPreEmitObservation(
+    buf,
+    buildS10fPreEmitObservationRecord({
+      request_id: "prod-turn",
+      sequence_index: 1,
+      verifiedCoverages: [],
+      candidate_slice: "x",
+      gate_class: COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH,
+      emit_decision: true,
+      bypass_path: false,
+    }),
+  );
+  const prodEnv = { VERCEL_ENV: "production", S10F_PRE_EMIT_OBSERVABILITY: "1" };
+  assert.equal(isS10fPreEmitObservabilityEnabled(prodEnv), true);
+  assert.equal(shouldExposeS10fPreEmitAuditEnvelope(prodEnv), false);
+  assert.deepEqual(s10fPreEmitAuditEnvelopeFields(buf, prodEnv), {});
+  const disabledPreview = {
+    VERCEL_ENV: "preview",
+    S10F_PRE_EMIT_OBSERVABILITY: "0",
+  };
+  assert.equal(isS10fPreEmitObservabilityEnabled(disabledPreview), false);
+  assert.equal(shouldExposeS10fPreEmitAuditEnvelope(disabledPreview), false);
+  assert.deepEqual(s10fPreEmitAuditEnvelopeFields(buf, disabledPreview), {});
+});
+
+test("S10G-T8 no tmp write — S10F path does not use appendFileSync/os.tmpdir", () => {
+  const srcPath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "server",
+    "keyCore",
+    "keyClaudeFirstDirect.js",
+  );
+  const src = readFileSync(srcPath, "utf8");
+  assert.equal(/appendS10fPreEmitObservation/.test(src), false);
+  assert.equal(/resolveS10fPreEmitAuditDir/.test(src), false);
+  assert.equal(/s10f-pre-emit-observability/.test(src), false);
+  assert.equal(/from \"node:fs\"/.test(src), false);
+  assert.equal(/from \"node:os\"/.test(src), false);
+  assert.equal(/appendFileSync/.test(src), false);
+  assert.equal(/tmpdir\(/.test(src), false);
+  assert.equal(/createS10fPreEmitAuditBuffer/.test(src), true);
+  assert.equal(/pushS10fPreEmitObservation/.test(src), true);
+  assert.equal(/s10fPreEmitAuditEnvelopeFields/.test(src), true);
+  assert.equal(/s10f_pre_emit_audit/.test(src), true);
 });
 
 console.log(
