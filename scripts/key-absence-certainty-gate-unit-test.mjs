@@ -11,8 +11,18 @@ import {
   shouldEmitCoverageAmountIntegritySlice,
   COVERAGE_AMOUNT_ATTRIBUTION_CLASS,
 } from "../server/keyCore/keyAbsenceCertaintyGate.js";
-import { hardOnlySafetyCheck } from "../server/keyCore/keyClaudeFirstDirect.js";
+import {
+  hardOnlySafetyCheck,
+  decideS10fPreEmitEmitDecision,
+  buildS10fPreEmitObservationRecord,
+  shapeVerifiedCoveragesForS10fAudit,
+  appendS10fPreEmitObservation,
+  resolveS10fPreEmitAuditDir,
+} from "../server/keyCore/keyClaudeFirstDirect.js";
 import { createImmediateAnswerDeltaStream } from "../server/keyCore/keyClaudeFirstSentenceCommit.js";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 function test(name, fn) {
   try {
@@ -534,6 +544,174 @@ test("S10D-T3b S9A-shaped grouped expansion both lines → veto units", () => {
   stream.flush();
   assert.equal(customerText().includes("3·4종"), false);
   assert.equal(customerText().includes("1·2종"), false);
+});
+
+// --- S10F TEMP pre-emit observability (observation must not change emit) ---
+
+function makeObservedCombinedStream(absenceEvidence = [], verifiedCoverages = []) {
+  const emitted = [];
+  const observations = [];
+  let seq = 0;
+  const stream = createImmediateAnswerDeltaStream({
+    shouldEmitSlice(slice) {
+      const decided = decideS10fPreEmitEmitDecision({
+        slice,
+        absenceEvidence,
+        verifiedCoverages,
+      });
+      seq += 1;
+      observations.push(
+        buildS10fPreEmitObservationRecord({
+          request_id: "unit-s10f",
+          sequence_index: seq,
+          verifiedCoverages,
+          candidate_slice: slice,
+          gate_class: decided.gate_class,
+          emit_decision: decided.emit_decision,
+          bypass_path: false,
+        }),
+      );
+      return decided.emit_decision;
+    },
+    onCommit(slice) {
+      emitted.push(slice);
+      return { keep: true };
+    },
+  });
+  return {
+    stream,
+    observations,
+    customerText() {
+      return emitted.join("");
+    },
+  };
+}
+
+test("S10F-T1 MATCH — obs ON/OFF customer text identical", () => {
+  const coverages = [
+    { coverage_name: "질병1~5종수술비IV (1종)", coverage_amount: "50만원" },
+  ];
+  const text = "질병1~5종수술비IV (1종) 50만원입니다.";
+  const legacy = shouldEmitCoverageAmountIntegritySlice(text, coverages);
+  const decided = decideS10fPreEmitEmitDecision({
+    slice: text,
+    absenceEvidence: [],
+    verifiedCoverages: coverages,
+  });
+  assert.equal(decided.emit_decision, legacy);
+  assert.equal(decided.gate_class, COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH);
+  const off = makeCombinedVetoStream([], coverages);
+  off.stream.pushAnswerText(text);
+  off.stream.flush();
+  const on = makeObservedCombinedStream([], coverages);
+  on.stream.pushAnswerText(text);
+  on.stream.flush();
+  assert.equal(on.customerText(), off.customerText());
+  assert.equal(on.customerText(), text);
+  assert.equal(on.observations.length >= 1, true);
+  assert.equal(on.observations[0].bypass_path, false);
+});
+
+test("S10F-T2 CLEAR_MISMATCH — obs ON/OFF veto identical", () => {
+  const coverages = [
+    { coverage_name: "질병1~5종수술비IV (1종)", coverage_amount: "50만원" },
+  ];
+  const text = "질병1~5종수술비IV (2종) 50만원입니다.";
+  const legacy = shouldEmitCoverageAmountIntegritySlice(text, coverages);
+  const decided = decideS10fPreEmitEmitDecision({
+    slice: text,
+    absenceEvidence: [],
+    verifiedCoverages: coverages,
+  });
+  assert.equal(decided.emit_decision, legacy);
+  assert.equal(decided.emit_decision, false);
+  assert.equal(
+    decided.gate_class,
+    COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH,
+  );
+  const off = makeCombinedVetoStream([], coverages);
+  off.stream.pushAnswerText(text);
+  off.stream.flush();
+  const on = makeObservedCombinedStream([], coverages);
+  on.stream.pushAnswerText(text);
+  on.stream.flush();
+  assert.equal(on.customerText(), off.customerText());
+  assert.equal(on.customerText(), "");
+});
+
+test("S10F-T3 NOT_CHECKABLE — obs ON/OFF emit identical", () => {
+  const text = "수술비 구성은 조금 더 열어봐야 정확히 말씀드릴 수 있어요.";
+  const legacy = shouldEmitCoverageAmountIntegritySlice(text, S10D_COVERAGES_1_3);
+  const decided = decideS10fPreEmitEmitDecision({
+    slice: text,
+    absenceEvidence: [],
+    verifiedCoverages: S10D_COVERAGES_1_3,
+  });
+  assert.equal(decided.emit_decision, legacy);
+  assert.equal(decided.emit_decision, true);
+  assert.notEqual(
+    decided.gate_class,
+    COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH,
+  );
+  const off = makeCombinedVetoStream([], S10D_COVERAGES_1_3);
+  off.stream.pushAnswerText(text);
+  off.stream.flush();
+  const on = makeObservedCombinedStream([], S10D_COVERAGES_1_3);
+  on.stream.pushAnswerText(text);
+  on.stream.flush();
+  assert.equal(on.customerText(), off.customerText());
+  assert.equal(on.customerText(), text);
+});
+
+test("S10F-T4 absence veto — observation does not change result", () => {
+  const bad = "뇌혈관 진단비는 포함돼 있지 않습니다.";
+  const off = makeCombinedVetoStream([], S10D_COVERAGES_1_3);
+  off.stream.pushAnswerText(bad);
+  off.stream.flush();
+  const on = makeObservedCombinedStream([], S10D_COVERAGES_1_3);
+  on.stream.pushAnswerText(bad);
+  on.stream.flush();
+  assert.equal(on.customerText(), off.customerText());
+  assert.equal(on.customerText(), "");
+  assert.equal(on.observations.some((o) => o.emit_decision === false), true);
+});
+
+test("S10F-T5 fallback — bypass_path=true record only; no gate rewrite", () => {
+  const sealed = "질병1~5종수술비IV (2종)\t50만원\n";
+  const shape = shapeVerifiedCoveragesForS10fAudit(S10D_COVERAGES_1_3);
+  assert.equal(shape.length, 2);
+  assert.equal(
+    Object.keys(shape.tuples[0]).sort().join(","),
+    "coverage_amount,coverage_name",
+  );
+  const rec = buildS10fPreEmitObservationRecord({
+    request_id: "unit-s10f-bypass",
+    sequence_index: 1,
+    verifiedCoverages: S10D_COVERAGES_1_3,
+    candidate_slice: sealed,
+    gate_class: null,
+    emit_decision: true,
+    bypass_path: true,
+  });
+  assert.equal(rec.bypass_path, true);
+  assert.equal(rec.emit_decision, true);
+  assert.equal(rec.gate_class, null);
+  assert.equal(rec.candidate_slice, sealed);
+  // TEMP write does not alter customer-facing sealed text.
+  const dir = mkdtempSync(join(tmpdir(), "s10f-unit-"));
+  try {
+    const ok = appendS10fPreEmitObservation(rec, {
+      S10F_PRE_EMIT_AUDIT_DIR: dir,
+    });
+    assert.equal(ok, true);
+    assert.equal(resolveS10fPreEmitAuditDir({ S10F_PRE_EMIT_AUDIT_DIR: dir }), dir);
+    const written = readFileSync(join(dir, "unit-s10f-bypass.jsonl"), "utf8");
+    const parsed = JSON.parse(written.trim());
+    assert.equal(parsed.bypass_path, true);
+    assert.equal(parsed.candidate_slice, sealed);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 console.log(

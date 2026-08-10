@@ -193,9 +193,13 @@ import {
 import {
   collectVerifiedNegativeCoverageEvidence,
   evaluateAbsenceCertaintyGate,
+  evaluateCoverageAmountAttributionGate,
   shouldEmitAbsenceCertaintySlice,
-  shouldEmitCoverageAmountIntegritySlice,
+  COVERAGE_AMOUNT_ATTRIBUTION_CLASS,
 } from "./keyAbsenceCertaintyGate.js";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { repairInProgressClaimZeroBareYeyo } from "./keyCustomerTextCompleteness.js";
 import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
@@ -393,6 +397,111 @@ import {
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+
+/* ── S10F — TEMP pre-emit observability (diagnosis only; never changes emit) ── */
+/** Opt-in: S10F_PRE_EMIT_OBSERVABILITY=1. Preview may enable unless explicitly 0. */
+export function isS10fPreEmitObservabilityEnabled(env = process.env) {
+  const flag = String(env?.S10F_PRE_EMIT_OBSERVABILITY ?? "").trim();
+  if (flag === "0" || /^false$/i.test(flag)) return false;
+  if (flag === "1" || /^true$/i.test(flag)) return true;
+  return String(env?.VERCEL_ENV ?? "").toLowerCase() === "preview";
+}
+
+export function resolveS10fPreEmitAuditDir(env = process.env) {
+  const override = String(env?.S10F_PRE_EMIT_AUDIT_DIR ?? "").trim();
+  if (override) return override;
+  if (env?.VERCEL || env?.VERCEL_ENV) {
+    return join(tmpdir(), "s10f-pre-emit-observability");
+  }
+  return join(process.cwd(), ".tmp", "s10f-pre-emit-observability");
+}
+
+/** Secret-safe shape: coverage_name + coverage_amount only. */
+export function shapeVerifiedCoveragesForS10fAudit(verifiedCoverages = null) {
+  const rows = Array.isArray(verifiedCoverages) ? verifiedCoverages : [];
+  const tuples = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const coverage_name = String(
+      row.coverage_name ?? row.original_coverage_name ?? "",
+    ).trim();
+    const coverage_amount =
+      row.coverage_amount == null ? "" : String(row.coverage_amount).trim();
+    if (!coverage_name && !coverage_amount) continue;
+    tuples.push({ coverage_name, coverage_amount });
+  }
+  return { length: tuples.length, tuples };
+}
+
+/**
+ * Same emit semantics as absence ∧ shouldEmitCoverageAmountIntegritySlice.
+ * Returns gate_class from the single coverage evaluation (no second meaning path).
+ */
+export function decideS10fPreEmitEmitDecision({
+  slice = "",
+  absenceEvidence = null,
+  verifiedCoverages = null,
+} = {}) {
+  const absenceAllowed = shouldEmitAbsenceCertaintySlice(
+    slice,
+    absenceEvidence,
+  );
+  let gate_class = COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH;
+  let coverageAllowed = true;
+  if (String(slice ?? "").trim()) {
+    const gate = evaluateCoverageAmountAttributionGate({
+      text: slice,
+      verifiedCoverages,
+    });
+    gate_class = gate.class;
+    coverageAllowed =
+      gate.class !== COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH;
+  }
+  const emit_decision = absenceAllowed === true && coverageAllowed === true;
+  return {
+    absenceAllowed: absenceAllowed === true,
+    coverageAllowed,
+    gate_class,
+    emit_decision,
+  };
+}
+
+export function buildS10fPreEmitObservationRecord({
+  request_id = null,
+  sequence_index = 0,
+  verifiedCoverages = null,
+  candidate_slice = "",
+  gate_class = null,
+  emit_decision = null,
+  bypass_path = false,
+} = {}) {
+  return {
+    request_id: request_id == null ? null : String(request_id),
+    sequence_index: Number(sequence_index) || 0,
+    verified_tuple_shape: shapeVerifiedCoveragesForS10fAudit(verifiedCoverages),
+    candidate_slice: String(candidate_slice ?? ""),
+    gate_class: gate_class == null ? null : String(gate_class),
+    emit_decision: emit_decision === true,
+    bypass_path: bypass_path === true,
+  };
+}
+
+/** Best-effort TEMP append. Never throws to caller. */
+export function appendS10fPreEmitObservation(record, env = process.env) {
+  try {
+    const dir = resolveS10fPreEmitAuditDir(env);
+    mkdirSync(dir, { recursive: true });
+    const rid = String(record?.request_id ?? "unknown").replace(
+      /[^a-zA-Z0-9._:-]+/g,
+      "_",
+    );
+    const file = join(dir, `${rid}.jsonl`);
+    appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Curated non-PII tokens used only for Anthropic error fingerprinting. */
 const ANTHROPIC_ERROR_FINGERPRINT_KEYWORDS = Object.freeze([
@@ -7865,18 +7974,38 @@ export async function runClaudeFirstDirectQuestionTurn({
   let sentenceAbortReason = null;
   // Repair A2 — sentence-boundary hold + absence veto before customer emit (no rewrite).
   // S10D — same pre-emit point: CLEAR_MISMATCH coverage amount attribution also vetoes.
+  // S10F — TEMP observation only (never mutates emit / boundaries / customer text).
   let sseEmittedText = "";
   const absenceVetoEvidenceRef = { current: [] };
   const coverageAmountIntegrityRef = { current: [] };
+  const s10fObsEnabled = isS10fPreEmitObservabilityEnabled(env);
+  const s10fAuditRequestId = String(
+    clientTurnId || sessionId || `s10f_${Number(startedAt) || Date.now()}`,
+  ).slice(0, 200);
+  let s10fSequenceIndex = 0;
   const commitStream = createImmediateAnswerDeltaStream({
     shouldEmitSlice(slice) {
-      return (
-        shouldEmitAbsenceCertaintySlice(slice, absenceVetoEvidenceRef.current) &&
-        shouldEmitCoverageAmountIntegritySlice(
-          slice,
-          coverageAmountIntegrityRef.current,
-        )
-      );
+      const decided = decideS10fPreEmitEmitDecision({
+        slice,
+        absenceEvidence: absenceVetoEvidenceRef.current,
+        verifiedCoverages: coverageAmountIntegrityRef.current,
+      });
+      if (s10fObsEnabled) {
+        s10fSequenceIndex += 1;
+        appendS10fPreEmitObservation(
+          buildS10fPreEmitObservationRecord({
+            request_id: s10fAuditRequestId,
+            sequence_index: s10fSequenceIndex,
+            verifiedCoverages: coverageAmountIntegrityRef.current,
+            candidate_slice: slice,
+            gate_class: decided.gate_class,
+            emit_decision: decided.emit_decision,
+            bypass_path: false,
+          }),
+          env,
+        );
+      }
+      return decided.emit_decision;
     },
     onCommit(chunk) {
       const slice = String(chunk ?? "");
@@ -10397,6 +10526,21 @@ export async function runClaudeFirstDirectQuestionTurn({
 
   // If nothing was streamed (e.g. empty path), emit once.
   if (streamHandlers?.onDelta && !streamHandlers._emitted) {
+    // S10F — observe fallback bypass only; do not run coverage gate to block/rewrite.
+    if (s10fObsEnabled) {
+      appendS10fPreEmitObservation(
+        buildS10fPreEmitObservationRecord({
+          request_id: s10fAuditRequestId,
+          sequence_index: s10fSequenceIndex + 1,
+          verifiedCoverages: coverageAmountIntegrityRef.current,
+          candidate_slice: String(sealed.key_speak_original ?? ""),
+          gate_class: null,
+          emit_decision: true,
+          bypass_path: true,
+        }),
+        env,
+      );
+    }
     streamHandlers.onDelta(sealed.key_speak_original);
     streamHandlers._emitted = true;
     sseEmittedText = String(sealed.key_speak_original ?? "");
