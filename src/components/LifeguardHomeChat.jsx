@@ -885,6 +885,8 @@ export default function LifeguardHomeChat({
   const loadDocumentsRef = useRef(async () => {});
   const focusChatInputRef = useRef(() => {});
   const sessionIdRef = useRef(sessionId);
+  /** 새 대화로 연 empty session — hydrate resolve가 recent[0]으로 되돌리지 못하게 한다. */
+  const newChatIntentSessionRef = useRef(null);
   const authUserRef = useRef(authUser);
   const customerIdRef = useRef(customerId);
   const trackedAnalysisJobIdRef = useRef(session?.trackedAnalysisJobId ?? null);
@@ -1625,11 +1627,22 @@ export default function LifeguardHomeChat({
         }
 
         const storedSessionId = readActiveSessionId(customerId);
-        const activeId = resolveActiveLifeguardSessionId({
+        let activeId = resolveActiveLifeguardSessionId({
           recentSessions: recent,
           storedId: storedSessionId,
           snapshotSessionId: snapshot?.sessionId ?? null,
         });
+        // PROVEN bug path: stored/snapshot empty → resolve picks recent[0] and rebinds
+        // away from an already-live 새 대화 session. Keep the new-chat intent instead.
+        const newChatIntent = String(newChatIntentSessionRef.current ?? "");
+        const refNow = String(sessionIdRef.current ?? "");
+        if (
+          newChatIntent &&
+          refNow === newChatIntent &&
+          String(activeId) !== newChatIntent
+        ) {
+          activeId = newChatIntent;
+        }
         setSessionId(activeId);
         if (
           sessionIdAtStart &&
@@ -1934,6 +1947,7 @@ export default function LifeguardHomeChat({
         return;
       }
 
+      newChatIntentSessionRef.current = null;
       setSessionId(targetSessionId);
       sessionIdRef.current = targetSessionId;
       setError("");
@@ -2770,6 +2784,7 @@ export default function LifeguardHomeChat({
     const newSessionId = createLifeguardSessionId();
     endInflightHomeChatTurn(inflightTurnIdRef.current);
     inflightTurnIdRef.current = null;
+    newChatIntentSessionRef.current = newSessionId;
     setSessionId(newSessionId);
     sessionIdRef.current = newSessionId;
     setMessages([]);
