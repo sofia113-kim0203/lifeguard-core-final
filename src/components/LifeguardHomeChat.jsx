@@ -85,7 +85,13 @@ import {
   readAgentKeyChatSession,
   writeAgentKeyChatSession,
 } from "../lib/agentKeyChatSession.js";
-import { createAgentStreamPaintController } from "../lib/agentKeyChatStreamPaint.js";
+import {
+  createAgentStreamPaintController,
+  resolveCustomerHistoryPersistText,
+  resolveCustomerStreamFinalizeInput,
+  shouldPreferSealOverPainted,
+  shouldRemoveAssistantBubbleOnStreamError,
+} from "../lib/agentKeyChatStreamPaint.js";
 import { fetchMyCorporateEntities } from "../lib/keyMyCorporateEntities.js";
 import {
   buildCustomerUiFinalShellModel,
@@ -2327,9 +2333,13 @@ export default function LifeguardHomeChat({
       );
       if (result.documentMemoryPersistFailed) {
         const paintedNow = String(paint.getPainted() || streamedText || "");
-        const memoryFailMessage =
-          result.memoryPersistErrorMessage ||
+        const memoryFailFallback =
           "답변은 준비됐지만 KEY 공식 기억 저장이 완료되지 않았습니다. 기억 저장을 다시 시도해 주세요.";
+        // T1 — sanitize server memory-fail copy before customer setError.
+        const memoryFailMessage = toCustomerErrorMessage(
+          { message: result.memoryPersistErrorMessage },
+          memoryFailFallback,
+        );
         // Vault store already done — never revive upload File/preview/composer authority.
         void planUploadTransitOnMemoryCommitFailure();
         setChatAttachments((prev) => discardComposerUploadTransit(prev));
@@ -2368,13 +2378,17 @@ export default function LifeguardHomeChat({
 
       const sealedText = String(result.answerText ?? "");
       const paintedNow = String(paint.getPainted() || streamedText || "");
-      // Append-only: sealed may extend painted; divergent sealed must not replace display.
-      const finalizeInput = (() => {
-        if (!paintedNow) return sealedText || String(paint.getAccumulated() || "");
-        if (!sealedText) return paintedNow;
-        if (sealedText === paintedNow || sealedText.startsWith(paintedNow)) return sealedText;
-        return paintedNow;
-      })();
+      // R1 — fail-closed monopoly failure: seal wins. Else append-only / painted on divergent.
+      const preferSeal = shouldPreferSealOverPainted({
+        keyMonopolyFailure: result.keyMonopolyFailure === true,
+        sealedText,
+      });
+      const finalizeInput = resolveCustomerStreamFinalizeInput({
+        paintedNow,
+        sealedText,
+        accumulated: String(paint.getAccumulated() || ""),
+        preferSeal,
+      });
       const hasCustomerAnswer = Boolean(
         String(finalizeInput || paintedNow || paint.getAccumulated() || "").trim(),
       );
@@ -2383,9 +2397,19 @@ export default function LifeguardHomeChat({
       if (hasCustomerAnswer) {
         setStreaming(true);
         setLoading(false);
-        const paintedFinal = await paint.finalize(finalizeInput);
-        // Customer-visible text is authoritative for screen + persist (never divergent seal).
-        finalText = String(paintedFinal || paint.getPainted() || paintedNow || "");
+        const paintedFinal = await paint.finalize(finalizeInput, { preferSeal });
+        // Normal: painted lineage. R1 failure: seal is authoritative for screen + this-turn persist.
+        finalText = preferSeal
+          ? String(paintedFinal || sealedText || "")
+          : String(paintedFinal || paint.getPainted() || paintedNow || "");
+        // R3 — commit SSOT = seal when present (next history / snapshot / persist).
+        const historyPersistText = resolveCustomerHistoryPersistText({
+          sealedText,
+          displayText: finalText,
+        });
+        if (historyPersistText !== finalText) {
+          finalText = historyPersistText;
+        }
         streamedText = finalText;
         if (finalText) {
           patchAssistantContent(finalText);
@@ -2607,8 +2631,10 @@ export default function LifeguardHomeChat({
         setLoading(false);
         setStreaming(false);
         setError(
-          err?.error_message ||
+          toCustomerErrorMessage(
+            { message: err?.error_message },
             "답변은 준비됐지만 KEY 공식 기억 저장이 완료되지 않았습니다. 기억 저장을 다시 시도해 주세요.",
+          ),
         );
         return;
       }
@@ -2632,10 +2658,18 @@ export default function LifeguardHomeChat({
           );
         }
       }
+      // R2 — hard error: drop this-turn thinking OR partial paint bubble (error only remains).
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];
-        if (last?.role === "assistant" && last.thinking) {
+        if (
+          shouldRemoveAssistantBubbleOnStreamError({
+            lastAssistant: last,
+            turnId,
+            memoryFailSealed: false,
+            sawSuccessfulSseDone,
+          })
+        ) {
           copy.pop();
         }
         return copy;

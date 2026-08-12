@@ -1,8 +1,8 @@
 /**
- * S7 Stage 2 — Preview-only / allowlist-only / gate-pass-only promotion.
+ * S7 Stage 2 — allowlist-only / gate-pass-only promotion (Preview == Production policy).
  * Pure decision helpers. Does not call Claude. Does not soften gate.
  */
-import { isKeyBorrowedSensesStage2Partial, isVercelProductionEnv } from "./oneKeyCoreFlags.js";
+import { isKeyBorrowedSensesStage2Partial } from "./oneKeyCoreFlags.js";
 import {
   isPlacePublicResearchRequest,
   countGroundedPlaceCandidates,
@@ -962,8 +962,6 @@ export function decideStage2Promotion({
   env = process.env,
 } = {}) {
   const s6 = String(s6FinalAnswer ?? "").trim();
-  const production = isVercelProductionEnv(env);
-  const previewOnly = !production;
   const stage2Flag = isKeyBorrowedSensesStage2Partial(env);
   const allow = matchStage2Allowlist(question);
   const allowlistHit = Boolean(allow);
@@ -972,7 +970,8 @@ export function decideStage2Promotion({
   const baseTrace = {
     schema_version: STAGE2_SCHEMA,
     stage: 2,
-    preview_only: previewOnly,
+    // Train P — policy is env-parity; field kept for trace shape (always false).
+    preview_only: false,
     allowlist_hit: allowlistHit,
     allowlist_id: allowlistId,
     promotion_pass: false,
@@ -1000,10 +999,6 @@ export function decideStage2Promotion({
     final_answer_source: "s6",
     customer_text: s6,
   });
-
-  if (production) {
-    return fail("production_blocked", { production_blocked: true, preview_only: false });
-  }
 
   if (!stage2Flag) {
     return fail("flag_not_active_partial");
@@ -1157,10 +1152,6 @@ export function evaluateBorrowedFastPathCandidate({
     aligned_with_decision: false,
     gate_ok: false,
   };
-
-  if (isVercelProductionEnv(env)) {
-    return { ...base, reason: "production_blocked" };
-  }
 
   if (!shadow || typeof shadow !== "object") {
     return { ...base, reason: "shadow_missing" };

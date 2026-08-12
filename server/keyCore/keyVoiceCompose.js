@@ -14,7 +14,6 @@ import {
   isKeyBorrowedSensesProbeEnabled,
   isKeyBorrowedSensesStage2Partial,
   isKeyBorrowedSensesStage3Active,
-  isVercelProductionEnv,
   getKeyBorrowedSensesMode,
 } from "./oneKeyCoreFlags.js";
 import { buildKeyVoiceDirective, summarizeKeyVoiceDirective } from "./keyVoiceDirective.js";
@@ -225,14 +224,13 @@ export async function buildKeyVoiceComposeResult(
       ? ""
       : directiveQuestion;
   const probeOn = isKeyBorrowedSensesProbeEnabled(env);
-  const production = isVercelProductionEnv(env);
   const borrowedMode = getKeyBorrowedSensesMode(env);
   const stage2Partial = isKeyBorrowedSensesStage2Partial(env);
   const stage3Active = isKeyBorrowedSensesStage3Active(env);
-  // Claude-Full primary on Preview whenever borrowed-senses probe is on (shadow|active),
-  // except stage2 partial. KEY_BORROWED_SENSES env value is not changed by this gate.
+  // Claude-Full primary whenever borrowed-senses probe is on (shadow|active),
+  // except stage2 partial. Preview == Production (Train P). Env value unchanged by this gate.
   // Legacy S6 / shadow-probe branches stay in code; they are skipped when this is true.
-  const claudeFullSinglePass = probeOn && !stage2Partial && !production;
+  const claudeFullSinglePass = probeOn && !stage2Partial;
 
   // Turn-owned ghost ledger (never module-global).
   const turnGhostLedger = Array.isArray(ghostLedger) ? ghostLedger : createGhostLedger();
@@ -603,7 +601,7 @@ export async function buildKeyVoiceComposeResult(
         };
       }
     }
-  } else if (stage3Active && !stage2Partial && !production && shadow && alignment?.ok === true) {
+  } else if (stage3Active && !stage2Partial && shadow && alignment?.ok === true) {
     // Legacy Stage3 promote path retained (unreachable when claudeFullSinglePass mirrors stage3Active).
     const stage3Pre = applyStage3PromotionToCompose({
       question: directiveQuestion,
@@ -709,7 +707,6 @@ export async function buildKeyVoiceComposeResult(
       Boolean(rejectedAnswer) &&
       stage3Active &&
       !stage2Partial &&
-      !production &&
       probeOn &&
       Boolean(shadow);
 

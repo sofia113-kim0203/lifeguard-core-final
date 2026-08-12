@@ -465,10 +465,62 @@ export function shapeVerifiedCoveragesForS10fAudit(verifiedCoverages = null) {
  * Same emit semantics as absence ∧ shouldEmitCoverageAmountIntegritySlice.
  * Returns gate_class from the single coverage evaluation (no second meaning path).
  */
+/**
+ * Q1 — fact/amount CLOSED hard reasons that must block customer emit.
+ * Fail-closed only (no rewrite / no 2nd Claude). Soft reasons never belong here.
+ */
+export const FACT_AMOUNT_EMIT_BLOCK_HARD = Object.freeze(
+  new Set(["jailbreak_fact", "number_scope_violation"]),
+);
+
+export function hasFactAmountEmitBlockHard(hardReasons = []) {
+  return (hardReasons ?? []).some((r) => {
+    const key = String(r).replace(/^answer_facing:/, "");
+    return FACT_AMOUNT_EMIT_BLOCK_HARD.has(key);
+  });
+}
+
+/** Reality allowlist + verified coverage amounts (same materials coverage veto already trusts). */
+export function buildClaudeFirstSpeakAllowlistForEmitBlock({
+  reality = null,
+  coverages = null,
+} = {}) {
+  const base = collectVerifiedSpeakAllowlistFromReality(reality);
+  const numbers = new Set((base.allowed_numbers ?? []).map((n) => String(n)));
+  const entities = new Set((base.allowed_entities ?? []).map((e) => String(e)));
+  for (const c of Array.isArray(coverages) ? coverages : []) {
+    for (const n of String(c?.coverage_amount ?? c?.amount ?? "").match(/\d+/g) ?? []) {
+      numbers.add(n);
+    }
+    const name = String(c?.coverage_name ?? c?.name ?? "").trim();
+    if (name) entities.add(name);
+  }
+  return {
+    allowed_numbers: [...numbers],
+    allowed_entities: [...entities],
+  };
+}
+
+/**
+ * Pre-emit fact/amount veto. speakAllowlist == null → skip (legacy callers / obs harness).
+ * Empty allowlist object still enforces (every non-zero digit is rogue).
+ */
+export function shouldEmitFactAmountHardSlice(slice, speakAllowlist = null) {
+  if (speakAllowlist == null) return true;
+  const text = String(slice ?? "");
+  if (!text.trim()) return true;
+  const safety = hardOnlySafetyCheck(text, {
+    allowed_numbers: speakAllowlist.allowed_numbers ?? [],
+    allowed_entities: speakAllowlist.allowed_entities ?? [],
+  });
+  return hasFactAmountEmitBlockHard(safety.hard) !== true;
+}
+
 export function decideS10fPreEmitEmitDecision({
   slice = "",
   absenceEvidence = null,
   verifiedCoverages = null,
+  speakAllowlist = null,
 } = {}) {
   const absenceAllowed = shouldEmitAbsenceCertaintySlice(
     slice,
@@ -485,10 +537,15 @@ export function decideS10fPreEmitEmitDecision({
     coverageAllowed =
       gate.class !== COVERAGE_AMOUNT_ATTRIBUTION_CLASS.CLEAR_MISMATCH;
   }
-  const emit_decision = absenceAllowed === true && coverageAllowed === true;
+  const factAmountAllowed = shouldEmitFactAmountHardSlice(slice, speakAllowlist);
+  const emit_decision =
+    absenceAllowed === true &&
+    coverageAllowed === true &&
+    factAmountAllowed === true;
   return {
     absenceAllowed: absenceAllowed === true,
     coverageAllowed,
+    factAmountAllowed: factAmountAllowed === true,
     gate_class,
     emit_decision,
   };
@@ -7989,6 +8046,8 @@ export async function runClaudeFirstDirectQuestionTurn({
   let sseEmittedText = "";
   const absenceVetoEvidenceRef = { current: [] };
   const coverageAmountIntegrityRef = { current: [] };
+  // Q1 — null until reality/coverages wired; then object enforce (never leave skip-open).
+  const speakAllowlistRef = { current: null };
   const s10fObsEnabled = isS10fPreEmitObservabilityEnabled(env);
   const s10fAuditBuffer = createS10fPreEmitAuditBuffer();
   const s10fAuditRequestId = String(
@@ -8001,6 +8060,7 @@ export async function runClaudeFirstDirectQuestionTurn({
         slice,
         absenceEvidence: absenceVetoEvidenceRef.current,
         verifiedCoverages: coverageAmountIntegrityRef.current,
+        speakAllowlist: speakAllowlistRef.current,
       });
       if (s10fObsEnabled) {
         s10fSequenceIndex += 1;
@@ -8701,6 +8761,11 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? chartForMemoryGate.key_confirmed_source_facts
       : [],
   });
+  // Q1 — wire speak allowlist before Claude paints (emit-block reads .current).
+  speakAllowlistRef.current = buildClaudeFirstSpeakAllowlistForEmitBlock({
+    reality: isPresenceTurn ? null : reality,
+    coverages: verifiedDocCoveragesForIntegrity,
+  });
   // KEY relationship state is fact-owned. Memory query failure ≠ NEW_CUSTOMER
   // and must never stop the customer-answer Provider path (Tom GO).
   if (
@@ -8934,6 +8999,10 @@ export async function runClaudeFirstDirectQuestionTurn({
       ? claude.coverage_baseline_facts
       : [],
   });
+  speakAllowlistRef.current = buildClaudeFirstSpeakAllowlistForEmitBlock({
+    reality: isPresenceTurn ? null : reality,
+    coverages: verifiedDocCoveragesFlush,
+  });
   commitStream.flush();
   if (commitStream.isAborted()) {
     sentenceStreamAborted = true;
@@ -9084,12 +9153,21 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
   let usedFailure = false;
   let failureReason = null;
-  // Trace-only hard scan — OUR CLAUDE: never evaluate/shorten/replace a normal Claude answer.
-  // fact_identity_mismatch is recorded only; does not rewrite customer text.
-  // Repair A: absence-certainty hard reason is recorded via Gate (no rewrite layer here).
+  // Q1 — hard scan is no longer pass-through for fact/amount CLOSED hard.
+  // jailbreak_fact / number_scope_violation → emit already vetoed; seal fail-closed.
+  // Other hard reasons stay record-only here (no rewrite AI / no 2nd Claude).
+  // Repair A: absence-certainty hard reason is recorded via Gate (pre-emit veto separate).
+  const speakAllowlistForHard =
+    speakAllowlistRef.current ??
+    buildClaudeFirstSpeakAllowlistForEmitBlock({
+      reality: isPresenceTurn ? null : reality,
+      coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
+        ? chartForMemoryGate.verified_document_coverages
+        : [],
+    });
   let safety = hardOnlySafetyCheck(presenceChoseSilence ? "" : claude.customer_answer, {
-    allowed_numbers: claude.allowlist?.allowed_numbers ?? [],
-    allowed_entities: claude.allowlist?.allowed_entities ?? [],
+    allowed_numbers: speakAllowlistForHard.allowed_numbers ?? [],
+    allowed_entities: speakAllowlistForHard.allowed_entities ?? [],
     authenticatedCustomerIdentity,
     documentSubjectIdentity,
     coverages: Array.isArray(chartForMemoryGate?.verified_document_coverages)
@@ -9103,8 +9181,23 @@ export async function runClaudeFirstDirectQuestionTurn({
       : [],
   });
   let replacingHard = [];
+  let factAmountEmitBlocked = false;
   let alreadyCommitted =
     Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
+
+  if (!presenceChoseSilence && hasFactAmountEmitBlockHard(safety.hard)) {
+    factAmountEmitBlocked = true;
+    usedFailure = true;
+    const blocked = (safety.hard ?? []).filter((r) => {
+      const key = String(r).replace(/^answer_facing:/, "");
+      return FACT_AMOUNT_EMIT_BLOCK_HARD.has(key);
+    });
+    replacingHard = blocked;
+    failureReason = String(blocked[0] ?? "jailbreak_fact");
+    finalText = "";
+    sentenceStreamAborted = true;
+    sentenceAbortReason = failureReason;
+  }
 
   if (!String(finalText ?? "").trim()) {
     finalText = presenceChoseSilence ? "" : commitStream.getCommitted() || "";
@@ -9113,8 +9206,12 @@ export async function runClaudeFirstDirectQuestionTurn({
       !String(commitStream.getCommitted() ?? "").trim()
     ) {
       usedFailure = true;
-      failureReason = "empty_answer";
+      failureReason = failureReason || "empty_answer";
     }
+  }
+  // Q1 — never keep rogue-amount Claude text as seal lineage after fact-amount hard.
+  if (factAmountEmitBlocked) {
+    finalText = "";
   }
   const emittedCommitted = String(commitStream.getCommitted() ?? "");
   // Fact-alignment / bareYeyo may run, but must not change already-emitted customer prefix.
@@ -9221,17 +9318,22 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
   // Seal from committed lineage: equal to emitted or continuation of emitted (never divergent rewrite).
   // Presence silence seals empty. Empty failureMode → official safety sentence via finalize.
-  const sealSource = (() => {
-    const committed = String(commitStream.getCommitted() ?? "");
-    const candidate = String(finalText ?? "");
-    if (committed && candidate.startsWith(committed)) {
-      return candidate.length >= committed.length ? candidate : committed;
-    }
-    if (committed) return committed;
-    return candidate;
-  })();
+  // Q1 — fact/amount hard → always failureMode seal (ignore any painted rogue prefix; R1 next).
+  const sealSource = factAmountEmitBlocked
+    ? ""
+    : (() => {
+        const committed = String(commitStream.getCommitted() ?? "");
+        const candidate = String(finalText ?? "");
+        if (committed && candidate.startsWith(committed)) {
+          return candidate.length >= committed.length ? candidate : committed;
+        }
+        if (committed) return committed;
+        return candidate;
+      })();
   let sealed =
-    !presenceChoseSilence && usedFailure && !String(sealSource ?? "").trim()
+    !presenceChoseSilence &&
+    (factAmountEmitBlocked ||
+      (usedFailure && !String(sealSource ?? "").trim()))
       ? (() => {
           const outlet = finalizeKeyCustomerText("", {
             failureMode: true,

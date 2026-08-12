@@ -1,12 +1,9 @@
 /**
- * S7 Stage 3 — Preview-only Lane-aware promotion (active).
+ * S7 Stage 3 — Lane-aware promotion (active); Preview == Production policy (Train P).
  * Pure decision helpers. Does not call Claude. Does not soften gate.
  * Does NOT write customer_memory_facts / post-turn save hooks.
  */
-import {
-  isKeyBorrowedSensesStage3Active,
-  isVercelProductionEnv,
-} from "./oneKeyCoreFlags.js";
+import { isKeyBorrowedSensesStage3Active } from "./oneKeyCoreFlags.js";
 import {
   isQ10PortfolioExpansionQuestion,
   isWaitOnlyVoice,
@@ -324,8 +321,6 @@ export function decideStage3Promotion({
   decision = null,
 } = {}) {
   const s6 = String(s6FinalAnswer ?? "").trim();
-  const production = isVercelProductionEnv(env);
-  const previewOnly = !production;
   const stage3Flag = isKeyBorrowedSensesStage3Active(env);
   const classified = classifyStage3Lane(question, {
     history,
@@ -341,7 +336,8 @@ export function decideStage3Promotion({
     schema_version: STAGE3_SCHEMA,
     stage: 3,
     stage3_active: stage3Flag,
-    preview_only: previewOnly,
+    // Train P — policy is env-parity; field kept for trace shape (always false).
+    preview_only: false,
     lane,
     lane_reason: laneReason,
     q10_blocked: q10Blocked,
@@ -372,10 +368,6 @@ export function decideStage3Promotion({
     customer_text: s6,
     insurance_memory_saved: false,
   });
-
-  if (production) {
-    return fail("production_blocked", { production_blocked: true, preview_only: false });
-  }
 
   if (!stage3Flag) {
     return fail("flag_not_active");

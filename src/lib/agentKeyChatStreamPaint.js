@@ -8,10 +8,92 @@
  * - Done drains remaining one grapheme at a time — no bulk flush.
  * - Finalize is append-only vs already-painted text:
  *   equal → no-op; continuation → paint suffix only; divergent → keep painted (no rewind).
+ * - R1: preferSeal (fail-closed / key_monopoly_failure only) → divergent replaces with seal.
  */
 
 export const STREAM_BACKLOG_SKIP_BREATH = 120;
 export const STREAM_BACKLOG_RESTORE_BREATH = 60;
+
+/** Must match server/keyCore/keyCustomerMonopoly.js (client must not import server). */
+export const KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT =
+  "지금은 여기까지 확인했어요. 잠시 후 다시 말씀해 주시면 KEY가 이어서 볼게요.";
+
+/** True only for the exact monopoly system-failure stub (not normal conversation). */
+export function isKeyMonopolyFailureCustomerText(text = "") {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (t === KEY_MONOPOLY_FAILURE_CUSTOMER_TEXT) return true;
+  return (
+    /지금은\s*여기까지\s*확인했어요/.test(t) &&
+    /잠시\s*후\s*다시\s*말씀해\s*주시면/.test(t)
+  );
+}
+
+/** R1 — seal beats painted only on fail-closed monopoly failure. */
+export function shouldPreferSealOverPainted({
+  keyMonopolyFailure = false,
+  sealedText = "",
+} = {}) {
+  return (
+    keyMonopolyFailure === true ||
+    isKeyMonopolyFailureCustomerText(sealedText)
+  );
+}
+
+/**
+ * Customer HomeChat finalize input (R1).
+ * Normal path: append-only / painted wins on non-failure divergent.
+ * Failure path: sealed wins.
+ */
+export function resolveCustomerStreamFinalizeInput({
+  paintedNow = "",
+  sealedText = "",
+  accumulated = "",
+  preferSeal = false,
+} = {}) {
+  const painted = String(paintedNow ?? "");
+  const sealed = String(sealedText ?? "");
+  if (preferSeal === true && sealed) return sealed;
+  if (!painted) return sealed || String(accumulated ?? "");
+  if (!sealed) return painted;
+  if (sealed === painted || sealed.startsWith(painted)) return sealed;
+  return painted;
+}
+
+/**
+ * R3 — committed turn text for next history / snapshot / DB persist.
+ * Server seal (answerText) is SSOT when present; painted-only must not win.
+ */
+export function resolveCustomerHistoryPersistText({
+  sealedText = "",
+  displayText = "",
+} = {}) {
+  const sealed = String(sealedText ?? "");
+  if (sealed.trim()) return sealed;
+  return String(displayText ?? "");
+}
+
+/**
+ * R2 — hard stream error: remove this-turn incomplete assistant bubble.
+ * Keep on memory-fail-sealed (answer intentional) or successful SSE done.
+ */
+export function shouldRemoveAssistantBubbleOnStreamError({
+  lastAssistant = null,
+  turnId = null,
+  memoryFailSealed = false,
+  sawSuccessfulSseDone = false,
+} = {}) {
+  if (memoryFailSealed === true) return false;
+  if (sawSuccessfulSseDone === true) return false;
+  if (!lastAssistant || lastAssistant.role !== "assistant") return false;
+  const expectedTurn = String(turnId ?? "").trim();
+  if (expectedTurn) {
+    const msgTurn = String(lastAssistant.turnId ?? "").trim();
+    if (msgTurn && msgTurn !== expectedTurn) return false;
+  }
+  if (lastAssistant.thinking === true) return true;
+  return Boolean(String(lastAssistant.content ?? "").trim());
+}
 
 const COMMA_BREATH = new Set([",", "，", ":", "：", ";", "；"]);
 const END_BREATH = new Set([".", "。", "?", "？", "!", "！", "\n"]);
@@ -203,15 +285,18 @@ export function createAgentStreamPaintController({
      * - Equal → no-op (keep display).
      * - Continuation → append suffix only (never rewind).
      * - Divergent → keep painted / stream backlog; never shorter onPaint / replace.
-     * Never bulk-flushes remaining characters.
+     * - R1 preferSeal → divergent (or any non-equal) replaces display with seal immediately.
+     * Never bulk-flushes remaining characters (except preferSeal hard replace).
      * @param {unknown} serverText
+     * @param {{ preferSeal?: boolean }} [opts]
      * @returns {Promise<string>} painted text the customer sees
      */
-    finalize(serverText) {
+    finalize(serverText, opts = {}) {
       if (cancelled) return Promise.resolve(paintedText());
 
       const sealedText = String(serverText ?? "");
       const currentlyPainted = paintedText();
+      const preferSeal = opts?.preferSeal === true;
 
       const beginDrain = () => {
         const finalExact = exactSource();
@@ -228,6 +313,23 @@ export function createAgentStreamPaintController({
           schedule();
         });
       };
+
+      // R1 — fail-closed: seal replaces painted (rewind allowed only here).
+      if (
+        preferSeal &&
+        sealedText &&
+        sealedText !== currentlyPainted &&
+        !sealedText.startsWith(currentlyPainted)
+      ) {
+        cancelScheduled();
+        source = sealedText;
+        syncSourceGraphemes();
+        paintedCount = sourceGraphemes.length;
+        idleFramesLeft = 0;
+        sealed = true;
+        onPaint(sealedText, { first: currentlyPainted.length === 0 });
+        return Promise.resolve(sealedText);
+      }
 
       // 1) Nothing painted yet — show server final (or any prior accumulated source).
       if (paintedCount === 0) {

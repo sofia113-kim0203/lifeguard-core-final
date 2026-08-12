@@ -70,6 +70,8 @@ export const DOCUMENT_UI_MESSAGES = {
   selectFile: "파일을 선택해 주세요.",
   uploadAction: "업로드",
   downloadAction: "다운로드",
+  openOriginalAction: "원본 보기",
+  openOriginalFailed: "원본을 열지 못했습니다. 다시 시도해 주세요.",
   deleteAction: "삭제",
   refreshAction: "새로고침",
   allCategories: "전체",
@@ -219,6 +221,24 @@ export function formatLoginErrorMessage(error, fallback = "로그인에 실패�
   return toCustomerErrorMessage(error, fallback);
 }
 
+/**
+ * T1 — customer-facing errors must not expose OCR / factory / Work Order internals.
+ * Exported for unit tests.
+ */
+export function containsCustomerInternalErrorLeak(text = "") {
+  const s = String(text ?? "");
+  if (!s.trim()) return false;
+  return (
+    /\bOCR\b/i.test(s) ||
+    /Work\s*Order/i.test(s) ||
+    /work[_ ]?order/i.test(s) ||
+    /WORK_ORDER/.test(s) ||
+    /공장/.test(s) ||
+    /factory[_ ]?(?:enqueue|audit|called|hypothesis|direction|wo)\b/i.test(s) ||
+    /\bfactory\b/i.test(s)
+  );
+}
+
 export function toCustomerErrorMessage(error, fallback = "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.") {
   const raw = typeof error === "string" ? error : error?.message;
   if (!raw) return fallback;
@@ -226,6 +246,9 @@ export function toCustomerErrorMessage(error, fallback = "요청을 처리하지
   const trimmed = raw.trim();
   const matched = SUPABASE_ERROR_PATTERNS.find(({ test }) => test.test(trimmed));
   if (matched) return matched.message;
+
+  // T1 — Korean alone is not enough; scrub internal engine terms.
+  if (containsCustomerInternalErrorLeak(trimmed)) return fallback;
 
   if (/[가-힣]/.test(trimmed)) return trimmed;
 

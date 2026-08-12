@@ -205,7 +205,14 @@
     "test:key-claude-request-size-observe": "node scripts/key-claude-request-size-observe-unit-test.mjs",
     "test:key-upload-connection-authority-closure": "node scripts/key-upload-connection-authority-closure-unit-test.mjs",
     "test:key-upload-phase7-harness": "node scripts/key-upload-phase7-harness-unit-test.mjs",
-    "test:key-one-path-claude-first": "node scripts/key-one-path-claude-first-unit-test.mjs"
+    "test:key-one-path-claude-first": "node scripts/key-one-path-claude-first-unit-test.mjs",
+    "test:key-preview-production-parity": "node scripts/key-preview-production-parity-unit-test.mjs",
+    "test:key-q1-hard-scan-emit-block": "node scripts/key-q1-hard-scan-emit-block-unit-test.mjs",
+    "test:key-r1-painted-seal-finalize": "node scripts/key-r1-painted-seal-finalize-unit-test.mjs",
+    "test:key-r2-error-partial-bubble": "node scripts/key-r2-error-partial-bubble-unit-test.mjs",
+    "test:key-r3-history-seal-ssot": "node scripts/key-r3-history-seal-ssot-unit-test.mjs",
+    "test:key-t1-customer-error-internal-leak": "node scripts/key-t1-customer-error-internal-leak-unit-test.mjs",
+    "test:key-t2-customer-sse-done-meta-strip": "node scripts/key-t2-customer-sse-done-meta-strip-unit-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

@@ -227,10 +227,14 @@ export function mapHomeBrainFactPayload(payload) {
 }
 
 function mapServerError(payload, status) {
-  if (payload?.error_message) return payload.error_message;
+  const fallback = "질문에 답변하지 못했습니다.";
+  if (payload?.error_message) {
+    // T1 — never pass raw OCR/factory/Work Order strings to customer throws.
+    return toCustomerErrorMessage({ message: payload.error_message }, fallback);
+  }
   if (payload?.reason === "UNAUTHORIZED") return "로그인이 필요합니다.";
   if (status === 404) return "Home Brain API 경로를 찾을 수 없습니다.";
-  return "질문에 답변하지 못했습니다.";
+  return fallback;
 }
 
 export async function fetchHomeBrainFactStream(question, history = [], handlers = {}, options = {}) {
