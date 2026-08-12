@@ -374,7 +374,38 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.ok(Array.isArray(payload.key_customer_card.recent_conversation));
   assert.equal(payload.customer_relationship_state, undefined);
   assert.equal(payload.customer_memory, undefined);
-  assert.ok(reqNew.system[0].text.includes("과거 고객 기억이 없다"));
+  assert.ok(reqNew.system[0].text.includes("과거 고객 기억"));
+  assert.ok(reqNew.system[0].text.includes("새 인사로 리셋하지 않는다"));
+  assert.equal(reqNew.system[0].text.includes("빈 카드만으로 답한다"), false);
+
+  // A2 continuity — NEW_CUSTOMER + history must keep dialogue continuity (cache-stable system).
+  const reqFirstNew = buildOnePathClaudeFirstRequest({
+    question: "안녕",
+    customerId: "cust-new-a2",
+    conversationId: "c-a2",
+    history: [],
+  });
+  const reqContNew = buildOnePathClaudeFirstRequest({
+    question: "오늘 진짜 덥네",
+    customerId: "cust-new-a2",
+    conversationId: "c-a2",
+    history: [
+      { role: "user", text: "안녕" },
+      { role: "assistant", text: "안녕하세요." },
+    ],
+  });
+  const pCont = JSON.parse(reqContNew.messages[0].content[0].text);
+  assert.equal(pCont.key_customer_card.relationship.relationship, "NEW_CUSTOMER");
+  assert.equal(
+    pCont.key_customer_card.relationship.conversation,
+    "CONTINUING_CONVERSATION",
+  );
+  assert.ok(reqContNew.system[0].text.includes("새 인사로 리셋하지 않는다"));
+  assert.ok(reqContNew.system[0].text.includes("recent_conversation이 있으면"));
+  assert.equal(reqContNew.system[0].text.includes("빈 카드만으로 답한다"), false);
+  // Prompt-cache: same NEW_CUSTOMER system whether history empty or continuing.
+  assert.equal(reqContNew.system[0].text, reqFirstNew.system[0].text);
+  console.log("PASS A2 NEW_CUSTOMER dialogue continuity system (cache-stable)");
 
   const reqL4 = buildOnePathClaudeFirstRequest({
     question: "아까 올린 증권 다시 봐줘",
@@ -593,7 +624,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqProduct.tools.length, 1);
   assert.equal(reqProduct.tools[0].name, "web_search");
   assert.equal(reqProduct.tools[0].type, "web_search_20250305");
-  assert.equal(reqProduct.tools[0].max_uses, 1);
+  assert.equal(reqProduct.tools[0].max_uses, 3);
   assert.deepEqual(reqProduct.tool_choice, { type: "auto" });
   assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
   assert.equal(reqProduct.key_customer_card.insurance_contracts.length, 0);
@@ -714,7 +745,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqGeneral.tools.length, 1);
   assert.equal(reqGeneral.tools[0].name, "web_search");
   assert.equal(reqGeneral.tools[0].type, "web_search_20250305");
-  assert.equal(reqGeneral.tools[0].max_uses, 1);
+  assert.equal(reqGeneral.tools[0].max_uses, 3);
   assert.deepEqual(reqGeneral.tool_choice, { type: "none" });
   assert.equal(reqGeneral.selection_plan.web_tool_candidate, false);
   assert.equal(

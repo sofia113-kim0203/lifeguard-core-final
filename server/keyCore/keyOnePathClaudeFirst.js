@@ -103,10 +103,14 @@ export function buildOnePathMinimalSystem({
     "특정 JSON 스키마나 내부 기록 필드를 출력하지 않는다. 완성된 고객 답변만 한다.",
   ];
   if (rel === KEY_RELATIONSHIP.NEW_CUSTOMER || mem === KEY_MEMORY_AVAILABILITY.NONE) {
+    // A2 continuity (cache-stable): NEW_CUSTOMER ≠ ignore in-thread dialogue.
+    // Past insurance memory restraint stays; recent_conversation remains dialogue context.
     parts.push(
       [
-        "KEY 확정: 이용 가능한 과거 고객 기억이 없다(첫 고객 또는 기억 없음).",
-        "지난 상담·과거 계약을 짐작해 말하지 않는다. 이번 질문과 첨부 원본·빈 카드만으로 답한다.",
+        "KEY 확정: 이용 가능한 과거 고객 기억·과거 계약 자료는 없다(첫 고객 또는 기억 없음).",
+        "지난 상담·과거 계약을 짐작해 말하지 않는다.",
+        "recent_conversation이 비어 있으면 이번 질문과 첨부 원본·카드만으로 답한다.",
+        "recent_conversation이 있으면 직전 고객 말·KEY 답을 무시하고 새 인사로 리셋하지 않는다. 보험 확정 사실은 카드의 확인된 근거만 쓰고 대화 맥락은 자연스럽게 이어간다.",
       ].join("\n"),
     );
   } else {
