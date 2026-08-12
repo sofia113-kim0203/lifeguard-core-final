@@ -906,9 +906,8 @@ export default function LifeguardHomeChat({
     const unsubscribe = subscribeInflightHomeChatTurn((turn) => {
       const cid = customerIdRef.current;
       if (!turn || !cid || String(turn.customerId) !== String(cid)) return;
-      if (String(turn.sessionId) !== String(sessionIdRef.current)) {
-        setSessionId(turn.sessionId);
-      }
+      // New chat / session switch must not be hijacked by a stale inflight session.
+      if (String(turn.sessionId) !== String(sessionIdRef.current)) return;
       setMessages(turn.messages);
       setLoading(Boolean(turn.loading));
       setStreaming(Boolean(turn.streaming));
@@ -1640,10 +1639,20 @@ export default function LifeguardHomeChat({
 
         if (cancelled) return;
 
+        // New chat may have won while restore was in flight — never reapply old session history.
+        if (String(sessionIdRef.current) !== String(activeId)) {
+          setThreadRestoreReady(true);
+          return;
+        }
+
         // Re-check: a turn may have started while restore was in flight.
         if (isInflightHomeChatTurnActive(customerId)) {
           const live = readInflightHomeChatTurn(customerId);
           if (live) {
+            if (String(live.sessionId) !== String(sessionIdRef.current)) {
+              setThreadRestoreReady(true);
+              return;
+            }
             setMessages(live.messages);
             setLoading(Boolean(live.loading));
             setStreaming(Boolean(live.streaming));
@@ -1657,6 +1666,10 @@ export default function LifeguardHomeChat({
         }
 
         if (restored.length > 0) {
+          if (String(sessionIdRef.current) !== String(activeId)) {
+            setThreadRestoreReady(true);
+            return;
+          }
           setMessages((prev) => {
             const base = seed.length > 0 ? seed : prev;
             // B: merge keeps streamed customer_answer; restored may only refresh older rows.
@@ -1680,6 +1693,10 @@ export default function LifeguardHomeChat({
           }
           setPanelView("chat");
         } else if (seed.length > 0) {
+          if (String(sessionIdRef.current) !== String(activeId)) {
+            setThreadRestoreReady(true);
+            return;
+          }
           // Remount before DB indexed the just-completed turn — keep local snapshot.
           setMessages((prev) => mergeRestoredSessionMessages(seed.length > 0 ? seed : prev, []));
           if (
