@@ -1,7 +1,9 @@
 /**
  * KEY Customer Text Seal — KEY 원문 이후 customerText 변경 금지.
+ * U2: empty coverage table strip is structural fail-closed before freeze (not rewrite).
  */
 import { ONE_KEY_CORE_RESPONSE_SOURCE } from "./oneKeyCoreFlags.js";
+import { applyEmptyCoverageTableGuard } from "../../src/lib/keyEmptyCoverageTableGuard.js";
 
 export const KEY_CUSTOMER_TEXT_FORBIDDEN_POST_MUTATORS = [
   "generateHumanSalesDirectorResponse",
@@ -31,7 +33,9 @@ function normalizeSealedText(text = "") {
 }
 
 export function sealKeyCustomerText(customerText = "") {
-  const keySpeakOriginal = normalizeSealedText(customerText);
+  const keySpeakOriginal = applyEmptyCoverageTableGuard(
+    normalizeSealedText(customerText),
+  );
   return {
     key_speak_original: keySpeakOriginal,
     key_customer_text_sealed: true,
