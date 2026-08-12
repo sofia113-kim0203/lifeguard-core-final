@@ -71,9 +71,10 @@ export function buildOnePathPriorDialogueMessages(history, maxTurns = 6) {
     }
   }
   const capped = pairs.slice(-Math.max(0, Number(maxTurns) || 6));
+  // Anthropic Messages: content blocks (string content can fail with tools on some paths).
   return capped.map((t) => ({
     role: t.role,
-    content: t.text,
+    content: [{ type: "text", text: t.text }],
   }));
 }
 

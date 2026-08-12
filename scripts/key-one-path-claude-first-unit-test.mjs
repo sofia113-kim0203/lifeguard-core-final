@@ -430,16 +430,16 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(contUserBlob.includes("새 인사"), true);
   assert.equal(reqContNew.messages.length, 3);
   assert.equal(reqContNew.messages[0].role, "user");
-  assert.equal(reqContNew.messages[0].content, "안녕");
+  assert.equal(reqContNew.messages[0].content[0].type, "text");
+  assert.equal(reqContNew.messages[0].content[0].text, "안녕");
   assert.equal(reqContNew.messages[1].role, "assistant");
-  assert.equal(reqContNew.messages[1].content, "안녕하세요.");
-  assert.equal(
-    buildOnePathPriorDialogueMessages([
-      { role: "user", text: "안녕" },
-      { role: "assistant", text: "안녕하세요." },
-    ]).length,
-    2,
-  );
+  assert.equal(reqContNew.messages[1].content[0].text, "안녕하세요.");
+  const priorMsgs = buildOnePathPriorDialogueMessages([
+    { role: "user", text: "안녕" },
+    { role: "assistant", text: "안녕하세요." },
+  ]);
+  assert.equal(priorMsgs.length, 2);
+  assert.equal(Array.isArray(priorMsgs[0].content), true);
   console.log("PASS A2 NEW_CUSTOMER dialogue continuity system (cache-stable)");
 
   const reqL4 = buildOnePathClaudeFirstRequest({
