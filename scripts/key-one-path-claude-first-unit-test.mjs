@@ -7,6 +7,7 @@ import {
   buildAccuracyTrace,
   buildKeyMemoryCandidatesFromSidecar,
   buildOnePathClaudeFirstRequest,
+  buildOnePathPriorDialogueMessages,
   buildSealedTurnSourceRecord,
   ONE_PATH_LIVE_MODE,
   providerBodyHasForbiddenFactoryPayload,
@@ -34,6 +35,17 @@ import {
   isNonInsuranceDailyRecommendRequest,
 } from "../server/keyCore/keyOnePathDailyChatPolicy.js";
 
+/** Final user content block (card + current request); prior dialogue may precede it. */
+function onePathFinalUserContent(req) {
+  const msgs = Array.isArray(req?.messages) ? req.messages : [];
+  for (let i = msgs.length - 1; i >= 0; i -= 1) {
+    if (msgs[i]?.role === "user" && Array.isArray(msgs[i].content)) {
+      return msgs[i].content;
+    }
+  }
+  return [];
+}
+
 const pdfBytes = Buffer.from("%PDF-1.4 one-path-unit");
 const pdfB64 = pdfBytes.toString("base64");
 const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
@@ -54,7 +66,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   // Explicit Prompt Cache — system block breakpoint only (not top-level automatic).
   assert.equal(Object.prototype.hasOwnProperty.call(req, "cache_control"), false);
   assert.deepEqual(req.system[0].cache_control, { type: "ephemeral" });
-  const blocks = req.messages[0].content.filter(
+  const blocks = onePathFinalUserContent(req).filter(
     (b) => b.type === "document" || b.type === "image",
   );
   assert.equal(blocks.length, 1);
@@ -72,7 +84,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     pdfMediaType: "image/jpeg",
     pdfMeta: { document_id: "img-a" },
   });
-  const blocks = req.messages[0].content.filter((b) => b.type === "image");
+  const blocks = onePathFinalUserContent(req).filter((b) => b.type === "image");
   assert.equal(blocks.length, 1);
   console.log("PASS U3 image block once");
 }
@@ -88,7 +100,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     question: "q",
     pdfAttachments: ownedOriginalsToMultiAttachments(owned),
   });
-  const doc = req.messages[0].content.find((b) => b.type === "document");
+  const doc = onePathFinalUserContent(req).find((b) => b.type === "document");
   const providerSha = createHash("sha256")
     .update(Buffer.from(doc.source.data, "base64"))
     .digest("hex");
@@ -147,7 +159,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(req.system[0].text.includes("KEY_RECORD"), false);
   assert.equal(req.system[0].text.includes("key_memory_candidates"), false);
   assert.equal(req.system[0].text.includes("특정 JSON 스키마"), true);
-  const cardPayload = JSON.parse(req.messages[0].content[0].text);
+  const cardPayload = JSON.parse(onePathFinalUserContent(req)[0].text);
   assert.equal(cardPayload.delivery_mode, "CUSTOMER_CARD_WHOLESALE");
   assert.equal(cardPayload.key_customer_card.delivery_mode, "CUSTOMER_CARD_WHOLESALE");
   assert.equal(cardPayload.key_customer_card.past_original_bytes_mode, "links_only");
@@ -196,7 +208,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       },
     },
   });
-  const ssotCard = JSON.parse(reqSsot.messages[0].content[0].text).key_customer_card;
+  const ssotCard = JSON.parse(onePathFinalUserContent(reqSsot)[0].text).key_customer_card;
   // Confirmed authority only — raw READY/ssot policies must not enter insurance_contracts.
   assert.equal(ssotCard.insurance_contracts.length, 1);
   assert.equal(ssotCard.insurance_contracts[0].insurer, "확인된손보");
@@ -286,7 +298,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     question: "아까 올린 증권을 다시 보고 보장 내용을 정리해줘.",
     pdfAttachments: ownedOriginalsToMultiAttachments(owned),
   });
-  const doc = req.messages[0].content.find((b) => b.type === "document");
+  const doc = onePathFinalUserContent(req).find((b) => b.type === "document");
   assert.ok(doc);
   const providerSha = createHash("sha256")
     .update(Buffer.from(doc.source.data, "base64"))
@@ -367,7 +379,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     pdfMediaType: "application/pdf",
     pdfMeta: { document_id: "doc-new" },
   });
-  const payload = JSON.parse(reqNew.messages[0].content[0].text);
+  const payload = JSON.parse(onePathFinalUserContent(reqNew)[0].text);
   assert.equal(payload.key_customer_card.relationship.relationship, "NEW_CUSTOMER");
   assert.equal(payload.key_customer_card.memory_status, "none");
   assert.ok(Array.isArray(payload.key_customer_card.insurance_contracts));
@@ -394,7 +406,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       { role: "assistant", text: "안녕하세요." },
     ],
   });
-  const pCont = JSON.parse(reqContNew.messages[0].content[0].text);
+  const pCont = JSON.parse(onePathFinalUserContent(reqContNew)[0].text);
   assert.equal(pCont.key_customer_card.relationship.relationship, "NEW_CUSTOMER");
   assert.equal(
     pCont.key_customer_card.relationship.conversation,
@@ -405,7 +417,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqContNew.system[0].text.includes("빈 카드만으로 답한다"), false);
   // Prompt-cache: same NEW_CUSTOMER system whether history empty or continuing.
   assert.equal(reqContNew.system[0].text, reqFirstNew.system[0].text);
-  const contPolicyBlock = reqContNew.messages[0].content.find(
+  const contPolicyBlock = onePathFinalUserContent(reqContNew).find(
     (b) =>
       typeof b?.text === "string" && b.text.includes("KEY_DAILY_CHAT_POLICY"),
   );
@@ -416,6 +428,18 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   const contUserBlob = JSON.stringify(reqContNew.messages);
   assert.equal(contUserBlob.includes("DIALOGUE_CONTINUITY"), true);
   assert.equal(contUserBlob.includes("새 인사"), true);
+  assert.equal(reqContNew.messages.length, 3);
+  assert.equal(reqContNew.messages[0].role, "user");
+  assert.equal(reqContNew.messages[0].content, "안녕");
+  assert.equal(reqContNew.messages[1].role, "assistant");
+  assert.equal(reqContNew.messages[1].content, "안녕하세요.");
+  assert.equal(
+    buildOnePathPriorDialogueMessages([
+      { role: "user", text: "안녕" },
+      { role: "assistant", text: "안녕하세요." },
+    ]).length,
+    2,
+  );
   console.log("PASS A2 NEW_CUSTOMER dialogue continuity system (cache-stable)");
 
   const reqL4 = buildOnePathClaudeFirstRequest({
@@ -436,7 +460,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     memoryQueryFailed: true,
     memoryLoadStatus: "query_failed",
   });
-  const p4 = JSON.parse(reqL4.messages[0].content[0].text);
+  const p4 = JSON.parse(onePathFinalUserContent(reqL4)[0].text);
   assert.equal(p4.key_customer_card.relationship.relationship, "RETURNING_CUSTOMER");
   assert.equal(
     p4.key_customer_card.relationship.prior_original_in_same_conversation,
@@ -613,7 +637,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       { base64: pdfB64, mediaType: "application/pdf", document_id: "b" },
     ],
   });
-  const docs = req.messages[0].content.filter((b) => b.type === "document");
+  const docs = onePathFinalUserContent(req).filter((b) => b.type === "document");
   assert.equal(docs.length, 1);
   console.log("PASS duplicate original once");
 }
@@ -1048,7 +1072,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   // Daily-chat matcher → ONE_PATH tool-policy + user context (Claude-first unchanged).
   // productShowcase stays a separate insurance matcher.
   const findDailyPolicy = (req) => {
-    const block = req.messages[0].content.find((b) => {
+    const block = onePathFinalUserContent(req).find((b) => {
       if (b.type !== "text" || typeof b.text !== "string") return false;
       try {
         return Boolean(JSON.parse(b.text)?.KEY_DAILY_CHAT_POLICY);
@@ -1388,7 +1412,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
 {
   // S8-2D — separate KEY_RELATIONSHIP_BACKGROUND block (structure only; no golden text).
   const extractRelationshipBackground = (req) => {
-    for (const b of req.messages?.[0]?.content || []) {
+    for (const b of onePathFinalUserContent(req)) {
       if (b?.type !== "text" || typeof b.text !== "string") continue;
       try {
         const parsed = JSON.parse(b.text);

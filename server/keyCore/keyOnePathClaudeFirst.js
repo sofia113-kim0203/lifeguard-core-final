@@ -42,6 +42,42 @@ function buildKeyRelevantEvidenceSystemAddendum() {
 }
 
 /**
+ * Prior in-thread turns as Anthropic message roles (complete user→assistant pairs only).
+ * Trailing unpaired user stays in key_customer_card.recent_conversation only.
+ */
+export function buildOnePathPriorDialogueMessages(history, maxTurns = 6) {
+  const normalized = (Array.isArray(history) ? history : [])
+    .map((h) => ({
+      role: h?.role === "assistant" ? "assistant" : "user",
+      text: String(h?.text ?? h?.content ?? "")
+        .trim()
+        .slice(0, 800),
+    }))
+    .filter((h) => h.text);
+  const merged = [];
+  for (const turn of normalized) {
+    const last = merged[merged.length - 1];
+    if (last && last.role === turn.role) {
+      last.text = `${last.text}\n${turn.text}`.slice(0, 800);
+    } else {
+      merged.push({ ...turn });
+    }
+  }
+  while (merged.length && merged[0].role === "assistant") merged.shift();
+  const pairs = [];
+  for (let i = 0; i + 1 < merged.length; i += 2) {
+    if (merged[i].role === "user" && merged[i + 1].role === "assistant") {
+      pairs.push(merged[i], merged[i + 1]);
+    }
+  }
+  const capped = pairs.slice(-Math.max(0, Number(maxTurns) || 6));
+  return capped.map((t) => ({
+    role: t.role,
+    content: t.text,
+  }));
+}
+
+/**
  * Minimal KEY prompt only — no forced sidecar / JSON field schema.
  * KEY records turn/source after Seal via existing factory, not Claude schema.
  */
@@ -434,7 +470,7 @@ export function buildOnePathClaudeFirstRequest({
     Array.isArray(history) && history.length > 0
       ? [
           "[DIALOGUE_CONTINUITY]",
-          "이 턴은 recent_conversation에 이어진다.",
+          "이 턴은 위 대화 턴과 recent_conversation에 이어진다.",
           "새 인사(안녕하세요 / 오늘 어떻게 도와드릴까요)로 리셋하지 말고 직전 고객 말에 자연스럽게 반응한다.",
         ].join("\n")
       : "";
@@ -449,7 +485,10 @@ export function buildOnePathClaudeFirstRequest({
       .join("\n"),
   });
 
-  const messages = [{ role: "user", content }];
+  // A2 continuity: prior turns as real Anthropic messages (not only JSON card).
+  // Soft prompt alone failed Human Gate; model must see alternating dialogue.
+  const priorDialogueMessages = buildOnePathPriorDialogueMessages(history);
+  const messages = [...priorDialogueMessages, { role: "user", content }];
   // Prompt-cache prefix: always declare the same web_search tool.
   // Search enablement: insurance productShowcase OR daily web_search → tool_choice auto|none.
   // Caller liveTools unused — avoid unrelated tool injection on ONE PATH.
