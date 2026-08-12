@@ -412,8 +412,11 @@ export function buildOnePathClaudeFirstRequest({
           matched_rule: dailyChatPolicy.matched_rule,
           web_search_allowed: dailyChatPolicy.web_search === true,
           product_showcase_separated: true,
+          // A2 continuity: any in-thread history must use recent_conversation
+          // (not only the narrow CONTINUITY matcher lane).
           continuity_use_recent_conversation:
-            dailyChatPolicy.lane === ONE_PATH_DAILY_CHAT_LANES.CONTINUITY,
+            dailyChatPolicy.lane === ONE_PATH_DAILY_CHAT_LANES.CONTINUITY ||
+            (Array.isArray(history) && history.length > 0),
           place_recommend_guidance: dailyChatPolicy.place_addendum || null,
           signals: dailyChatPolicy.signals,
         },
@@ -427,12 +430,23 @@ export function buildOnePathClaudeFirstRequest({
     content.push(block);
   }
 
+  const dialogueContinuityHint =
+    Array.isArray(history) && history.length > 0
+      ? [
+          "[DIALOGUE_CONTINUITY]",
+          "이 턴은 recent_conversation에 이어진다.",
+          "새 인사(안녕하세요 / 오늘 어떻게 도와드릴까요)로 리셋하지 말고 직전 고객 말에 자연스럽게 반응한다.",
+        ].join("\n")
+      : "";
   content.push({
     type: "text",
     text: [
+      dialogueContinuityHint,
       "[CURRENT_CUSTOMER_REQUEST — HIGHEST RESPONSE PRIORITY]",
       String(question ?? ""),
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   });
 
   const messages = [{ role: "user", content }];

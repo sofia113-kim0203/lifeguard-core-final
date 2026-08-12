@@ -405,6 +405,17 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqContNew.system[0].text.includes("빈 카드만으로 답한다"), false);
   // Prompt-cache: same NEW_CUSTOMER system whether history empty or continuing.
   assert.equal(reqContNew.system[0].text, reqFirstNew.system[0].text);
+  const contPolicyBlock = reqContNew.messages[0].content.find(
+    (b) =>
+      typeof b?.text === "string" && b.text.includes("KEY_DAILY_CHAT_POLICY"),
+  );
+  const contPolicy = contPolicyBlock
+    ? JSON.parse(contPolicyBlock.text)?.KEY_DAILY_CHAT_POLICY
+    : null;
+  assert.equal(contPolicy?.continuity_use_recent_conversation, true);
+  const contUserBlob = JSON.stringify(reqContNew.messages);
+  assert.equal(contUserBlob.includes("DIALOGUE_CONTINUITY"), true);
+  assert.equal(contUserBlob.includes("새 인사"), true);
   console.log("PASS A2 NEW_CUSTOMER dialogue continuity system (cache-stable)");
 
   const reqL4 = buildOnePathClaudeFirstRequest({
