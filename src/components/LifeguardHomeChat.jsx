@@ -907,8 +907,14 @@ export default function LifeguardHomeChat({
       const cid = customerIdRef.current;
       if (!turn || !cid || String(turn.customerId) !== String(cid)) return;
       // New chat / session switch must not be hijacked by a stale inflight session.
-      if (String(turn.sessionId) !== String(sessionIdRef.current)) return;
-      setMessages(turn.messages);
+      const turnSessionId = String(turn.sessionId ?? "");
+      if (!turnSessionId || turnSessionId !== String(sessionIdRef.current)) return;
+      // Re-check inside updater: a queued setMessages([]) from 새 대화 must win.
+      setMessages((prev) => {
+        if (String(sessionIdRef.current) !== turnSessionId) return prev;
+        return Array.isArray(turn.messages) ? turn.messages : prev;
+      });
+      if (String(sessionIdRef.current) !== turnSessionId) return;
       setLoading(Boolean(turn.loading));
       setStreaming(Boolean(turn.streaming));
       if (turn.activeAttachment?.active_attachment_id) {
@@ -1559,9 +1565,14 @@ export default function LifeguardHomeChat({
     // A: in-flight turn ? keep central chat messages; do not reboot the thread.
     const inflight = readInflightHomeChatTurn(customerId);
     if (inflight && isInflightHomeChatTurnActive(customerId)) {
-      setSessionId(inflight.sessionId);
-      writeActiveSessionId(customerId, inflight.sessionId);
-      setMessages(inflight.messages);
+      const inflightSessionId = String(inflight.sessionId ?? "");
+      setSessionId(inflightSessionId);
+      sessionIdRef.current = inflightSessionId;
+      writeActiveSessionId(customerId, inflightSessionId);
+      setMessages((prev) => {
+        if (String(sessionIdRef.current) !== inflightSessionId) return prev;
+        return Array.isArray(inflight.messages) ? inflight.messages : prev;
+      });
       setLoading(Boolean(inflight.loading));
       setStreaming(Boolean(inflight.streaming));
       if (inflight.activeAttachment?.active_attachment_id) {
@@ -1661,7 +1672,15 @@ export default function LifeguardHomeChat({
               setThreadRestoreReady(true);
               return;
             }
-            setMessages(live.messages);
+            const liveSessionId = String(live.sessionId);
+            setMessages((prev) => {
+              if (String(sessionIdRef.current) !== liveSessionId) return prev;
+              return Array.isArray(live.messages) ? live.messages : prev;
+            });
+            if (String(sessionIdRef.current) !== liveSessionId) {
+              setThreadRestoreReady(true);
+              return;
+            }
             setLoading(Boolean(live.loading));
             setStreaming(Boolean(live.streaming));
             setThreadRestoreReady(true);
@@ -1678,7 +1697,9 @@ export default function LifeguardHomeChat({
             setThreadRestoreReady(true);
             return;
           }
+          // Apply-time session check: queued 새 대화 setMessages([]) must not lose to this merge.
           setMessages((prev) => {
+            if (String(sessionIdRef.current) !== String(activeId)) return prev;
             const base = seed.length > 0 ? seed : prev;
             // B: merge keeps streamed customer_answer; restored may only refresh older rows.
             return mergeRestoredSessionMessages(base, restored);
@@ -1699,14 +1720,19 @@ export default function LifeguardHomeChat({
             });
             setRestorableAttachmentCandidate(candidate);
           }
-          setPanelView("chat");
+          if (String(sessionIdRef.current) === String(activeId)) {
+            setPanelView("chat");
+          }
         } else if (seed.length > 0) {
           if (String(sessionIdRef.current) !== String(activeId)) {
             setThreadRestoreReady(true);
             return;
           }
           // Remount before DB indexed the just-completed turn — keep local snapshot.
-          setMessages((prev) => mergeRestoredSessionMessages(seed.length > 0 ? seed : prev, []));
+          setMessages((prev) => {
+            if (String(sessionIdRef.current) !== String(activeId)) return prev;
+            return mergeRestoredSessionMessages(seed.length > 0 ? seed : prev, []);
+          });
           if (
             !cancelled &&
             userAttachActionEpochRef.current === userEpochAtStart &&
@@ -1722,7 +1748,9 @@ export default function LifeguardHomeChat({
             });
             setRestorableAttachmentCandidate(candidate);
           }
-          setPanelView("chat");
+          if (String(sessionIdRef.current) === String(activeId)) {
+            setPanelView("chat");
+          }
         }
 
         setThreadRestoreReady(true);
@@ -1923,7 +1951,13 @@ export default function LifeguardHomeChat({
         if (String(sessionIdRef.current) !== String(targetSessionId)) {
           return;
         }
-        setMessages(restored);
+        setMessages((prev) => {
+          if (String(sessionIdRef.current) !== String(targetSessionId)) return prev;
+          return restored;
+        });
+        if (String(sessionIdRef.current) !== String(targetSessionId)) {
+          return;
+        }
         const candidate = pickRestorableAttachmentCandidate({
           messages: restored,
           snapshot: null,
@@ -1941,7 +1975,13 @@ export default function LifeguardHomeChat({
         if (String(sessionIdRef.current) !== String(targetSessionId)) {
           return;
         }
-        setMessages([]);
+        setMessages((prev) => {
+          if (String(sessionIdRef.current) !== String(targetSessionId)) return prev;
+          return [];
+        });
+        if (String(sessionIdRef.current) !== String(targetSessionId)) {
+          return;
+        }
         clearConversationActiveAttachment();
         clearExplicitReopenFlight();
         setRestorableAttachmentCandidate(null);
