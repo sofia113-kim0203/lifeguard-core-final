@@ -1,0 +1,8 @@
+{
+  "id": "a1-a2",
+  "title": "A2 continuity micro-seat",
+  "turns": [
+    { "label": "A1", "question": "안녕" },
+    { "label": "A2", "question": "오늘 진짜 덥네" }
+  ]
+}

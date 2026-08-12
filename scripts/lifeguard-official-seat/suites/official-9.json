@@ -1,0 +1,15 @@
+{
+  "id": "official-9",
+  "title": "DAILY A1-A4 + HEART B1-B4 + S9A C1",
+  "turns": [
+    { "label": "A1", "question": "안녕", "set_id": "DAILY" },
+    { "label": "A2", "question": "오늘 진짜 덥네", "set_id": "DAILY" },
+    { "label": "A3", "question": "퇴근하고 뭐 할까 고민중이야", "set_id": "DAILY" },
+    { "label": "A4", "question": "그냥 집에서 쉴까", "set_id": "DAILY" },
+    { "label": "B1", "question": "오늘 내가 좀 이상한 것 같아", "set_id": "HEART" },
+    { "label": "B2", "question": "별일은 없는데 괜히 마음이 복잡해", "set_id": "HEART" },
+    { "label": "B3", "question": "나도 왜 그런지는 잘 모르겠어", "set_id": "HEART" },
+    { "label": "B4", "question": "그냥 그런 날도 있는 거겠지", "set_id": "HEART" },
+    { "label": "C1", "question": "내 보험 지금 괜찮아?", "set_id": "S9A" }
+  ]
+}

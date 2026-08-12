@@ -212,7 +212,8 @@
     "test:key-r2-error-partial-bubble": "node scripts/key-r2-error-partial-bubble-unit-test.mjs",
     "test:key-r3-history-seal-ssot": "node scripts/key-r3-history-seal-ssot-unit-test.mjs",
     "test:key-t1-customer-error-internal-leak": "node scripts/key-t1-customer-error-internal-leak-unit-test.mjs",
-    "test:key-t2-customer-sse-done-meta-strip": "node scripts/key-t2-customer-sse-done-meta-strip-unit-test.mjs"
+    "test:key-t2-customer-sse-done-meta-strip": "node scripts/key-t2-customer-sse-done-meta-strip-unit-test.mjs",
+    "seat:official": "node scripts/lifeguard-official-seat/run.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
