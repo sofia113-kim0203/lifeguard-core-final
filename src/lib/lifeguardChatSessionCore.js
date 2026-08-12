@@ -42,12 +42,13 @@ export function resolveActiveLifeguardSessionId({
   storedId = null,
   snapshotSessionId = null,
 } = {}) {
-  const ids = new Set((recentSessions ?? []).map((entry) => String(entry.id)));
   // sessionStorage is per-tab — prefer in-flight snapshot so remount before DB
   // recent-index does not drop the just-completed turn.
   if (snapshotSessionId) return String(snapshotSessionId);
-  if (storedId && ids.has(String(storedId))) return String(storedId);
-  if (recentSessions.length > 0) return String(recentSessions[0].id);
+  // Trust tab active id even when not yet in recent (brand-new empty chat).
+  // Requiring membership in recent caused "새 대화" to snap back to recent[0].
+  if (storedId) return String(storedId);
+  if ((recentSessions ?? []).length > 0) return String(recentSessions[0].id);
   return createLifeguardSessionId();
 }
 

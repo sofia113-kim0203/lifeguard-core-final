@@ -1605,6 +1605,14 @@ export default function LifeguardHomeChat({
         if (cancelled) return;
         setThreads(recent);
 
+        // New chat / openSession won while listRecent was in flight — do not
+        // resolveActive+overwrite sessionIdRef (that made the post-await
+        // sessionId===activeId guard always pass and re-pollute messages).
+        if (String(sessionIdRef.current) !== sessionIdAtStart) {
+          setThreadRestoreReady(true);
+          return;
+        }
+
         const storedSessionId = readActiveSessionId(customerId);
         const activeId = resolveActiveLifeguardSessionId({
           recentSessions: recent,
@@ -1911,6 +1919,10 @@ export default function LifeguardHomeChat({
 
       try {
         const restored = await loadLifeguardSessionMessages(authUser, targetSessionId, { customerId });
+        // Stale openSession must not overwrite a newer new-chat / switch.
+        if (String(sessionIdRef.current) !== String(targetSessionId)) {
+          return;
+        }
         setMessages(restored);
         const candidate = pickRestorableAttachmentCandidate({
           messages: restored,
@@ -1919,15 +1931,16 @@ export default function LifeguardHomeChat({
           sessionId: targetSessionId,
           rejectCleared: rejectClearedActiveAttachment,
         });
-        if (String(sessionIdRef.current) === String(targetSessionId)) {
-          setRestorableAttachmentCandidate(candidate);
-        }
+        setRestorableAttachmentCandidate(candidate);
         writeLifeguardChatSnapshot(customerId, {
           sessionId: targetSessionId,
           messages: restored,
           activeAttachment: null,
         });
       } catch (err) {
+        if (String(sessionIdRef.current) !== String(targetSessionId)) {
+          return;
+        }
         setMessages([]);
         clearConversationActiveAttachment();
         clearExplicitReopenFlight();
@@ -1935,10 +1948,12 @@ export default function LifeguardHomeChat({
         clearLifeguardChatSnapshot(customerId);
         setError(toCustomerErrorMessage(err, "대화를 불러오지 못했습니다."));
       } finally {
-        setThreadRestoreReady(true);
-        clearReadyCardHandoffToken();
-        warmKeyReadyCardFireAndForget({ sessionId: targetSessionId, customerId });
-        focusChatInput();
+        if (String(sessionIdRef.current) === String(targetSessionId)) {
+          setThreadRestoreReady(true);
+          clearReadyCardHandoffToken();
+          warmKeyReadyCardFireAndForget({ sessionId: targetSessionId, customerId });
+          focusChatInput();
+        }
       }
     },
     [authUser, customerId, focusChatInput],
