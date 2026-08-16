@@ -52,7 +52,7 @@ const merged = mergePolicyRecords(dashboardPolicies, unifiedPolicies);
 assert.equal(merged.length, 2);
 assert.equal(formatPolicyPremium(merged[0]), "45,000원");
 assert.equal(formatPolicyPremium(merged[1]), "확인 필요");
-assert.equal(formatPolicySource("upload_extract"), "문서 추출(OCR)");
+assert.equal(formatPolicySource("upload_extract"), "업로드 문서");
 assert.equal(formatPolicyStatus({ is_active: false }), "해지");
 assert.equal(formatOcrConfidence({ coverage_summary: { ocr_confidence: 0.82 } }), "82%");
 assert.equal(formatOcrConfidence({ source: "signup" }), "확인 필요");

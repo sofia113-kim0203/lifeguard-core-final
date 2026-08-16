@@ -2,9 +2,13 @@
  * I-6 — soft-delete post-steps via service_role (document_id).
  * RPC remains SSOT for tombstone + in-transaction policy retire.
  * Customer JWT must not re-SELECT soft-deleted rows to finish cleanup.
+ * S3 — finalize success also supersedes KEY document-memory for that doc
+ * and invalidates Ready Card cache (fail-closed; never fake-delete).
  */
 
 import { scrubInsuranceMemoryForRetiredPolicies } from "./customerMemoryFoundation.js";
+import { supersedeKeyDocumentMemoryForDeletedDocument } from "./keyCore/keyDocumentMemoryCommit.js";
+import { invalidateReadyCardCacheForCustomer } from "./keyCore/keyReadyCardCache.js";
 
 export const STORAGE_BUCKET = "customer-documents";
 
@@ -231,6 +235,8 @@ export async function finalizeCustomerDocumentSoftDelete({
   documentId,
   storageRemove = null,
   scrubInsuranceMemory = null,
+  scrubKeyDocumentMemory = null,
+  invalidateReadyCard = null,
 } = {}) {
   const cid = String(customerId ?? "").trim();
   const did = String(documentId ?? "").trim();
@@ -414,6 +420,84 @@ export async function finalizeCustomerDocumentSoftDelete({
       storage_remove_ok: storageRemoveOk,
       retired_policy_ids: retiredPolicyIds,
       memory_scrub: memoryScrub,
+      key_document_memory_scrub: null,
+      ready_card_invalidate: null,
+      error_message: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
+    };
+  }
+
+  // S3 — KEY document-origin memory + Ready cache only after prior finalize steps OK.
+  // Soft-delete tombstone already required above; failure here stays fail-closed (not success).
+  let keyDocumentMemoryScrub;
+  try {
+    keyDocumentMemoryScrub = scrubKeyDocumentMemory
+      ? await scrubKeyDocumentMemory({ customerId: cid, documentId: did })
+      : await supersedeKeyDocumentMemoryForDeletedDocument({
+          supabase: admin,
+          customerId: cid,
+          documentId: did,
+        });
+  } catch (err) {
+    keyDocumentMemoryScrub = {
+      ok: false,
+      reason: "key_document_memory_scrub_threw",
+      error_message: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (keyDocumentMemoryScrub?.ok !== true) {
+    return {
+      success: false,
+      reason: DOCUMENT_SOFT_DELETE_FINALIZE_REASON.MEMORY_SCRUB_FAILED,
+      documentId: did,
+      customerId: cid,
+      deletedAt,
+      soft_delete_ok: softDeleteOk,
+      current_insurance_invalidated: currentInsuranceInvalidated,
+      clear_active_attachment: clearActiveAttachment,
+      policy_retire: policyRetire,
+      orphan_policy_retire: orphanRetire,
+      claim_cases_scrub: claimCasesScrub,
+      storage_remove_ok: storageRemoveOk,
+      retired_policy_ids: retiredPolicyIds,
+      memory_scrub: memoryScrub,
+      key_document_memory_scrub: keyDocumentMemoryScrub,
+      ready_card_invalidate: null,
+      error_message: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
+    };
+  }
+
+  let readyCardInvalidate;
+  try {
+    const invalidateFn =
+      invalidateReadyCard ?? invalidateReadyCardCacheForCustomer;
+    invalidateFn(cid);
+    readyCardInvalidate = { ok: true, attempted: true, customer_id: cid };
+  } catch (err) {
+    readyCardInvalidate = {
+      ok: false,
+      attempted: true,
+      reason: "ready_card_invalidate_threw",
+      error_message: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (readyCardInvalidate?.ok !== true) {
+    return {
+      success: false,
+      reason: DOCUMENT_SOFT_DELETE_FINALIZE_REASON.MEMORY_SCRUB_FAILED,
+      documentId: did,
+      customerId: cid,
+      deletedAt,
+      soft_delete_ok: softDeleteOk,
+      current_insurance_invalidated: currentInsuranceInvalidated,
+      clear_active_attachment: clearActiveAttachment,
+      policy_retire: policyRetire,
+      orphan_policy_retire: orphanRetire,
+      claim_cases_scrub: claimCasesScrub,
+      storage_remove_ok: storageRemoveOk,
+      retired_policy_ids: retiredPolicyIds,
+      memory_scrub: memoryScrub,
+      key_document_memory_scrub: keyDocumentMemoryScrub,
+      ready_card_invalidate: readyCardInvalidate,
       error_message: "일부 관련 기록을 정리하지 못했습니다. 다시 시도해 주세요.",
     };
   }
@@ -433,6 +517,8 @@ export async function finalizeCustomerDocumentSoftDelete({
     storage_remove_ok: storageRemoveOk,
     retired_policy_ids: retiredPolicyIds,
     memory_scrub: memoryScrub,
+    key_document_memory_scrub: keyDocumentMemoryScrub,
+    ready_card_invalidate: readyCardInvalidate,
     error_message: null,
     finalize_via: "service_role_document_id",
   };

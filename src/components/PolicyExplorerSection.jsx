@@ -168,7 +168,7 @@ function PolicyCard({ policy, defaultExpanded = false }) {
           <Field label="상태" value={formatPolicyStatus(policy)} />
           <Field label="유형/카테고리" value={formatPolicyType(policy)} />
           <Field label="출처" value={formatPolicySource(policy.source)} />
-          <Field label="OCR 신뢰도" value={formatOcrConfidence(policy)} />
+          <Field label="문서 읽기 정확도" value={formatOcrConfidence(policy)} />
           <div style={{ gridColumn: "1 / -1" }}>
             <div style={S.fieldLabel}>특약 정보</div>
             {structuredRiders ? (

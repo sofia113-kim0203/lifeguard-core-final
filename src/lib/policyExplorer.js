@@ -7,7 +7,7 @@ export const RIDER_UNAVAILABLE_MESSAGE =
 
 const POLICY_SOURCE_LABELS = {
   signup: "가입 입력",
-  upload_extract: "문서 추출(OCR)",
+  upload_extract: "업로드 문서",
   manual: "직접 입력",
   import: "데이터 가져오기",
 };

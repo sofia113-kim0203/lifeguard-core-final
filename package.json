@@ -214,6 +214,8 @@
     "test:key-t1-customer-error-internal-leak": "node scripts/key-t1-customer-error-internal-leak-unit-test.mjs",
     "test:key-t2-customer-sse-done-meta-strip": "node scripts/key-t2-customer-sse-done-meta-strip-unit-test.mjs",
     "test:key-u2-empty-coverage-table-guard": "node scripts/key-u2-empty-coverage-table-guard-unit-test.mjs",
+    "test:key-s3-memory-scrub-failclosed": "node scripts/key-s3-memory-scrub-failclosed-unit-test.mjs",
+    "test:key-t3-customer-ocr-label-cleanup": "node scripts/key-t3-customer-ocr-label-cleanup-unit-test.mjs",
     "seat:official": "node scripts/lifeguard-official-seat/run.mjs"
   },
   "dependencies": {

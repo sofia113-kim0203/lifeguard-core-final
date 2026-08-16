@@ -744,3 +744,102 @@ export function buildDocumentMemoryPersistFailedPayload({
       "답변은 준비됐지만 KEY 공식 기억 저장이 완료되지 않았습니다. 기억 저장을 다시 시도해 주세요.",
   };
 }
+
+/** True when a KEY document-memory row is rooted in the given document id. */
+export function keyDocumentMemoryReferencesDocument(row, documentId) {
+  const did = String(documentId ?? "").trim();
+  if (!did || !row || typeof row !== "object") return false;
+  if (String(row.primary_document_id ?? "").trim() === did) return true;
+  const ids = Array.isArray(row.document_ids) ? row.document_ids : [];
+  return ids.some((id) => String(id ?? "").trim() === did);
+}
+
+/**
+ * S3 — After soft-delete finalize: supersede active KEY document-memory commits
+ * that originate from the deleted document. Does not touch unrelated memory.
+ * Fail-closed: query/update errors → ok:false (caller must not treat delete as clean).
+ */
+export async function supersedeKeyDocumentMemoryForDeletedDocument({
+  supabase = null,
+  customerId = null,
+  documentId = null,
+} = {}) {
+  const cid = String(customerId ?? "").trim();
+  const did = String(documentId ?? "").trim();
+  if (!supabase || !cid || !did) {
+    return {
+      ok: false,
+      attempted: false,
+      superseded: 0,
+      reason: "missing_ids",
+      memory_commit_ids: [],
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("key_document_memory_commits")
+    .select(
+      "id, memory_commit_id, document_ids, primary_document_id, focus_status, commit_status",
+    )
+    .eq("customer_id", cid)
+    .eq("focus_status", "active");
+
+  if (error) {
+    return {
+      ok: false,
+      attempted: true,
+      superseded: 0,
+      reason: "query_failed",
+      error: error.message,
+      memory_commit_ids: [],
+    };
+  }
+
+  const matches = (Array.isArray(data) ? data : []).filter((row) =>
+    keyDocumentMemoryReferencesDocument(row, did),
+  );
+  if (matches.length === 0) {
+    return {
+      ok: true,
+      attempted: true,
+      superseded: 0,
+      reason: "no_active_document_memory",
+      memory_commit_ids: [],
+    };
+  }
+
+  const rowIds = matches.map((row) => row.id).filter(Boolean);
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase
+    .from("key_document_memory_commits")
+    .update({
+      focus_status: "superseded",
+      updated_at: now,
+    })
+    .eq("customer_id", cid)
+    .eq("focus_status", "active")
+    .in("id", rowIds)
+    .select("id, memory_commit_id");
+
+  if (updateError) {
+    return {
+      ok: false,
+      attempted: true,
+      superseded: 0,
+      reason: "supersede_failed",
+      error: updateError.message,
+      memory_commit_ids: [],
+    };
+  }
+
+  const rows = Array.isArray(updated) ? updated : [];
+  return {
+    ok: true,
+    attempted: true,
+    superseded: rows.length,
+    reason: "superseded",
+    memory_commit_ids: rows
+      .map((row) => String(row.memory_commit_id ?? "").trim())
+      .filter(Boolean),
+  };
+}
