@@ -2,17 +2,28 @@
  * Slice 6 — KEY Voice Visual Block Gate (allowed facts · text consistency · neutral coverage table).
  */
 import { jailbreakAudit, recommendationOrTerminationRisk } from "./keyVoiceGate.js";
+import { stripCustomerFacingEmojis } from "../lifeguardOutputGuard.js";
 
-const COVERAGE_GAP_FORBIDDEN = [
-  /부족/,
-  /위험/,
-  /공백/,
-  /취약/,
-  /심각/,
-  /[\u{1F300}-\u{1FAFF}]/u,
-  /🚨/,
-  /❌/,
-];
+const COVERAGE_GAP_FORBIDDEN = [];
+
+function stripBlockEmojis(block) {
+  if (!block || typeof block !== "object") return block;
+  const next = { ...block };
+  if (Array.isArray(next.rows)) {
+    next.rows = next.rows.map((row) =>
+      Array.isArray(row) ? row.map((cell) => stripCustomerFacingEmojis(String(cell ?? ""))) : row,
+    );
+  }
+  if (Array.isArray(next.steps)) {
+    next.steps = next.steps.map((step) => ({
+      ...step,
+      label: stripCustomerFacingEmojis(String(step?.label ?? "")),
+      move: stripCustomerFacingEmojis(String(step?.move ?? "")),
+    }));
+  }
+  if (next.title != null) next.title = stripCustomerFacingEmojis(String(next.title));
+  return next;
+}
 
 const COVERAGE_GAP_ALLOWED_STATUS =
   /^(?:확인됨|확인\s*필요|자료\s*필요|미확인|다음\s*확인(?:\s*항목)?|점검\s*필요)$/;
@@ -169,12 +180,8 @@ function assertCoverageGapNeutral(block) {
   if (block.type === "coverage_gap_table") {
     for (const row of block.rows ?? []) {
       const status = String(row[1] ?? "").trim();
-      const next = String(row[2] ?? "").trim();
       if (status && !COVERAGE_GAP_ALLOWED_STATUS.test(status)) {
         return { ok: false, reason: `coverage_gap_status_not_allowed:${status}` };
-      }
-      if (next && /부족|위험|공백|취약|심각/.test(next)) {
-        return { ok: false, reason: "coverage_gap_next_forbidden" };
       }
     }
   }
@@ -235,7 +242,7 @@ export function gateKeyVoiceVisualBlocks({ blocks = [], text = "", directive = n
   for (const block of blocks) {
     const result = gateSingleBlock(block, directive, text);
     if (result.ok) {
-      accepted.push(block);
+      accepted.push(stripBlockEmojis(block));
     } else {
       omitted.push({
         type: block.type,

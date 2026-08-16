@@ -2,6 +2,7 @@
  * S7-a — Borrowed Senses shadow gate (trace/audit only · does not block S6 final_answer).
  */
 import { deriveKeyVoiceQuestionFocus } from "./keyVoiceDirective.js";
+import { KNOWN_INSURER_SHORT_NAMES } from "./keyVoiceGate.js";
 
 export const S7_BORROWED_SENSES_SCHEMA = "key-borrowed-senses-s7a-v0";
 export const S7_BORROWED_SENSES_SCHEMA_B = "key-borrowed-senses-s7b-v0";
@@ -57,7 +58,7 @@ const PRIOR_MEMORY_CLAIM_RE = /(?:지난번|저번|앞서\s*말(?:씀|한)|전�
 const NEGATION_MUST_NOT_RE =
   /(?:하지\s*(?:않|말)|단정하지|가정하지|추정하지|없음|없다고|암시하지|언급하지)/;
 
-const KNOWN_INSURERS = ["메리츠", "현대해상", "KB손보", "한화", "DB손보", "삼성생명", "교보", "NH"];
+const KNOWN_INSURERS = KNOWN_INSURER_SHORT_NAMES;
 
 function normalizeText(text = "") {
   return String(text ?? "")
@@ -537,16 +538,7 @@ function isStructuredFactRef(value = "") {
 }
 
 function checkFactsNotInAllowedSet(borrowed = {}, directive = {}) {
-  const blob = collectAssertiveBorrowedText(borrowed);
-  const allowedNames = [directive?.allowed_fact_tokens?.insurer, directive?.allowed_fact_tokens?.product].filter(
-    Boolean,
-  );
-  const rogueInsurers = KNOWN_INSURERS.filter(
-    (name) => blob.includes(name) && !allowedNames.some((a) => String(a).includes(name)),
-  );
-  if (rogueInsurers.length) return true;
-
-  const usedFacts = (borrowed.used_facts ?? []).map((id) => normalizeFactId(id));
+  // Insurer mention is not a borrowed hard-fail. Structured fact ids only.
   const structuredFacts = (borrowed.used_facts ?? []).filter((id) => isStructuredFactRef(id));
   const allowedFactIds = new Set(
     (directive?.facts_to_speak ?? []).map((f) => f.fact_id).filter(Boolean),

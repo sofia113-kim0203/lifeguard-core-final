@@ -108,8 +108,9 @@ import {
   clearReadyCardHandoffToken,
 } from "../lib/keyReadyCardWarm.js";
 import {
-  hasPresenceRanThisSession,
-  markPresenceRanThisSession,
+  beginPresenceOpeningAttempt,
+  shouldDiscardPresenceOpeningResult,
+  threadBlocksPresenceOpening,
 } from "../lib/keyPresenceSession.js";
 import {
   beginInflightHomeChatTurn,
@@ -773,6 +774,7 @@ export default function LifeguardHomeChat({
   const presenceAbortRef = useRef(null);
   const presenceTurnIdRef = useRef(null);
   const presenceActiveRef = useRef(false);
+  const presenceCustomerWonRef = useRef(false);
   const displayName =
     displayNameProp ??
     (isAgentAudience
@@ -885,6 +887,8 @@ export default function LifeguardHomeChat({
   const loadDocumentsRef = useRef(async () => {});
   const focusChatInputRef = useRef(() => {});
   const sessionIdRef = useRef(sessionId);
+  const threadVerifiedFactRefsRef = useRef([]);
+  const threadHandoffMemoRef = useRef(null);
   /** 새 대화로 연 empty session — hydrate resolve가 recent[0]으로 되돌리지 못하게 한다. */
   const newChatIntentSessionRef = useRef(null);
   const authUserRef = useRef(authUser);
@@ -935,6 +939,8 @@ export default function LifeguardHomeChat({
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
+    threadVerifiedFactRefsRef.current = [];
+    threadHandoffMemoRef.current = null;
   }, [sessionId]);
 
   const rememberRestorableCandidateFromBundle = useCallback((bundle, scope = {}) => {
@@ -1781,30 +1787,33 @@ export default function LifeguardHomeChat({
     };
   }, [authUser, customerId, loadingSession]);
 
-  // Triangle T6 ? KEY Presence (listen_focus) after READY CARD warm; cancel on customer question.
+  // Presence opening — one attempt per sessionId; customer input always wins.
   useEffect(() => {
     if (!authUser || !customerId || loadingSession || !threadRestoreReady) return undefined;
     if (!sessionId) return undefined;
     if (loading || streaming) return undefined;
     if (isInflightHomeChatTurnActive(customerId)) return undefined;
-    if (hasPresenceRanThisSession(customerId, sessionId)) return undefined;
+    if (threadBlocksPresenceOpening(messagesRef.current)) return undefined;
 
     let cancelled = false;
     const ac = new AbortController();
     presenceAbortRef.current = ac;
+    presenceCustomerWonRef.current = false;
 
     (async () => {
+      let turnId = null;
       try {
-        const warm = await warmKeyReadyCard({ sessionId, customerId });
-        if (cancelled || ac.signal.aborted) return;
-        markPresenceRanThisSession(customerId, sessionId);
-        const candidates = Number(warm?.presence_candidate_count ?? 0) || 0;
-        if (!warm?.ok || candidates < 1 || !warm?.handoff_token_present) {
-          return;
+        try {
+          await warmKeyReadyCard({ sessionId, customerId });
+        } catch {
+          /* opening does not depend on warm */
         }
+        if (cancelled || ac.signal.aborted || presenceCustomerWonRef.current) return;
         if (loading || streaming || isInflightHomeChatTurnActive(customerId)) return;
+        if (threadBlocksPresenceOpening(messagesRef.current)) return;
+        if (!beginPresenceOpeningAttempt(customerId, sessionId)) return;
 
-        const turnId = createLifeguardSessionId();
+        turnId = createLifeguardSessionId();
         presenceTurnIdRef.current = turnId;
         presenceActiveRef.current = true;
         const handoffToken = getReadyCardHandoffToken({ customerId, sessionId });
@@ -1825,7 +1834,14 @@ export default function LifeguardHomeChat({
           [],
           {
             onDelta: (chunk) => {
-              if (ac.signal.aborted) return;
+              if (
+                shouldDiscardPresenceOpeningResult({
+                  aborted: ac.signal.aborted,
+                  customerWon: presenceCustomerWonRef.current,
+                })
+              ) {
+                return;
+              }
               const piece = String(chunk ?? "");
               if (!piece) return;
               streamedText += piece;
@@ -1847,16 +1863,14 @@ export default function LifeguardHomeChat({
           },
         );
 
-        if (cancelled || ac.signal.aborted) {
+        if (
+          shouldDiscardPresenceOpeningResult({
+            aborted: cancelled || ac.signal.aborted,
+            customerWon: presenceCustomerWonRef.current,
+          })
+        ) {
           setMessages((prev) =>
-            prev.filter(
-              (m) =>
-                !(
-                  m.turnId === turnId &&
-                  m.presenceTurn === true &&
-                  !String(m.content ?? "").trim()
-                ),
-            ),
+            prev.filter((m) => !(m.turnId === turnId && m.presenceTurn === true)),
           );
           return;
         }
@@ -1903,16 +1917,21 @@ export default function LifeguardHomeChat({
       } catch (err) {
         presenceActiveRef.current = false;
         presenceTurnIdRef.current = null;
-        if (err?.name === "AbortError" || ac.signal.aborted || cancelled) {
+        if (
+          shouldDiscardPresenceOpeningResult({
+            aborted:
+              err?.name === "AbortError" || ac.signal.aborted || cancelled,
+            customerWon: presenceCustomerWonRef.current,
+          })
+        ) {
           setMessages((prev) =>
-            prev.filter(
-              (m) =>
-                !(m.presenceTurn === true && (!String(m.content ?? "").trim() || m.thinking)),
-            ),
+            prev.filter((m) => !(turnId && m.turnId === turnId && m.presenceTurn === true)),
           );
           return;
         }
-        setMessages((prev) => prev.filter((m) => m.presenceTurn !== true || String(m.content ?? "").trim()));
+        setMessages((prev) =>
+          prev.filter((m) => m.presenceTurn !== true || String(m.content ?? "").trim()),
+        );
       } finally {
         if (presenceAbortRef.current === ac) presenceAbortRef.current = null;
       }
@@ -2122,7 +2141,8 @@ export default function LifeguardHomeChat({
       return;
     }
 
-    // T6 ? customer question always wins over Presence (single active stream).
+    // Safety pin 2 — customer question wins; late opening never attaches.
+    presenceCustomerWonRef.current = true;
     if (presenceAbortRef.current) {
       try {
         presenceAbortRef.current.abort();
@@ -2135,18 +2155,9 @@ export default function LifeguardHomeChat({
     const presenceTurnId = presenceTurnIdRef.current;
     presenceTurnIdRef.current = null;
     if (presenceTurnId) {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (
-          last?.role === "assistant" &&
-          last?.presenceTurn === true &&
-          last?.turnId === presenceTurnId &&
-          (last?.thinking === true || !String(last?.content ?? "").trim())
-        ) {
-          return prev.slice(0, -1);
-        }
-        return prev;
-      });
+      setMessages((prev) =>
+        prev.filter((m) => !(m.presenceTurn === true && m.turnId === presenceTurnId)),
+      );
     }
 
     // Pending vault ids (post-store transit) or leftover composer rows — then consume to empty.
@@ -2324,6 +2335,13 @@ export default function LifeguardHomeChat({
         ...(buildPointedContractIdsPayload(pointedContractId).length
           ? { pointedContractIds: buildPointedContractIdsPayload(pointedContractId) }
           : {}),
+        ...(Array.isArray(threadVerifiedFactRefsRef.current) &&
+        threadVerifiedFactRefsRef.current.length
+          ? { threadVerifiedFactRefs: threadVerifiedFactRefsRef.current }
+          : {}),
+        ...(threadHandoffMemoRef.current
+          ? { threadHandoffMemo: threadHandoffMemoRef.current }
+          : {}),
       };
       const markFirstSse = () => {
         if (sawFirstSseEvent) return;
@@ -2402,6 +2420,12 @@ export default function LifeguardHomeChat({
               sawSuccessfulSseDone = true;
             }
             const mapped = mapHomeBrainFactPayload(payload ?? {});
+            if (Array.isArray(mapped.threadVerifiedFactRefs)) {
+              threadVerifiedFactRefsRef.current = mapped.threadVerifiedFactRefs;
+            }
+            if (mapped.threadHandoffMemo && typeof mapped.threadHandoffMemo === "object") {
+              threadHandoffMemoRef.current = mapped.threadHandoffMemo;
+            }
             const visualBlocks = Array.isArray(mapped.visualBlocks) ? mapped.visualBlocks : [];
             if (visualBlocks.length === 0) return;
             syncLiveMessages(
@@ -2417,6 +2441,12 @@ export default function LifeguardHomeChat({
         },
         attachOptions,
       );
+      if (Array.isArray(result.threadVerifiedFactRefs)) {
+        threadVerifiedFactRefsRef.current = result.threadVerifiedFactRefs;
+      }
+      if (result.threadHandoffMemo && typeof result.threadHandoffMemo === "object") {
+        threadHandoffMemoRef.current = result.threadHandoffMemo;
+      }
       if (result.documentMemoryPersistFailed) {
         const paintedNow = String(paint.getPainted() || streamedText || "");
         const memoryFailFallback =

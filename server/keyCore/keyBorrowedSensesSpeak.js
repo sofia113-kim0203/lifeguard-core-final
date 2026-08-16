@@ -25,7 +25,43 @@ import {
   isClaudeFullRequestTooLarge,
 } from "./keyClaudeFullDocumentDirect.js";
 import { relMs } from "./keyLatencyMarks.js";
-import { projectCanonicalContracts } from "../../src/lib/keyInsuranceScreenFacts.js";
+import {
+  filterCurrentActivePolicies,
+  isPersonalOwnershipOk,
+  projectCanonicalContracts,
+} from "../../src/lib/keyInsuranceScreenFacts.js";
+
+const KEY_CLAUDE_ORIGINAL_DOCUMENT = "key_claude_original_document";
+
+/**
+ * Fact-only projection gate — KEY-stamped nest facts only.
+ * Does NOT promote review/weak_identity contracts to confirmed.
+ */
+export function acceptKeyConfirmedSourceFactForProjection(fact, summary = null) {
+  if (!fact || typeof fact !== "object" || Array.isArray(fact)) return false;
+  const factType = String(fact.fact_type ?? fact.fact_key ?? fact.type ?? "").trim();
+  if (!factType) return false;
+  const literal = fact.literal_value ?? fact.fact_value ?? fact.value ?? fact.date_value;
+  if (literal == null || String(literal).trim() === "") return false;
+  if (String(fact.confirmation_source ?? "").trim() !== KEY_CLAUDE_ORIGINAL_DOCUMENT) {
+    return false;
+  }
+  const sourceDocumentId = String(fact.source_document_id ?? "").trim();
+  if (!sourceDocumentId) return false;
+  const summarySid =
+    summary && typeof summary === "object"
+      ? String(summary.source_document_id ?? "").trim()
+      : "";
+  if (summarySid && summarySid !== sourceDocumentId) return false;
+  return true;
+}
+
+function pushKeyConfirmedSourceFactAggregate(target, seen, fact) {
+  const key = `${String(fact.fact_type ?? "")}::${String(fact.literal_value ?? "")}::${String(fact.source_document_id ?? "")}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  target.push(fact);
+}
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_TIMEOUT_MS = 35000;
@@ -38,7 +74,7 @@ const MAX_PARSE_RETRIES = 1;
 export const ANTHROPIC_WEB_SEARCH_TOOL = Object.freeze({
   type: "web_search_20250305",
   name: "web_search",
-  max_uses: 1,
+  max_uses: 3,
 });
 
 const BORROWED_SENSES_TOOL = {
@@ -1339,14 +1375,26 @@ export function buildVerifiedCustomerChart(reality = null) {
       ? { status: "verified", values: aggregatesRaw }
       : { status: "unknown", values: null };
 
+  // Fact-only aggregate: KEY-stamped nest facts from personal-eligible rows.
+  // Includes review/weak_identity hosts — does NOT move those rows into confirmed_contracts.
   const key_confirmed_source_facts = [];
   const keySeen = new Set();
   for (const c of contracts) {
     for (const fact of c.key_confirmed_source_facts ?? []) {
-      const key = `${String(fact.fact_type ?? "")}::${String(fact.literal_value ?? "")}::${String(fact.source_document_id ?? "")}`;
-      if (keySeen.has(key)) continue;
-      keySeen.add(key);
-      key_confirmed_source_facts.push(fact);
+      if (!acceptKeyConfirmedSourceFactForProjection(fact, null)) continue;
+      pushKeyConfirmedSourceFactAggregate(key_confirmed_source_facts, keySeen, fact);
+    }
+  }
+  for (const p of filterCurrentActivePolicies(policies)) {
+    if (!isPersonalOwnershipOk(p)) continue;
+    const summary =
+      p?.coverage_summary && typeof p.coverage_summary === "object" ? p.coverage_summary : null;
+    if (!summary) continue;
+    for (const fact of Array.isArray(summary.key_confirmed_source_facts)
+      ? summary.key_confirmed_source_facts
+      : []) {
+      if (!acceptKeyConfirmedSourceFactForProjection(fact, summary)) continue;
+      pushKeyConfirmedSourceFactAggregate(key_confirmed_source_facts, keySeen, fact);
     }
   }
 

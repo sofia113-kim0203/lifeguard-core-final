@@ -1,6 +1,7 @@
 /**
  * Human Gate Repair A — personal-contract absence certainty.
- * Blocks asserting "없음/포함되지 않음" without verified negative evidence.
+ * HARD only when absence contradicts a verified-present coverage.
+ * Unverified "없음" (not-found) is SOFT — does not block customer speech.
  * Does not block uncertainty ("확인되지 않습니다") or general market structure talk.
  * No rewrite / no second Claude — Gate judgment only.
  */
@@ -121,6 +122,80 @@ export function collectVerifiedNegativeCoverageEvidence({
   return out;
 }
 
+/**
+ * Verified-present coverage rows (not absent / not gap).
+ * Used only to prove absence contradicts the source — never to invent gaps.
+ */
+export function collectVerifiedPresentCoverageEvidence({
+  coverages = [],
+  confirmedFacts = [],
+  coverageBaselineFacts = [],
+} = {}) {
+  const out = [];
+  const pushRow = (row) => {
+    if (!row || typeof row !== "object") return;
+    const status = asText(row.status ?? row.verification_status).toLowerCase();
+    if (row.verified_absent === true || row.known_gap === true) return;
+    if (status === "verified_absent" || status === "known_gap") return;
+    const literal = asText(
+      row.literal ?? row.literal_value ?? row.coverage_name ?? row.item ?? row.fact_type,
+    );
+    if (/없(?:음|다)|미포함|미가입|not\s*covered|absent/i.test(literal)) return;
+    const blob = [
+      row.fact_type,
+      row.coverage_name,
+      row.coverage_type,
+      row.item,
+      row.literal,
+      row.literal_value,
+      row.normalized_name,
+    ]
+      .map(asText)
+      .filter(Boolean)
+      .join(" ");
+    if (!blob && !literal) return;
+    out.push({
+      status: "verified_present",
+      blob: blob || literal,
+      topics: extractAbsenceClaimTopics(blob || literal),
+    });
+  };
+
+  for (const row of Array.isArray(coverages) ? coverages : []) pushRow(row);
+  for (const row of Array.isArray(confirmedFacts) ? confirmedFacts : []) pushRow(row);
+  for (const row of Array.isArray(coverageBaselineFacts) ? coverageBaselineFacts : []) {
+    pushRow(row);
+  }
+  return out;
+}
+
+function asPresentEvidenceRows(verifiedPresentCoverages) {
+  if (!Array.isArray(verifiedPresentCoverages) || verifiedPresentCoverages.length === 0) {
+    return [];
+  }
+  if (verifiedPresentCoverages[0]?.blob != null) return verifiedPresentCoverages;
+  return collectVerifiedPresentCoverageEvidence({
+    coverages: verifiedPresentCoverages,
+  });
+}
+
+function presentCoverageContradictsAbsence(sentence, presentRows) {
+  const rows = Array.isArray(presentRows) ? presentRows : [];
+  if (!rows.length) return false;
+  const topics = extractAbsenceClaimTopics(sentence);
+  if (topics.length && evidenceSupportsTopics(rows, topics)) return true;
+  const kindRes = [];
+  if (/암/.test(sentence) && /진단/.test(sentence)) kindRes.push(/암/);
+  if (/뇌|뇌혈관/.test(sentence) && /진단/.test(sentence)) kindRes.push(/뇌|뇌혈관/);
+  if (/심장|심근|허혈/.test(sentence) && /진단/.test(sentence)) {
+    kindRes.push(/심장|심근|허혈/);
+  }
+  if (/진단비/.test(sentence)) kindRes.push(/진단비/);
+  if (/수술비/.test(sentence)) kindRes.push(/수술비/);
+  if (!kindRes.length) return false;
+  return rows.some((row) => kindRes.some((re) => re.test(asText(row.blob))));
+}
+
 function evidenceSupportsTopics(evidenceRows, topics) {
   if (!topics.length) return false;
   const rows = Array.isArray(evidenceRows) ? evidenceRows : [];
@@ -155,36 +230,53 @@ export function sentenceHasUnverifiedAbsenceCertaintyShape(sentence = "") {
 
 /**
  * Gate judgment.
+ * HARD only when absence contradicts verified-present coverage.
+ * Not-found absence is SOFT (ok: true).
  * @returns {{ ok: boolean, reason: string|null, claims: string[] }}
  */
 export function evaluateAbsenceCertaintyGate({
   text = "",
   verifiedNegativeEvidence = null,
+  verifiedPresentCoverages = null,
 } = {}) {
-  const evidence = Array.isArray(verifiedNegativeEvidence)
+  const negative = Array.isArray(verifiedNegativeEvidence)
     ? verifiedNegativeEvidence
     : collectVerifiedNegativeCoverageEvidence(verifiedNegativeEvidence || {});
+  const present = asPresentEvidenceRows(verifiedPresentCoverages);
 
-  const claims = [];
+  const contradictions = [];
+  const unverified = [];
   for (const sentence of splitCustomerSpeechSentences(text)) {
     if (!sentenceHasUnverifiedAbsenceCertaintyShape(sentence)) continue;
     const topics = extractAbsenceClaimTopics(sentence);
-    // Absence assert without a topic still counts (e.g. bare 포함돼 있지 않습니다 with 이 계약).
-    const supported =
+    const supportedNegative =
       topics.length > 0
-        ? evidenceSupportsTopics(evidence, topics)
-        : evidence.length > 0 &&
-          evidenceSupportsTopics(evidence, ["diagnosis_benefit", "cancer_diagnosis", "brain_diagnosis"]);
-    if (!supported) claims.push(sentence);
+        ? evidenceSupportsTopics(negative, topics)
+        : negative.length > 0 &&
+          evidenceSupportsTopics(negative, [
+            "diagnosis_benefit",
+            "cancer_diagnosis",
+            "brain_diagnosis",
+          ]);
+    if (supportedNegative) continue;
+    if (presentCoverageContradictsAbsence(sentence, present)) {
+      contradictions.push(sentence);
+      continue;
+    }
+    unverified.push(sentence);
   }
 
-  if (!claims.length) {
-    return { ok: true, reason: null, claims: [] };
+  if (contradictions.length) {
+    return {
+      ok: false,
+      reason: "absence_contradicts_verified_coverage",
+      claims: contradictions,
+    };
   }
   return {
-    ok: false,
-    reason: "unverified_customer_coverage_claim",
-    claims,
+    ok: true,
+    reason: unverified.length ? "unverified_absence_claim" : null,
+    claims: unverified,
   };
 }
 
@@ -192,23 +284,32 @@ export function evaluateAbsenceCertaintyGate({
 export function voiceHasUnverifiedAbsenceCertaintyClaim(
   voice = "",
   verifiedNegativeEvidence = null,
+  verifiedPresentCoverages = null,
 ) {
-  return evaluateAbsenceCertaintyGate({ text: voice, verifiedNegativeEvidence }).ok === false;
+  return (
+    evaluateAbsenceCertaintyGate({
+      text: voice,
+      verifiedNegativeEvidence,
+      verifiedPresentCoverages,
+    }).ok === false
+  );
 }
 
 /**
- * Repair A2 — pre-emit veto only (no rewrite / no substitute prose).
+ * Pre-emit veto only for proven absence contradiction.
  * Return false → do not commit/emit this customer slice.
  */
 export function shouldEmitAbsenceCertaintySlice(
   slice = "",
   verifiedNegativeEvidence = null,
+  verifiedPresentCoverages = null,
 ) {
   if (!String(slice ?? "").trim()) return true;
   return (
     evaluateAbsenceCertaintyGate({
       text: slice,
       verifiedNegativeEvidence,
+      verifiedPresentCoverages,
     }).ok !== false
   );
 }

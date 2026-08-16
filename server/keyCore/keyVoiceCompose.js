@@ -59,24 +59,11 @@ function normalizeText(text = "") {
  * Unknown future reasons are diagnostic + audit warning — never auto-hard.
  */
 const CLOSED_HARD_REASONS = new Set([
-  // A. Fact lock
-  "answer_forbidden_certainty",
-  "unverified_customer_coverage_claim",
-  "number_scope_violation",
-  "context_hallucination",
-  "unsupported_public_research_claim",
-  "unsupported_place_claim",
-  "unsourced_public_assertion",
-  // B. Exit seal
   "jailbreak_fact",
-  "unsupported_recommendation",
-  "hard_sales_push",
-  "product_push_as_direction",
-  "closing_or_signup_push",
-  "leadership_cancel_enroll_certainty",
+  "absence_contradicts_verified_coverage",
+  "fact_identity_mismatch",
   "empty_answer",
   "empty_voice",
-  // C. Direction (insurance pollution vs daily Decision/Goal only)
   "decision_mismatch_insurance_pollution",
 ]);
 

@@ -54,6 +54,16 @@ export default async function handler(req, res) {
     const presenceTurn = body?.presence === true || body?.presence_turn === true;
     const question = String(body?.question ?? "").trim();
     const history = Array.isArray(body?.history) ? body.history : [];
+    const threadPublicCitations = Array.isArray(body?.thread_public_citations)
+      ? body.thread_public_citations
+      : [];
+    const threadVerifiedFactRefs = Array.isArray(body?.thread_verified_fact_refs)
+      ? body.thread_verified_fact_refs
+      : [];
+    const threadHandoffMemo =
+      body?.thread_handoff_memo && typeof body.thread_handoff_memo === "object"
+        ? body.thread_handoff_memo
+        : null;
     const { listAttachedDocumentIds, resolveAttachDocumentIdContract } = await import(
       "../src/lib/homeBrainAttachDocumentIds.js"
     );
@@ -215,6 +225,9 @@ export default async function handler(req, res) {
         phase8TraceBag,
         streamHandlers,
         requestStartedAt,
+        threadPublicCitations: presenceTurn ? [] : threadPublicCitations,
+        threadVerifiedFactRefs: presenceTurn ? [] : threadVerifiedFactRefs,
+        threadHandoffMemo,
       });
 
       if (!result.ok) {
@@ -273,6 +286,9 @@ export default async function handler(req, res) {
       clientTurnId,
       pointedContractIds: presenceTurn ? [] : pointedContractIds,
       phase8TraceBag,
+      threadPublicCitations: presenceTurn ? [] : threadPublicCitations,
+      threadVerifiedFactRefs: presenceTurn ? [] : threadVerifiedFactRefs,
+      threadHandoffMemo,
     });
 
     if (!result.ok) {

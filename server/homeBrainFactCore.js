@@ -35,6 +35,9 @@ import {
 } from "./keyBrain/workOrder.js";
 import { runDocumentPolicyExtraction } from "./documentPolicyExtractionPipeline.js";
 import { listAttachedDocumentIds } from "../src/lib/homeBrainAttachDocumentIds.js";
+import { readThreadPublicCitationsFromArgs } from "./keyCore/keyThreadPublicEvidence.js";
+import { readThreadVerifiedFactRefsFromArgs } from "./keyCore/keyThreadVerifiedFactRefs.js";
+import { readHandoffMemoFromArgs } from "./keyCore/keyThreadHandoffMemo.js";
 
 /** Reuse Claude-first turn fields for factory post-processing (no second Claude call). */
 export function buildClaudeFactoryDirectionFromTurn({
@@ -697,7 +700,7 @@ export async function handleHomeBrainFactRequest({
   fetchImpl = fetch,
   streamHandlers = null,
   requestStartedAt = null,
-}) {
+} = {}) {
   const isPresenceTurn = presenceTurn === true;
   const trimmedQuestion = isPresenceTurn
     ? "__KEY_PRESENCE_LISTEN_FOCUS__"
@@ -785,6 +788,13 @@ export async function handleHomeBrainFactRequest({
     env: keyEnv,
     fetchImpl,
     startedAt,
+    threadPublicCitations: isPresenceTurn
+      ? null
+      : readThreadPublicCitationsFromArgs(arguments[0]),
+    threadVerifiedFactRefs: isPresenceTurn
+      ? null
+      : readThreadVerifiedFactRefsFromArgs(arguments[0]),
+    threadHandoffMemo: readHandoffMemoFromArgs(arguments[0]),
   });
 
   if (!coreResult.ok) {
@@ -1011,6 +1021,13 @@ export async function handleHomeBrainFactRequest({
       session_goal: coreResult.salesDirectorTrace?.session_goal ?? null,
       // OUR CLAUDE memory loop — consultation kinds for assistant metadata (not verified fact).
       key_consultation_record: coreResult.salesDirectorTrace?.key_consultation_record ?? null,
+      thread_verified_fact_refs: Array.isArray(coreResult.thread_verified_fact_refs)
+        ? coreResult.thread_verified_fact_refs
+        : [],
+      thread_verified_fact_continuity: coreResult.thread_verified_fact_continuity ?? null,
+      thread_handoff_memo: coreResult.thread_handoff_memo ?? null,
+      thread_handoff_observe: coreResult.thread_handoff_observe ?? null,
+      claude_input_public_evidence: coreResult.claude_input_public_evidence ?? null,
       decision_persisted: false,
       factsUsed,
       claude_factory_direction: claudeFactoryDirection,

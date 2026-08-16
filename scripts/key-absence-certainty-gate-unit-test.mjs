@@ -38,18 +38,18 @@ function test(name, fn) {
   }
 }
 
-function assertBlock(text, evidence = []) {
+function assertContradiction(text, present = []) {
   const g = evaluateAbsenceCertaintyGate({
     text,
-    verifiedNegativeEvidence: evidence,
+    verifiedNegativeEvidence: [],
+    verifiedPresentCoverages: present,
   });
-  assert.equal(g.ok, false, `expected BLOCK for: ${text}`);
-  assert.equal(g.reason, "unverified_customer_coverage_claim");
+  assert.equal(g.ok, false, `expected HARD contradiction for: ${text}`);
+  assert.equal(g.reason, "absence_contradicts_verified_coverage");
   const hard = hardOnlySafetyCheck(text, {
-    verifiedNegativeEvidence: evidence,
+    coverages: present,
   });
-  assert.equal(hard.hard_fail, true);
-  assert.ok(hard.hard.includes("unverified_customer_coverage_claim"));
+  assert.ok(hard.hard.includes("absence_contradicts_verified_coverage"));
 }
 
 function assertPass(text, evidence = []) {
@@ -98,33 +98,45 @@ function pushCumulative(stream, parts) {
 
 // --- Repair A classifier (regression) ---
 
-test("1) verified negative 없음 + 진단비가 없어요 → BLOCK", () => {
-  assertBlock("암 진단비가 없어요.");
+test("1) verified negative 없음 + 진단비가 없어요 → SOFT emit", () => {
+  assertPass("암 진단비가 없어요.");
 });
 
-test("1b) CLASSIFIER_MISS repair — 진단비는 없어요 → BLOCK", () => {
-  assertBlock("암 진단비는 없어요.");
-  assertBlock(
+test("1b) 진단비는 없어요 without present coverage → SOFT", () => {
+  assertPass("암 진단비는 없어요.");
+  assertPass(
     "현재 보유하신 한화 3.10.5 간편건강보험은 수술비만 있고 암 진단비는 없어요.",
   );
 });
 
-test("1c) 뇌혈관 진단비는 없습니다 → BLOCK", () => {
-  assertBlock("뇌혈관 진단비는 없습니다.");
+test("1c) 뇌혈관 진단비는 없습니다 without present → SOFT", () => {
+  assertPass("뇌혈관 진단비는 없습니다.");
 });
 
-test("2) verified negative 없음 + 포함돼 있지 않습니다 → BLOCK", () => {
-  assertBlock(
+test("1d) present 암진단비 + 암 진단비가 없어요 → HARD", () => {
+  assertContradiction("암 진단비가 없어요.", [
+    { coverage_name: "암진단비", coverage_amount: "3000만원" },
+  ]);
+});
+
+test("2) verified negative 없음 + 포함돼 있지 않습니다 → SOFT", () => {
+  assertPass(
     "이 계약에는 암 진단비, 뇌혈관 진단비 등 진단형 보장이 포함돼 있지 않습니다.",
   );
 });
 
-test("2b) 수술비는 포함돼 있지 않습니다 → BLOCK", () => {
-  assertBlock("이 계약에서 수술비는 포함돼 있지 않습니다.");
+test("2b) 수술비는 포함돼 있지 않습니다 without present → SOFT", () => {
+  assertPass("이 계약에서 수술비는 포함돼 있지 않습니다.");
 });
 
-test("3) verified negative 없음 + 보장받을 수 없습니다 → BLOCK", () => {
-  assertBlock("고객님 계약으로 뇌혈관 진단비를 보장받을 수 없습니다.");
+test("2c) present 수술비 + 수술비 없음 단정 → HARD", () => {
+  assertContradiction("이 계약에서 수술비는 포함돼 있지 않습니다.", [
+    { coverage_name: "상해수술비 (3.10.5간편)", coverage_amount: "100만원" },
+  ]);
+});
+
+test("3) verified negative 없음 + 보장받을 수 없습니다 → SOFT", () => {
+  assertPass("고객님 계약으로 뇌혈관 진단비를 보장받을 수 없습니다.");
 });
 
 test("4) verified negative 있음 + 진단비가 없습니다 → PASS", () => {
@@ -182,22 +194,17 @@ test("A2-T1 safe 문장 → streamed === Claude 원문", () => {
   assert.equal(stream.getCommitted(), claude);
 });
 
-test("A2-T2 safe + unsupported absence + safe → 가운데만 없음 / 앞뒤 원문", () => {
+test("A2-T2 not-found absence stays in customer text", () => {
   const s1 = "암진단비는 3천만원입니다.";
-  const bad = " 뇌혈관 진단비는 포함돼 있지 않습니다.";
+  const mid = " 뇌혈관 진단비는 포함돼 있지 않습니다.";
   const s3 = " 수술비는 추가 확인이 필요합니다.";
-  const claude = `${s1}${bad}${s3}`;
+  const claude = `${s1}${mid}${s3}`;
   const { stream, customerText } = makeVetoStream([]);
   stream.pushAnswerText(claude);
   stream.flush();
   const out = customerText();
-  assert.equal(out.includes("포함돼 있지 않습니다"), false);
-  assert.ok(out.startsWith(s1));
-  assert.ok(out.endsWith(s3.trim()) || out.endsWith(s3));
-  assert.equal(out, `${s1}${s3}`);
+  assert.equal(out, claude);
   assert.equal(stream.getCommitted(), out);
-  // no replacement prose
-  assert.equal(out.includes("확인되지 않습니다"), false);
 });
 
 test("A2-T3 verified negative → 원문 그대로 존재", () => {
@@ -234,24 +241,20 @@ test("A2-T5 일반 보험 설명 → 원문 그대로 존재", () => {
   assert.equal(customerText(), claude);
 });
 
-test("A2-T6 fragmented delta — 선노출 없음", () => {
-  const { stream, emitted, customerText } = makeVetoStream([]);
-  // Same claim split across chunks; must not paint "포함돼 " before gate.
+test("A2-T6 fragmented not-found absence may emit after full sentence", () => {
+  const { stream, customerText } = makeVetoStream([]);
   pushCumulative(stream, ["뇌혈관 진단비는 포함돼 ", "있지 않습니다."]);
-  assert.equal(emitted.length, 0, "no fragment may emit before full sentence gate");
-  assert.equal(customerText(), "");
   stream.flush();
-  assert.equal(customerText(), "");
-  assert.equal(stream.getVetoedSliceCount() >= 1, true);
+  assert.ok(customerText().includes("포함돼 있지 않습니다"));
 });
 
-test("A2-T7 unsafe 마지막 remainder(no final punctuation) → done 시 emit 금지", () => {
+test("A2-T7 not-found remainder emits on flush", () => {
   const { stream, customerText } = makeVetoStream([]);
-  stream.pushAnswerText("뇌혈관 진단비는 포함돼 있지 않습니다");
-  assert.equal(customerText(), "");
+  const claude = "뇌혈관 진단비는 포함돼 있지 않습니다";
+  stream.pushAnswerText(claude);
   stream.flush();
-  assert.equal(customerText(), "");
-  assert.equal(stream.getCommitted(), "");
+  assert.equal(customerText(), claude);
+  assert.equal(stream.getCommitted(), claude);
 });
 
 test("A2-T8 safe 마지막 remainder → done 시 원문 그대로 flush", () => {
@@ -266,16 +269,15 @@ test("A2-T8 safe 마지막 remainder → done 시 원문 그대로 flush", () =>
 
 test("A2 extra: streamed === sealed lineage (committed)", () => {
   const s1 = "암진단비는 3천만원입니다.";
-  const bad = " 뇌혈관 진단비는 포함돼 있지 않습니다.";
+  const mid = " 뇌혈관 진단비는 포함돼 있지 않습니다.";
   const s3 = " 수술비는 추가 확인이 필요합니다.";
   const { stream, customerText } = makeVetoStream([]);
-  stream.pushAnswerText(`${s1}${bad}${s3}`);
+  stream.pushAnswerText(`${s1}${mid}${s3}`);
   stream.flush();
   const streamed = customerText();
   const sealed = stream.getCommitted();
   assert.equal(streamed, sealed);
-  assert.equal(streamed.includes("포함돼 있지 않습니다"), false);
-  assert.equal(streamed.includes("확인되지 않았습니다"), false);
+  assert.ok(streamed.includes("포함돼 있지 않습니다"));
 });
 
 // --- Repair A2 PRE-COMMIT CLOSURE — bullet / markdown table emit units ---
@@ -290,18 +292,16 @@ test("A2-T9 safe bullet/list → streamed === Claude 원문", () => {
   assert.equal(stream.getCommitted(), claude);
 });
 
-test("A2-T10 safe + unsupported absence bullet + safe → unsafe unit만 미emit", () => {
+test("A2-T10 not-found absence bullet stays", () => {
   const b1 = "- 암진단비는 3천만원입니다.\n";
-  const bad = "- 뇌혈관 진단비는 포함돼 있지 않습니다.\n";
+  const mid = "- 뇌혈관 진단비는 포함돼 있지 않습니다.\n";
   const b3 = "- 수술비는 추가 확인이 필요합니다.\n";
-  const claude = `${b1}${bad}${b3}`;
+  const claude = `${b1}${mid}${b3}`;
   const { stream, customerText } = makeVetoStream([]);
   stream.pushAnswerText(claude);
   stream.flush();
   const out = customerText();
-  assert.equal(out, `${b1}${b3}`);
-  assert.equal(out.includes("포함돼 있지 않습니다"), false);
-  assert.equal(out.includes("확인되지 않습니다"), false);
+  assert.equal(out, claude);
   assert.equal(stream.getCommitted(), out);
 });
 
@@ -315,23 +315,18 @@ test("A2-T11 safe markdown table → 전체 원문 그대로", () => {
   assert.equal(stream.getCommitted(), claude);
 });
 
-test("A2-T12 table: unsupported absence row만 veto / 나머지 원문", () => {
+test("A2-T12 table: not-found absence row stays", () => {
   const header = "| 담보 | 확인 상태 |\n";
   const sep = "| --- | --- |\n";
   const safe1 = "| 암진단비 | 3천만원 |\n";
-  const bad = "| 뇌혈관 진단비 | 포함돼 있지 않습니다 |\n";
+  const mid = "| 뇌혈관 진단비 | 포함돼 있지 않습니다 |\n";
   const safe2 = "| 수술비 | 확인 필요 |\n";
-  const claude = `${header}${sep}${safe1}${bad}${safe2}`;
+  const claude = `${header}${sep}${safe1}${mid}${safe2}`;
   const { stream, customerText } = makeVetoStream([]);
   stream.pushAnswerText(claude);
   stream.flush();
   const out = customerText();
-  assert.equal(out, `${header}${sep}${safe1}${safe2}`);
-  assert.equal(out.includes("포함돼 있지 않습니다"), false);
-  assert.equal(out.includes("확인되지 않습니다"), false);
-  assert.equal(out.includes("확인되지 않았습니다"), false);
-  assert.ok(out.includes("| 암진단비 | 3천만원 |"));
-  assert.ok(out.includes("| 수술비 | 확인 필요 |"));
+  assert.equal(out, claude);
   assert.equal(stream.getCommitted(), out);
 });
 
@@ -355,7 +350,7 @@ function makeCombinedVetoStream(absenceEvidence = [], verifiedCoverages = []) {
   const stream = createImmediateAnswerDeltaStream({
     shouldEmitSlice(slice) {
       return (
-        shouldEmitAbsenceCertaintySlice(slice, absenceEvidence) &&
+        shouldEmitAbsenceCertaintySlice(slice, absenceEvidence, verifiedCoverages) &&
         shouldEmitCoverageAmountIntegritySlice(slice, verifiedCoverages)
       );
     },
@@ -496,13 +491,12 @@ test("S10D-T8 보험료 일반문장 — 비대상 → emit", () => {
   );
 });
 
-test("S10D-T9 absence veto 회귀 — unsupported absence still veto", () => {
-  const bad = "뇌혈관 진단비는 포함돼 있지 않습니다.";
+test("S10D-T9 not-found 뇌혈관 진단비 absence emits (surgery coverages ≠ contradiction)", () => {
+  const text = "뇌혈관 진단비는 포함돼 있지 않습니다.";
   const { stream, customerText } = makeCombinedVetoStream([], S10D_COVERAGES_1_3);
-  stream.pushAnswerText(bad);
+  stream.pushAnswerText(text);
   stream.flush();
-  assert.equal(customerText(), "");
-  assert.equal(stream.getVetoedSliceCount() >= 1, true);
+  assert.equal(customerText(), text);
 });
 
 test("S10D-T10 catch-up/remainder — CLEAR_MISMATCH 우회 emit 없음", () => {
@@ -679,17 +673,17 @@ test("S10F-T3 NOT_CHECKABLE — obs ON/OFF emit identical", () => {
   assert.equal(on.observations[0].emit_decision, true);
 });
 
-test("S10F-T4 absence veto — observation does not change result", () => {
-  const bad = "뇌혈관 진단비는 포함돼 있지 않습니다.";
+test("S10F-T4 not-found absence — observation does not change emit", () => {
+  const text = "뇌혈관 진단비는 포함돼 있지 않습니다.";
   const off = makeCombinedVetoStream([], S10D_COVERAGES_1_3);
-  off.stream.pushAnswerText(bad);
+  off.stream.pushAnswerText(text);
   off.stream.flush();
   const on = makeObservedCombinedStream([], S10D_COVERAGES_1_3);
-  on.stream.pushAnswerText(bad);
+  on.stream.pushAnswerText(text);
   on.stream.flush();
   assert.equal(on.customerText(), off.customerText());
-  assert.equal(on.customerText(), "");
-  assert.equal(on.observations.some((o) => o.emit_decision === false), true);
+  assert.equal(on.customerText(), text);
+  assert.equal(on.observations.every((o) => o.emit_decision === true), true);
 });
 
 test("S10F-T5 fallback — bypass_path=true record only; no gate rewrite", () => {

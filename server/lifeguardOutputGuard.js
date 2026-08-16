@@ -4,7 +4,6 @@
 
 const INVENTORY_DUMP_PATTERNS = [
   /현재\s*\d+\s*건의\s*보험/,
-  /월\s*보험료/,
   /318,683|31만8천/,
   /등록된\s*서류\s*\d+\s*건/,
   /등록된\s*고객\s*정보\s*\d+\s*건/,
@@ -24,7 +23,6 @@ export const ENGINE_TERM_PATTERNS = [
   /\bRecommendation\s*Engine\b/i,
   /\bDesign\s*Engine\b/i,
   /\bCustomer\s*Analysis\b/i,
-  /보장\s*분석/,
   /추천\s*엔진/,
   /설계\s*엔진/,
   /보험\s*분석\s*엔진/,
@@ -34,6 +32,7 @@ export const ENGINE_TERM_PATTERNS = [
   /Advisor\s*Brain/i,
   /Tom\s*decision/i,
   /분석\s*엔진/,
+  /\bFactory\s*trace\b/i,
 ];
 
 export const DEFLECTION_PATTERNS = [
@@ -48,13 +47,20 @@ export const DEFLECTION_PATTERNS = [
 const GUARD_FALLBACK =
   "잠깐만요 — 지금은 그렇게 말씀드리기 어려워요. 편하게 다른 얘기 이어가도 돼요.";
 
+const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu;
+const FLAG_RE = /[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+
+/** Strip emoji without trimming stream edges. */
+export function stripCustomerFacingEmojisKeepEdges(text = "") {
+  return String(text ?? "")
+    .replace(EMOJI_RE, "")
+    .replace(FLAG_RE, "")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
 /** P4-UI POLISH — strip all emoji/emoticons from customer-facing text. */
 export function stripCustomerFacingEmojis(text = "") {
-  return String(text ?? "")
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
-    .replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return stripCustomerFacingEmojisKeepEdges(text).replace(/\s{2,}/g, " ").trim();
 }
 
 /** P4-UI POLISH — no "LIFEGUARD:" speaker prefix in transcript-style replies. */
@@ -80,10 +86,32 @@ export function violatesDeflectionPhrase(text = "") {
   return DEFLECTION_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+function isOutputGuardLeakUnit(text = "") {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  return (
+    violatesHomeInventoryDump(t) ||
+    violatesEngineTermLeak(t) ||
+    violatesDeflectionPhrase(t)
+  );
+}
+
+/** Drop leaking sentences. Keep ordinary insurance speech. */
+export function stripOutputGuardLeakSentences(text = "") {
+  const src = String(text ?? "");
+  if (!src) return "";
+  if (!isOutputGuardLeakUnit(src) && !/(?:[.!?。\n])/.test(src)) return src;
+  const parts = src.split(/(?<=[.!?。\n])/);
+  if (parts.length <= 1) {
+    return isOutputGuardLeakUnit(src) ? "" : src;
+  }
+  return parts.filter((part) => !isOutputGuardLeakUnit(part)).join("");
+}
+
 export function applyLifeguardCustomerOutputGuard(text = "") {
   let out = polishLifeguardCustomerText(text);
-  if (violatesHomeInventoryDump(out) || violatesEngineTermLeak(out) || violatesDeflectionPhrase(out)) {
-    return GUARD_FALLBACK;
-  }
-  return out;
+  if (!isOutputGuardLeakUnit(out)) return out;
+  const stripped = polishLifeguardCustomerText(stripOutputGuardLeakSentences(out));
+  if (stripped) return stripped;
+  return GUARD_FALLBACK;
 }

@@ -93,6 +93,27 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
         .filter(Boolean)
         .slice(0, 1)
     : [];
+  const verifiedRaw = options.threadVerifiedFactRefs ?? options.thread_verified_fact_refs;
+  const threadVerifiedFactRefs = Array.isArray(verifiedRaw)
+    ? verifiedRaw
+        .filter((row) => row && typeof row === "object")
+        .map((row) => ({
+          contract_id:
+            row.contract_id != null
+              ? String(row.contract_id).trim() || null
+              : row.contract_ref != null
+                ? String(row.contract_ref).trim() || null
+                : null,
+          coverage_name: String(row.coverage_name ?? row.coverage_ref ?? "").trim(),
+          field: String(row.field ?? "amount").trim() || "amount",
+        }))
+        .filter((row) => row.coverage_name)
+        .slice(0, 8)
+    : [];
+  const threadHandoffMemo = compactThreadHandoffMemoForRequest(
+    options.threadHandoffMemo ?? options.thread_handoff_memo ?? null,
+    threadVerifiedFactRefs,
+  );
 
   return {
     question: trimmed,
@@ -120,5 +141,53 @@ export function buildHomeBrainFactRequestBody(question, history = [], options = 
     ...(pointedContractIds.length && !presenceTurn
       ? { pointed_contract_ids: pointedContractIds }
       : {}),
+    ...(threadVerifiedFactRefs.length && !presenceTurn
+      ? { thread_verified_fact_refs: threadVerifiedFactRefs }
+      : {}),
+    ...(threadHandoffMemo ? { thread_handoff_memo: threadHandoffMemo } : {}),
+  };
+}
+
+function compactThreadHandoffMemoForRequest(raw, fallbackRefs = []) {
+  if (!raw || typeof raw !== "object") return null;
+  const amountRe = /\d+\s*만|\d+\s*원|월\s*\d|coverage_amount/i;
+  const urlRe = /https?:\/\/|www\./i;
+  const cleanField = (v, max) => {
+    const s = String(v ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, max);
+    if (!s || amountRe.test(s) || urlRe.test(s)) return null;
+    return s;
+  };
+  const speech = String(raw.customer_speech ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+  const interest = cleanField(raw.interest ?? raw.concern, 80);
+  const unresolved = cleanField(raw.unresolved ?? raw.open, 80);
+  const refsRaw = Array.isArray(raw.verified_fact_refs) ? raw.verified_fact_refs : fallbackRefs;
+  const refs = refsRaw
+    .filter((row) => row && typeof row === "object")
+    .map((row) => ({
+      contract_id:
+        row.contract_id != null
+          ? String(row.contract_id).trim() || null
+          : row.contract_ref != null
+            ? String(row.contract_ref).trim() || null
+            : null,
+      coverage_name: String(row.coverage_name ?? row.coverage_ref ?? "").trim(),
+      field: String(row.field ?? "amount").trim() || "amount",
+    }))
+    .filter((row) => row.coverage_name)
+    .slice(0, 8);
+  if (!interest && !speech && !unresolved && !refs.length) return null;
+  return {
+    schema: "key_handoff_memo_v1",
+    interest,
+    customer_speech: speech || null,
+    unresolved,
+    verified_fact_refs: refs,
+    not_verified_fact: true,
   };
 }

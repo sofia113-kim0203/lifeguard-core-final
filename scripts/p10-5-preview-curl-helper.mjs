@@ -24,6 +24,11 @@ export async function fetchBypassSse({
   token,
   question,
   history = [],
+  threadPublicCitations = null,
+  threadVerifiedFactRefs = null,
+  threadHandoffMemo = null,
+  sessionId = null,
+  presence = false,
   bypassSecret = null,
   env = process.env,
 }) {
@@ -42,7 +47,22 @@ export async function fetchBypassSse({
 
   const baseUrl = `${String(previewBase).replace(/\/$/, "")}/api/customer-home-brain-fact`;
   const url = baseUrl;
-  const body = JSON.stringify({ question, history, stream: true });
+  const body = JSON.stringify({
+    question,
+    history,
+    stream: true,
+    ...(Array.isArray(threadPublicCitations) && threadPublicCitations.length
+      ? { thread_public_citations: threadPublicCitations }
+      : {}),
+    ...(Array.isArray(threadVerifiedFactRefs) && threadVerifiedFactRefs.length
+      ? { thread_verified_fact_refs: threadVerifiedFactRefs }
+      : {}),
+    ...(threadHandoffMemo && typeof threadHandoffMemo === "object"
+      ? { thread_handoff_memo: threadHandoffMemo }
+      : {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(presence === true ? { presence: true, question: "" } : {}),
+  });
 
   let httpStatus = null;
   let stdout = "";

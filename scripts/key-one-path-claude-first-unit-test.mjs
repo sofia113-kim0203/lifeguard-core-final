@@ -656,9 +656,10 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       },
     ],
   });
-  assert.equal(reqProduct.tools.length, 1);
+  assert.equal(reqProduct.tools.length, 2);
   assert.equal(reqProduct.tools[0].name, "web_search");
   assert.equal(reqProduct.tools[0].type, "web_search_20250305");
+  assert.equal(reqProduct.tools[1].name, "request_key_fact");
   assert.equal(reqProduct.tools[0].max_uses, 3);
   assert.deepEqual(reqProduct.tool_choice, { type: "auto" });
   assert.equal(reqProduct.selection_plan.web_tool_candidate, true);
@@ -777,12 +778,13 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     conversationId: "c1",
   });
   // Prompt-cache prefix: tools + showcase system stay identical; matcher → tool_choice only.
-  assert.equal(reqGeneral.tools.length, 1);
+  assert.equal(reqGeneral.tools.length, 2);
   assert.equal(reqGeneral.tools[0].name, "web_search");
   assert.equal(reqGeneral.tools[0].type, "web_search_20250305");
   assert.equal(reqGeneral.tools[0].max_uses, 3);
-  assert.deepEqual(reqGeneral.tool_choice, { type: "none" });
-  assert.equal(reqGeneral.selection_plan.web_tool_candidate, false);
+  assert.equal(reqGeneral.tools[1].name, "request_key_fact");
+  assert.deepEqual(reqGeneral.tool_choice, { type: "auto" });
+  assert.equal(reqGeneral.selection_plan.web_tool_candidate, true);
   assert.equal(
     reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
     true,
@@ -1123,7 +1125,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
 
   const reqGreeting = buildOnePathClaudeFirstRequest({ question: "안녕" });
-  assert.deepEqual(reqGreeting.tool_choice, { type: "none" });
+  assert.deepEqual(reqGreeting.tool_choice, { type: "auto" });
   assert.equal(reqGreeting.selection_plan.daily_chat_lane, "greeting");
   assert.equal(reqGreeting.selection_plan.product_showcase_request, false);
   assert.equal(findDailyPolicy(reqGreeting)?.lane, "greeting");
@@ -1132,13 +1134,13 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   const reqEmotion = buildOnePathClaudeFirstRequest({
     question: "기분이 좀 우울해",
   });
-  assert.deepEqual(reqEmotion.tool_choice, { type: "none" });
+  assert.deepEqual(reqEmotion.tool_choice, { type: "auto" });
   assert.equal(reqEmotion.selection_plan.daily_chat_lane, "emotion");
 
   const reqLife = buildOnePathClaudeFirstRequest({
     question: "저녁 뭐 먹을까?",
   });
-  assert.deepEqual(reqLife.tool_choice, { type: "none" });
+  assert.deepEqual(reqLife.tool_choice, { type: "auto" });
   assert.equal(reqLife.selection_plan.daily_chat_lane, "life");
 
   const reqGk = buildOnePathClaudeFirstRequest({
@@ -1185,7 +1187,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       { role: "assistant", text: "가벼운 코미디부터 보면 좋아요." },
     ],
   });
-  assert.deepEqual(reqCont.tool_choice, { type: "none" });
+  assert.deepEqual(reqCont.tool_choice, { type: "auto" });
   assert.equal(reqCont.selection_plan.daily_chat_lane, "continuity");
   assert.equal(findDailyPolicy(reqCont)?.continuity_use_recent_conversation, true);
   assert.equal(reqCont.key_customer_card.recent_conversation.length, 2);

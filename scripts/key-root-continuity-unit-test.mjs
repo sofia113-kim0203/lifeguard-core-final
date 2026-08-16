@@ -415,7 +415,7 @@ ok("F_payment_truth_recall_scope");
   assert.match(src, /messagesRequestCount/);
   assert.match(
     src,
-    /maxProviderTurns\s*=\s*publicWebSearchTools\.length\s*>\s*0\s*\?\s*3\s*:\s*1/,
+    /maxProviderTurns\s*=\s*PROVIDER_TURN_SAFETY_ABORT/,
   );
   assert.match(src, /Answer path: server web_search may pause; no client record_/);
 }

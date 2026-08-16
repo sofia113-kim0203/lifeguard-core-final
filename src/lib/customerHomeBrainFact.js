@@ -219,6 +219,13 @@ export function mapHomeBrainFactPayload(payload) {
     ) || 0,
     // Presentation strip — existing done fields only (no invent).
     keyStatus: extractKeyStatusFromDonePayload(payload),
+    threadVerifiedFactRefs: Array.isArray(payload.thread_verified_fact_refs)
+      ? payload.thread_verified_fact_refs
+      : [],
+    threadHandoffMemo:
+      payload.thread_handoff_memo && typeof payload.thread_handoff_memo === "object"
+        ? payload.thread_handoff_memo
+        : null,
     documentMemoryPersistFailed: payload.document_memory_persist_failed === true,
     memoryCommitId: payload.memory_commit_id ?? null,
     answerSealed: payload.answer_sealed === true,

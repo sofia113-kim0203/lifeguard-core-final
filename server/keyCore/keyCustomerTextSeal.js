@@ -4,6 +4,7 @@
  */
 import { ONE_KEY_CORE_RESPONSE_SOURCE } from "./oneKeyCoreFlags.js";
 import { applyEmptyCoverageTableGuard } from "../../src/lib/keyEmptyCoverageTableGuard.js";
+import { stripCustomerFacingEmojisKeepEdges } from "../lifeguardOutputGuard.js";
 
 export const KEY_CUSTOMER_TEXT_FORBIDDEN_POST_MUTATORS = [
   "generateHumanSalesDirectorResponse",
@@ -32,9 +33,28 @@ function normalizeSealedText(text = "") {
   return String(text ?? "");
 }
 
+const INTERNAL_LEAK_LINE =
+  /(?:^|\n)[ \t]*(?:아,\s*)?(?:이모지\s*쓰지\s*말라고[^\n]*|다시\s*[—–-]\s*|지난번\s*대화(?:\s*내용)?이\s*이번\s*세션[^\n]*|이번\s*(?:세션|턴)에\s*(?:직접\s*)?(?:연결되지|넘어오지)[^\n]*|recent_conversation[^\n]*)(?:\n|$)/gi;
+
+function stripInternalInstructionLeak(text = "") {
+  const next = String(text ?? "").replace(INTERNAL_LEAK_LINE, "\n");
+  return next.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Hangul sentence end jammed into the next Hangul word: "있어요.오늘" → "있어요. 오늘". */
+const KOREAN_SENTENCE_JAM_RE = /(?<=\p{Script=Hangul})([.!?。])(?=\p{Script=Hangul})/gu;
+
+export function repairKoreanSentenceBoundarySpace(text = "") {
+  return String(text ?? "").replace(KOREAN_SENTENCE_JAM_RE, "$1 ");
+}
+
 export function sealKeyCustomerText(customerText = "") {
-  const keySpeakOriginal = applyEmptyCoverageTableGuard(
-    normalizeSealedText(customerText),
+  const keySpeakOriginal = repairKoreanSentenceBoundarySpace(
+    stripInternalInstructionLeak(
+      stripCustomerFacingEmojisKeepEdges(
+        applyEmptyCoverageTableGuard(normalizeSealedText(customerText)),
+      ),
+    ),
   );
   return {
     key_speak_original: keySpeakOriginal,

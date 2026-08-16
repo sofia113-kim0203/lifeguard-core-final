@@ -266,15 +266,21 @@ export function parseKeyTurnStructuredResult(rawText = "") {
 const PROGRESS_ONLY_RE =
   /^(?:네[,.]?\s*)?(?:알겠습니다[,.]?\s*)?(?:찾아볼게(?:요)?|확인해\s*볼게(?:요)?|확인해볼게(?:요)?|분석해\s*드릴게(?:요)?|분석해드릴게(?:요)?|기록하고\s*분석하겠습니다|먼저\s*확인하겠습니다|잠시만\s*기다려\s*주세요)[.!]?\s*$/u;
 
+const PROGRESS_LEAD_RE =
+  /^(?:네[,.]?\s*)?(?:알겠습니다[,.]?\s*)?.{0,40}?(?:찾아볼게(?:요)?|확인해\s*볼게(?:요)?|확인해볼게(?:요)?|한(?: |)?번에(?:\s*다)?\s*볼게(?:요)?|한꺼번에\s*볼게(?:요)?|정리해서\s*말씀드릴게(?:요)?|분석해\s*드릴게(?:요)?|분석해드릴게(?:요)?|확인됐어요|확인되었습니다|확인됐습니다|기록하고\s*분석하겠습니다|먼저\s*확인하겠습니다|잠시만\s*기다려\s*주세요)[.!]?\s*$/u;
+
 /**
  * Strip incomplete/complete sidecar from streamed text before customer SSE.
  * Once START marker appears, only the prefix before it is customer-visible.
  */
 export function stripKeyRecordFromStreamText(text = "") {
   const raw = String(text ?? "");
-  const startIdx = raw.indexOf(KEY_RECORD_SIDECAR_START);
-  if (startIdx < 0) return raw;
-  return raw.slice(0, startIdx).trimEnd();
+  let cut = raw;
+  const recordIdx = cut.indexOf(KEY_RECORD_SIDECAR_START);
+  if (recordIdx >= 0) cut = cut.slice(0, recordIdx);
+  const handoffIdx = cut.indexOf("<<<KEY_HANDOFF>>>");
+  if (handoffIdx >= 0) cut = cut.slice(0, handoffIdx);
+  return recordIdx >= 0 || handoffIdx >= 0 ? cut.trimEnd() : raw;
 }
 
 /**
@@ -286,14 +292,14 @@ export function splitCustomerAnswerAndKeyRecord(text = "") {
   const startIdx = raw.indexOf(KEY_RECORD_SIDECAR_START);
   if (startIdx < 0) {
     return {
-      customer_answer: raw.trim(),
+      customer_answer: stripKeyRecordFromStreamText(raw).trim(),
       key_record: null,
       sidecar_present: false,
       sidecar_ok: false,
       sidecar_error: null,
     };
   }
-  const customer_answer = raw.slice(0, startIdx).trim();
+  const customer_answer = stripKeyRecordFromStreamText(raw.slice(0, startIdx)).trim();
   const afterStart = raw.slice(startIdx + KEY_RECORD_SIDECAR_START.length);
   const endIdx = afterStart.indexOf(KEY_RECORD_SIDECAR_END);
   const jsonSlice = (endIdx >= 0 ? afterStart.slice(0, endIdx) : afterStart).trim();
@@ -335,12 +341,36 @@ export function splitCustomerAnswerAndKeyRecord(text = "") {
   }
 }
 
+/** True when one sentence is a lookup/progress status, not the consultation body. */
+export function isProgressLeadSentence(text = "") {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 80) return false;
+  if (/[|]|만원|원\b/.test(t)) return false;
+  return PROGRESS_LEAD_RE.test(t) || PROGRESS_ONLY_RE.test(t);
+}
+
+/**
+ * Drop progress-status sentences from a finished answer.
+ * Does not ban the phrases while streaming — only the accumulated final body.
+ */
+export function stripProgressLeadFromCustomerText(text = "") {
+  const raw = String(text ?? "");
+  if (!raw.trim()) return raw;
+  const units = raw.match(/[^.!?。…\n]+(?:[.!?。…]["”']?|\n+|$)/g);
+  if (!Array.isArray(units) || !units.length) {
+    return isProgressLeadSentence(raw) ? "" : raw;
+  }
+  const kept = units.filter((unit) => !isProgressLeadSentence(unit));
+  return kept.join("").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** True when the only customer text is a deferral / progress promise. */
 export function isProgressOnlyCustomerAnswer(text = "") {
   const t = String(text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return false;
-  if (t.length > 120) return false;
-  return PROGRESS_ONLY_RE.test(t);
+  if (t.length > 160) return false;
+  if (isProgressLeadSentence(t) || PROGRESS_ONLY_RE.test(t)) return true;
+  return !stripProgressLeadFromCustomerText(t);
 }
 
 /**

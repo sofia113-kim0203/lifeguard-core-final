@@ -376,16 +376,290 @@ function buildOverFamiliarityBoundary() {
 
 
 /**
+ * Digits from a KEY-verified date literal for speak allowlist.
+ * Adds raw tokens plus leading-zero-stripped forms ("03" → "3") so
+ * spoken "3월" matches allowlist from ISO "2020-03-15".
+ * Does not invent dates — only splits numbers already present in the literal.
+ */
+export function collectVerifiedDateSpeakNumbers(raw = "") {
+  const s = String(raw ?? "").trim();
+  if (!s) return [];
+  const out = new Set();
+  for (const n of s.match(/\d+/g) ?? []) {
+    out.add(n);
+    const stripped = n.replace(/^0+(?=\d)/, "");
+    if (stripped) out.add(stripped);
+  }
+  return [...out];
+}
+
+/**
+ * Dotted speak forms derived from a KEY-verified date literal (Y.M.D only).
+ * For provenance spans — NEVER dump into flat allowed_numbers (Tom lock).
+ * Partial "2024.12" alone is not emitted; only full year.month.day forms.
+ */
+/**
+ * Date-context speak forms (Korean + dotted). Never dump Y/M/D into flat bag.
+ * Year-month-only literals yield "2024년 12월"; full YMD also yields "12월 3일".
+ * Bare day "3일" / bare "3" are not emitted (would unlock 3종).
+ */
+export function collectVerifiedDateContextSpeakForms(raw = "") {
+  const s = String(raw ?? "").trim();
+  if (!s) return [];
+  const m = s.match(/(\d{4})(?:[-./](\d{1,2})(?:[-./](\d{1,2}))?)?/);
+  if (!m?.[1]) return [];
+  const y = m[1];
+  const forms = new Set([`${y}년`]);
+  if (m[2] == null) return [...forms];
+  const moNum = String(Number(m[2]));
+  if (!Number.isFinite(Number(moNum)) || Number(moNum) < 1 || Number(moNum) > 12) {
+    return [...forms];
+  }
+  const moPad = moNum.padStart(2, "0");
+  forms.add(`${y}년 ${moNum}월`);
+  forms.add(`${y}년 ${moPad}월`);
+  if (m[3] == null) return [...forms];
+  const dNum = String(Number(m[3]));
+  if (!Number.isFinite(Number(dNum)) || Number(dNum) < 1 || Number(dNum) > 31) {
+    return [...forms];
+  }
+  const dPad = dNum.padStart(2, "0");
+  for (const mo of [moNum, moPad]) {
+    for (const d of [dNum, dPad]) {
+      forms.add(`${y}년 ${mo}월 ${d}일`);
+      forms.add(`${mo}월 ${d}일`);
+    }
+  }
+  for (const dotted of collectVerifiedDateDottedSpeakForms(s)) forms.add(dotted);
+  return [...forms];
+}
+
+export function collectVerifiedDateDottedSpeakForms(raw = "") {
+  const s = String(raw ?? "").trim();
+  if (!s) return [];
+  const m = s.match(/(\d{4})(?:[-./](\d{1,2})(?:[-./](\d{1,2}))?)?/);
+  if (!m?.[1] || m[2] == null || m[3] == null) return [];
+  const y = m[1];
+  const moNum = String(Number(m[2]));
+  const dNum = String(Number(m[3]));
+  if (!Number.isFinite(Number(moNum)) || !Number.isFinite(Number(dNum))) return [];
+  if (Number(moNum) < 1 || Number(moNum) > 12) return [];
+  if (Number(dNum) < 1 || Number(dNum) > 31) return [];
+  const moPad = moNum.padStart(2, "0");
+  const dPad = dNum.padStart(2, "0");
+  return [
+    ...new Set([
+      `${y}.${moPad}.${dPad}`,
+      `${y}.${moNum}.${dNum}`,
+      `${y}.${moPad}.${dNum}`,
+      `${y}.${moNum}.${dPad}`,
+    ]),
+  ];
+}
+
+const VERIFIED_POLICY_DATE_FIELD_KEYS = Object.freeze([
+  "effective_from",
+  "contract_date",
+  "start_date",
+  "renewal_date",
+  "maturity_date",
+]);
+
+function addVerifiedPolicyDateNumbers(numbers, policy = null) {
+  if (!policy || typeof policy !== "object") return;
+  const summary =
+    policy.coverage_summary && typeof policy.coverage_summary === "object"
+      ? policy.coverage_summary
+      : null;
+  for (const key of VERIFIED_POLICY_DATE_FIELD_KEYS) {
+    for (const src of [policy[key], summary?.[key]]) {
+      for (const n of collectVerifiedDateSpeakNumbers(src)) numbers.add(n);
+    }
+  }
+}
+
+const VERIFIED_PRODUCT_ID_FACT_TYPES = new Set([
+  "product_name",
+  "product",
+  "policy.product_name",
+]);
+
+const VERIFIED_PAYMENT_TERM_FACT_TYPES = new Set([
+  "payment_period",
+  "payment_term",
+  "policy.payment_period",
+  "policy.payment_term",
+]);
+
+const VERIFIED_POLICY_DATE_FACT_TYPES = new Set([
+  "effective_from",
+  "contract_date",
+  "start_date",
+  "renewal_date",
+  "maturity_date",
+  "policy.effective_from",
+  "policy.contract_date",
+  "policy.start_date",
+  "policy.renewal_date",
+  "policy.maturity_date",
+  "premium_due_date",
+  "lapse_scheduled_date",
+  "reinstate_by_date",
+]);
+
+const VERIFIED_COVERAGE_AMOUNT_FACT_TYPES = new Set([
+  "coverage_amount",
+  "policy.coverage_amount",
+]);
+
+const VERIFIED_INSURANCE_PERIOD_FACT_TYPES = new Set([
+  "insurance_period",
+  "policy.insurance_period",
+]);
+
+const VERIFIED_COVERAGE_NAME_FACT_TYPES = new Set([
+  "coverage_name",
+  "policy.coverage_name",
+]);
+
+/**
+ * Provenance-scoped number authorities (NOT flat allowed_numbers).
+ * Product-id / payment-term / verified-date / coverage-amount / insurance-period
+ * keep kind + source_literal into jailbreakAudit. Never dump digits into flat bag.
+ */
+export function collectVerifiedNumberProvenances({
+  reality = null,
+  confirmedFacts = null,
+} = {}) {
+  const out = [];
+  const seen = new Set();
+  const push = (kind, source_literal, source_field, meta = null) => {
+    const lit = String(source_literal ?? "").trim();
+    if (!lit || !/\d/.test(lit)) return;
+    const field = String(source_field ?? "");
+    const key = `${kind}\0${lit}\0${field}`;
+    const sourceDocumentId = String(meta?.source_document_id ?? "").trim();
+    const confirmationSource = String(meta?.confirmation_source ?? "").trim();
+    if (seen.has(key)) {
+      // Enrich meta only — do not duplicate or flatten digits.
+      const prev = out.find(
+        (r) =>
+          r.kind === kind &&
+          r.source_literal === lit &&
+          r.source_field === field,
+      );
+      if (prev) {
+        if (!prev.source_document_id && sourceDocumentId) {
+          prev.source_document_id = sourceDocumentId;
+        }
+        if (!prev.confirmation_source && confirmationSource) {
+          prev.confirmation_source = confirmationSource;
+        }
+      }
+      return;
+    }
+    seen.add(key);
+    const row = {
+      kind,
+      source_literal: lit,
+      source_field: field,
+      verified: true,
+    };
+    // Provenance meta only — never invent; never flatten into allowed_numbers.
+    if (sourceDocumentId) row.source_document_id = sourceDocumentId;
+    if (confirmationSource) row.confirmation_source = confirmationSource;
+    out.push(row);
+  };
+
+  const policies = Array.isArray(reality?.policies) ? reality.policies : [];
+  const declaredCount = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
+  // Typed count only — not an authority upgrade (policy_count vs confirmed=0 is HOLD).
+  if (declaredCount > 0) {
+    push("verified_policy_count", String(declaredCount), "policy_count");
+  }
+  if (policies.length > 0 && String(policies.length) !== String(declaredCount)) {
+    push("verified_policy_count", String(policies.length), "policy_length");
+  }
+
+  for (const p of policies) {
+    push("verified_product_identifier", p?.product_name, "product_name");
+    const summary =
+      p?.coverage_summary && typeof p.coverage_summary === "object"
+        ? p.coverage_summary
+        : null;
+    push(
+      "verified_payment_term",
+      p?.payment_period ?? p?.payment_term ?? summary?.payment_period ?? summary?.payment_term,
+      "payment_period",
+    );
+    const insurancePeriod = p?.insurance_period ?? summary?.insurance_period;
+    if (insurancePeriod != null && /\D/.test(String(insurancePeriod).trim())) {
+      push("verified_insurance_period", insurancePeriod, "insurance_period");
+    }
+    for (const key of VERIFIED_POLICY_DATE_FIELD_KEYS) {
+      for (const src of [p?.[key], summary?.[key]]) {
+        if (src == null || !String(src).trim()) continue;
+        if (collectVerifiedDateContextSpeakForms(src).length === 0) continue;
+        push("verified_policy_date", src, key);
+      }
+    }
+  }
+
+  for (const fact of Array.isArray(confirmedFacts) ? confirmedFacts : []) {
+    const type = String(fact?.fact_type ?? fact?.fact_key ?? fact?.type ?? "").trim();
+    const literal =
+      fact?.literal_value ?? fact?.fact_value ?? fact?.value ?? fact?.date_value ?? "";
+    const meta = {
+      source_document_id: fact?.source_document_id ?? null,
+      confirmation_source: fact?.confirmation_source ?? null,
+    };
+    if (VERIFIED_PRODUCT_ID_FACT_TYPES.has(type)) {
+      push("verified_product_identifier", literal, type, meta);
+    }
+    if (VERIFIED_PAYMENT_TERM_FACT_TYPES.has(type)) {
+      push("verified_payment_term", literal, type, meta);
+    }
+    if (VERIFIED_COVERAGE_AMOUNT_FACT_TYPES.has(type)) {
+      // Unit/label required — bare "100" must not become a free-float span.
+      if (/\D/.test(String(literal ?? "").trim())) {
+        push("verified_coverage_amount", literal, type, meta);
+      }
+    }
+    if (VERIFIED_INSURANCE_PERIOD_FACT_TYPES.has(type)) {
+      if (/\D/.test(String(literal ?? "").trim())) {
+        push("verified_insurance_period", literal, type, meta);
+      }
+    }
+    if (VERIFIED_COVERAGE_NAME_FACT_TYPES.has(type)) {
+      // Name-as-expression only. Parenthetical "2종" is not flattened here.
+      if (/\D/.test(String(literal ?? "").trim())) {
+        push("verified_coverage_name", literal, type, meta);
+      }
+    }
+    if (
+      VERIFIED_POLICY_DATE_FACT_TYPES.has(type) ||
+      /(?:^|[._])(effective_from|contract_date|start_date|renewal_date|maturity_date|premium_due_date|lapse_scheduled_date|reinstate_by_date)$/i.test(
+        type,
+      )
+    ) {
+      if (collectVerifiedDateContextSpeakForms(literal).length > 0) {
+        push("verified_policy_date", literal, type, meta);
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
  * Verified speak allowlist from factory reality — counts/entities Claude+Gate may use.
- * Does not invent; only tallies existing policies.
+ * Does not invent; only tallies existing policies (incl. verified contract dates).
+ * Product-id / payment-term digits are NOT flattened here (see collectVerifiedNumberProvenances).
  */
 export function collectVerifiedSpeakAllowlistFromReality(reality = null) {
   const numbers = new Set();
   const entities = new Set();
   const policies = Array.isArray(reality?.policies) ? reality.policies : [];
-  const declared = Number(reality?.policy_count ?? policies.length ?? 0) || 0;
-  if (declared > 0) numbers.add(String(declared));
-  if (policies.length > 0) numbers.add(String(policies.length));
   const byInsurer = new Map();
   const byProduct = new Map();
   for (const p of policies) {
@@ -403,14 +677,15 @@ export function collectVerifiedSpeakAllowlistFromReality(reality = null) {
     if (prem != null) {
       for (const n of String(prem).match(/\d+/g) ?? []) numbers.add(n);
     }
+    // Date Y/M/D stay in verified_policy_date spans — never flatten here.
   }
-  for (const c of byInsurer.values()) numbers.add(String(c));
-  for (const c of byProduct.values()) numbers.add(String(c));
   return {
     allowed_numbers: [...numbers],
     allowed_entities: [...entities],
     insurer_counts: Object.fromEntries(byInsurer),
     product_counts: Object.fromEntries(byProduct),
+    // Parallel channel — never merged into allowed_numbers by callers of this helper.
+    allowed_number_provenances: collectVerifiedNumberProvenances({ reality }),
   };
 }
 

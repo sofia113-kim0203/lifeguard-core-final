@@ -23,7 +23,7 @@ function test(name, fn) {
   }
 }
 
-test("Q1-T1 hardOnlySafetyCheck marks rogue amount as jailbreak_fact", () => {
+test("Q1-T1 unlinked amount is SOFT — not jailbreak monopoly", () => {
   const allow = buildClaudeFirstSpeakAllowlistForEmitBlock({
     reality: {
       policy_count: 2,
@@ -39,9 +39,8 @@ test("Q1-T1 hardOnlySafetyCheck marks rogue amount as jailbreak_fact", () => {
     allowed_numbers: allow.allowed_numbers,
     allowed_entities: allow.allowed_entities,
   });
-  assert.equal(rogue.hard_fail, true);
-  assert.ok(rogue.hard.includes("jailbreak_fact"));
-  assert.equal(hasFactAmountEmitBlockHard(rogue.hard), true);
+  assert.equal(rogue.hard.includes("jailbreak_fact"), false);
+  assert.equal(hasFactAmountEmitBlockHard(rogue.hard), false);
 });
 
 test("Q1-T2 verified coverage amount is not fact-amount emit-block", () => {
@@ -57,7 +56,7 @@ test("Q1-T2 verified coverage amount is not fact-amount emit-block", () => {
   assert.equal(shouldEmitFactAmountHardSlice("질병수술비는 50만원입니다.", allow), true);
 });
 
-test("Q1-T3 pre-emit veto drops rogue amount slice", () => {
+test("Q1-T3 unlinked amount slice still emits", () => {
   const allow = buildClaudeFirstSpeakAllowlistForEmitBlock({
     reality: { policy_count: 1, policies: [{ insurer_name: "삼성생명", monthly_premium: 10000 }] },
     coverages: [],
@@ -79,8 +78,22 @@ test("Q1-T3 pre-emit veto drops rogue amount slice", () => {
   });
   stream.pushAnswerText("월 납입보험료는 999만원입니다.");
   stream.flush();
-  assert.equal(emitted.join(""), "");
-  assert.equal(shouldEmitFactAmountHardSlice("월 납입보험료는 999만원입니다.", allow), false);
+  assert.equal(emitted.join(""), "월 납입보험료는 999만원입니다.");
+  assert.equal(shouldEmitFactAmountHardSlice("월 납입보험료는 999만원입니다.", allow), true);
+});
+
+test("Q1-T6 insurer name is diagnostic — not fact-amount HARD monopoly", () => {
+  const allow = buildClaudeFirstSpeakAllowlistForEmitBlock({
+    reality: { policy_count: 1, policies: [{ insurer_name: "삼성생명" }] },
+    coverages: [],
+  });
+  const rogue = hardOnlySafetyCheck("한화 계약입니다.", {
+    allowed_numbers: allow.allowed_numbers,
+    allowed_entities: allow.allowed_entities,
+  });
+  assert.equal(rogue.hard.includes("jailbreak_fact"), false);
+  assert.equal(hasFactAmountEmitBlockHard(rogue.hard), false);
+  assert.equal(shouldEmitFactAmountHardSlice("한화 계약입니다.", allow), true);
 });
 
 test("Q1-T4 speakAllowlist null keeps legacy emit (no accidental global block)", () => {

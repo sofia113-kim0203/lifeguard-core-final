@@ -191,6 +191,33 @@ import {
   recommendationOrTerminationRisk,
 } from "./keyVoiceGate.js";
 import {
+  decideQ2PreEmitVeto,
+  Q2_OUTPUT_GUARD_LEAK_REASON,
+} from "./keyClaudeFirstOutputGuardVeto.js";
+import {
+  KEY_EXACT_FACT_TOOL,
+  PROVIDER_TURN_SAFETY_ABORT,
+  buildKeyExactFactToolResults,
+  hasKeyExactFactToolUse,
+  isServerSearchStillPending,
+  resolveProviderTurnDecision,
+} from "./keyExactFactRetrieval.js";
+import { loadLiveVerifiedExactFactRows } from "./keyLiveVerifiedExactFactStore.js";
+import {
+  addressesFromResolvedVerifiedFacts,
+  compactThreadVerifiedFactRefFromLookup,
+  mergeThreadVerifiedFactRefs,
+  readThreadVerifiedFactRefsFromArgs,
+  resolveThreadVerifiedFacts,
+} from "./keyThreadVerifiedFactRefs.js";
+import { readThreadPublicCitationsFromArgs } from "./keyThreadPublicEvidence.js";
+import {
+  clothesHandoffForPresence,
+  parseHandoffFromAssistantText,
+  readHandoffMemoFromArgs,
+  sanitizeHandoffMemo,
+} from "./keyThreadHandoffMemo.js";
+import {
   collectVerifiedNegativeCoverageEvidence,
   evaluateAbsenceCertaintyGate,
   evaluateCoverageAmountAttributionGate,
@@ -199,7 +226,10 @@ import {
 } from "./keyAbsenceCertaintyGate.js";
 import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import { repairInProgressClaimZeroBareYeyo } from "./keyCustomerTextCompleteness.js";
-import { sealKeyCustomerText } from "./keyCustomerTextSeal.js";
+import {
+  repairKoreanSentenceBoundarySpace,
+  sealKeyCustomerText,
+} from "./keyCustomerTextSeal.js";
 import { neutralizeUnsupportedInsurerProductLiterals } from "./keyVerifiedLiteralConflict.js";
 import { loadAllowedCorporateContextsForClaude } from "./keyClaudeCorporateContext.js";
 import { startSpan, resolveDeployIdentity, buildPersistableLatencyMarks } from "./keyLatencyMarks.js";
@@ -348,6 +378,7 @@ import {
   buildKeyTurnStructuredOutputHint,
   extractCustomerAnswerFromStructuredJsonPartial,
   isProgressOnlyCustomerAnswer,
+  stripProgressLeadFromCustomerText,
   KEY_RECORD_SIDECAR_END,
   KEY_RECORD_SIDECAR_START,
   normalizeKeyRecordSidecar,
@@ -469,8 +500,11 @@ export function shapeVerifiedCoveragesForS10fAudit(verifiedCoverages = null) {
  * Q1 — fact/amount CLOSED hard reasons that must block customer emit.
  * Fail-closed only (no rewrite / no 2nd Claude). Soft reasons never belong here.
  */
-export const FACT_AMOUNT_EMIT_BLOCK_HARD = Object.freeze(
-  new Set(["jailbreak_fact", "number_scope_violation"]),
+export const FACT_AMOUNT_EMIT_BLOCK_HARD = Object.freeze(new Set());
+
+/** Whole-answer monopoly only: proven-wrong login vs document identity. */
+export const WHOLE_ANSWER_MONOPOLY_HARD = Object.freeze(
+  new Set(["fact_identity_mismatch"]),
 );
 
 export function hasFactAmountEmitBlockHard(hardReasons = []) {
@@ -478,6 +512,55 @@ export function hasFactAmountEmitBlockHard(hardReasons = []) {
     const key = String(r).replace(/^answer_facing:/, "");
     return FACT_AMOUNT_EMIT_BLOCK_HARD.has(key);
   });
+}
+
+export function hasWholeAnswerMonopolyHard(hardReasons = []) {
+  return (hardReasons ?? []).some((r) => {
+    const key = String(r).replace(/^answer_facing:/, "");
+    return WHOLE_ANSWER_MONOPOLY_HARD.has(key);
+  });
+}
+
+export function applyCommittedStreamToSealed({
+  sealed = null,
+  committedText = "",
+  usedFailure = false,
+} = {}) {
+  const current =
+    sealed && typeof sealed === "object"
+      ? sealed
+      : sealKeyCustomerText(String(sealed ?? ""));
+  const sealedOriginal = String(current.key_speak_original ?? "");
+  if (usedFailure === true) {
+    return {
+      ...current,
+      key_speak_original: sealedOriginal,
+      resealed_from_committed: false,
+      reseal_blocked_reason: "monopoly_failure_seal_authority",
+    };
+  }
+  const rawCommitted = String(committedText ?? "");
+  const strippedCommitted = repairKoreanSentenceBoundarySpace(
+    stripProgressLeadFromCustomerText(rawCommitted),
+  );
+  const strippedSealed = repairKoreanSentenceBoundarySpace(
+    stripProgressLeadFromCustomerText(sealedOriginal),
+  );
+  const doneAnswerText =
+    strippedCommitted || strippedSealed || rawCommitted || sealedOriginal;
+  if (doneAnswerText && sealedOriginal !== doneAnswerText) {
+    const next = sealKeyCustomerText(doneAnswerText);
+    return {
+      ...next,
+      resealed_from_committed: true,
+      reseal_blocked_reason: null,
+    };
+  }
+  return {
+    ...current,
+    resealed_from_committed: false,
+    reseal_blocked_reason: null,
+  };
 }
 
 /** Reality allowlist + verified coverage amounts (same materials coverage veto already trusts). */
@@ -525,6 +608,7 @@ export function decideS10fPreEmitEmitDecision({
   const absenceAllowed = shouldEmitAbsenceCertaintySlice(
     slice,
     absenceEvidence,
+    verifiedCoverages,
   );
   let gate_class = COVERAGE_AMOUNT_ATTRIBUTION_CLASS.MATCH;
   let coverageAllowed = true;
@@ -1225,7 +1309,7 @@ export function buildClaudeFirstAnswerTools({
   void question;
   void history;
   void shouldEnablePublicWebSearch;
-  return [ANTHROPIC_WEB_SEARCH_TOOL];
+  return [ANTHROPIC_WEB_SEARCH_TOOL, KEY_EXACT_FACT_TOOL];
 }
 
 export function listClaudeFirstAnswerToolNames(opts = {}) {
@@ -2234,20 +2318,9 @@ export const CLAUDE_FIRST_DIRECT_EMIT_TOOL = Object.freeze({
 
 const CLOSED_HARD = new Set([
   "jailbreak_fact",
-  "unsupported_recommendation",
-  "hard_sales_push",
-  "product_push_as_direction",
-  "closing_or_signup_push",
-  "leadership_cancel_enroll_certainty",
   "empty_answer",
   "empty_voice",
-  "answer_forbidden_certainty",
-  "unverified_customer_coverage_claim",
-  "number_scope_violation",
-  "context_hallucination",
-  "unsupported_public_research_claim",
-  "unsupported_place_claim",
-  "unsourced_public_assertion",
+  "absence_contradicts_verified_coverage",
   "fact_identity_mismatch",
 ]);
 
@@ -5567,6 +5640,7 @@ export function hardOnlySafetyCheck(
   const absenceGate = evaluateAbsenceCertaintyGate({
     text,
     verifiedNegativeEvidence: negativeEvidence,
+    verifiedPresentCoverages: coverages,
   });
   if (
     absenceGate.ok === false &&
@@ -5670,7 +5744,33 @@ async function callClaudeFirstDirect({
   memoryLoadStatusForRelationship = null,
   /** C1 Pointer Hand — client hint; ownership re-checked against chart/ledger. */
   pointedContractIds = null,
+  /** Session-scoped live store reader for request_key_fact. Not a card snapshot. */
+  userSupabase = null,
 }) {
+  const threadCiteForOnePath = readThreadPublicCitationsFromArgs(arguments[0]);
+  const incomingHandoffMemo = readHandoffMemoFromArgs(arguments[0]);
+  const threadVerifiedRefsIncoming = mergeThreadVerifiedFactRefs(
+    readThreadVerifiedFactRefsFromArgs(arguments[0]),
+    incomingHandoffMemo?.verified_fact_refs,
+  );
+  const thisTurnVerifiedRefs = [];
+  let threadVerifiedFactsResolved = [];
+  if (
+    presenceTurn !== true &&
+    threadVerifiedRefsIncoming.length &&
+    customerIdForRelationship
+  ) {
+    const liveForRefs = await loadLiveVerifiedExactFactRows({
+      supabase: userSupabase,
+      customerId: customerIdForRelationship,
+    });
+    threadVerifiedFactsResolved = resolveThreadVerifiedFacts({
+      refs: threadVerifiedRefsIncoming,
+      rows: liveForRefs.rows,
+      customerId: customerIdForRelationship,
+      liveProvenance: liveForRefs.provenance,
+    });
+  }
   const apiKey = String(env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
     return {
@@ -5878,7 +5978,8 @@ async function callClaudeFirstDirect({
       ? []
       : [ANTHROPIC_WEB_SEARCH_TOOL];
   const documentRecordTools = [];
-  const requestTools = [...publicWebSearchTools];
+  const requestTools =
+    presenceTurn === true ? [] : [...publicWebSearchTools, KEY_EXACT_FACT_TOOL];
   const requestedIds = [
     ...new Set(
       [
@@ -5997,6 +6098,18 @@ async function callClaudeFirstDirect({
       hasOwnedVaultOriginals: hasOwnedVaultOriginalsForRelationship === true,
       memoryQueryFailed: memoryQueryFailedForRelationship === true,
       memoryLoadStatus: memoryLoadStatusForRelationship,
+      presenceOpening:
+        presenceTurn === true &&
+        (presenceContext?.visit_kind === "first_visit" ||
+          presenceContext?.visit_kind === "revisit")
+          ? { visitKind: presenceContext.visit_kind }
+          : null,
+      threadPublicCitations: presenceTurn === true ? null : threadCiteForOnePath,
+      threadVerifiedFacts: presenceTurn === true ? null : threadVerifiedFactsResolved,
+      threadHandoffMemo:
+        presenceTurn === true
+          ? clothesHandoffForPresence(incomingHandoffMemo)
+          : incomingHandoffMemo,
       // Deliver existing focused packet into ONE_PATH (do not void/discard).
       keyRelevantMemoryPacket:
         presenceTurn === true
@@ -6341,8 +6454,8 @@ async function callClaudeFirstDirect({
     /* unreachable — kept as explicit lock */
   }
 
-  // ONE PATH — customer Claude call exactly once (no tool-driven multi-turn).
-  const maxProviderTurns = 1;
+  // Tool-result continue is allowed; safety abort is the runaway guard.
+  const maxProviderTurns = PROVIDER_TURN_SAFETY_ABORT;
   let structuredStreamedCustomerAnswer = "";
   const streamProgressSafe = (text) => {
     if (useStructuredWriter) {
@@ -6721,6 +6834,59 @@ async function callClaudeFirstDirect({
       }
     }
 
+    const finalizedAssistantContent =
+      finalizeClaudeFirstStreamContentBlocks(assistantContent);
+    const keyFactPending = hasKeyExactFactToolUse(finalizedAssistantContent);
+    const serverSearchPending = isServerSearchStillPending({
+      stopReason: streamed.stop_reason ?? lastStopReason,
+      assistantContent,
+    });
+    const turnDecision = resolveProviderTurnDecision({
+      stopReason: streamed.stop_reason ?? lastStopReason,
+      keyFactPending,
+      serverSearchPending,
+      customerVisible: Boolean(customerVisible),
+      turn,
+      safetyAbortTurns: maxProviderTurns,
+    });
+
+    if (turnDecision.action === "continue") {
+      if (keyFactPending) {
+        const live = await loadLiveVerifiedExactFactRows({
+          supabase: userSupabase,
+          customerId: customerIdForRelationship,
+        });
+        const toolResults = buildKeyExactFactToolResults(finalizedAssistantContent, {
+          customerId: customerIdForRelationship,
+          rows: live.rows,
+          liveProvenance: live.provenance,
+          verifiedRefBag: {
+            record(result, input) {
+              const ref = compactThreadVerifiedFactRefFromLookup(result, input);
+              if (ref) thisTurnVerifiedRefs.push(ref);
+            },
+          },
+        });
+        if (toolResults.length) {
+          messages = [
+            ...messages,
+            { role: "assistant", content: finalizedAssistantContent },
+            { role: "user", content: toolResults },
+          ];
+          continue;
+        }
+      }
+      const usedServerSearch = assistantContent.some(
+        (b) =>
+          (b?.type === "server_tool_use" && b?.name === "web_search") ||
+          b?.type === "web_search_tool_result",
+      );
+      if (effectiveProviderTools.length && (usedServerSearch || serverSearchPending)) {
+        messages = [...messages, { role: "assistant", content: assistantContent }];
+        continue;
+      }
+    }
+
     if (customerVisible) {
       lastPicked = {
         customer_answer: customerVisible,
@@ -6741,17 +6907,6 @@ async function callClaudeFirstDirect({
     }
 
     if (!assistantContent.length) break;
-
-    // Server web_search pause — re-send assistant content only (no user Continue text).
-    const usedServerSearch = assistantContent.some(
-      (b) =>
-        (b?.type === "server_tool_use" && b?.name === "web_search") ||
-        b?.type === "web_search_tool_result",
-    );
-    if (effectiveProviderTools.length && usedServerSearch && turn + 1 < maxProviderTurns) {
-      messages = [...messages, { role: "assistant", content: assistantContent }];
-      continue;
-    }
     break;
   }
 
@@ -6892,6 +7047,48 @@ async function callClaudeFirstDirect({
       multiAttachments.length > 0 ? multiAttachments.length : pdfAttached ? 1 : 0,
     web_search_trace: webSearchTrace,
     public_evidence: publicEvidence,
+    thread_handoff_memo: (() => {
+      if (presenceTurn === true) return null;
+      const parsedHandoff = parseHandoffFromAssistantText(lastProviderRawTextJoined);
+      return sanitizeHandoffMemo({
+        claudeCandidate: parsedHandoff.ok ? parsedHandoff.candidate : null,
+        customerQuestion: question,
+        verifiedFactRefs: mergeThreadVerifiedFactRefs(
+          addressesFromResolvedVerifiedFacts(threadVerifiedFactsResolved),
+          thisTurnVerifiedRefs,
+        ),
+        previousMemo: incomingHandoffMemo,
+        claudeBlockOk: parsedHandoff.ok === true,
+      });
+    })(),
+    thread_handoff_observe: (() => {
+      const parsedHandoff = parseHandoffFromAssistantText(lastProviderRawTextJoined);
+      return {
+        claude_block_present: parsedHandoff.present === true,
+        claude_block_ok: parsedHandoff.ok === true,
+        values_persisted_in_memo: false,
+      };
+    })(),
+    thread_verified_fact_refs: mergeThreadVerifiedFactRefs(
+      addressesFromResolvedVerifiedFacts(threadVerifiedFactsResolved),
+      thisTurnVerifiedRefs,
+    ),
+    thread_verified_fact_continuity: {
+      incoming_ref_count: threadVerifiedRefsIncoming.length,
+      resolved_hit_count: threadVerifiedFactsResolved.length,
+      outgoing_ref_count: mergeThreadVerifiedFactRefs(
+        addressesFromResolvedVerifiedFacts(threadVerifiedFactsResolved),
+        thisTurnVerifiedRefs,
+      ).length,
+      live_re_read: threadVerifiedRefsIncoming.length > 0,
+      values_persisted_in_refs: false,
+    },
+    claude_input_public_evidence: {
+      citations_received:
+        Number(selectiveLiveRequest?.inventory?.thread_public_citations_received ?? 0) ||
+        0,
+      injected: selectiveLiveRequest?.inventory?.thread_public_evidence_injected === true,
+    },
     empty_answer_diag: emptyAnswerDiag,
     provider_usage: providerUsage,
     stop_reason: lastStopReason,
@@ -7065,6 +7262,9 @@ export async function runClaudeFirstDirectQuestionTurn({
   startedAt = Date.now(),
   streamHandlers = null,
   loadAllowedCorporateContextsForClaudeImpl = loadAllowedCorporateContextsForClaude,
+  threadPublicCitations = null,
+  threadVerifiedFactRefs = null,
+  threadHandoffMemo = null,
 } = {}) {
   const span = startSpan(startedAt);
   const isPresenceTurn = presenceTurn === true;
@@ -8082,6 +8282,20 @@ export async function runClaudeFirstDirectQuestionTurn({
     onCommit(chunk) {
       const slice = String(chunk ?? "");
       if (!slice) return { keep: true };
+      const q2 = decideQ2PreEmitVeto({
+        slice,
+        committedSoFar: commitStream.getCommitted(),
+      });
+      if (q2.veto === true) {
+        if (q2.monopoly === true) {
+          return {
+            keep: false,
+            abort: true,
+            reason: q2.reason || Q2_OUTPUT_GUARD_LEAK_REASON,
+          };
+        }
+        return { keep: false };
+      }
       // Veto already applied in stream — emit only surviving Claude slices as-is.
       sseEmittedText += slice;
       if (streamHandlers?.onDelta) {
@@ -8940,6 +9154,18 @@ export async function runClaudeFirstDirectQuestionTurn({
     memoryQueryFailedForRelationship:
       keyCustomerRelationshipState.memory_query_failed === true,
     memoryLoadStatusForRelationship: keyLatestDocumentMemoryLoad?.status ?? null,
+    userSupabase,
+    threadPublicCitations: isPresenceTurn ? null : threadPublicCitations,
+    threadVerifiedFactRefs: isPresenceTurn ? null : threadVerifiedFactRefs,
+    threadHandoffMemo: isPresenceTurn
+      ? clothesHandoffForPresence(
+          threadHandoffMemo ||
+            priorConsultationForContext?.handoff_memo ||
+            null,
+        )
+      : threadHandoffMemo ||
+        priorConsultationForContext?.handoff_memo ||
+        null,
   });
   const emitMark = span.end();
   const claudeCompleteMs = relMs(startedAt);
@@ -9182,21 +9408,36 @@ export async function runClaudeFirstDirectQuestionTurn({
   });
   let replacingHard = [];
   let factAmountEmitBlocked = false;
+  let q2OutputGuardBlocked = false;
   let alreadyCommitted =
     Boolean(streamHandlers?._emitted) || Boolean(commitStream.getCommitted());
 
-  if (!presenceChoseSilence && hasFactAmountEmitBlockHard(safety.hard)) {
+  if (!presenceChoseSilence && hasWholeAnswerMonopolyHard(safety.hard)) {
     factAmountEmitBlocked = true;
     usedFailure = true;
     const blocked = (safety.hard ?? []).filter((r) => {
       const key = String(r).replace(/^answer_facing:/, "");
-      return FACT_AMOUNT_EMIT_BLOCK_HARD.has(key);
+      return WHOLE_ANSWER_MONOPOLY_HARD.has(key);
     });
     replacingHard = blocked;
     failureReason = String(blocked[0] ?? "jailbreak_fact");
     finalText = "";
     sentenceStreamAborted = true;
     sentenceAbortReason = failureReason;
+  }
+
+  if (
+    !presenceChoseSilence &&
+    !factAmountEmitBlocked &&
+    sentenceStreamAborted === true &&
+    (sentenceAbortReason === Q2_OUTPUT_GUARD_LEAK_REASON ||
+      String(sentenceAbortReason || "").includes(Q2_OUTPUT_GUARD_LEAK_REASON))
+  ) {
+    q2OutputGuardBlocked = true;
+    usedFailure = true;
+    failureReason = Q2_OUTPUT_GUARD_LEAK_REASON;
+    finalText = "";
+    sentenceStreamAborted = true;
   }
 
   if (!String(finalText ?? "").trim()) {
@@ -9211,6 +9452,9 @@ export async function runClaudeFirstDirectQuestionTurn({
   }
   // Q1 — never keep rogue-amount Claude text as seal lineage after fact-amount hard.
   if (factAmountEmitBlocked) {
+    finalText = "";
+  }
+  if (q2OutputGuardBlocked) {
     finalText = "";
   }
   const emittedCommitted = String(commitStream.getCommitted() ?? "");
@@ -10689,6 +10933,13 @@ export async function runClaudeFirstDirectQuestionTurn({
     ok: true,
     customerText: sealed.key_speak_original,
     keySpeakOriginal: sealed.key_speak_original,
+    thread_verified_fact_refs: Array.isArray(claude.thread_verified_fact_refs)
+      ? claude.thread_verified_fact_refs
+      : [],
+    thread_verified_fact_continuity: claude.thread_verified_fact_continuity ?? null,
+    thread_handoff_memo: claude.thread_handoff_memo ?? null,
+    thread_handoff_observe: claude.thread_handoff_observe ?? null,
+    claude_input_public_evidence: claude.claude_input_public_evidence ?? null,
     visualBlocks: usedFailure ? [] : claude.visual_blocks ?? [],
     key_monopoly_failure: usedFailure,
     failure_reason: failureReason,

@@ -49,6 +49,9 @@ import {
 } from "../keyBrain/keyFirstDecision.js";
 import { startSpan } from "./keyLatencyMarks.js";
 import { runClaudeFirstDirectQuestionTurn } from "./keyClaudeFirstDirect.js";
+import { readThreadPublicCitationsFromArgs } from "./keyThreadPublicEvidence.js";
+import { readThreadVerifiedFactRefsFromArgs } from "./keyThreadVerifiedFactRefs.js";
+import { readHandoffMemoFromArgs } from "./keyThreadHandoffMemo.js";
 
 export {
   isOneKeyCoreAnalysisCompleteEnabled,
@@ -446,6 +449,9 @@ export async function runOneKeyCoreTurn({
     env,
     fetchImpl,
     startedAt,
+    threadPublicCitations: readThreadPublicCitationsFromArgs(arguments[0]),
+    threadVerifiedFactRefs: readThreadVerifiedFactRefsFromArgs(arguments[0]),
+    threadHandoffMemo: readHandoffMemoFromArgs(arguments[0]),
   });
 }
 
@@ -615,6 +621,9 @@ async function runOneKeyCoreQuestionTurn({
       fetchImpl,
       startedAt,
       streamHandlers,
+      threadPublicCitations: readThreadPublicCitationsFromArgs(arguments[0]),
+      threadVerifiedFactRefs: readThreadVerifiedFactRefsFromArgs(arguments[0]),
+      threadHandoffMemo: readHandoffMemoFromArgs(arguments[0]),
     });
   }
 

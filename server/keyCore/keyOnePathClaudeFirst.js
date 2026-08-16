@@ -23,13 +23,36 @@ import {
   buildCurrentInsuranceProductShowcaseAddendum,
   isExplicitCurrentInsuranceProductRequest,
 } from "./keyBorrowedSensesSpeak.js";
+import { KEY_EXACT_FACT_TOOL } from "./keyExactFactRetrieval.js";
+import { bindAdjacentCoverageRelations } from "./keyCoverageTruth.js";
 import { buildKeyRelevantEvidenceForOnePath } from "./keyRelevantMemoryPacket.js";
 import {
   ONE_PATH_DAILY_CHAT_LANES,
   resolveOnePathDailyChatPolicy,
 } from "./keyOnePathDailyChatPolicy.js";
+import { readThreadPublicCitationsFromArgs } from "./keyThreadPublicEvidence.js";
+import { buildThreadVerifiedFactsUserText } from "./keyThreadVerifiedFactRefs.js";
+import {
+  buildHandoffMemoUserText,
+  buildHandoffWriteContractUserText,
+  readHandoffMemoFromArgs,
+} from "./keyThreadHandoffMemo.js";
+import { buildPresenceOpeningUserText } from "./keyPresenceContext.js";
 
 export const ONE_PATH_LIVE_MODE = "ONE_PATH_CLAUDE_FIRST";
+
+/**
+ * Same-turn clothes only. Claude picks at most one next step.
+ * Not HEART. Not a post-seal append. Not a selector.
+ */
+export function buildOneNextStepUserText() {
+  return [
+    "[KEY_ONE_NEXT_STEP]",
+    "다음을 제안할 필요가 있으면 같은 답 안에서 하나만 고른다.",
+    "습관적으로 두세 개 제안이나 질문을 늘어놓지 않는다.",
+    "필요 없으면 붙이지 않는다. 고객이 원하지 않으면 놓는다.",
+  ].join(" ");
+}
 
 function buildKeyRelevantEvidenceSystemAddendum() {
   return [
@@ -310,6 +333,8 @@ export function buildOnePathClaudeFirstRequest({
   memoryLoadStatus = null,
   /** Existing focused packet from buildKeyRelevantMemoryPacket — deliver, do not discard. */
   keyRelevantMemoryPacket = null,
+  /** Presence opening clothes — visit_kind fact + greet purpose. No sample line. */
+  presenceOpening = null,
 } = {}) {
   const ownedOriginals = normalizeOwnedOriginals({
     pdfBase64,
@@ -358,9 +383,18 @@ export function buildOnePathClaudeFirstRequest({
             claimEvidenceBrief: null,
           },
   });
-  const keyRelevantEvidence = buildKeyRelevantEvidenceForOnePath(
+  const keyRelevantEvidenceRaw = buildKeyRelevantEvidenceForOnePath(
     keyRelevantMemoryPacket,
   );
+  const keyRelevantEvidence =
+    keyRelevantEvidenceRaw && typeof keyRelevantEvidenceRaw === "object"
+      ? {
+          ...keyRelevantEvidenceRaw,
+          confirmed_facts: bindAdjacentCoverageRelations(
+            keyRelevantEvidenceRaw.confirmed_facts,
+          ),
+        }
+      : keyRelevantEvidenceRaw;
   // S8-2D — relationship/life memory as separate non-authoritative user block.
   // Same Claude 1-call; not a card peer of confirmed_facts; storage unchanged.
   const lifeLedgerBriefForBackground =
@@ -467,6 +501,37 @@ export function buildOnePathClaudeFirstRequest({
     content.push(block);
   }
 
+  const threadPublicCitationsReceived = readThreadPublicCitationsFromArgs(
+    arguments[0],
+  );
+  const threadVerifiedFactsText = buildThreadVerifiedFactsUserText(
+    arguments[0]?.threadVerifiedFacts,
+  );
+  if (threadVerifiedFactsText) {
+    content.push({
+      type: "text",
+      text: threadVerifiedFactsText,
+    });
+  }
+  const handoffMemoText = buildHandoffMemoUserText(readHandoffMemoFromArgs(arguments[0]));
+  if (handoffMemoText) {
+    content.push({
+      type: "text",
+      text: handoffMemoText,
+    });
+  }
+  const presenceNoTools = Array.isArray(liveTools) && liveTools.length === 0;
+  if (!presenceNoTools) {
+    content.push({
+      type: "text",
+      text: buildHandoffWriteContractUserText(),
+    });
+    content.push({
+      type: "text",
+      text: buildOneNextStepUserText(),
+    });
+  }
+
   const dialogueContinuityHint =
     Array.isArray(history) && history.length > 0
       ? [
@@ -475,6 +540,13 @@ export function buildOnePathClaudeFirstRequest({
           "새 인사(안녕하세요 / 오늘 어떻게 도와드릴까요)로 리셋하지 말고 직전 고객 말에 자연스럽게 반응한다.",
         ].join("\n")
       : "";
+  const presenceOpeningText = buildPresenceOpeningUserText(presenceOpening);
+  if (presenceOpeningText) {
+    content.push({
+      type: "text",
+      text: presenceOpeningText,
+    });
+  }
   content.push({
     type: "text",
     text: [
@@ -493,13 +565,11 @@ export function buildOnePathClaudeFirstRequest({
   // Prompt-cache prefix: always declare the same web_search tool.
   // Search enablement: insurance productShowcase OR daily web_search → tool_choice auto|none.
   // Caller liveTools unused — avoid unrelated tool injection on ONE PATH.
-  void liveTools;
-  const tools = [ANTHROPIC_WEB_SEARCH_TOOL];
-  const webSearchAllowed =
-    productShowcaseRequest === true || dailyChatPolicy.web_search === true;
-  const tool_choice = webSearchAllowed
-    ? { type: "auto" }
-    : { type: "none" };
+  const tools = Array.isArray(liveTools)
+    ? liveTools
+    : [ANTHROPIC_WEB_SEARCH_TOOL, KEY_EXACT_FACT_TOOL];
+  const webSearchAllowed = tools.some((t) => t?.name === "web_search");
+  const tool_choice = tools.length ? { type: "auto" } : { type: "none" };
 
   // Card wholesale retained; relevant evidence is an additive verified block when present.
   const selection_plan = {
@@ -561,6 +631,11 @@ export function buildOnePathClaudeFirstRequest({
         : 0,
       daily_chat_lane: dailyChatPolicy.lane,
       daily_chat_web_search: dailyChatPolicy.web_search === true,
+      thread_public_citations_received: threadPublicCitationsReceived.length,
+      thread_public_evidence_injected: false,
+      thread_handoff_memo_received: Boolean(handoffMemoText),
+      thread_handoff_write_contract: !presenceNoTools,
+      presence_opening_received: Boolean(presenceOpeningText),
       product_showcase_request: productShowcaseRequest === true,
       full_chart_present: false,
       full_ledger_present: false,

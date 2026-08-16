@@ -176,20 +176,17 @@ export function buildPresenceContext({
   };
 }
 
-/** Invoke Claude only when there is at least one eligible LIFE THREAD candidate. */
+/** Invoke Claude for a short opening. Life threads are optional material, not a gate. */
 export function shouldInvokePresenceClaude({
   presenceContext = null,
   sessionAlreadyRan = false,
   customerQuestionPending = false,
   answerStreamActive = false,
 } = {}) {
+  void presenceContext;
   if (sessionAlreadyRan === true) return { ok: false, reason: "session_already_ran" };
   if (customerQuestionPending === true) return { ok: false, reason: "customer_question_pending" };
   if (answerStreamActive === true) return { ok: false, reason: "answer_stream_active" };
-  const n = Array.isArray(presenceContext?.active_life_thread_candidates)
-    ? presenceContext.active_life_thread_candidates.length
-    : 0;
-  if (n < 1) return { ok: false, reason: "no_eligible_life_thread" };
   return { ok: true, reason: "eligible" };
 }
 
@@ -322,6 +319,29 @@ export function buildPresenceUserQuestionLine() {
     "PRESENCE_TURN listen_focus.",
     "고객 질문 없음. current_context.presence_context만 보고 침묵·일반 인사·LIFE THREAD 하나 중 선택해 한마디로 대화를 열어라.",
   ].join(" ");
+}
+
+/**
+ * Live one-path user clothes only. Fact + purpose. No sample greeting. No HEART edit.
+ * visit_kind must be the computed value — do not claim first_visit on a revisit.
+ */
+export function buildPresenceOpeningUserText(presenceOpening = null) {
+  const visitKind =
+    presenceOpening && typeof presenceOpening === "object"
+      ? String(presenceOpening.visitKind ?? presenceOpening.visit_kind ?? "").trim()
+      : "";
+  if (visitKind !== "first_visit" && visitKind !== "revisit") return "";
+  const first = visitKind === "first_visit";
+  return [
+    "[KEY_PRESENCE_OPENING]",
+    `visit_kind: ${visitKind}`,
+    first
+      ? "fact: 이 고객은 KEY를 처음 방문했다."
+      : "fact: 이 고객은 KEY를 다시 방문했다.",
+    first
+      ? "purpose: 먼저 친근하게 반기고, 첫 만남답게 자연스럽게 관계를 시작해라. 고정문구 없이 네가 직접 말해라."
+      : "purpose: 먼저 친근하게 반기고, 관계를 자연스럽게 이어가라. 고정문구 없이 네가 직접 말해라.",
+  ].join("\n");
 }
 
 /** Brief for READY CARD / evidence — Presence may mark surfaced_to_customer. */

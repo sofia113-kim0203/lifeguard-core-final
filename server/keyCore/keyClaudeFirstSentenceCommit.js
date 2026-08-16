@@ -7,6 +7,8 @@
  * catch-up appends only complete sealed continuation.
  */
 
+import { repairKoreanSentenceBoundarySpace } from "./keyCustomerTextSeal.js";
+
 const DEFAULT_SAFETY_BUFFER = 8;
 
 /** Sentence / block boundary at end of text. */
@@ -98,19 +100,22 @@ export function createImmediateAnswerDeltaStream({
 
   function commitSlice(slice) {
     if (!slice || aborted) return;
-    if (typeof shouldEmitSlice === "function" && shouldEmitSlice(slice) === false) {
+    const nextCommitted = repairKoreanSentenceBoundarySpace(committed + slice);
+    const emitSlice = nextCommitted.slice(committed.length);
+    if (!emitSlice) return;
+    if (typeof shouldEmitSlice === "function" && shouldEmitSlice(emitSlice) === false) {
       vetoedSliceCount += 1;
-      droppedPendingLen += slice.length;
+      droppedPendingLen += emitSlice.length;
       return;
     }
-    const decision = onCommit?.(slice) ?? { keep: true };
+    const decision = onCommit?.(emitSlice) ?? { keep: true };
     if (decision?.abort === true) {
       aborted = true;
       abortReason = decision.reason ?? "aborted";
       return;
     }
     if (decision?.keep === false) return;
-    committed += slice;
+    committed = nextCommitted;
   }
 
   function drainCompleteUnits() {
@@ -130,8 +135,22 @@ export function createImmediateAnswerDeltaStream({
     pushAnswerText(fullText = "") {
       if (aborted) return { aborted: true };
       const next = String(fullText ?? "");
-      if (next.length <= lastSeen.length) return { aborted: false };
-      const chunk = next.slice(lastSeen.length);
+      if (!next || next === lastSeen) return { aborted: false };
+      let chunk = "";
+      if (!lastSeen) {
+        chunk = next;
+      } else if (next.startsWith(lastSeen)) {
+        chunk = next.slice(lastSeen.length);
+      } else if (lastSeen.startsWith(next)) {
+        return { aborted: false };
+      } else {
+        if (pending) {
+          droppedPendingLen += pending.length;
+          pending = "";
+        }
+        const sep = committed && !committed.endsWith("\n") ? "\n" : "";
+        chunk = `${sep}${next}`;
+      }
       lastSeen = next;
       if (chunk) {
         pending += chunk;
@@ -153,14 +172,16 @@ export function createImmediateAnswerDeltaStream({
         // Gate path: do not silently drop — flush() owns remainder veto/emit.
         drainCompleteUnits();
       }
-      const raw = String(finalAnswer ?? "");
+      const raw = repairKoreanSentenceBoundarySpace(String(finalAnswer ?? ""));
       if (!raw) {
         return { aborted: false, appended: false, reason: "empty_final" };
       }
       if (committed && !raw.startsWith(committed)) {
         return { aborted: false, appended: false, reason: "final_not_prefix_of_committed" };
       }
-      const complete = resolveCompleteAnswerText(raw, { stopReason });
+      const complete = repairKoreanSentenceBoundarySpace(
+        resolveCompleteAnswerText(raw, { stopReason }),
+      );
       const target =
         complete && (!committed || complete.startsWith(committed))
           ? complete
@@ -290,6 +311,7 @@ export function findNextCommitEnd(
     /\n---+\n/,
     /\n\n/,
     /[.!?。…](?:["”']?)(?=\s|$|\n)/,
+    /(?<=\p{Script=Hangul})[.!?。](?=\p{Script=Hangul})/u,
   ];
 
   let best = -1;
