@@ -147,21 +147,25 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(providerBodyHasForbiddenFactoryPayload(body), false);
   const text = JSON.stringify(body);
   assert.equal(text.includes("pending_extract"), false);
-  assert.equal(text.includes("확인된손보"), true);
-  assert.equal(text.includes("암진단비"), true);
+  assert.equal(text.includes("확인된손보"), false);
   assert.equal(
     req.key_customer_card.insurance_contracts[0].coverages[0].coverage_name,
     "암진단비",
   );
   assert.equal(text.includes("주요 보장 알려줘"), true);
   assert.equal(req.system[0].text.includes("KEY_ONE_PATH_CLAUDE_FIRST"), true);
-  assert.equal(req.system[0].text.includes("고객카드를 통째로"), true);
+  assert.equal(req.system[0].text.includes("request_key_fact로 가져온다"), true);
+  assert.equal(req.system[0].text.includes("고객카드를 통째로"), false);
   assert.equal(req.system[0].text.includes("KEY_RECORD"), false);
   assert.equal(req.system[0].text.includes("key_memory_candidates"), false);
   assert.equal(req.system[0].text.includes("특정 JSON 스키마"), true);
   const cardPayload = JSON.parse(onePathFinalUserContent(req)[0].text);
-  assert.equal(cardPayload.delivery_mode, "CUSTOMER_CARD_WHOLESALE");
-  assert.equal(cardPayload.key_customer_card.delivery_mode, "CUSTOMER_CARD_WHOLESALE");
+  assert.equal(cardPayload.delivery_mode, "KEY_NEEDED_FACTS");
+  assert.equal(cardPayload.key_customer_card.delivery_mode, "KEY_NEEDED_FACTS");
+  assert.equal(
+    JSON.stringify(req.messages).includes("CUSTOMER_CARD_WHOLESALE"),
+    false,
+  );
   assert.equal(cardPayload.key_customer_card.past_original_bytes_mode, "links_only");
   assert.equal(req.selection_plan.document_pick_rank_in_front, false);
   assert.equal(req.meta.DOCUMENT_PICK_RANK_IN_FRONT, 0);
@@ -208,8 +212,11 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
       },
     },
   });
-  const ssotCard = JSON.parse(onePathFinalUserContent(reqSsot)[0].text).key_customer_card;
-  // Confirmed authority only — raw READY/ssot policies must not enter insurance_contracts.
+  const ssotVisible = JSON.parse(onePathFinalUserContent(reqSsot)[0].text).key_customer_card;
+  const ssotCard = reqSsot.key_customer_card;
+  // Ledger stays on KEY. Claude-visible card does not dump contracts.
+  assert.equal(ssotVisible.insurance_contracts, undefined);
+  assert.equal(ssotVisible.confirmed_facts, undefined);
   assert.equal(ssotCard.insurance_contracts.length, 1);
   assert.equal(ssotCard.insurance_contracts[0].insurer, "확인된손보");
   assert.equal(
@@ -218,16 +225,11 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     "암진단비",
   );
   assert.equal(JSON.stringify(ssotCard.insurance_contracts).includes("READY손보"), false);
-  // ssot.policies row itself remains available for READY reuse (not deleted).
   assert.equal(reqSsot.inventory.confirmed_memory_count, 1);
   assert.equal(ssotCard.entrusted_originals.links[0].document_id, "doc-ready");
   assert.equal(ssotCard.insurance_clock.upcoming[0].label, "갱신");
-  assert.equal(ssotCard.past_original_bytes_mode, "links_only");
-  // ONE PATH body must carry the same preserved card (no second reshape).
-  assert.equal(
-    JSON.stringify(reqSsot.key_customer_card.insurance_contracts),
-    JSON.stringify(ssotCard.insurance_contracts),
-  );
+  assert.equal(ssotVisible.past_original_bytes_mode, "links_only");
+  assert.equal(JSON.stringify(onePathFinalUserContent(reqSsot)).includes("확인된손보"), false);
 
   const rawSsotOnly = buildOnePathClaudeFirstRequest({
     question: "내 보험 현황 알려줘",
@@ -382,7 +384,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   const payload = JSON.parse(onePathFinalUserContent(reqNew)[0].text);
   assert.equal(payload.key_customer_card.relationship.relationship, "NEW_CUSTOMER");
   assert.equal(payload.key_customer_card.memory_status, "none");
-  assert.ok(Array.isArray(payload.key_customer_card.insurance_contracts));
+  assert.equal(payload.key_customer_card.insurance_contracts, undefined);
   assert.ok(Array.isArray(payload.key_customer_card.recent_conversation));
   assert.equal(payload.customer_relationship_state, undefined);
   assert.equal(payload.customer_memory, undefined);
@@ -421,10 +423,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     (b) =>
       typeof b?.text === "string" && b.text.includes("KEY_DAILY_CHAT_POLICY"),
   );
-  const contPolicy = contPolicyBlock
-    ? JSON.parse(contPolicyBlock.text)?.KEY_DAILY_CHAT_POLICY
-    : null;
-  assert.equal(contPolicy?.continuity_use_recent_conversation, true);
+  assert.equal(contPolicyBlock, undefined);
   const contUserBlob = JSON.stringify(reqContNew.messages);
   assert.equal(contUserBlob.includes("DIALOGUE_CONTINUITY"), true);
   assert.equal(contUserBlob.includes("새 인사"), true);
@@ -468,7 +467,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
   assert.equal(p4.key_customer_card.relationship.memory_query_failed, true);
   assert.equal(p4.key_customer_card.memory_status, "partial_unavailable");
-  assert.ok(Array.isArray(p4.key_customer_card.insurance_contracts));
+  assert.equal(p4.key_customer_card.insurance_contracts, undefined);
   assert.ok(Array.isArray(p4.key_customer_card.recent_conversation));
   assert.equal(p4.customer_relationship_state, undefined);
   assert.equal(p4.customer_memory, undefined);
@@ -541,19 +540,19 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
   assert.equal(
     reqDialogue.system[0].text.includes(
-      "최근 대화에 나온 숫자·계약·보장 내용은 확인된 계약/사실 또는 이번 턴 원본 근거가 없으면 확정하지 않는다",
+      "최근 대화에 나온 숫자·계약·보장 내용은 KEY 조회 결과 또는 이번 턴 원본 근거가 없으면 확정하지 않는다",
     ),
     true,
   );
   assert.equal(
     reqDialogue.system[0].text.includes(
-      "insurance_contracts가 빈 배열이면 확인된 계약 자료가 현재 카드에 없다는 뜻이다",
+      "고객카드에 계약 목록이 보이지 않는다고 미가입·보장 공백이 확정됐다고 말하지 않는다",
     ),
     true,
   );
   assert.equal(
     reqDialogue.system[0].text.includes(
-      "빈 배열만으로 고객이 보험이나 특정 보장을 보유하지 않았다고 결론 내리지 않는다",
+      "개인 보험 사실은 request_key_fact로 확인한 근거가 있을 때만 확정한다",
     ),
     true,
   );
@@ -696,7 +695,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
   assert.equal(
     reqProduct.system[0].text.includes(
-      "빈 배열만으로 고객이 보험이나 특정 보장을 보유하지 않았다고 결론 내리지 않는다",
+      "고객카드에 계약 목록이 보이지 않는다고 미가입·보장 공백이 확정됐다고 말하지 않는다",
     ),
     true,
   );
@@ -767,9 +766,12 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     false,
   );
   assert.equal(
-    reqProduct.system[0].text.includes("CUSTOMER_CARD_WHOLESALE") ||
-      JSON.stringify(reqProduct.messages).includes("CUSTOMER_CARD_WHOLESALE"),
+    JSON.stringify(reqProduct.messages).includes("KEY_NEEDED_FACTS"),
     true,
+  );
+  assert.equal(
+    JSON.stringify(reqProduct.messages).includes("CUSTOMER_CARD_WHOLESALE"),
+    false,
   );
 
   const reqGeneral = buildOnePathClaudeFirstRequest({
@@ -777,7 +779,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     customerId: "cust-1",
     conversationId: "c1",
   });
-  // Prompt-cache prefix: tools + showcase system stay identical; matcher → tool_choice only.
+  // Tools stay identical. Showcase system only on actual product asks.
   assert.equal(reqGeneral.tools.length, 2);
   assert.equal(reqGeneral.tools[0].name, "web_search");
   assert.equal(reqGeneral.tools[0].type, "web_search_20250305");
@@ -787,28 +789,19 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqGeneral.selection_plan.web_tool_candidate, true);
   assert.equal(
     reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
-    true,
+    false,
   );
   assert.deepEqual(reqGeneral.tools, reqProduct.tools);
   assert.equal(
-    reqGeneral.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
     reqProduct.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
-  );
-  // Showcase contract body identical across product/non-product (prefix stability).
-  const productShowcaseSlice = (text) => {
-    const i = text.indexOf("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]");
-    return i >= 0 ? text.slice(i) : "";
-  };
-  assert.equal(
-    productShowcaseSlice(reqGeneral.system[0].text),
-    productShowcaseSlice(reqProduct.system[0].text),
+    true,
   );
   // Explicit cache on system; no top-level automatic.
   assert.equal(Object.prototype.hasOwnProperty.call(reqProduct, "cache_control"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(reqGeneral, "cache_control"), false);
   assert.deepEqual(reqProduct.system[0].cache_control, { type: "ephemeral" });
   assert.deepEqual(reqGeneral.system[0].cache_control, { type: "ephemeral" });
-  assert.equal(reqProduct.system[0].text, reqGeneral.system[0].text);
+  assert.equal(reqProduct.system[0].text === reqGeneral.system[0].text, false);
   console.log(
     "PASS product showcase · explicit system cache · stable tools/system · tool_choice auto|none",
   );
@@ -1128,8 +1121,31 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.deepEqual(reqGreeting.tool_choice, { type: "auto" });
   assert.equal(reqGreeting.selection_plan.daily_chat_lane, "greeting");
   assert.equal(reqGreeting.selection_plan.product_showcase_request, false);
-  assert.equal(findDailyPolicy(reqGreeting)?.lane, "greeting");
-  assert.equal(findDailyPolicy(reqGreeting)?.web_search_allowed, false);
+  assert.equal(findDailyPolicy(reqGreeting), null);
+  assert.equal(reqGreeting.tools.some((t) => t?.name === "web_search"), true);
+  assert.equal(
+    reqGreeting.system[0].text.includes("[KEY_PUBLIC_EVIDENCE]"),
+    true,
+  );
+  assert.equal(
+    reqGreeting.system[0].text.includes("검색 자체를 일상에서 끄지 않는다"),
+    true,
+  );
+
+  const reqWeather = buildOnePathClaudeFirstRequest({
+    question: "내일 골프 약속 있는데 날씨 괜찮을까?",
+  });
+  assert.deepEqual(reqWeather.tool_choice, { type: "auto" });
+  assert.equal(reqWeather.tools.some((t) => t?.name === "web_search"), true);
+  assert.equal(
+    reqWeather.system[0].text.includes("[KEY_PUBLIC_EVIDENCE]"),
+    true,
+  );
+  assert.equal(reqWeather.system[0].text.includes("확인해볼게요"), true);
+  const weatherUser = JSON.stringify(reqWeather.messages);
+  assert.equal(weatherUser.includes("provider_round_target"), false);
+  assert.equal(weatherUser.includes("KEY_DAILY_CHAT_POLICY"), false);
+  assert.equal(findDailyPolicy(reqWeather), null);
 
   const reqEmotion = buildOnePathClaudeFirstRequest({
     question: "기분이 좀 우울해",
@@ -1157,14 +1173,8 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.deepEqual(reqPlace.tool_choice, { type: "auto" });
   assert.equal(reqPlace.selection_plan.daily_chat_lane, "place_recommend");
   assert.equal(reqPlace.selection_plan.product_showcase_request, false);
-  const placePolicy = findDailyPolicy(reqPlace);
-  assert.equal(placePolicy?.lane, "place_recommend");
-  assert.equal(placePolicy?.web_search_allowed, true);
-  assert.equal(placePolicy?.product_showcase_separated, true);
-  assert.equal(
-    String(placePolicy?.place_recommend_guidance ?? "").includes("맛집"),
-    true,
-  );
+  assert.equal(findDailyPolicy(reqPlace), null);
+  assert.equal(JSON.stringify(reqPlace.messages).includes("맛집"), true);
 
   const reqMovie = buildOnePathClaudeFirstRequest({
     question: "영화 추천해줘",
@@ -1177,7 +1187,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   assert.equal(reqMovie.selection_plan.product_showcase_request, false);
   assert.equal(
     reqMovie.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
-    true,
+    false,
   );
 
   const reqCont = buildOnePathClaudeFirstRequest({
@@ -1189,7 +1199,7 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   });
   assert.deepEqual(reqCont.tool_choice, { type: "auto" });
   assert.equal(reqCont.selection_plan.daily_chat_lane, "continuity");
-  assert.equal(findDailyPolicy(reqCont)?.continuity_use_recent_conversation, true);
+  assert.equal(findDailyPolicy(reqCont), null);
   assert.equal(reqCont.key_customer_card.recent_conversation.length, 2);
 
   // Insurance productShowcase still separate + auto; daily lane none.
@@ -1204,10 +1214,14 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
   );
   assert.equal(findDailyPolicy(reqProduct), null);
 
-  // System prefix cache stability: daily context must not alter system text.
+  // Daily context must not alter system text. Product ask may add showcase.
   assert.equal(reqGreeting.system[0].text, reqMovie.system[0].text);
   assert.equal(reqMovie.system[0].text, reqPlace.system[0].text);
-  assert.equal(reqPlace.system[0].text, reqProduct.system[0].text);
+  assert.equal(
+    reqProduct.system[0].text.includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+    true,
+  );
+  assert.equal(reqPlace.system[0].text === reqProduct.system[0].text, false);
 
   console.log(
     "PASS daily-chat ONE_PATH policy · matcher reuse · productShowcase separated · tool_choice",
@@ -1375,8 +1389,16 @@ const pdfSha = createHash("sha256").update(pdfBytes).digest("hex");
     assert.equal(req.meta.LIVE_REQUEST_MODE, ONE_PATH_LIVE_MODE, c.id);
     assert.equal(req.meta.DEFAULT_PROVIDER_CALL_TARGET, 1, c.id);
   }
-  // Cache-stable: all 11 share identical system for same relationship/originals.
+  // Cache-stable among non-product asks. Product ask may add showcase.
   for (let i = 1; i < systems.length; i += 1) {
+    if (voiceCases[i].id === "ins_product") {
+      assert.equal(
+        systems[i].includes("[CURRENT_INSURANCE_PRODUCT_SHOWCASE]"),
+        true,
+        voiceCases[i].id,
+      );
+      continue;
+    }
     assert.equal(systems[i], systems[0], voiceCases[i].id);
   }
   // Seal / Claude-first entry unchanged.

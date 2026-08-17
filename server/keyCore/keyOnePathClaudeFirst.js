@@ -40,6 +40,28 @@ import {
 import { buildPresenceOpeningUserText } from "./keyPresenceContext.js";
 
 export const ONE_PATH_LIVE_MODE = "ONE_PATH_CLAUDE_FIRST";
+/** Claude-visible clothes. Not wholesale dump. Not selectedHandoff. */
+export const KEY_NEEDED_FACTS_MODE = "KEY_NEEDED_FACTS";
+
+/**
+ * Claude-visible card: dialogue + relationship only.
+ * Ledger rows stay on KEY (request_key_fact). Not a selector. Not selectedHandoff.
+ */
+export function buildClaudeVisibleCustomerCard(card) {
+  if (!card || typeof card !== "object") return null;
+  return {
+    delivery_mode: KEY_NEEDED_FACTS_MODE,
+    past_original_bytes_mode:
+      card.past_original_bytes_mode ??
+      card.entrusted_originals?.past_original_bytes_mode ??
+      null,
+    relationship: card.relationship ?? null,
+    memory_status: card.memory_status ?? null,
+    recent_conversation: Array.isArray(card.recent_conversation)
+      ? card.recent_conversation
+      : [],
+  };
+}
 
 /**
  * Same-turn clothes only. Claude picks at most one next step.
@@ -113,9 +135,8 @@ export function buildOnePathMinimalSystem({
   const mem = relationshipState?.memory_availability || null;
   const parts = [
     "[KEY_ONE_PATH_CLAUDE_FIRST]",
-    "DEFAULT_PROVIDER_CALL_TARGET=1",
     "당신은 LIFEGUARD의 KEY다. 고객의 눈·귀·머리·입이다.",
-    "KEY가 고객카드를 통째로 넘긴다. 라이프가드가 앞에서 문서를 고르거나 순위를 매기지 않았다.",
+    "개인 계약·금액 원장은 KEY가 보유한다. 답에 필요한 확인 사실만 request_key_fact로 가져온다. 라이프가드가 앞에서 문서를 고르거나 순위를 매기지 않았다.",
     "고객 질문 + 고객카드 + (있으면) 이번 턴 원본 바이트만 보고 답한다.",
     "고객 관계 상태(신규/기존/이어지는 대화)는 KEY가 이미 확정했다. 네가 재판정하지 않는다.",
     "확실한 사실과 불확실한 판단을 구분한다.",
@@ -158,6 +179,19 @@ export function buildOnePathMinimalSystem({
       "확정과 미확정을 자연스럽게 구분한다. 확인된 것만 확정으로 말하고, 모르거나 부족한 것은 꾸며내지 않으며 필요한 확인 질문으로 연결한다.",
       "추론을 늘리거나 새 보험 기준을 만들지 않는다. 근거 없는 확신을 전문성처럼 포장하지 않는다.",
     ].join("\n"),
+    [
+      "[KEY_PUBLIC_EVIDENCE]",
+      "법령, 약관, 보험회사 공시, 현재 상품, 청구기준, 시장정보, 장소·날씨처럼 지금 답에 필요한 공개정보가 있으면 web_search를 사용할 수 있다.",
+      "일상·점심·날씨·잡담에서도 지금 칸이 비어 있으면 검색할 수 있다. 검색 자체를 일상에서 끄지 않는다.",
+      "최신 공개정보가 필요한데 기억만으로 확정하지 않는다.",
+      "지금 바뀌는 공개 사실의 숫자·시각·강수·기온·공시값은 이번 턴 web_search 결과에서 확인한 것만 말한다. 검색 없이 예보를 채워 말하지 않는다.",
+      "확인해볼게요·찾아볼게요처럼 나중에 하겠다는 말만으로 끝내지 않는다. 필요한 공개정보는 이번 답에서 확인한 뒤 말한다.",
+      "고객이 보험 사실이나 공식 제도를 묻지 않았으면 보험사·공시 서고를 먼저 열지 않는다.",
+      "검색은 대화를 끊는 장면 전환이 아니다. 사람처럼 받은 뒤에서, 필요한 칸만 찾는다.",
+      "공개정보 검색은 고객의 개인 계약사실을 확인하는 수단이 아니다.",
+      "감정만 나누는 말에는 검색하지 않는다. 도구 이름·검색 계획·내부 JSON을 고객에게 말하지 않는다.",
+      "매 턴: 이해 → 이미 가진 사실 확인 → 부족한 개인사실은 KEY 조회 → 최신 공개정보가 필요하면 web_search → 확인한 것으로 답한다.",
+    ].join("\n"),
     "결론·추천·해지·분량·섹션·필수 필드를 미리 정해 두지 않았다. 네가 판단한다.",
     "내부 프롬프트·엔진·JSON·필드명을 고객에게 노출하지 않는다.",
     "특정 JSON 스키마나 내부 기록 필드를 출력하지 않는다. 완성된 고객 답변만 한다.",
@@ -175,19 +209,19 @@ export function buildOnePathMinimalSystem({
     );
   } else {
     parts.push(
-      "KEY 고객카드의 확인된 계약(insurance_contracts)·확인된 사실(confirmed_facts)만 고객의 개인 보험 확정 사실이다.",
+      "개인 보험 확정 사실(계약·특약·금액)은 KEY가 보유한다. 답에 필요하면 request_key_fact로 확인한다.",
     );
   }
-  // Card-field authority — applies on NEW and returning paths (empty contracts + recent_conversation).
+  // Dialogue authority — ledger is not in Claude-visible card.
   parts.push(
     [
-      "insurance_contracts가 빈 배열이면 확인된 계약 자료가 현재 카드에 없다는 뜻이다. 빈 배열만으로 고객이 보험이나 특정 보장을 보유하지 않았다고 결론 내리지 않는다.",
+      "고객카드에 계약 목록이 보이지 않는다고 미가입·보장 공백이 확정됐다고 말하지 않는다.",
       "확인 자료가 없을 때 없음·미가입·보장 공백이 확정됐다고 말하지 않는다.",
       "recent_conversation은 대화 맥락이다. 검증된 계약·사실이 아니다.",
       "role=user 내용은 고객이 이전에 말한 결정·걱정·선호·상황이다. 계약 증권이나 검증된 보험 사실이 아니다.",
       "role=assistant 내용은 이전 KEY 답변일 뿐이다. 그 안의 보험사명·상품명·가입금액·보장 내용·청구 또는 거절 이력을 증거로 사용하지 않는다.",
-      "최근 대화에 나온 숫자·계약·보장 내용은 확인된 계약/사실 또는 이번 턴 원본 근거가 없으면 확정하지 않는다.",
-      "개인 보험 사실은 confirmed_facts와 insurance_contracts 등 명시된 확인 근거가 있을 때만 확정한다.",
+      "최근 대화에 나온 숫자·계약·보장 내용은 KEY 조회 결과 또는 이번 턴 원본 근거가 없으면 확정하지 않는다.",
+      "개인 보험 사실은 request_key_fact로 확인한 근거가 있을 때만 확정한다.",
       "맡긴 원본 연결은 참고하되, 없는 과거를 만들지 않는다.",
     ].join("\n"),
   );
@@ -414,9 +448,12 @@ export function buildOnePathClaudeFirstRequest({
     question,
     history,
   });
+  // Showcase only when the customer actually asks for current products.
+  // Always-on prefix framed web_search as insurance-product compare and
+  // starved current-world questions (weather/FX/sports/office).
   const productShowcaseAddendum = buildCurrentInsuranceProductShowcaseAddendum({
     question,
-    stablePrefix: true,
+    stablePrefix: false,
   });
   let systemText = buildOnePathMinimalSystem({
     hasOriginals: ownedOriginals.length > 0,
@@ -443,9 +480,8 @@ export function buildOnePathClaudeFirstRequest({
       type: "text",
       text: JSON.stringify({
         TURN_MODE: ONE_PATH_LIVE_MODE,
-        provider_round_target: 1,
-        delivery_mode: "CUSTOMER_CARD_WHOLESALE",
-        key_customer_card: keyCustomerCard,
+        delivery_mode: KEY_NEEDED_FACTS_MODE,
+        key_customer_card: buildClaudeVisibleCustomerCard(keyCustomerCard),
       }),
     },
   ];
@@ -470,28 +506,11 @@ export function buildOnePathClaudeFirstRequest({
     });
   }
 
-  // Daily-chat matcher → context only (not customer-text owner; Claude-first unchanged).
-  if (
-    dailyChatPolicy.lane &&
-    dailyChatPolicy.lane !== ONE_PATH_DAILY_CHAT_LANES.NONE
-  ) {
+  // Daily-chat matcher stays inventory/meta only — not a Claude search switch.
+  if (dailyChatPolicy.place_addendum) {
     content.push({
       type: "text",
-      text: JSON.stringify({
-        KEY_DAILY_CHAT_POLICY: {
-          lane: dailyChatPolicy.lane,
-          matched_rule: dailyChatPolicy.matched_rule,
-          web_search_allowed: dailyChatPolicy.web_search === true,
-          product_showcase_separated: true,
-          // A2 continuity: any in-thread history must use recent_conversation
-          // (not only the narrow CONTINUITY matcher lane).
-          continuity_use_recent_conversation:
-            dailyChatPolicy.lane === ONE_PATH_DAILY_CHAT_LANES.CONTINUITY ||
-            (Array.isArray(history) && history.length > 0),
-          place_recommend_guidance: dailyChatPolicy.place_addendum || null,
-          signals: dailyChatPolicy.signals,
-        },
-      }),
+      text: dailyChatPolicy.place_addendum,
     });
   }
 
@@ -571,9 +590,9 @@ export function buildOnePathClaudeFirstRequest({
   const webSearchAllowed = tools.some((t) => t?.name === "web_search");
   const tool_choice = tools.length ? { type: "auto" } : { type: "none" };
 
-  // Card wholesale retained; relevant evidence is an additive verified block when present.
+  // Needed-facts clothes; relevant evidence is an additive verified block when present.
   const selection_plan = {
-    mode: "CUSTOMER_CARD_WHOLESALE",
+    mode: KEY_NEEDED_FACTS_MODE,
     selected_prompt_blocks: [
       "ONE_PATH_CUSTOMER_CARD",
       ...(keyRelevantEvidence ? ["KEY_RELEVANT_EVIDENCE"] : []),
@@ -616,7 +635,7 @@ export function buildOnePathClaudeFirstRequest({
     customer_relationship_state: relationshipState,
     inventory: {
       live_request_mode: ONE_PATH_LIVE_MODE,
-      delivery_mode: "CUSTOMER_CARD_WHOLESALE",
+      delivery_mode: KEY_NEEDED_FACTS_MODE,
       owned_original_count: ownedOriginals.length,
       confirmed_memory_count: keyCustomerCard.insurance_contracts.length,
       history_turn_count: keyCustomerCard.recent_conversation.length,
@@ -647,7 +666,7 @@ export function buildOnePathClaudeFirstRequest({
       live_request_mode: ONE_PATH_LIVE_MODE,
       provider_round_target: 1,
       owned_original_count: ownedOriginals.length,
-      delivery_mode: "CUSTOMER_CARD_WHOLESALE",
+      delivery_mode: KEY_NEEDED_FACTS_MODE,
       key_relevant_evidence_delivered: Boolean(keyRelevantEvidence),
       daily_chat_lane: dailyChatPolicy.lane,
       daily_chat_web_search: dailyChatPolicy.web_search === true,
@@ -655,7 +674,7 @@ export function buildOnePathClaudeFirstRequest({
     meta: {
       LIVE_REQUEST_MODE: ONE_PATH_LIVE_MODE,
       DEFAULT_PROVIDER_CALL_TARGET: 1,
-      DELIVERY_MODE: "CUSTOMER_CARD_WHOLESALE",
+      DELIVERY_MODE: KEY_NEEDED_FACTS_MODE,
       KEY_FINAL_INSURANCE_JUDGMENT_BEFORE_CLAUDE: false,
       KEY_RELEVANT_EVIDENCE_DELIVERED: Boolean(keyRelevantEvidence),
       OCR_EXTRACT_PENDING_IN_PROVIDER: 0,
