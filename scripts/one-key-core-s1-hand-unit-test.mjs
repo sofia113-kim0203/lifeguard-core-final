@@ -61,17 +61,6 @@ function buildS1Env() {
   };
 }
 
-const CORE_STEPS = [
-  "interpret",
-  "thinking",
-  "judgment",
-  "planner",
-  "work_order",
-  "evidence",
-  "speak",
-  "persona",
-];
-
 const QUESTIONS = ["내 보험 괜찮아?", "암보험 부족해?", "그냥 추천해줘"];
 
 let passed = 0;
@@ -97,7 +86,7 @@ await runCase("S1-1 flag gate", () => {
   assert.ok(ONE_KEY_CORE_S1_BLOCKED_PATHS.length >= 10);
 });
 
-await runCase("S1-2 runOneKeyCoreTurn 8-step trace", async () => {
+await runCase("S1-2 runOneKeyCoreTurn uses Claude-first, not legacy planner", async () => {
   const env = buildS1Env();
   const result = await runOneKeyCoreTurn({
     userSupabase: buildMockSupabase(),
@@ -108,19 +97,11 @@ await runCase("S1-2 runOneKeyCoreTurn 8-step trace", async () => {
     fetchImpl: async () => new Response("", { status: 503 }),
   });
   assert.equal(result.ok, true);
-  assert.ok(result.traceComplete);
-  const steps = (result.oneKeyCoreTrace?.steps ?? []).map((row) => row.step);
-  for (const step of CORE_STEPS) {
-    assert.ok(steps.includes(step), `missing step ${step}`);
-  }
   assert.ok(String(result.customerText ?? "").length > 0);
-  assert.equal(result.agentTurn?.responseSource, "one_key_core_s1");
-  assert.deepEqual(result.oneKeyCoreTrace?.customer_text_path, [
-    "buildKeyStructuredResponse",
-    "finalizeSalesDirectorResponse(one_key_core_preserve)",
-    "polishLifeguardCustomerText",
-  ]);
-  assert.equal(result.oneKeyCoreTrace?.legacy_paths_blocked?.length, ONE_KEY_CORE_S1_BLOCKED_PATHS.length);
+  const steps = (result.oneKeyCoreTrace?.steps ?? []).map((row) => row.step);
+  assert.equal(steps.includes("planner"), false);
+  assert.equal(steps.includes("speak"), false);
+  assert.notEqual(result.agentTurn?.responseSource, "runSalesDirectorKeyTurn");
 });
 
 await runCase("S1-3 handleHomeBrainFactRequest uses Core not legacy", async () => {

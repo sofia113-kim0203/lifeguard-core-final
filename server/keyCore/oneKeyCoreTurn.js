@@ -1,5 +1,5 @@
 /**
- * ONE KEY Core — Interpret → Thinking → Judgment → Planner → Work Order → Evidence → Speak → Persona
+ * ONE KEY Core — question = Claude-first; document / analysis_complete / bridge / return_judgment stay intake events.
  */
 import { classifyConsultationIntent } from "../intentGateLayer.js";
 import {
@@ -7,18 +7,8 @@ import {
   loadSalesDirectorTurnContext,
   snapshotToContextBundle,
 } from "../customerContextSnapshot.js";
-import { buildKeyFirstJudgment } from "../keyBrain/documentFirstJudgment.js";
 import { resolveSalesDirectorJudgmentIntent } from "../salesDirectorFormatter.js";
-import {
-  finalizeKeyCustomerText,
-  KEY_CUSTOMER_TEXT_PATH,
-} from "./keyCustomerMonopoly.js";
-import { keySpeakAsync } from "../keyBrain/keySpeak.js";
-import {
-  KEY_ENTRY,
-  runSalesDirectorKeyTurn,
-} from "../salesDirectorKeyOrchestrator.js";
-import { buildWorkOrderDirectives } from "../keyBrain/workOrder.js";
+import { finalizeKeyCustomerText } from "./keyCustomerMonopoly.js";
 import {
   isOneKeyCoreAnalysisCompleteEnabled,
   isOneKeyCoreBridgeEnabled,
@@ -34,20 +24,10 @@ import {
   resolveOneKeyCoreS1Env,
   shouldRunClaudeFirstHomeChatQuestion,
 } from "./oneKeyCoreFlags.js";
-import {
-  buildQuestionInterpretShadow,
-  buildQuestionThinkingBundle,
-} from "./oneKeyCoreInterpret.js";
 import { runOneKeyCoreDocumentTurn } from "./oneKeyCoreDocument.js";
 import { runOneKeyCoreAnalysisCompleteTurn } from "./oneKeyCoreAnalysisComplete.js";
 import { runOneKeyCoreBridgeTurn } from "./oneKeyCoreBridge.js";
 import { runOneKeyCoreReturnJudgmentTurn } from "./oneKeyCoreReturnJudgment.js";
-import {
-  buildKeyFirstDecisionShadowDiff,
-  isKeyFirstDecisionShadowEnabled,
-  resolveKeyFirstDecision,
-} from "../keyBrain/keyFirstDecision.js";
-import { startSpan } from "./keyLatencyMarks.js";
 import { runClaudeFirstDirectQuestionTurn } from "./keyClaudeFirstDirect.js";
 import { readThreadPublicCitationsFromArgs } from "./keyThreadPublicEvidence.js";
 import { readThreadVerifiedFactRefsFromArgs } from "./keyThreadVerifiedFactRefs.js";
@@ -152,114 +132,6 @@ export function buildAgentKeyRoleContract(conversationMode) {
       ...contract_lines,
       "[/KEY_ROLE_BADGE]",
     ].join("\n"),
-  };
-}
-
-const CORE_STEPS = [
-  "interpret",
-  "thinking",
-  "judgment",
-  "planner",
-  "work_order",
-  "evidence",
-  "speak",
-  "persona",
-];
-
-function buildS1WorkOrderTrace({ plan = null } = {}) {
-  const dispatchPlan = {
-    actor: "KEY",
-    executed: false,
-    shadow_only: true,
-    hold_reason: "one_key_core_s1_trace_only",
-    factory_work_orders: (plan?.tools ?? []).map((tool) => ({
-      factory: tool,
-      scope: "stored_read_or_snapshot",
-      reason: "s1_planner_selection",
-      ordered_by: "KEY",
-      executed_in_s1: false,
-    })),
-    note: "S1 — Work Order mint deferred · trace only",
-  };
-
-  return {
-    schema_version: "one-key-core-work-order-trace-v1",
-    shadow_only: true,
-    directives: buildWorkOrderDirectives(dispatchPlan),
-    dispatch_plan: dispatchPlan,
-  };
-}
-
-function buildEvidenceBundle({ factBundle = {}, customerContextBundle = null, toolRun = null } = {}) {
-  return {
-    schema_version: "one-key-core-evidence-v1",
-    coverage_gap: {
-      loaded: factBundle.coverage_gap_used === true,
-      score: factBundle.coverage_gap_score ?? null,
-      top_concerns: factBundle.coverage_gap_top_concerns ?? [],
-    },
-    underwriting: {
-      loaded: factBundle.underwriting_used === true,
-      risk_score: factBundle.underwriting_risk_score ?? null,
-    },
-    recommendation: {
-      loaded: factBundle.recommendation_used === true,
-      priority_labels: factBundle.recommendation_priority_labels ?? [],
-    },
-    design: {
-      loaded: factBundle.design_used === true,
-    },
-    memory: {
-      fact_count: factBundle.memory_fact_count ?? customerContextBundle?.memoryFactCount ?? 0,
-    },
-    policies: {
-      active_count: factBundle.active_policy_count ?? factBundle.policy_count ?? null,
-      tool_policies_count: (factBundle.policies ?? []).length,
-    },
-    premium_stats: factBundle.premium_stats ?? null,
-    tools_called: toolRun?.tools_called ?? factBundle.key_tools_called ?? [],
-    factory_explain_invoked: false,
-  };
-}
-
-async function buildOneKeySpeakDraft({
-  question = "",
-  keyJudgment = null,
-  consultationIntent = null,
-  contextSnapshot = null,
-  loadedContext = null,
-  thinkingFlow = null,
-  evidenceBundle = null,
-  env = process.env,
-  history = [],
-  previousAnswerSummary = "",
-  shadowVisualBlocksOverride = null,
-  startedAt = Date.now(),
-} = {}) {
-  const speakInput = {
-    event: "question",
-    question,
-    keyFirstJudgment: keyJudgment,
-    contextSnapshot,
-    loadedContext,
-    consultationIntent,
-    thinkingFlow,
-    evidenceBundle,
-    env,
-    history,
-    previousAnswerSummary,
-    shadowVisualBlocksOverride,
-    startedAt,
-  };
-
-  const speakResult = await keySpeakAsync(speakInput);
-
-  return {
-    speakDraft: speakResult.speakDraft,
-    keyComposeTrace: speakResult.key_compose_trace,
-    visualBlocks: speakResult.visual_blocks ?? speakResult.key_compose_trace?.visual_blocks ?? [],
-    keySpeakMaster: true,
-    failureMode: speakResult.failureMode === true || !String(speakResult.speakDraft ?? "").trim(),
   };
 }
 
@@ -478,7 +350,6 @@ async function runOneKeyCoreQuestionTurn({
   clientTurnId = null,
   pointedContractIds = null,
   phase8TraceBag = null,
-  shadowVisualBlocksOverride = null,
   audience,
   conversationMode,
   streamHandlers = null,
@@ -503,14 +374,6 @@ async function runOneKeyCoreQuestionTurn({
     customer_text_path: [],
     key_audience: resolvedAudience,
     key_conversation_mode: resolvedConversationMode,
-  };
-
-  const recordStep = (step, payload) => {
-    trace.steps.push({
-      step,
-      at_ms: Math.max(0, Date.now() - startedAt),
-      payload,
-    });
   };
 
   let contextSnapshot = null;
@@ -576,322 +439,51 @@ async function runOneKeyCoreQuestionTurn({
     }
   }
 
-  // HomeChat Claude-first: question + history + verified + original → Claude as-is.
-  // No intent/Decision/leadership/S3–S6. Probe / active_partial do not divert this path.
-  if (shouldRunClaudeFirstHomeChatQuestion(coreEnv)) {
-    const conversationHistory = (history ?? [])
-      .map((turn) => {
-        const text = String(turn.content ?? turn.text ?? turn.message ?? "").trim();
-        // Keep both fields: Claude-first payload uses `.text`; attach helpers dual-read content/text.
-        return {
-          role: turn.role === "assistant" ? "assistant" : "user",
-          text,
-          content: text,
-        };
-      })
-      .filter((t) => t.text);
-    return runClaudeFirstDirectQuestionTurn({
-      question,
-      history: conversationHistory,
-      loadedContext,
-      customerContextBundle,
-      unifiedState,
-      contextSnapshot,
-      userSupabase,
-      customerId: scopedCustomerId || null,
-      authUserId,
-      entityContext,
-      attachedDocumentId,
-      attachedDocumentIds,
-      priorAttachFollowUp,
-      attachmentReferenceEnabled,
-      activeAttachmentIds,
-      currentTurnDocumentIds,
-      explicitReopenDocumentIds,
-      sessionId,
-      readyCardHandoffToken,
-      presenceTurn: presenceTurn === true,
-      clientTurnId,
-      pointedContractIds,
-      phase8TraceBag,
-      audience: resolvedAudience,
-      conversationMode: resolvedConversationMode,
-      keyRoleContract,
-      env: coreEnv,
-      fetchImpl,
-      startedAt,
-      streamHandlers,
-      threadPublicCitations: readThreadPublicCitationsFromArgs(arguments[0]),
-      threadVerifiedFactRefs: readThreadVerifiedFactRefsFromArgs(arguments[0]),
-      threadHandoffMemo: readHandoffMemoFromArgs(arguments[0]),
-    });
-  }
-
-  const consultationIntent = classifyConsultationIntent(question);
-
-  const interpretRecord = buildQuestionInterpretShadow({
+  // HomeChat Claude-first is the only question path.
+  const conversationHistory = (history ?? [])
+    .map((turn) => {
+      const text = String(turn.content ?? turn.text ?? turn.message ?? "").trim();
+      // Keep both fields: Claude-first payload uses `.text`; attach helpers dual-read content/text.
+      return {
+        role: turn.role === "assistant" ? "assistant" : "user",
+        text,
+        content: text,
+      };
+    })
+    .filter((t) => t.text);
+  return runClaudeFirstDirectQuestionTurn({
     question,
+    history: conversationHistory,
     loadedContext,
+    customerContextBundle,
+    unifiedState,
     contextSnapshot,
-    consultationIntent,
-  });
-  recordStep("interpret", interpretRecord);
-
-  const thinkingBundle = buildQuestionThinkingBundle(
-    {
-      question,
-      contextSnapshot,
-      loadedContext,
-      keyInterprets: interpretRecord,
-      consultationIntent,
-    },
-    env,
-  );
-  recordStep("thinking", thinkingBundle);
-
-  if (thinkingBundle.slice5_enabled) {
-    recordStep("reflection", thinkingBundle.reflection ?? null);
-    recordStep("decision", thinkingBundle.decision ?? null);
-    recordStep("runtime_trace", thinkingBundle.runtime_trace ?? null);
-  }
-
-  const keyJudgment = buildKeyFirstJudgment({
-    document: { id: null, event_type: "question" },
-    keyInterprets: interpretRecord,
-    loadedContext,
-    contextSnapshot,
-  });
-  recordStep("judgment", keyJudgment);
-
-  let keyFirstDecisionRecord = null;
-  if (isKeyFirstDecisionShadowEnabled(env)) {
-    keyFirstDecisionRecord = resolveKeyFirstDecision({
-      question,
-      consultationIntent,
-      keyJudgment,
-      loadedContext,
-      thinkingBundle,
-    });
-    recordStep("key_first_decision", keyFirstDecisionRecord);
-  }
-
-  const keyTurn = await runSalesDirectorKeyTurn({
     userSupabase,
-    customerId,
-    question,
-    history,
+    customerId: scopedCustomerId || null,
+    authUserId,
+    entityContext,
+    attachedDocumentId,
+    attachedDocumentIds,
+    priorAttachFollowUp,
+    attachmentReferenceEnabled,
+    activeAttachmentIds,
+    currentTurnDocumentIds,
+    explicitReopenDocumentIds,
+    sessionId,
+    readyCardHandoffToken,
+    presenceTurn: presenceTurn === true,
+    clientTurnId,
+    pointedContractIds,
+    phase8TraceBag,
+    audience: resolvedAudience,
+    conversationMode: resolvedConversationMode,
+    keyRoleContract,
     env: coreEnv,
     fetchImpl,
     startedAt,
-    snapshot: contextSnapshot,
-    unified: unifiedState,
-    loadedContext,
-    customerContextBundle,
-    reconciliationWarning: null,
-    keyEntry: KEY_ENTRY.QUESTION,
+    streamHandlers,
+    threadPublicCitations: readThreadPublicCitationsFromArgs(arguments[0]),
+    threadVerifiedFactRefs: readThreadVerifiedFactRefsFromArgs(arguments[0]),
+    threadHandoffMemo: readHandoffMemoFromArgs(arguments[0]),
   });
-
-  if (!keyTurn?.handled || !keyTurn.result) {
-    return buildKeyMonopolyQuestionFailure({
-      question,
-      consultationIntent,
-      reason: keyTurn?.reason ?? "key_planner_failed",
-      trace,
-      startedAt,
-    });
-  }
-
-  const { agentTurn, salesDirectorTrace } = keyTurn.result;
-  const plan = salesDirectorTrace?.key_orchestrator?.plan ?? null;
-  const toolRun = {
-    tools_called: salesDirectorTrace?.key_orchestrator?.tools_called ?? [],
-    tool_results: salesDirectorTrace?.key_orchestrator?.tool_results ?? [],
-  };
-
-  recordStep("planner", {
-    primitive: "runSalesDirectorKeyTurn",
-    plan,
-    tools_called: toolRun.tools_called,
-    consultation_intent: consultationIntent?.intent ?? null,
-  });
-
-  if (isKeyFirstDecisionShadowEnabled(env) && keyFirstDecisionRecord) {
-    recordStep(
-      "key_first_decision_shadow_diff",
-      buildKeyFirstDecisionShadowDiff({
-        decision: keyFirstDecisionRecord,
-        legacyPlan: plan,
-      }),
-    );
-  }
-
-  const workOrderTrace = buildS1WorkOrderTrace({ plan });
-  recordStep("work_order", workOrderTrace);
-
-  const factBundle = {
-    ...(agentTurn.factBundle ?? {}),
-    one_key_core: true,
-    one_key_core_s1: true,
-  };
-  const evidenceBundle = buildEvidenceBundle({
-    factBundle,
-    customerContextBundle: keyTurn.result.customerContextBundle,
-    toolRun,
-  });
-  recordStep("evidence", evidenceBundle);
-
-  const conversationHistory = (history ?? []).map((turn) => ({
-    role: turn.role === "assistant" ? "assistant" : "user",
-    text: String(turn.content ?? turn.text ?? turn.message ?? "").trim(),
-  })).filter((t) => t.text);
-  const previousAnswerSummary = conversationHistory
-    .filter((t) => t.role === "assistant")
-    .slice(-1)[0]?.text ?? "";
-
-  const speakResult = await buildOneKeySpeakDraft({
-    question,
-    keyJudgment,
-    consultationIntent,
-    contextSnapshot,
-    loadedContext,
-    thinkingFlow: thinkingBundle,
-    evidenceBundle,
-    env: coreEnv,
-    history: conversationHistory,
-    previousAnswerSummary,
-    shadowVisualBlocksOverride,
-    startedAt,
-  });
-  recordStep("speak", {
-    draft_preview: String(speakResult.speakDraft ?? "").slice(0, 300),
-    compose_mode: speakResult.keyComposeTrace?.compose_mode ?? "key_master_question",
-    key_speak_master: true,
-    key_compose_trace: speakResult.keyComposeTrace,
-    latency_marks: speakResult.keyComposeTrace?.key_voice_trace?.latency_marks ?? null,
-    shadow_visual_blocks_override_used:
-      speakResult.keyComposeTrace?.key_voice_trace?.shadow_visual_blocks_override_used ?? false,
-    shadow_visual_blocks_override_count:
-      speakResult.keyComposeTrace?.key_voice_trace?.shadow_visual_blocks_override_count ?? 0,
-    speech_turn_type: speakResult.keyComposeTrace?.speech_turn_type ?? null,
-    conversation_intention: speakResult.keyComposeTrace?.conversation_intention ?? null,
-    conversation_elements_used: speakResult.keyComposeTrace?.conversation_elements_used ?? [],
-    facts_used: speakResult.keyComposeTrace?.facts_used ?? [],
-    facts_spoken: speakResult.keyComposeTrace?.facts_spoken ?? [],
-    facts_withheld: speakResult.keyComposeTrace?.facts_withheld ?? [],
-    defer_detected: speakResult.keyComposeTrace?.defer_detected ?? false,
-    element_count: speakResult.keyComposeTrace?.element_count ?? 0,
-    thinking_density: speakResult.keyComposeTrace?.thinking_density ?? null,
-    thinking_ok: speakResult.keyComposeTrace?.thinking_ok ?? thinkingBundle?.thinking_ok ?? null,
-    understanding_ok: speakResult.keyComposeTrace?.understanding_ok ?? thinkingBundle?.understanding_ok ?? null,
-    thinking_flow_applied: speakResult.keyComposeTrace?.thinking_flow_applied ?? false,
-    confidence: speakResult.keyComposeTrace?.confidence ?? thinkingBundle?.customer_understanding?.confidence ?? null,
-    selected_goal: speakResult.keyComposeTrace?.selected_goal ?? thinkingBundle?.customer_understanding?.selected_goal ?? null,
-    rejected_hypotheses:
-      speakResult.keyComposeTrace?.rejected_hypotheses ??
-      thinkingBundle?.customer_understanding?.rejected_hypotheses ??
-      [],
-    confirmation_required:
-      speakResult.keyComposeTrace?.confirmation_required ??
-      thinkingBundle?.customer_understanding?.confirmation_required ??
-      false,
-    fact_selection: thinkingBundle?.fact_selection ?? null,
-    slice5_enabled: speakResult.keyComposeTrace?.slice5_enabled ?? thinkingBundle?.slice5_enabled ?? false,
-    inferred_goal:
-      speakResult.keyComposeTrace?.inferred_goal ?? thinkingBundle?.runtime_trace?.inferred_goal ?? null,
-    direction_type: speakResult.keyComposeTrace?.direction_type ?? null,
-    fact_text_gate: speakResult.keyComposeTrace?.fact_text_gate ?? null,
-    reflection_snapshot: speakResult.keyComposeTrace?.reflection_snapshot ?? thinkingBundle?.reflection ?? null,
-    decision_snapshot: speakResult.keyComposeTrace?.decision_snapshot ?? thinkingBundle?.decision ?? null,
-    compose_mode: speakResult.keyComposeTrace?.compose_mode ?? null,
-    key_voice_enabled: speakResult.keyComposeTrace?.key_voice_enabled ?? false,
-    key_voice_trace: speakResult.keyComposeTrace?.key_voice_trace ?? null,
-    visual_blocks: speakResult.visualBlocks ?? [],
-    visual_blocks_gate:
-      speakResult.keyComposeTrace?.key_voice_trace?.visual_blocks_gate ?? null,
-  });
-
-  trace.customer_text_path.push(...KEY_CUSTOMER_TEXT_PATH);
-
-  const outletResult = finalizeKeyCustomerText(speakResult.speakDraft, {
-    failureMode:
-      speakResult.failureMode === true ||
-      speakResult.keyComposeTrace?.failureMode === true ||
-      speakResult.keyComposeTrace?.key_voice_trace?.used_failure_mode === true ||
-      !String(speakResult.speakDraft ?? "").trim(),
-    startedAt,
-  });
-  // Merge finalize/seal marks onto voice latency (compose) without failing the turn.
-  try {
-    const voiceMarks = speakResult.keyComposeTrace?.key_voice_trace?.latency_marks;
-    if (voiceMarks && typeof voiceMarks === "object" && outletResult.latency_marks) {
-      voiceMarks.finalize = outletResult.latency_marks.finalize ?? null;
-      voiceMarks.seal = outletResult.latency_marks.seal ?? null;
-    } else if (outletResult.latency_marks && speakResult.keyComposeTrace?.key_voice_trace) {
-      speakResult.keyComposeTrace.key_voice_trace.latency_marks = {
-        ...(speakResult.keyComposeTrace.key_voice_trace.latency_marks ?? {}),
-        ...outletResult.latency_marks,
-      };
-    }
-  } catch {
-    /* instrumentation only */
-  }
-  recordStep("persona", {
-    generation_mode: outletResult.generation_mode,
-    persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
-    completeness_guard: outletResult.completeness_guard ?? null,
-    text_preview: String(outletResult.customerText ?? "").slice(0, 300),
-    rewrite_detected: false,
-    ghost_path_reached: speakResult.keyComposeTrace?.ghost_path_reached ?? [],
-    latency_marks: outletResult.latency_marks ?? null,
-  });
-
-  trace.persona_rewrite_blocked = outletResult.persona_rewrite_blocked;
-  try {
-    trace.latency_marks =
-      speakResult.keyComposeTrace?.key_voice_trace?.latency_marks ??
-      outletResult.latency_marks ??
-      null;
-  } catch {
-    trace.latency_marks = null;
-  }
-
-  const stepNames = trace.steps.map((row) => row.step);
-  const traceComplete = CORE_STEPS.every((name) => stepNames.includes(name));
-
-  return {
-    ok: true,
-    customerText: outletResult.customerText,
-    visualBlocks: speakResult.visualBlocks ?? [],
-    keySpeakOriginal: outletResult.keySpeakOriginal,
-    agentTurn: {
-      ...agentTurn,
-      text: outletResult.customerText,
-      responseSource: ONE_KEY_CORE_RESPONSE_SOURCE.QUESTION,
-      consultationIntent,
-      factBundle,
-    },
-    modeDecision: keyTurn.result.modeDecision,
-    loadedContext,
-    contextSnapshot,
-    unifiedState,
-    customerContextBundle: keyTurn.result.customerContextBundle,
-    salesDirectorTrace: {
-      ...salesDirectorTrace,
-      one_key_core: true,
-      one_key_core_s1: true,
-      one_key_core_trace: {
-        ...trace,
-        complete: traceComplete,
-        core_steps_expected: CORE_STEPS,
-      },
-      legacy_paths_blocked: ONE_KEY_CORE_S1_BLOCKED_PATHS,
-      key_customer_monopoly: true,
-      persona_rewrite_blocked: outletResult.persona_rewrite_blocked,
-    },
-    truthGate: keyTurn.result.truthGate,
-    latency: keyTurn.result.latency,
-    loopStartedAt: keyTurn.result.loopStartedAt ?? startedAt,
-    oneKeyCoreTrace: trace,
-    traceComplete,
-  };
 }

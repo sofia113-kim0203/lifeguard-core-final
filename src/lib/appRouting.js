@@ -12,9 +12,7 @@ export const BACKOFFICE_ROUTE_TABLE = [
   { path: "/customer-analysis", menuId: "customer", roles: [APP_ROLES.AGENT, APP_ROLES.ADMIN] },
   { path: "/chat", menuId: "chat", roles: [APP_ROLES.AGENT, APP_ROLES.ADMIN] },
   { path: "/ai", menuId: "ai", roles: [APP_ROLES.AGENT, APP_ROLES.ADMIN] },
-  { path: "/claim", menuId: "claim", roles: [APP_ROLES.AGENT, APP_ROLES.ADMIN] },
   { path: "/documents", menuId: "documents", roles: [APP_ROLES.AGENT, APP_ROLES.ADMIN] },
-  { path: "/corporate", menuId: "corporate", roles: [APP_ROLES.AGENT, APP_ROLES.ADMIN] },
   { path: "/agent", menuId: "agent", roles: [APP_ROLES.AGENT] },
   { path: "/admin", menuId: "admin", roles: [APP_ROLES.ADMIN] },
 ];

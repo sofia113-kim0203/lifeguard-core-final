@@ -77,11 +77,11 @@ function auditNoBranching() {
 }
 
 function auditLegacyPathPreserved() {
-  const preserved =
-    TURN.includes("runSalesDirectorKeyTurn") &&
-    TURN.includes("buildOneKeySpeakDraft") &&
-    TURN.includes("finalizeOneKeyCorePersona");
-  return { pass: preserved };
+  const removed =
+    !TURN.includes("runSalesDirectorKeyTurn") &&
+    !TURN.includes("buildOneKeySpeakDraft") &&
+    TURN.includes("runClaudeFirstDirectQuestionTurn");
+  return { pass: removed };
 }
 
 function auditValidationQuestions() {
