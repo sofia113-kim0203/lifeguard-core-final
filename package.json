@@ -208,6 +208,7 @@
     "test:key-one-path-claude-first": "node scripts/key-one-path-claude-first-unit-test.mjs",
     "test:key-q2-claude-first-output-guard-veto": "node scripts/key-q2-claude-first-output-guard-veto-unit-test.mjs",
     "test:key-live-verified-exact-fact": "node scripts/key-live-verified-exact-fact-unit-test.mjs",
+    "test:key-current-contract-fact-path": "node scripts/key-current-contract-fact-path-unit-test.mjs",
     "test:key-presence-opening": "node scripts/key-presence-opening-unit-test.mjs",
     "test:key-absence-certainty-gate": "node scripts/key-absence-certainty-gate-unit-test.mjs",
     "test:key-gate-cleanup-2": "node scripts/key-gate-cleanup-2-unit-test.mjs",

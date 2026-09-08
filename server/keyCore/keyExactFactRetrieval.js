@@ -6,6 +6,13 @@
  * remain for unit tests and candidate search only.
  */
 import { attachLiveFactProvenance } from "./keyLiveVerifiedExactFactStore.js";
+import {
+  KEY_CURRENT_CONTRACT_SLOTS,
+  collectCurrentContractFactStore,
+  executeCurrentContractFactRequest,
+} from "./keyCurrentContractFactPath.js";
+
+export { collectCurrentContractFactStore, executeCurrentContractFactRequest };
 
 export {
   LIVE_VERIFIED_FACT_HELPER,
@@ -161,6 +168,10 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
     "action=get returns one field for one coverage on one contract. " +
     "If the same coverage exists on more than one contract, send contract_id. " +
     "Omitting contract_id then returns status=ambiguous and matching_contracts — KEY will not pick one. " +
+    "slot=current_contracts returns stored current contracts with trust_state (confirmed, review, pending_unverified). " +
+    "Do not treat review or pending_unverified as confirmed. " +
+    "unknown means not confirmed — not that the customer has none. " +
+    "If coverage inventory is incomplete, a topic miss is unknown, not none. " +
     "You may send several request_key_fact calls in one turn. " +
     "Do not invent amounts. The authenticated customer is applied by KEY — do not send another customer.",
   input_schema: {
@@ -172,6 +183,16 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
         enum: ["get", "list_names"],
         description:
           "list_names: FIND stored addresses (coverage name, contract_id, insurer/product). No amounts. get: one field on one coverage.",
+      },
+      slot: {
+        type: "string",
+        enum: [...KEY_CURRENT_CONTRACT_SLOTS],
+        description:
+          "Optional. current_contracts / coverages / premiums / renewal / stated_goal. Use when listing stored current facts with trust_state.",
+      },
+      topic: {
+        type: "string",
+        description: "Optional topic filter for slot reads. KEY does not add sibling facts.",
       },
       contract_id: {
         type: "string",
@@ -187,7 +208,7 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
         description: "Used with get. Currently amount only.",
       },
     },
-    required: ["action"],
+    required: [],
   },
 });
 
@@ -294,7 +315,20 @@ export function executeKeyExactFactRequest({
   field = "amount",
   customerId,
   rows = [],
+  slot = null,
+  topic = "",
+  store = null,
+  input = null,
 } = {}) {
+  if (slot && KEY_CURRENT_CONTRACT_SLOTS.includes(String(slot))) {
+    return executeCurrentContractFactRequest({
+      slot,
+      topic,
+      customerId,
+      store,
+      input,
+    });
+  }
   if (String(action ?? "") === "list_names") {
     return listExactCoverageNames({ rows, customerId, contractId });
   }
@@ -321,6 +355,7 @@ export function buildKeyExactFactToolResults(
     observeBag = null,
     liveProvenance = null,
     verifiedRefBag = null,
+    store = null,
   } = {},
 ) {
   const blocks = [];
@@ -336,6 +371,10 @@ export function buildKeyExactFactToolResults(
       field: input.field,
       customerId,
       rows,
+      slot: input.slot,
+      topic: input.topic,
+      store,
+      input,
     });
     const result = attachLiveFactProvenance(raw, liveProvenance, {
       contractId: input.contract_id,

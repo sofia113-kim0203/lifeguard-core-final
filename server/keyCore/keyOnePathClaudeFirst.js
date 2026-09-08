@@ -222,6 +222,8 @@ export function buildOnePathMinimalSystem({
       "role=assistant 내용은 이전 KEY 답변일 뿐이다. 그 안의 보험사명·상품명·가입금액·보장 내용·청구 또는 거절 이력을 증거로 사용하지 않는다.",
       "최근 대화에 나온 숫자·계약·보장 내용은 KEY 조회 결과 또는 이번 턴 원본 근거가 없으면 확정하지 않는다.",
       "개인 보험 사실은 request_key_fact로 확인한 근거가 있을 때만 확정한다.",
+      "현재 계약은 request_key_fact slot=current_contracts로 확인하며, review·pending_unverified를 confirmed로 말하지 않는다.",
+      "담보 목록이 불완전하면 검색 0건을 없음(none)으로 확정하지 않는다. unknown이다.",
       "맡긴 원본 연결은 참고하되, 없는 과거를 만들지 않는다.",
     ].join("\n"),
   );

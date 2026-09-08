@@ -198,6 +198,7 @@ import {
   KEY_EXACT_FACT_TOOL,
   PROVIDER_TURN_SAFETY_ABORT,
   buildKeyExactFactToolResults,
+  collectCurrentContractFactStore,
   hasKeyExactFactToolUse,
   isServerSearchStillPending,
   resolveProviderTurnDecision,
@@ -6856,9 +6857,21 @@ async function callClaudeFirstDirect({
           supabase: userSupabase,
           customerId: customerIdForRelationship,
         });
+        const currentContractStore = collectCurrentContractFactStore({
+          customerId: customerIdForRelationship,
+          policyTruthContext,
+          chart,
+          readyCardSsot: {
+            policies: filterCurrentActivePolicies(
+              Array.isArray(reality?.policies) ? reality.policies : [],
+            ),
+            lifeLedgerBrief: lifeLedgerBrief || null,
+          },
+        });
         const toolResults = buildKeyExactFactToolResults(finalizedAssistantContent, {
           customerId: customerIdForRelationship,
           rows: live.rows,
+          store: currentContractStore,
           liveProvenance: live.provenance,
           verifiedRefBag: {
             record(result, input) {
