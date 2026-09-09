@@ -168,8 +168,10 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
     "action=get returns one field for one coverage on one contract. " +
     "If the same coverage exists on more than one contract, send contract_id. " +
     "Omitting contract_id then returns status=ambiguous and matching_contracts — KEY will not pick one. " +
-    "slot=current_contracts returns stored current contracts with trust_state (confirmed, review, pending_unverified). " +
-    "Do not treat review or pending_unverified as confirmed. " +
+    "slot=current_contracts returns stored current contracts with evidence: " +
+    "원본으로 확인됨, or 목록에 있으나 원본으로 아직 확정 전. " +
+    "아직 확정 전 is not none and not confirmed. " +
+    "Do not speak factory words (pending, unverified, confirmed, review, test data) to the customer. " +
     "unknown means not confirmed — not that the customer has none. " +
     "If coverage inventory is incomplete, a topic miss is unknown, not none. " +
     "You may send several request_key_fact calls in one turn. " +
@@ -188,7 +190,7 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
         type: "string",
         enum: [...KEY_CURRENT_CONTRACT_SLOTS],
         description:
-          "Optional. current_contracts / coverages / premiums / renewal / stated_goal. Use when listing stored current facts with trust_state.",
+          "Optional. current_contracts / coverages / premiums / renewal / stated_goal. Use when listing stored current facts with speakable evidence.",
       },
       topic: {
         type: "string",

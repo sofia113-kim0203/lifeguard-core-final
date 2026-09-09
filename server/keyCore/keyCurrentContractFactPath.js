@@ -479,6 +479,10 @@ function baseResult({ status, slot, topic, facts = [], value = null, note = null
   };
 }
 
+function speakableEvidence(trustState) {
+  return trustState === "confirmed" ? "원본으로 확인됨" : "목록에 있으나 원본으로 아직 확정 전";
+}
+
 function publicContract(row) {
   return {
     contract_id: row.contract_id,
@@ -486,7 +490,7 @@ function publicContract(row) {
     product_name: row.product_name,
     policy_number: row.policy_number,
     status: row.status,
-    trust_state: row.trust_state || null,
+    evidence: speakableEvidence(row.trust_state),
     source: row.source,
     as_of: row.as_of,
   };
@@ -497,7 +501,7 @@ function publicCoverage(row) {
     contract_id: row.contract_id,
     coverage_name: row.coverage_name,
     amount: row.amount,
-    trust_state: row.trust_state || null,
+    evidence: speakableEvidence(row.trust_state),
     source: row.source,
     as_of: row.as_of,
   };
@@ -532,9 +536,20 @@ function currentOwned(rows, cid) {
 function slotStatusFromTrust(facts, missingDetail = false) {
   if (!facts.length) return missingDetail ? "partial" : "unknown";
   if (missingDetail) return "partial";
-  const states = [...new Set(facts.map((row) => row.trust_state).filter(Boolean))];
+  const states = [
+    ...new Set(
+      facts
+        .map((row) => row.trust_state || row.evidence)
+        .filter(Boolean),
+    ),
+  ];
   if (states.length === 0) return "confirmed";
-  if (states.length === 1 && states[0] === "confirmed") return "confirmed";
+  if (
+    states.length === 1 &&
+    (states[0] === "confirmed" || states[0] === "원본으로 확인됨")
+  ) {
+    return "confirmed";
+  }
   return "partial";
 }
 

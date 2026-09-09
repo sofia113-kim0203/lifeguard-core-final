@@ -78,7 +78,7 @@ check("ended contracts are not current", () => {
   assert.equal(contracts.facts.some((f) => f.contract_id === "c-live"), true);
 });
 
-check("live HomeChat policies keep current contracts and trust_state", () => {
+check("live HomeChat policies keep current contracts without factory trust tokens", () => {
   const livePolicies = [
     {
       id: "p-pending",
@@ -128,11 +128,15 @@ check("live HomeChat policies keep current contracts and trust_state", () => {
     ["p-pending", "p-review"],
   );
   assert.equal(
-    contracts.facts.find((f) => f.contract_id === "p-pending").trust_state,
-    "pending_unverified",
+    contracts.facts.find((f) => f.contract_id === "p-pending").evidence,
+    "목록에 있으나 원본으로 아직 확정 전",
   );
   assert.equal(
-    contracts.facts.every((f) => f.trust_state !== "confirmed"),
+    contracts.facts.every((f) => !JSON.stringify(f).includes("pending_unverified")),
+    true,
+  );
+  assert.equal(
+    contracts.facts.every((f) => f.evidence !== "원본으로 확인됨"),
     true,
   );
   const cancer = executeCurrentContractFactRequest({
