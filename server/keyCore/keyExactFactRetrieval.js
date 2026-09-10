@@ -11,6 +11,10 @@ import {
   collectCurrentContractFactStore,
   executeCurrentContractFactRequest,
 } from "./keyCurrentContractFactPath.js";
+import {
+  OFFICIAL_EVIDENCE_SLOT,
+  executeOfficialEvidenceRequest,
+} from "./keyOfficialEvidenceAdapter.js";
 
 export { collectCurrentContractFactStore, executeCurrentContractFactRequest };
 
@@ -162,7 +166,11 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
     "Private contract facts (coverage names, amounts) may exist in KEY even when they are absent from the current input. " +
     "If a private insurance fact is needed and the current input does not contain that value, " +
     "call this tool before asking the customer to re-upload a policy or call an insurer. " +
-    "Public products and official rules use web_search. Private customer facts use this tool. " +
+    "Public products and official rules use web_search when KEY has no official slice. " +
+    "slot=official_evidence asks KEY for one official evidence slice from the owned library " +
+    "for a stored contract identity (insurer/product/date) and a topic that matches a validated locator. " +
+    "If KEY returns EVIDENCE_UNAVAILABLE, do not invent official wording. " +
+    "Private customer facts use this tool. " +
     "action=list_names finds stored addresses: coverage name, contract_id, and insurer/product when stored (no amounts). " +
     "If the stored name is unknown, list_names first, then get with that exact name. " +
     "action=get returns one field for one coverage on one contract. " +
@@ -188,9 +196,9 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
       },
       slot: {
         type: "string",
-        enum: [...KEY_CURRENT_CONTRACT_SLOTS],
+        enum: [...KEY_CURRENT_CONTRACT_SLOTS, OFFICIAL_EVIDENCE_SLOT],
         description:
-          "Optional. current_contracts / coverages / premiums / renewal / stated_goal. Use when listing stored current facts with speakable evidence.",
+          "Optional. current_contracts / coverages / premiums / renewal / stated_goal for stored current facts. official_evidence for one owned official slice when a validated locator exists.",
       },
       topic: {
         type: "string",
@@ -310,7 +318,7 @@ export function listExactCoverageNames({
   };
 }
 
-export function executeKeyExactFactRequest({
+export async function executeKeyExactFactRequest({
   action = "get",
   contractId = null,
   coverageName = null,
@@ -322,6 +330,14 @@ export function executeKeyExactFactRequest({
   store = null,
   input = null,
 } = {}) {
+  if (String(slot ?? "") === OFFICIAL_EVIDENCE_SLOT) {
+    return executeOfficialEvidenceRequest({
+      customerId,
+      contractId,
+      topic,
+      store,
+    });
+  }
   if (slot && KEY_CURRENT_CONTRACT_SLOTS.includes(String(slot))) {
     return executeCurrentContractFactRequest({
       slot,
@@ -349,7 +365,7 @@ export function hasKeyExactFactToolUse(content = []) {
   );
 }
 
-export function buildKeyExactFactToolResults(
+export async function buildKeyExactFactToolResults(
   assistantContent = [],
   {
     customerId,
@@ -366,7 +382,7 @@ export function buildKeyExactFactToolResults(
     const id = b?.id != null ? String(b.id).trim() : "";
     if (!id) continue;
     const input = b.input && typeof b.input === "object" ? b.input : {};
-    const raw = executeKeyExactFactRequest({
+    const raw = await executeKeyExactFactRequest({
       action: input.action,
       contractId: input.contract_id,
       coverageName: input.coverage_name,

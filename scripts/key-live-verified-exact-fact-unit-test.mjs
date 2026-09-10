@@ -188,7 +188,7 @@ test("other customer live rows are never returned", () => {
   assert.equal(other.value, null);
 });
 
-test("card amount is not used when live store rows are empty", () => {
+await testAsync("card amount is not used when live store rows are empty", async () => {
   const cardRows = collectExactFactRowsFromKeyStore({
     customerId: CID,
     chart: {
@@ -205,7 +205,7 @@ test("card amount is not used when live store rows are empty", () => {
     customerId: CID,
     policies: [],
   });
-  const results = buildKeyExactFactToolResults(
+  const results = await buildKeyExactFactToolResults(
     [
       {
         type: "tool_use",
@@ -252,14 +252,14 @@ test("FIND list_names returns live addresses, no amounts, no other customer", ()
   assert.equal(dumped.includes("다른보험"), false);
 });
 
-test("FIND address then GET exact amount is one path", () => {
+await testAsync("FIND address then GET exact amount is one path", async () => {
   const rows = collectExactFactRowsFromLiveVerifiedPolicies({
     customerId: CID,
     policies: LIVE_POLICIES,
   });
   const found = listExactCoverageNames({ rows, customerId: CID });
   const addr = found.coverage_names[0];
-  const results = buildKeyExactFactToolResults(
+  const results = await buildKeyExactFactToolResults(
     [
       {
         type: "tool_use",

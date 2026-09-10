@@ -357,6 +357,12 @@ export function collectCurrentContractFactStore({
       contract_id: asId(row.contract_id ?? row.id) || null,
       insurer: storedOrNull(row.insurer || row.insurer_name || row.company_name),
       product_name: storedOrNull(row.product_name || row.product_label),
+      contract_date: storedOrNull(
+        row.contract_date ||
+          row.effective_from ||
+          row.coverage_summary?.contract_date ||
+          row.coverage_summary?.effective_from,
+      ),
       policy_number: storedOrNull(row.policy_number ?? row.coverage_summary?.policy_number),
       status: rawStatus,
       life_status: lifeStatus,

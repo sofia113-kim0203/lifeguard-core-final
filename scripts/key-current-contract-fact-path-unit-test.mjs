@@ -209,7 +209,7 @@ check("existing exact get path is unchanged", () => {
   assert.equal(hit.value, 1000);
 });
 
-check("slot tool_result uses current-contract path", () => {
+await (async () => {
   const store = collectCurrentContractFactStore({
     customerId: "cust-a",
     policyTruthContext: {
@@ -223,7 +223,7 @@ check("slot tool_result uses current-contract path", () => {
       ],
     },
   });
-  const batch = buildKeyExactFactToolResults(
+  const batch = await buildKeyExactFactToolResults(
     [
       {
         type: "tool_use",
@@ -236,7 +236,9 @@ check("slot tool_result uses current-contract path", () => {
   );
   const returned = JSON.parse(batch[0].content);
   assert.equal(returned.facts[0].contract_id, "c-1");
-});
+  checks.push("slot tool_result uses current-contract path");
+  console.log("PASS slot tool_result uses current-contract path");
+})();
 
 assert.equal(checks.length >= 6, true);
 console.log(`CURRENT_CONTRACT_FACT_PATH ${checks.length} checks PASS`);

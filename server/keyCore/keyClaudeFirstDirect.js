@@ -6868,7 +6868,7 @@ async function callClaudeFirstDirect({
             lifeLedgerBrief: lifeLedgerBrief || null,
           },
         });
-        const toolResults = buildKeyExactFactToolResults(finalizedAssistantContent, {
+        const toolResults = await buildKeyExactFactToolResults(finalizedAssistantContent, {
           customerId: customerIdForRelationship,
           rows: live.rows,
           store: currentContractStore,
