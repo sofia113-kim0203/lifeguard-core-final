@@ -210,6 +210,7 @@
     "test:key-live-verified-exact-fact": "node scripts/key-live-verified-exact-fact-unit-test.mjs",
     "test:key-current-contract-fact-path": "node scripts/key-current-contract-fact-path-unit-test.mjs",
     "test:key-official-evidence-local-e2e": "node scripts/key-official-evidence-local-e2e.mjs",
+    "test:key-kb-hand": "node scripts/key-kb-hand-unit-test.mjs",
     "test:key-presence-opening": "node scripts/key-presence-opening-unit-test.mjs",
     "test:key-absence-certainty-gate": "node scripts/key-absence-certainty-gate-unit-test.mjs",
     "test:key-gate-cleanup-2": "node scripts/key-gate-cleanup-2-unit-test.mjs",

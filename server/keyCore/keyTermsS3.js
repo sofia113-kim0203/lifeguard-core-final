@@ -44,8 +44,8 @@ function hashHex(value) {
 }
 
 function amzDate(now = new Date()) {
-  const iso = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
-  return { amz: iso.slice(0, 16), day: iso.slice(0, 8) };
+  const compact = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  return { amz: compact.slice(0, 16) + "Z", day: compact.slice(0, 8) };
 }
 
 function encodeKey(key) {

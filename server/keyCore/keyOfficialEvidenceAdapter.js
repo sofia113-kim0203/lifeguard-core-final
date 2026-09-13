@@ -9,10 +9,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { readOfficialOriginalRange } from "./keyOfficialRangeReader.js";
 import {
-  filterProductCandidates,
   lookupTermsLocators,
+  lookupTermsProduct,
   pdfObjectKey,
-  productObjectKey,
 } from "./keyTermsLibrary.js";
 import { defaultTermsGetObject } from "./keyTermsS3.js";
 
@@ -106,6 +105,9 @@ export function resolveOfficialContractIdentity({
     insurer,
     product_name,
     date,
+    product_code: asText(row.product_code),
+    document_kind: asText(row.document_kind),
+    official_distinguisher: asText(row.official_distinguisher || row.official_비고),
     contract_id: asText(row.contract_id) || null,
   };
 }
@@ -238,43 +240,34 @@ async function executeLocalOfficialEvidence({ identity, wantTopic, factory }) {
 }
 
 async function executeAwsOfficialEvidence({ identity, wantTopic }) {
-  const productKey = productObjectKey(identity.insurer, identity.product_name);
-  const productGot = await defaultTermsGetObject(productKey);
-  if (!productGot?.found) {
+  const found = await lookupTermsProduct(
+    {
+      insurer: identity.insurer,
+      product_name: identity.product_name,
+      date: identity.date,
+      product_code: identity.product_code || "",
+      document_kind: identity.document_kind || "",
+      official_distinguisher: identity.official_distinguisher || "",
+    },
+    { getObject: defaultTermsGetObject },
+  );
+  if (found.status !== "exact" || !found.relation?.sha) {
     return unavailable("RELATION_NOT_EXACT", {
-      lookup_status: productGot?.reason || "NO_PRODUCT_FILE",
+      lookup_status: found.reason || found.status || "NOT_FOUND",
       original_source: "aws",
     });
   }
-  let productFile;
-  try {
-    productFile = JSON.parse(Buffer.from(productGot.bytes).toString("utf8"));
-  } catch {
-    return unavailable("RELATION_NOT_EXACT", {
-      lookup_status: "PRODUCT_UNREADABLE",
-      original_source: "aws",
-    });
-  }
-  const cands = filterProductCandidates(productFile, { date: identity.date });
-  const uniqueShas = [
-    ...new Set(cands.map((row) => asText(row?.sha).toLowerCase()).filter(Boolean)),
-  ];
-  const uniqueRelations = [
-    ...new Set(
-      cands.map(
-        (row) =>
-          `${row.product_exact || ""}|${row.version || ""}|${row.sale_start || ""}|${row.sha || ""}`,
-      ),
-    ),
-  ];
-  if (!cands.length || uniqueShas.length !== 1 || uniqueRelations.length !== 1) {
-    return unavailable("RELATION_NOT_EXACT", {
-      lookup_status: cands.length ? "AMBIGUOUS" : "NOT_FOUND",
-      original_source: "aws",
-    });
-  }
-  const found = { status: "EXACT", relation: cands[0], candidates: cands };
   const sha = String(found.relation.sha).toLowerCase();
+  const pdf = await defaultTermsGetObject(pdfObjectKey(sha));
+  const pdfBytes = pdf?.found && pdf.bytes?.length ? pdf.bytes.length : 0;
+  if (!pdfBytes) {
+    return unavailable("ORIGINAL_UNREADABLE", {
+      sha,
+      original_source: "aws",
+      original_opened: false,
+      pdf_bytes: 0,
+    });
+  }
   const loc = await lookupTermsLocators(
     { sha, topic: wantTopic },
     { getObject: defaultTermsGetObject },
@@ -282,13 +275,21 @@ async function executeAwsOfficialEvidence({ identity, wantTopic }) {
   const matched = (Array.isArray(loc?.locators) ? loc.locators : []).filter(
     (row) => locatorMatchesTopic(row, wantTopic),
   );
-  if (!matched.length) return unavailable("NO_LOCATOR", { sha, original_source: "aws" });
-  if (matched.length > MAX_OFFICIAL_LOCATORS) {
-    return unavailable("RANGE_TOO_LARGE", { sha, original_source: "aws" });
+  if (!matched.length) {
+    return unavailable("NO_LOCATOR", {
+      sha,
+      original_source: "aws",
+      original_opened: true,
+      pdf_bytes: pdfBytes,
+    });
   }
-  const pdf = await defaultTermsGetObject(pdfObjectKey(sha));
-  if (!pdf?.found || !pdf.bytes?.length) {
-    return unavailable("ORIGINAL_UNREADABLE", { sha, original_source: "aws" });
+  if (matched.length > MAX_OFFICIAL_LOCATORS) {
+    return unavailable("RANGE_TOO_LARGE", {
+      sha,
+      original_source: "aws",
+      original_opened: true,
+      pdf_bytes: pdfBytes,
+    });
   }
   const extracted = await readOfficialOriginalRange({
     originalBytes: Buffer.from(pdf.bytes),
@@ -298,6 +299,8 @@ async function executeAwsOfficialEvidence({ identity, wantTopic }) {
     return unavailable(extracted.reason || "ORIGINAL_UNREADABLE", {
       sha,
       original_source: "aws",
+      original_opened: true,
+      pdf_bytes: pdfBytes,
     });
   }
   return hitResult({
@@ -308,11 +311,59 @@ async function executeAwsOfficialEvidence({ identity, wantTopic }) {
   });
 }
 
+export async function proveOfficialOriginalOpen({
+  insurer,
+  product_name,
+  date = "",
+  product_code = "",
+  document_kind = "",
+  official_distinguisher = "",
+} = {}) {
+  const found = await lookupTermsProduct(
+    {
+      insurer,
+      product_name,
+      date,
+      product_code,
+      document_kind,
+      official_distinguisher,
+    },
+    { getObject: defaultTermsGetObject },
+  );
+  if (found.status !== "exact" || !found.relation?.sha) {
+    return {
+      ok: false,
+      status: found.status,
+      reason: found.reason || found.status || "RELATION_NOT_EXACT",
+      sha: null,
+      pdf_bytes: 0,
+      original_opened: false,
+      key: found.key || null,
+    };
+  }
+  const sha = String(found.relation.sha).toLowerCase();
+  const pdf = await defaultTermsGetObject(pdfObjectKey(sha));
+  const pdfBytes = pdf?.found && pdf.bytes?.length ? pdf.bytes.length : 0;
+  return {
+    ok: pdfBytes > 0,
+    status: found.status,
+    reason: found.reason,
+    sha,
+    pdf_bytes: pdfBytes,
+    original_opened: pdfBytes > 0,
+    key: found.key || null,
+    document_kind: found.relation.document_kind || document_kind || "",
+    official_distinguisher: found.relation.official_distinguisher || official_distinguisher || "",
+  };
+}
+
 export async function executeOfficialEvidenceRequest({
   customerId = null,
   contractId = null,
   topic = "",
   store = null,
+  document_kind = "",
+  official_distinguisher = "",
 } = {}) {
   const identity = resolveOfficialContractIdentity({
     store,
@@ -320,6 +371,8 @@ export async function executeOfficialEvidenceRequest({
     contractId,
   });
   if (!identity.ok) return unavailable(identity.reason);
+  if (asText(document_kind)) identity.document_kind = asText(document_kind);
+  if (asText(official_distinguisher)) identity.official_distinguisher = asText(official_distinguisher);
 
   const wantTopic = asText(topic);
   if (!wantTopic) return unavailable("NO_TOPIC");

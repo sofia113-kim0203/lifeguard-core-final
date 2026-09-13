@@ -71,7 +71,13 @@ export function inSaleWindow(candidate, dateDigits) {
 
 export function filterProductCandidates(
   productFile,
-  { date = "", product_code = "", kind = "" } = {},
+  {
+    date = "",
+    product_code = "",
+    kind = "",
+    document_kind = "",
+    official_distinguisher = "",
+  } = {},
 ) {
   const rows = Array.isArray(productFile?.candidates) ? productFile.candidates.slice() : [];
   const dateDigits = digitsOnly(date);
@@ -88,7 +94,24 @@ export function filterProductCandidates(
   if (kind) {
     candidates = candidates.filter((row) => row.kind === kind);
   }
+  if (document_kind) {
+    const want = compactIdentity(document_kind);
+    candidates = candidates.filter((row) => compactIdentity(row.document_kind) === want);
+  }
+  if (official_distinguisher) {
+    const want = compactIdentity(official_distinguisher);
+    candidates = candidates.filter((row) => compactIdentity(row.official_distinguisher) === want);
+  }
   return candidates;
+}
+
+export function isSpecConfirmedRelation(row) {
+  return (
+    row?.spec_status === "CONFIRMED" &&
+    row?.conflict !== true &&
+    row?.usable !== false &&
+    Boolean(String(row?.sha || "").trim())
+  );
 }
 
 export function decideTermsMatch(candidates = []) {
@@ -107,10 +130,18 @@ export function decideTermsMatch(candidates = []) {
       ),
     ),
   ];
+  const uniqueShas = [
+    ...new Set(rows.map((row) => String(row.sha || "").toLowerCase()).filter(Boolean)),
+  ];
   if (uniqueRelations.length !== 1) {
-    return { status: "ambiguous", reason: "MULTI_RELATION", candidates: rows };
+    if (!(rows.every(isSpecConfirmedRelation) && uniqueShas.length === 1)) {
+      return { status: "ambiguous", reason: "MULTI_RELATION", candidates: rows };
+    }
   }
   const hit = rows[0];
+  if (isSpecConfirmedRelation(hit)) {
+    return { status: "exact", reason: "ONE_CONFIRMED_RELATION", candidates: rows, relation: hit };
+  }
   if (hit.identity_status && hit.identity_status !== "IDENTITY_CLEAN") {
     return { status: "insufficient", reason: hit.identity_status, candidates: rows };
   }
@@ -173,7 +204,15 @@ export async function getTermsObject(key, { getObject = null } = {}) {
 }
 
 export async function lookupTermsProduct(
-  { insurer, product_name, date = "", product_code = "", kind = "" } = {},
+  {
+    insurer,
+    product_name,
+    date = "",
+    product_code = "",
+    kind = "",
+    document_kind = "",
+    official_distinguisher = "",
+  } = {},
   { getObject = null } = {},
 ) {
   if (!insurer || !product_name) {
@@ -199,6 +238,8 @@ export async function lookupTermsProduct(
     date,
     product_code,
     kind,
+    document_kind,
+    official_distinguisher,
   });
   return {
     ...decideTermsMatch(candidates),

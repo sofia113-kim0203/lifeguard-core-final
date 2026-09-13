@@ -204,6 +204,14 @@ export const KEY_EXACT_FACT_TOOL = Object.freeze({
         type: "string",
         description: "Optional topic filter for slot reads. KEY does not add sibling facts.",
       },
+      document_kind: {
+        type: "string",
+        description: "Official document kind from the screen only, such as 보험약관. Do not guess.",
+      },
+      official_distinguisher: {
+        type: "string",
+        description: "Official distinguisher from the screen only, such as 일반심사형. Do not invent.",
+      },
       contract_id: {
         type: "string",
         description: "Required for get when the same coverage name exists on more than one contract.",
@@ -336,6 +344,8 @@ export async function executeKeyExactFactRequest({
       contractId,
       topic,
       store,
+      document_kind: input?.document_kind || "",
+      official_distinguisher: input?.official_distinguisher || input?.official_비고 || "",
     });
   }
   if (slot && KEY_CURRENT_CONTRACT_SLOTS.includes(String(slot))) {
