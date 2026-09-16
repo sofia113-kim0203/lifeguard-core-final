@@ -57,15 +57,34 @@ export function currentObjectKey() {
   return `${TERMS_LIBRARY_PREFIX}/current.json`;
 }
 
+export function hasOfficialSalePeriod(candidate) {
+  return Boolean(
+    digitsOnly(candidate?.sale_start) ||
+      digitsOnly(candidate?.sale_end) ||
+      digitsOnly(candidate?.version),
+  );
+}
+
+export function officialFileKey(value) {
+  const s = compactIdentity(String(value || "").split(/[\\/]/).pop() || "");
+  return s.replace(/\.pdf$/i, "");
+}
+
+export function officialPathKey(value) {
+  const s = compactIdentity(value);
+  if (!s) return "";
+  return s.includes("?") ? s.slice(s.indexOf("?") + 1) : s;
+}
+
 export function inSaleWindow(candidate, dateDigits) {
   if (!dateDigits) return true;
+  if (!hasOfficialSalePeriod(candidate)) return true;
   const start = digitsOnly(candidate?.sale_start);
   const end = digitsOnly(candidate?.sale_end);
   const version = digitsOnly(candidate?.version);
   if (version && version === dateDigits) return true;
   if (start && dateDigits < start) return false;
   if (end && dateDigits > end) return false;
-  if (!start && !end && !version) return false;
   return true;
 }
 
@@ -77,17 +96,13 @@ export function filterProductCandidates(
     kind = "",
     document_kind = "",
     official_distinguisher = "",
+    official_filename = "",
+    official_path_id = "",
   } = {},
 ) {
   const rows = Array.isArray(productFile?.candidates) ? productFile.candidates.slice() : [];
   const dateDigits = digitsOnly(date);
   let candidates = rows;
-  if (dateDigits) {
-    const versionHits = candidates.filter((row) => digitsOnly(row.version) === dateDigits);
-    candidates = versionHits.length
-      ? versionHits
-      : candidates.filter((row) => inSaleWindow(row, dateDigits));
-  }
   if (product_code) {
     candidates = candidates.filter((row) => row.product_code === product_code);
   }
@@ -101,6 +116,24 @@ export function filterProductCandidates(
   if (official_distinguisher) {
     const want = compactIdentity(official_distinguisher);
     candidates = candidates.filter((row) => compactIdentity(row.official_distinguisher) === want);
+  }
+  if (official_filename) {
+    const want = officialFileKey(official_filename);
+    candidates = candidates.filter((row) => officialFileKey(row.official_filename) === want);
+  }
+  if (official_path_id) {
+    const want = officialPathKey(official_path_id);
+    candidates = candidates.filter((row) => officialPathKey(row.official_path_id) === want);
+  }
+  if (dateDigits) {
+    const versionHits = candidates.filter((row) => digitsOnly(row.version) === dateDigits);
+    if (versionHits.length) {
+      candidates = versionHits;
+    } else {
+      const dated = candidates.filter((row) => hasOfficialSalePeriod(row) && inSaleWindow(row, dateDigits));
+      const timeless = candidates.filter((row) => !hasOfficialSalePeriod(row));
+      candidates = dated.length ? dated : timeless;
+    }
   }
   return candidates;
 }
@@ -212,6 +245,8 @@ export async function lookupTermsProduct(
     kind = "",
     document_kind = "",
     official_distinguisher = "",
+    official_filename = "",
+    official_path_id = "",
   } = {},
   { getObject = null } = {},
 ) {
@@ -240,6 +275,8 @@ export async function lookupTermsProduct(
     kind,
     document_kind,
     official_distinguisher,
+    official_filename,
+    official_path_id,
   });
   return {
     ...decideTermsMatch(candidates),

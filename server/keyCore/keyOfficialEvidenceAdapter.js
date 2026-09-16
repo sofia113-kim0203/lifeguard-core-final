@@ -108,6 +108,8 @@ export function resolveOfficialContractIdentity({
     product_code: asText(row.product_code),
     document_kind: asText(row.document_kind),
     official_distinguisher: asText(row.official_distinguisher || row.official_비고),
+    official_filename: asText(row.official_filename),
+    official_path_id: asText(row.official_path_id),
     contract_id: asText(row.contract_id) || null,
   };
 }
@@ -248,6 +250,8 @@ async function executeAwsOfficialEvidence({ identity, wantTopic }) {
       product_code: identity.product_code || "",
       document_kind: identity.document_kind || "",
       official_distinguisher: identity.official_distinguisher || "",
+      official_filename: identity.official_filename || "",
+      official_path_id: identity.official_path_id || "",
     },
     { getObject: defaultTermsGetObject },
   );
@@ -318,6 +322,8 @@ export async function proveOfficialOriginalOpen({
   product_code = "",
   document_kind = "",
   official_distinguisher = "",
+  official_filename = "",
+  official_path_id = "",
 } = {}) {
   const found = await lookupTermsProduct(
     {
@@ -327,6 +333,8 @@ export async function proveOfficialOriginalOpen({
       product_code,
       document_kind,
       official_distinguisher,
+      official_filename,
+      official_path_id,
     },
     { getObject: defaultTermsGetObject },
   );
